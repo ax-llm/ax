@@ -602,7 +602,7 @@ class AxGen:
     def _request(self, messages, options, client=None):
         request_options = options or {}
         features = _core_ai_client_features(client, request_options.get("model")) if client is not None else {}
-        selection = _select_structured_output_rung(self.signature, features, request_options, self.functions)
+        selection = _select_structured_output_rung(self.signature, features, request_options)
         return _build_gen_chat_request(self, messages, request_options, selection, 0)
 
     def _execute_tool(self, call):

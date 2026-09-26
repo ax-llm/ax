@@ -590,8 +590,8 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "axgen-indexed-multi-sample-parse"
-    type signature = "(AxGen, list<Field>, json, bool) -> json throws"
-    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool) {
+    type signature = "(AxGen, list<Field>, json, bool, string, string) -> json throws"
+    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool, %thought_field: string, %thought_prefix: string) {
       %empty_results = core.list
       %completions = core.get %response["results"] default %empty_results
       %completion_count = core.call intrinsic.len(%completions)
@@ -625,7 +625,9 @@ module @ax.gen version "0.1" {
           core.set %failure_bundle["assertion_failure"] = %assertion_failure
           core.return %failure_bundle
         }
-        %public_output = core.call @strip_internal_fields(%output_fields, %processed)
+        %stripped_output = core.call @strip_internal_fields(%output_fields, %processed)
+        %sample_thought = core.get %completion["thought"] default ""
+        %public_output = core.call @with_output_thought_impl(%stripped_output, %thought_field, %thought_prefix, %sample_thought)
         core.append %outputs, %public_output
         %sample_index = core.get %completion["index"] default %position
         %sample = core.map
@@ -740,6 +742,12 @@ module @ax.gen version "0.1" {
       %infra_retries = core.get %runtime_options["infraRetries"] default %infra_retries_snake
       %attempt = core.const 0
       %infra_attempt = core.let 0
+      // TS reads thoughtFieldName from the constructor options only. The
+      // output thought joins each step's thought, and a validation or refusal
+      // retry starts it over.
+      %thought_field_snake = core.get %base_options["thought_field_name"] default "thought"
+      %thought_field = core.get %base_options["thoughtFieldName"] default %thought_field_snake
+      %thought_prefix = core.let ""
       %max_steps_snake = core.get %runtime_options["max_steps"] default 25
       %max_steps = core.get %runtime_options["maxSteps"] default %max_steps_snake
       %step = core.let 0
@@ -792,6 +800,7 @@ module @ax.gen version "0.1" {
             }
             %refusal_next_attempt = core.call intrinsic.add(%attempt, 1)
             %attempt = core.let %refusal_next_attempt
+            %thought_prefix = core.let ""
           }
           core.continue
         }
@@ -818,7 +827,9 @@ module @ax.gen version "0.1" {
               core.if %structured_assertion_failed {
                 %structured_failure = core.let %structured_assertion_failure
               } else {
-                %structured_public = core.call @strip_internal_fields(%output_fields, %structured_processed)
+                %structured_stripped = core.call @strip_internal_fields(%output_fields, %structured_processed)
+                %structured_thought = core.get %response["thought"] default ""
+                %structured_public = core.call @with_output_thought_impl(%structured_stripped, %thought_field, %thought_prefix, %structured_thought)
                 core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
                 core.call @record_trace(%gen, %values, %structured_public, "ok")
                 core.return %structured_public
@@ -830,6 +841,7 @@ module @ax.gen version "0.1" {
               }
               %structured_next_attempt = core.call intrinsic.add(%attempt, 1)
               %attempt = core.let %structured_next_attempt
+              %thought_prefix = core.let ""
               %structured_retry_messages = core.call @append_structured_output_retry_messages_impl(%messages, %response, %structured_call, %structured_validation_error, %structured_stage)
               %messages = core.let %structured_retry_messages
               core.call intrinsic.axgen.memory_add_correction(%gen, %response, %structured_validation_error)
@@ -864,6 +876,9 @@ module @ax.gen version "0.1" {
             // infrastructure budgets.
             %attempt = core.let 0
             %infra_attempt = core.let 0
+            %step_thought = core.get %response["thought"] default ""
+            %joined_thought = core.call intrinsic.add(%thought_prefix, %step_thought)
+            %thought_prefix = core.let %joined_thought
             core.continue
           } else {
             %validated_tool_result = core.call @validate_output(%output_fields, %last_tool_result)
@@ -881,7 +896,7 @@ module @ax.gen version "0.1" {
         } else {
           %parsed_bundle = core.map
           core.try {
-            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json)
+            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix)
             %parsed_bundle = core.let %parsed
           } catch %validation_error {
             %retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
@@ -890,6 +905,7 @@ module @ax.gen version "0.1" {
             }
             %next_attempt = core.call intrinsic.add(%attempt, 1)
             %attempt = core.let %next_attempt
+            %thought_prefix = core.let ""
             %retry_messages = core.call @append_assertion_retry_messages(%messages, %response, %validation_error)
             %messages = core.let %retry_messages
             core.call intrinsic.axgen.memory_add_correction(%gen, %response, %validation_error)
@@ -1754,6 +1770,24 @@ module @ax.gen version "0.1" {
       // Callers must reassign from this return: in Go the forward loop's
       // messages can be a plain slice, so in-place appends never reach them.
       core.return %with_call
+    }
+  }
+
+  op ax.gen.semantic @with_output_thought_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/nonStreaming.ts"
+    type signature = "(json, string, string, string) -> json"
+    body @entry(%output: json, %field: string, %prefix: string, %thought: string) {
+      // As in TS, a response's non-empty thought becomes an output under the
+      // thought field, after the thoughts of the earlier tool steps.
+      %joined = core.call intrinsic.add(%prefix, %thought)
+      %has_thought = core.call intrinsic.truthy(%joined)
+      core.if %has_thought {
+        core.set %output[%field] = %joined
+      }
+      core.return %output
     }
   }
 }

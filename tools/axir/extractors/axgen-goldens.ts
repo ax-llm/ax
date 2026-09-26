@@ -461,7 +461,11 @@ writeFixture('thoughts-in-chat-log', {
       model_usage: { tokens: { total_tokens: 17 } },
     },
   ],
-  expected_output: { answer: 'kept' },
+  // As in TS, the response's thought is also a forward output.
+  expected_output: {
+    answer: 'kept',
+    thought: 'I should preserve this summary.',
+  },
   expected_chat_log_subset: [
     {
       thought: 'I should preserve this summary.',
@@ -661,6 +665,165 @@ writeFixture('structured-output-retry-assertion', {
   expected_request_count: 2,
 });
 
+// As in TS, a response's non-empty thought becomes a forward output under the
+// thought field (default `thought`, renamed by the constructor's
+// thought_field_name) on every rung. The output thought joins each tool
+// step's thought in order, and a validation retry starts it over. The outputs
+// match a TS AxMockAIService probe.
+const thoughtResult = (
+  content: string,
+  thought?: string,
+  index = 0
+): Record<string, Json> => ({
+  index,
+  content,
+  ...(thought === undefined ? {} : { thought }),
+  finish_reason: 'stop',
+});
+const thoughtText = (content: string, thought?: string) => ({
+  results: [thoughtResult(content, thought)],
+});
+const thoughtCall = (
+  id: string,
+  name: string,
+  params: Record<string, Json>,
+  thought?: string
+) => ({
+  results: [
+    {
+      index: 0,
+      content: '',
+      ...(thought === undefined ? {} : { thought }),
+      function_calls: [{ id, type: 'function', function: { name, params } }],
+      finish_reason: 'function_call',
+    },
+  ],
+});
+const lookupTool = {
+  name: 'lookup',
+  description: 'Look up a key',
+  args: { key: { type: 'string' } },
+  result: 'status is green',
+};
+
+for (const [name, source] of Object.entries({
+  'thought-output-text-contract': {
+    responses: [thoughtText('Answer: ok', 'Thinking it over')],
+    expected_output: { answer: 'ok', thought: 'Thinking it over' },
+  },
+  'thought-output-absent': {
+    responses: [thoughtText('Answer: ok')],
+    expected_output: { answer: 'ok' },
+  },
+  'thought-output-empty-omitted': {
+    responses: [thoughtText('Answer: ok', '')],
+    expected_output: { answer: 'ok' },
+  },
+  'thought-output-renamed-field': {
+    options: { thought_field_name: 'reasoning' },
+    responses: [thoughtText('Answer: ok', 'Thinking it over')],
+    expected_output: { answer: 'ok', reasoning: 'Thinking it over' },
+  },
+  'thought-output-joins-tool-steps': {
+    tools: [lookupTool],
+    responses: [
+      thoughtCall('call_1', 'lookup', { key: 'a' }, 'First '),
+      thoughtCall('call_2', 'lookup', { key: 'b' }),
+      thoughtText('Answer: ok', 'then answer'),
+    ],
+    expected_output: { answer: 'ok', thought: 'First then answer' },
+  },
+  'thought-output-from-tool-step-only': {
+    tools: [lookupTool],
+    responses: [
+      thoughtCall('call_1', 'lookup', { key: 'a' }, 'Look it up'),
+      thoughtText('Answer: ok'),
+    ],
+    expected_output: { answer: 'ok', thought: 'Look it up' },
+  },
+})) {
+  writeFixture(name, {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    input: { question: 'Status?' },
+    ...source,
+  });
+}
+
+writeFixture('thought-output-validation-retry-starts-over', {
+  kind: 'forward',
+  signature: 'question:string -> answer:number',
+  input: { question: 'Status?' },
+  tools: [lookupTool],
+  responses: [
+    thoughtCall('call_1', 'lookup', { key: 'a' }, 'Look it up'),
+    thoughtText('{"answer":"not a number"}', 'Wrong guess'),
+    thoughtText('Answer: 4', 'Fixed it'),
+  ],
+  expected_output: { answer: 4, thought: 'Fixed it' },
+  expected_request_count: 3,
+});
+
+writeFixture('thought-output-native-json', {
+  kind: 'forward',
+  signature: 'question:string -> user:object{name:string}',
+  input: { question: 'Who?' },
+  features: { functions: true, structured_outputs: true },
+  responses: [thoughtText('{"user":{"name":"Ada"}}', 'Native thought')],
+  expected_output: { user: { name: 'Ada' }, thought: 'Native thought' },
+  expected_request: {
+    provider_metadata: { ax: { structured_output_rung: 'native' } },
+  },
+});
+
+writeFixture('thought-output-json-object', {
+  kind: 'forward',
+  signature: 'question:string -> user:object{name:string}',
+  input: { question: 'Who?' },
+  features: {
+    functions: true,
+    structured_outputs: false,
+    structured_output_modes: ['json_object'],
+  },
+  responses: [thoughtText('{"user":{"name":"Ada"}}', 'JSON thought')],
+  expected_output: { user: { name: 'Ada' }, thought: 'JSON thought' },
+  expected_request: {
+    provider_metadata: { ax: { structured_output_rung: 'json_object' } },
+  },
+});
+
+writeFixture('thought-output-function-rung', {
+  kind: 'forward',
+  signature: 'question:string -> user:object{name:string}',
+  input: { question: 'Who?' },
+  options: { structured_output_mode: 'function' },
+  features: { functions: true, structured_outputs: false },
+  tools: [lookupTool],
+  responses: [
+    thoughtCall('call_1', 'lookup', { key: 'a' }, 'Look it up. '),
+    thoughtCall('output_1', '__axOutput', { user: { name: 'Ada' } }, 'Done.'),
+  ],
+  expected_output: { user: { name: 'Ada' }, thought: 'Look it up. Done.' },
+  expected_request_count: 2,
+});
+
+writeFixture('thought-output-multi-sample', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  options: { sampleCount: 2 },
+  result_picker_index: 1,
+  responses: [
+    {
+      results: [
+        thoughtResult('Answer: zero', 'Sample zero', 0),
+        thoughtResult('Answer: one', 'Sample one', 1),
+      ],
+    },
+  ],
+  expected_output: { answer: 'one', thought: 'Sample one' },
+});
+
 writeFixture('field-processor-memory-write', {
   kind: 'forward',
   signature: 'question:string -> answer:string',
@@ -754,7 +917,9 @@ writeFixture('reasoning-tool-loop-replay', {
       ],
     },
   ],
-  expected_output: { answer: '42' },
+  // TS joins each step's thought into the output thought; the answering
+  // step has none here, so the tool step's thought is the output thought.
+  expected_output: { answer: '42', thought: 'Use the warehouse search tool.' },
   expected_request_contains: [
     'Use the warehouse search tool.',
     'thought_blocks',

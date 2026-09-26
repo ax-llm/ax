@@ -1,0 +1,79 @@
+{
+  "expected_output": {
+    "answer": "ok",
+    "thought": "First then answer"
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "thought-output-joins-tool-steps",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": {
+                  "key": "a"
+                }
+              },
+              "id": "call_1",
+              "type": "function"
+            }
+          ],
+          "index": 0,
+          "thought": "First "
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": {
+                  "key": "b"
+                }
+              },
+              "id": "call_2",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: ok",
+          "finish_reason": "stop",
+          "index": 0,
+          "thought": "then answer"
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

@@ -607,7 +607,7 @@ class AxGen:
     def _request(self, messages, options, client=None):
         request_options = options or {}
         features = _core_ai_client_features(client, request_options.get("model")) if client is not None else {}
-        selection = _select_structured_output_rung(self.signature, features, request_options, self.functions)
+        selection = _select_structured_output_rung(self.signature, features, request_options)
         return _build_gen_chat_request(self, messages, request_options, selection, 0)
 
     def _execute_tool(self, call):
@@ -3605,7 +3605,7 @@ def chat_session_target_matches(target: str, path: str) -> bool:
     return matches
 
 
-def _parse_sample_outputs(gen: AxGen, output_fields: list[Any], response: Any, validate_exact_json: bool) -> Any:
+def _parse_sample_outputs(gen: AxGen, output_fields: list[Any], response: Any, validate_exact_json: bool, thought_field: str, thought_prefix: str) -> Any:
     _core_coverage_mark("_parse_sample_outputs")
     empty_results = []
     completions = _core_get(response, "results", empty_results)
@@ -3641,7 +3641,9 @@ def _parse_sample_outputs(gen: AxGen, output_fields: list[Any], response: Any, v
             return failure_bundle
         else:
             pass
-        public_output = strip_internal(output_fields, processed)
+        stripped_output = strip_internal(output_fields, processed)
+        sample_thought = _core_get(completion, "thought", "")
+        public_output = _with_output_thought_impl(stripped_output, thought_field, thought_prefix, sample_thought)
         outputs.append(public_output)
         sample_index = _core_get(completion, "index", position)
         sample = {}
@@ -3968,6 +3970,22 @@ def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, o
     return out
 
 
+def chat_session_normalize_call(call: Any) -> Any:
+    _core_coverage_mark("chat_session_normalize_call")
+    function = _core_get(call, "function", None)
+    missing = _core_is_none(function)
+    if missing:
+        call = _completion_call_to_chat_impl(call)
+        function = _core_get(call, "function", None)
+    else:
+        pass
+    name = _core_get(function, "name", None)
+    params = _core_get(function, "params", None)
+    call["name"] = name
+    call["params"] = params
+    return call
+
+
 def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> Any:
     _core_coverage_mark("_forward_impl")
     base_options = _core_get(gen, "options", None)
@@ -4017,6 +4035,9 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
     infra_retries = _core_get(runtime_options, "infraRetries", infra_retries_snake)
     attempt = 0
     infra_attempt = 0
+    thought_field_snake = _core_get(base_options, "thought_field_name", "thought")
+    thought_field = _core_get(base_options, "thoughtFieldName", thought_field_snake)
+    thought_prefix = ""
     max_steps_snake = _core_get(runtime_options, "max_steps", 25)
     max_steps = _core_get(runtime_options, "maxSteps", max_steps_snake)
     step = 0
@@ -4065,6 +4086,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                     pass
                 refusal_next_attempt = _core_add(attempt, 1)
                 attempt = refusal_next_attempt
+                thought_prefix = ""
             continue
         _core_axgen_memory_add_response(gen, request, response)
         _core_axgen_record_chat_log(gen, request, response)
@@ -4089,7 +4111,9 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                     if structured_assertion_failed:
                         structured_failure = structured_assertion_failure
                     else:
-                        structured_public = strip_internal(output_fields, structured_processed)
+                        structured_stripped = strip_internal(output_fields, structured_processed)
+                        structured_thought = _core_get(response, "thought", "")
+                        structured_public = _with_output_thought_impl(structured_stripped, thought_field, thought_prefix, structured_thought)
                         _core_axgen_memory_cleanup_corrections(gen)
                         _record_trace(gen, values, structured_public, "ok")
                         return structured_public
@@ -4101,6 +4125,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                         pass
                     structured_next_attempt = _core_add(attempt, 1)
                     attempt = structured_next_attempt
+                    thought_prefix = ""
                     structured_retry_messages = _append_structured_output_retry_messages_impl(messages, response, structured_call, structured_validation_error, structured_stage)
                     messages = structured_retry_messages
                     _core_axgen_memory_add_correction(gen, response, structured_validation_error)
@@ -4129,6 +4154,9 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                 step = next_step
                 attempt = 0
                 infra_attempt = 0
+                step_thought = _core_get(response, "thought", "")
+                joined_thought = _core_add(thought_prefix, step_thought)
+                thought_prefix = joined_thought
                 continue
             else:
                 validated_tool_result = validate_output(output_fields, last_tool_result)
@@ -4146,7 +4174,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
         else:
             parsed_bundle = {}
             try:
-                parsed = _parse_sample_outputs(gen, output_fields, response, validate_exact_json)
+                parsed = _parse_sample_outputs(gen, output_fields, response, validate_exact_json, thought_field, thought_prefix)
                 parsed_bundle = parsed
             except Exception as validation_error:
                 retries_exhausted = _core_gte(attempt, validation_retries)
@@ -4156,6 +4184,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                     pass
                 next_attempt = _core_add(attempt, 1)
                 attempt = next_attempt
+                thought_prefix = ""
                 retry_messages = _append_assertion_retry_messages(messages, response, validation_error)
                 messages = retry_messages
                 _core_axgen_memory_add_correction(gen, response, validation_error)
@@ -4175,22 +4204,6 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
             _record_trace(gen, values, public_output, "ok")
             return public_output
     raise RuntimeError("unreachable AxGen forward loop exit")
-
-
-def chat_session_normalize_call(call: Any) -> Any:
-    _core_coverage_mark("chat_session_normalize_call")
-    function = _core_get(call, "function", None)
-    missing = _core_is_none(function)
-    if missing:
-        call = _completion_call_to_chat_impl(call)
-        function = _core_get(call, "function", None)
-    else:
-        pass
-    name = _core_get(function, "name", None)
-    params = _core_get(function, "params", None)
-    call["name"] = name
-    call["params"] = params
-    return call
 
 
 def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any, evaluator_available: bool) -> Any:
@@ -5019,12 +5032,6 @@ def _ace_estimate_token_count(text: str) -> i64:
     return tokens
 
 
-def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
-    _core_coverage_mark("_set_examples")
-    gen["examples"] = examples
-    return gen
-
-
 def _ace_recompute_playbook_stats(playbook: Any) -> Any:
     _core_coverage_mark("_ace_recompute_playbook_stats")
     empty_map = {}
@@ -5057,6 +5064,12 @@ def _ace_recompute_playbook_stats(playbook: Any) -> Any:
     return playbook
 
 
+def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_examples")
+    gen["examples"] = examples
+    return gen
+
+
 def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
     _core_coverage_mark("_set_demos")
     gen["demos"] = demos
@@ -5066,12 +5079,6 @@ def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
 def _render_examples(gen: AxGen) -> list[Any]:
     _core_coverage_mark("_render_examples")
     messages = _core_axgen_render_examples(gen)
-    return messages
-
-
-def _render_demos(gen: AxGen) -> list[Any]:
-    _core_coverage_mark("_render_demos")
-    messages = _core_axgen_render_demos(gen)
     return messages
 
 
@@ -5096,37 +5103,16 @@ def _ace_empty_playbook(description: Any, now: str) -> Any:
     return out
 
 
+def _render_demos(gen: AxGen) -> list[Any]:
+    _core_coverage_mark("_render_demos")
+    messages = _core_axgen_render_demos(gen)
+    return messages
+
+
 def _apply_field_processors(gen: AxGen, output: Any) -> Any:
     _core_coverage_mark("_apply_field_processors")
     processed = _core_axgen_apply_field_processors(gen, output)
     return processed
-
-
-def _run_assertions(gen: AxGen, output: Any) -> Any:
-    _core_coverage_mark("_run_assertions")
-    result = _core_axgen_run_assertions(gen, output)
-    status = _core_get(result, "status", "pass")
-    threw = _core_eq(status, "error")
-    if threw:
-        thrown = _core_get(result, "error", None)
-        return thrown
-    else:
-        pass
-    failed = _core_eq(status, "fail")
-    if failed:
-        message = _core_get(result, "message", None)
-        has_message = _core_is_not_none(message)
-        if has_message:
-            assertion_error = _core_runtime_error(message)
-            raise assertion_error
-        else:
-            pass
-        message_less = _core_runtime_error("Assertion failed without message")
-        return message_less
-    else:
-        pass
-    passed = _core_none()
-    return passed
 
 
 def _ace_render_playbook(playbook: Any) -> str:
@@ -5181,6 +5167,33 @@ def _ace_render_playbook(playbook: Any) -> str:
     combined = _core_string_format("{}\n{}", header, joined_sections)
     result = str(combined).strip()
     return result
+
+
+def _run_assertions(gen: AxGen, output: Any) -> Any:
+    _core_coverage_mark("_run_assertions")
+    result = _core_axgen_run_assertions(gen, output)
+    status = _core_get(result, "status", "pass")
+    threw = _core_eq(status, "error")
+    if threw:
+        thrown = _core_get(result, "error", None)
+        return thrown
+    else:
+        pass
+    failed = _core_eq(status, "fail")
+    if failed:
+        message = _core_get(result, "message", None)
+        has_message = _core_is_not_none(message)
+        if has_message:
+            assertion_error = _core_runtime_error(message)
+            raise assertion_error
+        else:
+            pass
+        message_less = _core_runtime_error("Assertion failed without message")
+        return message_less
+    else:
+        pass
+    passed = _core_none()
+    return passed
 
 
 def chat_session_boundary_action(state: Any) -> Any:
@@ -5259,12 +5272,6 @@ def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
     return None
 
 
-def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
-    _core_coverage_mark("_should_continue_steps")
-    should_continue = _core_axgen_should_continue_steps(gen, calls)
-    return should_continue
-
-
 def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: str) -> Any:
     _core_coverage_mark("_ace_update_bullet_feedback")
     empty_map = {}
@@ -5312,11 +5319,10 @@ def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: st
     return playbook
 
 
-def _parse_output_impl(content: str) -> Any:
-    _core_coverage_mark("_parse_output_impl")
-    text = str(content).strip()
-    output = _core_json_parse_strict(text)
-    return output
+def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
+    _core_coverage_mark("_should_continue_steps")
+    should_continue = _core_axgen_should_continue_steps(gen, calls)
+    return should_continue
 
 
 def _regex_alternative(s: Any) -> Any:
@@ -5379,23 +5385,11 @@ def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
     return None
 
 
-def _is_flexible_json_field(typ: FieldType) -> bool:
-    _core_coverage_mark("_is_flexible_json_field")
-    type_name = _core_get(typ, "name", None)
-    is_json = _core_eq(type_name, "json")
-    is_object = _core_eq(type_name, "object")
-    fields = _core_get(typ, "fields", None)
-    has_fields = _core_truthy(fields)
-    no_fields = _core_not(has_fields)
-    flexible = is_json
-    if is_object:
-        if no_fields:
-            flexible = True
-        else:
-            pass
-    else:
-        pass
-    return flexible
+def _parse_output_impl(content: str) -> Any:
+    _core_coverage_mark("_parse_output_impl")
+    text = str(content).strip()
+    output = _core_json_parse_strict(text)
+    return output
 
 
 def chat_session_queue_update(state: Any, update: Any) -> bool:
@@ -5429,21 +5423,23 @@ def chat_session_queue_update(state: Any, update: Any) -> bool:
     return True
 
 
-def _parse_json_string_value(value: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_value")
-    is_string = _core_type_is(value, "string")
-    not_string = _core_not(is_string)
-    if not_string:
-        return value
+def _is_flexible_json_field(typ: FieldType) -> bool:
+    _core_coverage_mark("_is_flexible_json_field")
+    type_name = _core_get(typ, "name", None)
+    is_json = _core_eq(type_name, "json")
+    is_object = _core_eq(type_name, "object")
+    fields = _core_get(typ, "fields", None)
+    has_fields = _core_truthy(fields)
+    no_fields = _core_not(has_fields)
+    flexible = is_json
+    if is_object:
+        if no_fields:
+            flexible = True
+        else:
+            pass
     else:
         pass
-    result = value
-    try:
-        parsed = _core_json_parse(value)
-        result = parsed
-    except Exception as parse_error:
-        result = value
-    return result
+    return flexible
 
 
 def _ace_dedupe_playbook(playbook: Any) -> Any:
@@ -5479,6 +5475,23 @@ def _ace_dedupe_playbook(playbook: Any) -> Any:
     playbook["sections"] = sections
     recomputed = _ace_recompute_playbook_stats(playbook)
     return recomputed
+
+
+def _parse_json_string_value(value: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_value")
+    is_string = _core_type_is(value, "string")
+    not_string = _core_not(is_string)
+    if not_string:
+        return value
+    else:
+        pass
+    result = value
+    try:
+        parsed = _core_json_parse(value)
+        result = parsed
+    except Exception as parse_error:
+        result = value
+    return result
 
 
 def _regex_word(c: Any) -> Any:
@@ -5522,6 +5535,29 @@ def _regex_word(c: Any) -> Any:
     else:
         pass
     return t4
+
+
+def chat_session_record_unresolved(gen: Any, state: Any) -> None:
+    _core_coverage_mark("chat_session_record_unresolved")
+    pending = _core_get(state, "pending", None)
+    ids = _core_map_keys(pending)
+    for id in ids:
+        record = _core_get(pending, id, None)
+        status = _core_get(record, "status", None)
+        running = _core_eq(status, "running")
+        recorded = _core_get(record, "diagnostic_recorded", False)
+        not_recorded = _core_not(recorded)
+        needed = _core_and(running, not_recorded)
+        if needed:
+            call = _core_get(record, "call", None)
+            message = "Run closed before the started tool settled; its external effects may still complete"
+            _core_axgen_record_function_call(gen, call, message, "unresolved")
+            record["diagnostic_recorded"] = True
+            pending[id] = record
+        else:
+            pass
+    state["pending"] = pending
+    return None
 
 
 def _parse_json_string_for_field(field: Field, value: Any) -> Any:
@@ -5582,29 +5618,6 @@ def _parse_json_string_for_field(field: Field, value: Any) -> Any:
     else:
         pass
     return value
-
-
-def chat_session_record_unresolved(gen: Any, state: Any) -> None:
-    _core_coverage_mark("chat_session_record_unresolved")
-    pending = _core_get(state, "pending", None)
-    ids = _core_map_keys(pending)
-    for id in ids:
-        record = _core_get(pending, id, None)
-        status = _core_get(record, "status", None)
-        running = _core_eq(status, "running")
-        recorded = _core_get(record, "diagnostic_recorded", False)
-        not_recorded = _core_not(recorded)
-        needed = _core_and(running, not_recorded)
-        if needed:
-            call = _core_get(record, "call", None)
-            message = "Run closed before the started tool settled; its external effects may still complete"
-            _core_axgen_record_function_call(gen, call, message, "unresolved")
-            record["diagnostic_recorded"] = True
-            pending[id] = record
-        else:
-            pass
-    state["pending"] = pending
-    return None
 
 
 def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
@@ -6457,21 +6470,6 @@ def _regex_capture_ids(n: Any) -> Any:
     return out
 
 
-def _completion_call_to_chat_impl(call: Any) -> Any:
-    _core_coverage_mark("_completion_call_to_chat_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    params = _core_get(call, "params", None)
-    function = {}
-    function["name"] = name
-    function["params"] = params
-    out = {}
-    out["id"] = id
-    out["type"] = "function"
-    out["function"] = function
-    return out
-
-
 def _ace_is_noop_acknowledgment(content: str) -> bool:
     _core_coverage_mark("_ace_is_noop_acknowledgment")
     lowered = _core_string_lower(content)
@@ -6605,6 +6603,21 @@ def _ace_is_noop_acknowledgment(content: str) -> bool:
     return is_noop
 
 
+def _completion_call_to_chat_impl(call: Any) -> Any:
+    _core_coverage_mark("_completion_call_to_chat_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    params = _core_get(call, "params", None)
+    function = {}
+    function["name"] = name
+    function["params"] = params
+    out = {}
+    out["id"] = id
+    out["type"] = "function"
+    out["function"] = function
+    return out
+
+
 def _tool_result_message_impl(call: Any, result: Any) -> Any:
     _core_coverage_mark("_tool_result_message_impl")
     id = _core_get(call, "id", None)
@@ -6616,6 +6629,14 @@ def _tool_result_message_impl(call: Any, result: Any) -> Any:
     message["name"] = name
     message["result"] = result_json
     return message
+
+
+def _regex_push(stack: Any, top: Any, value: Any) -> Any:
+    _core_coverage_mark("_regex_push")
+    t1 = _core_string_format("{}", top)
+    stack[t1] = value
+    t2 = _core_add(top, 1)
+    return t2
 
 
 def _tool_error_message_impl(call: Any, error: error) -> Any:
@@ -6635,19 +6656,19 @@ def _tool_error_message_impl(call: Any, error: error) -> Any:
     return message
 
 
-def _regex_push(stack: Any, top: Any, value: Any) -> Any:
-    _core_coverage_mark("_regex_push")
-    t1 = _core_string_format("{}", top)
-    stack[t1] = value
-    t2 = _core_add(top, 1)
-    return t2
-
-
 def _regex_task(n: Any, next: Any) -> Any:
     _core_coverage_mark("_regex_task")
     t1 = {}
     t1["node"] = n
     t1["next"] = next
+    return t1
+
+
+def _regex_frame(todo: Any, st: Any) -> Any:
+    _core_coverage_mark("_regex_frame")
+    t1 = {}
+    t1["todo"] = todo
+    t1["st"] = st
     return t1
 
 
@@ -6666,34 +6687,6 @@ def _append_validation_retry_messages_impl(messages: list[Any], response: Any, e
     retry_message["content"] = retry_content
     messages.append(retry_message)
     return messages
-
-
-def _regex_frame(todo: Any, st: Any) -> Any:
-    _core_coverage_mark("_regex_frame")
-    t1 = {}
-    t1["todo"] = todo
-    t1["st"] = st
-    return t1
-
-
-def _parse_text_field_value_impl(field: Any, text: str) -> Any:
-    _core_coverage_mark("_parse_text_field_value_impl")
-    text = str(text).strip()
-    typ = _core_get(field, "type", None)
-    name = _core_get(typ, "name", None)
-    array = _core_get(typ, "is_array", False)
-    is_boolean = _core_eq(name, "boolean")
-    numeric = _core_eq(name, "number")
-    json = _core_eq(name, "json")
-    parse = _core_or(is_boolean, numeric)
-    parse = _core_or(parse, array)
-    parse = _core_or(parse, json)
-    if parse:
-        value = _core_json_parse_strict(text)
-        return value
-    else:
-        pass
-    return text
 
 
 def _regex_search(n: Any, u: Any, initial: Any, d: Any) -> Any:
@@ -7233,6 +7226,26 @@ def _regex_search(n: Any, u: Any, initial: Any, d: Any) -> Any:
     return t225
 
 
+def _parse_text_field_value_impl(field: Any, text: str) -> Any:
+    _core_coverage_mark("_parse_text_field_value_impl")
+    text = str(text).strip()
+    typ = _core_get(field, "type", None)
+    name = _core_get(typ, "name", None)
+    array = _core_get(typ, "is_array", False)
+    is_boolean = _core_eq(name, "boolean")
+    numeric = _core_eq(name, "number")
+    json = _core_eq(name, "json")
+    parse = _core_or(is_boolean, numeric)
+    parse = _core_or(parse, array)
+    parse = _core_or(parse, json)
+    if parse:
+        value = _core_json_parse_strict(text)
+        return value
+    else:
+        pass
+    return text
+
+
 def _parse_text_output_fields_impl(content: str, fields: Any, is_final: bool) -> Any:
     _core_coverage_mark("_parse_text_output_fields_impl")
     lines = _core_string_split(content, "\n")
@@ -7547,17 +7560,6 @@ def _caller_function_call_impl(options: Any) -> Any:
     return none
 
 
-def _function_call_forces_tool_impl(choice: Any) -> bool:
-    _core_coverage_mark("_function_call_forces_tool_impl")
-    is_required = _core_eq(choice, "required")
-    if is_required:
-        return True
-    else:
-        pass
-    is_named = _core_type_is(choice, "object")
-    return is_named
-
-
 def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
     _core_coverage_mark("_ace_locate_bullet_section")
     empty_map = {}
@@ -7589,6 +7591,17 @@ def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
     return found
 
 
+def _function_call_forces_tool_impl(choice: Any) -> bool:
+    _core_coverage_mark("_function_call_forces_tool_impl")
+    is_required = _core_eq(choice, "required")
+    if is_required:
+        return True
+    else:
+        pass
+    is_named = _core_type_is(choice, "object")
+    return is_named
+
+
 def _function_call_names_output_impl(choice: Any) -> bool:
     _core_coverage_mark("_function_call_names_output_impl")
     is_named = _core_type_is(choice, "object")
@@ -7604,46 +7617,6 @@ def _function_call_names_output_impl(choice: Any) -> bool:
     legacy = _core_eq(name, "__finalResult")
     reserved = _core_or(canonical, legacy)
     return reserved
-
-
-def _append_structured_output_retry_messages_impl(messages: list[Any], response: Any, call: Any, error: error, stage: str) -> list[Any]:
-    _core_coverage_mark("_append_structured_output_retry_messages_impl")
-    output_calls = []
-    output_calls.append(call)
-    with_call = _append_tool_call_messages_impl(messages, response, output_calls)
-    id = _core_get(call, "id", None)
-    direct_name = _core_get(call, "name", None)
-    fn = _core_get(call, "function", None)
-    name = _core_get(fn, "name", direct_name)
-    result_message = {}
-    result_message["role"] = "function"
-    result_message["function_id"] = id
-    result_message["name"] = name
-    result_message["result"] = "done"
-    with_call.append(result_message)
-    notice = {}
-    notice["role"] = "user"
-    notice["content"] = "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."
-    with_call.append(notice)
-    error_text = _core_exception_message(error)
-    error_text = str(error_text).strip()
-    correction_text = _core_string_format("Invalid Field: {}", error_text)
-    is_assertion = _core_eq(stage, "assertion")
-    if is_assertion:
-        has_period = _core_string_ends_with(error_text, ".")
-        period = "."
-        if has_period:
-            period = ""
-        else:
-            pass
-        correction_text = _core_string_format("Follow these instructions: {}{}", error_text, period)
-    else:
-        pass
-    correction = {}
-    correction["role"] = "user"
-    correction["content"] = correction_text
-    with_call.append(correction)
-    return with_call
 
 
 def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, reflection: Any, generator_output: Any) -> list[Any]:
@@ -7789,6 +7762,57 @@ def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, refle
         else:
             pass
     return resolved
+
+
+def _append_structured_output_retry_messages_impl(messages: list[Any], response: Any, call: Any, error: error, stage: str) -> list[Any]:
+    _core_coverage_mark("_append_structured_output_retry_messages_impl")
+    output_calls = []
+    output_calls.append(call)
+    with_call = _append_tool_call_messages_impl(messages, response, output_calls)
+    id = _core_get(call, "id", None)
+    direct_name = _core_get(call, "name", None)
+    fn = _core_get(call, "function", None)
+    name = _core_get(fn, "name", direct_name)
+    result_message = {}
+    result_message["role"] = "function"
+    result_message["function_id"] = id
+    result_message["name"] = name
+    result_message["result"] = "done"
+    with_call.append(result_message)
+    notice = {}
+    notice["role"] = "user"
+    notice["content"] = "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."
+    with_call.append(notice)
+    error_text = _core_exception_message(error)
+    error_text = str(error_text).strip()
+    correction_text = _core_string_format("Invalid Field: {}", error_text)
+    is_assertion = _core_eq(stage, "assertion")
+    if is_assertion:
+        has_period = _core_string_ends_with(error_text, ".")
+        period = "."
+        if has_period:
+            period = ""
+        else:
+            pass
+        correction_text = _core_string_format("Follow these instructions: {}{}", error_text, period)
+    else:
+        pass
+    correction = {}
+    correction["role"] = "user"
+    correction["content"] = correction_text
+    with_call.append(correction)
+    return with_call
+
+
+def _with_output_thought_impl(output: Any, field: str, prefix: str, thought: str) -> Any:
+    _core_coverage_mark("_with_output_thought_impl")
+    joined = _core_add(prefix, thought)
+    has_thought = _core_truthy(joined)
+    if has_thought:
+        output[field] = joined
+    else:
+        pass
+    return output
 
 
 def _ace_normalize_reflection_bullet_tags(reflection: Any) -> list[Any]:

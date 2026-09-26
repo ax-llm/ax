@@ -1,0 +1,22 @@
+{
+  "expected_output": {
+    "answer": "ok"
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "thought-output-absent",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: ok",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

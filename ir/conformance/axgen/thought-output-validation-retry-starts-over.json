@@ -1,0 +1,69 @@
+{
+  "expected_output": {
+    "answer": 4,
+    "thought": "Fixed it"
+  },
+  "expected_request_count": 3,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "thought-output-validation-retry-starts-over",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": {
+                  "key": "a"
+                }
+              },
+              "id": "call_1",
+              "type": "function"
+            }
+          ],
+          "index": 0,
+          "thought": "Look it up"
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"answer\":\"not a number\"}",
+          "finish_reason": "stop",
+          "index": 0,
+          "thought": "Wrong guess"
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: 4",
+          "finish_reason": "stop",
+          "index": 0,
+          "thought": "Fixed it"
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:number",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

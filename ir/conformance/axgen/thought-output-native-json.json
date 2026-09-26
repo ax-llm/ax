@@ -1,0 +1,37 @@
+{
+  "expected_output": {
+    "thought": "Native thought",
+    "user": {
+      "name": "Ada"
+    }
+  },
+  "expected_request": {
+    "provider_metadata": {
+      "ax": {
+        "structured_output_rung": "native"
+      }
+    }
+  },
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Who?"
+  },
+  "kind": "forward",
+  "name": "thought-output-native-json",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"user\":{\"name\":\"Ada\"}}",
+          "finish_reason": "stop",
+          "index": 0,
+          "thought": "Native thought"
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string}"
+}
