@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import warnings
 import os
 import sys
 import threading
@@ -130,6 +131,9 @@ class ConformanceScriptedAI(AxBaseAI):
             self.chat_options.append(copy.deepcopy(options or {}))
             raw = self.responses.pop(0)
             for event in raw["stream"]:
+                # An {"error": ...} entry fails the stream at that point.
+                if isinstance(event, dict) and "error" in event and "results" not in event:
+                    raise _fixture_ai_service_error(event.get("error") or {})
                 yield _legacy_response_to_chat_response(copy.deepcopy(event))
             return
         if self.stream_events or not self.responses:
@@ -553,6 +557,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_strip_internal(fixture)
         elif kind == "forward":
             _run_forward(fixture)
+        elif kind == "streaming_forward":
+            _run_streaming_forward(fixture)
         elif kind == "ai_session_state":
             _run_ai_session_state(fixture)
         elif kind == "ai_session_events":
@@ -1084,8 +1090,10 @@ def _run_forward(fixture):
         gen.set_demos(fixture.get("demos") or [])
     for assertion in fixture.get("assertions") or []:
         gen.add_assert(assertion)
-    for processor in fixture.get("field_processors") or fixture.get("fieldProcessors") or []:
-        gen.add_field_processor(processor.get("field"), processor.get("processor", processor.get("op")))
+    _add_fixture_transforms(gen, fixture)
+    processor_calls = []
+    for spec in fixture.get("feedback_processors") or []:
+        gen.add_field_processor(spec["field"], _fixture_processor(spec, processor_calls), feedback=True)
     if "stop_functions" in fixture or "stopFunctions" in fixture:
         gen.set_stop_functions(fixture.get("stop_functions") or fixture.get("stopFunctions") or [])
     if "result_picker_index" in fixture:
@@ -1108,6 +1116,8 @@ def _run_forward(fixture):
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected forward to fail")
+    if "expected_processor_calls" in fixture:
+        _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "forward output")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
@@ -1174,6 +1184,84 @@ def _run_forward(fixture):
         for item in fixture.get("expected_chat_prompt_contains") or []:
             if str(item) not in prompt_text:
                 raise FixtureError(f"chat prompt missing {item!r}: {prompt_text}")
+
+
+def _add_fixture_transforms(gen, fixture):
+    # field_transforms use add_field_transform(); field_processors use the
+    # deprecated transforming default of add_field_processor().
+    for spec in fixture.get("field_transforms") or []:
+        gen.add_field_transform(spec.get("field"), spec.get("processor", spec.get("op")))
+    for spec in fixture.get("field_processors") or fixture.get("fieldProcessors") or []:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            gen.add_field_processor(spec.get("field"), spec.get("processor", spec.get("op")))
+
+
+def _fixture_processor(spec, calls):
+    # A fixture field processor records each call and returns `returns`, or
+    # the value itself with `echo`; `when_done` waits for the final value and
+    # `times` limits how many results it returns.
+    returned = [0]
+
+    def processor(value, context=None):
+        done = bool((context or {}).get("done"))
+        calls.append({"field": spec["field"], "value": copy.deepcopy(value), "done": done})
+        if spec.get("when_done") and not done:
+            return None
+        if spec.get("times") is not None and returned[0] >= spec["times"]:
+            return None
+        result = copy.deepcopy(value) if spec.get("echo") else copy.deepcopy(spec.get("returns"))
+        if result is not None:
+            returned[0] += 1
+        return result
+
+    return processor
+
+
+def _run_streaming_forward(fixture):
+    sig = _build_signature(fixture)
+    tools, tool_calls = _build_tools(fixture.get("tools") or [])
+    gen = ax(sig, {"functions": tools, **(fixture.get("options") or {})})
+    for assertion in fixture.get("assertions") or []:
+        gen.add_assert(assertion)
+    for assertion in fixture.get("streaming_assertions") or []:
+        gen.add_streaming_assert(assertion)
+    _add_fixture_transforms(gen, fixture)
+    processor_calls = []
+    for spec in fixture.get("feedback_processors") or []:
+        gen.add_field_processor(spec["field"], _fixture_processor(spec, processor_calls), feedback=True)
+    for spec in fixture.get("streaming_processors") or []:
+        gen.add_streaming_field_processor(spec["field"], _fixture_processor(spec, processor_calls))
+    if "result_picker_index" in fixture:
+        gen.set_result_picker(lambda samples: fixture["result_picker_index"])
+    if "stop_functions" in fixture:
+        gen.set_stop_functions(fixture.get("stop_functions") or [])
+    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"))
+    deltas = []
+    try:
+        output = gen._streaming_forward_with(client, fixture.get("input") or {}, fixture.get("forward_options") or {}, deltas.append)
+    except Exception as exc:
+        expected = fixture.get("expected_error_contains")
+        if not expected or expected not in str(exc):
+            raise
+        _assert_equal(deltas, fixture.get("expected_deltas") or [], "streaming deltas before the error")
+        output = None
+    else:
+        if "expected_error_contains" in fixture:
+            raise FixtureError("expected streaming forward to fail")
+        _assert_equal(deltas, fixture.get("expected_deltas") or [], "streaming deltas")
+        _assert_equal(output, fixture.get("expected_output"), "streaming output")
+    if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
+        raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+    if "expected_tool_calls" in fixture:
+        _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
+    if "expected_processor_calls" in fixture:
+        _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
+    if "expected_request_contains" in fixture:
+        request_text = json.dumps(client.requests, sort_keys=True)
+        for item in fixture.get("expected_request_contains") or []:
+            if str(item) not in request_text:
+                raise FixtureError(f"request missing {item!r}: {request_text}")
 
 
 def _flow_build_step_from_fixture(step, fixture):
@@ -2168,16 +2256,23 @@ def _run_agent_playbook_coverage(fixture):
         _assert_equal(actual, case.get("expected_covered") or [], f"playbook coverage {case.get('name')}")
 
 
+def _evolve_script(responses):
+    # Several responses play in order for each case; a single one repeats.
+    if len(responses) > 1:
+        return [copy.deepcopy(item) for item in responses]
+    return [copy.deepcopy(responses[0]) for _ in range(32)]
+
+
 def _run_agent_playbook_evolve(fixture):
-    response = (fixture.get("responses") or [{}])[0]
+    responses = fixture.get("responses") or [{}]
     teacher_spec = fixture.get("teacher_client")
     for case in fixture.get("cases") or []:
-        client = ConformanceScriptedAI([copy.deepcopy(response) for _ in range(32)])
+        client = ConformanceScriptedAI(_evolve_script(responses))
         # A configured teacher runs the playbook's reflector/curator and the
         # evolve weakness miner; otherwise the student client does.
         teacher = client
         if teacher_spec is not None:
-            teacher = ConformanceScriptedAI([copy.deepcopy(response) for _ in range(32)], **_scripted_client_kwargs(teacher_spec))
+            teacher = ConformanceScriptedAI(_evolve_script(fixture.get("teacher_responses") or responses), **_scripted_client_kwargs(teacher_spec))
         runtime = ScriptedCodeRuntime(
             copy.deepcopy(fixture.get("runtime_script") or []),
             language=fixture.get("runtime_language", "Python"),

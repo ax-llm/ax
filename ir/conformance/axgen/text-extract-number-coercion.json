@@ -1,0 +1,24 @@
+{
+  "expected_output": {
+    "first": 5,
+    "second": 16,
+    "third": 1000
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-number-coercion",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "First: +5\nSecond: 0x10\nThird: 1e3",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> first:number, second:number, third:number"
+}

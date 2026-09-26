@@ -1,0 +1,31 @@
+{
+  "expected_error_contains": "Required field not found: 'Answer' (string), 'Score' (number)",
+  "expected_request_count": 2,
+  "forward_options": {
+    "max_retries": 1
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-json-extra-keys-multi-field",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"answer\":\"x\",\"score\":1,\"extra\":true}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"answer\":\"x\",\"score\":1,\"extra\":true}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, score:number"
+}

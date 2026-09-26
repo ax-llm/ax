@@ -1,0 +1,22 @@
+{
+  "expected_output": {
+    "answer": "yes"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-null-optional",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: yes\nNote: null",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, note?:string"
+}

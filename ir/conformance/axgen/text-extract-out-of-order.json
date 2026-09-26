@@ -1,0 +1,23 @@
+{
+  "expected_output": {
+    "answer": "hello\nworld",
+    "score": 3
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-out-of-order",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Score: 3\nAnswer: hello\nworld",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, score:number"
+}

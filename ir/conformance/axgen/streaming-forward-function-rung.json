@@ -1,0 +1,100 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "thought": "Pick "
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "thought": "a name."
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "user": {
+          "name": "Ada"
+        }
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "thought": "Pick a name.",
+    "user": {
+      "name": "Ada"
+    }
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "forward_options": {
+    "show_thoughts": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-function-rung",
+  "options": {
+    "structured_output_mode": "function"
+  },
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "Pick "
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "__axOutput",
+                    "params": "{\"user\":{\"name\":"
+                  },
+                  "id": "output_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0,
+              "thought": "a name."
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "",
+                    "params": "\"Ada\"}}"
+                  },
+                  "id": "output_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string}"
+}

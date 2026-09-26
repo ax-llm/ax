@@ -1,0 +1,93 @@
+{
+  "assertions": [
+    {
+      "contains": "Paris",
+      "field": "answer",
+      "message": "Mention Paris"
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "Ly"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "on"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "Par"
+      },
+      "index": 0,
+      "version": 1
+    },
+    {
+      "delta": {
+        "answer": "is"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-assertion-retry",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Ly",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "on",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Par",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "is",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

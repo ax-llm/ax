@@ -1,0 +1,51 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "finalAnswer": "yes"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "finalAnswer": "yes"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-title-label",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Final Ans",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "wer: yes",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> finalAnswer:string"
+}

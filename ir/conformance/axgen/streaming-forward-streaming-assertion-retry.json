@@ -1,0 +1,85 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "this is"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "this is fine"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_output": {
+    "answer": "this is fine"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-streaming-assertion-retry",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: this is ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "forbidden text",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: this is fine",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "streaming_assertions": [
+    {
+      "field": "answer",
+      "message": "Do not say forbidden",
+      "not_contains": "forbidden"
+    }
+  ]
+}

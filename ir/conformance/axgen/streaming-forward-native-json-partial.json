@@ -1,0 +1,103 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "report": {
+          "title": "Quarterly results for the northern region, including revenue, churn and hiring"
+        }
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "report": {
+          "body": "Revenue grew eleven percent while churn fell to four percent. Hiring slowed in the second month, and the team expects a flat third quarter.",
+          "title": "Quarterly results for the northern region, including revenue, churn and hiring"
+        }
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "tags": ["finance", "northern", "quarterly"]
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "report": {
+      "body": "Revenue grew eleven percent while churn fell to four percent. Hiring slowed in the second month, and the team expects a flat third quarter.",
+      "title": "Quarterly results for the northern region, including revenue, churn and hiring"
+    },
+    "tags": ["finance", "northern", "quarterly"]
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-native-json-partial",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "{\"report\":{\"title\":\"Quarterly results for the northern region, including revenue, churn and hiring\",",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "\"body\":\"Revenue grew eleven percent while churn fell to four percent. Hiring s",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "lowed in the second month, and the team expects a flat third quarter.\"},",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "\"tags\":[\"finance\",\"north",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "ern\",\"quarterly\"]",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "}",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> report:object{title:string, body:string}, tags:string[]"
+}

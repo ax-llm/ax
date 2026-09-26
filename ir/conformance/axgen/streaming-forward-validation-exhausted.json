@@ -1,0 +1,71 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "a"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "b"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_error_contains": "Field 'Score' has an invalid value 'y': Invalid number",
+  "expected_request_count": 2,
+  "forward_options": {
+    "max_retries": 1
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-validation-exhausted",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: a\nScore: x",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: b\nScore: y",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, score:number"
+}

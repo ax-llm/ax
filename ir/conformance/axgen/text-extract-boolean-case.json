@@ -1,0 +1,23 @@
+{
+  "expected_output": {
+    "approved": true,
+    "flagged": false
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-boolean-case",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Approved: TRUE\nFlagged: False",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> approved:boolean, flagged:boolean"
+}

@@ -1,0 +1,67 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "se"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "score": 7
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "ven"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "seven",
+    "score": 7
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-number-first",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Score: 7",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "\nAnswer: se",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "ven",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> score:number, answer:string"
+}

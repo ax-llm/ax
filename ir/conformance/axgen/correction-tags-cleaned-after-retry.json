@@ -14,11 +14,18 @@
     "answer": "fixed"
   },
   "expected_request_count": 2,
+  "features": {
+    "functions": false,
+    "structured_outputs": false
+  },
   "input": {
     "question": "Retry"
   },
   "kind": "forward",
   "name": "correction-tags-cleaned-after-retry",
+  "options": {
+    "force_structured": true
+  },
   "responses": [
     {
       "content": "{\"wrong\":\"field\"}"

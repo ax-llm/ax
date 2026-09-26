@@ -11,7 +11,7 @@
     "answer": "done"
   },
   "expected_request_count": 1,
-  "field_processors": [
+  "field_transforms": [
     {
       "field": "answer",
       "op": "trim"

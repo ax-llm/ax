@@ -1,0 +1,121 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "people": [
+          {
+            "name": "Ada Lovelace",
+            "role": "analyst of the analytical engine"
+          }
+        ]
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "people": [
+          {
+            "name": "Grace Hopper",
+            "role": "compiler pioneer"
+          }
+        ]
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "people": [
+          {
+            "name": "Katherine Johnson",
+            "role": "orbital mechanics at NASA, calculating trajectories for the Mercury and Apollo programs"
+          },
+          {
+            "name": "Alan Turing",
+            "role": "computing theory"
+          }
+        ]
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "people": [
+      {
+        "name": "Ada Lovelace",
+        "role": "analyst of the analytical engine"
+      },
+      {
+        "name": "Grace Hopper",
+        "role": "compiler pioneer"
+      },
+      {
+        "name": "Katherine Johnson",
+        "role": "orbital mechanics at NASA, calculating trajectories for the Mercury and Apollo programs"
+      },
+      {
+        "name": "Alan Turing",
+        "role": "computing theory"
+      }
+    ]
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-native-json-object-array",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "{\"people\":[{\"name\":\"Ada Lovelace\",\"role\":\"analyst of the analytical engine\"},{\"name\":\"Grace Hopper\",\"role\":\"compiler pioneer\"},",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "{\"name\":\"Katherine Johnson\",\"ro",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "le\":\"orbital mechanics at NASA, calculating trajectories for the Mercury and Apollo programs\"}",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": ",{\"name\":\"Alan Turing\",\"role\":\"computing theory\"}]}",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> people:object{name:string, role:string}[]"
+}

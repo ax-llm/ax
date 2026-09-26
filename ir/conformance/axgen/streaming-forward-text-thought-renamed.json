@@ -1,0 +1,65 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "reasoning": "Hmm."
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "ok"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "reasoning": "Hmm.",
+    "answer": "ok"
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "show_thoughts": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-thought-renamed",
+  "options": {
+    "thought_field_name": "reasoning"
+  },
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "Hmm."
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Answer: ok",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

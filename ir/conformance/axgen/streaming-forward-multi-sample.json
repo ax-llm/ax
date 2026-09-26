@@ -1,0 +1,84 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "fir"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "sec"
+      },
+      "index": 1,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "ond"
+      },
+      "index": 1,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "st"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "first"
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "sample_count": 2
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-multi-sample",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: fir",
+              "index": 0
+            },
+            {
+              "content": "Answer: sec",
+              "index": 1
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "ond",
+              "index": 1
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "st",
+              "finish_reason": "stop",
+              "index": 0
+            },
+            {
+              "finish_reason": "stop",
+              "index": 1
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

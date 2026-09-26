@@ -158,7 +158,6 @@ const optionNames: Record<string, string> = {
   sample_count: 'sampleCount',
   thought_field_name: 'thoughtFieldName',
   function_call: 'functionCall',
-  stop_functions: 'stopFunction',
 };
 
 function tsOptions(options: JsonMap | undefined): Record<string, unknown> {
@@ -278,6 +277,7 @@ type Case = {
   feedback_processors?: ProcessorSpec[];
   streaming_processors?: ProcessorSpec[];
   result_picker_index?: number;
+  stop_functions?: string[];
   responses: ResponseSpec[];
   // The part of TS's error message the ports must produce; defaults to the
   // first line without TS's "Generate failed: " wrapper.
@@ -323,6 +323,9 @@ async function record(name: string, spec: Case): Promise<void> {
     const picked = spec.result_picker_index;
     forwardOptions.resultPicker = async () => picked;
   }
+  if (spec.stop_functions) {
+    forwardOptions.stopFunction = [...spec.stop_functions];
+  }
 
   const deltas: JsonMap[] = [];
   let output: Json | undefined;
@@ -360,6 +363,7 @@ async function record(name: string, spec: Case): Promise<void> {
     'feedback_processors',
     'streaming_processors',
     'result_picker_index',
+    'stop_functions',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
   }
@@ -379,13 +383,9 @@ async function record(name: string, spec: Case): Promise<void> {
         version = delta.version as number;
         buffer = mergeDeltas(buffer as never, clone(delta) as never) as never;
       }
-      const picked =
-        spec.result_picker_index !== undefined
-          ? (deltas.at(-1)?.index as number)
-          : 0;
-      fixture.expected_output = clone(
-        buffer.find((item) => item.index === picked)?.delta ?? {}
-      );
+      // forward returns the first sample merged in the last version; a
+      // result picker's single envelope is the only one there.
+      fixture.expected_output = clone(buffer[0]?.delta ?? {});
     }
   } else if (error === undefined) {
     fixture.expected_output = output;
@@ -661,7 +661,8 @@ const cases: Record<string, Case> = {
   'streaming-forward-stop-function': {
     signature: 'question:string -> answer:string',
     tools: [lookupTool, finishTool],
-    forward_options: { show_thoughts: true, stop_functions: ['finish'] },
+    stop_functions: ['finish'],
+    forward_options: { show_thoughts: true },
     responses: [
       streamed(
         thought('First. '),
@@ -698,6 +699,7 @@ const cases: Record<string, Case> = {
   'streaming-forward-validation-exhausted': {
     signature: 'question:string -> answer:string, score:number',
     forward_options: { max_retries: 1 },
+    error_contains: "Field 'Score' has an invalid value 'y': Invalid number",
     responses: [
       streamed(text('Answer: a\nScore: x'), done()),
       streamed(text('Answer: b\nScore: y'), done()),
@@ -967,12 +969,68 @@ const cases: Record<string, Case> = {
       },
     ],
   },
+  // The ports' JSON-object fallback applies only to one JSON object whose
+  // keys are all output fields; everything else follows TS.
+  'text-extract-json-extra-keys': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [
+      { results: [{ index: 0, content: '{"answer":"x","extra":1}' }] },
+    ],
+  },
+  'text-extract-json-not-object': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [{ results: [{ index: 0, content: '["x"]' }] }],
+  },
+  'text-extract-json-in-text': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [{ results: [{ index: 0, content: 'Sure: {"answer":"x"}' }] }],
+  },
+  'text-extract-json-extra-keys-multi-field': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, score:number',
+    forward_options: { max_retries: 1 },
+    responses: [
+      {
+        results: [
+          { index: 0, content: '{"answer":"x","score":1,"extra":true}' },
+        ],
+      },
+      {
+        results: [
+          { index: 0, content: '{"answer":"x","score":1,"extra":true}' },
+        ],
+      },
+    ],
+    error_contains:
+      "Required field not found: 'Answer' (string), 'Score' (number)",
+  },
   'text-extract-number-array': {
     kind: 'forward',
     signature: 'question:string -> scores:number[]',
     responses: [{ results: [{ index: 0, content: 'Scores: [1, "2", 3.5]' }] }],
   },
 };
+
+// Port-only: a field transform rewrites the final value, which a stream
+// cannot replace once sent, so the field streams once, transformed. TS has no
+// transforms; the other deltas follow TS.
+writeFixture('streaming-forward-field-transform', {
+  kind: 'streaming_forward',
+  signature: 'question:string -> answer:string, note:string',
+  input: { question: 'Status?' },
+  field_transforms: [{ field: 'answer', op: 'uppercase' }],
+  responses: [streamed(text('Answer: hel'), text('lo\nNote: fi'), done('ne'))],
+  expected_deltas: [
+    { version: 0, index: 0, delta: { note: 'fi' } },
+    { version: 0, index: 0, delta: { note: 'ne' } },
+    { version: 0, index: 0, delta: { answer: 'HELLO' } },
+  ],
+  expected_output: { note: 'fine', answer: 'HELLO' },
+  expected_request_count: 1,
+});
 
 for (const [name, spec] of Object.entries(cases)) {
   await record(name, spec);

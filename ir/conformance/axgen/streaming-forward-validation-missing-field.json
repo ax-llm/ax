@@ -1,0 +1,78 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "hi there"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "hi there"
+      },
+      "index": 0,
+      "version": 1
+    },
+    {
+      "delta": {
+        "score": 2
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_output": {
+    "answer": "hi there",
+    "score": 2
+  },
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-validation-missing-field",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: hi there",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: hi there\nScore: 2",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, score:number"
+}

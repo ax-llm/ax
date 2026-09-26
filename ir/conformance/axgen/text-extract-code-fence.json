@@ -1,0 +1,22 @@
+{
+  "expected_output": {
+    "answer": "console.log(1)"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-code-fence",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: ```js\nconsole.log(1)\n```",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:code"
+}

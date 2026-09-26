@@ -1,0 +1,85 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "thought": "Think "
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "thought": "more. "
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "o"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "k"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "thought": "Think more. ",
+    "answer": "ok"
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "show_thoughts": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-thought",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "Think "
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "more. "
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Answer: o",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "k",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

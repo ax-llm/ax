@@ -1,0 +1,25 @@
+{
+  "expected_output": {
+    "answer": "see",
+    "details": {
+      "a": 1
+    }
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-json-fence",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: see\nDetails: ```json\n{\"a\":1}\n```",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, details:json"
+}

@@ -1,0 +1,66 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "Par"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "is is"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": " the capital"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris is the capital"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-unlabeled",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Par",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "is is ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "the capital",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

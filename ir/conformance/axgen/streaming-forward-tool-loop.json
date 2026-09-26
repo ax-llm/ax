@@ -1,0 +1,152 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "thought": "Look "
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "thought": "up. "
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "thought": "Answer."
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "gre"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "en"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "thought": "Look up. Answer.",
+    "answer": "green"
+  },
+  "expected_request_count": 2,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "a"
+      },
+      "name": "lookup"
+    }
+  ],
+  "forward_options": {
+    "show_thoughts": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-tool-loop",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "Look "
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":"
+                  },
+                  "id": "call_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0,
+              "thought": "up. "
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "",
+                    "params": "\"a\"}"
+                  },
+                  "id": "call_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "Answer."
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Answer: gre",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "en",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}
