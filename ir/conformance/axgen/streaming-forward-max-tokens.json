@@ -8,7 +8,7 @@
       "version": 0
     }
   ],
-  "expected_error_contains": "Max tokens reached before completion",
+  "expected_error_contains": "Generate failed: Max tokens reached before completion",
   "expected_request_count": 1,
   "input": {
     "question": "Status?"

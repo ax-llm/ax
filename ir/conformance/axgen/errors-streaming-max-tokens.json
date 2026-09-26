@@ -1,33 +1,27 @@
 {
-  "assertions": [
-    {
-      "contains": "Paris",
-      "field": "answer"
-    }
-  ],
   "expected_deltas": [
     {
       "delta": {
-        "answer": "Lyon"
+        "answer": "cut"
       },
       "index": 0,
       "version": 0
     }
   ],
-  "expected_error_contains": "Generate failed: Assertion failed without message",
+  "expected_error_contains": "Generate failed: Max tokens reached before completion",
   "expected_request_count": 1,
   "input": {
     "question": "Status?"
   },
   "kind": "streaming_forward",
-  "name": "streaming-forward-assertion-without-message",
+  "name": "errors-streaming-max-tokens",
   "responses": [
     {
       "stream": [
         {
           "results": [
             {
-              "content": "Answer: Lyon",
+              "content": "Answer: cut",
               "index": 0
             }
           ]
@@ -35,7 +29,8 @@
         {
           "results": [
             {
-              "finish_reason": "stop",
+              "content": " sh",
+              "finish_reason": "length",
               "index": 0
             }
           ]

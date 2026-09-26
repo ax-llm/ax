@@ -1,0 +1,21 @@
+{
+  "expected_error_contains": "Generate failed: Max tokens reached before completion",
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "errors-max-tokens",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: cut sh",
+          "finish_reason": "length",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

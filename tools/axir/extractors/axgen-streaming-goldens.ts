@@ -393,8 +393,8 @@ async function record(name: string, spec: Case): Promise<void> {
     fixture.expected_output = output;
   }
   if (error !== undefined) {
-    const expected =
-      spec.error_contains ?? error.replace(/^Generate failed: /, '');
+    // Without an explicit substring, pin TypeScript's whole message.
+    const expected = spec.error_contains ?? error;
     if (!error.includes(expected)) {
       throw new Error(`${name}: TS error "${error}" lacks "${expected}"`);
     }
@@ -1166,6 +1166,92 @@ const cases: Record<string, Case> = {
     kind: 'forward',
     signature: 'question:string -> scores:number[]',
     responses: [{ results: [{ index: 0, content: 'Scores: [1, "2", 3.5]' }] }],
+  },
+
+  // ----- error wrapping: TypeScript's whole message -----
+  // Exhausted validation and assertion retries are generation failures:
+  // "Generate failed: Unable to fix validation error: ..." with the last
+  // attempt's output, whatever the validation message says.
+  'errors-validation-missing-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, reason:string',
+    options: { max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: 'Answer: hi' }] },
+      { results: [{ index: 0, content: 'Answer: hello' }] },
+    ],
+  },
+  'errors-validation-type-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> count:number',
+    options: { max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: 'Count: many' }] },
+      { results: [{ index: 0, content: 'Count: lots' }] },
+    ],
+  },
+  'errors-assertion-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    options: { max_retries: 1 },
+    assertions: [
+      { field: 'answer', contains: 'Paris', message: 'Mention Paris' },
+    ],
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Nice' }] },
+    ],
+  },
+  'errors-streaming-validation-exhausted': {
+    signature: 'question:string -> answer:string, score:number',
+    forward_options: { max_retries: 1 },
+    responses: [
+      streamed(text('Answer: a\nScore: x'), done()),
+      streamed(text('Answer: b\nScore: y'), done()),
+    ],
+  },
+  // A processor's own error ends the forward as a generation failure, even
+  // when its message has a word like "required".
+  'errors-processor-throws': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    feedback_processors: [
+      { field: 'answer', throws: 'upstream token required' },
+    ],
+    responses: [{ results: [{ index: 0, content: 'Answer: hi' }] }],
+  },
+  'errors-streaming-processor-throws': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [
+      { field: 'answer', throws: 'upstream token required' },
+    ],
+    responses: [streamed(text('Answer: hi'), done())],
+  },
+  'errors-max-tokens': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [
+      {
+        results: [
+          { index: 0, content: 'Answer: cut sh', finish_reason: 'length' },
+        ],
+      },
+    ],
+  },
+  'errors-streaming-max-tokens': {
+    signature: 'question:string -> answer:string',
+    responses: [
+      streamed(
+        text('Answer: cut'),
+        chunk({ content: ' sh', finish_reason: 'length' })
+      ),
+    ],
+  },
+  'errors-streaming-error-finish': {
+    signature: 'question:string -> answer:string',
+    responses: [
+      streamed(text('Answer: hi'), chunk({ finish_reason: 'error' })),
+    ],
   },
 };
 

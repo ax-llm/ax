@@ -1,34 +1,37 @@
 {
-  "expected_deltas": [],
-  "expected_error_contains": "Generate failed: processor exploded",
-  "expected_processor_calls": [
+  "expected_deltas": [
     {
-      "done": false,
-      "field": "answer",
-      "value": " a"
+      "delta": {
+        "answer": "a"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "b"
+      },
+      "index": 0,
+      "version": 1
     }
   ],
-  "expected_request_count": 1,
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Score' has an invalid value 'y': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
+  "expected_request_count": 2,
+  "forward_options": {
+    "max_retries": 1
+  },
   "input": {
     "question": "Status?"
   },
   "kind": "streaming_forward",
-  "name": "streaming-forward-streaming-processor-error",
+  "name": "errors-streaming-validation-exhausted",
   "responses": [
     {
       "stream": [
         {
           "results": [
             {
-              "content": "Answer: a",
-              "index": 0
-            }
-          ]
-        },
-        {
-          "results": [
-            {
-              "content": "b",
+              "content": "Answer: a\nScore: x",
               "index": 0
             }
           ]
@@ -48,7 +51,7 @@
         {
           "results": [
             {
-              "content": "Answer: ab",
+              "content": "Answer: b\nScore: y",
               "index": 0
             }
           ]
@@ -64,11 +67,5 @@
       ]
     }
   ],
-  "signature": "question:string -> answer:string",
-  "streaming_processors": [
-    {
-      "field": "answer",
-      "throws": "processor exploded"
-    }
-  ]
+  "signature": "question:string -> answer:string, score:number"
 }

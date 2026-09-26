@@ -1,5 +1,5 @@
 {
-  "expected_error_contains": "Max steps reached: 3",
+  "expected_error_contains": "Generate failed: Max steps reached: 3",
   "expected_processor_calls": [
     {
       "done": true,

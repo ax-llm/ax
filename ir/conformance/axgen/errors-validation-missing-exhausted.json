@@ -1,0 +1,31 @@
+{
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Required field not found: 'Reason' (string). Add a line starting with the exact label followed by a colon (e.g., \"Reason:\") and then provide a valid string value. Keep the output concise and avoid unrelated text.",
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "errors-validation-missing-exhausted",
+  "options": {
+    "max_retries": 1
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: hi",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: hello",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, reason:string"
+}
