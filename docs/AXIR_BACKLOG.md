@@ -18,6 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-26-port-typescript-s-per-step-output-reset-and-monotonic-versions-t` [axgen] Port TypeScript's per-step output reset and monotonic versions to the ports' forward and streaming
+  - Status: open
+  - Source commit: `3cf10a6e022146b06dda420f5b2bd9227e1ad20f`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.stepVersions.test.ts`
+  - Impact: TypeScript now starts a new delta version when a step follows emitted output fields, carrying the thought forward, and never lets versions decrease after validation or infrastructure retries. The ports' forward joins thought across steps but must also let a later step's fields replace an earlier step's, and their streaming op must yield the same versions and deltas.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-09-26-yield-typescript-style-field-deltas-from-the-ports-axgen-streami` [axgen] Yield TypeScript-style field deltas from the ports' AxGen streaming APIs
   - Status: open
   - Source commit: `a14c26b0f960cd360472b778263b606cbdda09fd`
