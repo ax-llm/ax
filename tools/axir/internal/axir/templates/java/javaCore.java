@@ -555,6 +555,50 @@ final class Core {
   static Object validationError(Object message) { return new AxValidationError(String.valueOf(message)); }
   static Object runtimeError(Object message) { return new RuntimeException(String.valueOf(message)); }
   static Object exceptionMessage(Object error) { return error instanceof Throwable t ? t.getMessage() : String.valueOf(error); }
+  // The same error with a new message and the original as its cause. It keeps
+  // its class and the Ax error fields, so existing handlers still catch it (TS
+  // wraps it in AxGenerateError, which the ports adopt at the next major). An
+  // error this cannot rebuild becomes a RuntimeException.
+  static Object exceptionRewrap(Object error, Object message) {
+    String text = String.valueOf(message);
+    if (!(error instanceof Throwable original)) return new RuntimeException(text);
+    RuntimeException wrapped = rebuildError(original, text);
+    try {
+      wrapped.initCause(original);
+      return wrapped;
+    } catch (IllegalStateException causeAlreadySet) {
+      return new RuntimeException(text, original);
+    }
+  }
+  private static RuntimeException rebuildError(Throwable error, String message) {
+    Class<?> type = error.getClass();
+    if (error instanceof AxAIServiceError ai) {
+      if (type == AxAIServiceStatusError.class) return new AxAIServiceStatusError(message, ai.status, ai.code, ai.responseBody, ai.request, ai.retryable);
+      if (type == AxAIServiceTimeoutError.class) return new AxAIServiceTimeoutError(message, ai.status, ai.code, ai.responseBody, ai.request, ai.retryable);
+      if (type == AxAIServiceAuthenticationError.class) return new AxAIServiceAuthenticationError(message, ai.status, ai.code, ai.responseBody, ai.request);
+      if (type == AxAIServiceStreamTerminatedError.class) return new AxAIServiceStreamTerminatedError(message, ai.responseBody, ai.retryable);
+      if (type == AxAIServiceResponseError.class) return new AxAIServiceResponseError(message, ai.responseBody);
+      if (type == AxAIServiceNetworkError.class) return new AxAIServiceNetworkError(message);
+      if (type == AxAIRefusalError.class) return new AxAIRefusalError(message, ai.responseBody);
+      if (type == AxUnsupportedCapabilityError.class) return new AxUnsupportedCapabilityError(message);
+      if (type == AxAIServiceError.class) return new AxAIServiceError(message, ai.status, ai.code, ai.responseBody, ai.request, ai.retryable);
+    }
+    if (type == AxValidationError.class) return new AxValidationError(message);
+    if (type == AxSignatureError.class) return new AxSignatureError(message);
+    if (type == TemplateError.class) return new TemplateError(message);
+    if (type == RuntimeException.class) return new RuntimeException(message);
+    // Any other RuntimeException keeps its class when its public (String)
+    // constructor rebuilds it with exactly this message.
+    if (error instanceof RuntimeException) {
+      try {
+        Object rebuilt = type.getConstructor(String.class).newInstance(message);
+        if (rebuilt instanceof RuntimeException same && message.equals(same.getMessage())) return same;
+      } catch (ReflectiveOperationException | RuntimeException | LinkageError unsupported) {
+        // falls back to a plain RuntimeException
+      }
+    }
+    return new RuntimeException(message);
+  }
   static Object exceptionIsAborted(Object error) {
     Object current=error;
     while(current instanceof Throwable throwable){if(throwable instanceof AxAIServiceAbortedError)return true;current=throwable.getCause();}
@@ -642,6 +686,23 @@ final class Core {
     return out;
   }
   static Object fieldItem(Object field) {
+    // Structured validation describes a nested field as a {name, title, type}
+    // map; its item is the same map with a scalar type.
+    if (field instanceof Map<?, ?> map) {
+      Map<String, Object> item = new LinkedHashMap<>(asMap(map));
+      Object type = item.get("type");
+      if (type instanceof FieldType fieldType) {
+        FieldType scalar = fieldType.copy();
+        scalar.array = false;
+        item.put("type", scalar);
+      } else if (type instanceof Map<?, ?> typeMap) {
+        Map<String, Object> scalar = new LinkedHashMap<>(asMap(typeMap));
+        scalar.remove("isArray");
+        scalar.put("is_array", false);
+        item.put("type", scalar);
+      }
+      return item;
+    }
     Field f = (Field) field;
     FieldType t = f.type.copy();
     t.array = false;

@@ -1413,6 +1413,35 @@ const cases: Record<string, Case> = {
       streamed(text('{"count":3,'), text('"detail":{"note":"n"}}'), done()),
     ],
   },
+  // Array items of a nested object field are checked and coerced too.
+  'structured-nested-array-coerce': {
+    kind: 'forward',
+    signature:
+      'question:string -> detail:object{ tags:string[], sizes:number[] }',
+    features: nativeFeatures,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            content: '{"detail":{"tags":["a","b"],"sizes":["1",2]}}',
+          },
+        ],
+      },
+    ],
+  },
+  'streaming-forward-structured-nested-array-coerce': {
+    signature:
+      'question:string -> detail:object{ tags:string[], sizes:number[] }',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text('{"detail":{"tags":["a","b"],'),
+        text('"sizes":["1",2]}}'),
+        done()
+      ),
+    ],
+  },
   'streaming-forward-structured-coerce': {
     signature: 'question:string -> count:number, detail:object{ note:string }',
     features: nativeFeatures,
