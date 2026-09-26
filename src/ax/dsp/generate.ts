@@ -159,20 +159,6 @@ const assertNoReservedStructuredOutputFunctions = (
   }
 };
 
-/**
- * Whether the model can call user functions natively: they are sent as native
- * declarations, not emulated in the prompt, and the caller does not disable
- * calling. A forced call counts, since its step declares the tools too.
- */
-const canCallUserFunctions = (
-  functions: readonly Readonly<AxFunction>[],
-  functionCall: AxChatRequest['functionCall'] | undefined,
-  promptEmulated: boolean
-): boolean =>
-  !promptEmulated &&
-  functionCall !== 'none' &&
-  functions.some((fn) => !isReservedStructuredOutputFunctionName(fn.name));
-
 const selectStructuredOutputRung = (
   signature: Readonly<AxSignature>,
   features:
@@ -181,12 +167,10 @@ const selectStructuredOutputRung = (
         structuredOutputModes?: readonly AxStructuredOutputRung[];
         requiresStructuredOutput?: boolean;
         functions?: boolean;
-        responseFormatWithFunctions?: boolean;
       }>
     | undefined,
   mode: AxStructuredOutputMode,
-  providerLabel: string,
-  userFunctionsCallable = false
+  providerLabel: string
 ): AxStructuredOutputRung | undefined => {
   if (!signature.hasComplexFields() && !features?.requiresStructuredOutput)
     return undefined;
@@ -237,18 +221,6 @@ const selectStructuredOutputRung = (
     throw new Error(
       `Structured output is not verified for ${providerLabel}; add an exact modelInfo override to opt in.`
     );
-  }
-
-  // Some providers fail when a JSON response format shares a request with
-  // callable or forced user functions (see
-  // AxAIFeatures.responseFormatWithFunctions). The output function lets the
-  // model answer without one.
-  if (
-    userFunctionsCallable &&
-    features?.responseFormatWithFunctions === false &&
-    supportsFunctions
-  ) {
-    return 'function';
   }
 
   if (!hasAdvertisedModes && supportsNative) return 'native';
@@ -600,12 +572,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       signature,
       features,
       structuredOutputMode,
-      `${ai.getName()} (${String(options?.model ?? 'default model')})`,
-      canCallUserFunctions(
-        mutableFunctions,
-        options?.functionCall ?? this.options?.functionCall,
-        signatureToolCallingManager !== undefined
-      )
+      `${ai.getName()} (${String(options?.model ?? 'default model')})`
     );
     const structuredOutputFunctionFallback =
       structuredOutputRung === 'function';
@@ -1983,12 +1950,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.signature,
       features,
       structuredOutputMode,
-      `${ai.getName()} (${String(options.model ?? 'default model')})`,
-      canCallUserFunctions(
-        mutableFunctions,
-        options.functionCall ?? this.options?.functionCall,
-        this.signatureToolCallingManager !== undefined
-      )
+      `${ai.getName()} (${String(options.model ?? 'default model')})`
     );
     this.structuredOutputFunctionFallback =
       this.structuredOutputRung === 'function';
@@ -2545,6 +2507,18 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                           if (field.name in state.values && !field.isInternal) {
                             delta[field.name] = state.values[field.name];
                           }
+                        }
+                        // The response's thought is already on state.values.
+                        // A stream has yielded it chunk by chunk; a
+                        // non-streaming response has not, so keep it here as
+                        // the native path does.
+                        const thought = state.values[this.thoughtFieldName];
+                        const thoughtYielded =
+                          currentAttemptValues.get(state.index)?.[
+                            this.thoughtFieldName
+                          ] !== undefined;
+                        if (thought !== undefined && !thoughtYielded) {
+                          delta[this.thoughtFieldName] = thought;
                         }
                         yield {
                           version: controlVersion + errCount,

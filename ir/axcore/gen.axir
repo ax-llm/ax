@@ -6,8 +6,8 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "shape-aware-structured-output-selector"
-    type signature = "(AxSignature, json, json, list<Tool>) -> json throws"
-    body @entry(%signature: AxSignature, %features: json, %options: json, %functions: list<Tool>) {
+    type signature = "(AxSignature, json, json) -> json throws"
+    body @entry(%signature: AxSignature, %features: json, %options: json) {
       %native_snake = core.get %features["structured_outputs"]
       %native_raw = core.get %features["structuredOutputs"] default %native_snake
       %modes_snake = core.get %features["structured_output_modes"]
@@ -105,23 +105,6 @@ module @ax.gen version "0.1" {
         core.if %no_modes {
           core.raise "Structured output is not verified for the selected provider and model"
         }
-      }
-      // Some providers fail when a JSON response format shares a request with
-      // callable or forced user functions (Gemini reports
-      // responseFormatWithFunctions: false). The output function lets the
-      // model answer without one, as in TS.
-      %format_beside_tools_snake = core.get %features["response_format_with_functions"]
-      %format_beside_tools = core.get %features["responseFormatWithFunctions"] default %format_beside_tools_snake
-      %format_beside_tools_unknown = core.call intrinsic.is_none(%format_beside_tools)
-      %format_beside_tools_allowed = core.call intrinsic.truthy(%format_beside_tools)
-      %format_beside_tools_ok = core.call intrinsic.or(%format_beside_tools_unknown, %format_beside_tools_allowed)
-      %format_beside_tools_rejected = core.call intrinsic.not(%format_beside_tools_ok)
-      %tools_callable = core.call @user_functions_callable_impl(%functions, %options)
-      %prefer_output_function = core.call intrinsic.and(%format_beside_tools_rejected, %tools_callable)
-      %use_output_function = core.call intrinsic.and(%prefer_output_function, %supports_functions)
-      core.if %use_output_function {
-        core.set %selection["rung"] = "function"
-        core.return %selection
       }
       %no_advertised_modes = core.call intrinsic.not(%has_modes)
       %native_default = core.call intrinsic.and(%no_advertised_modes, %supports_native)
@@ -712,7 +695,7 @@ module @ax.gen version "0.1" {
       %model = core.get %runtime_options["model"]
       %features = core.call intrinsic.ai.client_features(%client, %model)
       %functions = core.get %gen["functions"]
-      %selection = core.call @select_structured_output_rung(%signature, %features, %runtime_options, %functions)
+      %selection = core.call @select_structured_output_rung(%signature, %features, %runtime_options)
       %selected_rung = core.get %selection["rung"]
       %validate_exact_json = core.call intrinsic.eq(%selected_rung, "json_object")
       %input_fields = core.get %signature["input_fields"]
@@ -1720,35 +1703,6 @@ module @ax.gen version "0.1" {
       %legacy = core.call intrinsic.eq(%name, "__finalResult")
       %reserved = core.call intrinsic.or(%canonical, %legacy)
       core.return %reserved
-    }
-  }
-
-  op ax.gen.semantic @user_functions_callable_impl {
-    attr core_kind = "func"
-    attr emit_module = "gen"
-    attr private = true
-    tag "src/ax/dsp/generate.ts"
-    type signature = "(list<Tool>, json) -> bool"
-    body @entry(%functions: list<Tool>, %options: json) {
-      // Whether the model can call user functions natively: they are sent as
-      // native declarations, not emulated in the prompt, and the caller does
-      // not disable calling. A forced call counts, since its step declares
-      // the tools too.
-      %function_count = core.call intrinsic.len(%functions)
-      %no_functions = core.call intrinsic.eq(%function_count, 0)
-      core.if %no_functions {
-        core.return false
-      }
-      %mode_snake = core.get %options["function_call_mode"]
-      %mode = core.get %options["functionCallMode"] default %mode_snake
-      %prompt_emulated = core.call intrinsic.eq(%mode, "prompt")
-      core.if %prompt_emulated {
-        core.return false
-      }
-      %choice = core.call @caller_function_call_impl(%options)
-      %disabled = core.call intrinsic.eq(%choice, "none")
-      %callable = core.call intrinsic.not(%disabled)
-      core.return %callable
     }
   }
 

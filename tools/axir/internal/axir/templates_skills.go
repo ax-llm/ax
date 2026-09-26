@@ -340,7 +340,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			"`structuredOutputMode` / `structured_output_mode` accepts `auto`, `native`, `function`, or `json_object`. Auto follows the selected profile/model ordering, with the provider-neutral singleton string/code JSON-object optimization. Explicit modes must be advertised and fail before transport otherwise. JSON-object mode retains exact-shape prompting, strict parsing, and one bounded correction retry without a synthetic `__axOutput` tool.",
 			"",
-			"Gemini reports `responseFormatWithFunctions: false`: it rejects a JSON response format beside forced tool calls, and some models keep calling tools under one. While native tools are callable or forced, auto therefore selects the `function` rung and the model answers through `__axOutput`. A `none` tool choice, prompt emulation, an explicit mode, and tool-less programs keep their rung. A balancer reports false when any of its services does.",
+			"Beside native tools, auto keeps the rung it picks without them, for every provider and for forced calls too: Ax does not switch rungs to work around a provider's or model's JSON-mode problems. Set `structuredOutputMode` / `structured_output_mode` to `function` to have the model answer through `__axOutput` beside the tools instead.",
 			"",
 			"A simple signature (no object or object-array output) selects no structured-output rung, with or without tools, as in TypeScript: the provider gets no response schema and the model answers with `field: value` lines, whatever `structuredOutputMode` says. Set `forceStructured` / `force_structured` (the TypeScript `useStructured()` equivalent) to keep the JSON contract; agent actor stages set it.",
 			"",

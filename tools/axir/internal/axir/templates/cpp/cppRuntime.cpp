@@ -7270,7 +7270,6 @@ static Value merge_service_features_cpp(const std::vector<std::shared_ptr<AxAISe
   bool all_require_schema = !services.empty();
   for (const auto& service : services) { Value raw = service->get_features(model); all_require_schema = all_require_schema && Core::truthy(Core::get(raw, "requiresStructuredOutput", Core::get(raw, "requires_structured_output", false))); }
   if (all_require_schema) Core::set(features, "requiresStructuredOutput", true);
-  for (const auto& service : services) { Value raw = service->get_features(model); Value format_beside_tools = Core::get(raw, "responseFormatWithFunctions", Core::get(raw, "response_format_with_functions")); if (!format_beside_tools.is_null() && !Core::truthy(format_beside_tools)) Core::set(features, "responseFormatWithFunctions", false); }
   Value structured_output_modes = Value::array();
   bool all_modes_advertised = !services.empty();
   for (const auto& service : services) {

@@ -30,7 +30,6 @@ export type AxMockAIServiceConfig<TModelKey> = {
     streaming?: boolean;
     structuredOutputs?: boolean;
     structuredOutputModes?: AxAIFeatures['structuredOutputModes'];
-    responseFormatWithFunctions?: boolean;
     serviceTiers?: AxAIFeatures['serviceTiers'];
     media?: Partial<AxAIFeatures['media']>;
   };
@@ -119,12 +118,6 @@ export class AxMockAIService<TModelKey>
       ...(this.config.features?.structuredOutputModes
         ? {
             structuredOutputModes: this.config.features.structuredOutputModes,
-          }
-        : {}),
-      ...(this.config.features?.responseFormatWithFunctions !== undefined
-        ? {
-            responseFormatWithFunctions:
-              this.config.features.responseFormatWithFunctions,
           }
         : {}),
       ...(this.config.features?.serviceTiers
