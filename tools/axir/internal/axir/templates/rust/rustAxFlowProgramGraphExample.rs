@@ -5,7 +5,7 @@ struct ScriptedClient;
 
 impl AxAIClient for ScriptedClient {
     fn chat(&mut self, _request: Value) -> AxResult<Value> {
-        Ok(json!({"results": [{"content": "{\"answer\":\"Paris\"}", "function_calls": []}]}))
+        Ok(json!({"results": [{"content": "Answer: Paris", "function_calls": []}]}))
     }
 }
 

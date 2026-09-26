@@ -640,7 +640,7 @@ const pyAxFlowProgramGraphExample = `from axllm import ax, flow
 
 class ScriptedClient:
     def complete(self, request):
-        return {"content": "{\"answer\":\"Paris\"}"}
+        return {"content": "Answer: Paris"}
 
 
 qa = ax("question:string -> answer:string")
@@ -975,7 +975,7 @@ public final class AxGenScriptedClientToolExample {
           "function_calls", List.of(Map.of("id", "call_1", "name", "search", "params", Map.of("query", "ax docs")))
         );
       }
-      return Map.of("content", "{\"answer\":\"Found Ax docs\"}");
+      return Map.of("content", "Answer: Found Ax docs");
     }
   }
 
@@ -1098,7 +1098,7 @@ import java.util.*;
 public final class AxFlowProgramGraphExample {
   static final class ScriptedClient implements AiClient {
     public Map<String, Object> complete(Map<String, Object> request) {
-      return Map.of("content", "{\"answer\":\"Paris\"}");
+      return Map.of("content", "Answer: Paris");
     }
   }
 
@@ -1304,7 +1304,7 @@ struct ScriptedClient : axllm::AIClient {
         })}
       });
     }
-    return axllm::object({{"content", "{\"answer\":\"Found Ax docs\"}"}});
+    return axllm::object({{"content", "Answer: Found Ax docs"}});
   }
 };
 
@@ -1441,7 +1441,7 @@ const cppAxFlowProgramGraphExample = `#include "axllm/axllm.hpp"
 
 struct ScriptedClient : axllm::AIClient {
   axllm::Value complete(axllm::Value) override {
-    return axllm::object({{"content", "{\"answer\":\"Paris\"}"}});
+    return axllm::object({{"content", "Answer: Paris"}});
   }
 };
 
