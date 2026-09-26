@@ -8,7 +8,7 @@ import threading
 from typing import Any, Callable, Iterator, Protocol
 
 from .ai import _emit_usage_event, _iter_sse_json
-from .gen import _core_ai_client_features, _core_ai_complete_once
+from .gen import _core_ai_client_features, _core_ai_complete_once, _core_ai_stream_open
 
 
 class AxChatSession(Protocol):
@@ -101,7 +101,7 @@ class _BoundaryClient:
     def get_features(self, model=None):
         return _core_ai_client_features(self.client, model)
 
-    def complete(self, request):
+    def _apply(self, request):
         from .gen import chat_session_apply_boundary_updates
         if self.control.signal.is_set():
             raise RuntimeError("Run aborted before the next model request")
@@ -112,7 +112,23 @@ class _BoundaryClient:
         self.level = applied["level"]
         for update_id in applied["applied"]:
             self.control._emit({"type": "applied", "path": self.path, "update_id": update_id, "timing": "next-response"})
-        return _core_ai_complete_once(self.client, applied["request"], self.options)
+        return applied["request"]
+
+    def complete(self, request):
+        return _core_ai_complete_once(self.client, self._apply(request), self.options)
+
+    def stream(self, request, options=None):
+        # A streamed forward pulls the inner client's chunks through the same
+        # request boundary.
+        handle = _core_ai_stream_open(self.client, self._apply(request), options or self.options)
+        try:
+            while True:
+                chunk = handle.next()
+                if chunk is None:
+                    return
+                yield chunk
+        finally:
+            handle.close()
 
     def close(self, error=None):
         self.control._emit({"type": "failed" if error else "completed", "path": self.path,

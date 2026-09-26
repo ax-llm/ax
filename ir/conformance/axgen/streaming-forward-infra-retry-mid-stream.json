@@ -1,0 +1,76 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "hel"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "lo world"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "hello world"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-infra-retry-mid-stream",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: hel",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "error": {
+            "message": "socket hang up",
+            "type": "network"
+          }
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: hel",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "lo world",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

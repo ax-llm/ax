@@ -1,0 +1,74 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "The capital"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": " is Paris."
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "score": 9
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "The capital is Paris.",
+    "score": 9
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-multi-field",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: The capital",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": " is Paris.\nSco",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "re: 9",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, score:number"
+}

@@ -1403,20 +1403,22 @@ mod tests {
                 }
                 assert!(gate.release.load(Ordering::SeqCst));
                 gate.late.store(true, Ordering::SeqCst);
-                json!({"lateAnswer":"LATE"})
-            } else if body.contains("failAnswer") {
+                json!({"lateAnswer":"LATE"}).to_string()
+            }
+            // The failing node leaves its required field empty, which fails validation.
+            else if body.contains("failAnswer") {
                 let start = Instant::now();
                 while !gate.fast.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(3)
                 {
                     std::thread::sleep(Duration::from_millis(1));
                 }
                 assert!(gate.fast.load(Ordering::SeqCst));
-                json!({"wrong":"invalid"})
+                "Fail Answer:".to_string()
             } else {
-                json!({"fastAnswer":"DONE"})
+                json!({"fastAnswer":"DONE"}).to_string()
             };
             Ok(
-                json!({"status":200,"json":{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":content.to_string()},"finish_reason":"stop"}]}}),
+                json!({"status":200,"json":{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":content},"finish_reason":"stop"}]}}),
             )
         }
     }

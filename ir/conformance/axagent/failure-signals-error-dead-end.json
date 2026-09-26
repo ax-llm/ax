@@ -21,10 +21,7 @@
       "content": "{\"javascriptCode\":\"respond('Ready', {})\"}"
     },
     {
-      "content": "{\"javascriptCode\":\"final('Answer', {\\\"answer\\\":\\\"recovered\\\"})\"}"
-    },
-    {
-      "content": "{\"answer\":\"recovered\"}"
+      "content": "Answer: recovered"
     }
   ],
   "runtime_script": [
@@ -51,13 +48,6 @@
       "result": {
         "args": ["Ready", {}],
         "type": "respond"
-      }
-    },
-    {
-      "expected_code": "final('Answer', {\"answer\":\"recovered\"})",
-      "result": {
-        "args": ["Answer", { "answer": "recovered" }],
-        "type": "final"
       }
     }
   ],

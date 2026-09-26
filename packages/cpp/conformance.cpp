@@ -66,10 +66,12 @@ struct ConformanceScriptedAI : AxBaseAI {
     return Core::legacy_response_to_chat_response(out);
   }
 
-  // A scripted {"stream": [...]} response streams its chunks; any other
+  // A scripted {"stream": [...]} response streams its chunks one at a time,
+  // and an {"error": ...} entry fails the stream at that point; any other
   // response streams as one chunk.
   using AxBaseAI::stream;
-  std::vector<Value> stream(Value request, Value options) override {
+  using AxBaseAI::stream_each;
+  void stream_each(Value request, AxStreamHandler handler, Value options) override {
     if (!responses.empty()) {
       Value chunks = Core::get(responses.front(), "stream");
       if (!chunks.is_null()) {
@@ -77,12 +79,20 @@ struct ConformanceScriptedAI : AxBaseAI {
         requests.push_back(request);
         chat_options.push_back(options);
         responses.erase(responses.begin());
-        std::vector<Value> events;
-        for (const auto& chunk : Core::iter(chunks)) events.push_back(Core::legacy_response_to_chat_response(chunk));
-        return events;
+        for (const auto& chunk : Core::iter(chunks)) {
+          Object entry = as_object(chunk);
+          if (entry.count("error") && !entry.count("results")) throw fixture_ai_service_error_cpp(Core::get(chunk, "error"));
+          if (!handler(Core::legacy_response_to_chat_response(chunk))) return;
+        }
+        return;
       }
     }
-    return {do_chat(std::move(request), std::move(options))};
+    handler(do_chat(std::move(request), std::move(options)));
+  }
+  std::vector<Value> stream(Value request, Value options) override {
+    std::vector<Value> events;
+    stream_each(std::move(request), [&](const Value& event) { events.push_back(event); return true; }, std::move(options));
+    return events;
   }
 
   Value do_embed(Value request, Value options) override {
@@ -718,6 +728,36 @@ static ToolBuild build_tools(Value specs) {
   return out;
 }
 
+// field_transforms use the transform seam; field_processors use the
+// transforming add_field_processor() (the same behavior).
+static void add_fixture_transforms(AxGen& gen, Value fixture) {
+  for (const auto& spec : Core::iter(Core::get(fixture, "field_transforms", Value::array()))) {
+    detail::AxGenInternal::add_field_transform(gen, display(Core::get(spec, "field")), display(Core::get(spec, "processor", Core::get(spec, "op"))));
+  }
+  for (const auto& spec : Core::iter(Core::get(fixture, "field_processors", Core::get(fixture, "fieldProcessors", Value::array())))) {
+    gen.add_field_processor(display(Core::get(spec, "field")), display(Core::get(spec, "processor", Core::get(spec, "op"))));
+  }
+}
+
+// A fixture field processor records each call and returns `returns`, or the
+// value itself with `echo`; `when_done` waits for the final value, `times`
+// limits how many results it returns, and `throws` raises.
+static std::function<Value(Value, Value)> fixture_processor(Value spec, Value calls) {
+  auto returned = std::make_shared<double>(0);
+  return [spec, calls, returned](Value value, Value context) mutable {
+    bool done = Core::truthy(Core::get(context, "done"));
+    Core::append(calls, object({{"field", Core::get(spec, "field")}, {"value", parse_json(stringify(value))}, {"done", done}}));
+    Value throws = Core::get(spec, "throws");
+    if (!throws.is_null()) throw std::runtime_error(display(throws));
+    if (Core::truthy(Core::get(spec, "when_done")) && !done) return Value();
+    Value times = Core::get(spec, "times");
+    if (!times.is_null() && *returned >= Core::number(times)) return Value();
+    Value result = parse_json(stringify(Core::truthy(Core::get(spec, "echo")) ? value : Core::get(spec, "returns")));
+    if (!result.is_null()) *returned += 1;
+    return result;
+  };
+}
+
 static void run_forward(Value fixture) {
   Value sig = build_signature(fixture);
   ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
@@ -726,8 +766,10 @@ static void run_forward(Value fixture) {
   if (!Core::get(fixture, "examples").is_null()) gen.set_examples(Core::get(fixture, "examples"));
   if (!Core::get(fixture, "demos").is_null()) gen.set_demos(Core::get(fixture, "demos"));
   for (const auto& assertion : Core::iter(Core::get(fixture, "assertions", Value::array()))) gen.add_assert(assertion);
-  for (const auto& processor : Core::iter(Core::get(fixture, "field_processors", Core::get(fixture, "fieldProcessors", Value::array())))) {
-    gen.add_field_processor(display(Core::get(processor, "field")), display(Core::get(processor, "processor", Core::get(processor, "op"))));
+  add_fixture_transforms(gen, fixture);
+  Value processor_calls = Value::array();
+  for (const auto& spec : Core::iter(Core::get(fixture, "feedback_processors", Value::array()))) {
+    detail::AxGenInternal::add_feedback_processor(gen, display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
   }
   if (!Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions")).is_null()) {
     gen.set_stop_functions(Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions", Value::array())));
@@ -744,6 +786,9 @@ static void run_forward(Value fixture) {
   Value input = Core::get(fixture, "input", Core::get(fixture, "values", Value::object()));
   Value output = expect_maybe_error([&] { return gen.forward(client, input, Core::get(fixture, "forward_options", Value::object())); }, fixture);
   bool expected_error = !Core::get(fixture, "expected_error_contains").is_null();
+  if (!expected_error && !Core::get(fixture, "expected_processor_calls").is_null()) {
+    assert_equal(processor_calls, Core::get(fixture, "expected_processor_calls"), "field processor calls");
+  }
   if (!expected_error && !Core::get(fixture, "expected_output").is_null()) {
     assert_equal(output, Core::get(fixture, "expected_output"), "forward output");
   }
@@ -818,6 +863,66 @@ static void run_forward(Value fixture) {
     std::string prompt_text = stringify(Core::get(client.requests[0], "chat_prompt"));
     for (const auto& item : Core::iter(Core::get(fixture, "expected_chat_prompt_contains"))) {
       if (prompt_text.find(display(item)) == std::string::npos) throw AxError("fixture", "chat prompt missing " + display(item) + ": " + prompt_text);
+    }
+  }
+}
+
+// Runs the streaming forward with a sink that records every
+// {version, index, delta} envelope; deltas sent before an expected error are
+// still compared.
+static void run_streaming_forward(Value fixture) {
+  Value sig = build_signature(fixture);
+  ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
+  Value options = Core::map_merge(Core::get(fixture, "options", Value::object()), Value(Object{{"functions", tool_build.values}}));
+  AxGen gen(sig, options);
+  for (const auto& assertion : Core::iter(Core::get(fixture, "assertions", Value::array()))) gen.add_assert(assertion);
+  for (const auto& assertion : Core::iter(Core::get(fixture, "streaming_assertions", Value::array()))) gen.add_streaming_assert(assertion);
+  add_fixture_transforms(gen, fixture);
+  Value processor_calls = Value::array();
+  for (const auto& spec : Core::iter(Core::get(fixture, "feedback_processors", Value::array()))) {
+    detail::AxGenInternal::add_feedback_processor(gen, display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
+  }
+  for (const auto& spec : Core::iter(Core::get(fixture, "streaming_processors", Value::array()))) {
+    detail::AxGenInternal::add_streaming_field_processor(gen, display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
+  }
+  Value picker_index = Core::get(fixture, "result_picker_index");
+  if (!picker_index.is_null()) {
+    int index = std::stoi(display(picker_index));
+    gen.set_result_picker([index](const Value&) { return index; });
+  }
+  if (!Core::get(fixture, "stop_functions").is_null()) gen.set_stop_functions(Core::get(fixture, "stop_functions", Value::array()));
+  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
+  Value deltas = Value::array();
+  auto record = [deltas](Value envelope) mutable { Core::append(deltas, std::move(envelope)); };
+  Value expected_error = Core::get(fixture, "expected_error_contains");
+  Value output;
+  bool failed = false;
+  try {
+    output = detail::AxGenInternal::streaming_forward(gen, client, Core::get(fixture, "input", Value::object()), Core::get(fixture, "forward_options", Value::object()), record);
+  } catch (const std::exception& error) {
+    if (const auto* ax = dynamic_cast<const AxError*>(&error); ax && ax->category == "fixture") throw;
+    if (expected_error.is_null() || std::string(error.what()).find(display(expected_error)) == std::string::npos) throw;
+    assert_equal(deltas, Core::get(fixture, "expected_deltas", Value::array()), "streaming deltas before the error");
+    failed = true;
+  }
+  if (!failed) {
+    if (!expected_error.is_null()) throw AxError("fixture", "expected streaming forward to fail");
+    assert_equal(deltas, Core::get(fixture, "expected_deltas", Value::array()), "streaming deltas");
+    assert_equal(output, Core::get(fixture, "expected_output"), "streaming output");
+  }
+  Value expected_count = Core::get(fixture, "expected_request_count");
+  if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
+    throw AxError("fixture", "expected " + display(expected_count) + " requests, got " + std::to_string(client.requests.size()));
+  }
+  Value expected_tool_calls = Core::get(fixture, "expected_tool_calls");
+  if (!expected_tool_calls.is_null()) assert_equal(tool_build.calls, expected_tool_calls, "tool calls");
+  Value expected_processor_calls = Core::get(fixture, "expected_processor_calls");
+  if (!expected_processor_calls.is_null()) assert_equal(processor_calls, expected_processor_calls, "field processor calls");
+  Value expected_contains = Core::get(fixture, "expected_request_contains");
+  if (!expected_contains.is_null()) {
+    std::string request_text = stringify(Value(client.requests));
+    for (const auto& item : Core::iter(expected_contains)) {
+      if (request_text.find(display(item)) == std::string::npos) throw AxError("fixture", "request missing " + display(item) + ": " + request_text);
     }
   }
 }
@@ -1423,18 +1528,31 @@ static void run_agent_playbook_coverage(Value fixture) {
   }
 }
 
+// Several responses play in order for each case; a single one repeats. Each
+// case gets fresh copies.
+static Value evolve_script(Value responses) {
+  Array source = Core::iter(responses);
+  Array script;
+  if (source.size() > 1) {
+    for (const auto& item : source) script.push_back(parse_json(stringify(item)));
+    return Value(script);
+  }
+  Value single = source.empty() ? Value::object() : source.front();
+  for (int i = 0; i < 32; ++i) script.push_back(parse_json(stringify(single)));
+  return Value(script);
+}
+
 static void run_agent_playbook_evolve(Value fixture) {
-  Array source_responses = Core::iter(Core::get(fixture, "responses", Value::array()));
-  Value scripted_response = source_responses.empty() ? Value::object() : source_responses.front();
+  Value source_responses = Core::get(fixture, "responses", Value::array());
+  Value teacher_responses = Core::get(fixture, "teacher_responses");
+  if (Core::iter(teacher_responses).empty()) teacher_responses = source_responses;
   Value teacher_spec = Core::get(fixture, "teacher_client");
   for (const auto& test_case : Core::iter(Core::get(fixture, "cases", Value::array()))) {
-    Array responses;
-    for (int i = 0; i < 32; ++i) responses.push_back(scripted_response);
-    ConformanceScriptedAI client{Value(responses)};
+    ConformanceScriptedAI client{evolve_script(source_responses)};
     // A configured teacher runs the playbook's reflector/curator and the evolve
     // weakness miner; otherwise the student client does.
     std::unique_ptr<ConformanceScriptedAI> teacher_client;
-    if (!teacher_spec.is_null()) teacher_client = std::make_unique<ConformanceScriptedAI>(Value(responses), Value(), teacher_spec);
+    if (!teacher_spec.is_null()) teacher_client = std::make_unique<ConformanceScriptedAI>(evolve_script(teacher_responses), Value(), teacher_spec);
     ConformanceScriptedAI& teacher = teacher_client ? *teacher_client : client;
     ScriptedCodeRuntime runtime(
         Core::get(fixture, "runtime_script", Value::array()),
@@ -3151,6 +3269,8 @@ static void run(Value fixture) {
     run_stream(fixture);
   } else if (kind == "forward") {
     run_forward(fixture);
+  } else if (kind == "streaming_forward") {
+    run_streaming_forward(fixture);
   } else if (kind == "agent_forward") {
     run_agent_forward(fixture);
   } else if (kind == "agent_playbook_coverage") {

@@ -1,0 +1,47 @@
+{
+  "assertions": [
+    {
+      "contains": "Paris",
+      "field": "answer"
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "Lyon"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_error_contains": "Assertion failed without message",
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-assertion-without-message",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Lyon",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

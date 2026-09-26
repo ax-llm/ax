@@ -3,7 +3,7 @@
 
 struct ScriptedClient : axllm::AIClient {
   axllm::Value complete(axllm::Value) override {
-    return axllm::object({{"content", "{\"answer\":\"Paris\"}"}});
+    return axllm::object({{"content", "Answer: Paris"}});
   }
 };
 

@@ -5,31 +5,32 @@ from axllm import ax, playbook
 
 # A scripted client stands in for a real provider so this example runs without
 # a key. Swap it for ai("openai", api_key=...) to grow a playbook against a live
-# model. The canned JSON satisfies the bound program AND the playbook's internal
-# reflector/curator sub-programs, so the full ACE loop is exercised offline.
+# model. Each program answers in its own output format, chosen by the output
+# wire keys in its prompt: the bound program, then the playbook's reflector and
+# curator, so the full ACE loop is exercised offline.
 class ScriptedClient:
+    @staticmethod
+    def outputs(request, key):
+        return "(wire key: " + chr(96) + key + chr(96) + ")" in json.dumps(request.get("chat_prompt"))
+
     def complete(self, request):
-        return {
-            "content": json.dumps(
-                {
-                    "answer": "Ax composes typed LLM programs.",
-                    "reasoning": "The playbook lacked a brevity rule.",
-                    "errorIdentification": "Answer was too verbose.",
-                    "rootCauseAnalysis": "No guidance on conciseness.",
-                    "correctApproach": "Add a concise-answer guideline.",
-                    "keyInsight": "Prefer one-sentence answers.",
-                    "weaknessDescription": "The agent does not verify its final step.",
-                    "rootCause": "The final step is accepted without a check.",
-                    "proposedGuidance": "Verify the final step before completing the task.",
-                    "evidenceQuotes": ["final", "snapshot", "Answer"],
-                    "configRecommendations": [],
-                    "bulletTags": [],
-                    "operations": [
-                        {"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}
-                    ],
-                }
-            )
-        }
+        if self.outputs(request, "errorIdentification"):
+            content = "\n".join([
+                "Reasoning: The playbook lacked a brevity rule.",
+                "Error Identification: Answer was too verbose.",
+                "Root Cause Analysis: No guidance on conciseness.",
+                "Correct Approach: Add a concise-answer guideline.",
+                "Key Insight: Prefer one-sentence answers.",
+                "Bullet Tags: []",
+            ])
+        elif self.outputs(request, "operations"):
+            content = "\n".join([
+                "Reasoning: The playbook lacked a brevity rule.",
+                'Operations: [{"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}]',
+            ])
+        else:
+            content = "Answer: Ax composes typed LLM programs."
+        return {"content": content}
 
 
 client = ScriptedClient()

@@ -1,0 +1,130 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "thought": "First look. "
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "Lyon"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "thought": "First look. "
+      },
+      "index": 0,
+      "version": 1
+    },
+    {
+      "delta": {
+        "thought": "Rechecked."
+      },
+      "index": 0,
+      "version": 1
+    },
+    {
+      "delta": {
+        "answer": "Paris"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_output": {
+    "thought": "First look. Rechecked.",
+    "answer": "Paris"
+  },
+  "expected_processor_calls": [
+    {
+      "done": true,
+      "field": "answer",
+      "value": "Lyon"
+    },
+    {
+      "done": true,
+      "field": "answer",
+      "value": "Paris"
+    }
+  ],
+  "expected_request_count": 2,
+  "feedback_processors": [
+    {
+      "field": "answer",
+      "returns": "Check it.",
+      "times": 1
+    }
+  ],
+  "forward_options": {
+    "show_thoughts": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-feedback-carries-thought",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "First look. "
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Answer: Lyon",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought": "Rechecked."
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Answer: Paris",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

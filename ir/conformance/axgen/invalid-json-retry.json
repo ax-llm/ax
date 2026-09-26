@@ -6,7 +6,8 @@
     "question": "What is Ax?"
   },
   "options": {
-    "validation_retries": 1
+    "validation_retries": 1,
+    "force_structured": true
   },
   "responses": [
     {
@@ -19,5 +20,9 @@
   "expected_output": {
     "answer": "A TypeScript AI framework."
   },
-  "expected_request_count": 2
+  "expected_request_count": 2,
+  "features": {
+    "structured_outputs": false,
+    "functions": false
+  }
 }

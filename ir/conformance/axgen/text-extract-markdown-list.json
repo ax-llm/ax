@@ -1,0 +1,22 @@
+{
+  "expected_output": {
+    "answers": ["a", "b", "c", "d"]
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-markdown-list",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answers:\n- a\n- b\n* c\n1. d",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answers:string[]"
+}

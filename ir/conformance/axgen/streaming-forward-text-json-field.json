@@ -1,0 +1,63 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "see details"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "details": {
+          "a": [1, 2]
+        }
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "see details",
+    "details": {
+      "a": [1, 2]
+    }
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-json-field",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: see details\nDetails: {\"a\":",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": " [1, 2]}",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, details:json"
+}

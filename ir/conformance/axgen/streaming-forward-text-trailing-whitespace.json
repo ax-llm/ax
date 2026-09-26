@@ -1,0 +1,75 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "one"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "  \n two"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "note": "kept"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "one  \n two",
+    "note": "kept"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-trailing-whitespace",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: one  ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "\n two \n",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "\nNote:   kept  ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "\n",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, note:string"
+}

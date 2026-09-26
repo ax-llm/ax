@@ -552,10 +552,14 @@ writeFixture('empty-response-memory-skip', {
   expected_request_count: 2,
 });
 
+// A text-contract answer is read as text, as in TS; the JSON object rung
+// (forced structure without native JSON) rejects the undeclared key.
 writeFixture('correction-tags-cleaned-after-retry', {
   kind: 'forward',
   signature: 'question:string -> answer:string',
   input: { question: 'Retry' },
+  options: { force_structured: true },
+  features: { structured_outputs: false, functions: false },
   responses: [
     { content: '{"wrong":"field"}' },
     { content: '{"answer":"fixed"}' },
@@ -1022,7 +1026,7 @@ writeFixture('field-processor-memory-write', {
   kind: 'forward',
   signature: 'question:string -> answer:string',
   input: { question: 'Process' },
-  field_processors: [{ field: 'answer', op: 'trim' }],
+  field_transforms: [{ field: 'answer', op: 'trim' }],
   responses: [{ content: '{"answer":"  done  "}' }],
   expected_output: { answer: 'done' },
   expected_memory_history_subset: [

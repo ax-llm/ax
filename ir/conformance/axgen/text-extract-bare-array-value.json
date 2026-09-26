@@ -1,0 +1,22 @@
+{
+  "expected_output": {
+    "answers": ["just one"]
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-bare-array-value",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answers: just one",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answers:string[]"
+}

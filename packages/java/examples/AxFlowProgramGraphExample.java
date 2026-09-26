@@ -4,7 +4,7 @@ import java.util.*;
 public final class AxFlowProgramGraphExample {
   static final class ScriptedClient implements AiClient {
     public Map<String, Object> complete(Map<String, Object> request) {
-      return Map.of("content", "{\"answer\":\"Paris\"}");
+      return Map.of("content", "Answer: Paris");
     }
   }
 

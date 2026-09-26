@@ -79,29 +79,43 @@ function assertionStrings(fixture) {
   return out;
 }
 
-// Indices of responses whose content (or JSON leaves) overlap an assertion.
+// Responses whose content (or JSON leaves) overlap an assertion, as
+// `responses#N`. A fixture that scripts its teacher client separately
+// (`teacher_responses`) asserts what the teacher stages decide, so every
+// teacher response is a mutation candidate too, as `teacher_responses#N`.
 export function loadBearingResponses(fixture) {
   const responses = Array.isArray(fixture.responses) ? fixture.responses : [];
-  if (responses.length === 0) return [];
+  const teacher = Array.isArray(fixture.teacher_responses)
+    ? fixture.teacher_responses
+    : [];
+  const selected = [];
   const asserts = assertionStrings(fixture);
-  if (asserts.length === 0) return [];
-  const indices = [];
-  responses.forEach((response, index) => {
-    const content =
-      typeof response?.content === 'string' ? response.content : '';
-    const candidates = [];
-    if (content.length >= MIN_LEN) candidates.push(content);
-    try {
-      collectLeafStrings(JSON.parse(content), candidates);
-    } catch {
-      // content is not JSON; the raw content candidate already covers it.
-    }
-    const hit = candidates.some((c) =>
-      asserts.some((a) => a.includes(c) || c.includes(a))
-    );
-    if (hit) indices.push(index);
-  });
-  return indices;
+  if (asserts.length > 0) {
+    responses.forEach((response, index) => {
+      const content =
+        typeof response?.content === 'string' ? response.content : '';
+      const candidates = [];
+      if (content.length >= MIN_LEN) candidates.push(content);
+      try {
+        collectLeafStrings(JSON.parse(content), candidates);
+      } catch {
+        // content is not JSON; the raw content candidate already covers it.
+      }
+      const hit = candidates.some((c) =>
+        asserts.some((a) => a.includes(c) || c.includes(a))
+      );
+      if (hit) selected.push(`responses#${index}`);
+    });
+  }
+  if (selected.length === 0 && teacher.length === 0) return [];
+  teacher.forEach((_, index) => selected.push(`teacher_responses#${index}`));
+  return selected;
+}
+
+function mutateResponse(fixture, selection) {
+  const [key, index] = selection.split('#');
+  const list = fixture[key];
+  list[Number(index)] = { ...list[Number(index)], content: SENTINEL };
 }
 
 function discoverCases() {
@@ -200,24 +214,22 @@ async function main() {
         process.exit(2);
       }
       let anyFailed = false;
-      for (const idx of c.responses) {
+      for (const selection of c.responses) {
         const mutated = JSON.parse(JSON.stringify(pristine));
-        mutated.responses[idx] = {
-          ...mutated.responses[idx],
-          content: SENTINEL,
-        };
+        mutateResponse(mutated, selection);
+        const label = selection.replace('#', '-');
         const result = runFixture(
           runners[target],
           work,
-          `${target}-${idx}`,
+          `${target}-${label}`,
           mutated,
-          `${c.suite}/${c.file} with resp#${idx} mutated`
+          `${c.suite}/${c.file} with ${selection} mutated`
         );
         const failed = result.status !== 0;
         checks += 1;
         if (failed) anyFailed = true;
         console.log(
-          `[${failed ? 'rejected' : 'accepted'}] ${target} ${c.suite}/${c.file} resp#${idx}`
+          `[${failed ? 'rejected' : 'accepted'}] ${target} ${c.suite}/${c.file} ${selection}`
         );
       }
       if (!anyFailed) {

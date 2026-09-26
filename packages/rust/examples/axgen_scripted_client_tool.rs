@@ -13,9 +13,7 @@ impl AxAIClient for ScriptedClient {
                 json!({"results": [{"content": "", "function_calls": [{"id": "call_1", "name": "search", "params": {"query": "ax docs"}}]}]}),
             );
         }
-        Ok(
-            json!({"results": [{"content": "{\"answer\":\"Found Ax docs\"}", "function_calls": []}]}),
-        )
+        Ok(json!({"results": [{"content": "Answer: Found Ax docs", "function_calls": []}]}))
     }
 }
 

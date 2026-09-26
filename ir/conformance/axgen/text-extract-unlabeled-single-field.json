@@ -1,0 +1,22 @@
+{
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-unlabeled-single-field",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "ok",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

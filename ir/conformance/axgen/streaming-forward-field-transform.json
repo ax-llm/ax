@@ -1,0 +1,73 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "note": "fi"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "note": "ne"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "HELLO"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "note": "fine",
+    "answer": "HELLO"
+  },
+  "expected_request_count": 1,
+  "field_transforms": [
+    {
+      "field": "answer",
+      "op": "uppercase"
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-field-transform",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: hel",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "lo\nNote: fi",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "ne",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, note:string"
+}

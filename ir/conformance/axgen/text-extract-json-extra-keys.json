@@ -1,0 +1,22 @@
+{
+  "expected_output": {
+    "answer": "{\"answer\":\"x\",\"extra\":1}"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-json-extra-keys",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"answer\":\"x\",\"extra\":1}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

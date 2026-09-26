@@ -590,8 +590,8 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "axgen-indexed-multi-sample-parse"
-    type signature = "(AxGen, list<Field>, json, bool, string, string) -> json throws"
-    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool, %thought_field: string, %thought_prefix: string) {
+    type signature = "(AxGen, list<Field>, json, bool, string, string, bool) -> json throws"
+    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool, %thought_field: string, %thought_prefix: string, %text_contract: bool) {
       %empty_results = core.list
       %completions = core.get %response["results"] default %empty_results
       %completion_count = core.call intrinsic.len(%completions)
@@ -602,20 +602,49 @@ module @ax.gen version "0.1" {
       }
       %outputs = core.list
       %samples = core.list
+      %feedback = core.list
       %position = core.const 0
       core.for %completion in %completions {
         %content = core.get %completion["content"] default ""
         %output = core.map
-        core.if %validate_exact_json {
-          %output = core.call @parse_output_impl(%content)
+        %extracted = core.let false
+        core.if %text_contract {
+          // TS extractValues, after the port-only JSON object fallback.
+          %text_parsed = core.call @parse_text_contract_output_impl(%content, %output_fields)
+          %output = core.get %text_parsed["values"]
+          %extracted = core.get %text_parsed["extracted"] default false
         } else {
-          %output = core.call @parse_output_fields_impl(%content, %output_fields)
+          core.if %validate_exact_json {
+            %output = core.call @parse_output_impl(%content)
+          } else {
+            %output = core.call @parse_output_fields_impl(%content, %output_fields)
+          }
         }
         core.if %validate_exact_json {
           core.call @validate_exact_output_keys(%output_fields, %output, "output")
         }
-        %recovered = core.call @parse_json_string_fields(%output_fields, %output)
-        %validated = core.call @validate_output(%output_fields, %recovered)
+        %validated = core.let %output
+        %not_extracted = core.call intrinsic.not(%extracted)
+        core.if %not_extracted {
+          %recovered = core.call @parse_json_string_fields(%output_fields, %output)
+          %validated = core.call @validate_output(%output_fields, %recovered)
+        }
+        // TS field processors see the parsed values and feed back text for
+        // another step.
+        %processor_state = core.map
+        core.set %processor_state["values"] = %validated
+        %sample_feedback = core.call @stream_run_processors_impl(%gen, "feedback", %processor_state, %content, true)
+        %processor_failure = core.get %processor_state["fatal_error"]
+        %processor_failed = core.call intrinsic.is_not_none(%processor_failure)
+        core.if %processor_failed {
+          // The caller raises it outside its validation retries.
+          %processor_bundle = core.map
+          core.set %processor_bundle["assertion_failure"] = %processor_failure
+          core.return %processor_bundle
+        }
+        core.for %feedback_text in %sample_feedback {
+          core.append %feedback, %feedback_text
+        }
         %processed = core.call @apply_field_processors(%gen, %validated)
         %assertion_failure = core.call @run_assertions(%gen, %processed)
         %assertion_failed = core.call intrinsic.is_not_none(%assertion_failure)
@@ -640,6 +669,7 @@ module @ax.gen version "0.1" {
       %bundle = core.map
       core.set %bundle["outputs"] = %outputs
       core.set %bundle["samples"] = %samples
+      core.set %bundle["feedback"] = %feedback
       core.return %bundle
     }
   }
@@ -693,6 +723,14 @@ module @ax.gen version "0.1" {
     body @entry(%gen: AxGen, %client: AIClient, %values: json, %options: json) {
       %base_options = core.get %gen["options"]
       %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
+      // As in TS, a streamed forward returns what a streaming consumer merges.
+      %stream_option = core.get %runtime_options["stream"] default false
+      %streamed = core.call intrinsic.truthy(%stream_option)
+      core.if %streamed {
+        %no_sink = core.call intrinsic.none()
+        %merged = core.call @streaming_forward(%gen, %client, %values, %options, %no_sink)
+        core.return %merged
+      }
       %signature = core.get %gen["signature"]
       %model = core.get %runtime_options["model"]
       %features = core.call intrinsic.ai.client_features(%client, %model)
@@ -700,6 +738,9 @@ module @ax.gen version "0.1" {
       %selection = core.call @select_structured_output_rung(%signature, %features, %runtime_options)
       %selected_rung = core.get %selection["rung"]
       %validate_exact_json = core.call intrinsic.eq(%selected_rung, "json_object")
+      // With no structured rung the answer uses the `Label: value` text
+      // contract.
+      %text_contract = core.call intrinsic.is_none(%selected_rung)
       %input_fields = core.get %signature["input_fields"]
       core.call @validate_fields(%input_fields, %values, "input")
       %prompt_template = core.get %gen["prompt_template"]
@@ -890,7 +931,7 @@ module @ax.gen version "0.1" {
         } else {
           %parsed_bundle = core.map
           core.try {
-            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix)
+            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract)
             %parsed_bundle = core.let %parsed
           } catch %validation_error {
             %retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
@@ -909,6 +950,38 @@ module @ax.gen version "0.1" {
           %assertion_failed = core.call intrinsic.is_not_none(%assertion_failure)
           core.if %assertion_failed {
             core.raise %assertion_failure
+          }
+          %empty_feedback = core.list
+          %feedback = core.get %parsed_bundle["feedback"] default %empty_feedback
+          %feedback_count = core.call intrinsic.len(%feedback)
+          %fed_back = core.call intrinsic.gt(%feedback_count, 0)
+          core.if %fed_back {
+            // As in TS, field processor feedback goes to the model after its
+            // answer and the run takes another step; the answer is replaced
+            // and the thought joins across steps.
+            %answer_content = core.get %response["content"] default ""
+            %answer_message = core.map
+            core.set %answer_message["role"] = "assistant"
+            core.set %answer_message["content"] = %answer_content
+            core.append %messages, %answer_message
+            %feedback_messages = core.list
+            core.for %feedback_text in %feedback {
+              %feedback_message = core.map
+              core.set %feedback_message["role"] = "user"
+              core.set %feedback_message["content"] = %feedback_text
+              core.append %messages, %feedback_message
+              core.append %feedback_messages, %feedback_message
+            }
+            core.call intrinsic.axgen.memory_add_request(%gen, %feedback_messages)
+            core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
+            %feedback_step = core.call intrinsic.add(%step, 1)
+            %step = core.let %feedback_step
+            %attempt = core.let 0
+            %infra_attempt = core.let 0
+            %feedback_thought = core.get %response["thought"] default ""
+            %feedback_joined = core.call intrinsic.add(%thought_prefix, %feedback_thought)
+            %thought_prefix = core.let %feedback_joined
+            core.continue
           }
           %public_outputs = core.get %parsed_bundle["outputs"]
           %structured_samples = core.get %parsed_bundle["samples"]
@@ -1782,6 +1855,562 @@ module @ax.gen version "0.1" {
         core.set %output[%field] = %joined
       }
       core.return %output
+    }
+  }
+
+  op ax.gen.semantic @streaming_forward {
+    attr core_kind = "method"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr emit_name = "_streaming_forward_impl"
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(AxGen, AIClient, json, json, json) -> json throws"
+    body @entry(%gen: AxGen, %client: AIClient, %values: json, %options: json, %sink: json) {
+      // TS streamingForward: sends {version, index, delta} to the sink as the
+      // model streams, and returns the merged output of the picked sample.
+      // Retries, steps and tools follow forward; a validation or refusal retry
+      // starts a new version, an infrastructure retry resumes the current one,
+      // and a step after emitted output fields starts a new version that
+      // carries the thought so far.
+      %base_options = core.get %gen["options"]
+      %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
+      core.set %runtime_options["stream"] = true
+      %signature = core.get %gen["signature"]
+      %model = core.get %runtime_options["model"]
+      %features = core.call intrinsic.ai.client_features(%client, %model)
+      %functions = core.get %gen["functions"]
+      %selection = core.call @select_structured_output_rung(%signature, %features, %runtime_options)
+      %selected_rung = core.get %selection["rung"]
+      %input_fields = core.get %signature["input_fields"]
+      core.call @validate_fields(%input_fields, %values, "input")
+      %prompt_template = core.get %gen["prompt_template"]
+      %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values)
+      %example_messages = core.call @render_examples(%gen)
+      %demo_messages = core.call @render_demos(%gen)
+      %system_message = core.call intrinsic.list.get(%messages, 0, %messages)
+      %user_message = core.call intrinsic.list.get(%messages, 1, %messages)
+      %ordered_messages = core.list
+      core.append %ordered_messages, %system_message
+      core.for %example_message in %example_messages {
+        core.append %ordered_messages, %example_message
+      }
+      core.for %demo_message in %demo_messages {
+        core.append %ordered_messages, %demo_message
+      }
+      core.append %ordered_messages, %user_message
+      %output_fields = core.get %signature["output_fields"]
+      core.call @append_structured_output_instruction(%ordered_messages, %output_fields, %selection)
+      %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
+      %validation_feedback = core.get %runtime_options["validationFeedback"] default %validation_feedback_snake
+      %has_validation_feedback = core.call intrinsic.truthy(%validation_feedback)
+      core.if %has_validation_feedback {
+        %validation_feedback_message = core.map
+        core.set %validation_feedback_message["role"] = "user"
+        core.set %validation_feedback_message["content"] = %validation_feedback
+        core.append %ordered_messages, %validation_feedback_message
+      }
+      %cached_messages = core.call intrinsic.axgen.apply_context_cache(%gen, %ordered_messages, %options)
+      %messages = core.let %cached_messages
+      core.call intrinsic.axgen.memory_add_request(%gen, %messages)
+      %max_retries_snake = core.get %runtime_options["max_retries"] default 3
+      %max_retries = core.get %runtime_options["maxRetries"] default %max_retries_snake
+      %validation_retries_snake = core.get %runtime_options["validation_retries"] default %max_retries
+      %validation_retries = core.get %runtime_options["validationRetries"] default %validation_retries_snake
+      %infra_retries_snake = core.get %runtime_options["infra_retries"] default %max_retries
+      %infra_retries = core.get %runtime_options["infraRetries"] default %infra_retries_snake
+      %thought_field_snake = core.get %base_options["thought_field_name"] default "thought"
+      %thought_field = core.get %base_options["thoughtFieldName"] default %thought_field_snake
+      %max_steps_snake = core.get %runtime_options["max_steps"] default 25
+      %max_steps = core.get %runtime_options["maxSteps"] default %max_steps_snake
+      // Structured rungs and complex signatures parse the content as JSON;
+      // the text contract extracts `Label: value` fields.
+      %complex = core.call @signature_has_complex_fields(%signature, %runtime_options)
+      %is_native = core.call intrinsic.eq(%selected_rung, "native")
+      %is_json_object = core.call intrinsic.eq(%selected_rung, "json_object")
+      %is_function_rung = core.call intrinsic.eq(%selected_rung, "function")
+      %structured = core.call intrinsic.or(%complex, %is_native)
+      %structured = core.call intrinsic.or(%structured, %is_json_object)
+      %simple = core.call intrinsic.not(%complex)
+      %native_simple = core.call intrinsic.and(%is_native, %simple)
+      %strict_json = core.call intrinsic.or(%is_json_object, %native_simple)
+      %not_function_rung = core.call intrinsic.not(%is_function_rung)
+      %parse_json_strings = core.call intrinsic.and(%complex, %not_function_rung)
+      %held = core.call @stream_held_fields_impl(%gen, %output_fields)
+      %config = core.map
+      core.set %config["fields"] = %output_fields
+      core.set %config["held"] = %held
+      core.set %config["structured"] = %structured
+      core.set %config["strict_json"] = %strict_json
+      core.set %config["parse_json_strings"] = %parse_json_strings
+      core.set %config["thought_field"] = %thought_field
+      %sample_snake = core.get %runtime_options["sample_count"]
+      %sample_camel = core.get %runtime_options["sampleCount"] default %sample_snake
+      %sample_count = core.get %runtime_options["n"] default %sample_camel
+      %no_sample_count = core.call intrinsic.is_none(%sample_count)
+      core.if %no_sample_count {
+        %sample_count = core.let 1
+      }
+      %picker_snake = core.get %runtime_options["result_picker"]
+      %picker = core.get %runtime_options["resultPicker"] default %picker_snake
+      %buffered = core.call intrinsic.is_not_none(%picker)
+      %run = core.call @stream_run_state_impl(%sink, %buffered, %thought_field)
+      %committed = core.map
+      %control_version = core.let 0
+      %step = core.let 0
+      core.loop {
+        %steps_exhausted = core.call intrinsic.gte(%step, %max_steps)
+        core.if %steps_exhausted {
+          %max_steps_message = core.call intrinsic.string.format("Generate failed: Max steps reached: {}", %max_steps)
+          %max_steps_error = core.call intrinsic.error.runtime(%max_steps_message)
+          core.raise %max_steps_error
+        }
+        %step_started = core.call intrinsic.gt(%step, 0)
+        %output_emitted = core.get %run["output_emitted"] default false
+        %replace_output = core.call intrinsic.and(%step_started, %output_emitted)
+        core.if %replace_output {
+          // A step after emitted output fields replaces them: a new version
+          // that re-sends the thought so far, so thought still joins.
+          %held_version = core.get %run["current_version"] default 0
+          %behind = core.call intrinsic.lt(%control_version, %held_version)
+          core.if %behind {
+            %control_version = core.let %held_version
+          }
+          %control_version = core.call intrinsic.add(%control_version, 1)
+          %committed = core.map
+          %empty_carried = core.list
+          %carried = core.get %run["emitted_thought"] default %empty_carried
+          core.call @stream_run_new_version_impl(%run, %control_version)
+          core.for %carried_entry in %carried {
+            %carried_text = core.get %carried_entry["text"] default ""
+            %has_carried = core.call intrinsic.ne(%carried_text, "")
+            core.if %has_carried {
+              %carried_index = core.get %carried_entry["index"] default 0
+              %carried_delta = core.map
+              core.set %carried_delta[%thought_field] = %carried_text
+              core.call @stream_yield_impl(%run, %control_version, %carried_index, %carried_delta)
+            }
+          }
+        }
+        %infra_attempt = core.let 0
+        %infra_error = core.call intrinsic.none()
+        core.loop {
+          // errCount starts over: resume from the version consumers hold.
+          %resume_version = core.get %run["current_version"] default 0
+          %stale = core.call intrinsic.lt(%control_version, %resume_version)
+          core.if %stale {
+            %control_version = core.let %resume_version
+          }
+          %attempt = core.let 0
+          %infra_retry = core.let false
+          %next_step = core.let false
+          core.loop {
+            %version = core.call intrinsic.add(%control_version, %attempt)
+            %states = core.list
+            %state_index = core.let 0
+            core.loop {
+              %enough = core.call intrinsic.gte(%state_index, %sample_count)
+              core.if %enough {
+                core.break
+              }
+              %state = core.call @stream_state_impl(%state_index)
+              core.append %states, %state
+              %state_index = core.call intrinsic.add(%state_index, 1)
+            }
+            %retrying = core.call intrinsic.gt(%attempt, 0)
+            core.if %retrying {
+              %committed = core.map
+            }
+            %current = core.map
+            %ctx = core.map
+            core.set %ctx["run"] = %run
+            core.set %ctx["committed"] = %committed
+            core.set %ctx["current"] = %current
+            core.set %ctx["version"] = %version
+            %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
+            %events = core.list
+            %stage = core.let "provider"
+            %handle = core.call intrinsic.none()
+            %recorded = core.let false
+            %response = core.map
+            %outcome = core.map
+            %structured_call = core.call intrinsic.none()
+            %structured_stage = core.let "validation"
+            core.try {
+              %handle = core.call intrinsic.ai.stream_open(%client, %request, %runtime_options)
+              core.loop {
+                %stage = core.let "provider"
+                %event = core.call intrinsic.ai.stream_next(%handle)
+                %exhausted = core.call intrinsic.is_none(%event)
+                core.if %exhausted {
+                  core.break
+                }
+                core.append %events, %event
+                %stage = core.let "validation"
+                %chunk = core.let %event
+                %has_routing = core.call intrinsic.map.contains(%event, "routing")
+                %has_wrapped = core.call intrinsic.map.contains(%event, "response")
+                %router_envelope = core.call intrinsic.and(%has_routing, %has_wrapped)
+                core.if %router_envelope {
+                  %chunk = core.get %event["response"]
+                }
+                %empty_results = core.list
+                %results = core.get %chunk["results"] default %empty_results
+                core.for %result in %results {
+                  %finish_snake = core.get %result["finish_reason"]
+                  %finish = core.get %result["finishReason"] default %finish_snake
+                  %failed_stream = core.call intrinsic.eq(%finish, "error")
+                  core.if %failed_stream {
+                    %stage = core.let "fatal"
+                    %stream_error = core.call intrinsic.error.runtime("Streaming response failed")
+                    core.raise %stream_error
+                  }
+                  // Terminal status often arrives in a separate empty chunk.
+                  %result_content = core.get %result["content"] default ""
+                  %result_thought = core.get %result["thought"] default ""
+                  %empty_blocks = core.list
+                  %blocks_snake = core.get %result["thought_blocks"] default %empty_blocks
+                  %blocks = core.get %result["thoughtBlocks"] default %blocks_snake
+                  %calls_snake = core.get %result["function_calls"] default %empty_blocks
+                  %result_calls = core.get %result["functionCalls"] default %calls_snake
+                  %phase = core.get %result["phase"]
+                  %has_content = core.call intrinsic.truthy(%result_content)
+                  %has_thought = core.call intrinsic.truthy(%result_thought)
+                  %block_count = core.call intrinsic.len(%blocks)
+                  %has_blocks = core.call intrinsic.gt(%block_count, 0)
+                  %call_count = core.call intrinsic.len(%result_calls)
+                  %has_result_calls = core.call intrinsic.gt(%call_count, 0)
+                  %has_phase = core.call intrinsic.truthy(%phase)
+                  %hit_length = core.call intrinsic.eq(%finish, "length")
+                  %substantive = core.call intrinsic.or(%has_content, %has_thought)
+                  %substantive = core.call intrinsic.or(%substantive, %has_blocks)
+                  %substantive = core.call intrinsic.or(%substantive, %has_result_calls)
+                  %substantive = core.call intrinsic.or(%substantive, %has_phase)
+                  %substantive = core.call intrinsic.or(%substantive, %hit_length)
+                  %skip_result = core.call intrinsic.not(%substantive)
+                  core.if %skip_result {
+                    core.continue
+                  }
+                  %index = core.get %result["index"] default 0
+                  %no_state = core.call intrinsic.none()
+                  %state = core.call intrinsic.list.get(%states, %index, %no_state)
+                  %missing_state = core.call intrinsic.is_none(%state)
+                  core.if %missing_state {
+                    %stage = core.let "fatal"
+                    %state_message = core.call intrinsic.string.format("No state found for result (index: {})", %index)
+                    %state_error = core.call intrinsic.error.runtime(%state_message)
+                    core.raise %state_error
+                  }
+                  %thought_is_text = core.type_is %result_thought type "string"
+                  %thought_chunk = core.call intrinsic.and(%has_thought, %thought_is_text)
+                  core.if %thought_chunk {
+                    %empty_values = core.map
+                    %state_values = core.get %state["values"] default %empty_values
+                    %old_thought = core.get %state_values[%thought_field] default ""
+                    %joined_thought = core.call intrinsic.add(%old_thought, %result_thought)
+                    core.set %state_values[%thought_field] = %joined_thought
+                    core.set %state["values"] = %state_values
+                    %thought_delta = core.map
+                    core.set %thought_delta[%thought_field] = %result_thought
+                    %thought_deltas = core.list
+                    core.append %thought_deltas, %thought_delta
+                    %stage = core.let "fatal"
+                    core.call @stream_emit_deltas_impl(%ctx, %index, %thought_deltas)
+                    %stage = core.let "validation"
+                  }
+                  core.if %hit_length {
+                    %stage = core.let "fatal"
+                    %length_error = core.call intrinsic.error.runtime("Max tokens reached before completion")
+                    core.raise %length_error
+                  }
+                  %content_deltas = core.call @stream_chunk_content_impl(%gen, %config, %state, %result)
+                  %stage = core.let "fatal"
+                  %callback_failure = core.get %state["fatal_error"]
+                  %callback_failed = core.call intrinsic.is_not_none(%callback_failure)
+                  core.if %callback_failed {
+                    core.raise %callback_failure
+                  }
+                  core.call @stream_emit_deltas_impl(%ctx, %index, %content_deltas)
+                  %stage = core.let "validation"
+                }
+              }
+              %stage = core.let "validation"
+              %folded = core.call @fold_chat_response_stream(%events)
+              %response = core.call @chat_response_to_completion(%folded)
+              core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
+              core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
+              %recorded = core.let true
+              %calls = core.call @response_function_calls_impl(%response)
+              %response_call_count = core.call intrinsic.len(%calls)
+              %has_calls = core.call intrinsic.gt(%response_call_count, 0)
+              core.if %has_calls {
+                %structured_call = core.call @find_structured_output_call(%calls)
+                %has_structured_call = core.call intrinsic.is_not_none(%structured_call)
+                core.if %has_structured_call {
+                  %stage = core.let "structured"
+                  %structured_stage = core.let "validation"
+                  %structured_args = core.call @structured_output_call_args(%structured_call)
+                  core.call @validate_exact_output_keys(%output_fields, %structured_args, "output")
+                  %structured_recovered = core.call @parse_json_string_fields(%output_fields, %structured_args)
+                  %structured_validated = core.call @validate_output(%output_fields, %structured_recovered)
+                  %structured_processed = core.call @apply_field_processors(%gen, %structured_validated)
+                  %structured_stage = core.let "assertion"
+                  %structured_failure = core.call @run_assertions(%gen, %structured_processed)
+                  %structured_failed = core.call intrinsic.is_not_none(%structured_failure)
+                  core.if %structured_failed {
+                    %stage = core.let "fatal"
+                    core.raise %structured_failure
+                  }
+                  %structured_public = core.call @strip_internal_fields(%output_fields, %structured_processed)
+                  %stage = core.let "fatal"
+                  core.for %structured_state in %states {
+                    %structured_index = core.get %structured_state["index"] default 0
+                    %structured_delta = core.map
+                    %public_keys = core.call intrinsic.map.keys(%structured_public)
+                    core.for %public_key in %public_keys {
+                      %public_value = core.get %structured_public[%public_key]
+                      core.set %structured_delta[%public_key] = %public_value
+                    }
+                    // A stream yields thought chunk by chunk; a response that
+                    // did not is sent with the fields, as TS does.
+                    %index_key = core.call intrinsic.string.format("{}", %structured_index)
+                    %empty_attempt = core.map
+                    %attempt_values = core.get %current[%index_key] default %empty_attempt
+                    %thought_yielded = core.call intrinsic.map.contains(%attempt_values, %thought_field)
+                    %thought_pending = core.call intrinsic.not(%thought_yielded)
+                    %response_thought = core.get %response["thought"] default ""
+                    %has_response_thought = core.call intrinsic.truthy(%response_thought)
+                    %add_thought = core.call intrinsic.and(%thought_pending, %has_response_thought)
+                    core.if %add_thought {
+                      core.set %structured_delta[%thought_field] = %response_thought
+                    }
+                    core.call @stream_yield_impl(%run, %version, %structured_index, %structured_delta)
+                  }
+                  core.set %outcome["kind"] = "done"
+                } else {
+                  core.set %outcome["kind"] = "tools"
+                  core.set %outcome["calls"] = %calls
+                }
+              } else {
+                %feedback = core.list
+                core.for %final_state in %states {
+                  %finalized = core.call @stream_finalize_impl(%gen, %config, %ctx, %final_state)
+                  %final_failure = core.get %finalized["failure"]
+                  %has_final_failure = core.call intrinsic.is_not_none(%final_failure)
+                  core.if %has_final_failure {
+                    %stage = core.let "fatal"
+                    core.raise %final_failure
+                  }
+                  %empty_final_feedback = core.list
+                  %final_feedback = core.get %finalized["feedback"] default %empty_final_feedback
+                  core.for %feedback_text in %final_feedback {
+                    core.append %feedback, %feedback_text
+                  }
+                }
+                %feedback_count = core.call intrinsic.len(%feedback)
+                %fed_back = core.call intrinsic.gt(%feedback_count, 0)
+                core.if %fed_back {
+                  core.set %outcome["kind"] = "feedback"
+                  core.set %outcome["feedback"] = %feedback
+                } else {
+                  core.set %outcome["kind"] = "done"
+                }
+              }
+              %open_handle = core.call intrinsic.is_not_none(%handle)
+              core.if %open_handle {
+                core.call intrinsic.ai.stream_close(%handle)
+              }
+            } catch %attempt_error {
+              %close_handle = core.call intrinsic.is_not_none(%handle)
+              core.if %close_handle {
+                core.try {
+                  core.call intrinsic.ai.stream_close(%handle)
+                } catch %close_error {
+                }
+              }
+              %is_fatal = core.call intrinsic.eq(%stage, "fatal")
+              core.if %is_fatal {
+                core.raise %attempt_error
+              }
+              %aborted = core.call intrinsic.exception.is_aborted(%attempt_error)
+              core.if %aborted {
+                core.raise %attempt_error
+              }
+              %from_provider = core.call intrinsic.eq(%stage, "provider")
+              core.if %from_provider {
+                // As in forward, only infrastructure errors and refusals are
+                // retried.
+                %infrastructure = core.call intrinsic.exception.is_infrastructure(%attempt_error)
+                core.if %infrastructure {
+                  %infra_retry = core.let true
+                  %infra_error = core.let %attempt_error
+                  core.break
+                }
+                %refused = core.call intrinsic.exception.is_refusal(%attempt_error)
+                %not_refused = core.call intrinsic.not(%refused)
+                core.if %not_refused {
+                  core.raise %attempt_error
+                }
+                %refusal_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
+                core.if %refusal_exhausted {
+                  core.raise %attempt_error
+                }
+                %attempt = core.call intrinsic.add(%attempt, 1)
+                core.continue
+              }
+              %retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
+              core.if %retries_exhausted {
+                core.raise %attempt_error
+              }
+              %attempt = core.call intrinsic.add(%attempt, 1)
+              %not_recorded = core.call intrinsic.not(%recorded)
+              core.if %not_recorded {
+                %partial_folded = core.call @fold_chat_response_stream(%events)
+                %response = core.call @chat_response_to_completion(%partial_folded)
+                core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
+                core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
+              }
+              %structured_retry = core.call intrinsic.eq(%stage, "structured")
+              core.if %structured_retry {
+                %structured_retry_messages = core.call @append_structured_output_retry_messages_impl(%messages, %response, %structured_call, %attempt_error, %structured_stage)
+                %messages = core.let %structured_retry_messages
+              } else {
+                %retry_messages = core.call @append_assertion_retry_messages(%messages, %response, %attempt_error)
+                %messages = core.let %retry_messages
+              }
+              core.call intrinsic.axgen.memory_add_correction(%gen, %response, %attempt_error)
+              core.continue
+            }
+            %kind = core.get %outcome["kind"] default "done"
+            %is_tools = core.call intrinsic.eq(%kind, "tools")
+            core.if %is_tools {
+              %empty_calls = core.list
+              %tool_calls = core.get %outcome["calls"] default %empty_calls
+              %updated_messages = core.call @append_tool_call_messages_impl(%messages, %response, %tool_calls)
+              %messages = core.let %updated_messages
+              core.for %call in %tool_calls {
+                core.try {
+                  %tool_result = core.call @execute_tool_call(%functions, %call)
+                  %tool_message = core.call @tool_result_message_impl(%call, %tool_result)
+                  core.append %messages, %tool_message
+                  core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_result, true)
+                  core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_result, "ok")
+                } catch %tool_error {
+                  %tool_error_message = core.call @tool_error_message_impl(%call, %tool_error)
+                  core.append %messages, %tool_error_message
+                  core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_error_message, false)
+                  core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_error_message, "error")
+                }
+              }
+              %continue_after_tools = core.call @should_continue_steps(%gen, %tool_calls)
+              core.if %continue_after_tools {
+                %next_step = core.let true
+                core.break
+              }
+              // A user stop function ends the run with what was streamed.
+              %stop_output = core.call @stream_result_impl(%run, %runtime_options)
+              core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
+              core.call @record_trace(%gen, %values, %stop_output, "ok")
+              core.return %stop_output
+            }
+            %is_feedback = core.call intrinsic.eq(%kind, "feedback")
+            core.if %is_feedback {
+              // Field processor feedback goes back to the model as user
+              // messages after its answer, and the run takes another step.
+              %assistant_content = core.get %response["content"] default ""
+              %assistant_message = core.map
+              core.set %assistant_message["role"] = "assistant"
+              core.set %assistant_message["content"] = %assistant_content
+              core.append %messages, %assistant_message
+              %empty_feedback_texts = core.list
+              %feedback_texts = core.get %outcome["feedback"] default %empty_feedback_texts
+              %feedback_messages = core.list
+              core.for %feedback_text in %feedback_texts {
+                %feedback_message = core.map
+                core.set %feedback_message["role"] = "user"
+                core.set %feedback_message["content"] = %feedback_text
+                core.append %messages, %feedback_message
+                core.append %feedback_messages, %feedback_message
+              }
+              core.call intrinsic.axgen.memory_add_request(%gen, %feedback_messages)
+              %next_step = core.let true
+              core.break
+            }
+            %final_output = core.call @stream_result_impl(%run, %runtime_options)
+            core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
+            core.call @record_trace(%gen, %values, %final_output, "ok")
+            core.return %final_output
+          }
+          core.if %infra_retry {
+            %infra_exhausted = core.call intrinsic.gte(%infra_attempt, %infra_retries)
+            core.if %infra_exhausted {
+              core.raise %infra_error
+            }
+            core.call intrinsic.retry.sleep(%infra_attempt, %client, %runtime_options)
+            %infra_attempt = core.call intrinsic.add(%infra_attempt, 1)
+            core.continue
+          }
+          core.if %next_step {
+            core.break
+          }
+          core.raise "unreachable AxGen streaming attempt exit"
+        }
+        %step = core.call intrinsic.add(%step, 1)
+      }
+      core.raise "unreachable AxGen streaming loop exit"
+    }
+  }
+
+  op ax.gen.semantic @parse_text_contract_output_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/streamingText.ts"
+    type signature = "(string, list<Field>) -> json throws"
+    body @entry(%content: string, %output_fields: list<Field>) {
+      // TS extractValues parses `Label: value` answers. For compatibility the
+      // ports still read an answer that is exactly one JSON object whose keys
+      // are all output fields; that fallback is deprecated and TS treats such
+      // an answer as text.
+      %out = core.map
+      %trimmed = core.string_trim %content
+      %looks_json = core.call intrinsic.string.starts_with(%trimmed, "{")
+      core.if %looks_json {
+        %candidate = core.call intrinsic.none()
+        core.try {
+          %candidate = core.call intrinsic.json.parse_strict(%trimmed)
+        } catch %not_json {
+        }
+        %is_object = core.type_is %candidate type "object"
+        core.if %is_object {
+          %declared_only = core.let true
+          %keys = core.call intrinsic.map.keys(%candidate)
+          core.for %key in %keys {
+            %declared = core.let false
+            core.for %field in %output_fields {
+              %field_name = core.get %field["name"] default ""
+              %same = core.call intrinsic.eq(%field_name, %key)
+              core.if %same {
+                %declared = core.let true
+              }
+            }
+            %undeclared = core.call intrinsic.not(%declared)
+            core.if %undeclared {
+              %declared_only = core.let false
+            }
+          }
+          core.if %declared_only {
+            core.call intrinsic.axgen.deprecation("json-text-contract", "A text-contract answer that is one JSON object of output fields is parsed as those fields for compatibility; TypeScript Ax reads it as text. This fallback is deprecated and will be removed in the next major version: answer with `Label: value` lines.")
+            core.set %out["values"] = %candidate
+            core.set %out["extracted"] = false
+            core.return %out
+          }
+        }
+      }
+      %values = core.call @stream_text_extract_values_impl(%content, %output_fields)
+      core.set %out["values"] = %values
+      core.set %out["extracted"] = true
+      core.return %out
     }
   }
 }

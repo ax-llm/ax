@@ -161,7 +161,10 @@ public final class AstraSessionTest {
           // Deliberately ignore interrupts to exercise retained worker ownership.
           long deadline=System.nanoTime()+3_000_000_000L;while(release.getCount()!=0&&System.nanoTime()<deadline){try{release.await(20,TimeUnit.MILLISECONDS);}catch(InterruptedException ignored){}}
           if(release.getCount()!=0)throw new AssertionError("Late worker was not released");content="{\"lateAnswer\":\"LATE\"}";late.countDown();
-        }else if(body.contains("failAnswer")){if(!fast.await(3,TimeUnit.SECONDS))throw new AssertionError("Completed sibling was not reported");content="{\"wrong\":\"invalid\"}";}
+        }else if(body.contains("failAnswer")){if(!fast.await(3,TimeUnit.SECONDS))throw new AssertionError("Completed sibling was not reported");
+          // A label without a value fails the text contract; as in TypeScript,
+          // any other text (even JSON with other keys) is the answer.
+          content="Fail Answer:";}
         return Map.of("status",200,"json",Map.of("id","reply","choices",List.of(Map.of("index",0,"message",Map.of("role","assistant","content",content),"finish_reason","stop"))));
       }
     }

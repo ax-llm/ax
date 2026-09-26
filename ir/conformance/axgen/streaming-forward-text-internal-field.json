@@ -1,0 +1,51 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "done"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-internal-field",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Reasoning: think",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": " hard\nAnswer: done",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> reasoning!:string, answer:string"
+}

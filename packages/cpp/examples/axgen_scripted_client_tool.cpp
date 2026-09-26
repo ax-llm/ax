@@ -14,7 +14,7 @@ struct ScriptedClient : axllm::AIClient {
         })}
       });
     }
-    return axllm::object({{"content", "{\"answer\":\"Found Ax docs\"}"}});
+    return axllm::object({{"content", "Answer: Found Ax docs"}});
   }
 };
 

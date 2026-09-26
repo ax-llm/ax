@@ -468,42 +468,99 @@ func (p *genSessionClient) start(call Value) {
 		}
 	}()
 }
+// pinRun resolves the run's client on its first request.
+func (p *genSessionClient) pinRun(ctx context.Context, request map[string]Value) {
+	if p.selected {
+		return
+	}
+	current := p.AIClient
+	for {
+		bound, ok := current.(contextBoundAIClient)
+		if !ok {
+			break
+		}
+		current = bound.inner
+	}
+	seen := map[AIClient]bool{}
+	for {
+		selector, ok := current.(chatRunSelector)
+		if !ok {
+			break
+		}
+		if seen[current] {
+			panic(fmt.Errorf("cyclic run routing"))
+		}
+		seen[current] = true
+		current = mustCore(selector.pinChatRun(ctx, request, p.options)).(AIClient)
+	}
+	p.AIClient = current
+	p.selected = true
+	p.opener = nil
+	if coreTruthy(mustCore(chat_session_mode_enabled(p.options))) {
+		if service, ok := current.(interface{ GetFeatures(string) map[string]Value }); ok && coreTruthy(coreGet(service.GetFeatures(display(coreGet(request, "model", ""))), "asyncTools", false)) {
+			p.opener, _ = current.(SessionAIClient)
+		}
+	}
+}
+
+// boundaryRequest applies the run's pending updates to a request made
+// without a chat session.
+func (p *genSessionClient) boundaryRequest(request map[string]Value) map[string]Value {
+	if !p.fallbackStarted {
+		p.emit("started")
+		p.fallbackStarted = true
+	}
+	var updates []map[string]Value
+	if p.control != nil {
+		select {
+		case <-p.control.Done():
+			panic(fmt.Errorf("run aborted before the next model request"))
+		default:
+		}
+		updates, p.after = p.control.pending(p.path, p.after)
+	}
+	items := Array()
+	for _, update := range updates {
+		items = append(items, update)
+	}
+	applied := mustCore(chat_session_apply_boundary_updates(request, items, p.level))
+	p.level = coreGet(applied, "level", nil)
+	for _, id := range asSlice(coreGet(applied, "applied", Array())) {
+		p.emit("applied", "update_id", id, "timing", "next-response")
+	}
+	return asMap(coreGet(applied, "request", request))
+}
+
+// StreamEvents lets a streamed request through the run boundary: without a
+// chat session it applies the pending updates as Chat does and streams from
+// the run's client; a chat session answers with its final response as one
+// chunk.
+func (p *genSessionClient) StreamEvents(ctx context.Context, request, options map[string]Value) (AxChatStream, error) {
+	prepared, err := safeValue(func() Value {
+		p.pinRun(ctx, request)
+		if p.opener != nil {
+			return nil
+		}
+		return p.boundaryRequest(request)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if p.opener != nil {
+		response, err := p.Chat(ctx, request, options)
+		if err != nil {
+			return nil, err
+		}
+		return singleChunkStream(response), nil
+	}
+	return openAIClientStream(ctx, p.AIClient, asMap(prepared), options)
+}
+
 func (p *genSessionClient) Chat(ctx context.Context, request, options map[string]Value) (Value, error) {
 	return safeValue(func() Value {
-        if !p.selected {
-            current:=p.AIClient
-            for {bound,ok:=current.(contextBoundAIClient);if !ok {break};current=bound.inner}
-            seen:=map[AIClient]bool{}
-            for {selector,ok:=current.(chatRunSelector);if !ok {break};if seen[current] {panic(fmt.Errorf("cyclic run routing"))};seen[current]=true;current=mustCore(selector.pinChatRun(ctx,request,p.options)).(AIClient)}
-            p.AIClient=current;p.selected=true
-            p.opener=nil
-            if coreTruthy(mustCore(chat_session_mode_enabled(p.options))) {if service,ok:=current.(interface{GetFeatures(string)map[string]Value});ok&&coreTruthy(coreGet(service.GetFeatures(display(coreGet(request,"model",""))),"asyncTools",false)){p.opener,_=current.(SessionAIClient)}}
-        }
-
+		p.pinRun(ctx, request)
 		if p.opener == nil {
-			if !p.fallbackStarted {
-				p.emit("started")
-				p.fallbackStarted = true
-			}
-			var updates []map[string]Value
-			if p.control != nil {
-				select {
-				case <-p.control.Done():
-					panic(fmt.Errorf("run aborted before the next model request"))
-				default:
-				}
-				updates, p.after = p.control.pending(p.path, p.after)
-			}
-			items := Array()
-			for _, update := range updates {
-				items = append(items, update)
-			}
-			applied := mustCore(chat_session_apply_boundary_updates(request, items, p.level))
-			p.level = coreGet(applied, "level", nil)
-			for _, id := range asSlice(coreGet(applied, "applied", Array())) {
-				p.emit("applied", "update_id", id, "timing", "next-response")
-			}
-			return mustCore(p.AIClient.Chat(ctx, asMap(coreGet(applied, "request", request)), options))
+			return mustCore(p.AIClient.Chat(ctx, p.boundaryRequest(request), options))
 		}
 		if p.session == nil {
 			if p.control != nil {

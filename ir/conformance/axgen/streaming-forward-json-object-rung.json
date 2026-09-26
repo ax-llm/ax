@@ -1,0 +1,64 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "user": {
+          "age": 36,
+          "name": "Ada"
+        }
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "user": {
+      "age": 36,
+      "name": "Ada"
+    }
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-json-object-rung",
+  "options": {
+    "structured_output_mode": "json_object"
+  },
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "{\"user\":{\"name\":\"Ada\",",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "\"age\":36}}",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string, age:number}"
+}

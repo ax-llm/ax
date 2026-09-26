@@ -971,13 +971,18 @@ Value Core::string_words(Value value) {
 Value Core::string_default_if_empty(Value value, Value fallback) {
   return truthy(string_trim(value)) ? string_trim(value) : fallback;
 }
-Value Core::string_format(Value templ, Value a, Value b, Value c) {
+Value Core::string_format(Value templ, Value a, Value b, Value c, Value d, Value e, Value f) {
+  // Each value fills the next {} after the previous one, so a value that
+  // itself contains {} is not formatted again.
   std::string out = str(templ);
-  for (const auto& arg : Array{a, b, c}) {
+  size_t cursor = 0;
+  for (const auto& arg : Array{a, b, c, d, e, f}) {
     if (arg.is_null()) continue;
-    size_t pos = out.find("{}");
+    size_t pos = out.find("{}", cursor);
     if (pos == std::string::npos) break;
-    out.replace(pos, 2, display(arg));
+    std::string text = display(arg);
+    out.replace(pos, 2, text);
+    cursor = pos + text.size();
   }
   return Value(out);
 }
@@ -1170,8 +1175,177 @@ Value Core::json_parse(Value value) {
   }
   return parse_json(text);
 }
+// JSON.parse: the text must be exactly one JSON value with JSON's number,
+// string, escape and literal grammar (parse_json above is deliberately
+// lenient). Callers such as TypeScript's extractValues rely on invalid JSON
+// raising.
+static Value parse_json_strict(const std::string& source) {
+  struct Parser {
+    const std::string& s;
+    size_t pos = 0;
+    [[noreturn]] void fail(const std::string& message) const { throw AxError("json", message); }
+    [[noreturn]] void unexpected() const {
+      if (pos >= s.size()) fail("Unexpected end of JSON input");
+      fail(std::string("Unexpected token '") + s[pos] + "' at position " + std::to_string(pos) + ": not valid JSON");
+    }
+    static bool digit(char c) { return c >= '0' && c <= '9'; }
+    void skip() { while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\n' || s[pos] == '\r')) ++pos; }
+    bool literal(const std::string& word) {
+      if (s.compare(pos, word.size(), word) != 0) return false;
+      pos += word.size();
+      return true;
+    }
+    Value value() {
+      skip();
+      if (pos >= s.size()) unexpected();
+      char c = s[pos];
+      if (c == '{') { ++pos; return object(); }
+      if (c == '[') { ++pos; return array(); }
+      if (c == '"') return Value(string());
+      if (c == '-' || digit(c)) return number();
+      if (literal("true")) return Value(true);
+      if (literal("false")) return Value(false);
+      if (literal("null")) return Value();
+      unexpected();
+    }
+    Value object() {
+      Object out;
+      Array order;
+      skip();
+      if (pos < s.size() && s[pos] == '}') { ++pos; return Value(out); }
+      while (true) {
+        skip();
+        if (pos >= s.size() || s[pos] != '"') unexpected();
+        std::string key = string();
+        skip();
+        if (pos >= s.size() || s[pos] != ':') unexpected();
+        ++pos;
+        Value item = value();
+        if (out.find(key) == out.end()) order.emplace_back(key);
+        out[key] = std::move(item);
+        skip();
+        if (pos < s.size() && s[pos] == ',') { ++pos; continue; }
+        if (pos < s.size() && s[pos] == '}') {
+          ++pos;
+          out["__order"] = Value(order);
+          return Value(out);
+        }
+        unexpected();
+      }
+    }
+    Value array() {
+      Array out;
+      skip();
+      if (pos < s.size() && s[pos] == ']') { ++pos; return Value(out); }
+      while (true) {
+        out.push_back(value());
+        skip();
+        if (pos < s.size() && s[pos] == ',') { ++pos; continue; }
+        if (pos < s.size() && s[pos] == ']') { ++pos; return Value(out); }
+        unexpected();
+      }
+    }
+    unsigned hex4() {
+      unsigned cp = 0;
+      for (int i = 0; i < 4; ++i) {
+        if (pos >= s.size()) fail("Bad Unicode escape in JSON at position " + std::to_string(pos));
+        char h = s[pos++];
+        cp <<= 4;
+        if (h >= '0' && h <= '9') cp |= static_cast<unsigned>(h - '0');
+        else if (h >= 'a' && h <= 'f') cp |= static_cast<unsigned>(h - 'a' + 10);
+        else if (h >= 'A' && h <= 'F') cp |= static_cast<unsigned>(h - 'A' + 10);
+        else fail("Bad Unicode escape in JSON at position " + std::to_string(pos - 1));
+      }
+      return cp;
+    }
+    static void append_utf8(std::string& out, unsigned cp) {
+      if (cp <= 0x7F) {
+        out.push_back(static_cast<char>(cp));
+      } else if (cp <= 0x7FF) {
+        out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      } else if (cp <= 0xFFFF) {
+        out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      } else {
+        out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+      }
+    }
+    std::string string() {
+      ++pos;
+      std::string out;
+      while (true) {
+        if (pos >= s.size()) fail("Unterminated string in JSON at position " + std::to_string(pos));
+        unsigned char c = static_cast<unsigned char>(s[pos++]);
+        if (c == '"') return out;
+        if (c < 0x20) fail("Bad control character in string literal in JSON at position " + std::to_string(pos - 1));
+        if (c != '\\') { out.push_back(static_cast<char>(c)); continue; }
+        if (pos >= s.size()) fail("Unterminated string in JSON at position " + std::to_string(pos));
+        char e = s[pos++];
+        switch (e) {
+          case '"': out.push_back('"'); break;
+          case '\\': out.push_back('\\'); break;
+          case '/': out.push_back('/'); break;
+          case 'b': out.push_back('\b'); break;
+          case 'f': out.push_back('\f'); break;
+          case 'n': out.push_back('\n'); break;
+          case 'r': out.push_back('\r'); break;
+          case 't': out.push_back('\t'); break;
+          case 'u': {
+            unsigned cp = hex4();
+            // A high surrogate followed by a low one is one code point.
+            if (cp >= 0xD800 && cp <= 0xDBFF && pos + 1 < s.size() && s[pos] == '\\' && s[pos + 1] == 'u') {
+              size_t pair_start = pos;
+              pos += 2;
+              unsigned low = hex4();
+              if (low >= 0xDC00 && low <= 0xDFFF) cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+              else pos = pair_start;
+            }
+            append_utf8(out, cp);
+            break;
+          }
+          default:
+            fail("Bad escaped character in JSON at position " + std::to_string(pos - 1));
+        }
+      }
+    }
+    Value number() {
+      size_t start = pos;
+      if (s[pos] == '-') ++pos;
+      if (pos >= s.size()) fail("No number after minus sign in JSON at position " + std::to_string(pos));
+      if (s[pos] == '0') {
+        ++pos;
+      } else if (digit(s[pos])) {
+        while (pos < s.size() && digit(s[pos])) ++pos;
+      } else {
+        unexpected();
+      }
+      if (pos < s.size() && s[pos] == '.') {
+        ++pos;
+        if (pos >= s.size() || !digit(s[pos])) fail("Unterminated fractional number in JSON at position " + std::to_string(pos));
+        while (pos < s.size() && digit(s[pos])) ++pos;
+      }
+      if (pos < s.size() && (s[pos] == 'e' || s[pos] == 'E')) {
+        ++pos;
+        if (pos < s.size() && (s[pos] == '+' || s[pos] == '-')) ++pos;
+        if (pos >= s.size() || !digit(s[pos])) fail("Exponent part is missing a number in JSON at position " + std::to_string(pos));
+        while (pos < s.size() && digit(s[pos])) ++pos;
+      }
+      return Value(std::strtod(s.substr(start, pos - start).c_str(), nullptr));
+    }
+  };
+  Parser parser{source};
+  Value out = parser.value();
+  parser.skip();
+  if (parser.pos < source.size()) parser.fail("Unexpected non-whitespace character after JSON at position " + std::to_string(parser.pos));
+  return out;
+}
 Value Core::json_parse_strict(Value value) {
-  return parse_json(str(string_trim(value)));
+  return parse_json_strict(str(string_trim(value)));
 }
 Value Core::json_stringify(Value value) { return Value(stringify(value)); }
 Value Core::json_stable_stringify(Value value) { return Value(stable_stringify(value)); }
@@ -2989,6 +3163,282 @@ static Value invoke_runtime_tool(const std::string& name, std::function<Value()>
   return next();
 }
 
+// JS indexOf in the bytes that len and string_slice count.
+Value Core::string_index_of(Value text, Value needle, Value start) {
+  std::string haystack = str(text);
+  double from = start.is_null() ? 0.0 : num(start);
+  size_t offset = !(from > 0.0) ? 0 : from >= static_cast<double>(haystack.size()) ? haystack.size() : static_cast<size_t>(from);
+  size_t found = haystack.find(str(needle), offset);
+  return Value(found == std::string::npos ? -1.0 : static_cast<double>(found));
+}
+
+namespace {
+
+// What a stream's worker and its consumer share: the chunk handed over, the
+// end of the stream, and the error that ended it.
+struct AxChatStreamChannel {
+  std::mutex mutex;
+  std::condition_variable changed;
+  std::deque<Value> chunks;
+  bool finished = false;
+  bool closed = false;
+  std::exception_ptr error;
+};
+
+// An open provider stream. AxAIService streams push chunks to a handler, so
+// stream_each runs on a worker thread whose handler hands each chunk to
+// ai_stream_next as it arrives and waits until it is taken. Closing makes the
+// handler stop the stream, cancels a transport blocked on I/O, and joins the
+// worker, so the client is not used after close returns.
+struct AxChatStream {
+  std::shared_ptr<AxChatStreamChannel> channel = std::make_shared<AxChatStreamChannel>();
+  std::shared_ptr<AxCancellationToken> cancellation;
+  AxCancellationToken::Subscription caller_cancellation;
+  std::thread worker;
+
+  ~AxChatStream() { close(); }
+
+  void close() {
+    {
+      std::lock_guard<std::mutex> lock(channel->mutex);
+      channel->closed = true;
+    }
+    channel->changed.notify_all();
+    if (cancellation) cancellation->cancel("stream closed");
+    if (worker.joinable()) {
+      if (worker.get_id() == std::this_thread::get_id()) worker.detach();
+      else worker.join();
+    }
+    caller_cancellation.reset();
+  }
+};
+
+std::mutex ai_streams_mutex;
+std::map<std::string, std::shared_ptr<AxChatStream>> ai_streams;
+std::atomic<std::uint64_t> next_ai_stream_id{0};
+
+std::shared_ptr<AxChatStream> registered_ai_stream(const Value& handle) {
+  std::lock_guard<std::mutex> lock(ai_streams_mutex);
+  auto it = ai_streams.find(str(get_key(handle, "__ai_stream_id")));
+  return it == ai_streams.end() ? nullptr : it->second;
+}
+
+// Host callables the AxGen streaming IR reaches through markers in its state:
+// the run's delta sink, TypeScript field processors and streaming checks.
+std::mutex axgen_host_mutex;
+std::map<std::string, std::function<void(Value)>> axgen_sinks;
+std::map<std::string, std::function<Value(Value, Value)>> axgen_field_processors;
+std::map<std::string, std::function<Value(Value, bool)>> axgen_streaming_checks;
+std::atomic<std::uint64_t> next_axgen_host_id{0};
+
+std::string next_axgen_host_key(const std::string& kind) {
+  return "__axgen_" + kind + "_" + std::to_string(++next_axgen_host_id);
+}
+
+template <typename Fn>
+Fn find_axgen_host(const std::map<std::string, Fn>& registry, const std::string& id) {
+  std::lock_guard<std::mutex> lock(axgen_host_mutex);
+  auto it = registry.find(id);
+  return it == registry.end() ? Fn{} : it->second;
+}
+
+// Registers one streaming run's sink for the length of the run.
+class AxGenSinkRegistration {
+ public:
+  explicit AxGenSinkRegistration(std::function<void(Value)> sink) : id_(next_axgen_host_key("sink")) {
+    std::lock_guard<std::mutex> lock(axgen_host_mutex);
+    axgen_sinks[id_] = std::move(sink);
+  }
+  ~AxGenSinkRegistration() {
+    std::lock_guard<std::mutex> lock(axgen_host_mutex);
+    axgen_sinks.erase(id_);
+  }
+  AxGenSinkRegistration(const AxGenSinkRegistration&) = delete;
+  AxGenSinkRegistration& operator=(const AxGenSinkRegistration&) = delete;
+  Value marker() const { return object({{"__axgen_sink_id", id_}}); }
+
+ private:
+  std::string id_;
+};
+
+void append_axgen_field_processor(Value& state, const std::string& key, std::string field, std::function<Value(Value, Value)> processor) {
+  std::string id = next_axgen_host_key("field_processor");
+  {
+    std::lock_guard<std::mutex> lock(axgen_host_mutex);
+    axgen_field_processors[id] = std::move(processor);
+  }
+  Value spec = Value::object();
+  Core::set(spec, "field", std::move(field));
+  Core::set(spec, "__field_processor_id", id);
+  Value specs = Core::get(state, key, Value::array());
+  Core::append(specs, spec);
+  Core::set(state, key, specs);
+}
+
+}  // namespace
+
+// Opens the client's provider stream as a pull handle. An AxAIService streams
+// on a worker thread that inherits the caller's cancellation (through a linked
+// token that closing can cancel alone), runtime hook frames and MCP context;
+// request and options are copied so the worker shares no mutable state with
+// the caller. Other clients answer with their chat response as one chunk.
+Value Core::ai_stream_open(Value client, Value request, Value options) {
+  AIClient* registered = registered_client(str(get_key(client, "__client_id")));
+  if (registered == nullptr) throw AxError("runtime", "client does not implement AIClient");
+  auto stream = std::make_shared<AxChatStream>();
+  auto channel = stream->channel;
+  if (auto* service = dynamic_cast<AxAIService*>(registered)) {
+    auto cancellation = std::make_shared<AxCancellationToken>();
+    stream->cancellation = cancellation;
+    if (const AxCancellationToken* caller = current_cancellation_token()) {
+      std::weak_ptr<AxCancellationToken> linked = cancellation;
+      stream->caller_cancellation = caller->subscribe([linked, caller] {
+        if (auto token = linked.lock()) token->cancel(caller->reason());
+      });
+    }
+    std::vector<RuntimeHookFrame> frames = runtime_hook_frames;
+    std::shared_ptr<detail::AgentExecutionContext> mcp_context = detail::MCPRunScope::current();
+    Value worker_request = clone_usage_value(request);
+    Value worker_options = clone_usage_value(options);
+    stream->worker = std::thread([service, worker_request, worker_options, channel, cancellation, frames, mcp_context]() {
+      runtime_hook_frames = frames;
+      try {
+        detail::MCPRunScope mcp_scope(mcp_context);
+        AxCancellationScope scope(cancellation.get());
+        service->stream_each(worker_request, [channel](const Value& chunk) {
+          std::unique_lock<std::mutex> lock(channel->mutex);
+          if (channel->closed) return false;
+          channel->chunks.push_back(chunk);
+          channel->changed.notify_all();
+          channel->changed.wait(lock, [&] { return channel->closed || channel->chunks.empty(); });
+          return !channel->closed;
+        }, worker_options);
+      } catch (...) {
+        std::lock_guard<std::mutex> lock(channel->mutex);
+        channel->error = std::current_exception();
+      }
+      {
+        std::lock_guard<std::mutex> lock(channel->mutex);
+        channel->finished = true;
+      }
+      channel->changed.notify_all();
+      runtime_hook_frames.clear();
+    });
+  } else {
+    channel->chunks.push_back(registered->chat(request, options));
+    channel->finished = true;
+  }
+  std::string id = "__ai_stream_" + std::to_string(++next_ai_stream_id);
+  {
+    std::lock_guard<std::mutex> lock(ai_streams_mutex);
+    ai_streams[id] = stream;
+  }
+  return object({{"__ai_stream_id", id}});
+}
+
+// The next chunk as it arrives, or null at the end; the error that ended the
+// stream is rethrown once, with its original type.
+Value Core::ai_stream_next(Value handle) {
+  auto stream = registered_ai_stream(handle);
+  if (!stream) return Value();
+  auto channel = stream->channel;
+  std::exception_ptr error;
+  {
+    std::unique_lock<std::mutex> lock(channel->mutex);
+    channel->changed.wait(lock, [&] { return !channel->chunks.empty() || channel->finished || channel->closed; });
+    if (!channel->chunks.empty()) {
+      Value chunk = std::move(channel->chunks.front());
+      channel->chunks.pop_front();
+      lock.unlock();
+      channel->changed.notify_all();
+      return chunk;
+    }
+    std::swap(error, channel->error);
+  }
+  if (error) std::rethrow_exception(error);
+  return Value();
+}
+
+Value Core::ai_stream_close(Value handle) {
+  try {
+    std::shared_ptr<AxChatStream> stream;
+    {
+      std::lock_guard<std::mutex> lock(ai_streams_mutex);
+      auto it = ai_streams.find(str(get_key(handle, "__ai_stream_id")));
+      if (it != ai_streams.end()) {
+        stream = it->second;
+        ai_streams.erase(it);
+      }
+    }
+    if (stream) stream->close();
+  } catch (...) {
+    // Closing an abandoned stream is best effort.
+  }
+  return Value();
+}
+
+// Sends one {version, index, delta} envelope to the run's sink; what the sink
+// throws (a consumer that stopped) ends the run.
+Value Core::axgen_emit_delta(Value sink, Value envelope) {
+  if (sink.is_null()) return Value();
+  auto deliver = find_axgen_host(axgen_sinks, str(get_key(sink, "__axgen_sink_id")));
+  if (!deliver) throw AxError("runtime", "AxGen streaming sink is not registered");
+  deliver(clone_usage_value(envelope));
+  return Value();
+}
+
+// TS field processors take (value, {values, sessionId, done}); a
+// transform-style processor gets the value alone.
+Value Core::axgen_call_processor(Value spec, Value value, Value context) {
+  Value call_context = Value::object();
+  Core::set(call_context, "values", clone_usage_value(get(context, "values", Value::object())));
+  Core::set(call_context, "done", Value(truthy(get(context, "done"))));
+  Value processor = get_key(spec, "processor", get_key(spec, "fn"));
+  std::string id = str(get_key(spec, "__field_processor_id", get_key(processor, "__field_processor_id")));
+  if (!id.empty()) {
+    if (auto fn = find_axgen_host(axgen_field_processors, id)) return fn(value, call_context);
+  }
+  std::string transform_id = str(get_key(spec, "__processor_id"));
+  if (!transform_id.empty()) {
+    auto it = processor_registry().find(transform_id);
+    if (it != processor_registry().end()) return it->second(value);
+  }
+  throw AxError("runtime", "field processor must be callable");
+}
+
+// A callable check returns null or true to pass, a message string, or false;
+// a {not_contains} spec fails when the field text contains it. Descriptor
+// failures carry no message: the IR uses the spec's.
+Value Core::axgen_check_streaming_assertion(Value spec, Value value, Value done) {
+  std::string id = str(get_key(spec, "__streaming_assertion_id"));
+  if (!id.empty()) {
+    auto check = find_axgen_host(axgen_streaming_checks, id);
+    if (!check) throw AxError("runtime", "streaming assertion is not callable");
+    Value result = check(value, truthy(done));
+    if (result.is_null() || (result.is_bool() && truthy(result))) return object({{"status", "pass"}});
+    if (result.is_string()) return object({{"status", "fail"}, {"message", result}});
+    return object({{"status", "fail"}});
+  }
+  Value needle = get_key(spec, "not_contains", get_key(spec, "notContains"));
+  if (!needle.is_null() && str(value).find(str(needle)) != std::string::npos) return object({{"status", "fail"}});
+  return object({{"status", "pass"}});
+}
+
+// Deprecated port behavior warns once per key per process.
+Value Core::axgen_deprecation(Value key, Value message) {
+  static std::mutex shown_mutex;
+  static std::set<std::string> shown;
+  try {
+    {
+      std::lock_guard<std::mutex> lock(shown_mutex);
+      if (!shown.insert(str(key)).second) return Value();
+    }
+    std::cerr << "axllm deprecation: " << str(message) << std::endl;
+  } catch (...) {
+  }
+  return Value();
+}
+
 void set_usage_observer(AxUsageObserver observer) {
   std::lock_guard<std::mutex> lock(usage_observer_mutex);
   usage_observer = std::move(observer);
@@ -4301,6 +4751,8 @@ AxGen::AxGen(Value signature, Value options, AxRuntimeHooks hooks)
   Core::set(state_, "assertions", Core::get(options, "assertions", Value::array()));
   Core::set(state_, "streaming_assertions", Core::get(options, "streaming_assertions", Core::get(options, "streamingAssertions", Value::array())));
   Core::set(state_, "field_processors", Core::get(options, "field_processors", Core::get(options, "fieldProcessors", Value::array())));
+  Core::set(state_, "feedback_processors", Core::get(options, "feedback_processors", Core::get(options, "feedbackProcessors", Value::array())));
+  Core::set(state_, "streaming_field_processors", Core::get(options, "streaming_field_processors", Core::get(options, "streamingFieldProcessors", Value::array())));
   Core::set(state_, "stop_functions", Core::get(options, "stop_functions", Core::get(options, "stopFunctions", Value::array())));
   Core::set(state_, "program_id", Core::get(options, "id", Core::get(options, "program_id", Core::get(options, "programId", Value("root")))));
   Core::set(state_, "instruction", Core::get(options, "instruction", Value("")));
@@ -4415,6 +4867,48 @@ AxGen& AxGen::add_field_processor(std::string field, std::function<Value(Value)>
   Core::append(processors, spec);
   Core::set(state_, "field_processors", processors);
   return *this;
+}
+
+Value detail::AxGenInternal::streaming_forward(AxGen& gen, AIClient& client, Value values, Value options,
+                                               std::function<void(Value)> sink, const AxRuntimeHooks& hooks) {
+  AxRuntimeHooks program_hooks = *std::atomic_load(&gen.runtime_hooks_);
+  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_forward", "ax_gen_generation",
+                         object({{"ax.program.id", Core::get(gen.state_, "program_id", "root")}, {"ax.program.type", "AxGen"}, {"ax.streaming", true}}));
+  AxGenSinkRegistration registration(std::move(sink));
+  return Core::_streaming_forward_impl(gen.state_, Core::client_ref(client), std::move(values), std::move(options), registration.marker());
+}
+
+void detail::AxGenInternal::add_field_transform(AxGen& gen, std::string field, std::string op) {
+  gen.add_field_processor(std::move(field), std::move(op));
+}
+
+void detail::AxGenInternal::add_feedback_processor(AxGen& gen, std::string field, std::function<Value(Value, Value)> processor) {
+  append_axgen_field_processor(gen.state_, "feedback_processors", std::move(field), std::move(processor));
+}
+
+void detail::AxGenInternal::add_streaming_field_processor(AxGen& gen, std::string field, std::function<Value(Value, Value)> processor) {
+  // As in TypeScript, streaming processors run on string and code fields.
+  Value output;
+  for (const auto& item : array_ref(Core::get(Core::get(gen.state_, "signature"), "output_fields", Value::array()))) {
+    if (str(get_key(item, "name")) == field) output = item;
+  }
+  if (output.is_null()) throw AxError("runtime", "addFieldProcessor: field " + field + " not found");
+  std::string type = str(get_key(get_key(output, "type"), "name", "string"));
+  if (type != "string" && type != "code") throw AxError("runtime", "addFieldProcessor: field " + field + " must be a text field");
+  append_axgen_field_processor(gen.state_, "streaming_field_processors", std::move(field), std::move(processor));
+}
+
+void detail::AxGenInternal::add_streaming_assert(AxGen& gen, std::string field, std::function<Value(Value, bool)> check, std::string message) {
+  std::string id = next_axgen_host_key("streaming_assertion");
+  {
+    std::lock_guard<std::mutex> lock(axgen_host_mutex);
+    axgen_streaming_checks[id] = std::move(check);
+  }
+  Value spec = Value::object();
+  Core::set(spec, "field", std::move(field));
+  Core::set(spec, "__streaming_assertion_id", id);
+  if (!message.empty()) Core::set(spec, "message", std::move(message));
+  gen.add_streaming_assert(spec);
 }
 
 AxGen& AxGen::on_function_call(std::function<void(Value)> hook) {

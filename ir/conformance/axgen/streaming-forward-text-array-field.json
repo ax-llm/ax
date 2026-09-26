@@ -1,0 +1,67 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "summary": "two fruits"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "items": ["apple", "banana"]
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "summary": "two fruits",
+    "items": ["apple", "banana"]
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-array-field",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Items:\n- ap",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "ple\n- banana\n",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Summary: two fruits",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> items:string[], summary:string"
+}

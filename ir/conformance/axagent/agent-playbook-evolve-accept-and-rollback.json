@@ -10,7 +10,28 @@
   },
   "responses": [
     {
-      "content": "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\",\"answer\":\"Ax composes typed LLM programs.\",\"reasoning\":\"The playbook lacked a verification rule.\",\"errorIdentification\":\"The final step was not checked.\",\"rootCauseAnalysis\":\"No verification guidance.\",\"correctApproach\":\"Add a verification guideline.\",\"keyInsight\":\"Verify before finishing.\",\"weaknessDescription\":\"The agent does not verify its final step.\",\"rootCause\":\"The final step is accepted without a check.\",\"proposedGuidance\":\"Verify the final step before completing the task.\",\"evidenceQuotes\":[\"Answer\"],\"configRecommendations\":[],\"bulletTags\":[],\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Verify the final step before completing the task.\"}]}"
+      "content": "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\"}"
+    },
+    {
+      "content": "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\"}"
+    },
+    {
+      "content": "Answer: Ax composes typed LLM programs."
+    },
+    {
+      "content": "Weakness Description: The agent does not verify its final step.\nRoot Cause: The final step is accepted without a check.\nProposed Guidance: Verify the final step before completing the task.\nEvidence Quotes: [\"Answer\"]\nConfig Recommendations: []"
+    },
+    {
+      "content": "Reasoning: The playbook lacked a verification rule.\nError Identification: The final step was not checked.\nRoot Cause Analysis: No verification guidance.\nCorrect Approach: Add a verification guideline.\nKey Insight: Verify before finishing.\nBullet Tags: []"
+    },
+    {
+      "content": "Reasoning: The playbook lacked a verification rule.\nError Identification: The final step was not checked.\nRoot Cause Analysis: No verification guidance.\nCorrect Approach: Add a verification guideline.\nKey Insight: Verify before finishing.\nBullet Tags: []"
+    },
+    {
+      "content": "Reasoning: The playbook lacked a verification rule.\nOperations: [{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Verify the final step before completing the task.\"}]"
+    },
+    {
+      "content": "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\"}"
     }
   ],
   "runtime_script": [
@@ -18,14 +39,24 @@
       "expected_code": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
       "result": {
         "type": "final",
-        "args": ["Answer", { "answer": "Ax composes typed LLM programs." }]
+        "args": [
+          "Answer",
+          {
+            "answer": "Ax composes typed LLM programs."
+          }
+        ]
       }
     },
     {
       "expected_code": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
       "result": {
         "type": "final",
-        "args": ["Answer", { "answer": "Ax composes typed LLM programs." }]
+        "args": [
+          "Answer",
+          {
+            "answer": "Ax composes typed LLM programs."
+          }
+        ]
       }
     }
   ],
@@ -55,7 +86,9 @@
   "dataset": {
     "train": [
       {
-        "input": { "question": "Answer briefly." },
+        "input": {
+          "question": "Answer briefly."
+        },
         "score": 0
       }
     ]
@@ -72,7 +105,10 @@
       "expected": {
         "accepted": true,
         "metricCallsUsed": 2,
-        "heldIn": { "before": 0, "after": 0 }
+        "heldIn": {
+          "before": 0,
+          "after": 0
+        }
       }
     },
     {
@@ -86,7 +122,10 @@
       "expected": {
         "accepted": false,
         "metricCallsUsed": 2,
-        "heldIn": { "before": 0, "after": 0 },
+        "heldIn": {
+          "before": 0,
+          "after": 0
+        },
         "reason_contains": "held-in gain"
       },
       "expected_rollback": true,

@@ -518,7 +518,7 @@ class ScriptedClient:
                     {"id": "call_1", "name": "search", "params": {"query": "ax docs"}}
                 ],
             }
-        return {"content": "{\"answer\":\"Found Ax docs\"}"}
+        return {"content": "Answer:  Found Ax docs "}
 
 
 search = (
@@ -531,7 +531,7 @@ search = (
 
 qa = ax("query:string -> answer:string", {"functions": [search]})
 qa.add_assert({"field": "answer", "contains": "Ax", "message": "answer should mention Ax"})
-qa.add_field_processor("answer", "trim")
+qa.add_field_transform("answer", "trim")
 out = qa.forward(ScriptedClient(), {"query": "ax docs"})
 assert out == {"answer": "Found Ax docs"}, out
 assert qa.get_traces()[-1]["output"] == out
@@ -640,7 +640,7 @@ const pyAxFlowProgramGraphExample = `from axllm import ax, flow
 
 class ScriptedClient:
     def complete(self, request):
-        return {"content": "{\"answer\":\"Paris\"}"}
+        return {"content": "Answer: Paris"}
 
 
 qa = ax("question:string -> answer:string")
@@ -799,31 +799,32 @@ from axllm import ax, playbook
 
 # A scripted client stands in for a real provider so this example runs without
 # a key. Swap it for ai("openai", api_key=...) to grow a playbook against a live
-# model. The canned JSON satisfies the bound program AND the playbook's internal
-# reflector/curator sub-programs, so the full ACE loop is exercised offline.
+# model. Each program answers in its own output format, chosen by the output
+# wire keys in its prompt: the bound program, then the playbook's reflector and
+# curator, so the full ACE loop is exercised offline.
 class ScriptedClient:
+    @staticmethod
+    def outputs(request, key):
+        return "(wire key: " + chr(96) + key + chr(96) + ")" in json.dumps(request.get("chat_prompt"))
+
     def complete(self, request):
-        return {
-            "content": json.dumps(
-                {
-                    "answer": "Ax composes typed LLM programs.",
-                    "reasoning": "The playbook lacked a brevity rule.",
-                    "errorIdentification": "Answer was too verbose.",
-                    "rootCauseAnalysis": "No guidance on conciseness.",
-                    "correctApproach": "Add a concise-answer guideline.",
-                    "keyInsight": "Prefer one-sentence answers.",
-                    "weaknessDescription": "The agent does not verify its final step.",
-                    "rootCause": "The final step is accepted without a check.",
-                    "proposedGuidance": "Verify the final step before completing the task.",
-                    "evidenceQuotes": ["final", "snapshot", "Answer"],
-                    "configRecommendations": [],
-                    "bulletTags": [],
-                    "operations": [
-                        {"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}
-                    ],
-                }
-            )
-        }
+        if self.outputs(request, "errorIdentification"):
+            content = "\n".join([
+                "Reasoning: The playbook lacked a brevity rule.",
+                "Error Identification: Answer was too verbose.",
+                "Root Cause Analysis: No guidance on conciseness.",
+                "Correct Approach: Add a concise-answer guideline.",
+                "Key Insight: Prefer one-sentence answers.",
+                "Bullet Tags: []",
+            ])
+        elif self.outputs(request, "operations"):
+            content = "\n".join([
+                "Reasoning: The playbook lacked a brevity rule.",
+                'Operations: [{"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}]',
+            ])
+        else:
+            content = "Answer: Ax composes typed LLM programs."
+        return {"content": content}
 
 
 client = ScriptedClient()
@@ -854,31 +855,41 @@ from axllm import AxCodeRuntime, AxCodeSession, RuntimeEnvelope, agent
 
 
 # The actor returns model-authored Python code and a real runtime executes it.
-# The same offline response also satisfies the playbook reflector and curator.
+# Each stage answers in its own output format: the actor's code as JSON, and
+# the responder, weakness miner, reflector and curator as field lines.
 class ScriptedClient:
+    @staticmethod
+    def outputs(request, key):
+        return "(wire key: " + chr(96) + key + chr(96) + ")" in json.dumps(request.get("chat_prompt"))
+
     def complete(self, request):
-        return {
-            "content": json.dumps(
-                {
-                    "pythonCode": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
-                    "answer": "Ax composes typed LLM programs.",
-                    "reasoning": "The playbook lacked a brevity rule.",
-                    "errorIdentification": "Answer was too verbose.",
-                    "rootCauseAnalysis": "No guidance on conciseness.",
-                    "correctApproach": "Add a concise-answer guideline.",
-                    "keyInsight": "Prefer one-sentence answers.",
-                    "weaknessDescription": "The agent does not verify its final step.",
-                    "rootCause": "The final step is accepted without a check.",
-                    "proposedGuidance": "Verify the final step before completing the task.",
-                    "evidenceQuotes": ["final", "snapshot", "Answer"],
-                    "configRecommendations": [],
-                    "bulletTags": [],
-                    "operations": [
-                        {"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}
-                    ],
-                }
-            )
-        }
+        if self.outputs(request, "pythonCode"):
+            content = json.dumps({"pythonCode": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})"})
+        elif self.outputs(request, "weaknessDescription"):
+            content = "\n".join([
+                "Weakness Description: The agent does not verify its final step.",
+                "Root Cause: The final step is accepted without a check.",
+                "Proposed Guidance: Verify the final step before completing the task.",
+                'Evidence Quotes: ["final", "snapshot", "Answer"]',
+                "Config Recommendations: []",
+            ])
+        elif self.outputs(request, "errorIdentification"):
+            content = "\n".join([
+                "Reasoning: The playbook lacked a brevity rule.",
+                "Error Identification: Answer was too verbose.",
+                "Root Cause Analysis: No guidance on conciseness.",
+                "Correct Approach: Add a concise-answer guideline.",
+                "Key Insight: Prefer one-sentence answers.",
+                "Bullet Tags: []",
+            ])
+        elif self.outputs(request, "operations"):
+            content = "\n".join([
+                "Reasoning: The playbook lacked a brevity rule.",
+                'Operations: [{"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}]',
+            ])
+        else:
+            content = "Answer: Ax composes typed LLM programs."
+        return {"content": content}
 
 
 class RuntimeSession(AxCodeSession):
@@ -964,7 +975,7 @@ public final class AxGenScriptedClientToolExample {
           "function_calls", List.of(Map.of("id", "call_1", "name", "search", "params", Map.of("query", "ax docs")))
         );
       }
-      return Map.of("content", "{\"answer\":\"Found Ax docs\"}");
+      return Map.of("content", "Answer: Found Ax docs");
     }
   }
 
@@ -1087,7 +1098,7 @@ import java.util.*;
 public final class AxFlowProgramGraphExample {
   static final class ScriptedClient implements AiClient {
     public Map<String, Object> complete(Map<String, Object> request) {
-      return Map.of("content", "{\"answer\":\"Paris\"}");
+      return Map.of("content", "Answer: Paris");
     }
   }
 
@@ -1293,7 +1304,7 @@ struct ScriptedClient : axllm::AIClient {
         })}
       });
     }
-    return axllm::object({{"content", "{\"answer\":\"Found Ax docs\"}"}});
+    return axllm::object({{"content", "Answer: Found Ax docs"}});
   }
 };
 
@@ -1430,7 +1441,7 @@ const cppAxFlowProgramGraphExample = `#include "axllm/axllm.hpp"
 
 struct ScriptedClient : axllm::AIClient {
   axllm::Value complete(axllm::Value) override {
-    return axllm::object({{"content", "{\"answer\":\"Paris\"}"}});
+    return axllm::object({{"content", "Answer: Paris"}});
   }
 };
 
@@ -3304,25 +3315,36 @@ import java.util.*;
 
 public final class AgentPlaybookExample {
   // The actor returns model-authored Python code and a real runtime executes it.
-  // The same offline response also satisfies the playbook reflector and curator.
+  // Each stage answers in its own output format: the actor's code as JSON, and
+  // the responder, weakness miner, reflector and curator as field lines.
   static final class ScriptedClient implements AiClient {
+    static boolean outputs(Map<String, Object> request, String key) {
+      return Json.stringify(request.get("chat_prompt")).contains("(wire key: " + (char) 96 + key + (char) 96 + ")");
+    }
+
     public Map<String, Object> complete(Map<String, Object> request) {
-      String content = "{"
-          + "\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\","
-          + "\"answer\":\"Ax composes typed LLM programs.\","
-          + "\"reasoning\":\"The playbook lacked a brevity rule.\","
-          + "\"errorIdentification\":\"Answer was too verbose.\","
-          + "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
-          + "\"correctApproach\":\"Add a concise-answer guideline.\","
-          + "\"keyInsight\":\"Prefer one-sentence answers.\","
-          + "\"weaknessDescription\":\"The agent does not verify its final step.\","
-          + "\"rootCause\":\"The final step is accepted without a check.\","
-          + "\"proposedGuidance\":\"Verify the final step before completing the task.\","
-          + "\"evidenceQuotes\":[\"final\",\"snapshot\",\"Answer\"],"
-          + "\"configRecommendations\":[],"
-          + "\"bulletTags\":[],"
-          + "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]"
-          + "}";
+      String content;
+      if (outputs(request, "pythonCode")) {
+        content = "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\"}";
+      } else if (outputs(request, "weaknessDescription")) {
+        content = "Weakness Description: The agent does not verify its final step.\n"
+            + "Root Cause: The final step is accepted without a check.\n"
+            + "Proposed Guidance: Verify the final step before completing the task.\n"
+            + "Evidence Quotes: [\"final\", \"snapshot\", \"Answer\"]\n"
+            + "Config Recommendations: []";
+      } else if (outputs(request, "errorIdentification")) {
+        content = "Reasoning: The playbook lacked a brevity rule.\n"
+            + "Error Identification: Answer was too verbose.\n"
+            + "Root Cause Analysis: No guidance on conciseness.\n"
+            + "Correct Approach: Add a concise-answer guideline.\n"
+            + "Key Insight: Prefer one-sentence answers.\n"
+            + "Bullet Tags: []";
+      } else if (outputs(request, "operations")) {
+        content = "Reasoning: The playbook lacked a brevity rule.\n"
+            + "Operations: [{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]";
+      } else {
+        content = "Answer: Ax composes typed LLM programs.";
+      }
       return Map.of("content", content);
     }
   }
@@ -4540,26 +4562,43 @@ int main() {
 const cppAgentPlaybookExample = `#include "axllm/axllm.hpp"
 
 #include <iostream>
+#include <string>
 
-// The actor returns model-authored Python code and a real runtime executes it.
-// The same offline response also satisfies the playbook reflector and curator.
+// An offline model: each stage answers in its own output contract, found by
+// the output wire keys its prompt asks for. The actor returns model-authored
+// Python code that a real runtime executes; the evolve weakness miner and the
+// playbook reflector and curator answer with "Label: value" lines.
 struct ScriptedClient : axllm::AIClient {
-  axllm::Value complete(axllm::Value) override {
-    return axllm::object({{"content",
-        "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\","
-        "\"answer\":\"Ax composes typed LLM programs.\","
-        "\"reasoning\":\"The playbook lacked a brevity rule.\","
-        "\"errorIdentification\":\"Answer was too verbose.\","
-        "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
-        "\"correctApproach\":\"Add a concise-answer guideline.\","
-        "\"keyInsight\":\"Prefer one-sentence answers.\","
-        "\"weaknessDescription\":\"The agent does not verify its final step.\","
-        "\"rootCause\":\"The final step is accepted without a check.\","
-        "\"proposedGuidance\":\"Verify the final step before completing the task.\","
-        "\"evidenceQuotes\":[\"final\",\"snapshot\",\"Answer\"],"
-        "\"configRecommendations\":[],"
-        "\"bulletTags\":[],"
-        "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]}"}});
+  axllm::Value complete(axllm::Value request) override {
+    const std::string prompt = axllm::stringify(request);
+    const std::string tick(1, static_cast<char>(96));
+    auto asks = [&](const std::string& key) {
+      return prompt.find("(wire key: " + tick + key + tick + ")") != std::string::npos;
+    };
+    std::string content = "Answer: Ax composes typed LLM programs.";
+    if (asks("pythonCode")) {
+      content = "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\"}";
+    } else if (asks("weaknessDescription")) {
+      content =
+          "Weakness Description: The agent does not verify its final step.\n"
+          "Root Cause: The final step is accepted without a check.\n"
+          "Proposed Guidance: Verify the final step before completing the task.\n"
+          "Evidence Quotes: [\"final\", \"snapshot\", \"Answer\"]\n"
+          "Config Recommendations: []";
+    } else if (asks("errorIdentification")) {
+      content =
+          "Reasoning: The playbook lacked a brevity rule.\n"
+          "Error Identification: Answer was too verbose.\n"
+          "Root Cause Analysis: No guidance on conciseness.\n"
+          "Correct Approach: Add a concise-answer guideline.\n"
+          "Key Insight: Prefer one-sentence answers.\n"
+          "Bullet Tags: []";
+    } else if (asks("operations")) {
+      content =
+          "Reasoning: The playbook lacked a brevity rule.\n"
+          "Operations: [{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]";
+    }
+    return axllm::object({{"content", content}});
   }
 };
 

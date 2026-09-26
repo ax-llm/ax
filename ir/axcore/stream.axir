@@ -176,4 +176,3601 @@ module @ax.stream version "0.1" {
       core.return %parts
     }
   }
+
+  // ----- TypeScript streaming extraction -----
+  // Ports of src/ax/dsp/extract/streamingText.ts, delta.ts and fieldValue.ts,
+  // src/ax/dsp/util.ts (matchesContent, parseMarkdownList, mergeDeltas),
+  // src/ax/util/partialJson.ts and src/ax/dsp/response/structuredDelta.ts.
+  // String offsets use each port's native string units consistently.
+
+  op ax.stream.semantic @stream_substring_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/delta.ts"
+    type signature = "(string, i64, i64) -> string"
+    body @entry(%text: string, %start: i64, %end: i64) {
+      // JS substring: bounds clamp to [0, length] and a start after the end
+      // swaps them.
+      %length = core.call intrinsic.len(%text)
+      %low = core.let %start
+      %low_negative = core.call intrinsic.lt(%low, 0)
+      core.if %low_negative {
+        %low = core.let 0
+      }
+      %low_past = core.call intrinsic.gt(%low, %length)
+      core.if %low_past {
+        %low = core.let %length
+      }
+      %high = core.let %end
+      %high_negative = core.call intrinsic.lt(%high, 0)
+      core.if %high_negative {
+        %high = core.let 0
+      }
+      %high_past = core.call intrinsic.gt(%high, %length)
+      core.if %high_past {
+        %high = core.let %length
+      }
+      %swapped = core.call intrinsic.gt(%low, %high)
+      core.if %swapped {
+        %first = core.let %high
+        %high = core.let %low
+        %low = core.let %first
+      }
+      %out = core.call intrinsic.string.slice(%text, %low, %high)
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_trim_end_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/delta.ts"
+    type signature = "(string) -> string"
+    body @entry(%text: string) {
+      // text.replace(/\s+$/, ''): the trimmed text starts where the leading
+      // whitespace ends, so it ends at that offset plus its length.
+      %trimmed = core.string_trim %text
+      %blank = core.call intrinsic.eq(%trimmed, "")
+      core.if %blank {
+        core.return ""
+      }
+      %lead = core.call intrinsic.string.index_of(%text, %trimmed, 0)
+      %trimmed_length = core.call intrinsic.len(%trimmed)
+      %end = core.call intrinsic.add(%lead, %trimmed_length)
+      %out = core.call intrinsic.string.slice(%text, 0, %end)
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_trim_start_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/delta.ts"
+    type signature = "(string) -> string"
+    body @entry(%text: string) {
+      %trimmed = core.string_trim %text
+      %blank = core.call intrinsic.eq(%trimmed, "")
+      core.if %blank {
+        core.return ""
+      }
+      %lead = core.call intrinsic.string.index_of(%text, %trimmed, 0)
+      %out = core.call intrinsic.string.slice(%text, %lead)
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_is_space_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/util.ts"
+    type signature = "(string) -> bool"
+    body @entry(%ch: string) {
+      %empty = core.call intrinsic.eq(%ch, "")
+      core.if %empty {
+        core.return false
+      }
+      %trimmed = core.string_trim %ch
+      %space = core.call intrinsic.eq(%trimmed, "")
+      core.return %space
+    }
+  }
+
+  op ax.stream.semantic @stream_field_labels_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/streamingText.ts"
+    type signature = "(json) -> list<string>"
+    body @entry(%field: json) {
+      // TS labels a field by its title, then its name, without duplicates.
+      %labels = core.list
+      %name = core.get %field["name"] default ""
+      %title = core.get %field["title"] default ""
+      %has_title = core.call intrinsic.truthy(%title)
+      core.if %has_title {
+        core.append %labels, %title
+      }
+      %has_name = core.call intrinsic.truthy(%name)
+      %same = core.call intrinsic.eq(%name, %title)
+      %distinct = core.call intrinsic.not(%same)
+      %add_name = core.call intrinsic.and(%has_name, %distinct)
+      core.if %add_name {
+        core.append %labels, %name
+      }
+      core.return %labels
+    }
+  }
+
+  op ax.stream.semantic @stream_matches_content_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/util.ts"
+    type signature = "(string, string, i64) -> i64"
+    body @entry(%content: string, %prefix: string, %start: i64) {
+      // matchesContent: -4 for a lone opening code fence, -3 for blank or
+      // backtick-only content, the index of the prefix at or after start,
+      // -2 when the content ends with a partial prefix, else -1.
+      %fence = core.regex_match %content pattern "^```[a-zA-Z]*\\s*$"
+      core.if %fence {
+        core.return -4
+      }
+      %blank = core.regex_match %content pattern "^[\\s`]*$"
+      core.if %blank {
+        core.return -3
+      }
+      %exact = core.call intrinsic.string.index_of(%content, %prefix, %start)
+      %found = core.call intrinsic.gte(%exact, 0)
+      core.if %found {
+        core.return %exact
+      }
+      %size = core.call intrinsic.len(%prefix)
+      core.loop {
+        %exhausted = core.call intrinsic.lte(%size, 0)
+        core.if %exhausted {
+          core.break
+        }
+        %partial = core.call intrinsic.string.slice(%prefix, 0, %size)
+        %ends = core.call intrinsic.string.ends_with(%content, %partial)
+        core.if %ends {
+          core.return -2
+        }
+        %size = core.call intrinsic.add(%size, -1)
+      }
+      core.return -1
+    }
+  }
+
+  op ax.stream.semantic @stream_extract_block_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/fieldValue.ts"
+    type signature = "(string) -> string"
+    body @entry(%input: string) {
+      // extractBlock: the text of the first ```lang ... ``` block, else the
+      // input. The language letters and the whitespace around the text are
+      // not part of it.
+      %open = core.call intrinsic.string.index_of(%input, "```", 0)
+      %no_open = core.call intrinsic.lt(%open, 0)
+      core.if %no_open {
+        core.return %input
+      }
+      %length = core.call intrinsic.len(%input)
+      %cursor = core.call intrinsic.add(%open, 3)
+      core.loop {
+        %at_end = core.call intrinsic.gte(%cursor, %length)
+        core.if %at_end {
+          core.break
+        }
+        %next = core.call intrinsic.add(%cursor, 1)
+        %ch = core.call intrinsic.string.slice(%input, %cursor, %next)
+        %letter = core.regex_match %ch pattern "^[A-Za-z]$"
+        %not_letter = core.call intrinsic.not(%letter)
+        core.if %not_letter {
+          core.break
+        }
+        %cursor = core.let %next
+      }
+      core.loop {
+        %at_end = core.call intrinsic.gte(%cursor, %length)
+        core.if %at_end {
+          core.break
+        }
+        %next = core.call intrinsic.add(%cursor, 1)
+        %ch = core.call intrinsic.string.slice(%input, %cursor, %next)
+        %space = core.call @stream_is_space_impl(%ch)
+        %not_space = core.call intrinsic.not(%space)
+        core.if %not_space {
+          core.break
+        }
+        %cursor = core.let %next
+      }
+      %close = core.call intrinsic.string.index_of(%input, "```", %cursor)
+      %no_close = core.call intrinsic.lt(%close, 0)
+      core.if %no_close {
+        core.return %input
+      }
+      %inner = core.call intrinsic.string.slice(%input, %cursor, %close)
+      %block = core.call @stream_trim_end_impl(%inner)
+      core.return %block
+    }
+  }
+
+  op ax.stream.semantic @stream_strip_leading_fence_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/delta.ts"
+    type signature = "(string) -> string"
+    body @entry(%text: string) {
+      // text.replace(/^[ ]*```[a-zA-Z0-9]*\n\s*/, '')
+      %length = core.call intrinsic.len(%text)
+      %cursor = core.let 0
+      core.loop {
+        %at_end = core.call intrinsic.gte(%cursor, %length)
+        core.if %at_end {
+          core.break
+        }
+        %next = core.call intrinsic.add(%cursor, 1)
+        %ch = core.call intrinsic.string.slice(%text, %cursor, %next)
+        %is_blank = core.call intrinsic.eq(%ch, " ")
+        %not_blank = core.call intrinsic.not(%is_blank)
+        core.if %not_blank {
+          core.break
+        }
+        %cursor = core.let %next
+      }
+      %rest = core.call intrinsic.string.slice(%text, %cursor)
+      %fenced = core.call intrinsic.string.starts_with(%rest, "```")
+      %not_fenced = core.call intrinsic.not(%fenced)
+      core.if %not_fenced {
+        core.return %text
+      }
+      %cursor = core.call intrinsic.add(%cursor, 3)
+      core.loop {
+        %at_end = core.call intrinsic.gte(%cursor, %length)
+        core.if %at_end {
+          core.break
+        }
+        %next = core.call intrinsic.add(%cursor, 1)
+        %ch = core.call intrinsic.string.slice(%text, %cursor, %next)
+        %word = core.regex_match %ch pattern "^[a-zA-Z0-9]$"
+        %not_word = core.call intrinsic.not(%word)
+        core.if %not_word {
+          core.break
+        }
+        %cursor = core.let %next
+      }
+      %after = core.call intrinsic.add(%cursor, 1)
+      %newline = core.call intrinsic.string.slice(%text, %cursor, %after)
+      %has_newline = core.call intrinsic.eq(%newline, "\n")
+      %no_newline = core.call intrinsic.not(%has_newline)
+      core.if %no_newline {
+        core.return %text
+      }
+      %tail = core.call intrinsic.string.slice(%text, %after)
+      %stripped = core.call @stream_trim_start_impl(%tail)
+      core.return %stripped
+    }
+  }
+
+  op ax.stream.semantic @stream_strip_trailing_fence_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/delta.ts"
+    type signature = "(string) -> string"
+    body @entry(%text: string) {
+      // text.replace(/\s*```\s*$/, '')
+      %trimmed = core.call @stream_trim_end_impl(%text)
+      %fenced = core.call intrinsic.string.ends_with(%trimmed, "```")
+      %not_fenced = core.call intrinsic.not(%fenced)
+      core.if %not_fenced {
+        core.return %text
+      }
+      %length = core.call intrinsic.len(%trimmed)
+      %end = core.call intrinsic.add(%length, -3)
+      %body = core.call intrinsic.string.slice(%trimmed, 0, %end)
+      %out = core.call @stream_trim_end_impl(%body)
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_markdown_list_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/util.ts"
+    type signature = "(string) -> list<string> throws"
+    body @entry(%input: string) {
+      // parseMarkdownList: bullet (-, *, +) or numbered (1. 1) 1]) items;
+      // text before the first item is skipped, text after it is an error.
+      %items = core.list
+      %blank = core.string_trim %input
+      %is_blank = core.call intrinsic.eq(%blank, "")
+      core.if %is_blank {
+        core.return %items
+      }
+      %lines = core.call intrinsic.string.split(%input, "\n")
+      core.for %line in %lines {
+        %text = core.string_trim %line
+        %empty = core.call intrinsic.eq(%text, "")
+        core.if %empty {
+          core.continue
+        }
+        %first = core.call intrinsic.string.slice(%text, 0, 1)
+        %bullet = core.regex_match %first pattern "^[-*+]$"
+        core.if %bullet {
+          %rest = core.call intrinsic.string.slice(%text, 1)
+          %item = core.string_trim %rest
+          core.append %items, %item
+          core.continue
+        }
+        %numbered = core.regex_match %text pattern "^[0-9]+\\s*[.)\\]]"
+        core.if %numbered {
+          %length = core.call intrinsic.len(%text)
+          %cursor = core.let 0
+          core.loop {
+            %next = core.call intrinsic.add(%cursor, 1)
+            %ch = core.call intrinsic.string.slice(%text, %cursor, %next)
+            %digit = core.regex_match %ch pattern "^[0-9]$"
+            %not_digit = core.call intrinsic.not(%digit)
+            core.if %not_digit {
+              core.break
+            }
+            %cursor = core.let %next
+          }
+          core.loop {
+            %next = core.call intrinsic.add(%cursor, 1)
+            %ch = core.call intrinsic.string.slice(%text, %cursor, %next)
+            %space = core.call @stream_is_space_impl(%ch)
+            %not_space = core.call intrinsic.not(%space)
+            core.if %not_space {
+              core.break
+            }
+            %cursor = core.let %next
+          }
+          %marker_end = core.call intrinsic.add(%cursor, 1)
+          %rest = core.call intrinsic.string.slice(%text, %marker_end)
+          %item = core.string_trim %rest
+          core.append %items, %item
+          core.continue
+        }
+        %count = core.call intrinsic.len(%items)
+        %started = core.call intrinsic.gt(%count, 0)
+        core.if %started {
+          %mixed = core.call intrinsic.error.runtime("Could not parse markdown list: mixed content detected")
+          core.raise %mixed
+        }
+      }
+      %found = core.call intrinsic.len(%items)
+      %none_found = core.call intrinsic.eq(%found, 0)
+      core.if %none_found {
+        %missing = core.call intrinsic.error.runtime("Could not parse markdown list: no valid list items found")
+        core.raise %missing
+      }
+      core.return %items
+    }
+  }
+
+  op ax.stream.semantic @stream_js_string_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/fieldValue.ts"
+    type signature = "(json) -> string"
+    body @entry(%value: json) {
+      // JS String(value) for JSON values.
+      %is_string = core.type_is %value type "string"
+      core.if %is_string {
+        core.return %value
+      }
+      %is_null = core.call intrinsic.is_none(%value)
+      core.if %is_null {
+        core.return "null"
+      }
+      %is_boolean = core.type_is %value type "boolean"
+      core.if %is_boolean {
+        core.if %value {
+          core.return "true"
+        }
+        core.return "false"
+      }
+      %is_number = core.type_is %value type "number"
+      core.if %is_number {
+        %whole = core.call intrinsic.math.floor(%value)
+        %integral = core.call intrinsic.eq(%whole, %value)
+        core.if %integral {
+          %whole_text = core.call intrinsic.string.format("{}", %whole)
+          core.return %whole_text
+        }
+        %number_text = core.call intrinsic.string.format("{}", %value)
+        core.return %number_text
+      }
+      %is_list = core.type_is %value type "list"
+      core.if %is_list {
+        %parts = core.list
+        core.for %item in %value {
+          %item_null = core.call intrinsic.is_none(%item)
+          core.if %item_null {
+            core.append %parts, ""
+            core.continue
+          }
+          %part = core.call @stream_js_string_impl(%item)
+          core.append %parts, %part
+        }
+        %joined = core.string_join %parts sep ","
+        core.return %joined
+      }
+      core.return "[object Object]"
+    }
+  }
+
+  op ax.stream.semantic @stream_js_number_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/fieldValue.ts"
+    type signature = "(json) -> json throws"
+    body @entry(%value: json) {
+      // JS Number(value); none stands for NaN.
+      %is_number = core.type_is %value type "number"
+      core.if %is_number {
+        core.return %value
+      }
+      %is_null = core.call intrinsic.is_none(%value)
+      core.if %is_null {
+        core.return 0
+      }
+      %is_boolean = core.type_is %value type "boolean"
+      core.if %is_boolean {
+        core.if %value {
+          core.return 1
+        }
+        core.return 0
+      }
+      %is_string = core.type_is %value type "string"
+      %is_list = core.type_is %value type "list"
+      %text = core.let ""
+      core.if %is_string {
+        %text = core.let %value
+      } else {
+        core.if %is_list {
+          %text = core.call @stream_js_string_impl(%value)
+        } else {
+          %nan = core.call intrinsic.none()
+          core.return %nan
+        }
+      }
+      %trimmed = core.string_trim %text
+      %empty = core.call intrinsic.eq(%trimmed, "")
+      core.if %empty {
+        core.return 0
+      }
+      %base = core.let 0
+      %digits = core.let ""
+      %hex = core.regex_match %trimmed pattern "^0[xX][0-9a-fA-F]+$"
+      core.if %hex {
+        %base = core.let 16
+      }
+      %octal = core.regex_match %trimmed pattern "^0[oO][0-7]+$"
+      core.if %octal {
+        %base = core.let 8
+      }
+      %binary = core.regex_match %trimmed pattern "^0[bB][01]+$"
+      core.if %binary {
+        %base = core.let 2
+      }
+      %radix = core.call intrinsic.gt(%base, 0)
+      core.if %radix {
+        %digits = core.call intrinsic.string.slice(%trimmed, 2)
+        %lower_digits = core.call intrinsic.string.lower(%digits)
+        %alphabet = core.let "0123456789abcdef"
+        %total = core.let 0
+        %count = core.call intrinsic.len(%lower_digits)
+        %cursor = core.let 0
+        core.loop {
+          %done = core.call intrinsic.gte(%cursor, %count)
+          core.if %done {
+            core.break
+          }
+          %next = core.call intrinsic.add(%cursor, 1)
+          %ch = core.call intrinsic.string.slice(%lower_digits, %cursor, %next)
+          %digit = core.call intrinsic.string.index_of(%alphabet, %ch, 0)
+          %scaled = core.call intrinsic.mul(%total, %base)
+          %total = core.call intrinsic.add(%scaled, %digit)
+          %cursor = core.let %next
+        }
+        core.return %total
+      }
+      %decimal = core.regex_match %trimmed pattern "^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$"
+      %not_decimal = core.call intrinsic.not(%decimal)
+      core.if %not_decimal {
+        %nan = core.call intrinsic.none()
+        core.return %nan
+      }
+      // Rewrite the JS numeric literal as JSON: no plus sign, no extra
+      // leading zeros, digits on both sides of a decimal point.
+      %sign = core.let ""
+      %magnitude = core.let %trimmed
+      %plus = core.call intrinsic.string.starts_with(%trimmed, "+")
+      %minus = core.call intrinsic.string.starts_with(%trimmed, "-")
+      %has_sign = core.call intrinsic.or(%plus, %minus)
+      core.if %has_sign {
+        core.if %minus {
+          %sign = core.let "-"
+        }
+        %magnitude = core.call intrinsic.string.slice(%trimmed, 1)
+      }
+      %mantissa = core.let %magnitude
+      %exponent = core.let ""
+      %lower_unsigned = core.call intrinsic.string.lower(%magnitude)
+      %e_at = core.call intrinsic.string.index_of(%lower_unsigned, "e", 0)
+      %has_exponent = core.call intrinsic.gte(%e_at, 0)
+      core.if %has_exponent {
+        %mantissa = core.call intrinsic.string.slice(%magnitude, 0, %e_at)
+        %exponent = core.call intrinsic.string.slice(%magnitude, %e_at)
+      }
+      %whole_part = core.let %mantissa
+      %fraction_part = core.let ""
+      %dot_at = core.call intrinsic.string.index_of(%mantissa, ".", 0)
+      %has_dot = core.call intrinsic.gte(%dot_at, 0)
+      core.if %has_dot {
+        %whole_part = core.call intrinsic.string.slice(%mantissa, 0, %dot_at)
+        %after_dot = core.call intrinsic.add(%dot_at, 1)
+        %fraction_part = core.call intrinsic.string.slice(%mantissa, %after_dot)
+      }
+      core.loop {
+        %leading_zero = core.call intrinsic.string.starts_with(%whole_part, "0")
+        %whole_length = core.call intrinsic.len(%whole_part)
+        %more = core.call intrinsic.gt(%whole_length, 1)
+        %strip = core.call intrinsic.and(%leading_zero, %more)
+        %keep = core.call intrinsic.not(%strip)
+        core.if %keep {
+          core.break
+        }
+        %whole_part = core.call intrinsic.string.slice(%whole_part, 1)
+      }
+      %no_whole = core.call intrinsic.eq(%whole_part, "")
+      core.if %no_whole {
+        %whole_part = core.let "0"
+      }
+      %literal = core.call intrinsic.add(%sign, %whole_part)
+      %has_fraction = core.call intrinsic.ne(%fraction_part, "")
+      core.if %has_fraction {
+        %with_dot = core.call intrinsic.add(%literal, ".")
+        %literal = core.call intrinsic.add(%with_dot, %fraction_part)
+      }
+      %literal = core.call intrinsic.add(%literal, %exponent)
+      %parsed = core.call intrinsic.json.parse_strict(%literal)
+      core.return %parsed
+    }
+  }
+
+  op ax.stream.semantic @stream_field_flag_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/sig.ts"
+    type signature = "(json, string, string) -> bool"
+    body @entry(%target: json, %snake: string, %camel: string) {
+      %snake_value = core.get %target[%snake] default false
+      %value = core.get %target[%camel] default %snake_value
+      %flag = core.call intrinsic.truthy(%value)
+      core.return %flag
+    }
+  }
+
+  op ax.stream.semantic @stream_field_type_label_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/errors.ts"
+    type signature = "(json) -> string"
+    body @entry(%field: json) {
+      // toFieldType: the type wording TS error messages use.
+      %typ = core.get %field["type"]
+      %name = core.get %typ["name"] default "string"
+      %base = core.let "string"
+      %is_number = core.call intrinsic.eq(%name, "number")
+      core.if %is_number {
+        %base = core.let "number"
+      }
+      %is_boolean = core.call intrinsic.eq(%name, "boolean")
+      core.if %is_boolean {
+        %base = core.let "boolean"
+      }
+      %is_date = core.call intrinsic.eq(%name, "date")
+      core.if %is_date {
+        %base = core.let "date (YYYY-MM-DD, e.g. 2024-05-09)"
+      }
+      %is_datetime = core.call intrinsic.eq(%name, "datetime")
+      core.if %is_datetime {
+        %base = core.let "datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z)"
+      }
+      %is_date_range = core.call intrinsic.eq(%name, "dateRange")
+      core.if %is_date_range {
+        %base = core.let "date range ({ \"start\": \"YYYY-MM-DD\", \"end\": \"YYYY-MM-DD\" })"
+      }
+      %is_datetime_range = core.call intrinsic.eq(%name, "datetimeRange")
+      core.if %is_datetime_range {
+        %base = core.let "datetime range ({ \"start\": \"2024-05-09T14:30:00Z\", \"end\": \"2024-05-09T15:30:00Z\" })"
+      }
+      %is_json = core.call intrinsic.eq(%name, "json")
+      core.if %is_json {
+        %base = core.let "JSON object"
+      }
+      %is_class = core.call intrinsic.eq(%name, "class")
+      core.if %is_class {
+        %base = core.let "classification class"
+      }
+      %is_code = core.call intrinsic.eq(%name, "code")
+      core.if %is_code {
+        %base = core.let "code"
+      }
+      %is_object = core.call intrinsic.eq(%name, "object")
+      core.if %is_object {
+        %base = core.let "object"
+      }
+      %is_array = core.call @stream_field_flag_impl(%typ, "is_array", "isArray")
+      core.if %is_array {
+        %array_label = core.call intrinsic.string.format("array of {}s", %base)
+        core.return %array_label
+      }
+      core.return %base
+    }
+  }
+
+  op ax.stream.semantic @stream_field_title_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/errors.ts"
+    type signature = "(json) -> string"
+    body @entry(%field: json) {
+      %name = core.get %field["name"] default ""
+      %title = core.get %field["title"] default %name
+      %has_title = core.call intrinsic.truthy(%title)
+      core.if %has_title {
+        core.return %title
+      }
+      core.return %name
+    }
+  }
+
+  op ax.stream.semantic @stream_required_missing_error_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/errors.ts"
+    type signature = "(json) -> error"
+    body @entry(%field: json) {
+      %title = core.call @stream_field_title_impl(%field)
+      %label = core.call @stream_field_type_label_impl(%field)
+      %message = core.call intrinsic.string.format("Required field is missing: '{}'. After the \"{}:\" label, provide a non-empty {}. Do not use null, undefined, or leave it blank.", %title, %title, %label)
+      %error = core.call intrinsic.error.validation(%message)
+      core.return %error
+    }
+  }
+
+  op ax.stream.semantic @stream_url_error_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/validators.ts"
+    type signature = "(json, json) -> json"
+    body @entry(%field: json, %value: json) {
+      // validateURL: returns the TS error, or none for a valid URL.
+      %title = core.call @stream_field_title_impl(%field)
+      %is_string = core.type_is %value type "string"
+      %not_string = core.call intrinsic.not(%is_string)
+      core.if %not_string {
+        %shown = core.call @stream_js_string_impl(%value)
+        %type_message = core.call intrinsic.string.format("Invalid URL for '{}': URL must be a string. Use a valid URL format (e.g., https://example.com). You provided: {}.", %title, %shown)
+        %type_error = core.call intrinsic.error.validation(%type_message)
+        core.return %type_error
+      }
+      %valid = core.call intrinsic.url.valid(%value)
+      core.if %valid {
+        %none = core.call intrinsic.none()
+        core.return %none
+      }
+      %message = core.call intrinsic.string.format("Invalid URL for '{}': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: {}.", %title, %value)
+      %error = core.call intrinsic.error.validation(%message)
+      core.return %error
+    }
+  }
+
+  op ax.stream.semantic @stream_validate_constraints_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/validators.ts"
+    type signature = "(json, json, string) -> void throws"
+    body @entry(%field: json, %value: json, %kind: string) {
+      // validateURL, validateStringConstraints or validateNumberConstraints,
+      // as kind says, with the TS messages. Values of another JSON type pass.
+      %title = core.call @stream_field_title_impl(%field)
+      %typ = core.get %field["type"]
+      %is_url = core.call intrinsic.eq(%kind, "url")
+      core.if %is_url {
+        %url_error = core.call @stream_url_error_impl(%field, %value)
+        %bad_url = core.call intrinsic.is_not_none(%url_error)
+        core.if %bad_url {
+          core.raise %url_error
+        }
+        core.return
+      }
+      %is_number_kind = core.call intrinsic.eq(%kind, "number")
+      core.if %is_number_kind {
+        %is_number = core.type_is %value type "number"
+        %not_number = core.call intrinsic.not(%is_number)
+        core.if %not_number {
+          core.return
+        }
+        %minimum = core.get %typ["minimum"]
+        %has_minimum = core.call intrinsic.is_not_none(%minimum)
+        core.if %has_minimum {
+          %too_small = core.call intrinsic.lt(%value, %minimum)
+          core.if %too_small {
+            %minimum_message = core.call intrinsic.string.format("Field '{}' failed validation: Number must be at least {}. You provided: {}.", %title, %minimum, %value)
+            %minimum_error = core.call intrinsic.error.validation(%minimum_message)
+            core.raise %minimum_error
+          }
+        }
+        %maximum = core.get %typ["maximum"]
+        %has_maximum = core.call intrinsic.is_not_none(%maximum)
+        core.if %has_maximum {
+          %too_large = core.call intrinsic.gt(%value, %maximum)
+          core.if %too_large {
+            %maximum_message = core.call intrinsic.string.format("Field '{}' failed validation: Number must be at most {}. You provided: {}.", %title, %maximum, %value)
+            %maximum_error = core.call intrinsic.error.validation(%maximum_message)
+            core.raise %maximum_error
+          }
+        }
+        core.return
+      }
+      %is_string = core.type_is %value type "string"
+      %not_string = core.call intrinsic.not(%is_string)
+      core.if %not_string {
+        core.return
+      }
+      %length = core.call intrinsic.len(%value)
+      %min_snake = core.get %typ["min_length"]
+      %min_length = core.get %typ["minLength"] default %min_snake
+      %has_min = core.call intrinsic.is_not_none(%min_length)
+      core.if %has_min {
+        %too_short = core.call intrinsic.lt(%length, %min_length)
+        core.if %too_short {
+          %short_message = core.call intrinsic.string.format("Field '{}' failed validation: String must be at least {} characters long. You provided: \"{}\" ({} characters).", %title, %min_length, %value, %length)
+          %short_error = core.call intrinsic.error.validation(%short_message)
+          core.raise %short_error
+        }
+      }
+      %max_snake = core.get %typ["max_length"]
+      %max_length = core.get %typ["maxLength"] default %max_snake
+      %has_max = core.call intrinsic.is_not_none(%max_length)
+      core.if %has_max {
+        %too_long = core.call intrinsic.gt(%length, %max_length)
+        core.if %too_long {
+          %long_message = core.call intrinsic.string.format("Field '{}' failed validation: String must be at most {} characters long. You provided: \"{}\" ({} characters).", %title, %max_length, %value, %length)
+          %long_error = core.call intrinsic.error.validation(%long_message)
+          core.raise %long_error
+        }
+      }
+      %pattern = core.get %typ["pattern"]
+      %has_pattern = core.call intrinsic.is_not_none(%pattern)
+      core.if %has_pattern {
+        %matches = core.call @regex_test(%pattern, %value)
+        %no_match = core.call intrinsic.not(%matches)
+        core.if %no_match {
+          %pattern_message = core.call intrinsic.string.format("Field '{}' failed validation: String must match pattern /{}/. You provided: \"{}\".", %title, %pattern, %value)
+          %pattern_error = core.call intrinsic.error.validation(%pattern_message)
+          core.raise %pattern_error
+        }
+      }
+      %format = core.get %typ["format"]
+      %is_email = core.call intrinsic.eq(%format, "email")
+      core.if %is_email {
+        %email_ok = core.regex_match %value pattern "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        %email_bad = core.call intrinsic.not(%email_ok)
+        core.if %email_bad {
+          %email_message = core.call intrinsic.string.format("Field '{}' failed validation: String must be a valid email address. You provided: \"{}\".", %title, %value)
+          %email_error = core.call intrinsic.error.validation(%email_message)
+          core.raise %email_error
+        }
+      }
+      %is_uri = core.call intrinsic.eq(%format, "uri")
+      %is_url_format = core.call intrinsic.eq(%format, "url")
+      %url_format = core.call intrinsic.or(%is_uri, %is_url_format)
+      core.if %url_format {
+        %url_ok = core.call intrinsic.url.valid(%value)
+        %url_bad = core.call intrinsic.not(%url_ok)
+        core.if %url_bad {
+          %format_message = core.call intrinsic.string.format("Field '{}' failed validation: String must be a valid URL. You provided: \"{}\".", %title, %value)
+          %format_error = core.call intrinsic.error.validation(%format_message)
+          core.raise %format_error
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_convert_value_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/fieldValue.ts"
+    type signature = "(json, json, bool) -> json throws"
+    body @entry(%field: json, %value: json, %required: bool) {
+      // convertValueToType. Returns {has, value}: has is false where TS
+      // returns undefined. Failures raise plain errors for the caller to wrap.
+      %out = core.map
+      core.set %out["has"] = true
+      core.set %out["value"] = %value
+      %typ = core.get %field["type"]
+      %name = core.get %typ["name"] default "string"
+      %optional = core.call @stream_field_flag_impl(%field, "is_optional", "isOptional")
+      %lenient = core.call intrinsic.not(%required)
+      %may_skip = core.call intrinsic.and(%optional, %lenient)
+      %is_code = core.call intrinsic.eq(%name, "code")
+      core.if %is_code {
+        %code_text = core.call @stream_js_string_impl(%value)
+        %block = core.call @stream_extract_block_impl(%code_text)
+        core.set %out["value"] = %block
+        core.return %out
+      }
+      %is_string = core.call intrinsic.eq(%name, "string")
+      core.if %is_string {
+        %text = core.call @stream_js_string_impl(%value)
+        core.set %out["value"] = %text
+        core.return %out
+      }
+      %is_number = core.call intrinsic.eq(%name, "number")
+      core.if %is_number {
+        %number = core.call @stream_js_number_impl(%value)
+        %nan = core.call intrinsic.is_none(%number)
+        core.if %nan {
+          core.if %may_skip {
+            core.set %out["has"] = false
+            core.return %out
+          }
+          %number_error = core.call intrinsic.error.runtime("Invalid number")
+          core.raise %number_error
+        }
+        core.set %out["value"] = %number
+        core.return %out
+      }
+      %is_boolean = core.call intrinsic.eq(%name, "boolean")
+      core.if %is_boolean {
+        %already = core.type_is %value type "boolean"
+        core.if %already {
+          core.return %out
+        }
+        %bool_text = core.call @stream_js_string_impl(%value)
+        %lowered = core.call intrinsic.string.lower(%bool_text)
+        %is_true = core.call intrinsic.eq(%lowered, "true")
+        core.if %is_true {
+          core.set %out["value"] = true
+          core.return %out
+        }
+        %is_false = core.call intrinsic.eq(%lowered, "false")
+        core.if %is_false {
+          core.set %out["value"] = false
+          core.return %out
+        }
+        core.if %may_skip {
+          core.set %out["has"] = false
+          core.return %out
+        }
+        %boolean_error = core.call intrinsic.error.runtime("Invalid boolean")
+        core.raise %boolean_error
+      }
+      %is_class = core.call intrinsic.eq(%name, "class")
+      core.if %is_class {
+        %class_name = core.call @stream_js_string_impl(%value)
+        %options = core.get %typ["options"]
+        %has_options = core.call intrinsic.truthy(%options)
+        core.if %has_options {
+          %known = core.call intrinsic.contains(%options, %class_name)
+          %unknown = core.call intrinsic.not(%known)
+          core.if %unknown {
+            core.if %optional {
+              core.set %out["has"] = false
+              core.return %out
+            }
+            %option_list = core.string_join %options sep ", "
+            %class_message = core.call intrinsic.string.format("Invalid class '{}', expected one of the following: {}", %class_name, %option_list)
+            %class_error = core.call intrinsic.error.runtime(%class_message)
+            core.raise %class_error
+          }
+        }
+        core.set %out["value"] = %class_name
+        core.return %out
+      }
+      // Date and datetime fields keep their text, as the ports' forward does;
+      // TS parses them into Date values.
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_field_value_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/fieldValue.ts"
+    type signature = "(json, string) -> json throws"
+    body @entry(%field: json, %text: string) {
+      // validateAndParseFieldValue. Returns {has, value}; has is false where
+      // TS returns undefined.
+      %out = core.map
+      core.set %out["has"] = false
+      %none = core.call intrinsic.none()
+      core.set %out["value"] = %none
+      %optional = core.call @stream_field_flag_impl(%field, "is_optional", "isOptional")
+      %title = core.call @stream_field_title_impl(%field)
+      %type_label = core.call @stream_field_type_label_impl(%field)
+      %empty = core.call intrinsic.eq(%text, "")
+      %lowered = core.call intrinsic.string.lower(%text)
+      %null_rest = core.let "x"
+      %starts_null = core.call intrinsic.string.starts_with(%lowered, "null")
+      core.if %starts_null {
+        %after_null = core.call intrinsic.string.slice(%lowered, 4)
+        %null_rest = core.string_trim %after_null
+      }
+      %starts_undefined = core.call intrinsic.string.starts_with(%lowered, "undefined")
+      core.if %starts_undefined {
+        %after_undefined = core.call intrinsic.string.slice(%lowered, 9)
+        %null_rest = core.string_trim %after_undefined
+      }
+      %null_text = core.call intrinsic.eq(%null_rest, "")
+      %missing = core.call intrinsic.or(%empty, %null_text)
+      core.if %missing {
+        core.if %optional {
+          core.return %out
+        }
+        %missing_error = core.call @stream_required_missing_error_impl(%field)
+        core.raise %missing_error
+      }
+      %typ = core.get %field["type"]
+      %name = core.get %typ["name"] default "string"
+      %is_array = core.call @stream_field_flag_impl(%typ, "is_array", "isArray")
+      %is_json = core.call intrinsic.eq(%name, "json")
+      %not_array = core.call intrinsic.not(%is_array)
+      %json_scalar = core.call intrinsic.and(%is_json, %not_array)
+      core.if %json_scalar {
+        core.try {
+          %json_text = core.call @stream_extract_block_impl(%text)
+          %json_value = core.call intrinsic.json.parse_strict(%json_text)
+          core.set %out["has"] = true
+          core.set %out["value"] = %json_value
+        } catch %json_error {
+          %json_detail = core.call intrinsic.exception.message(%json_error)
+          %json_message = core.call intrinsic.string.format("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", %json_detail, %title)
+          %invalid_json = core.call intrinsic.error.validation(%json_message)
+          core.raise %invalid_json
+        }
+        core.return %out
+      }
+      %value = core.call intrinsic.none()
+      %has_value = core.let false
+      core.if %is_array {
+        core.try {
+          %parsed_list = core.call intrinsic.none()
+          core.try {
+            %parsed_list = core.call intrinsic.json.parse_strict(%text)
+          } catch %not_json {
+            %parsed_list = core.call @stream_markdown_list_impl(%text)
+          }
+          %is_list = core.type_is %parsed_list type "list"
+          %not_list = core.call intrinsic.not(%is_list)
+          core.if %not_list {
+            %shape_error = core.call intrinsic.error.runtime("Expected an array")
+            core.raise %shape_error
+          }
+          %value = core.let %parsed_list
+        } catch %array_error {
+          %array_detail = core.call intrinsic.exception.message(%array_error)
+          %no_items = core.call intrinsic.string.index_of(%array_detail, "no valid list items found", 0)
+          %found_no_items = core.call intrinsic.gte(%no_items, 0)
+          %expected_array = core.call intrinsic.eq(%array_detail, "Expected an array")
+          %single_value = core.call intrinsic.or(%found_no_items, %expected_array)
+          core.if %single_value {
+            %single = core.list
+            core.append %single, %text
+            %value = core.let %single
+          } else {
+            %array_message = core.call intrinsic.string.format("Invalid Array: {} for '{}'. Provide a JSON array of {} items (e.g., [ ... ]). Markdown lists are also accepted if each item is on its own line starting with a hyphen.", %array_detail, %title, %type_label)
+            %invalid_array = core.call intrinsic.error.validation(%array_message)
+            core.raise %invalid_array
+          }
+        }
+        %has_value = core.let true
+      }
+      core.try {
+        core.if %is_array {
+          %converted_items = core.list
+          %is_object_type = core.call intrinsic.eq(%name, "object")
+          %json_items = core.call intrinsic.or(%is_object_type, %is_json)
+          core.for %item in %value {
+            %item_value = core.let %item
+            %item_is_string = core.type_is %item type "string"
+            core.if %item_is_string {
+              %item_value = core.string_trim %item
+              core.if %json_items {
+                core.try {
+                  %item_block = core.call @stream_extract_block_impl(%item_value)
+                  %item_value = core.call intrinsic.json.parse_strict(%item_block)
+                } catch %item_json_error {
+                }
+              }
+            }
+            %converted = core.call @stream_convert_value_impl(%field, %item_value, true)
+            %converted_has = core.get %converted["has"] default false
+            core.if %converted_has {
+              %converted_value = core.get %converted["value"]
+              core.append %converted_items, %converted_value
+            } else {
+              %undefined_item = core.call intrinsic.none()
+              core.append %converted_items, %undefined_item
+            }
+          }
+          %value = core.let %converted_items
+        } else {
+          %scalar = core.call @stream_convert_value_impl(%field, %text, false)
+          %has_value = core.get %scalar["has"] default false
+          %value = core.get %scalar["value"]
+        }
+      } catch %convert_error {
+        %convert_detail = core.call intrinsic.exception.message(%convert_error)
+        %convert_message = core.call intrinsic.string.format("Field '{}' has an invalid value '{}': {}. Provide a {}. Ensure formatting exactly matches the expected type.", %title, %text, %convert_detail, %type_label)
+        %invalid_value = core.call intrinsic.error.validation(%convert_message)
+        core.raise %invalid_value
+      }
+      %not_has = core.call intrinsic.not(%has_value)
+      core.if %not_has {
+        core.return %out
+      }
+      %value_is_string = core.type_is %value type "string"
+      core.if %value_is_string {
+        %empty_value = core.call intrinsic.eq(%value, "")
+        core.if %empty_value {
+          core.return %out
+        }
+      }
+      %is_url = core.call intrinsic.eq(%name, "url")
+      %is_code = core.call intrinsic.eq(%name, "code")
+      %is_string = core.call intrinsic.eq(%name, "string")
+      %string_like = core.call intrinsic.or(%is_string, %is_code)
+      %is_number = core.call intrinsic.eq(%name, "number")
+      %scalar_url = core.call intrinsic.and(%is_url, %not_array)
+      core.if %scalar_url {
+        core.call @stream_validate_constraints_impl(%field, %value, "url")
+      }
+      core.if %string_like {
+        core.call @stream_validate_constraints_impl(%field, %value, "string")
+      }
+      core.if %is_number {
+        core.call @stream_validate_constraints_impl(%field, %value, "number")
+      }
+      %value_is_list = core.type_is %value type "list"
+      %check_items = core.call intrinsic.and(%is_array, %value_is_list)
+      core.if %check_items {
+        core.for %checked in %value {
+          %checked_missing = core.call intrinsic.is_none(%checked)
+          core.if %checked_missing {
+            core.continue
+          }
+          core.if %is_url {
+            core.call @stream_validate_constraints_impl(%field, %checked, "url")
+          } else {
+            core.if %string_like {
+              core.call @stream_validate_constraints_impl(%field, %checked, "string")
+            }
+            core.if %is_number {
+              core.call @stream_validate_constraints_impl(%field, %checked, "number")
+            }
+          }
+        }
+      }
+      core.set %out["has"] = true
+      core.set %out["value"] = %value
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_text_state_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/streamingText.ts"
+    type signature = "() -> json"
+    body @entry() {
+      // extractionState: the current field, where its value starts (s), the
+      // closed fields not yet streamed, and how much of each field streamed.
+      %xstate = core.map
+      %prev_fields = core.list
+      core.set %xstate["prev_fields"] = %prev_fields
+      %none = core.call intrinsic.none()
+      core.set %xstate["curr_field"] = %none
+      core.set %xstate["curr_field_index"] = %none
+      core.set %xstate["in_assumed_field"] = false
+      %extracted = core.list
+      core.set %xstate["extracted_fields"] = %extracted
+      %streamed = core.map
+      core.set %xstate["streamed_index"] = %streamed
+      core.set %xstate["s"] = -1
+      core.return %xstate
+    }
+  }
+
+  op ax.stream.semantic @stream_text_note_field_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/streamingText.ts"
+    type signature = "(json, json, bool) -> void"
+    body @entry(%xstate: json, %field: json, %init_streamed: bool) {
+      %name = core.get %field["name"] default ""
+      %empty_extracted = core.list
+      %extracted = core.get %xstate["extracted_fields"] default %empty_extracted
+      %seen = core.call intrinsic.contains(%extracted, %name)
+      %unseen = core.call intrinsic.not(%seen)
+      core.if %unseen {
+        core.append %extracted, %name
+        core.set %xstate["extracted_fields"] = %extracted
+      }
+      core.if %init_streamed {
+        %empty_streamed = core.map
+        %streamed = core.get %xstate["streamed_index"] default %empty_streamed
+        %has_index = core.call intrinsic.map.contains(%streamed, %name)
+        %missing_index = core.call intrinsic.not(%has_index)
+        core.if %missing_index {
+          core.set %streamed[%name] = 0
+        }
+        core.set %xstate["streamed_index"] = %streamed
+      }
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_text_extract_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/streamingText.ts"
+    type signature = "(json, json, string, list<json>) -> bool throws"
+    body @entry(%xstate: json, %values: json, %content: string, %fields: list<json>) {
+      // streamingExtractValues: finds the next `Label:` after the current
+      // field's value start, parses the field it closes into values, and
+      // records the closed field for streaming. Returns true to skip the
+      // chunk while the content may still end in a partial label. A
+      // single-field signature with no label yet assumes that field.
+      %field_count = core.call intrinsic.len(%fields)
+      core.loop {
+        %exclude = core.let -1
+        %curr_index = core.get %xstate["curr_field_index"]
+        %assumed = core.get %xstate["in_assumed_field"] default false
+        %has_index = core.call intrinsic.is_not_none(%curr_index)
+        %not_assumed = core.call intrinsic.not(%assumed)
+        %exclude_curr = core.call intrinsic.and(%has_index, %not_assumed)
+        core.if %exclude_curr {
+          %exclude = core.let %curr_index
+        }
+        %chosen_index = core.let -1
+        %chosen_field = core.call intrinsic.none()
+        %end = core.let -1
+        %prefix_length = core.let 0
+        %partial_prefix = core.let false
+        %empty_extracted = core.list
+        %extracted = core.get %xstate["extracted_fields"] default %empty_extracted
+        %extracted_count = core.call intrinsic.len(%extracted)
+        %is_first = core.call intrinsic.eq(%extracted_count, 0)
+        %start = core.get %xstate["s"] default -1
+        %position = core.let 0
+        core.for %field in %fields {
+          %skip_field = core.call intrinsic.eq(%position, %exclude)
+          %try_field = core.call intrinsic.not(%skip_field)
+          core.if %try_field {
+            %labels = core.call @stream_field_labels_impl(%field)
+            core.for %label in %labels {
+              %prefix = core.call intrinsic.string.format("\n{}:", %label)
+              core.if %is_first {
+                %prefix = core.call intrinsic.string.format("{}:", %label)
+              }
+              %match_at = core.call @stream_matches_content_impl(%content, %prefix, %start)
+              %partial = core.call intrinsic.lte(%match_at, -2)
+              core.if %partial {
+                %partial_prefix = core.let true
+              }
+              %hit = core.call intrinsic.gte(%match_at, 0)
+              core.if %hit {
+                %first_hit = core.call intrinsic.eq(%end, -1)
+                %earlier = core.call intrinsic.lt(%match_at, %end)
+                %better = core.call intrinsic.or(%first_hit, %earlier)
+                core.if %better {
+                  %end = core.let %match_at
+                  %prefix_length = core.call intrinsic.len(%prefix)
+                  %chosen_index = core.let %position
+                  %chosen_field = core.let %field
+                }
+              }
+            }
+          }
+          %position = core.call intrinsic.add(%position, 1)
+        }
+        %not_found = core.call intrinsic.eq(%end, -1)
+        core.if %not_found {
+          core.if %partial_prefix {
+            core.return true
+          }
+          %curr_field = core.get %xstate["curr_field"]
+          %no_curr = core.call intrinsic.is_none(%curr_field)
+          %nothing_extracted = core.call intrinsic.eq(%extracted_count, 0)
+          %single = core.call intrinsic.eq(%field_count, 1)
+          %assume_start = core.call intrinsic.and(%no_curr, %nothing_extracted)
+          %assume = core.call intrinsic.and(%assume_start, %single)
+          core.if %assume {
+            %only = core.call intrinsic.list.get(%fields, 0)
+            core.set %xstate["in_assumed_field"] = true
+            core.set %xstate["curr_field"] = %only
+            core.set %xstate["curr_field_index"] = 0
+            core.set %xstate["s"] = 0
+            core.call @stream_text_note_field_impl(%xstate, %only, true)
+            core.return false
+          }
+          core.break
+        }
+        %curr = core.get %xstate["curr_field"]
+        %has_curr = core.call intrinsic.is_not_none(%curr)
+        %in_assumed = core.get %xstate["in_assumed_field"] default false
+        %leave_assumed = core.call intrinsic.and(%has_curr, %in_assumed)
+        core.if %leave_assumed {
+          // A label after an assumed single field starts the field over.
+          core.set %xstate["in_assumed_field"] = false
+          %assumed_name = core.get %curr["name"] default ""
+          %empty_streamed = core.map
+          %streamed = core.get %xstate["streamed_index"] default %empty_streamed
+          core.set %streamed[%assumed_name] = 0
+          core.set %xstate["streamed_index"] = %streamed
+          %cleared = core.call intrinsic.none()
+          core.set %xstate["curr_field"] = %cleared
+          %has_curr = core.let false
+        }
+        core.if %has_curr {
+          %raw = core.call @stream_substring_impl(%content, %start, %end)
+          %text = core.string_trim %raw
+          %parsed = core.call @stream_field_value_impl(%curr, %text)
+          %parsed_has = core.get %parsed["has"] default false
+          core.if %parsed_has {
+            %curr_name = core.get %curr["name"] default ""
+            %parsed_value = core.get %parsed["value"]
+            core.set %values[%curr_name] = %parsed_value
+          }
+          %entry = core.map
+          core.set %entry["field"] = %curr
+          core.set %entry["s"] = %start
+          core.set %entry["e"] = %end
+          %empty_prev = core.list
+          %prev_fields = core.get %xstate["prev_fields"] default %empty_prev
+          core.append %prev_fields, %entry
+          core.set %xstate["prev_fields"] = %prev_fields
+        }
+        %next_start = core.call intrinsic.add(%end, %prefix_length)
+        core.set %xstate["s"] = %next_start
+        core.set %xstate["curr_field"] = %chosen_field
+        core.set %xstate["curr_field_index"] = %chosen_index
+        core.call @stream_text_note_field_impl(%xstate, %chosen_field, true)
+      }
+      core.return false
+    }
+  }
+
+  op ax.stream.semantic @stream_text_required_check_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/streamingText.ts"
+    type signature = "(json, list<json>) -> void throws"
+    body @entry(%values: json, %fields: list<json>) {
+      // checkMissingRequiredFields, internal fields included.
+      %parts = core.list
+      %first = core.call intrinsic.none()
+      core.for %field in %fields {
+        %optional = core.call @stream_field_flag_impl(%field, "is_optional", "isOptional")
+        core.if %optional {
+          core.continue
+        }
+        %name = core.get %field["name"] default ""
+        %present = core.call intrinsic.map.contains(%values, %name)
+        core.if %present {
+          core.continue
+        }
+        %no_first = core.call intrinsic.is_none(%first)
+        core.if %no_first {
+          %first = core.let %field
+        }
+        %title = core.call @stream_field_title_impl(%field)
+        %label = core.call @stream_field_type_label_impl(%field)
+        %part = core.call intrinsic.string.format("'{}' ({})", %title, %label)
+        core.append %parts, %part
+      }
+      %missing_count = core.call intrinsic.len(%parts)
+      %none_missing = core.call intrinsic.eq(%missing_count, 0)
+      core.if %none_missing {
+        core.return
+      }
+      %list = core.string_join %parts sep ", "
+      %first_title = core.call @stream_field_title_impl(%first)
+      %first_label = core.call @stream_field_type_label_impl(%first)
+      %message = core.call intrinsic.string.format("Required field not found: {}. Add a line starting with the exact label followed by a colon (e.g., \"{}:\") and then provide a valid {} value. Keep the output concise and avoid unrelated text.", %list, %first_title, %first_label)
+      %error = core.call intrinsic.error.validation(%message)
+      core.raise %error
+    }
+  }
+
+  op ax.stream.semantic @stream_text_missed_fields_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/streamingText.ts"
+    type signature = "(json, string, list<json>) -> void throws"
+    body @entry(%values: json, %content: string, %fields: list<json>) {
+      // parseMissedFieldsFromFullContent: a single field takes the text after
+      // its first label; otherwise each missing field takes the first line
+      // that starts with its label.
+      %field_count = core.call intrinsic.len(%fields)
+      %single = core.call intrinsic.eq(%field_count, 1)
+      core.if %single {
+        %field = core.call intrinsic.list.get(%fields, 0)
+        %labels = core.call @stream_field_labels_impl(%field)
+        %best_start = core.let -1
+        %best_length = core.let 0
+        core.for %label in %labels {
+          %prefix = core.call intrinsic.string.format("{}:", %label)
+          %at = core.call intrinsic.string.index_of(%content, %prefix, 0)
+          %found = core.call intrinsic.gte(%at, 0)
+          core.if %found {
+            %first_found = core.call intrinsic.eq(%best_start, -1)
+            %earlier = core.call intrinsic.lt(%at, %best_start)
+            %better = core.call intrinsic.or(%first_found, %earlier)
+            core.if %better {
+              %best_start = core.let %at
+              %best_length = core.call intrinsic.len(%prefix)
+            }
+          }
+        }
+        %labelled = core.call intrinsic.gte(%best_start, 0)
+        core.if %labelled {
+          %value_start = core.call intrinsic.add(%best_start, %best_length)
+          %value_end = core.call intrinsic.len(%content)
+          core.for %boundary_label in %labels {
+            %boundary = core.call intrinsic.string.format("\n{}:", %boundary_label)
+            %boundary_at = core.call intrinsic.string.index_of(%content, %boundary, %value_start)
+            %boundary_found = core.call intrinsic.gte(%boundary_at, 0)
+            %boundary_earlier = core.call intrinsic.lt(%boundary_at, %value_end)
+            %use_boundary = core.call intrinsic.and(%boundary_found, %boundary_earlier)
+            core.if %use_boundary {
+              %value_end = core.let %boundary_at
+            }
+          }
+          %raw = core.call @stream_substring_impl(%content, %value_start, %value_end)
+          %text = core.string_trim %raw
+          %has_text = core.call intrinsic.ne(%text, "")
+          core.if %has_text {
+            %done = core.let false
+            core.try {
+              %parsed = core.call @stream_field_value_impl(%field, %text)
+              %parsed_has = core.get %parsed["has"] default false
+              core.if %parsed_has {
+                %name = core.get %field["name"] default ""
+                %parsed_value = core.get %parsed["value"]
+                core.set %values[%name] = %parsed_value
+                %done = core.let true
+              }
+            } catch %single_error {
+            }
+            core.if %done {
+              core.return
+            }
+          }
+        }
+      }
+      %lines = core.call intrinsic.string.split(%content, "\n")
+      core.for %missed in %fields {
+        %missed_name = core.get %missed["name"] default ""
+        %present = core.call intrinsic.map.contains(%values, %missed_name)
+        core.if %present {
+          core.continue
+        }
+        %missed_labels = core.call @stream_field_labels_impl(%missed)
+        %optional = core.call @stream_field_flag_impl(%missed, "is_optional", "isOptional")
+        core.for %line in %lines {
+          %trimmed_line = core.string_trim %line
+          %matched = core.call intrinsic.none()
+          core.for %line_label in %missed_labels {
+            %line_prefix = core.call intrinsic.string.format("{}:", %line_label)
+            %starts = core.call intrinsic.string.starts_with(%trimmed_line, %line_prefix)
+            core.if %starts {
+              %matched = core.let %line_prefix
+              core.break
+            }
+          }
+          %no_match = core.call intrinsic.is_none(%matched)
+          core.if %no_match {
+            core.continue
+          }
+          %matched_length = core.call intrinsic.len(%matched)
+          %after = core.call intrinsic.string.slice(%trimmed_line, %matched_length)
+          %line_value = core.string_trim %after
+          %has_line_value = core.call intrinsic.ne(%line_value, "")
+          core.if %has_line_value {
+            core.try {
+              %line_parsed = core.call @stream_field_value_impl(%missed, %line_value)
+              %line_has = core.get %line_parsed["has"] default false
+              core.if %line_has {
+                %line_parsed_value = core.get %line_parsed["value"]
+                core.set %values[%missed_name] = %line_parsed_value
+              }
+            } catch %line_error {
+              %required = core.call intrinsic.not(%optional)
+              core.if %required {
+                core.raise %line_error
+              }
+            }
+          }
+          core.break
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_text_final_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/streamingText.ts"
+    type signature = "(json, json, string, list<json>) -> void throws"
+    body @entry(%xstate: json, %values: json, %content: string, %fields: list<json>) {
+      // streamingExtractFinalValue with forceFinalize: parse the current
+      // field up to the next label, recover missed fields, then require the
+      // required ones.
+      %field_count = core.call intrinsic.len(%fields)
+      %curr = core.get %xstate["curr_field"]
+      %no_curr = core.call intrinsic.is_none(%curr)
+      %single = core.call intrinsic.eq(%field_count, 1)
+      %assume = core.call intrinsic.and(%no_curr, %single)
+      core.if %assume {
+        %only = core.call intrinsic.list.get(%fields, 0)
+        core.set %xstate["curr_field"] = %only
+        core.set %xstate["curr_field_index"] = 0
+        core.set %xstate["in_assumed_field"] = true
+        core.set %xstate["s"] = 0
+        core.call @stream_text_note_field_impl(%xstate, %only, false)
+        %curr = core.let %only
+      }
+      %has_curr = core.call intrinsic.is_not_none(%curr)
+      core.if %has_curr {
+        %curr_name = core.get %curr["name"] default ""
+        %start = core.get %xstate["s"] default 0
+        %end = core.call intrinsic.len(%content)
+        core.for %other in %fields {
+          %other_name = core.get %other["name"] default ""
+          %same = core.call intrinsic.eq(%other_name, %curr_name)
+          core.if %same {
+            core.continue
+          }
+          %other_labels = core.call @stream_field_labels_impl(%other)
+          core.for %label in %other_labels {
+            %pattern = core.call intrinsic.string.format("\n{}:", %label)
+            %at = core.call intrinsic.string.index_of(%content, %pattern, %start)
+            %found = core.call intrinsic.gte(%at, 0)
+            %earlier = core.call intrinsic.lt(%at, %end)
+            %closer = core.call intrinsic.and(%found, %earlier)
+            core.if %closer {
+              %end = core.let %at
+            }
+          }
+        }
+        %raw = core.call @stream_substring_impl(%content, %start, %end)
+        %text = core.string_trim %raw
+        %parsed = core.call @stream_field_value_impl(%curr, %text)
+        %parsed_has = core.get %parsed["has"] default false
+        core.if %parsed_has {
+          %parsed_value = core.get %parsed["value"]
+          core.set %values[%curr_name] = %parsed_value
+        }
+      }
+      core.call @stream_text_missed_fields_impl(%values, %content, %fields)
+      core.call @stream_text_required_check_impl(%values, %fields)
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_text_extract_values_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/streamingText.ts"
+    type signature = "(string, list<json>) -> json throws"
+    body @entry(%content: string, %fields: list<json>) {
+      // extractValues: TS parses a whole response with the streaming
+      // extractor and drops the internal fields.
+      %values = core.map
+      %xstate = core.call @stream_text_state_impl()
+      core.call @stream_text_extract_impl(%xstate, %values, %content, %fields)
+      core.call @stream_text_final_impl(%xstate, %values, %content, %fields)
+      core.for %field in %fields {
+        %internal = core.call @stream_field_flag_impl(%field, "is_internal", "isInternal")
+        core.if %internal {
+          %name = core.get %field["name"] default ""
+          core.call intrinsic.map.delete(%values, %name)
+        }
+      }
+      core.return %values
+    }
+  }
+
+  op ax.stream.semantic @stream_text_yield_delta_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/delta.ts"
+    type signature = "(string, json, i64, i64, json, list<string>) -> json"
+    body @entry(%content: string, %field: json, %start: i64, %end: i64, %xstate: json, %held: list<string>) {
+      // yieldDelta: the not yet streamed text of a string or code field,
+      // holding back trailing whitespace and code fences. Returns the delta
+      // or none.
+      %none = core.call intrinsic.none()
+      %name = core.get %field["name"] default ""
+      %internal = core.call @stream_field_flag_impl(%field, "is_internal", "isInternal")
+      %typ = core.get %field["type"]
+      %type_name = core.get %typ["name"] default ""
+      %is_array = core.call @stream_field_flag_impl(%typ, "is_array", "isArray")
+      %untyped = core.call intrinsic.eq(%type_name, "")
+      %is_string = core.call intrinsic.eq(%type_name, "string")
+      %is_code = core.call intrinsic.eq(%type_name, "code")
+      %texty = core.call intrinsic.or(%untyped, %is_string)
+      %texty = core.call intrinsic.or(%texty, %is_code)
+      %not_texty = core.call intrinsic.not(%texty)
+      %skip = core.call intrinsic.or(%internal, %is_array)
+      %skip = core.call intrinsic.or(%skip, %not_texty)
+      %is_held = core.call intrinsic.contains(%held, %name)
+      %skip = core.call intrinsic.or(%skip, %is_held)
+      core.if %skip {
+        core.return %none
+      }
+      %empty_streamed = core.map
+      %streamed = core.get %xstate["streamed_index"] default %empty_streamed
+      %position = core.get %streamed[%name] default 0
+      %first_chunk = core.call intrinsic.eq(%position, 0)
+      %base = core.let %start
+      %before_start = core.call intrinsic.lt(%base, 0)
+      core.if %before_start {
+        %base = core.let 0
+      }
+      %from_index = core.call intrinsic.add(%base, %position)
+      %d1 = core.call @stream_substring_impl(%content, %from_index, %end)
+      %d1_length = core.call intrinsic.len(%d1)
+      %nothing = core.call intrinsic.eq(%d1_length, 0)
+      core.if %nothing {
+        core.return %none
+      }
+      %curr = core.get %xstate["curr_field"]
+      %curr_type = core.get %curr["type"]
+      %curr_type_name = core.get %curr_type["name"] default ""
+      %curr_code = core.call intrinsic.eq(%curr_type_name, "code")
+      %d2 = core.call @stream_trim_end_impl(%d1)
+      core.if %curr_code {
+        %d2 = core.call @stream_strip_trailing_fence_impl(%d2)
+      }
+      %d3 = core.let %d2
+      core.if %first_chunk {
+        %d3 = core.call @stream_trim_start_impl(%d2)
+      }
+      core.if %curr_code {
+        %d3 = core.call @stream_strip_leading_fence_impl(%d3)
+      }
+      %d3_length = core.call intrinsic.len(%d3)
+      %has_text = core.call intrinsic.gt(%d3_length, 0)
+      core.if %has_text {
+        %d2_length = core.call intrinsic.len(%d2)
+        %streamed_to = core.call intrinsic.add(%position, %d2_length)
+        core.set %streamed[%name] = %streamed_to
+        core.set %xstate["streamed_index"] = %streamed
+        %delta = core.map
+        core.set %delta[%name] = %d3
+        core.return %delta
+      }
+      core.return %none
+    }
+  }
+
+  op ax.stream.semantic @stream_text_values_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/delta.ts"
+    type signature = "(list<json>, string, json, json, list<string>) -> list<json>"
+    body @entry(%fields: list<json>, %content: string, %values: json, %xstate: json, %held: list<string>) {
+      // streamValues: the closed fields' remaining text, then the current
+      // field's text, then each parsed value not streamed yet (arrays by new
+      // items, other values once). Each delta holds one field.
+      %deltas = core.list
+      %empty_prev = core.list
+      %prev_fields = core.get %xstate["prev_fields"] default %empty_prev
+      core.for %entry in %prev_fields {
+        %prev_field = core.get %entry["field"]
+        %prev_start = core.get %entry["s"] default 0
+        %prev_end = core.get %entry["e"] default 0
+        %prev_delta = core.call @stream_text_yield_delta_impl(%content, %prev_field, %prev_start, %prev_end, %xstate, %held)
+        %has_prev_delta = core.call intrinsic.is_not_none(%prev_delta)
+        core.if %has_prev_delta {
+          core.append %deltas, %prev_delta
+        }
+      }
+      %cleared = core.list
+      core.set %xstate["prev_fields"] = %cleared
+      %assumed = core.get %xstate["in_assumed_field"] default false
+      core.if %assumed {
+        %visible_count = core.let 0
+        core.for %candidate in %fields {
+          %candidate_internal = core.call @stream_field_flag_impl(%candidate, "is_internal", "isInternal")
+          %candidate_visible = core.call intrinsic.not(%candidate_internal)
+          core.if %candidate_visible {
+            %visible_count = core.call intrinsic.add(%visible_count, 1)
+          }
+        }
+        %single_visible = core.call intrinsic.eq(%visible_count, 1)
+        %several = core.call intrinsic.not(%single_visible)
+        core.if %several {
+          core.return %deltas
+        }
+      }
+      %curr = core.get %xstate["curr_field"]
+      %no_curr = core.call intrinsic.is_none(%curr)
+      core.if %no_curr {
+        core.return %deltas
+      }
+      %curr_internal = core.call @stream_field_flag_impl(%curr, "is_internal", "isInternal")
+      core.if %curr_internal {
+        core.return %deltas
+      }
+      %curr_start = core.get %xstate["s"] default 0
+      %content_length = core.call intrinsic.len(%content)
+      %curr_delta = core.call @stream_text_yield_delta_impl(%content, %curr, %curr_start, %content_length, %xstate, %held)
+      %has_curr_delta = core.call intrinsic.is_not_none(%curr_delta)
+      core.if %has_curr_delta {
+        core.append %deltas, %curr_delta
+      }
+      %empty_streamed = core.map
+      %streamed = core.get %xstate["streamed_index"] default %empty_streamed
+      %keys = core.call intrinsic.map.keys(%values)
+      core.for %key in %keys {
+        %field = core.call intrinsic.none()
+        core.for %candidate_field in %fields {
+          %candidate_name = core.get %candidate_field["name"] default ""
+          %same = core.call intrinsic.eq(%candidate_name, %key)
+          core.if %same {
+            %field = core.let %candidate_field
+            core.break
+          }
+        }
+        %unknown = core.call intrinsic.is_none(%field)
+        core.if %unknown {
+          core.continue
+        }
+        %internal = core.call @stream_field_flag_impl(%field, "is_internal", "isInternal")
+        %is_held = core.call intrinsic.contains(%held, %key)
+        %skip = core.call intrinsic.or(%internal, %is_held)
+        core.if %skip {
+          core.continue
+        }
+        %value = core.get %values[%key]
+        %is_list = core.type_is %value type "list"
+        core.if %is_list {
+          %sent = core.get %streamed[%key] default 0
+          %fresh = core.list
+          %cursor = core.let 0
+          core.for %item in %value {
+            %new_item = core.call intrinsic.gte(%cursor, %sent)
+            core.if %new_item {
+              core.append %fresh, %item
+            }
+            %cursor = core.call intrinsic.add(%cursor, 1)
+          }
+          %fresh_count = core.call intrinsic.len(%fresh)
+          %has_fresh = core.call intrinsic.gt(%fresh_count, 0)
+          core.if %has_fresh {
+            %list_delta = core.map
+            core.set %list_delta[%key] = %fresh
+            core.append %deltas, %list_delta
+            %sent_to = core.call intrinsic.add(%sent, %fresh_count)
+            core.set %streamed[%key] = %sent_to
+          }
+          core.continue
+        }
+        %is_string = core.type_is %value type "string"
+        %string_value = core.let ""
+        core.if %is_string {
+          %string_value = core.let %value
+        }
+        %has_string = core.call intrinsic.ne(%string_value, "")
+        %current = core.get %streamed[%key] default 0
+        %already = core.call intrinsic.truthy(%current)
+        %not_yet = core.call intrinsic.not(%already)
+        core.if %not_yet {
+          %value_delta = core.map
+          core.set %value_delta[%key] = %value
+          core.append %deltas, %value_delta
+          %marker = core.let 1
+          core.if %has_string {
+            %marker = core.call intrinsic.len(%string_value)
+          }
+          core.set %streamed[%key] = %marker
+          core.continue
+        }
+        core.if %has_string {
+          %string_length = core.call intrinsic.len(%string_value)
+          %grew = core.call intrinsic.gt(%string_length, %current)
+          core.if %grew {
+            %rest = core.call intrinsic.string.slice(%string_value, %current)
+            %rest_delta = core.map
+            core.set %rest_delta[%key] = %rest
+            core.append %deltas, %rest_delta
+            core.set %streamed[%key] = %string_length
+          }
+        }
+      }
+      core.set %xstate["streamed_index"] = %streamed
+      core.return %deltas
+    }
+  }
+
+  op ax.stream.semantic @stream_json_context_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/util/partialJson.ts"
+    type signature = "(string) -> json"
+    body @entry(%json_text: string) {
+      // analyzeJsonContext: nesting and string state at the end of the text.
+      %stack = core.list
+      %depth = core.let 0
+      %in_string = core.let false
+      %escaped = core.let false
+      %length = core.call intrinsic.len(%json_text)
+      %cursor = core.let 0
+      core.loop {
+        %done = core.call intrinsic.gte(%cursor, %length)
+        core.if %done {
+          core.break
+        }
+        %next = core.call intrinsic.add(%cursor, 1)
+        %ch = core.call intrinsic.string.slice(%json_text, %cursor, %next)
+        %cursor = core.let %next
+        core.if %escaped {
+          %escaped = core.let false
+          core.continue
+        }
+        %backslash = core.call intrinsic.eq(%ch, "\\")
+        core.if %backslash {
+          %escaped = core.let true
+          core.continue
+        }
+        %quote = core.call intrinsic.eq(%ch, "\"")
+        core.if %quote {
+          %in_string = core.call intrinsic.not(%in_string)
+          core.continue
+        }
+        core.if %in_string {
+          core.continue
+        }
+        %open_object = core.call intrinsic.eq(%ch, "{")
+        %open_array = core.call intrinsic.eq(%ch, "[")
+        %opens = core.call intrinsic.or(%open_object, %open_array)
+        core.if %opens {
+          core.append %stack, %ch
+          %depth = core.call intrinsic.add(%depth, 1)
+          core.continue
+        }
+        %close_object = core.call intrinsic.eq(%ch, "}")
+        %close_array = core.call intrinsic.eq(%ch, "]")
+        %closes = core.call intrinsic.or(%close_object, %close_array)
+        core.if %closes {
+          %opener = core.let "{"
+          core.if %close_array {
+            %opener = core.let "["
+          }
+          %count = core.call intrinsic.len(%stack)
+          %last_index = core.call intrinsic.add(%count, -1)
+          %top = core.call intrinsic.list.get(%stack, %last_index, "")
+          %matches = core.call intrinsic.eq(%top, %opener)
+          core.if %matches {
+            %kept = core.list
+            %position = core.let 0
+            core.for %item in %stack {
+              %keep = core.call intrinsic.lt(%position, %last_index)
+              core.if %keep {
+                core.append %kept, %item
+              }
+              %position = core.call intrinsic.add(%position, 1)
+            }
+            %stack = core.let %kept
+            %depth = core.call intrinsic.add(%depth, -1)
+          }
+        }
+      }
+      %marker = core.map
+      core.set %marker["nesting_level"] = %depth
+      core.set %marker["in_string"] = %in_string
+      %stack_count = core.call intrinsic.len(%stack)
+      %top_index = core.call intrinsic.add(%stack_count, -1)
+      %innermost = core.call intrinsic.list.get(%stack, %top_index, "")
+      %in_array = core.call intrinsic.eq(%innermost, "[")
+      %in_object = core.call intrinsic.eq(%innermost, "{")
+      core.set %marker["in_array"] = %in_array
+      core.set %marker["in_object"] = %in_object
+      core.return %marker
+    }
+  }
+
+  op ax.stream.semantic @stream_json_strip_dangling_key_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/util/partialJson.ts"
+    type signature = "(string, bool, string) -> json"
+    body @entry(%text: string, %need_colon: bool, %lead: string) {
+      // Matches /<lead>\s*"[^"]*"\s*<:\s*>$/ at the end of text, where the
+      // colon part is present when need_colon. Returns the offset where the
+      // lead character starts, or -1.
+      %cursor = core.call intrinsic.len(%text)
+      core.loop {
+        %at_start = core.call intrinsic.lte(%cursor, 0)
+        core.if %at_start {
+          core.break
+        }
+        %before = core.call intrinsic.add(%cursor, -1)
+        %ch = core.call intrinsic.string.slice(%text, %before, %cursor)
+        %space = core.call @stream_is_space_impl(%ch)
+        %not_space = core.call intrinsic.not(%space)
+        core.if %not_space {
+          core.break
+        }
+        %cursor = core.let %before
+      }
+      core.if %need_colon {
+        %colon_at = core.call intrinsic.add(%cursor, -1)
+        %colon = core.call intrinsic.string.slice(%text, %colon_at, %cursor)
+        %is_colon = core.call intrinsic.eq(%colon, ":")
+        %not_colon = core.call intrinsic.not(%is_colon)
+        core.if %not_colon {
+          core.return -1
+        }
+        %cursor = core.let %colon_at
+        core.loop {
+          %at_start = core.call intrinsic.lte(%cursor, 0)
+          core.if %at_start {
+            core.break
+          }
+          %before = core.call intrinsic.add(%cursor, -1)
+          %ch = core.call intrinsic.string.slice(%text, %before, %cursor)
+          %space = core.call @stream_is_space_impl(%ch)
+          %not_space = core.call intrinsic.not(%space)
+          core.if %not_space {
+            core.break
+          }
+          %cursor = core.let %before
+        }
+      }
+      %close_at = core.call intrinsic.add(%cursor, -1)
+      %close = core.call intrinsic.string.slice(%text, %close_at, %cursor)
+      %is_close = core.call intrinsic.eq(%close, "\"")
+      %not_close = core.call intrinsic.not(%is_close)
+      %no_room = core.call intrinsic.lt(%close_at, 0)
+      %bad_close = core.call intrinsic.or(%not_close, %no_room)
+      core.if %bad_close {
+        core.return -1
+      }
+      %before_close = core.call intrinsic.string.slice(%text, 0, %close_at)
+      %open_at = core.let -1
+      %search = core.let 0
+      core.loop {
+        %found = core.call intrinsic.string.index_of(%before_close, "\"", %search)
+        %missing = core.call intrinsic.lt(%found, 0)
+        core.if %missing {
+          core.break
+        }
+        %open_at = core.let %found
+        %search = core.call intrinsic.add(%found, 1)
+      }
+      %no_open = core.call intrinsic.lt(%open_at, 0)
+      core.if %no_open {
+        core.return -1
+      }
+      %cursor = core.let %open_at
+      core.loop {
+        %at_start = core.call intrinsic.lte(%cursor, 0)
+        core.if %at_start {
+          core.break
+        }
+        %before = core.call intrinsic.add(%cursor, -1)
+        %ch = core.call intrinsic.string.slice(%text, %before, %cursor)
+        %space = core.call @stream_is_space_impl(%ch)
+        %not_space = core.call intrinsic.not(%space)
+        core.if %not_space {
+          core.break
+        }
+        %cursor = core.let %before
+      }
+      %lead_at = core.call intrinsic.add(%cursor, -1)
+      %lead_ch = core.call intrinsic.string.slice(%text, %lead_at, %cursor)
+      %is_lead = core.call intrinsic.eq(%lead_ch, %lead)
+      %lead_room = core.call intrinsic.gte(%lead_at, 0)
+      %found_lead = core.call intrinsic.and(%is_lead, %lead_room)
+      core.if %found_lead {
+        %result = core.map
+        core.set %result["lead_at"] = %lead_at
+        core.set %result["key_at"] = %open_at
+        core.return %result
+      }
+      core.return -1
+    }
+  }
+
+  op ax.stream.semantic @stream_json_complete_literal_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/util/partialJson.ts"
+    type signature = "(string, string) -> string"
+    body @entry(%text: string, %word: string) {
+      // Completes a truncated true, false or null at the end of text when it
+      // follows `:`, `[` or `,`.
+      %whole = core.call intrinsic.string.ends_with(%text, %word)
+      %quoted = core.call intrinsic.string.ends_with(%text, "\"")
+      %finished = core.call intrinsic.or(%whole, %quoted)
+      core.if %finished {
+        core.return %text
+      }
+      %word_length = core.call intrinsic.len(%word)
+      %size = core.call intrinsic.add(%word_length, -1)
+      core.loop {
+        %exhausted = core.call intrinsic.lte(%size, 0)
+        core.if %exhausted {
+          core.break
+        }
+        %partial = core.call intrinsic.string.slice(%word, 0, %size)
+        %ends = core.call intrinsic.string.ends_with(%text, %partial)
+        core.if %ends {
+          %text_length = core.call intrinsic.len(%text)
+          %partial_length = core.call intrinsic.len(%partial)
+          %negative = core.call intrinsic.mul(%partial_length, -1)
+          %keep_length = core.call intrinsic.add(%text_length, %negative)
+          %head = core.call intrinsic.string.slice(%text, 0, %keep_length)
+          %head_trimmed = core.call @stream_trim_end_impl(%head)
+          %after_colon = core.call intrinsic.string.ends_with(%head_trimmed, ":")
+          %after_bracket = core.call intrinsic.string.ends_with(%head_trimmed, "[")
+          %after_comma = core.call intrinsic.string.ends_with(%head_trimmed, ",")
+          %allowed = core.call intrinsic.or(%after_colon, %after_bracket)
+          %allowed = core.call intrinsic.or(%allowed, %after_comma)
+          core.if %allowed {
+            %completed = core.call intrinsic.add(%head, %word)
+            core.return %completed
+          }
+          core.return %text
+        }
+        %size = core.call intrinsic.add(%size, -1)
+      }
+      core.return %text
+    }
+  }
+
+  op ax.stream.semantic @stream_json_repair_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/util/partialJson.ts"
+    type signature = "(string) -> string"
+    body @entry(%json_text: string) {
+      // repairJson: best-effort completion of truncated streamed JSON.
+      %result = core.string_trim %json_text
+      %trailing_comma = core.call intrinsic.string.ends_with(%result, ",")
+      core.if %trailing_comma {
+        %result_length = core.call intrinsic.len(%result)
+        %without_comma = core.call intrinsic.add(%result_length, -1)
+        %result = core.call intrinsic.string.slice(%result, 0, %without_comma)
+      }
+      // A key with no value yet: drop `, "key":` or the `"key":` after `{`.
+      %after_comma_key = core.call @stream_json_strip_dangling_key_impl(%result, true, ",")
+      %comma_key_is_map = core.type_is %after_comma_key type "object"
+      core.if %comma_key_is_map {
+        %comma_at = core.get %after_comma_key["lead_at"] default 0
+        %result = core.call intrinsic.string.slice(%result, 0, %comma_at)
+      } else {
+        %after_brace_key = core.call @stream_json_strip_dangling_key_impl(%result, true, "{")
+        %brace_key_is_map = core.type_is %after_brace_key type "object"
+        core.if %brace_key_is_map {
+          %key_at = core.get %after_brace_key["key_at"] default 0
+          %result = core.call intrinsic.string.slice(%result, 0, %key_at)
+        }
+      }
+      // Truncated numbers: 12. 12e 12e+ lose their incomplete tail.
+      core.loop {
+        %tail_length = core.call intrinsic.len(%result)
+        %tail_from = core.call intrinsic.add(%tail_length, -2)
+        %tail = core.call @stream_substring_impl(%result, %tail_from, %tail_length)
+        %number_tail = core.regex_match %tail pattern "^[0-9][eE.+-]$"
+        %exponent_tail = core.regex_match %tail pattern "^[eE][+-]$"
+        %strip = core.call intrinsic.or(%number_tail, %exponent_tail)
+        %keep = core.call intrinsic.not(%strip)
+        core.if %keep {
+          core.break
+        }
+        %shorter = core.call intrinsic.add(%tail_length, -1)
+        %result = core.call intrinsic.string.slice(%result, 0, %shorter)
+      }
+      // Commas before a closing bracket, anywhere.
+      %cleaned = core.list
+      %clean_length = core.call intrinsic.len(%result)
+      %clean_cursor = core.let 0
+      core.loop {
+        %clean_done = core.call intrinsic.gte(%clean_cursor, %clean_length)
+        core.if %clean_done {
+          core.break
+        }
+        %clean_next = core.call intrinsic.add(%clean_cursor, 1)
+        %clean_ch = core.call intrinsic.string.slice(%result, %clean_cursor, %clean_next)
+        %is_comma = core.call intrinsic.eq(%clean_ch, ",")
+        core.if %is_comma {
+          %ahead = core.call intrinsic.string.slice(%result, %clean_next)
+          %ahead_trimmed = core.call @stream_trim_start_impl(%ahead)
+          %closes_object = core.call intrinsic.string.starts_with(%ahead_trimmed, "}")
+          %closes_array = core.call intrinsic.string.starts_with(%ahead_trimmed, "]")
+          %before_close = core.call intrinsic.or(%closes_object, %closes_array)
+          core.if %before_close {
+            %clean_cursor = core.let %clean_next
+            core.continue
+          }
+        }
+        core.append %cleaned, %clean_ch
+        %clean_cursor = core.let %clean_next
+      }
+      %result = core.string_join %cleaned sep ""
+      %result = core.call @stream_json_complete_literal_impl(%result, "true")
+      %result = core.call @stream_json_complete_literal_impl(%result, "false")
+      %result = core.call @stream_json_complete_literal_impl(%result, "null")
+      // Close strings and structures in reverse opening order.
+      %closers = core.list
+      %in_string = core.let false
+      %escaped = core.let false
+      %scan_length = core.call intrinsic.len(%result)
+      %scan_cursor = core.let 0
+      core.loop {
+        %scan_done = core.call intrinsic.gte(%scan_cursor, %scan_length)
+        core.if %scan_done {
+          core.break
+        }
+        %scan_next = core.call intrinsic.add(%scan_cursor, 1)
+        %ch = core.call intrinsic.string.slice(%result, %scan_cursor, %scan_next)
+        %scan_cursor = core.let %scan_next
+        core.if %escaped {
+          %escaped = core.let false
+          core.continue
+        }
+        %backslash = core.call intrinsic.eq(%ch, "\\")
+        core.if %backslash {
+          %escaped = core.let true
+          core.continue
+        }
+        %quote = core.call intrinsic.eq(%ch, "\"")
+        core.if %quote {
+          %in_string = core.call intrinsic.not(%in_string)
+          core.continue
+        }
+        core.if %in_string {
+          core.continue
+        }
+        %open_object = core.call intrinsic.eq(%ch, "{")
+        core.if %open_object {
+          core.append %closers, "}"
+          core.continue
+        }
+        %open_array = core.call intrinsic.eq(%ch, "[")
+        core.if %open_array {
+          core.append %closers, "]"
+          core.continue
+        }
+        %close_object = core.call intrinsic.eq(%ch, "}")
+        %close_array = core.call intrinsic.eq(%ch, "]")
+        %closes = core.call intrinsic.or(%close_object, %close_array)
+        core.if %closes {
+          %closer_count = core.call intrinsic.len(%closers)
+          %top_index = core.call intrinsic.add(%closer_count, -1)
+          %top = core.call intrinsic.list.get(%closers, %top_index, "")
+          %matches = core.call intrinsic.eq(%top, %ch)
+          core.if %matches {
+            %kept = core.list
+            %position = core.let 0
+            core.for %closer in %closers {
+              %keep_closer = core.call intrinsic.lt(%position, %top_index)
+              core.if %keep_closer {
+                core.append %kept, %closer
+              }
+              %position = core.call intrinsic.add(%position, 1)
+            }
+            %closers = core.let %kept
+          }
+        }
+      }
+      core.if %escaped {
+        %escaped_length = core.call intrinsic.len(%result)
+        %without_escape = core.call intrinsic.add(%escaped_length, -1)
+        %result = core.call intrinsic.string.slice(%result, 0, %without_escape)
+      }
+      core.if %in_string {
+        %result = core.call intrinsic.add(%result, "\"")
+      }
+      %closer_total = core.call intrinsic.len(%closers)
+      %last_closer_index = core.call intrinsic.add(%closer_total, -1)
+      %last_closer = core.call intrinsic.list.get(%closers, %last_closer_index, "")
+      %in_object = core.call intrinsic.eq(%last_closer, "}")
+      core.if %in_object {
+        // A trailing `, "key"` with no colon inside an object is dropped.
+        %dangling = core.call @stream_json_strip_dangling_key_impl(%result, false, ",")
+        %dangling_is_map = core.type_is %dangling type "object"
+        core.if %dangling_is_map {
+          %dangling_at = core.get %dangling["lead_at"] default 0
+          %result = core.call intrinsic.string.slice(%result, 0, %dangling_at)
+        }
+      }
+      %reversed = core.list
+      %closer_cursor = core.let %last_closer_index
+      core.loop {
+        %closers_done = core.call intrinsic.lt(%closer_cursor, 0)
+        core.if %closers_done {
+          core.break
+        }
+        %closer_ch = core.call intrinsic.list.get(%closers, %closer_cursor, "")
+        core.append %reversed, %closer_ch
+        %closer_cursor = core.call intrinsic.add(%closer_cursor, -1)
+      }
+      %closing = core.string_join %reversed sep ""
+      %repaired = core.call intrinsic.add(%result, %closing)
+      core.return %repaired
+    }
+  }
+
+  op ax.stream.semantic @stream_json_parse_partial_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/util/partialJson.ts"
+    type signature = "(string) -> json"
+    body @entry(%json_text: string) {
+      // parsePartialJson: {parsed, marker}. marker is none when the text
+      // parsed as is; parsed is none when even the repaired text fails.
+      %out = core.map
+      %none = core.call intrinsic.none()
+      core.set %out["parsed"] = %none
+      core.set %out["marker"] = %none
+      %blank = core.string_trim %json_text
+      %is_blank = core.call intrinsic.eq(%blank, "")
+      core.if %is_blank {
+        core.return %out
+      }
+      %complete = core.let false
+      core.try {
+        %parsed = core.call intrinsic.json.parse_strict(%json_text)
+        core.set %out["parsed"] = %parsed
+        %complete = core.let true
+      } catch %partial_error {
+      }
+      core.if %complete {
+        core.return %out
+      }
+      %marker = core.call @stream_json_context_impl(%json_text)
+      core.set %out["marker"] = %marker
+      %repaired = core.call @stream_json_repair_impl(%json_text)
+      core.try {
+        %repaired_value = core.call intrinsic.json.parse_strict(%repaired)
+        core.set %out["parsed"] = %repaired_value
+      } catch %repair_error {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_json_should_parse_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/structuredDelta.ts"
+    type signature = "(json, string) -> bool"
+    body @entry(%state: json, %content: string) {
+      // StructuredStreamAccumulator.shouldParse: reparse after 160 new
+      // characters, or after 80 when the text ends at `}`, `]` or `,`.
+      %length = core.call intrinsic.len(%content)
+      %last = core.get %state["last_parse_length"] default 0
+      %negative_last = core.call intrinsic.mul(%last, -1)
+      %fresh = core.call intrinsic.add(%length, %negative_last)
+      %nothing_new = core.call intrinsic.lte(%fresh, 0)
+      core.if %nothing_new {
+        core.return false
+      }
+      %plenty = core.call intrinsic.gte(%fresh, 160)
+      core.if %plenty {
+        core.set %state["last_parse_length"] = %length
+        core.return true
+      }
+      %too_few = core.call intrinsic.lt(%fresh, 80)
+      core.if %too_few {
+        core.return false
+      }
+      %cursor = core.let %length
+      %last_ch = core.let ""
+      core.loop {
+        %at_start = core.call intrinsic.lte(%cursor, 0)
+        core.if %at_start {
+          core.break
+        }
+        %before = core.call intrinsic.add(%cursor, -1)
+        %ch = core.call intrinsic.string.slice(%content, %before, %cursor)
+        %space = core.regex_match %ch pattern "^[ \\n\\r\\t]$"
+        %not_space = core.call intrinsic.not(%space)
+        core.if %not_space {
+          %last_ch = core.let %ch
+          core.break
+        }
+        %cursor = core.let %before
+      }
+      %brace = core.call intrinsic.eq(%last_ch, "}")
+      %bracket = core.call intrinsic.eq(%last_ch, "]")
+      %comma = core.call intrinsic.eq(%last_ch, ",")
+      %boundary = core.call intrinsic.or(%brace, %bracket)
+      %boundary = core.call intrinsic.or(%boundary, %comma)
+      %not_boundary = core.call intrinsic.not(%boundary)
+      core.if %not_boundary {
+        core.return false
+      }
+      core.set %state["last_parse_length"] = %length
+      core.return true
+    }
+  }
+
+  op ax.stream.semantic @stream_json_validate_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/structuredJson.ts"
+    type signature = "(list<json>, json, bool, bool) -> void throws"
+    body @entry(%fields: list<json>, %values: json, %allow_missing: bool, %reject_unknown: bool) {
+      // validateStructuredOutputValues: unknown top-level keys (when asked),
+      // required fields (unless allowed missing), and the URL, string and
+      // number constraints, recursing into object fields.
+      core.if %reject_unknown {
+        %keys = core.call intrinsic.map.keys(%values)
+        core.for %key in %keys {
+          %known = core.let false
+          core.for %declared in %fields {
+            %declared_name = core.get %declared["name"] default ""
+            %same = core.call intrinsic.eq(%declared_name, %key)
+            core.if %same {
+              %known = core.let true
+            }
+          }
+          %unknown = core.call intrinsic.not(%known)
+          core.if %unknown {
+            %unknown_message = core.call intrinsic.string.format("Unexpected field '{}' in output. Use only the exact declared wire keys.", %key)
+            %unknown_error = core.call intrinsic.error.validation(%unknown_message)
+            core.raise %unknown_error
+          }
+        }
+      }
+      core.for %field in %fields {
+        %internal = core.call @stream_field_flag_impl(%field, "is_internal", "isInternal")
+        core.if %internal {
+          core.continue
+        }
+        %name = core.get %field["name"] default ""
+        %value = core.get %values[%name]
+        %missing = core.call intrinsic.is_none(%value)
+        core.if %missing {
+          %optional = core.call @stream_field_flag_impl(%field, "is_optional", "isOptional")
+          %required = core.call intrinsic.not(%optional)
+          %not_allowed = core.call intrinsic.not(%allow_missing)
+          %fail = core.call intrinsic.and(%required, %not_allowed)
+          core.if %fail {
+            %missing_error = core.call @stream_required_missing_error_impl(%field)
+            core.raise %missing_error
+          }
+          core.continue
+        }
+        core.call @stream_json_validate_value_impl(%field, %value, %allow_missing)
+      }
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_json_validate_value_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/structuredJson.ts"
+    type signature = "(json, json, bool) -> void throws"
+    body @entry(%field: json, %value: json, %allow_missing: bool) {
+      // validateStructuredFieldValue.
+      %typ = core.get %field["type"]
+      %no_type = core.call intrinsic.is_none(%typ)
+      core.if %no_type {
+        core.return
+      }
+      %name = core.get %typ["name"] default "string"
+      %is_array = core.call @stream_field_flag_impl(%typ, "is_array", "isArray")
+      %not_array = core.call intrinsic.not(%is_array)
+      %is_url = core.call intrinsic.eq(%name, "url")
+      %scalar_url = core.call intrinsic.and(%is_url, %not_array)
+      core.if %scalar_url {
+        core.call @stream_validate_constraints_impl(%field, %value, "url")
+      }
+      %is_string = core.call intrinsic.eq(%name, "string")
+      %is_code = core.call intrinsic.eq(%name, "code")
+      %string_like = core.call intrinsic.or(%is_string, %is_code)
+      core.if %string_like {
+        core.call @stream_validate_constraints_impl(%field, %value, "string")
+      }
+      %is_number = core.call intrinsic.eq(%name, "number")
+      core.if %is_number {
+        core.call @stream_validate_constraints_impl(%field, %value, "number")
+      }
+      %value_is_list = core.type_is %value type "list"
+      %check_items = core.call intrinsic.and(%is_array, %value_is_list)
+      core.if %check_items {
+        core.for %item in %value {
+          %item_missing = core.call intrinsic.is_none(%item)
+          core.if %item_missing {
+            core.continue
+          }
+          core.if %is_url {
+            core.call @stream_validate_constraints_impl(%field, %item, "url")
+          } else {
+            core.if %string_like {
+              core.call @stream_validate_constraints_impl(%field, %item, "string")
+            }
+            core.if %is_number {
+              core.call @stream_validate_constraints_impl(%field, %item, "number")
+            }
+          }
+        }
+      }
+      %is_object = core.call intrinsic.eq(%name, "object")
+      %nested = core.get %typ["fields"]
+      %has_nested = core.call intrinsic.truthy(%nested)
+      %object_fields = core.call intrinsic.and(%is_object, %has_nested)
+      %value_is_map = core.type_is %value type "object"
+      %scalar_object = core.call intrinsic.and(%object_fields, %value_is_map)
+      %scalar_object = core.call intrinsic.and(%scalar_object, %not_array)
+      core.if %scalar_object {
+        core.call @stream_json_validate_nested_impl(%field, %value, %allow_missing)
+      }
+      %object_items = core.call intrinsic.and(%object_fields, %check_items)
+      core.if %object_items {
+        core.for %element in %value {
+          %element_is_map = core.type_is %element type "object"
+          core.if %element_is_map {
+            core.call @stream_json_validate_nested_impl(%field, %element, %allow_missing)
+          }
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_json_validate_nested_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/structuredJson.ts"
+    type signature = "(json, json, bool) -> void throws"
+    body @entry(%parent: json, %object: json, %allow_missing: bool) {
+      // validateNestedObjectFields: nested keys must be declared and visible;
+      // nested fields use their own names as titles.
+      %typ = core.get %parent["type"]
+      %nested_map = core.get %typ["fields"]
+      %nested_fields = core.call intrinsic.fields.from_map(%nested_map)
+      %parent_name = core.get %parent["name"] default ""
+      %keys = core.call intrinsic.map.keys(%object)
+      core.for %key in %keys {
+        %visible = core.let false
+        core.for %candidate in %nested_fields {
+          %candidate_name = core.get %candidate["name"] default ""
+          %same = core.call intrinsic.eq(%candidate_name, %key)
+          %candidate_internal = core.call @stream_field_flag_impl(%candidate, "is_internal", "isInternal")
+          %candidate_visible = core.call intrinsic.not(%candidate_internal)
+          %match_at = core.call intrinsic.and(%same, %candidate_visible)
+          core.if %match_at {
+            %visible = core.let true
+          }
+        }
+        %hidden = core.call intrinsic.not(%visible)
+        core.if %hidden {
+          %unexpected_message = core.call intrinsic.string.format("Unexpected field '{}' in '{}'. Use only the exact declared wire keys.", %key, %parent_name)
+          %unexpected_error = core.call intrinsic.error.validation(%unexpected_message)
+          core.raise %unexpected_error
+        }
+      }
+      core.for %nested_field in %nested_fields {
+        %nested_internal = core.call @stream_field_flag_impl(%nested_field, "is_internal", "isInternal")
+        core.if %nested_internal {
+          core.continue
+        }
+        %nested_name = core.get %nested_field["name"] default ""
+        %titled = core.map
+        %nested_type = core.get %nested_field["type"]
+        %nested_optional = core.call @stream_field_flag_impl(%nested_field, "is_optional", "isOptional")
+        core.set %titled["name"] = %nested_name
+        core.set %titled["title"] = %nested_name
+        core.set %titled["type"] = %nested_type
+        core.set %titled["is_optional"] = %nested_optional
+        %nested_value = core.get %object[%nested_name]
+        %nested_missing = core.call intrinsic.is_none(%nested_value)
+        core.if %nested_missing {
+          %nested_required = core.call intrinsic.not(%nested_optional)
+          %not_allowed = core.call intrinsic.not(%allow_missing)
+          %fail = core.call intrinsic.and(%nested_required, %not_allowed)
+          core.if %fail {
+            %nested_error = core.call @stream_required_missing_error_impl(%titled)
+            core.raise %nested_error
+          }
+          core.continue
+        }
+        core.call @stream_json_validate_value_impl(%titled, %nested_value, %allow_missing)
+      }
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_json_select_fields_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/structuredDelta.ts"
+    type signature = "(list<json>, json) -> json"
+    body @entry(%fields: list<json>, %values: json) {
+      // selectOutputFields: the declared output keys, in the order parsed.
+      %out = core.map
+      %keys = core.call intrinsic.map.keys(%values)
+      core.for %key in %keys {
+        %declared = core.let false
+        core.for %field in %fields {
+          %name = core.get %field["name"] default ""
+          %same = core.call intrinsic.eq(%name, %key)
+          core.if %same {
+            %declared = core.let true
+          }
+        }
+        core.if %declared {
+          %value = core.get %values[%key]
+          core.set %out[%key] = %value
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_json_nested_fields_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/structuredJson.ts"
+    type signature = "(json) -> list<json>"
+    body @entry(%fields_map: json) {
+      // nestedFieldFromType: nested fields are titled by their own names.
+      %out = core.list
+      %nested_fields = core.call intrinsic.fields.from_map(%fields_map)
+      core.for %nested in %nested_fields {
+        %name = core.get %nested["name"] default ""
+        %typ = core.get %nested["type"]
+        %optional = core.call @stream_field_flag_impl(%nested, "is_optional", "isOptional")
+        %internal = core.call @stream_field_flag_impl(%nested, "is_internal", "isInternal")
+        %field = core.map
+        core.set %field["name"] = %name
+        core.set %field["title"] = %name
+        core.set %field["type"] = %typ
+        core.set %field["is_optional"] = %optional
+        core.set %field["is_internal"] = %internal
+        core.append %out, %field
+      }
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_json_flexible_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/structuredJson.ts"
+    type signature = "(json) -> bool"
+    body @entry(%field: json) {
+      // isFlexibleJsonField: json, or object without declared fields.
+      %typ = core.get %field["type"]
+      %name = core.get %typ["name"] default ""
+      %is_json = core.call intrinsic.eq(%name, "json")
+      core.if %is_json {
+        core.return true
+      }
+      %is_object = core.call intrinsic.eq(%name, "object")
+      %nested = core.get %typ["fields"]
+      %has_nested = core.call intrinsic.truthy(%nested)
+      %open_object = core.call intrinsic.not(%has_nested)
+      %flexible = core.call intrinsic.and(%is_object, %open_object)
+      core.return %flexible
+    }
+  }
+
+  op ax.stream.semantic @stream_json_string_value_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/structuredJson.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%field: json, %value: json) {
+      // parseJsonStringFieldValue: a string value must parse as JSON.
+      %is_string = core.type_is %value type "string"
+      %not_string = core.call intrinsic.not(%is_string)
+      core.if %not_string {
+        core.return %value
+      }
+      %parsed = core.call intrinsic.none()
+      core.try {
+        %parsed = core.call intrinsic.json.parse_strict(%value)
+      } catch %parse_error {
+        %title = core.call @stream_field_title_impl(%field)
+        %detail = core.call intrinsic.exception.message(%parse_error)
+        %message = core.call intrinsic.string.format("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", %detail, %title)
+        %invalid = core.call intrinsic.error.validation(%message)
+        core.raise %invalid
+      }
+      core.return %parsed
+    }
+  }
+
+  op ax.stream.semantic @stream_json_strings_for_field_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/structuredJson.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%field: json, %value: json) {
+      // parseJsonStringValuesForField.
+      %typ = core.get %field["type"]
+      %no_type = core.call intrinsic.is_none(%typ)
+      %no_value = core.call intrinsic.is_none(%value)
+      %skip = core.call intrinsic.or(%no_type, %no_value)
+      core.if %skip {
+        core.return %value
+      }
+      %flexible = core.call @stream_json_flexible_impl(%field)
+      %nested = core.get %typ["fields"]
+      %has_nested = core.call intrinsic.truthy(%nested)
+      %is_array = core.call @stream_field_flag_impl(%typ, "is_array", "isArray")
+      core.if %is_array {
+        %is_list = core.type_is %value type "list"
+        %not_list = core.call intrinsic.not(%is_list)
+        core.if %not_list {
+          core.return %value
+        }
+        core.if %flexible {
+          %items = core.list
+          core.for %item in %value {
+            %parsed_item = core.call @stream_json_string_value_impl(%field, %item)
+            core.append %items, %parsed_item
+          }
+          core.return %items
+        }
+        core.if %has_nested {
+          core.for %element in %value {
+            %element_is_map = core.type_is %element type "object"
+            core.if %element_is_map {
+              core.call @stream_json_strings_for_fields_impl(%nested, %element)
+            }
+          }
+        }
+        core.return %value
+      }
+      core.if %flexible {
+        %parsed = core.call @stream_json_string_value_impl(%field, %value)
+        core.return %parsed
+      }
+      %name = core.get %typ["name"] default ""
+      %is_object = core.call intrinsic.eq(%name, "object")
+      %value_is_map = core.type_is %value type "object"
+      %object_fields = core.call intrinsic.and(%is_object, %has_nested)
+      %nested_object = core.call intrinsic.and(%object_fields, %value_is_map)
+      core.if %nested_object {
+        core.call @stream_json_strings_for_fields_impl(%nested, %value)
+      }
+      core.return %value
+    }
+  }
+
+  op ax.stream.semantic @stream_json_strings_for_fields_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/structuredJson.ts"
+    type signature = "(json, json) -> void throws"
+    body @entry(%fields_map: json, %values: json) {
+      // parseJsonStringValuesForFields, in place.
+      %nested_fields = core.call @stream_json_nested_fields_impl(%fields_map)
+      core.for %field in %nested_fields {
+        %name = core.get %field["name"] default ""
+        %present = core.call intrinsic.map.contains(%values, %name)
+        core.if %present {
+          %value = core.get %values[%name]
+          %parsed = core.call @stream_json_strings_for_field_impl(%field, %value)
+          core.set %values[%name] = %parsed
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_json_strings_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/structuredJson.ts"
+    type signature = "(list<json>, json, bool) -> void throws"
+    body @entry(%fields: list<json>, %values: json, %partial: bool) {
+      // parseStructuredJsonFieldValues, or its Partial variant: there a
+      // flexible field whose string does not parse yet is left out.
+      core.for %field in %fields {
+        %name = core.get %field["name"] default ""
+        %present = core.call intrinsic.map.contains(%values, %name)
+        %absent = core.call intrinsic.not(%present)
+        core.if %absent {
+          core.continue
+        }
+        %value = core.get %values[%name]
+        core.try {
+          %parsed = core.call @stream_json_strings_for_field_impl(%field, %value)
+          core.set %values[%name] = %parsed
+        } catch %parse_error {
+          %flexible = core.call @stream_json_flexible_impl(%field)
+          %is_string = core.type_is %value type "string"
+          %droppable = core.call intrinsic.and(%flexible, %is_string)
+          %drop = core.call intrinsic.and(%droppable, %partial)
+          %keep_error = core.call intrinsic.not(%drop)
+          core.if %keep_error {
+            core.raise %parse_error
+          }
+          core.call intrinsic.map.delete(%values, %name)
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_state_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(i64) -> json"
+    body @entry(%index: i64) {
+      // One sample's streaming state for an attempt.
+      %state = core.map
+      core.set %state["index"] = %index
+      core.set %state["content"] = ""
+      %values = core.map
+      core.set %state["values"] = %values
+      %xstate = core.call @stream_text_state_impl()
+      core.set %state["xstate"] = %xstate
+      core.set %state["last_parse_length"] = 0
+      core.return %state
+    }
+  }
+
+  op ax.stream.semantic @stream_merge_value_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/util.ts"
+    type signature = "(json, bool, json) -> json"
+    body @entry(%base: json, %has_base: bool, %delta: json) {
+      // mergeDeltas for one key: strings and arrays append, anything else
+      // replaces.
+      %delta_is_list = core.type_is %delta type "list"
+      %base_is_list = core.type_is %base type "list"
+      %missing = core.call intrinsic.not(%has_base)
+      %both_lists = core.call intrinsic.and(%base_is_list, %delta_is_list)
+      %list_start = core.call intrinsic.and(%missing, %delta_is_list)
+      %join_lists = core.call intrinsic.or(%both_lists, %list_start)
+      core.if %join_lists {
+        %joined = core.list
+        core.if %both_lists {
+          core.for %old_item in %base {
+            core.append %joined, %old_item
+          }
+        }
+        core.for %new_item in %delta {
+          core.append %joined, %new_item
+        }
+        core.return %joined
+      }
+      %delta_is_string = core.type_is %delta type "string"
+      %base_is_string = core.type_is %base type "string"
+      %string_base = core.call intrinsic.or(%missing, %base_is_string)
+      %join_strings = core.call intrinsic.and(%string_base, %delta_is_string)
+      core.if %join_strings {
+        %prefix = core.let ""
+        core.if %base_is_string {
+          %prefix = core.let %base
+        }
+        %text = core.call intrinsic.add(%prefix, %delta)
+        core.return %text
+      }
+      core.return %delta
+    }
+  }
+
+  op ax.stream.semantic @stream_commit_delta_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%committed: json, %current: json, %delta: json) {
+      // The attempt's values accumulate the delta; what a consumer has not
+      // seen yet (committed) is yielded. A string that is a prefix of what
+      // was committed is a replay and yields nothing.
+      %effective = core.map
+      %keys = core.call intrinsic.map.keys(%delta)
+      core.for %key in %keys {
+        %value = core.get %delta[%key]
+        %has_current = core.call intrinsic.map.contains(%current, %key)
+        %current_value = core.get %current[%key]
+        %merged = core.call @stream_merge_value_impl(%current_value, %has_current, %value)
+        core.set %current[%key] = %merged
+        %has_committed = core.call intrinsic.map.contains(%committed, %key)
+        %committed_value = core.get %committed[%key]
+        %merged_is_string = core.type_is %merged type "string"
+        %committed_is_string = core.type_is %committed_value type "string"
+        %both_strings = core.call intrinsic.and(%merged_is_string, %committed_is_string)
+        core.if %both_strings {
+          %extends_committed = core.call intrinsic.string.starts_with(%merged, %committed_value)
+          core.if %extends_committed {
+            %committed_length = core.call intrinsic.len(%committed_value)
+            %diff = core.call intrinsic.string.slice(%merged, %committed_length)
+            %has_diff = core.call intrinsic.ne(%diff, "")
+            core.if %has_diff {
+              core.set %effective[%key] = %diff
+              core.set %committed[%key] = %merged
+            }
+            core.continue
+          }
+          %replay = core.call intrinsic.string.starts_with(%committed_value, %merged)
+          core.if %replay {
+            core.continue
+          }
+          %changed_text = core.call intrinsic.ne(%merged, %committed_value)
+          core.if %changed_text {
+            core.set %effective[%key] = %merged
+            core.set %committed[%key] = %merged
+          }
+          core.continue
+        }
+        %merged_is_list = core.type_is %merged type "list"
+        %committed_is_list = core.type_is %committed_value type "list"
+        %both_lists = core.call intrinsic.and(%merged_is_list, %committed_is_list)
+        core.if %both_lists {
+          %merged_count = core.call intrinsic.len(%merged)
+          %committed_count = core.call intrinsic.len(%committed_value)
+          %grew = core.call intrinsic.gt(%merged_count, %committed_count)
+          core.if %grew {
+            %fresh = core.list
+            %position = core.let 0
+            core.for %item in %merged {
+              %is_fresh = core.call intrinsic.gte(%position, %committed_count)
+              core.if %is_fresh {
+                core.append %fresh, %item
+              }
+              %position = core.call intrinsic.add(%position, 1)
+            }
+            core.set %effective[%key] = %fresh
+            core.set %committed[%key] = %merged
+          }
+          core.continue
+        }
+        %equal = core.call intrinsic.eq(%merged, %committed_value)
+        %same = core.call intrinsic.and(%has_committed, %equal)
+        %differs = core.call intrinsic.not(%same)
+        core.if %differs {
+          core.set %effective[%key] = %merged
+          core.set %committed[%key] = %merged
+        }
+      }
+      core.return %effective
+    }
+  }
+
+  op ax.stream.semantic @stream_run_state_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, bool, string) -> json"
+    body @entry(%sink: json, %buffered: bool, %thought_field: string) {
+      // The run's delta bookkeeping: the version consumers hold, the thought
+      // and output yielded in it, and the merged view (discarded when the
+      // version changes) that becomes the result.
+      %run = core.map
+      core.set %run["sink"] = %sink
+      core.set %run["buffered"] = %buffered
+      core.set %run["thought_field"] = %thought_field
+      core.set %run["current_version"] = 0
+      core.set %run["output_emitted"] = false
+      %emitted_thought = core.list
+      core.set %run["emitted_thought"] = %emitted_thought
+      %buffer = core.list
+      core.set %run["buffer"] = %buffer
+      core.return %run
+    }
+  }
+
+  op ax.stream.semantic @stream_run_new_version_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, i64) -> void"
+    body @entry(%run: json, %version: i64) {
+      // Consumers discard what they merged when the version changes.
+      core.set %run["current_version"] = %version
+      %cleared_thought = core.list
+      core.set %run["emitted_thought"] = %cleared_thought
+      core.set %run["output_emitted"] = false
+      %cleared_buffer = core.list
+      core.set %run["buffer"] = %cleared_buffer
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_yield_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, i64, i64, json) -> void throws"
+    body @entry(%run: json, %version: i64, %index: i64, %delta: json) {
+      // Yields {version, index, delta}: tracks the version, the thought and
+      // whether output fields were yielded, merges it into the view a
+      // consumer holds, and sends it to the sink unless a result picker
+      // buffers the run. A forward with stream: true has no sink.
+      %current_version = core.get %run["current_version"] default 0
+      %new_version = core.call intrinsic.ne(%version, %current_version)
+      core.if %new_version {
+        core.call @stream_run_new_version_impl(%run, %version)
+      }
+      %thought_field = core.get %run["thought_field"] default "thought"
+      %empty_thought = core.list
+      %emitted_thought = core.get %run["emitted_thought"] default %empty_thought
+      %keys = core.call intrinsic.map.keys(%delta)
+      core.for %key in %keys {
+        %value = core.get %delta[%key]
+        %is_thought = core.call intrinsic.eq(%key, %thought_field)
+        %is_string = core.type_is %value type "string"
+        %thought_text = core.call intrinsic.and(%is_thought, %is_string)
+        core.if %thought_text {
+          %thought_entry = core.call intrinsic.none()
+          core.for %candidate_thought in %emitted_thought {
+            %thought_index = core.get %candidate_thought["index"]
+            %same_thought_index = core.call intrinsic.eq(%thought_index, %index)
+            core.if %same_thought_index {
+              %thought_entry = core.let %candidate_thought
+            }
+          }
+          %no_thought_entry = core.call intrinsic.is_none(%thought_entry)
+          core.if %no_thought_entry {
+            %thought_entry = core.map
+            core.set %thought_entry["index"] = %index
+            core.set %thought_entry["text"] = ""
+            core.append %emitted_thought, %thought_entry
+          }
+          %so_far = core.get %thought_entry["text"] default ""
+          %joined = core.call intrinsic.add(%so_far, %value)
+          core.set %thought_entry["text"] = %joined
+        } else {
+          core.set %run["output_emitted"] = true
+        }
+      }
+      core.set %run["emitted_thought"] = %emitted_thought
+      %empty_buffer = core.list
+      %buffer = core.get %run["buffer"] default %empty_buffer
+      %entry = core.call intrinsic.none()
+      core.for %candidate in %buffer {
+        %candidate_index = core.get %candidate["index"]
+        %same_index = core.call intrinsic.eq(%candidate_index, %index)
+        core.if %same_index {
+          %entry = core.let %candidate
+        }
+      }
+      %no_entry = core.call intrinsic.is_none(%entry)
+      core.if %no_entry {
+        %entry = core.map
+        core.set %entry["index"] = %index
+        %fresh_delta = core.map
+        core.set %entry["delta"] = %fresh_delta
+        core.append %buffer, %entry
+        core.set %run["buffer"] = %buffer
+      }
+      %empty_view = core.map
+      %view = core.get %entry["delta"] default %empty_view
+      core.for %merge_key in %keys {
+        %merge_value = core.get %delta[%merge_key]
+        %has_base = core.call intrinsic.map.contains(%view, %merge_key)
+        %base = core.get %view[%merge_key]
+        %merged = core.call @stream_merge_value_impl(%base, %has_base, %merge_value)
+        core.set %view[%merge_key] = %merged
+      }
+      core.set %entry["delta"] = %view
+      %buffered = core.get %run["buffered"] default false
+      core.if %buffered {
+        core.return
+      }
+      %sink = core.get %run["sink"]
+      %no_sink = core.call intrinsic.is_none(%sink)
+      core.if %no_sink {
+        core.return
+      }
+      %envelope = core.map
+      core.set %envelope["version"] = %version
+      core.set %envelope["index"] = %index
+      core.set %envelope["delta"] = %delta
+      core.call intrinsic.axgen.emit_delta(%sink, %envelope)
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_marker_incomplete_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/structuredDelta.ts"
+    type signature = "(json) -> bool"
+    body @entry(%marker: json) {
+      // isLastArrayItemIncomplete
+      %no_marker = core.call intrinsic.is_none(%marker)
+      core.if %no_marker {
+        core.return false
+      }
+      %depth = core.get %marker["nesting_level"] default 0
+      %nested = core.call intrinsic.gt(%depth, 0)
+      %in_array = core.get %marker["in_array"] default false
+      %in_object = core.get %marker["in_object"] default false
+      %open = core.call intrinsic.or(%nested, %in_array)
+      %open = core.call intrinsic.or(%open, %in_object)
+      core.return %open
+    }
+  }
+
+  op ax.stream.semantic @stream_apply_structured_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/structuredDelta.ts"
+    type signature = "(json, list<json>, json, json, list<string>) -> list<json>"
+    body @entry(%state: json, %fields: list<json>, %parsed: json, %marker: json, %held: list<string>) {
+      // createStructuredDelta against the state's values; the full values are
+      // merged into them. Held (transformed) fields wait for finalize.
+      %deltas = core.list
+      %empty_values = core.map
+      %values = core.get %state["values"] default %empty_values
+      %incomplete = core.call @stream_marker_incomplete_impl(%marker)
+      %result = core.call @stream_structured_delta(%fields, %parsed, %values, %incomplete)
+      %empty_full = core.map
+      %full_values = core.get %result["full_values"] default %empty_full
+      %full_keys = core.call intrinsic.map.keys(%full_values)
+      core.for %full_key in %full_keys {
+        %full_value = core.get %full_values[%full_key]
+        core.set %values[%full_key] = %full_value
+      }
+      core.set %state["values"] = %values
+      %empty_delta = core.map
+      %delta = core.get %result["delta"] default %empty_delta
+      %visible = core.map
+      %delta_keys = core.call intrinsic.map.keys(%delta)
+      core.for %delta_key in %delta_keys {
+        %is_held = core.call intrinsic.contains(%held, %delta_key)
+        core.if %is_held {
+          core.continue
+        }
+        %delta_value = core.get %delta[%delta_key]
+        core.set %visible[%delta_key] = %delta_value
+      }
+      %visible_count = core.call intrinsic.len(%visible)
+      %has_delta = core.call intrinsic.gt(%visible_count, 0)
+      core.if %has_delta {
+        core.append %deltas, %visible
+      }
+      core.return %deltas
+    }
+  }
+
+  op ax.stream.semantic @stream_feedback_text_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/fieldProcessor.ts"
+    type signature = "(json) -> json"
+    body @entry(%result: json) {
+      // addToMemory: a processor result becomes feedback text unless it is
+      // undefined, empty, or the text null/undefined.
+      %none = core.call intrinsic.none()
+      %missing = core.call intrinsic.is_none(%result)
+      core.if %missing {
+        core.return %none
+      }
+      %is_string = core.type_is %result type "string"
+      core.if %is_string {
+        %empty = core.call intrinsic.eq(%result, "")
+        core.if %empty {
+          core.return %none
+        }
+        %lowered = core.call intrinsic.string.lower(%result)
+        %null_rest = core.let "x"
+        %starts_null = core.call intrinsic.string.starts_with(%lowered, "null")
+        core.if %starts_null {
+          %after_null = core.call intrinsic.string.slice(%lowered, 4)
+          %null_rest = core.string_trim %after_null
+        }
+        %starts_undefined = core.call intrinsic.string.starts_with(%lowered, "undefined")
+        core.if %starts_undefined {
+          %after_undefined = core.call intrinsic.string.slice(%lowered, 9)
+          %null_rest = core.string_trim %after_undefined
+        }
+        %null_text = core.call intrinsic.eq(%null_rest, "")
+        core.if %null_text {
+          core.return %none
+        }
+        core.return %result
+      }
+      %text = core.call @stream_js_string_impl(%result)
+      core.return %text
+    }
+  }
+
+  op ax.stream.semantic @stream_run_processors_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/fieldProcessor.ts"
+    type signature = "(AxGen, string, json, json, bool) -> list<string> throws"
+    body @entry(%gen: AxGen, %kind: string, %state: json, %content: string, %done: bool) {
+      // processFieldProcessors (kind "feedback") calls each processor whose
+      // field has a value; processStreamingFieldProcessors (kind "streaming")
+      // calls those of the current field with its raw text so far. Returns
+      // the feedback texts, in order, for the caller to send as user
+      // messages. A processor error is left in state["fatal_error"].
+      %feedback = core.list
+      %empty_values = core.map
+      %values = core.get %state["values"] default %empty_values
+      %empty_specs = core.list
+      %specs = core.get %gen["feedback_processors"] default %empty_specs
+      %streaming = core.call intrinsic.eq(%kind, "streaming")
+      %curr_name = core.let ""
+      %raw_value = core.let ""
+      core.if %streaming {
+        %specs = core.get %gen["streaming_field_processors"] default %empty_specs
+        %empty_xstate = core.map
+        %xstate = core.get %state["xstate"] default %empty_xstate
+        %curr = core.get %xstate["curr_field"]
+        %no_curr = core.call intrinsic.is_none(%curr)
+        core.if %no_curr {
+          core.return %feedback
+        }
+        %curr_name = core.get %curr["name"] default ""
+        %start = core.get %xstate["s"] default 0
+        %raw_value = core.call intrinsic.string.slice(%content, %start)
+        %curr_type = core.get %curr["type"]
+        %curr_type_name = core.get %curr_type["name"] default ""
+        %is_code = core.call intrinsic.eq(%curr_type_name, "code")
+        core.if %is_code {
+          %raw_value = core.call @stream_strip_leading_fence_impl(%raw_value)
+          %raw_value = core.call @stream_strip_trailing_fence_impl(%raw_value)
+        }
+      }
+      core.for %spec in %specs {
+        %field = core.get %spec["field"] default ""
+        %value = core.call intrinsic.none()
+        core.if %streaming {
+          %matches = core.call intrinsic.eq(%field, %curr_name)
+          %other = core.call intrinsic.not(%matches)
+          core.if %other {
+            core.continue
+          }
+          %value = core.let %raw_value
+        } else {
+          %present = core.call intrinsic.map.contains(%values, %field)
+          %absent = core.call intrinsic.not(%present)
+          core.if %absent {
+            core.continue
+          }
+          %value = core.get %values[%field]
+        }
+        %context = core.map
+        core.set %context["values"] = %values
+        core.set %context["done"] = %done
+        %result = core.call intrinsic.none()
+        core.try {
+          %result = core.call intrinsic.axgen.call_processor(%spec, %value, %context)
+        } catch %processor_error {
+          // As in TS, a processor's own error ends the run without a retry.
+          core.set %state["fatal_error"] = %processor_error
+          core.return %feedback
+        }
+        %text = core.call @stream_feedback_text_impl(%result)
+        %has_text = core.call intrinsic.is_not_none(%text)
+        core.if %has_text {
+          core.append %feedback, %text
+        }
+      }
+      core.return %feedback
+    }
+  }
+
+  op ax.stream.semantic @stream_check_assertions_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/asserts.ts"
+    type signature = "(AxGen, json, string, bool) -> json throws"
+    body @entry(%gen: AxGen, %xstate: json, %content: string, %done: bool) {
+      // assertStreamingAssertions: the current field's assertions see its raw
+      // text so far; a failure raises a retryable error. An error the
+      // assertion itself raises is returned for the caller to raise without
+      // a retry, as TS does.
+      %none = core.call intrinsic.none()
+      %curr = core.get %xstate["curr_field"]
+      %no_curr = core.call intrinsic.is_none(%curr)
+      %start = core.get %xstate["s"] default -1
+      %unstarted = core.call intrinsic.eq(%start, -1)
+      %skip = core.call intrinsic.or(%no_curr, %unstarted)
+      core.if %skip {
+        core.return %none
+      }
+      %curr_name = core.get %curr["name"] default ""
+      %value = core.call intrinsic.string.slice(%content, %start)
+      %empty_specs = core.list
+      %specs = core.get %gen["streaming_assertions"] default %empty_specs
+      core.for %spec in %specs {
+        %field = core.get %spec["field"] default ""
+        %matches = core.call intrinsic.eq(%field, %curr_name)
+        %other = core.call intrinsic.not(%matches)
+        core.if %other {
+          core.continue
+        }
+        %outcome = core.map
+        core.try {
+          %outcome = core.call intrinsic.axgen.check_streaming_assertion(%spec, %value, %done)
+        } catch %assertion_error {
+          core.return %assertion_error
+        }
+        %status = core.get %outcome["status"] default "pass"
+        %failed = core.call intrinsic.eq(%status, "fail")
+        core.if %failed {
+          %returned = core.get %outcome["message"]
+          %spec_message = core.get %spec["message"]
+          %default_message = core.call intrinsic.string.format("Streaming assertion failed for field '{}'. Output was stopped.", %field)
+          %message = core.call intrinsic.coalesce(%spec_message, %default_message)
+          %has_returned = core.call intrinsic.is_not_none(%returned)
+          core.if %has_returned {
+            %message = core.let %returned
+          }
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+      }
+      core.return %none
+    }
+  }
+
+  op ax.stream.semantic @stream_emit_deltas_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, i64, list<json>) -> void throws"
+    body @entry(%ctx: json, %index: i64, %deltas: list<json>) {
+      // Diffs each delta against what consumers hold for this sample and
+      // yields the rest at the attempt's version.
+      %index_key = core.call intrinsic.string.format("{}", %index)
+      %empty_all = core.map
+      %committed_all = core.get %ctx["committed"] default %empty_all
+      %current_all = core.get %ctx["current"] default %empty_all
+      %empty_committed = core.map
+      %committed = core.get %committed_all[%index_key] default %empty_committed
+      core.set %committed_all[%index_key] = %committed
+      %empty_current = core.map
+      %current = core.get %current_all[%index_key] default %empty_current
+      core.set %current_all[%index_key] = %current
+      %run = core.get %ctx["run"]
+      %version = core.get %ctx["version"] default 0
+      core.for %delta in %deltas {
+        %effective = core.call @stream_commit_delta_impl(%committed, %current, %delta)
+        %count = core.call intrinsic.len(%effective)
+        %has_effective = core.call intrinsic.gt(%count, 0)
+        core.if %has_effective {
+          core.call @stream_yield_impl(%run, %version, %index, %effective)
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_held_fields_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "field-transforms-streaming"
+    type signature = "(AxGen, list<json>) -> list<string>"
+    body @entry(%gen: AxGen, %fields: list<json>) {
+      // Port-only field transforms rewrite a field's final value, which a
+      // stream cannot replace once sent: such fields are held back and sent
+      // once, transformed. A whole-output transform holds every field.
+      %held = core.list
+      %empty_specs = core.list
+      %specs = core.get %gen["field_processors"] default %empty_specs
+      core.for %spec in %specs {
+        %is_spec_map = core.type_is %spec type "object"
+        core.if %is_spec_map {
+          %name_alias = core.get %spec["name"] default ""
+          %name = core.get %spec["field"] default %name_alias
+          %has_name = core.call intrinsic.truthy(%name)
+          %seen = core.call intrinsic.contains(%held, %name)
+          %unseen = core.call intrinsic.not(%seen)
+          %add = core.call intrinsic.and(%has_name, %unseen)
+          core.if %add {
+            core.append %held, %name
+          }
+          core.continue
+        }
+        core.for %field in %fields {
+          %field_name = core.get %field["name"] default ""
+          %field_seen = core.call intrinsic.contains(%held, %field_name)
+          %field_unseen = core.call intrinsic.not(%field_seen)
+          core.if %field_unseen {
+            core.append %held, %field_name
+          }
+        }
+      }
+      core.return %held
+    }
+  }
+
+  op ax.stream.semantic @stream_chunk_content_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/streaming.ts"
+    type signature = "(AxGen, json, json, json) -> list<json> throws"
+    body @entry(%gen: AxGen, %config: json, %state: json, %result: json) {
+      // processStreamingResult after the thought: content appends to the
+      // sample's text, which structured routes reparse as partial JSON and
+      // the text contract extracts field by field. Function-call chunks
+      // yield nothing.
+      %deltas = core.list
+      %empty_calls = core.list
+      %calls_snake = core.get %result["function_calls"] default %empty_calls
+      %calls = core.get %result["functionCalls"] default %calls_snake
+      %call_count = core.call intrinsic.len(%calls)
+      %has_calls = core.call intrinsic.gt(%call_count, 0)
+      core.if %has_calls {
+        core.return %deltas
+      }
+      %chunk_text = core.get %result["content"] default ""
+      %is_text = core.type_is %chunk_text type "string"
+      %not_text = core.call intrinsic.not(%is_text)
+      core.if %not_text {
+        core.return %deltas
+      }
+      %empty_chunk = core.call intrinsic.eq(%chunk_text, "")
+      core.if %empty_chunk {
+        core.return %deltas
+      }
+      %old_content = core.get %state["content"] default ""
+      %content = core.call intrinsic.add(%old_content, %chunk_text)
+      core.set %state["content"] = %content
+      %empty_fields = core.list
+      %fields = core.get %config["fields"] default %empty_fields
+      %empty_held = core.list
+      %held = core.get %config["held"] default %empty_held
+      %structured = core.get %config["structured"] default false
+      core.if %structured {
+        %should_parse = core.call @stream_json_should_parse_impl(%state, %content)
+        %skip_parse = core.call intrinsic.not(%should_parse)
+        core.if %skip_parse {
+          core.return %deltas
+        }
+        %partial = core.call @stream_json_parse_partial_impl(%content)
+        %parsed = core.get %partial["parsed"]
+        %marker = core.get %partial["marker"]
+        %is_map = core.type_is %parsed type "object"
+        %not_map = core.call intrinsic.not(%is_map)
+        core.if %not_map {
+          core.return %deltas
+        }
+        %has_marker = core.call intrinsic.is_not_none(%marker)
+        %prepared = core.map
+        %parse_strings = core.get %config["parse_json_strings"] default false
+        core.try {
+          %prepared = core.call @stream_json_select_fields_impl(%fields, %parsed)
+          core.if %parse_strings {
+            core.call @stream_json_strings_impl(%fields, %prepared, true)
+          }
+        } catch %prepare_error {
+          core.if %has_marker {
+            core.return %deltas
+          }
+          core.raise %prepare_error
+        }
+        core.try {
+          core.call @stream_json_validate_impl(%fields, %prepared, true, false)
+        } catch %partial_error {
+          %complete = core.call intrinsic.not(%has_marker)
+          core.if %complete {
+            core.raise %partial_error
+          }
+        }
+        %structured_deltas = core.call @stream_apply_structured_impl(%state, %fields, %prepared, %marker, %held)
+        core.return %structured_deltas
+      }
+      %empty_xstate = core.map
+      %xstate = core.get %state["xstate"] default %empty_xstate
+      %empty_values = core.map
+      %values = core.get %state["values"] default %empty_values
+      %skip = core.call @stream_text_extract_impl(%xstate, %values, %content, %fields)
+      core.if %skip {
+        core.return %deltas
+      }
+      %assertion_thrown = core.call @stream_check_assertions_impl(%gen, %xstate, %content, false)
+      %assertion_threw = core.call intrinsic.is_not_none(%assertion_thrown)
+      core.if %assertion_threw {
+        core.set %state["fatal_error"] = %assertion_thrown
+        core.return %deltas
+      }
+      %feedback = core.call @stream_run_processors_impl(%gen, "streaming", %state, %content, false)
+      %processor_failure = core.get %state["fatal_error"]
+      %processor_failed = core.call intrinsic.is_not_none(%processor_failure)
+      core.if %processor_failed {
+        core.return %deltas
+      }
+      %empty_feedback = core.list
+      %pending = core.get %state["feedback"] default %empty_feedback
+      core.for %text in %feedback {
+        core.append %pending, %text
+      }
+      core.set %state["feedback"] = %pending
+      %text_deltas = core.call @stream_text_values_impl(%fields, %content, %values, %xstate, %held)
+      core.return %text_deltas
+    }
+  }
+
+  op ax.stream.semantic @stream_finalize_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/finalize.ts"
+    type signature = "(AxGen, json, json, json) -> json throws"
+    body @entry(%gen: AxGen, %config: json, %ctx: json, %state: json) {
+      // finalizeStreamingResponse for a sample with no function calls: the
+      // final JSON or text parse, streaming assertions, feedback and
+      // streaming processors, port transforms, assertions, then the rest of
+      // the text. Returns {feedback, output} or {failure} for an assertion
+      // error the caller raises outside its retries.
+      %out = core.map
+      %empty_fields = core.list
+      %fields = core.get %config["fields"] default %empty_fields
+      %empty_held = core.list
+      %held = core.get %config["held"] default %empty_held
+      %structured = core.get %config["structured"] default false
+      %strict_json = core.get %config["strict_json"] default false
+      %parse_strings = core.get %config["parse_json_strings"] default false
+      %thought_field = core.get %config["thought_field"] default "thought"
+      %content = core.get %state["content"] default ""
+      %index = core.get %state["index"] default 0
+      %empty_values = core.map
+      %values = core.get %state["values"] default %empty_values
+      %empty_xstate = core.map
+      %xstate = core.get %state["xstate"] default %empty_xstate
+      %json_parsed = core.let false
+      core.if %structured {
+        %final_json = core.call intrinsic.none()
+        %syntax_error = core.let false
+        core.try {
+          %final_json = core.call intrinsic.json.parse_strict(%content)
+        } catch %parse_error {
+          %syntax_error = core.let true
+        }
+        core.if %syntax_error {
+          core.if %strict_json {
+            %strict_error = core.call intrinsic.error.validation("Structured output must be one JSON object with no prose or Markdown fences.")
+            core.raise %strict_error
+          }
+        } else {
+          %final_is_map = core.type_is %final_json type "object"
+          %final_not_map = core.call intrinsic.not(%final_is_map)
+          core.if %final_not_map {
+            %shape_error = core.call intrinsic.error.validation("Structured output must be a JSON object matching the output fields.")
+            core.raise %shape_error
+          }
+          core.if %parse_strings {
+            core.call @stream_json_strings_impl(%fields, %final_json, false)
+          }
+          core.call @stream_json_validate_impl(%fields, %final_json, false, %strict_json)
+          %no_marker = core.call intrinsic.none()
+          %final_deltas = core.call @stream_apply_structured_impl(%state, %fields, %final_json, %no_marker, %held)
+          core.call @stream_emit_deltas_impl(%ctx, %index, %final_deltas)
+          %json_parsed = core.let true
+        }
+      }
+      %text_route = core.call intrinsic.not(%json_parsed)
+      core.if %text_route {
+        core.call @stream_text_final_impl(%xstate, %values, %content, %fields)
+      }
+      %assertion_thrown = core.call @stream_check_assertions_impl(%gen, %xstate, %content, true)
+      %assertion_threw = core.call intrinsic.is_not_none(%assertion_thrown)
+      core.if %assertion_threw {
+        core.set %out["failure"] = %assertion_thrown
+        core.return %out
+      }
+      %empty_feedback = core.list
+      %feedback = core.get %state["feedback"] default %empty_feedback
+      %processed = core.call @stream_run_processors_impl(%gen, "feedback", %state, %content, true)
+      core.for %processed_text in %processed {
+        core.append %feedback, %processed_text
+      }
+      %streamed = core.call @stream_run_processors_impl(%gen, "streaming", %state, %content, true)
+      core.for %streamed_text in %streamed {
+        core.append %feedback, %streamed_text
+      }
+      %processor_failure = core.get %state["fatal_error"]
+      %processor_failed = core.call intrinsic.is_not_none(%processor_failure)
+      core.if %processor_failed {
+        core.set %out["failure"] = %processor_failure
+        core.return %out
+      }
+      // Assertions see the transformed output without the thought, as in
+      // forward.
+      %output = core.map
+      %value_keys = core.call intrinsic.map.keys(%values)
+      core.for %value_key in %value_keys {
+        %is_thought = core.call intrinsic.eq(%value_key, %thought_field)
+        core.if %is_thought {
+          core.continue
+        }
+        %value = core.get %values[%value_key]
+        core.set %output[%value_key] = %value
+      }
+      %transformed = core.call @apply_field_processors(%gen, %output)
+      %failure = core.call @run_assertions(%gen, %transformed)
+      %failed = core.call intrinsic.is_not_none(%failure)
+      core.if %failed {
+        core.set %out["failure"] = %failure
+        core.return %out
+      }
+      core.if %text_route {
+        %text_deltas = core.call @stream_text_values_impl(%fields, %content, %values, %xstate, %held)
+        core.call @stream_emit_deltas_impl(%ctx, %index, %text_deltas)
+      }
+      %held_deltas = core.list
+      core.for %held_name in %held {
+        %has_held = core.call intrinsic.map.contains(%transformed, %held_name)
+        %internal = core.let false
+        core.for %field in %fields {
+          %field_name = core.get %field["name"] default ""
+          %same = core.call intrinsic.eq(%field_name, %held_name)
+          core.if %same {
+            %internal = core.call @stream_field_flag_impl(%field, "is_internal", "isInternal")
+          }
+        }
+        %visible = core.call intrinsic.not(%internal)
+        %send = core.call intrinsic.and(%has_held, %visible)
+        core.if %send {
+          %held_value = core.get %transformed[%held_name]
+          %held_delta = core.map
+          core.set %held_delta[%held_name] = %held_value
+          core.append %held_deltas, %held_delta
+        }
+      }
+      core.call @stream_emit_deltas_impl(%ctx, %index, %held_deltas)
+      core.set %out["feedback"] = %feedback
+      core.set %out["output"] = %transformed
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_result_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%run: json, %options: json) {
+      // The run's result: without a result picker, the first sample merged
+      // in the last version, as forward returns it. With one, the picked
+      // sample is sent as a single envelope; its index is its position in
+      // the merged view, as in TS.
+      %empty_buffer = core.list
+      %buffer = core.get %run["buffer"] default %empty_buffer
+      %buffered = core.get %run["buffered"] default false
+      %selected = core.let 0
+      core.if %buffered {
+        %samples = core.list
+        %position = core.let 0
+        core.for %entry in %buffer {
+          %sample = core.map
+          core.set %sample["index"] = %position
+          %entry_delta = core.get %entry["delta"]
+          core.set %sample["sample"] = %entry_delta
+          core.append %samples, %sample
+          %position = core.call intrinsic.add(%position, 1)
+        }
+        %selected = core.call @select_sample_index(%samples, %options)
+      }
+      %none = core.call intrinsic.none()
+      %picked = core.call intrinsic.list.get(%buffer, %selected, %none)
+      %missing = core.call intrinsic.is_none(%picked)
+      core.if %missing {
+        %empty_output = core.map
+        core.return %empty_output
+      }
+      %empty_delta = core.map
+      %output = core.get %picked["delta"] default %empty_delta
+      %sink = core.get %run["sink"]
+      %has_sink = core.call intrinsic.is_not_none(%sink)
+      %send_picked = core.call intrinsic.and(%buffered, %has_sink)
+      core.if %send_picked {
+        %envelope = core.map
+        %version = core.get %run["current_version"] default 0
+        core.set %envelope["version"] = %version
+        core.set %envelope["index"] = %selected
+        core.set %envelope["delta"] = %output
+        core.call intrinsic.axgen.emit_delta(%sink, %envelope)
+      }
+      core.return %output
+    }
+  }
 }

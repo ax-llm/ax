@@ -1,0 +1,81 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "```py"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "thon\nprint(1)"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "\nprint(2)\n``"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "`"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "```python\nprint(1)\nprint(2)\n```"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-code-field",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: ```py",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "thon\nprint(1)\n",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "print(2)\n``",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "`",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:code"
+}

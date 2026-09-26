@@ -7,6 +7,7 @@ import math
 import json
 import re
 import time
+import warnings
 from typing import Any
 
 from .ai import (
@@ -33,7 +34,7 @@ from .ai import (
     fold_chat_response_stream,
 )
 from .prompt import AxPromptTemplate, _core_string_split
-from .schema import AxValidationError, strip_internal, validate_fields, validate_output
+from .schema import AxValidationError, _core_url_valid, strip_internal, validate_fields, validate_output
 from .signature import AxSignature, _core_string_replace
 from .mcp import resolve_execution_context
 # AXIR_CORE_IMPORTS
@@ -204,6 +205,8 @@ class AxGen:
         self.assertions = list(self.options.get("assertions") or [])
         self.streaming_assertions = list(self.options.get("streaming_assertions") or self.options.get("streamingAssertions") or [])
         self.field_processors = list(self.options.get("field_processors") or self.options.get("fieldProcessors") or [])
+        self.feedback_processors = list(self.options.get("feedback_processors") or self.options.get("feedbackProcessors") or [])
+        self.streaming_field_processors = list(self.options.get("streaming_field_processors") or self.options.get("streamingFieldProcessors") or [])
         self.stop_functions = list(self.options.get("stop_functions") or self.options.get("stopFunctions") or [])
         self.memory = self.options.get("memory") or self.options.get("mem") or AxMemory()
         self.chat_log: list[dict[str, Any]] = []
@@ -266,14 +269,68 @@ class AxGen:
         return self
 
     def add_streaming_assert(self, field, not_contains=None, message=None):
-        spec = dict(field) if isinstance(field, dict) else {"field": field, "not_contains": not_contains}
+        """Add a streaming assertion on a string or code output field.
+
+        ``not_contains`` is text the field must not contain, or a callable
+        ``check(text, done)`` over the field's text so far that returns None or
+        True to pass, a message string, or False. As in TypeScript, a failure
+        stops the attempt and retries it with a correction.
+        """
+        if isinstance(field, dict):
+            spec = dict(field)
+        elif callable(not_contains):
+            spec = {"field": field, "fn": not_contains}
+        else:
+            spec = {"field": field, "not_contains": not_contains}
         if message is not None:
             spec["message"] = message
         self.streaming_assertions.append(spec)
         return self
 
-    def add_field_processor(self, field, processor):
+    def add_field_transform(self, field, processor):
+        """Rewrite an output field's final value: an op name ("uppercase",
+        "lowercase", "trim", "prefix:...", "suffix:...") or a callable.
+
+        This is a port extension; TypeScript field processors feed back to
+        the model instead (see add_field_processor(..., feedback=True)).
+        """
         self.field_processors.append({"field": field, "processor": processor})
+        return self
+
+    def add_field_processor(self, field, processor, *, feedback=False):
+        """Add a field processor.
+
+        With ``feedback=True`` it follows TypeScript: ``processor(value,
+        {"values", "done"})`` runs on the field's final value, and a non-empty
+        result is sent to the model as a user message for another step. The
+        default still rewrites the field like add_field_transform(), and is
+        deprecated: it becomes the feedback behavior in the next major
+        version.
+        """
+        if feedback:
+            self.feedback_processors.append({"field": field, "processor": processor})
+            return self
+        warnings.warn(
+            "add_field_processor() without feedback=True rewrites the field value; "
+            "use add_field_transform() for that. In the next major version "
+            "add_field_processor() will follow TypeScript and feed its result back "
+            "to the model.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.add_field_transform(field, processor)
+
+    def add_streaming_field_processor(self, field, processor):
+        """Run ``processor(text, {"values", "done"})`` on each streamed chunk of
+        a string or code output field; a non-empty result is sent to the
+        model as a user message for another step, as in TypeScript."""
+        output = next((item for item in self.signature.get_output_fields() if item.name == field), None)
+        if output is None:
+            raise ValueError(f"addFieldProcessor: field {field} not found")
+        type_name = getattr(getattr(output, "type", None), "name", "string") or "string"
+        if type_name not in ("string", "code"):
+            raise ValueError(f"addFieldProcessor: field {field} must be a text field")
+        self.streaming_field_processors.append({"field": field, "processor": processor})
         return self
 
     def set_stop_functions(self, names):
@@ -527,6 +584,35 @@ class AxGen:
         options: dict[str, Any] | None = None,
         hooks: AxRuntimeHooks | None = None,
     ):
+        """Stream a forward.
+
+        With ``{"deltas": True}`` this yields TypeScript's ``{"version",
+        "index", "delta"}`` deltas: merge each index's deltas (strings and
+        lists append, other values replace) and start over when the version
+        changes. Without the flag it still yields raw provider events, which
+        is deprecated: deltas become the default in the next major version,
+        and stream_raw() keeps the raw events.
+        """
+        run_options = dict(options or {})
+        if run_options.pop("deltas", False):
+            return self._streaming_deltas(client, values, run_options, hooks)
+        warnings.warn(
+            "streaming_forward() without {'deltas': True} yields raw provider events; "
+            "TypeScript's {version, index, delta} deltas become the default in the next "
+            "major version. Pass {'deltas': True} now, or use stream_raw() to keep raw events.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.stream_raw(client, values, run_options, hooks)
+
+    def stream_raw(
+        self,
+        client: AIClient,
+        values: dict[str, Any],
+        options: dict[str, Any] | None = None,
+        hooks: AxRuntimeHooks | None = None,
+    ):
+        """Yield the raw provider events of one streamed request."""
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -535,6 +621,92 @@ class AxGen:
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen", "ax.streaming": True},
         ):
             yield from self._streaming_forward_unscoped(client, values, _strip_runtime_hooks(options))
+
+    def _streaming_deltas(self, client, values, options, hooks):
+        # The forward runs in a worker thread and hands each delta to this
+        # generator; closing the generator stops the run.
+        import contextvars
+        import queue
+        import threading
+
+        deliveries = queue.Queue()
+        stopped = threading.Event()
+
+        def sink(envelope):
+            if stopped.is_set():
+                raise AxAIServiceAbortedError("streaming consumer closed")
+            deliveries.put(("delta", copy.deepcopy(envelope)))
+
+        def run():
+            try:
+                self._streaming_forward_with(client, values, options, sink, hooks)
+                deliveries.put(("done", None))
+            except BaseException as error:  # noqa: BLE001 - re-raised in the consumer
+                deliveries.put(("error", error))
+
+        context = contextvars.copy_context()
+        worker = threading.Thread(target=context.run, args=(run,), daemon=True)
+        worker.start()
+        try:
+            while True:
+                kind, item = deliveries.get()
+                if kind == "error":
+                    raise item
+                if kind == "done":
+                    return
+                yield item
+        finally:
+            stopped.set()
+
+    def _streaming_forward_with(self, client, values, options, sink, hooks=None):
+        # Runs the streaming forward, sending each {version, index, delta} to
+        # sink, and returns the merged output of the picked sample.
+        call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
+        with _runtime_hook_scope(
+            call_hooks,
+            self.runtime_hooks,
+            span_name="ax_gen_forward",
+            attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen", "ax.streaming": True},
+        ):
+            return self._streaming_forward_unscoped_with(client, values, _strip_runtime_hooks(options), sink)
+
+    def _streaming_forward_unscoped_with(self, client, values, options, sink):
+        run_options = {**self.options, **(options or {})}
+        session_enabled = (chat_session_mode_enabled(run_options)
+            and (callable(getattr(client, "_pin_chat_run", None)) or
+                 (callable(getattr(client, "open_chat_session", None)) and
+                  bool(getattr(client, "get_features", lambda model=None: {})(str(run_options.get("model") or getattr(client, "model", "")) or None).get("asyncTools"))))
+            and (run_options.get("control") is not None or any(getattr(tool, "execution", "blocking") == "background" for tool in self.functions)))
+        if session_enabled:
+            raise NotImplementedError(
+                "streaming_forward deltas do not cover async run sessions (control or background tools "
+                "on a session-capable client) yet; use forward() or stream_raw()."
+            )
+        from .session import _BoundaryClient, _SessionClient
+        if run_options.get("control") is not None and not isinstance(client, (_BoundaryClient, _SessionClient)):
+            bounded = _BoundaryClient(client, run_options)
+            try:
+                result = self._streaming_forward_unscoped_with(bounded, values, options, sink)
+            except BaseException as error:
+                bounded.close(error)
+                raise
+            bounded.close()
+            return result
+        call_context = resolve_execution_context(options, self.execution_context)
+        if call_context is not self.execution_context:
+            call_gen = copy.copy(self)
+            call_gen.execution_context = call_context
+            call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
+            call_gen.prompt_template = AxPromptTemplate(
+                self.signature,
+                functions=call_gen.functions,
+                structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
+                custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+            )
+            if self.instruction:
+                call_gen.prompt_template.set_instruction(self.instruction)
+            return _streaming_forward_impl(call_gen, client, values, options, sink)
+        return _streaming_forward_impl(self, client, values, options, sink)
 
     def _streaming_forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         run_options = {**self.options, **(options or {})}
@@ -845,6 +1017,122 @@ def _core_ai_complete_once(client, request, options):
     if callable(complete):
         return complete(request)
     raise TypeError("AI client must implement chat() or complete()")
+
+
+def _core_coalesce(value, fallback):
+    return fallback if value is None else value
+
+
+def _core_string_index_of(value, needle, start=0):
+    return str(value).find(str(needle), max(0, int(start)))
+
+
+class _CoreChatStream:
+    """Pull handle over a client stream: next() returns the next chunk or None."""
+
+    def __init__(self, events):
+        self._events = events
+        self._iterator = iter(events)
+
+    def next(self):
+        return next(self._iterator, None)
+
+    def close(self):
+        close = getattr(self._events, "close", None)
+        if callable(close):
+            close()
+
+
+def _core_completion_chat_chunk(completion):
+    # A complete()-only client answers in the completion shape; stream it as
+    # one chat response chunk.
+    if not isinstance(completion, dict) or "results" in completion:
+        return completion
+    result = {"index": 0, "content": completion.get("content") or ""}
+    calls = [
+        {"id": call.get("id"), "type": "function", "function": {"name": call.get("name"), "params": call.get("params")}}
+        for call in completion.get("function_calls") or []
+    ]
+    if calls:
+        result["function_calls"] = calls
+    for key in ("thought", "thought_blocks"):
+        if completion.get(key):
+            result[key] = completion[key]
+    result["finish_reason"] = completion.get("finish_reason", "function_call" if calls else "stop")
+    return {"results": [result]}
+
+
+def _core_ai_stream_open(client, request, options):
+    # streaming_forward reads the provider stream chunk by chunk; a client
+    # without stream() answers with one chat (or completion) response.
+    stream = getattr(client, "stream", None)
+    if callable(stream):
+        events = stream(request, options or {}) if _core_accepts_options(stream) else stream(request)
+        return _CoreChatStream(events)
+    chat = getattr(client, "chat", None)
+    if callable(chat):
+        response = chat(request, options or {}) if _core_accepts_options(chat) else chat(request)
+        return _CoreChatStream([response] if response is None or isinstance(response, dict) else response)
+    complete = getattr(client, "complete", None)
+    if callable(complete):
+        return _CoreChatStream([_core_completion_chat_chunk(complete(request))])
+    raise TypeError("AI client must implement stream(), chat() or complete()")
+
+
+def _core_ai_stream_next(handle):
+    return handle.next()
+
+
+def _core_ai_stream_close(handle):
+    try:
+        handle.close()
+    except Exception:  # noqa: BLE001 - closing an abandoned stream is best effort
+        pass
+    return None
+
+
+_CORE_DEPRECATIONS_SHOWN: set[str] = set()
+
+
+def _core_axgen_deprecation(key, message):
+    # Deprecated port behavior warns once per process.
+    if key in _CORE_DEPRECATIONS_SHOWN:
+        return None
+    _CORE_DEPRECATIONS_SHOWN.add(key)
+    warnings.warn(str(message), DeprecationWarning, stacklevel=4)
+    return None
+
+
+def _core_axgen_emit_delta(sink, envelope):
+    sink(envelope)
+    return None
+
+
+def _core_axgen_call_processor(spec, value, context):
+    # TS field processors take (value, {values, sessionId, done}); a
+    # one-argument callable gets the value alone.
+    processor = spec.get("processor", spec.get("fn")) if isinstance(spec, dict) else spec
+    if not callable(processor):
+        raise TypeError("field processor must be callable")
+    ctx = {"values": dict((context or {}).get("values") or {}), "done": bool((context or {}).get("done"))}
+    return processor(value, ctx) if _core_accepts_options(processor) else processor(value)
+
+
+def _core_axgen_check_streaming_assertion(spec, value, done):
+    # A callable returns None or True to pass, a message string, or False; a
+    # {"not_contains": ...} spec fails when the field text contains it.
+    check = spec.get("fn", spec.get("assert")) if isinstance(spec, dict) else spec
+    if callable(check):
+        result = check(value, done) if _core_accepts_options(check) else check(value)
+        if result is None or result is True:
+            return {"status": "pass"}
+        if isinstance(result, str):
+            return {"status": "fail", "message": result}
+        return {"status": "fail"}
+    needle = spec.get("not_contains", spec.get("notContains")) if isinstance(spec, dict) else None
+    if needle is not None and str(needle) in str(value):
+        return {"status": "fail"}
+    return {"status": "pass"}
 
 
 def _core_ai_client_features(client, model):

@@ -1,0 +1,50 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "ok"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-infra-retry-before-stream",
+  "responses": [
+    {
+      "error": {
+        "message": "Service Unavailable",
+        "status": 503,
+        "type": "status"
+      }
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: ok",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

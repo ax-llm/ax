@@ -3956,6 +3956,17 @@ pub struct AxResultPickerSample {
 
 pub type AxResultPicker = Arc<dyn Fn(&[AxResultPickerSample]) -> AxResult<usize> + Send + Sync>;
 
+// A TypeScript field processor: called as (value, {"values", "done"}); a
+// non-empty result is sent to the model as a user message for another step.
+// Null is no result.
+pub(crate) type AxGenFieldProcessorFn = Arc<dyn Fn(Value, Value) -> AxResult<Value> + Send + Sync>;
+
+#[derive(Clone)]
+pub(crate) struct AxGenFieldProcessor {
+    field: String,
+    processor: AxGenFieldProcessorFn,
+}
+
 #[derive(Clone)]
 pub struct AxGen {
     pub signature: AxSignature,
@@ -3974,6 +3985,9 @@ pub struct AxGen {
     pub chat_log: Vec<Value>,
     pub result_picker: Option<AxResultPicker>,
     runtime_hooks: AxRuntimeHooks,
+    streaming_assertions: Vec<Value>,
+    feedback_processors: Vec<AxGenFieldProcessor>,
+    streaming_field_processors: Vec<AxGenFieldProcessor>,
 }
 
 pub fn ax(spec: &str) -> AxResult<AxGen> {
@@ -4002,12 +4016,19 @@ impl AxGen {
         let chat_log=self.chat_log.clone();
         let result_picker=self.result_picker.clone();
         let runtime_hooks=self.runtime_hooks.clone();
-        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,runtime_hooks}))
+        let streaming_assertions=self.streaming_assertions.clone();
+        let feedback_processors=self.feedback_processors.clone();
+        let streaming_field_processors=self.streaming_field_processors.clone();
+        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors}))
     }
 
     pub fn new(spec: &str) -> AxResult<Self> {
-        Ok(Self {
-            signature: s(spec)?,
+        Ok(Self::with_signature(s(spec)?))
+    }
+
+    pub(crate) fn with_signature(signature: AxSignature) -> Self {
+        Self {
+            signature,
             options: json!({}),
             function_call_traces: Vec::new(),
             tools: Vec::new(),
@@ -4023,7 +4044,10 @@ impl AxGen {
             chat_log: Vec::new(),
             result_picker: None,
             runtime_hooks: AxRuntimeHooks::default(),
-        })
+            streaming_assertions: Vec::new(),
+            feedback_processors: Vec::new(),
+            streaming_field_processors: Vec::new(),
+        }
     }
 
     pub fn with_tool(mut self, tool: Tool) -> Self {
@@ -4057,6 +4081,34 @@ impl AxGen {
     pub fn with_field_processor(mut self, field: &str, op: &str) -> Self {
         self.field_processors.push(json!({"field": field, "op": op}));
         self
+    }
+
+    // Streaming assertion descriptor {field, not_contains, message?}: checks
+    // the field's text as it streams; a failure retries with a correction.
+    pub(crate) fn add_streaming_assert(&mut self, spec: Value) {
+        self.streaming_assertions.push(spec);
+    }
+
+    // TS field processor: runs on the field's final value, and a non-empty
+    // result is sent to the model as a user message for another step.
+    pub(crate) fn add_feedback_field_processor(&mut self, field: &str, processor: AxGenFieldProcessorFn) {
+        self.feedback_processors.push(AxGenFieldProcessor { field: field.to_string(), processor });
+    }
+
+    // TS streaming field processor: runs on each streamed chunk of a string
+    // or code output field, with feedback as for field processors.
+    pub(crate) fn add_streaming_field_processor(&mut self, field: &str, processor: AxGenFieldProcessorFn) -> AxResult<()> {
+        let output = self
+            .signature
+            .get_output_fields()
+            .iter()
+            .find(|output| output.name == field)
+            .ok_or_else(|| AxError::validation(format!("addFieldProcessor: field {field} not found")))?;
+        if !matches!(output.field_type.name.as_str(), "string" | "code") {
+            return Err(AxError::validation(format!("addFieldProcessor: field {field} must be a text field")));
+        }
+        self.streaming_field_processors.push(AxGenFieldProcessor { field: field.to_string(), processor });
+        Ok(())
     }
 
     pub fn with_stop_function(mut self, name: &str) -> Self {
@@ -4112,10 +4164,40 @@ impl AxGen {
         input: Value,
         options: impl Into<AxForwardOptions>,
     ) -> AxResult<Value> {
-        session::with_control(options.into(), |mut options| {
+        self.run_forward(client, input, options.into(), None)
+    }
+
+    /// Streams a forward as TypeScript's `streamingForward` does: `sink`
+    /// receives each `{version, index, delta}` envelope as the model streams,
+    /// and the merged output of the picked sample is returned. A sink error
+    /// stops the run. The public streaming API is built on this.
+    #[doc(hidden)]
+    pub fn streaming_forward_with_sink<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: impl Into<AxForwardOptions>,
+        sink: impl FnMut(Value) -> AxResult<()> + 'static,
+    ) -> AxResult<Value> {
+        let sink = CoreValue::Host(Rc::new(CoreDeltaSinkHost { sink: RefCell::new(Box::new(sink)) }));
+        self.run_forward(client, input, options.into(), Some(sink))
+    }
+
+    // Runs the forward op, or the streaming forward op when a sink is given.
+    fn run_forward<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: AxForwardOptions,
+        sink: Option<CoreValue>,
+    ) -> AxResult<Value> {
+        session::with_control(options, |mut options| {
         let defaults = self.runtime_hooks.clone();
         let mut attributes = BTreeMap::new();
         attributes.insert("ax.program.kind".to_string(), json!("AxGen"));
+        if sink.is_some() {
+            attributes.insert("ax.streaming".to_string(), json!(true));
+        }
         with_runtime_scope(None, Some(&defaults), "ax_gen_forward", "gen", attributes, || {
         let state = core_gen_state(self)?;
         let mut session_run=session::SessionRun::new(state.clone(), self.tools.clone(), options.clone());
@@ -4126,6 +4208,11 @@ impl AxGen {
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
             if method == "stream" && !run_session {
                 return client.stream(request).map(Value::Array);
+            }
+            // The streaming forward pulls the provider's chunks one at a time;
+            // a session run answers with one chat response instead.
+            if method == "stream_open" && !run_session {
+                return Ok(publish_open_chat_stream(client.stream_iter_with_options(request, options)?));
             }
             if method == "transcribe" {
                 client.transcribe(request)
@@ -4140,12 +4227,12 @@ impl AxGen {
             }
         };
         let result = with_core_client(&mut chat, || {
-            _forward_impl(&[
-                state.clone(),
-                CoreValue::Null,
-                core_value_from_json(&input),
-                core_value_from_json(&options),
-            ])
+            let values = core_value_from_json(&input);
+            let options = core_value_from_json(&options);
+            match &sink {
+                Some(sink) => _streaming_forward_impl(&[state.clone(), CoreValue::Null, values, options, sink.clone()]),
+                None => _forward_impl(&[state.clone(), CoreValue::Null, values, options]),
+            }
         });
         drop(chat);
         session_run.finish(result.as_ref().err());
@@ -4646,6 +4733,8 @@ impl AxAIClient for ProgramClient<'_> {
     fn complete(&mut self,r:Value)->AxResult<Value>{self.0.complete(r)}
     fn stream(&mut self,r:Value)->AxResult<Vec<Value>>{self.0.stream(r)}
     fn stream_iter(&mut self,r:Value)->AxResult<AxChatStream>{self.0.stream_iter(r)}
+    // The streaming forward opens its stream with the call options, as chat does.
+    fn stream_iter_with_options(&mut self,r:Value,o:Value)->AxResult<AxChatStream>{self.0.stream_iter_with_options(r,o)}
 }
 
 impl AxExecutableProgram for AxGen {
@@ -9324,6 +9413,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "template_error" => run_template_error_fixture(&fixture)?,
         "template_validate" => run_template_validate_fixture(&fixture)?,
         "forward" => run_simple_forward_fixture(&fixture)?,
+        "streaming_forward" => run_streaming_forward_fixture(&fixture)?,
         "stream" => run_stream_fixture(&fixture)?,
         "ai_session_state" => run_ai_session_state_fixture(&fixture)?,
         "ai_session_events" => run_ai_session_events_fixture(&fixture)?,
@@ -9904,20 +9994,55 @@ fn run_agent_playbook_coverage_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+// python: _evolve_script. Several responses play in order for each case; a
+// single one repeats.
+fn evolve_fixture_script(responses: Option<&Vec<Value>>) -> VecDeque<Value> {
+    let responses = responses.filter(|items| !items.is_empty()).cloned().unwrap_or_else(|| vec![json!({})]);
+    if responses.len() > 1 {
+        return responses.into();
+    }
+    std::iter::repeat(responses[0].clone()).take(32).collect()
+}
+
+// One scripted student shared by the playbook and the evolve evaluation, as
+// the TS studentAI is: each call borrows it only for that call.
+struct SharedFixtureClient(Rc<RefCell<FixtureClient>>);
+
+impl AxAIClient for SharedFixtureClient {
+    fn get_features(&self, model: Option<&str>) -> Value {
+        self.0.borrow().get_features(model)
+    }
+    fn chat(&mut self, request: Value) -> AxResult<Value> {
+        self.0.borrow_mut().chat(request)
+    }
+    fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        self.0.borrow_mut().chat_with_options(request, options)
+    }
+    fn transcribe(&mut self, request: Value) -> AxResult<Value> {
+        self.0.borrow_mut().transcribe(request)
+    }
+    fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
+        self.0.borrow_mut().stream(request)
+    }
+    fn stream_iter_with_options(&mut self, request: Value, options: Value) -> AxResult<AxChatStream> {
+        self.0.borrow_mut().stream_iter_with_options(request, options)
+    }
+}
+
 fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
-    let scripted_response = fixture.get("responses").and_then(Value::as_array).and_then(|items| items.first()).cloned().unwrap_or_else(|| json!({}));
+    let responses = fixture.get("responses").and_then(Value::as_array);
+    let teacher_responses = fixture.get("teacher_responses").and_then(Value::as_array).filter(|items| !items.is_empty()).or(responses);
     let teacher_spec = fixture.get("teacher_client");
     for test_case in fixture.get("cases").and_then(Value::as_array).cloned().unwrap_or_default() {
-        let responses = std::iter::repeat(scripted_response.clone()).take(32).collect::<VecDeque<_>>();
-        let playbook_client = Rc::new(RefCell::new(FixtureClient::scripted(responses.clone(), router_default_features())));
+        let playbook_client = Rc::new(RefCell::new(FixtureClient::scripted(evolve_fixture_script(responses), router_default_features())));
         // A configured teacher runs the playbook's reflector/curator and the
-        // evolve weakness miner; otherwise the student clients do.
+        // evolve weakness miner; otherwise the student client does.
         let teacher = teacher_spec.map(|spec| {
             Rc::new(RefCell::new(
-                FixtureClient::scripted(responses.clone(), router_default_features()).with_client_spec(Some(spec)),
+                FixtureClient::scripted(evolve_fixture_script(teacher_responses), router_default_features()).with_client_spec(Some(spec)),
             ))
         });
-        let mut evaluation_client = FixtureClient::scripted(responses, router_default_features());
+        let mut evaluation_client = SharedFixtureClient(playbook_client.clone());
         let agent_options = core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
         let script = fixture.get("runtime_script").and_then(Value::as_array).cloned().unwrap_or_default();
         let language = fixture.get("runtime_language").and_then(Value::as_str).unwrap_or("Python").to_string();
@@ -15015,25 +15140,50 @@ impl AxAIClient for FixtureClient {
         self.scripted_chat(request)
     }
 
-    // A scripted {"stream": [...]} response streams its chunks; any other
-    // response streams as one chunk.
     fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
+        self.scripted_stream(request, None)?.into_iter().collect()
+    }
+
+    fn stream_iter_with_options(&mut self, request: Value, options: Value) -> AxResult<AxChatStream> {
+        let chunks = self.scripted_stream(request, Some(options))?;
+        Ok(AxChatStream::new(chunks.into_iter(), None))
+    }
+}
+
+impl FixtureClient {
+    // A scripted {"stream": [...]} response streams its chunks, and an
+    // {"error": ...} entry in it fails the stream at that point; any other
+    // response streams as one chunk.
+    fn scripted_stream(&mut self, request: Value, options: Option<Value>) -> AxResult<Vec<AxResult<Value>>> {
         let chunks = self
             .responses
             .front()
             .and_then(|response| response.get("stream"))
             .and_then(Value::as_array)
             .cloned();
-        if let Some(chunks) = chunks {
-            self.responses.pop_front();
-            self.requests.push(request);
-            return Ok(chunks.into_iter().map(fixture_chat_response).collect());
+        let Some(chunks) = chunks else {
+            let response = match options {
+                Some(options) => self.chat_with_options(request, options)?,
+                None => self.chat(request)?,
+            };
+            return Ok(vec![Ok(response)]);
+        };
+        self.responses.pop_front();
+        self.requests.push(request);
+        if let Some(options) = options {
+            self.chat_options.push(options);
         }
-        Ok(vec![self.chat(request)?])
+        let mut out = Vec::new();
+        for chunk in chunks {
+            if let (Some(error), None) = (chunk.get("error"), chunk.get("results")) {
+                out.push(Err(fixture_ai_service_error(error)));
+                break;
+            }
+            out.push(Ok(fixture_chat_response(chunk)));
+        }
+        Ok(out)
     }
-}
 
-impl FixtureClient {
     // Resolve model keys the way a real client does, so the gate sees the same
     // model and key defaults.
     fn resolve_model_key_request(&self, request: &Value, options: &Value) -> AxResult<(Value, Value)> {
@@ -15140,6 +15290,142 @@ impl AxTransport for RecordingTransport {
     }
 }
 
+// python: _add_fixture_transforms. field_transforms and the deprecated
+// transforming field_processors both rewrite a field's final value.
+fn fixture_field_transforms(fixture: &Value) -> Vec<Value> {
+    let mut transforms = fixture
+        .get("field_transforms")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    transforms.extend(
+        fixture
+            .get("field_processors")
+            .or_else(|| fixture.get("fieldProcessors"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+    );
+    transforms
+}
+
+// python: _fixture_processor. Records {field, value, done} per call and
+// returns `returns` (null is no result) or, with `echo`, the value itself;
+// `when_done` waits for the final value, `times` caps the results, and
+// `throws` raises an error with that message.
+fn fixture_field_processor(spec: &Value, calls: &Arc<Mutex<Vec<Value>>>) -> AxGenFieldProcessorFn {
+    let field = spec.get("field").cloned().unwrap_or(Value::Null);
+    let returns = spec.get("returns").cloned().unwrap_or(Value::Null);
+    let echo = spec.get("echo").and_then(Value::as_bool).unwrap_or(false);
+    let when_done = spec.get("when_done").and_then(Value::as_bool).unwrap_or(false);
+    let times = spec.get("times").and_then(Value::as_u64);
+    let throws = spec.get("throws").filter(|message| !message.is_null()).map(value_as_display_string);
+    let calls = calls.clone();
+    let returned = Arc::new(AtomicU64::new(0));
+    Arc::new(move |value: Value, context: Value| -> AxResult<Value> {
+        let done = context.get("done").and_then(Value::as_bool).unwrap_or(false);
+        calls.lock().unwrap().push(json!({"field": field, "value": value, "done": done}));
+        if let Some(message) = &throws {
+            return Err(AxError::runtime(message.clone()));
+        }
+        if when_done && !done {
+            return Ok(Value::Null);
+        }
+        if times.is_some_and(|limit| returned.load(Ordering::SeqCst) >= limit) {
+            return Ok(Value::Null);
+        }
+        let result = if echo { value } else { returns.clone() };
+        if !result.is_null() {
+            returned.fetch_add(1, Ordering::SeqCst);
+        }
+        Ok(result)
+    })
+}
+
+// python: _run_streaming_forward. Streams the forward into a delta list and
+// checks the deltas (also those sent before an expected error), the merged
+// output, the requests, tool calls and field processor calls.
+fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
+    let signature = build_fixture_signature(fixture)?;
+    let (fixture_tools, recorded_calls) = build_fixture_tools_recording(fixture)?;
+    let mut program = AxGen::with_signature(signature);
+    program.options = fixture.get("options").filter(|options| options.is_object()).cloned().unwrap_or_else(|| json!({}));
+    program.base_tools = fixture_tools.clone();
+    program.tools = fixture_tools;
+    program.assertions = fixture.get("assertions").and_then(Value::as_array).cloned().unwrap_or_default();
+    for spec in fixture.get("streaming_assertions").and_then(Value::as_array).into_iter().flatten() {
+        program.add_streaming_assert(spec.clone());
+    }
+    program.field_processors = fixture_field_transforms(fixture);
+    let processor_calls = Arc::new(Mutex::new(Vec::new()));
+    for spec in fixture.get("feedback_processors").and_then(Value::as_array).into_iter().flatten() {
+        let field = spec.get("field").and_then(Value::as_str).unwrap_or_default();
+        program.add_feedback_field_processor(field, fixture_field_processor(spec, &processor_calls));
+    }
+    for spec in fixture.get("streaming_processors").and_then(Value::as_array).into_iter().flatten() {
+        let field = spec.get("field").and_then(Value::as_str).unwrap_or_default();
+        program.add_streaming_field_processor(field, fixture_field_processor(spec, &processor_calls))?;
+    }
+    if let Some(picker_index) = fixture.get("result_picker_index").and_then(Value::as_u64) {
+        program = program.with_result_picker(move |_| Ok(picker_index as usize));
+    }
+    if let Some(names) = fixture.get("stop_functions").and_then(Value::as_array) {
+        program.stop_functions = names.iter().filter_map(Value::as_str).map(ToString::to_string).collect();
+    }
+    let mut client = FixtureClient::scripted(
+        fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default(),
+        fixture.get("features").cloned().unwrap_or_else(router_default_features),
+    );
+    let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
+    let options = fixture.get("forward_options").cloned().unwrap_or_else(|| json!({}));
+    let deltas = Rc::new(RefCell::new(Vec::new()));
+    let sink_deltas = deltas.clone();
+    let result = program.streaming_forward_with_sink(&mut client, input, options, move |envelope| {
+        sink_deltas.borrow_mut().push(envelope);
+        Ok(())
+    });
+    let actual_deltas = Value::Array(deltas.borrow().clone());
+    let expected_deltas = fixture.get("expected_deltas").cloned().unwrap_or_else(|| json!([]));
+    match result {
+        Err(error) => {
+            let expected = fixture.get("expected_error_contains").and_then(Value::as_str);
+            if !expected.is_some_and(|expected| error.message.contains(expected)) {
+                return Err(error);
+            }
+            expect_json_equal("streaming deltas before the error", &actual_deltas, &expected_deltas)?;
+        }
+        Ok(output) => {
+            if fixture.get("expected_error_contains").is_some() {
+                return Err(AxError::new("fixture", "expected streaming forward to fail"));
+            }
+            expect_json_equal("streaming deltas", &actual_deltas, &expected_deltas)?;
+            expect_json_equal("streaming output", &output, fixture.get("expected_output").unwrap_or(&Value::Null))?;
+        }
+    }
+    if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
+        if client.requests.len() != expected as usize {
+            return Err(AxError::new("fixture", format!("expected {expected} requests, got {}", client.requests.len())));
+        }
+    }
+    if let Some(expected) = fixture.get("expected_tool_calls") {
+        let actual = Value::Array(recorded_calls.lock().unwrap().clone());
+        expect_json_equal("tool calls", &actual, expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_processor_calls") {
+        let actual = Value::Array(processor_calls.lock().unwrap().clone());
+        expect_json_equal("field processor calls", &actual, expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_request_contains").and_then(Value::as_array) {
+        let text = stable_stringify(&Value::Array(client.requests.clone()));
+        for needle in expected.iter().filter_map(Value::as_str) {
+            if !text.contains(needle) {
+                return Err(AxError::new("fixture", format!("streaming requests missing {needle:?}")));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     let signature = build_fixture_signature(fixture)?;
     let responses = fixture
@@ -15149,52 +15435,43 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         .unwrap_or_default();
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
     let (fixture_tools, recorded_calls) = build_fixture_tools_recording(fixture)?;
-    let mut program = AxGen {
-        signature,
-        options: fixture.get("options").cloned().unwrap_or_else(|| json!({})),
-        function_call_traces: Vec::new(),
-        base_tools: fixture_tools.clone(),
-        tools: fixture_tools,
-        execution_context: None,
-        assertions: fixture
-            .get("assertions")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
-        examples: fixture
-            .get("examples")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
-        demos: fixture
-            .get("demos")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
-        field_processors: fixture
-            .get("field_processors")
-            .or_else(|| fixture.get("fieldProcessors"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
-        stop_functions: fixture
-            .get("stop_functions")
-            .or_else(|| fixture.get("stopFunctions"))
-            .and_then(Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(ToString::to_string)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        memory: Vec::new(),
-        traces: Vec::new(),
-        chat_log: Vec::new(),
-        result_picker: None,
-        runtime_hooks: AxRuntimeHooks::default(),
-    };
+    let mut program = AxGen::with_signature(signature);
+    program.options = fixture.get("options").cloned().unwrap_or_else(|| json!({}));
+    program.base_tools = fixture_tools.clone();
+    program.tools = fixture_tools;
+    program.assertions = fixture
+        .get("assertions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    program.examples = fixture
+        .get("examples")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    program.demos = fixture
+        .get("demos")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    program.field_processors = fixture_field_transforms(fixture);
+    program.stop_functions = fixture
+        .get("stop_functions")
+        .or_else(|| fixture.get("stopFunctions"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let processor_calls = Arc::new(Mutex::new(Vec::new()));
+    for spec in fixture.get("feedback_processors").and_then(Value::as_array).into_iter().flatten() {
+        let field = spec.get("field").and_then(Value::as_str).unwrap_or_default();
+        program.add_feedback_field_processor(field, fixture_field_processor(spec, &processor_calls));
+    }
     if let Some(sample_count) = fixture
         .get("options")
         .and_then(|options| options.get("sample_count").or_else(|| options.get("sampleCount")))
@@ -15241,9 +15518,17 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
             let actual = Value::Array(recorded_calls.lock().unwrap().clone());
             expect_json_list_exact_subsets("tool calls", &actual, expected)?;
         }
+        if let Some(expected) = fixture.get("expected_processor_calls") {
+            let actual = Value::Array(processor_calls.lock().unwrap().clone());
+            expect_json_equal("field processor calls", &actual, expected)?;
+        }
         return Ok(());
     }
     let output = result?;
+    if let Some(expected) = fixture.get("expected_processor_calls") {
+        let actual = Value::Array(processor_calls.lock().unwrap().clone());
+        expect_json_equal("field processor calls", &actual, expected)?;
+    }
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("forward output", &output, expected)?;
     }
@@ -16547,6 +16832,9 @@ fn core_len(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::Str(s) => s.chars().count(),
         CoreValue::List(items) => items.borrow().len(),
         CoreValue::Map(map) => map.borrow().len(),
+        // python: len(value or []); an absent value (such as a null
+        // content) has length 0.
+        CoreValue::Null => 0,
         _ => return Err(AxError::runtime("intrinsic.len target has no length")),
     };
     Ok(CoreValue::Num(len as f64))
@@ -18499,6 +18787,28 @@ fn core_string_ends_with(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Bool(core_arg(args, 0).text().ends_with(&core_arg(args, 1).text())))
 }
 
+// JS indexOf in the chars that intrinsic.len and intrinsic.string.slice
+// count: the index of needle at or after start (a negative start is 0),
+// else -1.
+fn core_string_index_of(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = core_arg(args, 0).text();
+    let needle = core_arg(args, 1).text();
+    let start = match core_arg(args, 2) {
+        CoreValue::Num(n) if n > 0.0 => n as usize,
+        _ => 0,
+    };
+    let (byte_start, char_start) = match text.char_indices().nth(start) {
+        Some((byte, _)) => (byte, start),
+        None => (text.len(), text.chars().count()),
+    };
+    let rest = &text[byte_start..];
+    let found = match rest.find(needle.as_str()) {
+        Some(byte) => (char_start + rest[..byte].chars().count()) as f64,
+        None => -1.0,
+    };
+    Ok(CoreValue::Num(found))
+}
+
 fn core_string_str(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::from_string(core_arg(args, 0).text()))
 }
@@ -19070,6 +19380,101 @@ pub(crate) fn core_agent_transcribe(args: &[CoreValue]) -> Result<CoreValue, AxE
         }
         None => Ok(core_value_from_json(&json!({"text": ""}))),
     }
+}
+
+// Scoped client callbacks carry JSON, so the provider stream a callback
+// opens for "stream_open" travels back through this slot during that
+// synchronous call (as session::publish_open_session does for sessions).
+thread_local! {
+    static OPENED_CHAT_STREAM: RefCell<Option<AxChatStream>> = const { RefCell::new(None) };
+}
+
+fn publish_open_chat_stream(stream: AxChatStream) -> Value {
+    OPENED_CHAT_STREAM.with(|slot| *slot.borrow_mut() = Some(stream));
+    Value::Bool(true)
+}
+
+fn take_open_chat_stream() -> Option<AxChatStream> {
+    OPENED_CHAT_STREAM.with(|slot| slot.borrow_mut().take())
+}
+
+// The handle intrinsic.ai.stream_open returns: "next" pulls the provider's
+// next chunk as it arrives (null at the end, a provider error raises), and
+// "close" drops the stream, which cancels it when it is still open.
+struct CoreChatStreamHost {
+    stream: RefCell<Option<AxChatStream>>,
+}
+
+impl CoreHost for CoreChatStreamHost {
+    fn host_type(&self) -> &'static str {
+        "AxChatStream"
+    }
+    fn call_method(&self, name: &str, _args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "next" => {
+                let next = self.stream.borrow_mut().as_mut().and_then(|stream| stream.next());
+                match next {
+                    Some(Ok(chunk)) => Ok(core_value_from_json(&chunk)),
+                    Some(Err(error)) => Err(error),
+                    None => Ok(CoreValue::Null),
+                }
+            }
+            "close" => {
+                let stream = self.stream.borrow_mut().take();
+                drop(stream);
+                Ok(CoreValue::Null)
+            }
+            other => Err(AxError::runtime(format!("AxChatStream has no method '{other}'"))),
+        }
+    }
+}
+
+// python: _core_ai_stream_open(client, request, options). As for
+// complete_once, the innermost with_core_client callback serves the request:
+// its "stream_open" method publishes the client's incremental AxChatStream,
+// so chunks are read as the provider sends them. A callback without that
+// method answers with its chat response, which streams as one chunk.
+#[allow(dead_code)]
+pub(crate) fn core_ai_stream_open(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let request = core_arg(args, 1);
+    let options = core_arg(args, 2);
+    let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
+    let Some(ptr) = top else {
+        return Err(AxError::runtime("no AI client in scope"));
+    };
+    // SAFETY: as in core_ai_complete_once; the callback runs only for the
+    // duration of this call, and the stream it opens owns its own reader.
+    let chat = unsafe { &mut *ptr };
+    struct RequestGuard;
+    impl Drop for RequestGuard { fn drop(&mut self) { CORE_REQUEST_STACK.with(|stack| { stack.borrow_mut().pop(); }); } }
+    CORE_REQUEST_STACK.with(|stack| stack.borrow_mut().push(request.clone()));
+    let _request_guard = RequestGuard;
+    drop(take_open_chat_stream());
+    let response = chat("stream_open", core_value_to_json(&request), core_value_to_json(&options))?;
+    let stream = take_open_chat_stream().unwrap_or_else(|| {
+        AxChatStream::from_values(match response {
+            Value::Array(chunks) => chunks,
+            response => vec![response],
+        })
+    });
+    Ok(CoreValue::Host(Rc::new(CoreChatStreamHost { stream: RefCell::new(Some(stream)) })))
+}
+
+#[allow(dead_code)]
+pub(crate) fn core_ai_stream_next(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_arg(args, 0) {
+        CoreValue::Host(host) => host.call_method("next", &[]),
+        _ => Err(AxError::runtime("intrinsic.ai.stream_next target is not a stream")),
+    }
+}
+
+// Closing never raises and may follow the end of the stream.
+#[allow(dead_code)]
+pub(crate) fn core_ai_stream_close(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    if let CoreValue::Host(host) = core_arg(args, 0) {
+        let _ = host.call_method("close", &[]);
+    }
+    Ok(CoreValue::Null)
 }
 
 // ----- Simple host-boundary intrinsics -----
@@ -19908,6 +20313,100 @@ fn core_axgen_run_streaming_assertions(args: &[CoreValue]) -> Result<CoreValue, 
     Ok(CoreValue::Null)
 }
 
+// python: _core_axgen_emit_delta(sink, envelope). The sink takes each
+// {version, index, delta} envelope; its error (a consumer that stopped)
+// ends the run.
+#[allow(dead_code)]
+fn core_axgen_emit_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_arg(args, 0) {
+        CoreValue::Host(sink) => {
+            sink.call_method("call", &[core_arg(args, 1)])?;
+            Ok(CoreValue::Null)
+        }
+        _ => Err(AxError::runtime("streaming sink is not callable")),
+    }
+}
+
+// python: _core_axgen_call_processor(spec, value, context). Calls the spec's
+// processor with the value and TS's {values, done} context; null is no
+// result.
+#[allow(dead_code)]
+fn core_axgen_call_processor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let spec = core_arg(args, 0);
+    let context = core_arg(args, 2);
+    let processor = match &spec {
+        CoreValue::Map(_) => core_get(
+            &spec,
+            &CoreValue::from("processor"),
+            core_get(&spec, &CoreValue::from("fn"), CoreValue::Null),
+        ),
+        other => other.clone(),
+    };
+    let CoreValue::Host(processor) = processor else {
+        return Err(AxError::runtime("field processor must be callable"));
+    };
+    let values = core_get(&context, &CoreValue::from("values"), CoreValue::Null);
+    let done = core_truthy(&core_get(&context, &CoreValue::from("done"), CoreValue::Null));
+    let context = core_axgen_map_from(&[
+        ("values", core_axgen_map_copy(&values)),
+        ("done", CoreValue::Bool(done)),
+    ])?;
+    processor.call_method("call", &[core_arg(args, 1), context])
+}
+
+// python: _core_axgen_check_streaming_assertion(spec, value, done). A
+// callable check(value, done) passes with null or true and fails with a
+// message string or any other value; a {not_contains} descriptor fails
+// when the text contains it. Descriptor failures carry no message.
+#[allow(dead_code)]
+fn core_axgen_check_streaming_assertion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let spec = core_arg(args, 0);
+    let value = core_arg(args, 1);
+    let check = match &spec {
+        CoreValue::Map(_) => core_get(
+            &spec,
+            &CoreValue::from("fn"),
+            core_get(&spec, &CoreValue::from("assert"), CoreValue::Null),
+        ),
+        other => other.clone(),
+    };
+    if let CoreValue::Host(check) = &check {
+        let done = CoreValue::Bool(core_truthy(&core_arg(args, 2)));
+        return match check.call_method("call", &[value, done])? {
+            CoreValue::Null | CoreValue::Bool(true) => core_axgen_assertion_outcome("pass", "message", CoreValue::Null),
+            message @ CoreValue::Str(_) => core_axgen_assertion_outcome("fail", "message", message),
+            _ => core_axgen_assertion_outcome("fail", "message", CoreValue::Null),
+        };
+    }
+    let needle = match &spec {
+        CoreValue::Map(_) => core_get(
+            &spec,
+            &CoreValue::from("not_contains"),
+            core_get(&spec, &CoreValue::from("notContains"), CoreValue::Null),
+        ),
+        _ => CoreValue::Null,
+    };
+    if !needle.is_null() && value.text().contains(&needle.text()) {
+        return core_axgen_assertion_outcome("fail", "message", CoreValue::Null);
+    }
+    core_axgen_assertion_outcome("pass", "message", CoreValue::Null)
+}
+
+// python: _core_axgen_deprecation(key, message). Deprecated port behavior
+// warns once per key per process.
+#[allow(dead_code)]
+fn core_axgen_deprecation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    static SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+    let first = SHOWN
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(core_arg(args, 0).text());
+    if first {
+        eprintln!("axllm: deprecated: {}", core_arg(args, 1).text());
+    }
+    Ok(CoreValue::Null)
+}
+
 #[allow(dead_code)]
 fn core_axgen_record_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let gen = core_arg(args, 0);
@@ -20196,9 +20695,25 @@ fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
         ("examples", &gen.examples),
         ("demos", &gen.demos),
         ("field_processors", &gen.field_processors),
+        ("streaming_assertions", &gen.streaming_assertions),
     ] {
         core_set(&state, CoreValue::from(key),
             core_value_from_json(&Value::Array(items.clone())))?;
+    }
+    // TS field processors travel as {field, processor} specs whose processor
+    // intrinsic.axgen.call_processor calls.
+    for (key, processors) in [
+        ("feedback_processors", &gen.feedback_processors),
+        ("streaming_field_processors", &gen.streaming_field_processors),
+    ] {
+        let specs = CoreValue::new_list();
+        for spec in processors {
+            core_append(&specs, core_axgen_map_from(&[
+                ("field", CoreValue::from(spec.field.as_str())),
+                ("processor", CoreValue::Host(Rc::new(CoreFieldProcessorHost { processor: spec.processor.clone() }))),
+            ])?)?;
+        }
+        core_set(&state, CoreValue::from(key), specs)?;
     }
     core_set(&state, CoreValue::from("stop_functions"),
         CoreValue::list_from(gen.stop_functions.iter().map(|s| CoreValue::from(s.as_str())).collect()))?;
@@ -20266,6 +20781,49 @@ impl CoreHost for GenPromptHost {
             other => Err(AxError::runtime(format!(
                 "AxPromptTemplate has no callable method '{other}'"
             ))),
+        }
+    }
+}
+
+// A TS field processor as a Core callable: call(value, {values, done}).
+struct CoreFieldProcessorHost {
+    processor: AxGenFieldProcessorFn,
+}
+
+impl CoreHost for CoreFieldProcessorHost {
+    fn host_type(&self) -> &'static str {
+        "AxFieldProcessor"
+    }
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "call" => {
+                let value = core_value_to_json(&core_arg(args, 0));
+                let context = core_value_to_json(&core_arg(args, 1));
+                Ok(core_value_from_json(&(self.processor)(value, context)?))
+            }
+            other => Err(AxError::runtime(format!("AxFieldProcessor has no callable method '{other}'"))),
+        }
+    }
+}
+
+// The streaming forward's sink as a Core callable: call(envelope) hands one
+// {version, index, delta} envelope to the host closure.
+struct CoreDeltaSinkHost {
+    sink: RefCell<Box<dyn FnMut(Value) -> AxResult<()>>>,
+}
+
+impl CoreHost for CoreDeltaSinkHost {
+    fn host_type(&self) -> &'static str {
+        "AxGenDeltaSink"
+    }
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "call" => {
+                let envelope = core_value_to_json(&core_arg(args, 0));
+                (self.sink.borrow_mut())(envelope)?;
+                Ok(CoreValue::Null)
+            }
+            other => Err(AxError::runtime(format!("AxGenDeltaSink has no callable method '{other}'"))),
         }
     }
 }
@@ -21555,24 +22113,9 @@ fn signature_from_record(record: &CoreValue) -> AxResult<AxSignature> {
 }
 
 fn agent_stage_gen(signature: AxSignature, options: Value) -> CoreValue {
-    GenHost::new(AxGen {
-        signature,
-        options,
-        function_call_traces: Vec::new(),
-        tools: Vec::new(),
-        base_tools: Vec::new(),
-        execution_context: None,
-        assertions: Vec::new(),
-        examples: Vec::new(),
-        demos: Vec::new(),
-        field_processors: Vec::new(),
-        stop_functions: Vec::new(),
-        memory: Vec::new(),
-        traces: Vec::new(),
-        chat_log: Vec::new(),
-        result_picker: None,
-        runtime_hooks: AxRuntimeHooks::default(),
-    })
+    let mut gen = AxGen::with_signature(signature);
+    gen.options = options;
+    GenHost::new(gen)
 }
 
 struct ScopedRuntimeHost(*mut dyn AxCodeRuntime);

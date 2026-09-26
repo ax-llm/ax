@@ -439,9 +439,13 @@ def owned_flow_failure():
                 finally: late_finished.set()
             elif 'failAnswer' in body:
                 assert fast_completed.wait(3), 'completed sibling was not reported'
-                content = {'wrong':'invalid'}
+                # A label without a value fails the text contract; as in
+                # TypeScript, any other text (even JSON with other keys) is the
+                # answer.
+                content = 'Fail Answer:'
             else: content = {'fastAnswer':'DONE'}
-            return {'status':200,'json':{'id':'reply','choices':[{'index':0,'message':{'role':'assistant','content':json.dumps(content)},'finish_reason':'stop'}]}}
+            text = content if isinstance(content, str) else json.dumps(content)
+            return {'status':200,'json':{'id':'reply','choices':[{'index':0,'message':{'role':'assistant','content':text},'finish_reason':'stop'}]}}
     control=run_control()
     control.on_event(lambda event: fast_completed.set() if event['type']=='completed' and event['path']=='root/fast' else None)
     client=ai('openai',api_key='test',model='gpt-5.6',transport=Transport())

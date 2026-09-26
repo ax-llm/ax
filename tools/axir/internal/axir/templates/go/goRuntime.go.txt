@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -1527,6 +1529,123 @@ func _core_ai_complete_once(client Value, request Value, options Value) (Value, 
 	}
 	return nil, AxError{Category: "runtime", Message: "client does not implement AIClient"}
 }
+
+// coreAIStream is the handle intrinsic.ai.stream_open returns: a pull stream
+// over the provider's chunks, read one at a time as they arrive.
+type coreAIStream struct {
+	stream AxChatStream
+	closed bool
+}
+
+// singleChunkStream streams one chat response as the only chunk.
+func singleChunkStream(response Value) AxChatStream {
+	delivered := false
+	return newAxChatStream(func() (Value, error) {
+		if delivered {
+			return nil, io.EOF
+		}
+		delivered = true
+		return response, nil
+	}, nil, nil)
+}
+
+// openAIClientStream opens a client's chunk stream: a StreamingAIClient
+// streams incrementally through StreamEvents and a plain AIClient through
+// Stream. A client that does not stream (Stream returns no chunks) answers
+// with its chat response as one chunk.
+func openAIClientStream(ctx context.Context, client AIClient, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+	if streaming, ok := client.(StreamingAIClient); ok {
+		stream, err := streaming.StreamEvents(ctx, request, options)
+		if err == nil && stream == nil {
+			err = AxError{Category: "runtime", Message: "AI client returned no stream"}
+		}
+		return stream, err
+	}
+	events, err := client.Stream(ctx, request, options)
+	if err != nil {
+		return nil, err
+	}
+	if len(events) == 0 {
+		response, err := client.Chat(ctx, request, mergeAIOptions(options, Object("stream", false)))
+		if err != nil {
+			return nil, err
+		}
+		return singleChunkStream(response), nil
+	}
+	legacy := &sliceProviderStream{values: events}
+	return newAxChatStream(legacy.Next, legacy.Close, nil), nil
+}
+
+// _core_ai_stream_open opens the client's provider stream for a streaming
+// forward. It finds the client and its context as complete_once does and
+// streams through openAIClientStream; a client whose features say it cannot
+// stream answers with its chat response as one chunk.
+func _core_ai_stream_open(client Value, request Value, options Value) (Value, error) {
+	c, ok := client.(AIClient)
+	if !ok {
+		return nil, AxError{Category: "runtime", Message: "client does not implement AIClient"}
+	}
+	ctx := contextForAIClient(c, context.Background())
+	if err := contextCancellationError(ctx); err != nil {
+		return nil, err
+	}
+	inner := c
+	for {
+		bound, ok := inner.(contextBoundAIClient)
+		if !ok {
+			break
+		}
+		inner = bound.inner
+	}
+	req, opts := asMap(request), asMap(options)
+	if coreGet(_core_ai_client_features(inner, coreGet(req, "model", nil)), "streaming", true) == false {
+		response, err := inner.Chat(ctx, req, mergeAIOptions(opts, Object("stream", false)))
+		if err != nil {
+			return nil, err
+		}
+		return &coreAIStream{stream: singleChunkStream(response)}, nil
+	}
+	stream, err := openAIClientStream(ctx, inner, req, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &coreAIStream{stream: stream}, nil
+}
+
+// _core_ai_stream_next returns the next chunk, or none at the end. A provider
+// error is returned as the client raised it, so the retry classification is
+// the same as for complete_once.
+func _core_ai_stream_next(handle Value) (Value, error) {
+	stream, ok := handle.(*coreAIStream)
+	if !ok || stream == nil {
+		return nil, AxError{Category: "runtime", Message: "invalid AI stream handle"}
+	}
+	if stream.closed {
+		return nil, nil
+	}
+	if stream.stream.Next() {
+		return stream.stream.Value(), nil
+	}
+	if err := stream.stream.Err(); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+// _core_ai_stream_close closes the stream (cancelling it if it is still
+// open); it never fails and may run after the stream ended.
+func _core_ai_stream_close(handle Value) Value {
+	stream, ok := handle.(*coreAIStream)
+	if !ok || stream == nil || stream.closed {
+		return nil
+	}
+	stream.closed = true
+	func() {
+		defer func() { _ = recover() }()
+		_ = stream.stream.Close()
+	}()
+	return nil
+}
 func _core_ai_client_features(client Value, model Value) Value {
 	for {
 		bound, ok := client.(contextBoundAIClient)
@@ -1680,6 +1799,23 @@ func _core_string_slice(value Value, start Value, rest ...Value) Value {
 		b = a
 	}
 	return s[a:b]
+}
+// _core_string_index_of is JS indexOf over the byte offsets that
+// intrinsic.len and intrinsic.string.slice use: the first needle at or after
+// start (a negative start counts as 0), else -1.
+func _core_string_index_of(value Value, needle Value, start Value) Value {
+	s := display(value)
+	from := 0
+	if position := num(start); position >= float64(len(s)) {
+		from = len(s)
+	} else if position > 0 {
+		from = int(position)
+	}
+	at := strings.Index(s[from:], display(needle))
+	if at < 0 {
+		return float64(-1)
+	}
+	return float64(from + at)
 }
 func _core_string_replace(value Value, oldValue Value, newValue Value) Value {
 	return strings.ReplaceAll(display(value), display(oldValue), display(newValue))
@@ -1917,8 +2053,13 @@ func _core_signature_error(message Value) Value {
 func _core_validation_error(message Value) Value {
 	return Object("__error", "validation", "message", display(message))
 }
-func _core_list_get(values Value, index Value, defaultValue Value) Value {
-	return coreGet(values, index, defaultValue)
+// _core_list_get returns the item at index, else the optional default (none).
+func _core_list_get(values Value, index Value, defaultValue ...Value) Value {
+	var fallback Value
+	if len(defaultValue) > 0 {
+		fallback = defaultValue[0]
+	}
+	return coreGet(values, index, fallback)
 }
 func _core_field_item(field Value) Value {
 	f := fieldFromValue(field)
@@ -2172,6 +2313,7 @@ func (g *AxGen) OwnedWorkerFactory() func() AxExecutableProgram {
         owned.Examples, owned.Demos = cloneValue(snapshot.Examples), cloneValue(snapshot.Demos)
         owned.Assertions, owned.StreamingAssertions = cloneValue(snapshot.Assertions), cloneValue(snapshot.StreamingAssertions)
         owned.FieldProcessors, owned.StopFunctions = cloneValue(snapshot.FieldProcessors), cloneValue(snapshot.StopFunctions)
+        owned.FeedbackProcessors, owned.StreamingFieldProcessors = cloneValue(snapshot.FeedbackProcessors), cloneValue(snapshot.StreamingFieldProcessors)
         owned.Memory, owned.ChatLog = cloneValue(snapshot.Memory), cloneValue(snapshot.ChatLog)
         owned.FunctionCallTraces, owned.Traces = cloneValue(snapshot.FunctionCallTraces), cloneValue(snapshot.Traces)
         owned.PromptTemplate = cloneValue(snapshot.PromptTemplate)
@@ -5930,6 +6072,16 @@ func (p *pinnedProviderChat) Chat(ctx context.Context,request,options map[string
 func (p *pinnedProviderChat) OpenChatSession(ctx context.Context,request,options map[string]Value)(AxChatSession,error){
     opener,ok:=p.AIClient.(SessionAIClient);if !ok{return nil,fmt.Errorf("selected provider does not support chat sessions")};processed,err:=preprocessProviderFiles(p.GetFeatures(display(coreGet(request,"model",""))),request,p.processing);if err!=nil{return nil,err};return opener.OpenChatSession(ctx,processed,options)
 }
+
+// StreamEvents streams from the pinned provider after the same file
+// preprocessing as Chat.
+func (p *pinnedProviderChat) StreamEvents(ctx context.Context, request, options map[string]Value) (AxChatStream, error) {
+	processed, err := preprocessProviderFiles(p.GetFeatures(display(coreGet(request, "model", ""))), request, p.processing)
+	if err != nil {
+		return nil, err
+	}
+	return openAIClientStream(ctx, p.AIClient, processed, options)
+}
 func (r *ProviderRouter) GetFeatures(model string)map[string]Value{return mergedServiceFeatures(r.providers,model)}
 func (r *ProviderRouter) pinChatRun(ctx context.Context,request,options map[string]Value)(AIClient,error){
     _,provider,err:=r.selectedService(request);if err!=nil{return nil,err};var selected AIClient=provider;seen:=map[AIClient]bool{}
@@ -6013,8 +6165,15 @@ type AxGen struct {
 	Demos                 Value
 	Assertions            Value
 	StreamingAssertions   Value
-	FieldProcessors       Value
-	StopFunctions         Value
+	// FieldProcessors lists the field transforms, {field, processor} maps
+	// that AddFieldTransform adds.
+	FieldProcessors Value
+	// FeedbackProcessors and StreamingFieldProcessors list the TypeScript
+	// field processors, {field, processor} maps whose processor is an
+	// AxFieldProcessor (AddFieldProcessor, AddStreamingFieldProcessor).
+	FeedbackProcessors       Value
+	StreamingFieldProcessors Value
+	StopFunctions            Value
 	Memory                Value
 	ChatLog               Value
 	FunctionCallTraces    Value
@@ -6038,7 +6197,7 @@ func NewAx(signature string, options map[string]Value) *AxGen {
 	}
 	hooks := runtimeHooksFromOptions(options)
 	options = stripRuntimeHooks(options)
-	g := &AxGen{Signature: NewSignature(signature), Options: options, Examples: Array(), Demos: Array(), Assertions: coreGet(options, "assertions", Array()), StreamingAssertions: coreGet(options, "streaming_assertions", coreGet(options, "streamingAssertions", Array())), FieldProcessors: Object(), StopFunctions: Array(), Memory: Array(), ChatLog: Array(), FunctionCallTraces: Array(), Traces: Array(), ProgramID: display(coreGet(options, "id", coreGet(options, "program_id", coreGet(options, "programId", "root")))), Instruction: display(coreGet(options, "instruction", "")), RuntimeHooks: hooks}
+	g := &AxGen{Signature: NewSignature(signature), Options: options, Examples: Array(), Demos: Array(), Assertions: coreGet(options, "assertions", Array()), StreamingAssertions: coreGet(options, "streaming_assertions", coreGet(options, "streamingAssertions", Array())), FieldProcessors: coreGet(options, "field_processors", coreGet(options, "fieldProcessors", Array())), FeedbackProcessors: coreGet(options, "feedback_processors", coreGet(options, "feedbackProcessors", Array())), StreamingFieldProcessors: coreGet(options, "streaming_field_processors", coreGet(options, "streamingFieldProcessors", Array())), StopFunctions: Array(), Memory: Array(), ChatLog: Array(), FunctionCallTraces: Array(), Traces: Array(), ProgramID: display(coreGet(options, "id", coreGet(options, "program_id", coreGet(options, "programId", "root")))), Instruction: display(coreGet(options, "instruction", "")), RuntimeHooks: hooks}
 	for _, raw := range asSlice(coreGet(options, "functions", Array())) {
 		if tool, ok := raw.(Tool); ok {
 			g.BaseFunctions = append(g.BaseFunctions, tool)
@@ -6146,13 +6305,213 @@ func (g *AxGen) AddAssert(assertion Value) *AxGen {
 	g.Assertions = coreAppend(g.Assertions, assertion)
 	return g
 }
-func (g *AxGen) AddStreamingAssert(field string, notContains Value, message ...string) *AxGen {
-	spec := Object("field", field, "not_contains", notContains)
+// AddStreamingAssert adds a streaming assertion on a string or code output
+// field. check is text the field must not contain, or a callable over the
+// field's text so far (an AxStreamingAssertion, or a func(string, bool) bool)
+// that passes with nil or true and fails with false or a message string. As
+// in TypeScript, a failure stops the attempt and retries it with a
+// correction; message is the correction when the check gives none. An error
+// the check returns ends the run without a retry.
+func (g *AxGen) AddStreamingAssert(field string, check Value, message ...string) *AxGen {
+	var spec map[string]Value
+	switch check.(type) {
+	case AxStreamingAssertion, func(string, bool) Value, func(string, bool) bool:
+		spec = Object("field", field, "fn", check)
+	default:
+		if isFuncValue(check) {
+			panic(AxError{Category: "runtime", Message: "AddStreamingAssert: check must be text, an AxStreamingAssertion or a func(string, bool) bool"})
+		}
+		spec = Object("field", field, "not_contains", check)
+	}
 	if len(message) > 0 {
 		coreSet(spec, "message", message[0])
 	}
 	g.StreamingAssertions = coreAppend(g.StreamingAssertions, spec)
 	return g
+}
+
+// AxGenDelta is one update of a streaming forward, as TypeScript's
+// streamingForward yields it: merge Delta into the sample at Index (strings
+// and lists append, other values replace), and start that sample over when
+// Version changes, because a retry or a new step replaced what was sent.
+type AxGenDelta struct {
+	Version int              `json:"version"`
+	Index   int              `json:"index"`
+	Delta   map[string]Value `json:"delta"`
+}
+
+// AxFieldProcessorContext is what a field processor gets besides the value:
+// the output values so far and whether the value is final.
+type AxFieldProcessorContext struct {
+	Values map[string]Value
+	Done   bool
+}
+
+// AxFieldProcessor is a TypeScript field processor: a non-empty result is
+// sent to the model as a user message and the forward takes another step.
+// Return nil to send nothing; an error ends the forward without a retry.
+type AxFieldProcessor func(value Value, context AxFieldProcessorContext) (Value, error)
+
+// AxFieldTransform rewrites an output field's final value (AddFieldTransform).
+type AxFieldTransform func(value Value) Value
+
+// AxStreamingAssertion checks an output field's text as it streams: it
+// returns nil or true to pass, and false or a message string to fail (the
+// attempt is retried with a correction). Returning an error ends the forward
+// without a retry.
+type AxStreamingAssertion func(content string, done bool) Value
+
+// AddFieldTransform rewrites an output field's final value before the
+// assertions run. op is "uppercase", "lowercase", "trim", "prefix:<text>",
+// "suffix:<text>" or an AxFieldTransform. This is a port extension:
+// TypeScript field processors feed their result back to the model instead
+// (AddFieldProcessor). StreamingForward holds a transformed field back and
+// sends it once, transformed.
+func (g *AxGen) AddFieldTransform(field string, op Value) *AxGen {
+	if _, callable := axFieldTransformFunc(op); !callable && isFuncValue(op) {
+		panic(AxError{Category: "runtime", Message: "AddFieldTransform: op must be an op name, an AxFieldTransform or a func(Value) Value"})
+	}
+	g.FieldProcessors = coreAppend(g.FieldProcessors, Object("field", field, "processor", op))
+	return g
+}
+
+// isFuncValue reports whether value is a function of any type.
+func isFuncValue(value Value) bool {
+	return value != nil && reflect.TypeOf(value).Kind() == reflect.Func
+}
+
+// AddFieldProcessor adds a TypeScript field processor: processor runs on the
+// field's final value, and a non-empty result is sent to the model as a user
+// message for another step, whose answer replaces the earlier one. Use
+// AddFieldTransform to rewrite the field value instead. It panics when field
+// is not an output field of the signature.
+func (g *AxGen) AddFieldProcessor(field string, processor AxFieldProcessor) *AxGen {
+	g.outputFieldFor("addFieldProcessor", field, false)
+	g.FeedbackProcessors = coreAppend(g.FeedbackProcessors, Object("field", field, "processor", processor))
+	return g
+}
+
+// AddStreamingFieldProcessor runs processor on each streamed chunk of a
+// string or code output field, with the field's text so far, as TypeScript
+// streaming field processors do: a non-empty result is sent to the model as a
+// user message for another step. It panics when field is not a text output
+// field of the signature.
+func (g *AxGen) AddStreamingFieldProcessor(field string, processor AxFieldProcessor) *AxGen {
+	g.outputFieldFor("addFieldProcessor", field, true)
+	g.StreamingFieldProcessors = coreAppend(g.StreamingFieldProcessors, Object("field", field, "processor", processor))
+	return g
+}
+
+// outputFieldFor panics, as TypeScript throws, when field is not an output
+// field (or, for text, not a string or code field).
+func (g *AxGen) outputFieldFor(method string, field string, text bool) {
+	for _, output := range g.Signature.Outputs {
+		if output.Name != field {
+			continue
+		}
+		if name := output.Type.Name; text && name != "" && name != "string" && name != "code" {
+			panic(AxError{Category: "signature", Message: method + ": field " + field + " must be a text field"})
+		}
+		return
+	}
+	panic(AxError{Category: "signature", Message: method + ": field " + field + " not found"})
+}
+
+// StreamingForward runs the forward and yields TypeScript's streamed updates
+// as the model streams (see AxGenDelta); retries, steps and tools work as in
+// Forward. The forward runs in its own goroutine and waits while the caller
+// handles each update. An error ends the sequence as a final (AxGenDelta{},
+// err) pair. Stopping the iteration early cancels the run.
+func (g *AxGen) StreamingForward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) iter.Seq2[AxGenDelta, error] {
+	return func(yield func(AxGenDelta, error) bool) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		runCtx, cancel := context.WithCancelCause(ctx)
+		type delivery struct {
+			delta AxGenDelta
+			err   error
+		}
+		deliveries := make(chan delivery)
+		stopped := make(chan struct{})
+		stopErr := newAIServiceAbortedError("streaming consumer stopped")
+		go func() {
+			defer close(deliveries)
+			sink := axGenDeltaSink(func(envelope map[string]Value) error {
+				select {
+				case <-stopped:
+					return stopErr
+				default:
+				}
+				select {
+				case deliveries <- delivery{delta: axGenDeltaFromEnvelope(envelope)}:
+					return nil
+				case <-stopped:
+					return stopErr
+				}
+			})
+			if _, err := g.streamingForwardWith(runCtx, client, values, options, sink, runtimeHooksFromOptions(options)); err != nil {
+				select {
+				case deliveries <- delivery{err: err}:
+				case <-stopped:
+				}
+			}
+		}()
+		defer func() {
+			close(stopped)
+			cancel(errors.New("streaming consumer stopped"))
+			for range deliveries {
+			}
+		}()
+		for item := range deliveries {
+			if !yield(item.delta, item.err) {
+				return
+			}
+		}
+	}
+}
+
+// streamingForwardWith runs the streaming forward, sending each {version,
+// index, delta} envelope to sink, and returns the merged output of the picked
+// sample with its "__order" lists (for callers inside the runtime).
+func (g *AxGen) streamingForwardWith(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, sink axGenDeltaSink, hooks AxRuntimeHooks) (out Value, err error) {
+	attributes := Object("ax.program.id", g.ProgramID, "ax.program.type", "AxGen", "ax.streaming", true)
+	ctx, _, finish := beginRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes)
+	defer func() { finish(err) }()
+	options = stripRuntimeHooks(options)
+	if g.ExecutionContextError != nil {
+		return nil, g.ExecutionContextError
+	}
+	callContext, err := ResolveAxExecutionContext(options, g.ExecutionContext)
+	if err != nil {
+		return nil, err
+	}
+	if callContext != g.ExecutionContext {
+		clone := *g
+		clone.ExecutionContext = callContext
+		clone.Functions = append([]Tool(nil), g.BaseFunctions...)
+		if callContext != nil {
+			tools, toolErr := callContext.NativeTools()
+			if toolErr != nil {
+				return nil, toolErr
+			}
+			clone.Functions = append(clone.Functions, tools...)
+		}
+		defer func() {
+			g.Memory, g.ChatLog, g.FunctionCallTraces, g.Traces = clone.Memory, clone.ChatLog, clone.FunctionCallTraces, clone.Traces
+		}()
+		callOptions := cloneMap(options)
+		callOptions["executionContext"] = callContext
+		return clone.streamingForwardWith(ctx, client, values, callOptions, sink, AxRuntimeHooks{})
+	}
+	clone := *g
+	defer func() {
+		g.Memory, g.ChatLog, g.FunctionCallTraces, g.Traces = clone.Memory, clone.ChatLog, clone.FunctionCallTraces, clone.Traces
+	}()
+	clone.Functions = runtimeScopedTools(ctx, g.Functions)
+	return safeValue(func() Value {
+		return mustCore(_streaming_forward_impl(&clone, bindAIClientContext(ctx, client), values, options, sink))
+	})
 }
 func (g *AxGen) get(k string, fallback Value) Value {
 	switch k {
@@ -6176,6 +6535,10 @@ func (g *AxGen) get(k string, fallback Value) Value {
 		return g.StreamingAssertions
 	case "field_processors", "fieldProcessors":
 		return g.FieldProcessors
+	case "feedback_processors", "feedbackProcessors":
+		return g.FeedbackProcessors
+	case "streaming_field_processors", "streamingFieldProcessors":
+		return g.StreamingFieldProcessors
 	case "stop_functions", "stopFunctions":
 		return g.StopFunctions
 	case "memory":
@@ -9160,7 +9523,13 @@ func _core_axgen_apply_field_processors(gen Value, output Value) Value {
 		if field == "" || coreGet(result, field, nil) == nil {
 			continue
 		}
-		op := display(coreGet(spec, "processor", coreGet(spec, "op", "")))
+		processor := coreGet(spec, "processor", coreGet(spec, "op", ""))
+		if transform, ok := axFieldTransformFunc(processor); ok {
+			coreSet(result, field, transform(coreGet(result, field, nil)))
+			changed = true
+			continue
+		}
+		op := display(processor)
 		value := display(coreGet(result, field, ""))
 		switch {
 		case op == "uppercase":
@@ -9187,6 +9556,157 @@ func _core_axgen_apply_field_processors(gen Value, output Value) Value {
 	}
 	return result
 }
+
+// axFieldTransformFunc returns a callable field transform.
+func axFieldTransformFunc(processor Value) (func(Value) Value, bool) {
+	switch fn := processor.(type) {
+	case AxFieldTransform:
+		return fn, fn != nil
+	case func(Value) Value:
+		return fn, fn != nil
+	}
+	return nil, false
+}
+
+// axGenDeltaSink receives each {version, index, delta} envelope a streaming
+// forward yields; an error stops the run.
+type axGenDeltaSink func(envelope map[string]Value) error
+
+func _core_axgen_emit_delta(sink Value, envelope Value) (Value, error) {
+	switch fn := sink.(type) {
+	case nil:
+		return nil, nil
+	case axGenDeltaSink:
+		return nil, fn(asMap(envelope))
+	case func(map[string]Value) error:
+		return nil, fn(asMap(envelope))
+	}
+	return nil, AxError{Category: "runtime", Message: "streaming forward sink must be a func(map[string]Value) error"}
+}
+
+// axGenDeltaFromEnvelope copies an envelope into the public delta shape.
+func axGenDeltaFromEnvelope(envelope Value) AxGenDelta {
+	delta, _ := publicValue(asMap(coreGet(envelope, "delta", nil))).(map[string]Value)
+	return AxGenDelta{Version: int(num(coreGet(envelope, "version", 0))), Index: int(num(coreGet(envelope, "index", 0))), Delta: delta}
+}
+
+// axCallCallback runs a user callback; a panic becomes its error, so the IR
+// raises it like any error the callback returns.
+func axCallCallback(call func() (Value, error)) (out Value, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = nil
+			if e, ok := r.(error); ok {
+				err = e
+			} else {
+				err = AxError{Category: "runtime", Message: display(r)}
+			}
+		}
+	}()
+	return call()
+}
+
+// _core_axgen_call_processor calls a feedback or streaming field processor
+// {field, processor} with the value and {values, done}; a nil result means
+// no feedback. The processor's own error is returned as raised (the IR ends
+// the run without a retry, as TypeScript does).
+func _core_axgen_call_processor(spec Value, value Value, context Value) (Value, error) {
+	processor := spec
+	if m, ok := spec.(map[string]Value); ok {
+		processor = coreGet(m, "processor", coreGet(m, "fn", nil))
+	}
+	values, _ := publicValue(asMap(coreGet(context, "values", nil))).(map[string]Value)
+	fieldContext := AxFieldProcessorContext{Values: values, Done: coreTruthy(coreGet(context, "done", false))}
+	value = publicValue(value)
+	var call func() (Value, error)
+	switch fn := processor.(type) {
+	case AxFieldProcessor:
+		if fn != nil {
+			call = func() (Value, error) { return fn(value, fieldContext) }
+		}
+	case func(Value, AxFieldProcessorContext) (Value, error):
+		if fn != nil {
+			call = func() (Value, error) { return fn(value, fieldContext) }
+		}
+	case func(Value) (Value, error):
+		if fn != nil {
+			call = func() (Value, error) { return fn(value) }
+		}
+	case func(Value) Value:
+		if fn != nil {
+			call = func() (Value, error) { return fn(value), nil }
+		}
+	}
+	if call == nil {
+		return nil, AxError{Category: "runtime", Message: "field processor for " + display(coreGet(spec, "field", "")) + " must be a function"}
+	}
+	return axCallCallback(call)
+}
+
+// _core_axgen_check_streaming_assertion checks a streamed field's text: a
+// callable check passes with nil or true and fails with false or a message
+// string; a {not_contains} spec fails when the text contains it. An error the
+// check returns (or panics with) is raised as is, and the IR ends the run
+// without a retry, as a thrown error does in TypeScript.
+func _core_axgen_check_streaming_assertion(spec Value, value Value, done Value) (Value, error) {
+	check := spec
+	if m, ok := spec.(map[string]Value); ok {
+		check = coreGet(m, "fn", coreGet(m, "assert", nil))
+	}
+	text, final := display(value), coreTruthy(done)
+	var call func() (Value, error)
+	switch fn := check.(type) {
+	case AxStreamingAssertion:
+		if fn != nil {
+			call = func() (Value, error) { return fn(text, final), nil }
+		}
+	case func(string, bool) Value:
+		if fn != nil {
+			call = func() (Value, error) { return fn(text, final), nil }
+		}
+	case func(string, bool) bool:
+		if fn != nil {
+			call = func() (Value, error) { return fn(text, final), nil }
+		}
+	default:
+		needle := coreGet(spec, "not_contains", coreGet(spec, "notContains", nil))
+		if needle != nil && strings.Contains(text, display(needle)) {
+			return Object("status", "fail"), nil
+		}
+		return Object("status", "pass"), nil
+	}
+	if call == nil {
+		return Object("status", "pass"), nil
+	}
+	result, err := axCallCallback(call)
+	if err != nil {
+		return nil, err
+	}
+	switch outcome := result.(type) {
+	case nil:
+		return Object("status", "pass"), nil
+	case bool:
+		if outcome {
+			return Object("status", "pass"), nil
+		}
+	case string:
+		return Object("status", "fail", "message", outcome), nil
+	case error:
+		return nil, outcome
+	}
+	return Object("status", "fail"), nil
+}
+
+var coreDeprecationsShown sync.Map
+
+// _core_axgen_deprecation logs a deprecated behavior once per key per process.
+func _core_axgen_deprecation(key Value, message Value) Value {
+	if _, shown := coreDeprecationsShown.LoadOrStore(display(key), true); !shown {
+		log.Printf("ax: deprecated: %s", display(message))
+	}
+	return nil
+}
+
 // Evaluates the declarative assertions in order and reports the first failure
 // as {status: "pass"}, {status: "fail", message?} or {status: "error", error};
 // gen.axir decides what each outcome raises, as TS assertAssertions does.
@@ -9894,7 +10414,7 @@ func (e FixtureError) Error() string { return e.Message }
 
 type conformanceScriptedAI struct {
 	Responses           []Value
-	StreamEvents        []Value
+	StreamEventValues   []Value
 	TranscribeResponses []Value
 	Requests            []map[string]Value
 	ChatOptions         []map[string]Value
@@ -9977,27 +10497,79 @@ func (f *conformanceScriptedAI) Embed(ctx context.Context, request map[string]Va
 	f.Responses = f.Responses[1:]
 	return raw, nil
 }
+// scriptedStreamChunks takes the next scripted {"stream": [...]} response and
+// records its request, or reports false when the next response is not one.
+func (f *conformanceScriptedAI) scriptedStreamChunks(request map[string]Value, options map[string]Value) ([]Value, bool) {
+	if len(f.Responses) == 0 {
+		return nil, false
+	}
+	scripted, ok := f.Responses[0].(map[string]Value)
+	if !ok {
+		return nil, false
+	}
+	chunks, ok := scripted["stream"]
+	if !ok {
+		return nil, false
+	}
+	f.Responses = f.Responses[1:]
+	f.ChatCalls++
+	f.Requests = append(f.Requests, cloneMap(request))
+	f.ChatOptions = append(f.ChatOptions, cloneMap(options))
+	return asSlice(chunks), true
+}
+
+// conformanceStreamChunk turns a scripted stream entry into a chunk; an
+// {"error": ...} entry without results fails the stream at that point.
+func conformanceStreamChunk(raw Value) (Value, error) {
+	if entry, ok := raw.(map[string]Value); ok {
+		_, hasError := entry["error"]
+		_, hasResults := entry["results"]
+		if hasError && !hasResults {
+			return nil, fixtureAIServiceError(asMap(entry["error"]))
+		}
+	}
+	return conformanceLegacyResponse(cloneValue(raw)), nil
+}
+
+// StreamEvents streams a scripted {"stream": [...]} response one chunk at a
+// time, so a streaming forward sees the chunks before an error entry; other
+// responses stream as Stream returns them.
+func (f *conformanceScriptedAI) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+	if chunks, ok := f.scriptedStreamChunks(request, options); ok {
+		index := 0
+		return newAxChatStream(func() (Value, error) {
+			if index >= len(chunks) {
+				return nil, io.EOF
+			}
+			index++
+			return conformanceStreamChunk(chunks[index-1])
+		}, nil, nil), nil
+	}
+	events, err := f.Stream(ctx, request, options)
+	if err != nil {
+		return nil, err
+	}
+	legacy := &sliceProviderStream{values: events}
+	return newAxChatStream(legacy.Next, legacy.Close, nil), nil
+}
+
 func (f *conformanceScriptedAI) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
 	// A scripted {"stream": [...]} response streams its chunks; fixture
 	// stream events stream as before; any other response streams as one.
-	if len(f.Responses) > 0 {
-		if scripted, ok := f.Responses[0].(map[string]Value); ok {
-			if chunks, ok := scripted["stream"]; ok {
-				f.Responses = f.Responses[1:]
-				f.ChatCalls++
-				f.Requests = append(f.Requests, cloneMap(request))
-				f.ChatOptions = append(f.ChatOptions, cloneMap(options))
-				events := []Value{}
-				for _, chunk := range asSlice(chunks) {
-					events = append(events, conformanceLegacyResponse(chunk))
-				}
-				return events, nil
+	if chunks, ok := f.scriptedStreamChunks(request, options); ok {
+		events := []Value{}
+		for _, raw := range chunks {
+			chunk, err := conformanceStreamChunk(raw)
+			if err != nil {
+				return nil, err
 			}
+			events = append(events, chunk)
 		}
+		return events, nil
 	}
-	if len(f.StreamEvents) > 0 || len(f.Responses) == 0 {
+	if len(f.StreamEventValues) > 0 || len(f.Responses) == 0 {
 		f.Requests = append(f.Requests, cloneMap(request))
-		return append([]Value(nil), f.StreamEvents...), nil
+		return append([]Value(nil), f.StreamEventValues...), nil
 	}
 	response, err := f.Chat(ctx, request, options)
 	if err != nil {
@@ -10070,6 +10642,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceStream(fixture)
 	case "forward":
 		runConformanceForward(fixture)
+	case "streaming_forward":
+		runConformanceStreamingForward(fixture)
 	case "ai_session_state":
         for _, item := range coreIter(coreGet(fixture,"validation_cases",Array())) {
             _, err := chat_session_validate_required_arguments(coreGet(item,"schema",nil),coreGet(item,"arguments",nil),"arguments")
@@ -11212,8 +11786,11 @@ func runConformanceForward(fixture map[string]Value) {
 			gen.AddAssert(assertion)
 		}
 	}
-	if processors := coreGet(fixture, "field_processors", coreGet(fixture, "fieldProcessors", nil)); processors != nil {
-		gen.FieldProcessors = processors
+	conformanceAddFixtureTransforms(gen, fixture)
+	processorCalls := MutableArray()
+	for _, raw := range asSlice(coreGet(fixture, "feedback_processors", Array())) {
+		spec := asMap(raw)
+		gen.AddFieldProcessor(display(coreGet(spec, "field", "")), conformanceFixtureProcessor(spec, processorCalls))
 	}
 	if stops := coreGet(fixture, "stop_functions", coreGet(fixture, "stopFunctions", nil)); stops != nil {
 		gen.StopFunctions = stops
@@ -11230,7 +11807,7 @@ func runConformanceForward(fixture map[string]Value) {
 			return int(num(pickerIndex)), nil
 		})
 	}
-	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
+	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
 	output := expectMaybeFixtureError(func() Value {
 		out, err := gen.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
 		if err != nil {
@@ -11238,6 +11815,9 @@ func runConformanceForward(fixture map[string]Value) {
 		}
 		return out
 	}, fixture, nil)
+	if expected := coreGet(fixture, "expected_processor_calls", nil); expected != nil {
+		assertEqual(processorCalls, expected, "field processor calls")
+	}
 	if coreGet(fixture, "expected_error_contains", nil) == nil {
 		if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 			assertEqual(output, expected, "forward output")
@@ -11326,6 +11906,127 @@ func runConformanceForward(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 			assertEqual(calls, expected, "tool calls")
+		}
+	}
+}
+
+// conformanceAddFixtureTransforms adds field_transforms with AddFieldTransform
+// and field_processors through the FieldProcessors field, Go's older way to
+// add the same transforms.
+func conformanceAddFixtureTransforms(gen *AxGen, fixture map[string]Value) {
+	for _, raw := range asSlice(coreGet(fixture, "field_transforms", Array())) {
+		spec := asMap(raw)
+		gen.AddFieldTransform(display(coreGet(spec, "field", "")), coreGet(spec, "processor", coreGet(spec, "op", nil)))
+	}
+	for _, raw := range asSlice(coreGet(fixture, "field_processors", coreGet(fixture, "fieldProcessors", Array()))) {
+		spec := asMap(raw)
+		gen.FieldProcessors = coreAppend(gen.FieldProcessors, Object("field", display(coreGet(spec, "field", "")), "processor", coreGet(spec, "processor", coreGet(spec, "op", nil))))
+	}
+}
+
+// conformanceFixtureProcessor records each call as {field, value, done} and
+// returns `returns`, or the value itself with `echo`; `when_done` waits for
+// the final value, `times` limits how many results it returns, and `throws`
+// fails with that message.
+func conformanceFixtureProcessor(spec map[string]Value, calls *AxArray) AxFieldProcessor {
+	returned := 0
+	return func(value Value, context AxFieldProcessorContext) (Value, error) {
+		coreAppend(calls, Object("field", coreGet(spec, "field", ""), "value", cloneValue(value), "done", context.Done))
+		if message := coreGet(spec, "throws", nil); message != nil {
+			return nil, errors.New(display(message))
+		}
+		if coreTruthy(coreGet(spec, "when_done", false)) && !context.Done {
+			return nil, nil
+		}
+		if times := coreGet(spec, "times", nil); times != nil && returned >= int(num(times)) {
+			return nil, nil
+		}
+		result := cloneValue(coreGet(spec, "returns", nil))
+		if coreTruthy(coreGet(spec, "echo", false)) {
+			result = cloneValue(value)
+		}
+		if result != nil {
+			returned++
+		}
+		return result, nil
+	}
+}
+
+func runConformanceStreamingForward(fixture map[string]Value) {
+	tools, calls := conformanceBuildTools(coreGet(fixture, "tools", Array()))
+	gen := NewAx(display(coreGet(fixture, "signature", "question:string -> answer:string")), cloneMap(asMap(coreGet(fixture, "options", Object()))))
+	if spec := coreGet(fixture, "signature_spec", nil); spec != nil {
+		gen.Signature = conformanceSignatureFromSpec(asMap(spec))
+	}
+	gen.Functions = tools
+	for _, assertion := range asSlice(coreGet(fixture, "assertions", Array())) {
+		gen.AddAssert(assertion)
+	}
+	for _, assertion := range asSlice(coreGet(fixture, "streaming_assertions", Array())) {
+		gen.StreamingAssertions = coreAppend(gen.StreamingAssertions, cloneValue(assertion))
+	}
+	conformanceAddFixtureTransforms(gen, fixture)
+	processorCalls := MutableArray()
+	for _, raw := range asSlice(coreGet(fixture, "feedback_processors", Array())) {
+		spec := asMap(raw)
+		gen.AddFieldProcessor(display(coreGet(spec, "field", "")), conformanceFixtureProcessor(spec, processorCalls))
+	}
+	for _, raw := range asSlice(coreGet(fixture, "streaming_processors", Array())) {
+		spec := asMap(raw)
+		gen.AddStreamingFieldProcessor(display(coreGet(spec, "field", "")), conformanceFixtureProcessor(spec, processorCalls))
+	}
+	if pickerIndex := coreGet(fixture, "result_picker_index", nil); pickerIndex != nil {
+		gen.SetResultPicker(func(samples []AxResultPickerSample) (int, error) {
+			if expected := coreGet(fixture, "expected_picker_samples", nil); expected != nil {
+				actual := Array()
+				for _, sample := range samples {
+					actual = append(actual, Object("index", sample.Index, "sample", sample.Sample))
+				}
+				assertEqual(actual, expected, "result picker samples")
+			}
+			return int(num(pickerIndex)), nil
+		})
+	}
+	if stops := coreGet(fixture, "stop_functions", coreGet(fixture, "stopFunctions", nil)); stops != nil {
+		gen.StopFunctions = stops
+	}
+	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
+	deltas := Array()
+	sink := axGenDeltaSink(func(envelope map[string]Value) error {
+		deltas = append(deltas, publicValue(envelope))
+		return nil
+	})
+	output, err := gen.streamingForwardWith(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())), sink, AxRuntimeHooks{})
+	if expected := display(coreGet(fixture, "expected_error_contains", "")); expected != "" {
+		if err == nil {
+			panic(FixtureError{Message: "expected streaming forward to fail"})
+		}
+		if !strings.Contains(err.Error(), expected) && !strings.Contains(display(errorValue(err)), expected) {
+			panic(err)
+		}
+		assertEqual(deltas, coreGet(fixture, "expected_deltas", Array()), "streaming deltas before the error")
+	} else {
+		if err != nil {
+			panic(err)
+		}
+		assertEqual(deltas, coreGet(fixture, "expected_deltas", Array()), "streaming deltas")
+		assertEqual(output, coreGet(fixture, "expected_output", nil), "streaming output")
+	}
+	if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
+		panic(FixtureError{Message: fmt.Sprintf("expected %d requests, got %d", int(num(expectedCount)), len(client.Requests))})
+	}
+	if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
+		assertEqual(calls, expected, "tool calls")
+	}
+	if expected := coreGet(fixture, "expected_processor_calls", nil); expected != nil {
+		assertEqual(processorCalls, expected, "field processor calls")
+	}
+	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
+		text := stableStringify(client.Requests)
+		for _, item := range asSlice(expected) {
+			if !strings.Contains(text, display(item)) {
+				panic(FixtureError{Message: "streaming request missing " + display(item) + ": " + text})
+			}
 		}
 	}
 }
@@ -11988,7 +12689,7 @@ func runConformanceFlow(fixture map[string]Value) {
 	if display(coreGet(fixture, "operation", "")) == "plan" {
 		return
 	}
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
 	forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
 	if seed := coreGet(fixture, "cache_seed_value", nil); seed != nil {
 		cacheStore := asMap(coreGet(forwardOptions, "cache_store", coreGet(forwardOptions, "cacheStore", Object())))
@@ -12220,7 +12921,7 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 			assertSubset(evidence, expected, "optimizer evidence")
 		}
 	case "evaluate":
-		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
+		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 		result := conformanceProgramEvaluateOptimization(program, client, coreGet(fixture, "dataset", Array()), asMap(coreGet(fixture, "candidate_map", Object())), asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_evaluation_subset", nil); expected != nil {
 			assertSubset(result, expected, "optimization evaluation")
@@ -12250,7 +12951,7 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		}
 		var evaluate func(Value, map[string]Value) Value
 		if usesEvaluator {
-			client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
+			client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 			evaluate = func(candidateMap Value, stepOptions map[string]Value) Value {
 				merged := cloneMap(opts)
 				for _, key := range orderedKeys(stepOptions) {
@@ -12300,7 +13001,7 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		if !ok {
 			panic(AxError{Category: "fixture", Message: "eval operation requires agent program"})
 		}
-		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
+		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 		task := asMap(coreGet(fixture, "task", Object("input", coreGet(fixture, "input", Object()))))
 		prediction := ag.EvaluateOptimizationTask(client, task, asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil {
@@ -13076,7 +13777,7 @@ func runConformanceAgentRuntimeReal(fixture map[string]Value) {
 	if runtimeErr != nil {
 		panic(runtimeErr)
 	}
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	coreSet(options, "runtime", runtime)
 	ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
@@ -13259,7 +13960,7 @@ func semanticAvailableSkillsIndex(system string) string {
 }
 
 func runConformanceAgentForward(fixture map[string]Value) {
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	observerTranscript := MutableArray()
 	semanticObserversEnabled := coreGet(fixture, "expected_observer_transcript", nil) != nil
@@ -13621,28 +14322,41 @@ func runConformanceAgentPlaybookCoverage(fixture map[string]Value) {
 	}
 }
 
+// conformanceEvolveScript gives each evolve case fresh responses: several play
+// in order, a single one repeats.
+func conformanceEvolveScript(responses []Value) []Value {
+	script := Array()
+	if len(responses) > 1 {
+		for _, response := range responses {
+			script = append(script, cloneValue(response))
+		}
+		return script
+	}
+	response := Value(Object())
+	if len(responses) == 1 {
+		response = responses[0]
+	}
+	for i := 0; i < 32; i++ {
+		script = append(script, cloneValue(response))
+	}
+	return script
+}
+
 func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 	sourceResponses := asSlice(coreGet(fixture, "responses", Array()))
-	response := Value(Object())
-	if len(sourceResponses) > 0 {
-		response = sourceResponses[0]
+	teacherResponses := asSlice(coreGet(fixture, "teacher_responses", Array()))
+	if len(teacherResponses) == 0 {
+		teacherResponses = sourceResponses
 	}
 	teacherSpec := coreGet(fixture, "teacher_client", nil)
 	for _, rawCase := range asSlice(coreGet(fixture, "cases", Array())) {
 		testCase := asMap(rawCase)
-		scriptedResponses := func() []Value {
-			responses := Array()
-			for i := 0; i < 32; i++ {
-				responses = append(responses, cloneValue(response))
-			}
-			return responses
-		}
-		client := &conformanceScriptedAI{Responses: scriptedResponses()}
+		client := &conformanceScriptedAI{Responses: conformanceEvolveScript(sourceResponses)}
 		// A configured teacher runs the playbook's reflector/curator and the
 		// evolve weakness miner; otherwise the student client does.
 		teacher := client
 		if teacherSpec != nil {
-			teacher = conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: scriptedResponses()}, teacherSpec)
+			teacher = conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: conformanceEvolveScript(teacherResponses)}, teacherSpec)
 		}
 		runtime := newConformanceScriptedCodeRuntime(coreGet(fixture, "runtime_script", Array()), Object())
 		runtime.LanguageName = display(coreGet(fixture, "runtime_language", "Python"))

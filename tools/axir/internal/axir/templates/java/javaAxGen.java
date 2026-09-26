@@ -13,6 +13,7 @@ public final class AxGen implements AxProgram {
     snapshot.put("examples",Core.ownedCopy(examples));snapshot.put("demos",Core.ownedCopy(demos));
     snapshot.put("assertions",Core.ownedCopy(assertions));snapshot.put("streaming_assertions",Core.ownedCopy(streamingAssertions));
     snapshot.put("field_processors",Core.ownedCopy(fieldProcessors));snapshot.put("stop_functions",new ArrayList<>(stopFunctions));
+    snapshot.put("feedback_processors",Core.ownedCopy(feedbackProcessors));snapshot.put("streaming_field_processors",Core.ownedCopy(streamingFieldProcessors));
     Object log=Core.ownedCopy(chatLog),calls=Core.ownedCopy(functionCallTraces),trace=Core.ownedCopy(traces);
     String instructions=instruction;AxRuntimeHooks hooks=runtimeHooks;
     return ()->{
@@ -41,6 +42,10 @@ public final class AxGen implements AxProgram {
   final List<Object> assertions;
   final List<Object> streamingAssertions;
   final List<Map<String, Object>> fieldProcessors;
+  // TypeScript field processors: {field, processor(value, {values, done})};
+  // a non-empty result is sent back to the model for another step.
+  final List<Map<String, Object>> feedbackProcessors;
+  final List<Map<String, Object>> streamingFieldProcessors;
   final List<String> stopFunctions;
   final AxMemory memory;
   final List<Map<String, Object>> chatLog;
@@ -77,6 +82,10 @@ public final class AxGen implements AxProgram {
     this.streamingAssertions = new ArrayList<>(Core.asList(this.options.getOrDefault("streaming_assertions", this.options.getOrDefault("streamingAssertions", List.of()))));
     this.fieldProcessors = new ArrayList<>();
     for (Object item : Core.asList(this.options.getOrDefault("field_processors", this.options.getOrDefault("fieldProcessors", List.of())))) this.fieldProcessors.add(Core.asMap(item));
+    this.feedbackProcessors = new ArrayList<>();
+    for (Object item : Core.asList(this.options.getOrDefault("feedback_processors", this.options.getOrDefault("feedbackProcessors", List.of())))) this.feedbackProcessors.add(Core.asMap(item));
+    this.streamingFieldProcessors = new ArrayList<>();
+    for (Object item : Core.asList(this.options.getOrDefault("streaming_field_processors", this.options.getOrDefault("streamingFieldProcessors", List.of())))) this.streamingFieldProcessors.add(Core.asMap(item));
     this.stopFunctions = new ArrayList<>();
     for (Object item : Core.asList(this.options.getOrDefault("stop_functions", this.options.getOrDefault("stopFunctions", List.of())))) this.stopFunctions.add(String.valueOf(item));
     this.memory = this.options.get("memory") instanceof AxMemory mem ? mem : new AxMemory();
@@ -175,6 +184,45 @@ public final class AxGen implements AxProgram {
     spec.put("processor", processor);
     this.fieldProcessors.add(spec);
     return this;
+  }
+
+  // Internal until the public streaming surface lands: rewrite a field's final
+  // value with an op ("uppercase", "lowercase", "trim", "prefix:...",
+  // "suffix:...") or a callback, as addFieldProcessor() does today.
+  AxGen addFieldTransform(String field, String op) {
+    return addFieldProcessor(field, op);
+  }
+
+  AxGen addFieldTransform(String field, FieldProcessorCallback processor) {
+    return addFieldProcessor(field, processor);
+  }
+
+  // Internal: a TypeScript field processor. processor(value, {values, done})
+  // runs on the field's final value; a non-empty result is sent to the model
+  // as a user message for another step.
+  AxGen addFeedbackFieldProcessor(String field, java.util.function.BiFunction<Object, Map<String, Object>, Object> processor) {
+    this.feedbackProcessors.add(processorSpec(field, processor));
+    return this;
+  }
+
+  // Internal: a TypeScript streaming field processor. processor(text, {values,
+  // done}) runs on each streamed chunk of a string or code output field; a
+  // non-empty result is sent to the model as a user message for another step.
+  AxGen addStreamingFieldProcessor(String field, java.util.function.BiFunction<Object, Map<String, Object>, Object> processor) {
+    Field output = null;
+    for (Field item : signature.outputs) if (item.name.equals(field)) output = item;
+    if (output == null) throw new IllegalArgumentException("addFieldProcessor: field " + field + " not found");
+    String typeName = output.type == null || output.type.name == null ? "string" : output.type.name;
+    if (!"string".equals(typeName) && !"code".equals(typeName)) throw new IllegalArgumentException("addFieldProcessor: field " + field + " must be a text field");
+    this.streamingFieldProcessors.add(processorSpec(field, processor));
+    return this;
+  }
+
+  private static Map<String, Object> processorSpec(String field, Object processor) {
+    Map<String, Object> spec = new LinkedHashMap<>();
+    spec.put("field", field);
+    spec.put("processor", processor);
+    return spec;
   }
 
   public AxGen onFunctionCall(FunctionCallHook hook) {
@@ -393,6 +441,92 @@ public final class AxGen implements AxProgram {
     } finally {
       scope.close();
     }
+  }
+
+  // Internal until the public streaming surface lands: runs the TypeScript
+  // streaming forward, handing each {version, index, delta} envelope to sink
+  // as the provider stream arrives, and returns the merged output of the
+  // picked sample. A sink that throws (e.g. AxAIServiceAbortedError) stops
+  // the run.
+  Map<String, Object> streamingForwardWith(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions, java.util.function.Consumer<Map<String, Object>> sink) {
+    Map<String, Object> attributes = new LinkedHashMap<>();
+    attributes.put("ax.program.id", programId);
+    attributes.put("ax.program.type", "AxGen");
+    attributes.put("ax.streaming", true);
+    AxGlobals.Scope scope = AxGlobals.openScope(AxRuntimeHooks.fromOptions(forwardOptions), runtimeHooks, "ax_gen_forward", "ax_gen_generation", attributes);
+    try {
+      java.util.function.Consumer<Object> emit = envelope -> sink.accept(Core.asMap(envelope));
+      return streamingForwardUnscoped(client, values == null ? new LinkedHashMap<>() : values, AxRuntimeHooks.strip(forwardOptions), emit);
+    } catch (RuntimeException | Error error) {
+      scope.fail(error);
+      throw error;
+    } finally {
+      scope.close();
+    }
+  }
+
+  private Map<String, Object> streamingForwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> options, java.util.function.Consumer<Object> emit) {
+    if (!(client instanceof SessionRun)) {
+      Map<String, Object> runOptions = new LinkedHashMap<>(this.options);
+      runOptions.putAll(options);
+      boolean controlled = runOptions.get("control") instanceof AxRunControl;
+      boolean sessionCapable = Core.truthy(Core.chat_session_mode_enabled(runOptions))
+          && (client instanceof ChatRunSelector || (client instanceof AxChatSession.Provider && Core.truthy(Core.get(Core.aiClientFeatures(client, runOptions.get("model")), "asyncTools", false))));
+      if (sessionCapable && (controlled || functions.stream().anyMatch(tool -> "background".equals(tool.execution)))) {
+        throw new UnsupportedOperationException("streaming_forward deltas do not cover async run sessions (control or background tools on a session-capable client) yet; use forward()");
+      }
+      // Run controls apply at each request boundary, as in forward().
+      if (controlled) {
+        SessionRun bounded = new SessionRun(this, client, null, runOptions);
+        try {
+          Map<String, Object> output = streamingForwardUnscoped(bounded, values, options, emit);
+          bounded.finish(null);
+          return output;
+        } catch (RuntimeException | Error error) {
+          bounded.finish(error);
+          throw error;
+        }
+      }
+    }
+    AxExecutionContext callContext = AxExecutionContext.resolve(options, executionContext);
+    if (callContext == executionContext) return Core.asMap(Core._streaming_forward_impl(this, client, values, options, emit));
+    AxGen call = callScoped(callContext, options);
+    try {
+      return Core.asMap(Core._streaming_forward_impl(call, client, values, new LinkedHashMap<>(), emit));
+    } finally {
+      chatLog.addAll(call.chatLog);
+      functionCallTraces.addAll(call.functionCallTraces);
+      traces.addAll(call.traces);
+    }
+  }
+
+  // A generator for one call with its own execution context (MCP/UCP tools),
+  // keeping this generator's assertions, processors, examples and memory.
+  private AxGen callScoped(AxExecutionContext callContext, Map<String, Object> forwardOptions) {
+    Map<String, Object> callOptions = new LinkedHashMap<>(options);
+    callOptions.putAll(forwardOptions);
+    callOptions.put("functions", baseFunctions);
+    if (callContext == null) {
+      callOptions.remove("mcp");
+      callOptions.remove("ucp");
+      callOptions.remove("executionContext");
+    } else callOptions.put("executionContext", callContext);
+    callOptions.put("memory", memory);
+    AxGen call = new AxGen(signature, callOptions, runtimeHooks);
+    call.setExamples(examples);
+    call.setDemos(demos);
+    call.assertions.clear();
+    call.assertions.addAll(assertions);
+    call.streamingAssertions.clear();
+    call.streamingAssertions.addAll(streamingAssertions);
+    call.fieldProcessors.clear();
+    call.fieldProcessors.addAll(fieldProcessors);
+    call.feedbackProcessors.clear();
+    call.feedbackProcessors.addAll(feedbackProcessors);
+    call.streamingFieldProcessors.clear();
+    call.streamingFieldProcessors.addAll(streamingFieldProcessors);
+    call.setStopFunctions(stopFunctions);
+    return call;
   }
 
   private Map<String, Object> forwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions) {

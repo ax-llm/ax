@@ -1,0 +1,82 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "a"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "b"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_error_contains": "processor exploded",
+  "expected_processor_calls": [
+    {
+      "done": true,
+      "field": "answer",
+      "value": "ab"
+    }
+  ],
+  "expected_request_count": 1,
+  "feedback_processors": [
+    {
+      "field": "answer",
+      "throws": "processor exploded"
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-feedback-processor-error",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: a",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "b",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: ab",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

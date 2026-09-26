@@ -73,17 +73,25 @@ public final class Conformance {
       return Core.asMap(responses.remove(0));
     }
 
-    // A scripted {"stream": [...]} response streams its chunks; fixture
+    // A scripted {"stream": [...]} response streams its chunks one at a time,
+    // and an {"error": ...} entry fails the stream at that point; fixture
     // stream events stream as before; any other response streams as one.
     public Iterable<Map<String, Object>> stream(Map<String, Object> request) {
       if (!responses.isEmpty() && Core.asMap(responses.get(0)).containsKey("stream")) {
         chatCalls++;
         requests.add(new LinkedHashMap<>(request));
         chatOptions.add(new LinkedHashMap<>());
-        Map<String, Object> raw = Core.asMap(responses.remove(0));
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (Object chunk : Core.asList(raw.get("stream"))) out.add(Core.legacyResponseToChatResponse(Core.asMap(chunk)));
-        return out;
+        List<Object> chunks = Core.asList(Core.asMap(responses.remove(0)).get("stream"));
+        return () -> new java.util.Iterator<Map<String, Object>>() {
+          private int position;
+          @Override public boolean hasNext() { return position < chunks.size(); }
+          @Override public Map<String, Object> next() {
+            if (!hasNext()) throw new java.util.NoSuchElementException();
+            Map<String, Object> chunk = Core.asMap(Core.ownedCopy(chunks.get(position++)));
+            if (chunk.containsKey("error") && !chunk.containsKey("results")) throw fixtureAIServiceError(Core.asMap(chunk.get("error")));
+            return Core.legacyResponseToChatResponse(chunk);
+          }
+        };
       }
       if (!streamEvents.isEmpty() || responses.isEmpty()) {
         requests.add(new LinkedHashMap<>(request));
@@ -605,6 +613,7 @@ public final class Conformance {
       case "template_validate" -> assertEqual(Core.validate_prompt_template_syntax(fixture.get("template"), fixture.getOrDefault("context", "fixture-template"), fixture.getOrDefault("required_variables", List.of())), fixture.getOrDefault("expected_result", true), "template validation");
       case "stream" -> runStream(fixture);
       case "forward" -> runForward(fixture);
+      case "streaming_forward" -> runStreamingForward(fixture);
       case "ai_session_state" -> runAISessionState(fixture);
       case "ai_session_events" -> runAISessionEvents(fixture);
       case "ai_typesafe_native" -> {
@@ -824,9 +833,11 @@ public final class Conformance {
     if (fixture.containsKey("examples")) gen.setExamples(Core.asMapList(fixture.get("examples")));
     if (fixture.containsKey("demos")) gen.setDemos(Core.asMapList(fixture.get("demos")));
     for (Object item : Core.asList(fixture.getOrDefault("assertions", List.of()))) gen.addAssert(Core.asMap(item));
-    for (Object item : Core.asList(fixture.getOrDefault("field_processors", fixture.getOrDefault("fieldProcessors", List.of())))) {
-      Map<String, Object> processor = Core.asMap(item);
-      gen.addFieldProcessor(String.valueOf(processor.get("field")), String.valueOf(processor.getOrDefault("processor", processor.get("op"))));
+    addFixtureTransforms(gen, fixture);
+    List<Object> processorCalls = new ArrayList<>();
+    for (Object item : Core.asList(fixture.getOrDefault("feedback_processors", List.of()))) {
+      Map<String, Object> spec = Core.asMap(item);
+      gen.addFeedbackFieldProcessor(String.valueOf(spec.get("field")), fixtureProcessor(spec, processorCalls));
     }
     if (fixture.containsKey("stop_functions") || fixture.containsKey("stopFunctions")) {
       List<String> names = new ArrayList<>();
@@ -841,6 +852,7 @@ public final class Conformance {
     }
     ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())), Core.asMap(fixture.get("client")));
     Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of()))), fixture);
+    if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
     // An expected failure (e.g. a gated expensive model) may stop before the provider call.
@@ -882,6 +894,88 @@ public final class Conformance {
 	      for (Object item : Core.asList(fixture.get("expected_chat_prompt_contains"))) if (!promptText.contains(String.valueOf(item))) throw new FixtureError("chat prompt missing " + item + ": " + promptText);
 	    }
 	  }
+
+  // field_transforms use the transform API; field_processors use the
+  // transforming addFieldProcessor() path, which behaves the same.
+  static void addFixtureTransforms(AxGen gen, Map<String, Object> fixture) {
+    for (Object item : Core.asList(fixture.getOrDefault("field_transforms", List.of()))) {
+      Map<String, Object> spec = Core.asMap(item);
+      gen.addFieldTransform(String.valueOf(spec.get("field")), String.valueOf(spec.getOrDefault("processor", spec.get("op"))));
+    }
+    for (Object item : Core.asList(fixture.getOrDefault("field_processors", fixture.getOrDefault("fieldProcessors", List.of())))) {
+      Map<String, Object> spec = Core.asMap(item);
+      gen.addFieldProcessor(String.valueOf(spec.get("field")), String.valueOf(spec.getOrDefault("processor", spec.get("op"))));
+    }
+  }
+
+  // A fixture field processor records each call and returns `returns`, or the
+  // value itself with `echo`; `when_done` waits for the final value, `times`
+  // limits how many results it returns, and `throws` raises.
+  static java.util.function.BiFunction<Object, Map<String, Object>, Object> fixtureProcessor(Map<String, Object> spec, List<Object> calls) {
+    int[] returned = {0};
+    return (value, context) -> {
+      boolean done = Core.truthy(Core.get(context, "done", false));
+      Map<String, Object> call = new LinkedHashMap<>();
+      call.put("field", spec.get("field"));
+      call.put("value", Core.ownedCopy(value));
+      call.put("done", done);
+      calls.add(call);
+      if (spec.get("throws") != null) throw new RuntimeException(String.valueOf(spec.get("throws")));
+      if (Core.truthy(spec.get("when_done")) && !done) return null;
+      if (spec.get("times") != null && returned[0] >= Core.asInt(spec.get("times"))) return null;
+      Object result = Core.truthy(spec.get("echo")) ? Core.ownedCopy(value) : Core.ownedCopy(spec.get("returns"));
+      if (result != null) returned[0]++;
+      return result;
+    };
+  }
+
+  static void runStreamingForward(Map<String, Object> fixture) {
+    AxSignature sig = buildSignature(fixture);
+    ToolBuild toolBuild = buildTools(Core.asList(fixture.getOrDefault("tools", List.of())));
+    Map<String, Object> options = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
+    options.put("functions", toolBuild.tools);
+    AxGen gen = new AxGen(sig, options);
+    for (Object item : Core.asList(fixture.getOrDefault("assertions", List.of()))) gen.addAssert(Core.asMap(item));
+    for (Object item : Core.asList(fixture.getOrDefault("streaming_assertions", List.of()))) gen.addStreamingAssert(new LinkedHashMap<>(Core.asMap(item)));
+    addFixtureTransforms(gen, fixture);
+    List<Object> processorCalls = new ArrayList<>();
+    for (Object item : Core.asList(fixture.getOrDefault("feedback_processors", List.of()))) {
+      Map<String, Object> spec = Core.asMap(item);
+      gen.addFeedbackFieldProcessor(String.valueOf(spec.get("field")), fixtureProcessor(spec, processorCalls));
+    }
+    for (Object item : Core.asList(fixture.getOrDefault("streaming_processors", List.of()))) {
+      Map<String, Object> spec = Core.asMap(item);
+      gen.addStreamingFieldProcessor(String.valueOf(spec.get("field")), fixtureProcessor(spec, processorCalls));
+    }
+    if (fixture.containsKey("result_picker_index")) gen.setResultPicker(samples -> Core.asInt(fixture.get("result_picker_index")));
+    if (fixture.containsKey("stop_functions")) gen.setStopFunctions(stringList(fixture.get("stop_functions")));
+    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), List.of(), Core.asMap(fixture.getOrDefault("features", Map.of())));
+    List<Object> deltas = new ArrayList<>();
+    Map<String, Object> output = null;
+    boolean failed = false;
+    try {
+      output = gen.streamingForwardWith(client, new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of()))), Core.asMap(fixture.getOrDefault("forward_options", Map.of())), envelope -> deltas.add(Core.ownedCopy(envelope)));
+    } catch (RuntimeException error) {
+      String expected = (String) fixture.get("expected_error_contains");
+      if (expected == null || !String.valueOf(error.getMessage()).contains(expected)) throw error;
+      failed = true;
+      assertEqual(deltas, fixture.getOrDefault("expected_deltas", List.of()), "streaming deltas before the error");
+    }
+    if (!failed) {
+      if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected streaming forward to fail");
+      assertEqual(deltas, fixture.getOrDefault("expected_deltas", List.of()), "streaming deltas");
+      assertEqual(output, fixture.get("expected_output"), "streaming output");
+    }
+    if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) {
+      throw new FixtureError("expected " + fixture.get("expected_request_count") + " requests, got " + client.requests.size());
+    }
+    if (fixture.containsKey("expected_tool_calls")) assertEqual(toolBuild.calls, fixture.get("expected_tool_calls"), "tool calls");
+    if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
+    if (fixture.containsKey("expected_request_contains")) {
+      String text = Json.stringify(client.requests);
+      for (Object item : Core.asList(fixture.get("expected_request_contains"))) if (!text.contains(String.valueOf(item))) throw new FixtureError("request missing " + item + ": " + text);
+    }
+  }
 
   static Object flowStateValue(Map<String, Object> state, Object field, Object fallback) {
     if (field == null) return fallback;
@@ -1567,18 +1661,28 @@ public final class Conformance {
     }
   }
 
+  // Several responses play in order for each case; a single one repeats.
+  static List<Object> evolveScript(List<Object> responses) {
+    List<Object> out = new ArrayList<>();
+    if (responses.size() > 1) {
+      for (Object item : responses) out.add(Core.ownedCopy(item));
+      return out;
+    }
+    Object single = responses.isEmpty() ? Map.of() : responses.get(0);
+    for (int i = 0; i < 32; i++) out.add(Core.ownedCopy(single));
+    return out;
+  }
+
   static void runAgentPlaybookEvolve(Map<String, Object> fixture) {
     List<Object> sourceResponses = Core.asList(fixture.getOrDefault("responses", List.of()));
-    Object scriptedResponse = sourceResponses.isEmpty() ? Map.of() : sourceResponses.get(0);
+    List<Object> teacherResponses = Core.asList(fixture.get("teacher_responses"));
     Object teacherSpec = fixture.get("teacher_client");
     for (Object rawCase : Core.asList(fixture.getOrDefault("cases", List.of()))) {
       Map<String, Object> testCase = Core.asMap(rawCase);
-      List<Object> responses = new ArrayList<>();
-      for (int i = 0; i < 32; i++) responses.add(scriptedResponse);
-      ConformanceScriptedAI client = new ConformanceScriptedAI(responses, List.of());
+      ConformanceScriptedAI client = new ConformanceScriptedAI(evolveScript(sourceResponses), List.of());
       // A configured teacher runs the playbook's reflector/curator and the
       // evolve weakness miner; otherwise the student client does.
-      ConformanceScriptedAI teacher = teacherSpec == null ? client : new ConformanceScriptedAI(new ArrayList<>(responses), List.of(), Map.of(), Core.asMap(teacherSpec));
+      ConformanceScriptedAI teacher = teacherSpec == null ? client : new ConformanceScriptedAI(evolveScript(teacherResponses.isEmpty() ? sourceResponses : teacherResponses), List.of(), Map.of(), Core.asMap(teacherSpec));
       ScriptedCodeRuntime runtime = new ScriptedCodeRuntime(
           Core.asList(fixture.getOrDefault("runtime_script", List.of())),
           String.valueOf(fixture.getOrDefault("runtime_language", "Python")),

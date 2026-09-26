@@ -1,0 +1,89 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "Pariss"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "Paris"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_processor_calls": [
+    {
+      "done": true,
+      "field": "answer",
+      "value": "Pariss"
+    },
+    {
+      "done": true,
+      "field": "answer",
+      "value": "Paris"
+    }
+  ],
+  "expected_request_count": 2,
+  "feedback_processors": [
+    {
+      "field": "answer",
+      "returns": "Check the spelling.",
+      "times": 1
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-feedback-processor",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Pariss",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Paris",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

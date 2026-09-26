@@ -1,0 +1,22 @@
+{
+  "expected_output": {
+    "answer": 42
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-unlabeled-number",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "42",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:number"
+}

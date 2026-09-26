@@ -1,0 +1,23 @@
+{
+  "expected_output": {
+    "answer": "see Score: 5 here",
+    "score": 2
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "text-extract-label-mid-line",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: see Score: 5 here\nScore: 2",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, score:number"
+}
