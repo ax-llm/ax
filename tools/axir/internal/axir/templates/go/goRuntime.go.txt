@@ -7350,6 +7350,21 @@ func (f *AxFlow) Forward(ctx context.Context, client AIClient, values map[string
 	return f.ForwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
 }
 
+// StreamingForward runs the flow and yields its output as one AxGenDelta
+// ({Version: 1, Index: 0, Delta: output}), as TypeScript's AxFlow
+// streamingForward does; an error ends the sequence as a final
+// (AxGenDelta{}, err) pair.
+func (f *AxFlow) StreamingForward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) iter.Seq2[AxGenDelta, error] {
+	return func(yield func(AxGenDelta, error) bool) {
+		output, err := f.Forward(ctx, client, values, options)
+		if err != nil {
+			yield(AxGenDelta{}, err)
+			return
+		}
+		yield(AxGenDelta{Version: 1, Index: 0, Delta: asMap(output)}, nil)
+	}
+}
+
 // ForwardWithHooks returns plain maps: the "__order" lists that keep key
 // order inside the runtime are removed from the flow output.
 func (f *AxFlow) ForwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (Value, error) {
@@ -12698,11 +12713,18 @@ func runConformanceFlow(fixture map[string]Value) {
 	}
 	var output Value
 	if display(coreGet(fixture, "operation", "")) == "streaming" {
-		cached := expectMaybeFixtureError(func() Value {
-			return mustCore(_flow_forward(flow.State, client, coreGet(fixture, "input", Object()), forwardOptions))
+		streamed := expectMaybeFixtureError(func() Value {
+			envelopes := Array()
+			for delta, err := range flow.StreamingForward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), forwardOptions) {
+				if err != nil {
+					panic(err)
+				}
+				envelopes = append(envelopes, Object("version", delta.Version, "index", delta.Index, "delta", delta.Delta))
+			}
+			return envelopes
 		}, fixture, nil)
 		if expectedErr := coreGet(fixture, "expected_error_contains", nil); expectedErr == nil {
-			output = Array(Object("version", 1, "index", 0, "delta", cached))
+			output = streamed
 		}
 	} else {
 		output = expectMaybeFixtureError(func() Value {
