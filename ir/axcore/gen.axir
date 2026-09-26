@@ -590,8 +590,8 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "axgen-indexed-multi-sample-parse"
-    type signature = "(AxGen, list<Field>, json, bool, string, string, bool) -> json throws"
-    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool, %thought_field: string, %thought_prefix: string, %text_contract: bool) {
+    type signature = "(AxGen, list<Field>, json, bool, string, string, bool, bool) -> json throws"
+    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool, %thought_field: string, %thought_prefix: string, %text_contract: bool, %strict_mode: bool) {
       %empty_results = core.list
       %completions = core.get %response["results"] default %empty_results
       %completion_count = core.call intrinsic.len(%completions)
@@ -610,7 +610,7 @@ module @ax.gen version "0.1" {
         %extracted = core.let false
         core.if %text_contract {
           // TS extractValues, after the port-only JSON object fallback.
-          %text_parsed = core.call @parse_text_contract_output_impl(%content, %output_fields)
+          %text_parsed = core.call @parse_text_contract_output_impl(%content, %output_fields, %strict_mode)
           %output = core.get %text_parsed["values"]
           %extracted = core.get %text_parsed["extracted"] default false
         } else {
@@ -627,7 +627,12 @@ module @ax.gen version "0.1" {
         %not_extracted = core.call intrinsic.not(%extracted)
         core.if %not_extracted {
           %recovered = core.call @parse_json_string_fields(%output_fields, %output)
-          %validated = core.call @validate_output(%output_fields, %recovered)
+          %validated = core.call @stream_json_validate_output_impl(%output_fields, %recovered)
+          core.if %text_contract {
+            // The deprecated JSON object fallback stands in for the text
+            // contract, whose required check includes internal fields.
+            core.call @stream_text_required_check_impl(%validated, %output_fields)
+          }
         }
         // TS field processors see the parsed values and feed back text for
         // another step.
@@ -741,6 +746,7 @@ module @ax.gen version "0.1" {
       // With no structured rung the answer uses the `Label: value` text
       // contract.
       %text_contract = core.call intrinsic.is_none(%selected_rung)
+      %strict_mode = core.call @strict_mode_option_impl(%options)
       %input_fields = core.get %signature["input_fields"]
       core.call @validate_fields(%input_fields, %values, "input")
       %prompt_template = core.get %gen["prompt_template"]
@@ -861,7 +867,7 @@ module @ax.gen version "0.1" {
               %structured_args = core.call @structured_output_call_args(%structured_call)
               core.call @validate_exact_output_keys(%output_fields, %structured_args, "output")
               %structured_recovered = core.call @parse_json_string_fields(%output_fields, %structured_args)
-              %structured_validated = core.call @validate_output(%output_fields, %structured_recovered)
+              %structured_validated = core.call @stream_json_validate_output_impl(%output_fields, %structured_recovered)
               %structured_processed = core.call @apply_field_processors(%gen, %structured_validated)
               %structured_stage = core.let "assertion"
               %structured_assertion_failure = core.call @run_assertions(%gen, %structured_processed)
@@ -937,7 +943,7 @@ module @ax.gen version "0.1" {
         } else {
           %parsed_bundle = core.map
           core.try {
-            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract)
+            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract, %strict_mode)
             %parsed_bundle = core.let %parsed
           } catch %validation_error {
             %retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
@@ -1960,6 +1966,19 @@ module @ax.gen version "0.1" {
       core.set %config["strict_json"] = %strict_json
       core.set %config["parse_json_strings"] = %parse_json_strings
       core.set %config["thought_field"] = %thought_field
+      %strict_mode = core.call @strict_mode_option_impl(%options)
+      core.set %config["strict_mode"] = %strict_mode
+      // processStreamingResponse: with functionCot and functions, text before
+      // a tool call is reasoning, so it neither assumes nor requires a field.
+      %function_cot_snake = core.get %features["function_cot"] default false
+      %function_cot = core.get %features["functionCot"] default %function_cot_snake
+      %empty_functions = core.list
+      %function_list = core.get %gen["functions"] default %empty_functions
+      %function_count = core.call intrinsic.len(%function_list)
+      %has_functions = core.call intrinsic.gt(%function_count, 0)
+      %function_cot_on = core.call intrinsic.truthy(%function_cot)
+      %skip_early_fail = core.call intrinsic.and(%function_cot_on, %has_functions)
+      core.set %config["skip_early_fail"] = %skip_early_fail
       %sample_snake = core.get %runtime_options["sample_count"]
       %sample_camel = core.get %runtime_options["sampleCount"] default %sample_snake
       %sample_count = core.get %runtime_options["n"] default %sample_camel
@@ -2171,7 +2190,7 @@ module @ax.gen version "0.1" {
                   %structured_args = core.call @structured_output_call_args(%structured_call)
                   core.call @validate_exact_output_keys(%output_fields, %structured_args, "output")
                   %structured_recovered = core.call @parse_json_string_fields(%output_fields, %structured_args)
-                  %structured_validated = core.call @validate_output(%output_fields, %structured_recovered)
+                  %structured_validated = core.call @stream_json_validate_output_impl(%output_fields, %structured_recovered)
                   %structured_processed = core.call @apply_field_processors(%gen, %structured_validated)
                   %structured_stage = core.let "assertion"
                   %structured_failure = core.call @run_assertions(%gen, %structured_processed)
@@ -2299,7 +2318,7 @@ module @ax.gen version "0.1" {
                 core.if %streaming_assertion {
                   core.raise %attempt_error
                 }
-                %stream_output_text = core.call intrinsic.string.join(%stream_outputs, "\n---\n")
+                %stream_output_text = core.call intrinsic.string.join("\n---\n", %stream_outputs)
                 %stream_exhausted = core.call @unable_to_fix_impl(%attempt_error, %stream_output_text)
                 core.raise %stream_exhausted
               }
@@ -2408,15 +2427,17 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "src/ax/dsp/extract/streamingText.ts"
-    type signature = "(string, list<Field>) -> json throws"
-    body @entry(%content: string, %output_fields: list<Field>) {
+    type signature = "(string, list<Field>, bool) -> json throws"
+    body @entry(%content: string, %output_fields: list<Field>, %strict_mode: bool) {
       // TS extractValues parses `Label: value` answers. For compatibility the
       // ports still read an answer that is exactly one JSON object whose keys
       // are all output fields; that fallback is deprecated and TS treats such
-      // an answer as text.
+      // an answer as text. Strict mode, which requires labels, skips it.
       %out = core.map
       %trimmed = core.string_trim %content
-      %looks_json = core.call intrinsic.string.starts_with(%trimmed, "{")
+      %opens_object = core.call intrinsic.string.starts_with(%trimmed, "{")
+      %lenient = core.call intrinsic.not(%strict_mode)
+      %looks_json = core.call intrinsic.and(%opens_object, %lenient)
       core.if %looks_json {
         %candidate = core.call intrinsic.none()
         core.try {
@@ -2449,7 +2470,7 @@ module @ax.gen version "0.1" {
           }
         }
       }
-      %values = core.call @stream_text_extract_values_impl(%content, %output_fields)
+      %values = core.call @stream_text_extract_values_impl(%content, %output_fields, %strict_mode)
       core.set %out["values"] = %values
       core.set %out["extracted"] = true
       core.return %out
@@ -2518,7 +2539,7 @@ module @ax.gen version "0.1" {
         %content = core.get %completion["content"] default ""
         core.append %contents, %content
       }
-      %joined = core.call intrinsic.string.join(%contents, "\n---\n")
+      %joined = core.call intrinsic.string.join("\n---\n", %contents)
       core.return %joined
     }
   }
@@ -2553,6 +2574,24 @@ module @ax.gen version "0.1" {
       }
       %none = core.call intrinsic.none()
       core.return %none
+    }
+  }
+
+  op ax.gen.semantic @strict_mode_option_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json) -> bool"
+    body @entry(%options: json) {
+      // TS reads strictMode from the forward call's options only; a value
+      // given to the AxGen constructor has no effect.
+      %empty = core.map
+      %call_options = core.call intrinsic.map.merge(%empty, %options)
+      %strict_snake = core.get %call_options["strict_mode"] default false
+      %strict = core.get %call_options["strictMode"] default %strict_snake
+      %strict_mode = core.call intrinsic.truthy(%strict)
+      core.return %strict_mode
     }
   }
 }

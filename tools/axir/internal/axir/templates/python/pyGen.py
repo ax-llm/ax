@@ -34,7 +34,7 @@ from .ai import (
     fold_chat_response_stream,
 )
 from .prompt import AxPromptTemplate, _core_string_split
-from .schema import AxValidationError, _core_url_valid, strip_internal, validate_fields, validate_output
+from .schema import AxValidationError, _core_field_item, _core_url_valid, strip_internal, validate_fields, validate_output
 from .signature import AxSignature, _core_string_replace
 from .mcp import resolve_execution_context
 # AXIR_CORE_IMPORTS

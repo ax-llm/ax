@@ -1644,7 +1644,7 @@ writeFixture('refusal-shares-validation-budget', {
     { content: '{"answer":"not a number"}' },
     { content: 'Answer: 4' },
   ],
-  expected_error_contains: 'to be a number',
+  expected_error_contains: 'Invalid number. Provide a number.',
   expected_request_count: 2,
 });
 
@@ -1659,7 +1659,7 @@ writeFixture('validation-budget-default-attempts', {
   signature: 'question:string -> answer:number',
   input: { question: 'Status?' },
   responses: Array.from({ length: 5 }, () => badNumber),
-  expected_error_contains: 'to be a number',
+  expected_error_contains: 'Invalid number. Provide a number.',
   expected_request_count: 4,
 });
 
@@ -1669,7 +1669,7 @@ writeFixture('validation-budget-max-retries-option', {
   input: { question: 'Status?' },
   options: { max_retries: 1 },
   responses: Array.from({ length: 3 }, () => badNumber),
-  expected_error_contains: 'to be a number',
+  expected_error_contains: 'Invalid number. Provide a number.',
   expected_request_count: 2,
 });
 
@@ -1679,7 +1679,7 @@ writeFixture('validation-budget-validation-retries-override', {
   input: { question: 'Status?' },
   options: { validation_retries: 1, max_retries: 3 },
   responses: Array.from({ length: 3 }, () => badNumber),
-  expected_error_contains: 'to be a number',
+  expected_error_contains: 'Invalid number. Provide a number.',
   expected_request_count: 2,
 });
 
@@ -1713,7 +1713,7 @@ writeFixture('validation-budget-step-exhausted', {
     badNumber,
     { content: 'Answer: 4' },
   ],
-  expected_error_contains: 'to be a number',
+  expected_error_contains: 'Invalid number. Provide a number.',
   expected_tool_calls: [searchRecord],
   expected_request_count: 4,
 });

@@ -1,0 +1,35 @@
+{
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Tags' has an invalid value 'duo': Expected an array. Provide a array of strings. Ensure formatting exactly matches the expected type.",
+  "expected_request_count": 2,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "structured-array-expected-exhausted",
+  "options": {
+    "max_retries": 1
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"tags\":\"solo\",\"detail\":{\"note\":\"n\"}}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"tags\":\"duo\",\"detail\":{\"note\":\"n\"}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> tags:string[], detail:object{ note:string }"
+}

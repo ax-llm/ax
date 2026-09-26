@@ -146,6 +146,14 @@ function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
       });
     },
   });
+  // The mock has no functionCot setting, so report the provider feature here.
+  if (features?.function_cot !== undefined) {
+    const baseFeatures = ai.getFeatures.bind(ai);
+    ai.getFeatures = (model) => ({
+      ...baseFeatures(model),
+      functionCot: features.function_cot as boolean,
+    });
+  }
   return { ai, calls: () => calls };
 }
 
@@ -158,6 +166,7 @@ const optionNames: Record<string, string> = {
   sample_count: 'sampleCount',
   thought_field_name: 'thoughtFieldName',
   function_call: 'functionCall',
+  strict_mode: 'strictMode',
 };
 
 function tsOptions(options: JsonMap | undefined): Record<string, unknown> {
@@ -1251,6 +1260,228 @@ const cases: Record<string, Case> = {
     signature: 'question:string -> answer:string',
     responses: [
       streamed(text('Answer: hi'), chunk({ finish_reason: 'error' })),
+    ],
+  },
+
+  // ----- structured output value types -----
+  // As in the text contract, a numeric string becomes a number and a
+  // true/false string a boolean; any other type mismatch is a validation
+  // error that the model retries, with TypeScript's message.
+  'structured-coerce-number-and-boolean': {
+    kind: 'forward',
+    signature:
+      'question:string -> count:number, done:boolean, detail:object{ size:number, open:boolean }',
+    features: nativeFeatures,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            content:
+              '{"count":" 7 ","done":"TRUE","detail":{"size":"12","open":"false"}}',
+          },
+        ],
+      },
+    ],
+  },
+  'structured-type-error-retry': {
+    kind: 'forward',
+    signature: 'question:string -> count:number, detail:object{ note:string }',
+    features: nativeFeatures,
+    responses: [
+      {
+        results: [
+          { index: 0, content: '{"count":"seven","detail":{"note":"n"}}' },
+        ],
+      },
+      { results: [{ index: 0, content: '{"count":3,"detail":{"note":"n"}}' }] },
+    ],
+  },
+  'structured-type-error-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> count:number, detail:object{ note:string }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      {
+        results: [
+          { index: 0, content: '{"count":"seven","detail":{"note":"n"}}' },
+        ],
+      },
+      {
+        results: [
+          { index: 0, content: '{"count":"eight","detail":{"note":"n"}}' },
+        ],
+      },
+    ],
+  },
+  'structured-string-for-number-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> label:string, detail:object{ note:string }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: '{"label":5,"detail":{"note":"n"}}' }] },
+      { results: [{ index: 0, content: '{"label":6,"detail":{"note":"n"}}' }] },
+    ],
+  },
+  'structured-class-option-exhausted': {
+    kind: 'forward',
+    signature:
+      'question:string -> mood:class "happy, sad", detail:object{ note:string }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      {
+        results: [
+          { index: 0, content: '{"mood":"angry","detail":{"note":"n"}}' },
+        ],
+      },
+      {
+        results: [
+          { index: 0, content: '{"mood":"calm","detail":{"note":"n"}}' },
+        ],
+      },
+    ],
+  },
+  'structured-array-expected-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> tags:string[], detail:object{ note:string }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      {
+        results: [
+          { index: 0, content: '{"tags":"solo","detail":{"note":"n"}}' },
+        ],
+      },
+      {
+        results: [
+          { index: 0, content: '{"tags":"duo","detail":{"note":"n"}}' },
+        ],
+      },
+    ],
+  },
+  'structured-nested-type-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> detail:object{ size:number }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: '{"detail":{"size":"big"}}' }] },
+      { results: [{ index: 0, content: '{"detail":{"size":"huge"}}' }] },
+    ],
+  },
+  // A title-named key is not a field alias: TS drops it, so the field is
+  // missing.
+  'structured-title-key-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> count:number, detail:object{ note:string }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: '{"Count":1,"detail":{"note":"n"}}' }] },
+      { results: [{ index: 0, content: '{"Count":2,"detail":{"note":"n"}}' }] },
+    ],
+  },
+  // Native JSON for a simple signature rejects keys that are not fields.
+  'structured-native-simple-unknown-key-retry': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: nativeFeatures,
+    forward_options: { structured_output_mode: 'native' },
+    responses: [
+      { results: [{ index: 0, content: '{"answer":"x","extra":1}' }] },
+      { results: [{ index: 0, content: '{"answer":"x"}' }] },
+    ],
+  },
+  'streaming-forward-structured-type-error-retry': {
+    signature: 'question:string -> count:number, detail:object{ note:string }',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text('{"count":"seven",'),
+        text('"detail":{"note":"n"}}'),
+        done()
+      ),
+      streamed(text('{"count":3,'), text('"detail":{"note":"n"}}'), done()),
+    ],
+  },
+  'streaming-forward-structured-coerce': {
+    signature: 'question:string -> count:number, detail:object{ note:string }',
+    features: nativeFeatures,
+    responses: [
+      streamed(text('{"count":"7",'), text('"detail":{"note":"n"}}'), done()),
+    ],
+  },
+
+  // ----- strictMode (a forward option) -----
+  // Strict mode turns off the single-field assumption: an answer without its
+  // label is a missing field.
+  'strict-mode-unlabeled-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    forward_options: { strict_mode: true, max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: 'ok' }] },
+      { results: [{ index: 0, content: 'fine' }] },
+    ],
+  },
+  'strict-mode-unlabeled-retry': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    forward_options: { strict_mode: true },
+    responses: [
+      { results: [{ index: 0, content: 'ok' }] },
+      { results: [{ index: 0, content: 'Answer: ok' }] },
+    ],
+  },
+  'streaming-forward-strict-mode-unlabeled-retry': {
+    signature: 'question:string -> answer:string',
+    forward_options: { strict_mode: true },
+    responses: [
+      streamed(text('o'), done('k')),
+      streamed(text('Answer: o'), done('k')),
+    ],
+  },
+  // The first required field is the one strict mode asks for.
+  'strict-mode-first-required-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> note?:string, answer:number',
+    forward_options: { strict_mode: true, max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: 'ok' }] },
+      { results: [{ index: 0, content: 'fine' }] },
+    ],
+  },
+  // A JSON object is not a label either: strict mode retries it.
+  'strict-mode-json-object-retry': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    forward_options: { strict_mode: true },
+    responses: [
+      { results: [{ index: 0, content: '{"answer":"ok"}' }] },
+      { results: [{ index: 0, content: 'Answer: ok' }] },
+    ],
+  },
+
+  // ----- functionCot (a provider feature) -----
+  // With functionCot and functions, leading unlabeled text (reasoning before
+  // a tool call) is not streamed as the answer.
+  'streaming-forward-function-cot-leading-text': {
+    signature: 'question:string -> answer:string',
+    features: { functions: true, function_cot: true },
+    tools: [lookupTool],
+    responses: [
+      streamed(
+        text('Let me '),
+        text('look that up. '),
+        chunk({
+          function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+          finish_reason: 'function_call',
+        })
+      ),
+      streamed(text('Answer: done'), done()),
     ],
   },
 };

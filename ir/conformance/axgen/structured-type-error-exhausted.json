@@ -1,0 +1,35 @@
+{
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Count' has an invalid value 'eight': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
+  "expected_request_count": 2,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "structured-type-error-exhausted",
+  "options": {
+    "max_retries": 1
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"count\":\"seven\",\"detail\":{\"note\":\"n\"}}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"count\":\"eight\",\"detail\":{\"note\":\"n\"}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> count:number, detail:object{ note:string }"
+}
