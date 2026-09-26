@@ -1,0 +1,92 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "The"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": " quick"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": " brown"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": " fox."
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "The quick brown fox."
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-control-completed",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: The ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "quick ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "brown ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "fox.",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

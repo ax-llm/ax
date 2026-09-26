@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AxMockAIService } from '../ai/mock/api.js';
+import type { AxChatResponse } from '../ai/types.js';
 import { flow } from '../flow/flow.js';
 import { runControl } from './runControl.js';
 import { ax } from './template.js';
@@ -66,5 +67,55 @@ describe('run control scopes and legacy services', () => {
       .returns((s) => ({ answer: s.secondResult.answer }));
     await wf.forward(llm, { question: 'hi' }, { control });
     expect(seen).toEqual(['root/first', 'root/second']);
+  });
+  it('reports a run the consumer stops early as aborted, not failed', async () => {
+    const streamedAI = () =>
+      new AxMockAIService({
+        features: { functions: false, streaming: true },
+        chatResponse: async () => {
+          const chunks = ['Answer: The ', 'quick ', 'brown ', 'fox.'];
+          return new ReadableStream<AxChatResponse>({
+            pull(controller) {
+              const content = chunks.shift();
+              if (content === undefined) {
+                controller.enqueue({
+                  results: [{ index: 0, content: '', finishReason: 'stop' }],
+                });
+                controller.close();
+              } else {
+                controller.enqueue({ results: [{ index: 0, content }] });
+              }
+            },
+          });
+        },
+      });
+    const lifecycle = async (stopAfter?: number) => {
+      const control = runControl();
+      const events: { type: string; path: string; error?: unknown }[] = [];
+      control.onEvent(({ type, path, error }) => {
+        events.push(
+          error === undefined ? { type, path } : { type, path, error }
+        );
+      });
+      let seen = 0;
+      for await (const _delta of ax('question -> answer').streamingForward(
+        streamedAI(),
+        { question: 'hi' },
+        { control }
+      )) {
+        seen++;
+        if (seen === stopAfter) break;
+      }
+      return events;
+    };
+
+    expect(await lifecycle(1)).toEqual([
+      { type: 'started', path: 'root' },
+      { type: 'aborted', path: 'root' },
+    ]);
+    expect(await lifecycle()).toEqual([
+      { type: 'started', path: 'root' },
+      { type: 'completed', path: 'root' },
+    ]);
   });
 });

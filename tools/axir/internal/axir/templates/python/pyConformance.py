@@ -1273,9 +1273,30 @@ def _run_streaming_forward(fixture):
     if "stop_functions" in fixture:
         gen.set_stop_functions(fixture.get("stop_functions") or [])
     client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"))
+    run_options = dict(fixture.get("forward_options") or {})
+    control_events = []
+    if fixture.get("control"):
+        from .session import run_control
+        control = run_control()
+        control.on_event(lambda event: control_events.append({"path": event.get("path"), "type": event.get("type")})
+            if event.get("type") in ("started", "completed", "failed", "aborted") else None)
+        run_options["control"] = control
     deltas = []
+    stop_after = fixture.get("stop_after_deltas")
     try:
-        output = gen._streaming_forward_with(client, fixture.get("input") or {}, fixture.get("forward_options") or {}, deltas.append)
+        if stop_after is not None:
+            # The consumer stops the public generator after stop_after deltas.
+            stream = gen.streaming_forward(client, fixture.get("input") or {}, {**run_options, "deltas": True})
+            try:
+                for delta in stream:
+                    deltas.append(delta)
+                    if len(deltas) == stop_after:
+                        break
+            finally:
+                stream.close()
+            output = None
+        else:
+            output = gen._streaming_forward_with(client, fixture.get("input") or {}, run_options, deltas.append)
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if not expected or expected not in str(exc):
@@ -1286,7 +1307,10 @@ def _run_streaming_forward(fixture):
         if "expected_error_contains" in fixture:
             raise FixtureError("expected streaming forward to fail")
         _assert_equal(deltas, fixture.get("expected_deltas") or [], "streaming deltas")
-        _assert_equal(output, fixture.get("expected_output"), "streaming output")
+        if stop_after is None:
+            _assert_equal(output, fixture.get("expected_output"), "streaming output")
+    if "expected_control_events" in fixture:
+        _assert_equal(control_events, fixture["expected_control_events"], "run control events")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
     if "expected_tool_calls" in fixture:

@@ -40,6 +40,10 @@ from .mcp import resolve_execution_context
 # AXIR_CORE_IMPORTS
 
 
+class _StreamingConsumerStopped(AxAIServiceAbortedError):
+    """The streaming_forward consumer stopped the run early."""
+
+
 def _call_optimizer_engine(engine, request: dict[str, Any], evaluator):
     try:
         return engine.optimize(request, evaluator)
@@ -624,18 +628,24 @@ class AxGen:
 
     def _streaming_deltas(self, client, values, options, hooks):
         # The forward runs in a worker thread and hands each delta to this
-        # generator; closing the generator stops the run.
+        # generator, then waits until the consumer asks for the next one, as
+        # TypeScript's async generator does. Closing the generator stops the
+        # run at that delta; with a run control it ends as aborted.
         import contextvars
         import queue
         import threading
 
         deliveries = queue.Queue()
+        resume = threading.Semaphore(0)
         stopped = threading.Event()
 
         def sink(envelope):
             if stopped.is_set():
-                raise AxAIServiceAbortedError("streaming consumer closed")
+                raise _StreamingConsumerStopped("streaming consumer closed")
             deliveries.put(("delta", copy.deepcopy(envelope)))
+            resume.acquire()
+            if stopped.is_set():
+                raise _StreamingConsumerStopped("streaming consumer closed")
 
         def run():
             try:
@@ -655,8 +665,11 @@ class AxGen:
                 if kind == "done":
                     return
                 yield item
+                resume.release()
         finally:
             stopped.set()
+            resume.release()
+            worker.join()
 
     def _streaming_forward_with(self, client, values, options, sink, hooks=None):
         # Runs the streaming forward, sending each {version, index, delta} to
