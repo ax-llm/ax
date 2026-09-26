@@ -455,24 +455,48 @@ public final class AxGen implements AxProgram {
     attributes.put("ax.streaming", true);
     AxGlobals.Scope scope = AxGlobals.openScope(AxRuntimeHooks.fromOptions(forwardOptions), runtimeHooks, "ax_gen_forward", "ax_gen_generation", attributes);
     try {
-      Map<String, Object> options = AxRuntimeHooks.strip(forwardOptions);
       java.util.function.Consumer<Object> emit = envelope -> sink.accept(Core.asMap(envelope));
-      Map<String, Object> input = values == null ? new LinkedHashMap<>() : values;
-      AxExecutionContext callContext = AxExecutionContext.resolve(options, executionContext);
-      if (callContext == executionContext) return Core.asMap(Core._streaming_forward_impl(this, client, input, options, emit));
-      AxGen call = callScoped(callContext, options);
-      try {
-        return Core.asMap(Core._streaming_forward_impl(call, client, input, new LinkedHashMap<>(), emit));
-      } finally {
-        chatLog.addAll(call.chatLog);
-        functionCallTraces.addAll(call.functionCallTraces);
-        traces.addAll(call.traces);
-      }
+      return streamingForwardUnscoped(client, values == null ? new LinkedHashMap<>() : values, AxRuntimeHooks.strip(forwardOptions), emit);
     } catch (RuntimeException | Error error) {
       scope.fail(error);
       throw error;
     } finally {
       scope.close();
+    }
+  }
+
+  private Map<String, Object> streamingForwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> options, java.util.function.Consumer<Object> emit) {
+    if (!(client instanceof SessionRun)) {
+      Map<String, Object> runOptions = new LinkedHashMap<>(this.options);
+      runOptions.putAll(options);
+      boolean controlled = runOptions.get("control") instanceof AxRunControl;
+      boolean sessionCapable = Core.truthy(Core.chat_session_mode_enabled(runOptions))
+          && (client instanceof ChatRunSelector || (client instanceof AxChatSession.Provider && Core.truthy(Core.get(Core.aiClientFeatures(client, runOptions.get("model")), "asyncTools", false))));
+      if (sessionCapable && (controlled || functions.stream().anyMatch(tool -> "background".equals(tool.execution)))) {
+        throw new UnsupportedOperationException("streaming_forward deltas do not cover async run sessions (control or background tools on a session-capable client) yet; use forward()");
+      }
+      // Run controls apply at each request boundary, as in forward().
+      if (controlled) {
+        SessionRun bounded = new SessionRun(this, client, null, runOptions);
+        try {
+          Map<String, Object> output = streamingForwardUnscoped(bounded, values, options, emit);
+          bounded.finish(null);
+          return output;
+        } catch (RuntimeException | Error error) {
+          bounded.finish(error);
+          throw error;
+        }
+      }
+    }
+    AxExecutionContext callContext = AxExecutionContext.resolve(options, executionContext);
+    if (callContext == executionContext) return Core.asMap(Core._streaming_forward_impl(this, client, values, options, emit));
+    AxGen call = callScoped(callContext, options);
+    try {
+      return Core.asMap(Core._streaming_forward_impl(call, client, values, new LinkedHashMap<>(), emit));
+    } finally {
+      chatLog.addAll(call.chatLog);
+      functionCallTraces.addAll(call.functionCallTraces);
+      traces.addAll(call.traces);
     }
   }
 

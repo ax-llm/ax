@@ -61,6 +61,8 @@ public final class AxProviderRouter implements AiClient,ChatRunSelector,AxChatSe
     public Map<String,Object> getFeatures(String model){return Core.asMap(Core.aiClientFeatures(client,model));}
     private Map<String,Object> request(Map<String,Object> request){return preprocess(Core.asMap(Core.aiClientFeatures(client,request.get("model"))),request,processing);}
     public Map<String,Object> complete(Map<String,Object> request)throws Exception{return Core.asMap(Core.aiCompleteOnce(client,request(request),options));}
+    // A streamed run reads the pinned provider's own stream, chunk by chunk.
+    @Override public AxChatStream openStream(Map<String,Object> request,Map<String,Object> callOptions,AxCancellationToken cancellation)throws Exception{return client.openStream(request(request),callOptions==null?options:callOptions,cancellation);}
     public AxChatSession openChatSession(Map<String,Object> request,Map<String,Object> options)throws Exception {
       if(!(client instanceof AxChatSession.Provider provider))throw new IllegalArgumentException("Selected provider does not support chat sessions");return provider.openChatSession(request(request),options);
     }

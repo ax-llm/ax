@@ -7,7 +7,7 @@ public interface AiClient {
   Map<String, Object> complete(Map<String, Object> request) throws Exception;
 
   default Map<String, Object> chat(Map<String, Object> request) throws Exception {
-    return Core.legacyResponseToChatResponse(complete(request));
+    return Core.completionToChatResponse(complete(request));
   }
 
   default Map<String, Object> chatWithCancellation(Map<String, Object> request, AxCancellationToken cancellation) throws Exception {

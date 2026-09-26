@@ -877,6 +877,51 @@ final class Core {
     if (raw.get("usage") != null) out.put("model_usage", Map.of("tokens", raw.get("usage")));
     return out;
   }
+  // A complete() answer as one chat response, for chat() and streams over a
+  // complete()-only client: function calls take the chat {id, type,
+  // function: {name, params}} shape and each result keeps its thought,
+  // thought blocks, images and phase. A completion with per-sample results
+  // (complete_once's shape) keeps every sample; a chat response passes
+  // through with its calls unchanged.
+  static Map<String, Object> completionToChatResponse(Map<String, Object> completion) {
+    boolean sampled = completion.get("results") instanceof List<?>;
+    List<Object> samples = sampled ? asList(completion.get("results")) : List.of(completion);
+    List<Object> results = new ArrayList<>();
+    for (int position = 0; position < samples.size(); position++) {
+      Map<String, Object> sample = asMap(samples.get(position));
+      Map<String, Object> result = new LinkedHashMap<>();
+      if (sampled) result.putAll(sample);
+      result.put("index", sample.containsKey("index") ? sample.get("index") : position);
+      result.put("content", sample.get("content") == null ? "" : sample.get("content"));
+      List<Object> calls = new ArrayList<>();
+      for (Object item : asList(sample.get("function_calls"))) {
+        Map<String, Object> call = asMap(item);
+        if (call.get("function") instanceof Map<?, ?>) {
+          calls.add(call);
+          continue;
+        }
+        Map<String, Object> function = new LinkedHashMap<>();
+        function.put("name", call.get("name"));
+        function.put("params", call.get("params"));
+        Map<String, Object> chatCall = new LinkedHashMap<>();
+        chatCall.put("id", call.get("id"));
+        chatCall.put("type", "function");
+        chatCall.put("function", function);
+        calls.add(chatCall);
+      }
+      result.put("function_calls", calls);
+      for (String key : List.of("thought", "thought_blocks", "images", "phase")) if (sample.get(key) != null) result.put(key, sample.get(key));
+      Object finish = sample.get("finish_reason");
+      result.put("finish_reason", finish != null ? finish : calls.isEmpty() ? "stop" : "function_call");
+      results.add(result);
+    }
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("results", results);
+    if (completion.get("model_usage") != null) out.put("model_usage", completion.get("model_usage"));
+    else if (completion.get("usage") != null) out.put("model_usage", Map.of("tokens", completion.get("usage")));
+    if (completion.get("remote_id") != null) out.put("remote_id", completion.get("remote_id"));
+    return out;
+  }
   static Map<String, Object> coerceChatRequest(Map<String, Object> request) {
     if (request.containsKey("chat_prompt")) return new LinkedHashMap<>(request);
     if (request.containsKey("chatPrompt")) { Map<String, Object> out = new LinkedHashMap<>(request); out.put("chat_prompt", out.remove("chatPrompt")); return out; }
