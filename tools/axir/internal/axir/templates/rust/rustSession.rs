@@ -961,9 +961,10 @@ mod tests {
         fn send(&mut self,request:Value)->AxResult<Value>{
             let body=request["json"].to_string();let gate=&self.0;gate.started.fetch_add(1,Ordering::SeqCst);gate.all.notify_all();
             let lock=gate.lock.lock().unwrap();let (guard,timeout)=gate.all.wait_timeout_while(lock,Duration::from_secs(3),|_|gate.started.load(Ordering::SeqCst)<3).unwrap();drop(guard);if timeout.timed_out(){return Err(AxError::runtime("Independent nodes did not overlap"));}
-            let content=if body.contains("lateAnswer") {let start=Instant::now();while !gate.release.load(Ordering::SeqCst)&&start.elapsed()<Duration::from_secs(3){std::thread::sleep(Duration::from_millis(1));}assert!(gate.release.load(Ordering::SeqCst));gate.late.store(true,Ordering::SeqCst);json!({"lateAnswer":"LATE"})}
-            else if body.contains("failAnswer"){let start=Instant::now();while !gate.fast.load(Ordering::SeqCst)&&start.elapsed()<Duration::from_secs(3){std::thread::sleep(Duration::from_millis(1));}assert!(gate.fast.load(Ordering::SeqCst));json!({"wrong":"invalid"})}else{json!({"fastAnswer":"DONE"})};
-            Ok(json!({"status":200,"json":{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":content.to_string()},"finish_reason":"stop"}]}}))
+            let content=if body.contains("lateAnswer") {let start=Instant::now();while !gate.release.load(Ordering::SeqCst)&&start.elapsed()<Duration::from_secs(3){std::thread::sleep(Duration::from_millis(1));}assert!(gate.release.load(Ordering::SeqCst));gate.late.store(true,Ordering::SeqCst);json!({"lateAnswer":"LATE"}).to_string()}
+            // The failing node leaves its required field empty, which fails validation.
+            else if body.contains("failAnswer"){let start=Instant::now();while !gate.fast.load(Ordering::SeqCst)&&start.elapsed()<Duration::from_secs(3){std::thread::sleep(Duration::from_millis(1));}assert!(gate.fast.load(Ordering::SeqCst));"Fail Answer:".to_string()}else{json!({"fastAnswer":"DONE"}).to_string()};
+            Ok(json!({"status":200,"json":{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":content},"finish_reason":"stop"}]}}))
         }
     }
     #[test]
