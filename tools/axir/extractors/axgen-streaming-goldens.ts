@@ -1450,6 +1450,24 @@ const cases: Record<string, Case> = {
       streamed(text('Answer: o'), done('k')),
     ],
   },
+  // strictMode given to the AxGen constructor applies unless the call
+  // overrides it.
+  'strict-mode-constructor-retry': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    options: { strict_mode: true },
+    responses: [
+      { results: [{ index: 0, content: 'ok' }] },
+      { results: [{ index: 0, content: 'Answer: ok' }] },
+    ],
+  },
+  'strict-mode-call-overrides-constructor': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    options: { strict_mode: true },
+    forward_options: { strict_mode: false },
+    responses: [{ results: [{ index: 0, content: 'ok' }] }],
+  },
   // The first required field is the one strict mode asks for.
   'strict-mode-first-required-exhausted': {
     kind: 'forward',

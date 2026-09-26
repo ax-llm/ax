@@ -1395,7 +1395,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     const signatureToolCallingManager = this.signatureToolCallingManager;
 
-    const strictMode = options?.strictMode ?? false;
+    const strictMode = options?.strictMode ?? this.options?.strictMode ?? false;
     const model = options.model;
     const usage = this.usage;
     const firstStep = stepIndex === 0;

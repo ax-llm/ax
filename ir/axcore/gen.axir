@@ -746,7 +746,7 @@ module @ax.gen version "0.1" {
       // With no structured rung the answer uses the `Label: value` text
       // contract.
       %text_contract = core.call intrinsic.is_none(%selected_rung)
-      %strict_mode = core.call @strict_mode_option_impl(%options)
+      %strict_mode = core.call @strict_mode_option_impl(%base_options, %options)
       %input_fields = core.get %signature["input_fields"]
       core.call @validate_fields(%input_fields, %values, "input")
       %prompt_template = core.get %gen["prompt_template"]
@@ -1967,7 +1967,7 @@ module @ax.gen version "0.1" {
       core.set %config["strict_json"] = %strict_json
       core.set %config["parse_json_strings"] = %parse_json_strings
       core.set %config["thought_field"] = %thought_field
-      %strict_mode = core.call @strict_mode_option_impl(%options)
+      %strict_mode = core.call @strict_mode_option_impl(%base_options, %options)
       core.set %config["strict_mode"] = %strict_mode
       // processStreamingResponse: with functionCot and functions, text before
       // a tool call is reasoning, so it neither assumes nor requires a field.
@@ -2587,14 +2587,16 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "src/ax/dsp/generate.ts"
-    type signature = "(json) -> bool"
-    body @entry(%options: json) {
-      // TS reads strictMode from the forward call's options only; a value
-      // given to the AxGen constructor has no effect.
+    type signature = "(json, json) -> bool"
+    body @entry(%base_options: json, %options: json) {
+      // strictMode from the forward call, else from the AxGen constructor.
       %empty = core.map
       %call_options = core.call intrinsic.map.merge(%empty, %options)
-      %strict_snake = core.get %call_options["strict_mode"] default false
-      %strict = core.get %call_options["strictMode"] default %strict_snake
+      %gen_options = core.call intrinsic.map.merge(%empty, %base_options)
+      %gen_snake = core.get %gen_options["strict_mode"] default false
+      %gen_strict = core.get %gen_options["strictMode"] default %gen_snake
+      %call_snake = core.get %call_options["strict_mode"] default %gen_strict
+      %strict = core.get %call_options["strictMode"] default %call_snake
       %strict_mode = core.call intrinsic.truthy(%strict)
       core.return %strict_mode
     }
