@@ -283,6 +283,25 @@
         ]
       }
     },
+    "ax": {
+      "streaming": {
+        "sourcePath": "src/examples/go/generation/streaming_forward.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "story := ax.NewAx(`topic:string -> title:string, story:string \"Three short sentences\"`, nil)",
+          "for delta, err := range story.StreamingForward(ctx, client, values, nil) {",
+          "\tif err != nil {",
+          "\t\tpanic(err)",
+          "\t}",
+          "\t// delta.Version changes when a retry starts the output over.",
+          "\tif text, ok := delta.Delta[\"story\"].(string); ok {",
+          "\t\tfmt.Print(text)",
+          "\t}",
+          "}"
+        ]
+      }
+    },
     "signatures": {
       "string": {
         "sourcePath": "src/examples/go/generation/basic_generation.go",

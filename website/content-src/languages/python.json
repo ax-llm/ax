@@ -269,6 +269,23 @@
         ]
       }
     },
+    "ax": {
+      "streaming": {
+        "sourcePath": "src/examples/python/generation/streaming-deltas.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "story = ax('topic:string -> title:string, story:string \"Three short sentences\"')",
+          "",
+          "merged, version = {}, 0",
+          "for delta in story.streaming_forward(client, {\"topic\": topic}, {\"deltas\": True}):",
+          "    if delta[\"version\"] != version:  # a retry starts over",
+          "        merged, version = {}, delta[\"version\"]",
+          "    for field, value in delta[\"delta\"].items():",
+          "        merged[field] = merged.get(field, \"\") + value if isinstance(value, str) else value"
+        ]
+      }
+    },
     "signatures": {
       "string": {
         "sourcePath": "src/examples/python/generation/axgen-openai.py",
