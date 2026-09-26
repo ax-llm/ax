@@ -30,7 +30,7 @@ int main() {
   auto qa = axllm::ax("query:string -> answer:string")
       .add_tool(search)
       .add_assert(axllm::object({{"field", "answer"}, {"contains", "Ax"}, {"message", "answer should mention Ax"}}))
-      .add_field_processor("answer", "trim");
+      .add_field_transform("answer", "trim");
   ScriptedClient client;
   axllm::Value out = qa.forward(client, axllm::object({{"query", "ax docs"}}));
   if (!axllm::equal(axllm::Core::get(out, "answer"), "Found Ax docs")) return 1;

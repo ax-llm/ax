@@ -73,6 +73,7 @@ if(AX_BUILD_EXAMPLES)
     signature_schema
     model_catalog
     axgen_scripted_client_tool
+    axgen_streaming_no_key
     axgen_openai_api
     vertex_gemini_api
     provider_mapping_no_key
