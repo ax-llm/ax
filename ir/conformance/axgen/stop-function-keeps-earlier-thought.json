@@ -1,0 +1,89 @@
+{
+  "expected_output": {
+    "thought": "Look it up"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "stop-function-keeps-earlier-thought",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": {
+                  "key": "a"
+                }
+              },
+              "id": "call_1",
+              "type": "function"
+            }
+          ],
+          "index": 0,
+          "thought": "Look it up"
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "search",
+                "params": {
+                  "query": "ax docs"
+                }
+              },
+              "id": "call_2",
+              "type": "function"
+            }
+          ],
+          "index": 0,
+          "thought": "Stop here"
+        }
+      ]
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "stop_functions": ["search"],
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "min": 1,
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "answer": "Found directly"
+      },
+      "returns": {
+        "answer": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

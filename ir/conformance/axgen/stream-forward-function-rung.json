@@ -1,0 +1,70 @@
+{
+  "expected_output": {
+    "user": {
+      "name": "Ada"
+    }
+  },
+  "expected_request": {
+    "model_config": {
+      "stream": true
+    }
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "forward_options": {
+    "stream": true
+  },
+  "input": {
+    "question": "Who?"
+  },
+  "kind": "forward",
+  "name": "stream-forward-function-rung",
+  "options": {
+    "structured_output_mode": "function"
+  },
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "__axOutput",
+                    "params": "{\"user\":{\"name\":"
+                  },
+                  "id": "output_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "",
+                    "params": "\"Ada\"}}"
+                  },
+                  "id": "output_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string}"
+}

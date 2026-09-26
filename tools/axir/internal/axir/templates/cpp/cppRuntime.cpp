@@ -1359,6 +1359,14 @@ Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
   AIClient* registered = registered_client(id);
   if (registered == nullptr) throw AxError("runtime", "client does not implement AIClient");
+  // As in TS, a streamed forward folds the stream's chunks into one response.
+  if (truthy(get(get(request, "model_config", Value::object()), "stream", false))) {
+    if (auto* service = dynamic_cast<AxAIService*>(registered)) {
+      Value events = Value::array();
+      for (const auto& event : service->stream(request, options)) append(events, event);
+      return chat_response_to_completion(fold_chat_response_stream(events));
+    }
+  }
   return chat_response_to_completion(registered->chat(request, options));
 }
 Value Core::ai_client_features(Value client, Value model) {
@@ -7270,7 +7278,6 @@ static Value merge_service_features_cpp(const std::vector<std::shared_ptr<AxAISe
   bool all_require_schema = !services.empty();
   for (const auto& service : services) { Value raw = service->get_features(model); all_require_schema = all_require_schema && Core::truthy(Core::get(raw, "requiresStructuredOutput", Core::get(raw, "requires_structured_output", false))); }
   if (all_require_schema) Core::set(features, "requiresStructuredOutput", true);
-  for (const auto& service : services) { Value raw = service->get_features(model); Value format_beside_tools = Core::get(raw, "responseFormatWithFunctions", Core::get(raw, "response_format_with_functions")); if (!format_beside_tools.is_null() && !Core::truthy(format_beside_tools)) Core::set(features, "responseFormatWithFunctions", false); }
   Value structured_output_modes = Value::array();
   bool all_modes_advertised = !services.empty();
   for (const auto& service : services) {

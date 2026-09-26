@@ -185,22 +185,6 @@ describe('AxBalancer', () => {
     ).toBeUndefined();
   });
 
-  test('keeps a service that cannot combine a response format with functions', () => {
-    const capable = createMockService({ features: { functions: true } });
-    const limited = createMockService({
-      features: { functions: true, responseFormatWithFunctions: false },
-    });
-
-    expect(
-      new AxBalancer([capable, limited]).getFeatures('fixture-model')
-        .responseFormatWithFunctions
-    ).toBe(false);
-    expect(
-      new AxBalancer([capable, capable]).getFeatures('fixture-model')
-        .responseFormatWithFunctions
-    ).toBeUndefined();
-  });
-
   test('first service works', async () => {
     let calledService: number | undefined;
     const services: AxAIService[] = [

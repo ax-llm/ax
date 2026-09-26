@@ -1,0 +1,24 @@
+{
+  "expected_output": {
+    "answer": "ok",
+    "thought": "Thinking it over"
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "thought-output-text-contract",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: ok",
+          "finish_reason": "stop",
+          "index": 0,
+          "thought": "Thinking it over"
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

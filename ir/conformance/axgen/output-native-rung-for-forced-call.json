@@ -4,31 +4,18 @@
       "answer": "Found Ax docs"
     }
   },
-  "expected_request_count": 2,
-  "expected_request_not_contains": ["response_format"],
-  "expected_step_requests": [
-    {
-      "function_names": ["search"],
-      "index": 0,
-      "request": {
-        "function_call": "required",
-        "function_call_source": "caller"
+  "expected_request": {
+    "provider_metadata": {
+      "ax": {
+        "structured_output_rung": "native"
       }
     },
-    {
-      "function_names": ["__axOutput"],
-      "index": 1,
-      "request": {
-        "function_call": {
-          "function": {
-            "name": "__axOutput"
-          },
-          "type": "function"
-        },
-        "function_call_source": "ax"
-      }
+    "response_format": {
+      "type": "json_schema"
     }
-  ],
+  },
+  "expected_request_count": 2,
+  "expected_request_not_contains": ["__axOutput"],
   "expected_tool_calls": [
     {
       "args": {
@@ -39,18 +26,22 @@
   ],
   "features": {
     "functions": true,
-    "response_format_with_functions": false,
     "structured_output_modes": ["native", "function"],
     "structured_outputs": true
   },
   "forward_options": {
-    "function_call": "required"
+    "function_call": {
+      "function": {
+        "name": "search"
+      },
+      "type": "function"
+    }
   },
   "input": {
     "query": "ax docs"
   },
   "kind": "forward",
-  "name": "output-function-rung-for-required-call",
+  "name": "output-native-rung-for-forced-call",
   "responses": [
     {
       "content": "",
@@ -65,18 +56,7 @@
       ]
     },
     {
-      "content": "",
-      "function_calls": [
-        {
-          "id": "output_1",
-          "name": "__axOutput",
-          "params": {
-            "summary": {
-              "answer": "Found Ax docs"
-            }
-          }
-        }
-      ]
+      "content": "{\"summary\":{\"answer\":\"Found Ax docs\"}}"
     }
   ],
   "signature_spec": {

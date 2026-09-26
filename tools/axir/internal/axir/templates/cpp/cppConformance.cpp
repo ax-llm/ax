@@ -66,6 +66,25 @@ struct ConformanceScriptedAI : AxBaseAI {
     return Core::legacy_response_to_chat_response(out);
   }
 
+  // A scripted {"stream": [...]} response streams its chunks; any other
+  // response streams as one chunk.
+  using AxBaseAI::stream;
+  std::vector<Value> stream(Value request, Value options) override {
+    if (!responses.empty()) {
+      Value chunks = Core::get(responses.front(), "stream");
+      if (!chunks.is_null()) {
+        ++chat_calls;
+        requests.push_back(request);
+        chat_options.push_back(options);
+        responses.erase(responses.begin());
+        std::vector<Value> events;
+        for (const auto& chunk : Core::iter(chunks)) events.push_back(Core::legacy_response_to_chat_response(chunk));
+        return events;
+      }
+    }
+    return {do_chat(std::move(request), std::move(options))};
+  }
+
   Value do_embed(Value request, Value options) override {
     requests.push_back(request);
     chat_options.push_back(options);

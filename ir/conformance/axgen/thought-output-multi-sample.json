@@ -1,0 +1,34 @@
+{
+  "expected_output": {
+    "answer": "one",
+    "thought": "Sample one"
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "thought-output-multi-sample",
+  "options": {
+    "sampleCount": 2
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: zero",
+          "finish_reason": "stop",
+          "index": 0,
+          "thought": "Sample zero"
+        },
+        {
+          "content": "Answer: one",
+          "finish_reason": "stop",
+          "index": 1,
+          "thought": "Sample one"
+        }
+      ]
+    }
+  ],
+  "result_picker_index": 1,
+  "signature": "question:string -> answer:string"
+}

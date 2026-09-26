@@ -132,19 +132,23 @@ writeFixture('trace-capture', {
   expected_request_count: 1,
 });
 
-writeFixture('stop-function-tool-output', {
+// As in TS, a user stop function ends the forward without an answer: the
+// tool still runs, but its result is not the output, and neither is any
+// content or the stop step's thought. Earlier steps' thought is kept. The
+// outputs match a TS AxMockAIService probe.
+const stopSearchTool = {
+  name: 'search',
+  description: 'Search docs',
+  args: { query: { type: 'string', min: 1 } },
+  returns: { answer: { type: 'string' } },
+  result: { answer: 'Found directly' },
+};
+
+writeFixture('stop-function-empty-output', {
   kind: 'forward',
   signature: 'query:string -> answer:string',
   input: { query: 'ax docs' },
-  tools: [
-    {
-      name: 'search',
-      description: 'Search docs',
-      args: { query: { type: 'string', min: 1 } },
-      returns: { answer: { type: 'string' } },
-      result: { answer: 'Found directly' },
-    },
-  ],
+  tools: [stopSearchTool],
   stop_functions: ['search'],
   responses: [
     {
@@ -154,9 +158,63 @@ writeFixture('stop-function-tool-output', {
       ],
     },
   ],
-  expected_output: { answer: 'Found directly' },
+  expected_output: {},
   expected_tool_calls: [{ name: 'search', args: { query: 'ax docs' } }],
   expected_request_count: 1,
+});
+
+writeFixture('stop-function-keeps-earlier-thought', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string',
+  input: { query: 'ax docs' },
+  tools: [
+    stopSearchTool,
+    {
+      name: 'lookup',
+      description: 'Look up a key',
+      args: { key: { type: 'string' } },
+      result: 'status is green',
+    },
+  ],
+  stop_functions: ['search'],
+  responses: [
+    {
+      results: [
+        {
+          index: 0,
+          content: '',
+          thought: 'Look it up',
+          function_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'lookup', params: { key: 'a' } },
+            },
+          ],
+          finish_reason: 'function_call',
+        },
+      ],
+    },
+    {
+      results: [
+        {
+          index: 0,
+          content: '',
+          thought: 'Stop here',
+          function_calls: [
+            {
+              id: 'call_2',
+              type: 'function',
+              function: { name: 'search', params: { query: 'ax docs' } },
+            },
+          ],
+          finish_reason: 'function_call',
+        },
+      ],
+    },
+  ],
+  expected_output: { thought: 'Look it up' },
+  expected_request_count: 2,
 });
 
 writeFixture('cache-field-prompt-rendering', {
@@ -461,7 +519,11 @@ writeFixture('thoughts-in-chat-log', {
       model_usage: { tokens: { total_tokens: 17 } },
     },
   ],
-  expected_output: { answer: 'kept' },
+  // As in TS, the response's thought is also a forward output.
+  expected_output: {
+    answer: 'kept',
+    thought: 'I should preserve this summary.',
+  },
   expected_chat_log_subset: [
     {
       thought: 'I should preserve this summary.',
@@ -661,6 +723,301 @@ writeFixture('structured-output-retry-assertion', {
   expected_request_count: 2,
 });
 
+// As in TS, a response's non-empty thought becomes a forward output under the
+// thought field (default `thought`, renamed by the constructor's
+// thought_field_name) on every rung. The output thought joins each tool
+// step's thought in order, and a validation retry starts it over. The outputs
+// match a TS AxMockAIService probe.
+const thoughtResult = (
+  content: string,
+  thought?: string,
+  index = 0
+): Record<string, Json> => ({
+  index,
+  content,
+  ...(thought === undefined ? {} : { thought }),
+  finish_reason: 'stop',
+});
+const thoughtText = (content: string, thought?: string) => ({
+  results: [thoughtResult(content, thought)],
+});
+const thoughtCall = (
+  id: string,
+  name: string,
+  params: Record<string, Json>,
+  thought?: string
+) => ({
+  results: [
+    {
+      index: 0,
+      content: '',
+      ...(thought === undefined ? {} : { thought }),
+      function_calls: [{ id, type: 'function', function: { name, params } }],
+      finish_reason: 'function_call',
+    },
+  ],
+});
+const lookupTool = {
+  name: 'lookup',
+  description: 'Look up a key',
+  args: { key: { type: 'string' } },
+  result: 'status is green',
+};
+
+for (const [name, source] of Object.entries({
+  'thought-output-text-contract': {
+    responses: [thoughtText('Answer: ok', 'Thinking it over')],
+    expected_output: { answer: 'ok', thought: 'Thinking it over' },
+  },
+  'thought-output-absent': {
+    responses: [thoughtText('Answer: ok')],
+    expected_output: { answer: 'ok' },
+  },
+  'thought-output-empty-omitted': {
+    responses: [thoughtText('Answer: ok', '')],
+    expected_output: { answer: 'ok' },
+  },
+  'thought-output-renamed-field': {
+    options: { thought_field_name: 'reasoning' },
+    responses: [thoughtText('Answer: ok', 'Thinking it over')],
+    expected_output: { answer: 'ok', reasoning: 'Thinking it over' },
+  },
+  'thought-output-joins-tool-steps': {
+    tools: [lookupTool],
+    responses: [
+      thoughtCall('call_1', 'lookup', { key: 'a' }, 'First '),
+      thoughtCall('call_2', 'lookup', { key: 'b' }),
+      thoughtText('Answer: ok', 'then answer'),
+    ],
+    expected_output: { answer: 'ok', thought: 'First then answer' },
+  },
+  'thought-output-from-tool-step-only': {
+    tools: [lookupTool],
+    responses: [
+      thoughtCall('call_1', 'lookup', { key: 'a' }, 'Look it up'),
+      thoughtText('Answer: ok'),
+    ],
+    expected_output: { answer: 'ok', thought: 'Look it up' },
+  },
+})) {
+  writeFixture(name, {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    input: { question: 'Status?' },
+    ...source,
+  });
+}
+
+writeFixture('thought-output-validation-retry-starts-over', {
+  kind: 'forward',
+  signature: 'question:string -> answer:number',
+  input: { question: 'Status?' },
+  tools: [lookupTool],
+  responses: [
+    thoughtCall('call_1', 'lookup', { key: 'a' }, 'Look it up'),
+    thoughtText('{"answer":"not a number"}', 'Wrong guess'),
+    thoughtText('Answer: 4', 'Fixed it'),
+  ],
+  expected_output: { answer: 4, thought: 'Fixed it' },
+  expected_request_count: 3,
+});
+
+writeFixture('thought-output-native-json', {
+  kind: 'forward',
+  signature: 'question:string -> user:object{name:string}',
+  input: { question: 'Who?' },
+  features: { functions: true, structured_outputs: true },
+  responses: [thoughtText('{"user":{"name":"Ada"}}', 'Native thought')],
+  expected_output: { user: { name: 'Ada' }, thought: 'Native thought' },
+  expected_request: {
+    provider_metadata: { ax: { structured_output_rung: 'native' } },
+  },
+});
+
+writeFixture('thought-output-json-object', {
+  kind: 'forward',
+  signature: 'question:string -> user:object{name:string}',
+  input: { question: 'Who?' },
+  features: {
+    functions: true,
+    structured_outputs: false,
+    structured_output_modes: ['json_object'],
+  },
+  responses: [thoughtText('{"user":{"name":"Ada"}}', 'JSON thought')],
+  expected_output: { user: { name: 'Ada' }, thought: 'JSON thought' },
+  expected_request: {
+    provider_metadata: { ax: { structured_output_rung: 'json_object' } },
+  },
+});
+
+writeFixture('thought-output-function-rung', {
+  kind: 'forward',
+  signature: 'question:string -> user:object{name:string}',
+  input: { question: 'Who?' },
+  options: { structured_output_mode: 'function' },
+  features: { functions: true, structured_outputs: false },
+  tools: [lookupTool],
+  responses: [
+    thoughtCall('call_1', 'lookup', { key: 'a' }, 'Look it up. '),
+    thoughtCall('output_1', '__axOutput', { user: { name: 'Ada' } }, 'Done.'),
+  ],
+  expected_output: { user: { name: 'Ada' }, thought: 'Look it up. Done.' },
+  expected_request_count: 2,
+});
+
+writeFixture('thought-output-multi-sample', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  options: { sampleCount: 2 },
+  result_picker_index: 1,
+  responses: [
+    {
+      results: [
+        thoughtResult('Answer: zero', 'Sample zero', 0),
+        thoughtResult('Answer: one', 'Sample one', 1),
+      ],
+    },
+  ],
+  expected_output: { answer: 'one', thought: 'Sample one' },
+});
+
+// As in TS, a forward with stream: true streams the model's response and folds
+// its chunks into one answer: content and thought append, and function-call
+// fragments merge by id. The outputs match a non-streaming forward and a TS
+// AxMockAIService probe with the same chunk scripts.
+const chunk = (fields: Record<string, Json>) => ({
+  results: [{ index: 0, ...fields }],
+});
+const streamed = (...chunks: Record<string, Json>[]) => ({ stream: chunks });
+const streamRequest = { model_config: { stream: true } };
+
+writeFixture('stream-forward-text-contract', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  forward_options: { stream: true },
+  responses: [
+    streamed(
+      chunk({ content: 'Answer: ' }),
+      chunk({ content: 'ok', finish_reason: 'stop' })
+    ),
+  ],
+  expected_output: { answer: 'ok' },
+  expected_request: streamRequest,
+  expected_request_count: 1,
+});
+
+writeFixture('stream-forward-thought-chunks', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  forward_options: { stream: true, show_thoughts: true },
+  responses: [
+    streamed(
+      chunk({ thought: 'Think ' }),
+      chunk({ thought: 'more' }),
+      chunk({ content: 'Answer: ok', finish_reason: 'stop' })
+    ),
+  ],
+  expected_output: { answer: 'ok', thought: 'Think more' },
+  expected_request: streamRequest,
+  expected_request_count: 1,
+});
+
+writeFixture('stream-forward-native-json', {
+  kind: 'forward',
+  signature: 'question:string -> user:object{name:string}',
+  input: { question: 'Who?' },
+  features: { functions: true, structured_outputs: true },
+  forward_options: { stream: true },
+  responses: [
+    streamed(
+      chunk({ content: '{"user":{"na' }),
+      chunk({ content: 'me":"Ada"}}', finish_reason: 'stop' })
+    ),
+  ],
+  expected_output: { user: { name: 'Ada' } },
+  expected_request: streamRequest,
+  expected_request_count: 1,
+});
+
+writeFixture('stream-forward-tool-loop', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  tools: [lookupTool],
+  forward_options: { stream: true, show_thoughts: true },
+  responses: [
+    streamed(
+      chunk({ thought: 'Look ' }),
+      chunk({
+        thought: 'up. ',
+        function_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'lookup', params: '{"key":' },
+          },
+        ],
+      }),
+      chunk({
+        function_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: { name: '', params: '"a"}' },
+          },
+        ],
+        finish_reason: 'function_call',
+      })
+    ),
+    streamed(
+      chunk({ thought: 'Answer.' }),
+      chunk({ content: 'Answer: ok', finish_reason: 'stop' })
+    ),
+  ],
+  expected_output: { answer: 'ok', thought: 'Look up. Answer.' },
+  expected_tool_calls: [{ name: 'lookup', args: { key: 'a' } }],
+  expected_request: streamRequest,
+  expected_request_count: 2,
+});
+
+writeFixture('stream-forward-function-rung', {
+  kind: 'forward',
+  signature: 'question:string -> user:object{name:string}',
+  input: { question: 'Who?' },
+  options: { structured_output_mode: 'function' },
+  features: { functions: true, structured_outputs: false },
+  forward_options: { stream: true },
+  responses: [
+    streamed(
+      chunk({
+        function_calls: [
+          {
+            id: 'output_1',
+            type: 'function',
+            function: { name: '__axOutput', params: '{"user":{"name":' },
+          },
+        ],
+      }),
+      chunk({
+        function_calls: [
+          {
+            id: 'output_1',
+            type: 'function',
+            function: { name: '', params: '"Ada"}}' },
+          },
+        ],
+        finish_reason: 'function_call',
+      })
+    ),
+  ],
+  expected_output: { user: { name: 'Ada' } },
+  expected_request: streamRequest,
+  expected_request_count: 1,
+});
+
 writeFixture('field-processor-memory-write', {
   kind: 'forward',
   signature: 'question:string -> answer:string',
@@ -754,7 +1111,9 @@ writeFixture('reasoning-tool-loop-replay', {
       ],
     },
   ],
-  expected_output: { answer: '42' },
+  // TS joins each step's thought into the output thought; the answering
+  // step has none here, so the tool step's thought is the output thought.
+  expected_output: { answer: '42', thought: 'Use the warehouse search tool.' },
   expected_request_contains: [
     'Use the warehouse search tool.',
     'thought_blocks',
@@ -1129,14 +1488,15 @@ for (const [name, choice] of Object.entries({
   });
 }
 
-// Gemini reports responseFormatWithFunctions: false, so TS auto mode answers
-// through __axOutput while user tools stay callable or are forced. 'none',
-// prompt emulation, an explicit mode and tool-less programs keep their rung.
-const noJsonBesideTools = {
+// Beside native tools, TS auto keeps the rung it picks without them, for
+// every provider and for forced calls too: a provider that verifies both
+// native JSON and the function rung, as Gemini does, still gets native JSON.
+// structured_output_mode 'function' is the opt-in to answer through
+// __axOutput beside tools.
+const nativeAndFunctionRungs = {
   functions: true,
   structured_outputs: true,
   structured_output_modes: ['native', 'function'],
-  response_format_with_functions: false,
 };
 const summarySpec = {
   inputs: { query: { type: 'string' } },
@@ -1144,103 +1504,35 @@ const summarySpec = {
     summary: { type: 'object', fields: { answer: { type: 'string' } } },
   },
 };
-const summaryOutputCall = {
-  content: '',
-  function_calls: [
-    {
-      id: 'output_1',
-      name: '__axOutput',
-      params: { summary: { answer: 'Found Ax docs' } },
-    },
-  ],
-};
-
-writeFixture('output-function-rung-beside-callable-tools', {
-  kind: 'forward',
-  signature_spec: summarySpec,
-  input: { query: 'ax docs' },
-  features: noJsonBesideTools,
-  tools: [searchTool],
-  responses: [searchCall('call_1'), summaryOutputCall],
-  expected_output: { summary: { answer: 'Found Ax docs' } },
-  expected_step_requests: [
-    {
-      index: 0,
-      request: { function_call: 'auto' },
-      function_names: ['search', '__axOutput'],
-    },
-    {
-      index: 1,
-      request: { function_call: 'auto' },
-      function_names: ['search', '__axOutput'],
-    },
-  ],
-  expected_request_not_contains: ['response_format'],
-  expected_tool_calls: [searchRecord],
-  expected_request_count: 2,
-});
-
-// Gemini also rejects forced (ANY mode) calling beside a JSON response format.
-for (const [name, choice] of Object.entries({
-  'output-function-rung-for-forced-call': forceSearch,
-  'output-function-rung-for-required-call': 'required',
-})) {
-  writeFixture(name, {
-    kind: 'forward',
-    signature_spec: summarySpec,
-    input: { query: 'ax docs' },
-    features: noJsonBesideTools,
-    forward_options: { function_call: choice },
-    tools: [searchTool],
-    responses: [searchCall('call_1'), summaryOutputCall],
-    expected_output: { summary: { answer: 'Found Ax docs' } },
-    expected_step_requests: [
-      {
-        index: 0,
-        request: { function_call: choice, function_call_source: 'caller' },
-        function_names: ['search'],
-      },
-      {
-        index: 1,
-        request: { function_call: forceOutput, function_call_source: 'ax' },
-        function_names: ['__axOutput'],
-      },
-    ],
-    expected_request_not_contains: ['response_format'],
-    expected_tool_calls: [searchRecord],
-    expected_request_count: 2,
-  });
-}
 
 for (const [name, source] of Object.entries({
-  'output-function-rung-skipped-for-none': {
-    forward_options: { function_call: 'none' },
-    tools: [searchTool],
+  'output-native-rung-beside-callable-tools': {},
+  'output-native-rung-for-forced-call': {
+    forward_options: { function_call: forceSearch },
   },
-  'output-function-rung-skipped-for-prompt-mode': {
-    forward_options: { function_call_mode: 'prompt' },
-    tools: [searchTool],
+  'output-native-rung-for-required-call': {
+    forward_options: { function_call: 'required' },
   },
-  'output-function-rung-skipped-for-explicit-native': {
-    options: { structured_output_mode: 'native' },
-    tools: [searchTool],
-  },
-  'output-function-rung-skipped-without-tools': {},
 })) {
   writeFixture(name, {
     kind: 'forward',
     signature_spec: summarySpec,
     input: { query: 'ax docs' },
-    features: noJsonBesideTools,
+    features: nativeAndFunctionRungs,
+    tools: [searchTool],
     ...source,
-    responses: [{ content: '{"summary":{"answer":"Found Ax docs"}}' }],
+    responses: [
+      searchCall('call_1'),
+      { content: '{"summary":{"answer":"Found Ax docs"}}' },
+    ],
     expected_output: { summary: { answer: 'Found Ax docs' } },
     expected_request: {
       response_format: { type: 'json_schema' },
       provider_metadata: { ax: { structured_output_rung: 'native' } },
     },
     expected_request_not_contains: ['__axOutput'],
-    expected_request_count: 1,
+    expected_tool_calls: [searchRecord],
+    expected_request_count: 2,
   });
 }
 

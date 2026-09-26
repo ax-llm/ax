@@ -1,0 +1,49 @@
+{
+  "expected_output": {
+    "user": {
+      "name": "Ada"
+    }
+  },
+  "expected_request": {
+    "model_config": {
+      "stream": true
+    }
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "forward_options": {
+    "stream": true
+  },
+  "input": {
+    "question": "Who?"
+  },
+  "kind": "forward",
+  "name": "stream-forward-native-json",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "{\"user\":{\"na",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "me\":\"Ada\"}}",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string}"
+}

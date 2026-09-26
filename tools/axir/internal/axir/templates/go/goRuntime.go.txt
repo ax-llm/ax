@@ -1409,6 +1409,18 @@ func _core_program_apply_components(program Value, componentMap Value) Value {
 }
 func _core_ai_complete_once(client Value, request Value, options Value) (Value, error) {
 	if c, ok := client.(AIClient); ok {
+		// As in TS, a streamed forward folds the stream's chunks into one response.
+		if coreTruthy(coreGet(coreGet(asMap(request), "model_config", Object()), "stream", false)) {
+			events, err := c.Stream(contextForAIClient(c, context.Background()), asMap(request), asMap(options))
+			if err != nil {
+				return nil, err
+			}
+			folded, err := fold_chat_response_stream(events)
+			if err != nil {
+				return nil, err
+			}
+			return chat_response_to_completion(folded)
+		}
 		out, err := c.Chat(contextForAIClient(c, context.Background()), asMap(request), asMap(options))
 		if err != nil {
 			return nil, err
@@ -5152,7 +5164,6 @@ func mergedServiceFeatures(services []AxAIService,model string) map[string]Value
     allRequireSchema := len(services)>0
     for _, service := range services { raw:=service.GetFeatures(model); allRequireSchema=allRequireSchema&&coreTruthy(coreGet(raw,"requiresStructuredOutput",coreGet(raw,"requires_structured_output",false))) }
     if allRequireSchema { coreSet(features,"requiresStructuredOutput",true) }
-    for _, service := range services { raw:=service.GetFeatures(model); if value:=coreGet(raw,"responseFormatWithFunctions",coreGet(raw,"response_format_with_functions",nil)); value!=nil && !coreTruthy(value) { coreSet(features,"responseFormatWithFunctions",false) } }
 	return features
 }
 func (b *AxBalancer) GetMetrics() map[string]Value {
@@ -9719,8 +9730,32 @@ func (f *conformanceScriptedAI) Embed(ctx context.Context, request map[string]Va
 	return raw, nil
 }
 func (f *conformanceScriptedAI) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
-	f.Requests = append(f.Requests, cloneMap(request))
-	return append([]Value(nil), f.StreamEvents...), nil
+	// A scripted {"stream": [...]} response streams its chunks; fixture
+	// stream events stream as before; any other response streams as one.
+	if len(f.Responses) > 0 {
+		if scripted, ok := f.Responses[0].(map[string]Value); ok {
+			if chunks, ok := scripted["stream"]; ok {
+				f.Responses = f.Responses[1:]
+				f.ChatCalls++
+				f.Requests = append(f.Requests, cloneMap(request))
+				f.ChatOptions = append(f.ChatOptions, cloneMap(options))
+				events := []Value{}
+				for _, chunk := range asSlice(chunks) {
+					events = append(events, conformanceLegacyResponse(chunk))
+				}
+				return events, nil
+			}
+		}
+	}
+	if len(f.StreamEvents) > 0 || len(f.Responses) == 0 {
+		f.Requests = append(f.Requests, cloneMap(request))
+		return append([]Value(nil), f.StreamEvents...), nil
+	}
+	response, err := f.Chat(ctx, request, options)
+	if err != nil {
+		return nil, err
+	}
+	return []Value{response}, nil
 }
 
 func RunConformanceFixture(fixture Value) error {

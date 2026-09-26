@@ -1,0 +1,82 @@
+{
+  "expected_output": {
+    "thought": "Look it up. Done.",
+    "user": {
+      "name": "Ada"
+    }
+  },
+  "expected_request_count": 2,
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "Who?"
+  },
+  "kind": "forward",
+  "name": "thought-output-function-rung",
+  "options": {
+    "structured_output_mode": "function"
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": {
+                  "key": "a"
+                }
+              },
+              "id": "call_1",
+              "type": "function"
+            }
+          ],
+          "index": 0,
+          "thought": "Look it up. "
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "__axOutput",
+                "params": {
+                  "user": {
+                    "name": "Ada"
+                  }
+                }
+              },
+              "id": "output_1",
+              "type": "function"
+            }
+          ],
+          "index": 0,
+          "thought": "Done."
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string}",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

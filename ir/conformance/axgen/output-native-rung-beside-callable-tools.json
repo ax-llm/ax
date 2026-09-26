@@ -14,11 +14,18 @@
       "type": "json_schema"
     }
   },
-  "expected_request_count": 1,
+  "expected_request_count": 2,
   "expected_request_not_contains": ["__axOutput"],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
   "features": {
     "functions": true,
-    "response_format_with_functions": false,
     "structured_output_modes": ["native", "function"],
     "structured_outputs": true
   },
@@ -26,11 +33,20 @@
     "query": "ax docs"
   },
   "kind": "forward",
-  "name": "output-function-rung-skipped-for-explicit-native",
-  "options": {
-    "structured_output_mode": "native"
-  },
+  "name": "output-native-rung-beside-callable-tools",
   "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
     {
       "content": "{\"summary\":{\"answer\":\"Found Ax docs\"}}"
     }
