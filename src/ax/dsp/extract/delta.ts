@@ -44,6 +44,12 @@ export function* yieldDelta<OUT extends AxGenOut>(
   let d3 = isFirstChunk ? d2.trimStart() : d2;
 
   if (xstate.currField?.type?.name === 'code') {
+    // An opening fence whose line has not ended yet ("```py") is stripped
+    // once it has, so hold it back, as a partial label is, rather than let
+    // the chunk boundary decide the value.
+    if (isFirstChunk && /^(?:`{1,2}|```[a-zA-Z0-9]*)$/.test(d3)) {
+      return;
+    }
     d3 = d3.replace(/^[ ]*```[a-zA-Z0-9]*\n\s*/, '');
   }
 

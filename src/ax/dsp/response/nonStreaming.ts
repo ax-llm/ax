@@ -65,6 +65,7 @@ export async function* processResponse<OUT extends AxGenOut>({
       throw new Error(`No state found for result (index: ${result.index})`);
     }
 
+    let promptToolStep = false;
     if (signatureToolCallingManager && result.content) {
       if (result.thought && result.thought.length > 0) {
         state.values[thoughtFieldName] = result.thought;
@@ -86,6 +87,7 @@ export async function* processResponse<OUT extends AxGenOut>({
       }));
 
       if (functionCalls && functionCalls.length > 0) {
+        promptToolStep = true;
         mem.updateResult(
           {
             name: result.name,
@@ -192,7 +194,11 @@ export async function* processResponse<OUT extends AxGenOut>({
       mem.removeByTag('error', sessionId);
     }
 
-    if (fieldProcessors.length) {
+    // Field processors and asserts check the answer, so, as in a stream, they
+    // skip a step that calls tools and has no answer yet.
+    const toolStep = promptToolStep || (result.functionCalls?.length ?? 0) > 0;
+
+    if (fieldProcessors.length && !toolStep) {
       await processFieldProcessors(
         fieldProcessors,
         state.values,
@@ -201,7 +207,7 @@ export async function* processResponse<OUT extends AxGenOut>({
       );
     }
 
-    if (asserts.length) {
+    if (asserts.length && !toolStep) {
       await assertAssertions(asserts, state.values);
     }
 
