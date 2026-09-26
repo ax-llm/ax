@@ -160,6 +160,9 @@ for await (const chunk of stream) {
 }
 ```
 
+- Each chunk is `{ version, index, delta }`. Merge deltas per `index` (strings and arrays append, other values replace), and discard what you merged when `version` changes.
+- A new version starts on a validation or refusal retry, and when a later step replaces output an earlier step already emitted (for example after a field processor's feedback); the thought so far is re-emitted in the new version. Versions never decrease.
+
 ## Stopping And Cancellation
 
 ```typescript
