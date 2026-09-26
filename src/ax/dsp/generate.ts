@@ -3902,21 +3902,13 @@ function enhanceError(
     return originalError;
   }
 
-  // Don't wrap validation errors - let them propagate directly
-  const errorMsg = (originalError.message || '').toLowerCase();
-  const isValidationError =
-    errorMsg.includes('at least') ||
-    errorMsg.includes('at most') ||
-    errorMsg.includes('must match pattern') ||
-    errorMsg.includes('invalid url') ||
-    errorMsg.includes('required') ||
-    errorMsg.includes('missing') ||
-    errorMsg.includes('valid email') ||
-    errorMsg.includes('number must be') ||
+  // Validation and assertion errors propagate as they are. Every other failure
+  // is wrapped, by its type, not by the words in its message: a processor
+  // error that says "required" is still a generation failure.
+  if (
     originalError.name === 'ValidationError' ||
-    originalError.name === 'AxAssertionError';
-
-  if (isValidationError) {
+    originalError.name === 'AxAssertionError'
+  ) {
     return originalError;
   }
 
