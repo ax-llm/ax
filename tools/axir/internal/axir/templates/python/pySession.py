@@ -8,7 +8,7 @@ import threading
 from typing import Any, Callable, Iterator, Protocol
 
 from .ai import _emit_usage_event, _iter_sse_json
-from .gen import _core_ai_client_features, _core_ai_complete_once
+from .gen import _core_ai_client_features, _core_ai_complete_once, _core_ai_stream_open
 
 
 class AxChatSession(Protocol):
@@ -120,7 +120,6 @@ class _BoundaryClient:
     def stream(self, request, options=None):
         # A streamed forward pulls the inner client's chunks through the same
         # request boundary.
-        from .gen import _core_ai_stream_open
         handle = _core_ai_stream_open(self.client, self._apply(request), options or self.options)
         try:
             while True:
