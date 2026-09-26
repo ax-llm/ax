@@ -921,9 +921,10 @@ module @ax.gen version "0.1" {
             core.continue
           } else {
             // As in TS, a user stop function ends the forward without an
-            // answer: the output keeps only the earlier steps' thought.
+            // answer: the output keeps the thought, the stop step's included.
             %stop_output = core.map
-            %stop_public = core.call @with_output_thought_impl(%stop_output, %thought_field, %thought_prefix, "")
+            %stop_thought = core.get %response["thought"] default ""
+            %stop_public = core.call @with_output_thought_impl(%stop_output, %thought_field, %thought_prefix, %stop_thought)
             core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
             core.call @record_trace(%gen, %values, %stop_public, "ok")
             core.return %stop_public

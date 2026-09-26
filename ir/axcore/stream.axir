@@ -1732,10 +1732,12 @@ module @ax.stream version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "src/ax/dsp/extract/delta.ts"
-    type signature = "(string, json, i64, i64, json, list<string>) -> json"
-    body @entry(%content: string, %field: json, %start: i64, %end: i64, %xstate: json, %held: list<string>) {
+    type signature = "(string, json, i64, i64, json, list<string>, bool) -> json"
+    body @entry(%content: string, %field: json, %start: i64, %end: i64, %xstate: json, %held: list<string>, %complete: bool) {
       // yieldDelta: the not yet streamed text of a string or code field,
-      // holding back trailing whitespace and code fences. Returns the delta
+      // holding back trailing whitespace and code fences. Until the field's
+      // text is final, a code field also holds back a partial closing fence
+      // and, on its first chunk, a partial opening fence. Returns the delta
       // or none.
       %none = core.call intrinsic.none()
       %name = core.get %field["name"] default ""
@@ -1772,19 +1774,26 @@ module @ax.stream version "0.1" {
       core.if %nothing {
         core.return %none
       }
-      %curr = core.get %xstate["curr_field"]
-      %curr_type = core.get %curr["type"]
-      %curr_type_name = core.get %curr_type["name"] default ""
-      %curr_code = core.call intrinsic.eq(%curr_type_name, "code")
+      %open = core.call intrinsic.not(%complete)
       %d2 = core.call @stream_trim_end_impl(%d1)
-      core.if %curr_code {
+      core.if %is_code {
         %d2 = core.call @stream_strip_trailing_fence_impl(%d2)
+        core.if %open {
+          %d2 = core.call @stream_strip_partial_closing_fence_impl(%d2)
+        }
       }
       %d3 = core.let %d2
       core.if %first_chunk {
         %d3 = core.call @stream_trim_start_impl(%d2)
       }
-      core.if %curr_code {
+      core.if %is_code {
+        %opening = core.call intrinsic.and(%open, %first_chunk)
+        core.if %opening {
+          %partial_opening = core.call @stream_is_partial_opening_fence_impl(%d3)
+          core.if %partial_opening {
+            core.return %none
+          }
+        }
         %d3 = core.call @stream_strip_leading_fence_impl(%d3)
       }
       %d3_length = core.call intrinsic.len(%d3)
@@ -1807,11 +1816,12 @@ module @ax.stream version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "src/ax/dsp/extract/delta.ts"
-    type signature = "(list<json>, string, json, json, list<string>) -> list<json>"
-    body @entry(%fields: list<json>, %content: string, %values: json, %xstate: json, %held: list<string>) {
+    type signature = "(list<json>, string, json, json, list<string>, bool) -> list<json>"
+    body @entry(%fields: list<json>, %content: string, %values: json, %xstate: json, %held: list<string>, %complete: bool) {
       // streamValues: the closed fields' remaining text, then the current
-      // field's text, then each parsed value not streamed yet (arrays by new
-      // items, other values once). Each delta holds one field.
+      // field's text (final at the end of the stream), then each parsed
+      // value not streamed yet (arrays by new items, other values once).
+      // Each delta holds one field.
       %deltas = core.list
       %empty_prev = core.list
       %prev_fields = core.get %xstate["prev_fields"] default %empty_prev
@@ -1819,7 +1829,7 @@ module @ax.stream version "0.1" {
         %prev_field = core.get %entry["field"]
         %prev_start = core.get %entry["s"] default 0
         %prev_end = core.get %entry["e"] default 0
-        %prev_delta = core.call @stream_text_yield_delta_impl(%content, %prev_field, %prev_start, %prev_end, %xstate, %held)
+        %prev_delta = core.call @stream_text_yield_delta_impl(%content, %prev_field, %prev_start, %prev_end, %xstate, %held, true)
         %has_prev_delta = core.call intrinsic.is_not_none(%prev_delta)
         core.if %has_prev_delta {
           core.append %deltas, %prev_delta
@@ -1854,7 +1864,7 @@ module @ax.stream version "0.1" {
       }
       %curr_start = core.get %xstate["s"] default 0
       %content_length = core.call intrinsic.len(%content)
-      %curr_delta = core.call @stream_text_yield_delta_impl(%content, %curr, %curr_start, %content_length, %xstate, %held)
+      %curr_delta = core.call @stream_text_yield_delta_impl(%content, %curr, %curr_start, %content_length, %xstate, %held, %complete)
       %has_curr_delta = core.call intrinsic.is_not_none(%curr_delta)
       core.if %has_curr_delta {
         core.append %deltas, %curr_delta
@@ -3581,7 +3591,7 @@ module @ax.stream version "0.1" {
         core.append %pending, %text
       }
       core.set %state["feedback"] = %pending
-      %text_deltas = core.call @stream_text_values_impl(%fields, %content, %values, %xstate, %held)
+      %text_deltas = core.call @stream_text_values_impl(%fields, %content, %values, %xstate, %held, false)
       core.return %text_deltas
     }
   }
@@ -3691,7 +3701,7 @@ module @ax.stream version "0.1" {
         core.return %out
       }
       core.if %text_route {
-        %text_deltas = core.call @stream_text_values_impl(%fields, %content, %values, %xstate, %held)
+        %text_deltas = core.call @stream_text_values_impl(%fields, %content, %values, %xstate, %held, true)
         core.call @stream_emit_deltas_impl(%ctx, %index, %text_deltas)
       }
       %held_deltas = core.list
@@ -3771,6 +3781,89 @@ module @ax.stream version "0.1" {
         core.call intrinsic.axgen.emit_delta(%sink, %envelope)
       }
       core.return %output
+    }
+  }
+
+  op ax.stream.semantic @stream_strip_partial_closing_fence_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/delta.ts"
+    type signature = "(string) -> string"
+    body @entry(%text: string) {
+      // text.replace(/\s*`{1,2}$/, ''): a run of one or two trailing
+      // backticks goes with the whitespace before it; of a longer run, the
+      // last two go.
+      %length = core.call intrinsic.len(%text)
+      %cursor = core.let %length
+      %run = core.let 0
+      core.loop {
+        %at_start = core.call intrinsic.lte(%cursor, 0)
+        core.if %at_start {
+          core.break
+        }
+        %before = core.call intrinsic.add(%cursor, -1)
+        %ch = core.call intrinsic.string.slice(%text, %before, %cursor)
+        %tick = core.call intrinsic.eq(%ch, "`")
+        %not_tick = core.call intrinsic.not(%tick)
+        core.if %not_tick {
+          core.break
+        }
+        %run = core.call intrinsic.add(%run, 1)
+        %cursor = core.let %before
+      }
+      %no_run = core.call intrinsic.eq(%run, 0)
+      core.if %no_run {
+        core.return %text
+      }
+      %long_run = core.call intrinsic.gte(%run, 3)
+      core.if %long_run {
+        %end = core.call intrinsic.add(%length, -2)
+        %kept = core.call intrinsic.string.slice(%text, 0, %end)
+        core.return %kept
+      }
+      %body = core.call intrinsic.string.slice(%text, 0, %cursor)
+      %out = core.call @stream_trim_end_impl(%body)
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_is_partial_opening_fence_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/delta.ts"
+    type signature = "(string) -> bool"
+    body @entry(%text: string) {
+      // /^(?:`{1,2}|```[a-zA-Z0-9]*)$/.test(text)
+      %one = core.call intrinsic.eq(%text, "`")
+      %two = core.call intrinsic.eq(%text, "``")
+      %short_run = core.call intrinsic.or(%one, %two)
+      core.if %short_run {
+        core.return true
+      }
+      %fenced = core.call intrinsic.string.starts_with(%text, "```")
+      %not_fenced = core.call intrinsic.not(%fenced)
+      core.if %not_fenced {
+        core.return false
+      }
+      %length = core.call intrinsic.len(%text)
+      %cursor = core.let 3
+      core.loop {
+        %at_end = core.call intrinsic.gte(%cursor, %length)
+        core.if %at_end {
+          core.break
+        }
+        %next = core.call intrinsic.add(%cursor, 1)
+        %ch = core.call intrinsic.string.slice(%text, %cursor, %next)
+        %word = core.regex_match %ch pattern "^[a-zA-Z0-9]$"
+        %not_word = core.call intrinsic.not(%word)
+        core.if %not_word {
+          core.return false
+        }
+        %cursor = core.let %next
+      }
+      core.return true
     }
   }
 }

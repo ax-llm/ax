@@ -1,80 +1,73 @@
 {
   "expected_output": {
-    "thought": "Look it upStop here"
+    "thought": "First. Done."
   },
   "expected_request_count": 2,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "a"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "note": "ok"
+      },
+      "name": "finish"
+    }
+  ],
+  "forward_options": {
+    "show_thoughts": true
+  },
   "input": {
-    "query": "ax docs"
+    "question": "Status?"
   },
   "kind": "forward",
-  "name": "stop-function-keeps-earlier-thought",
+  "name": "forward-stop-function-step-thought",
   "responses": [
     {
       "results": [
         {
-          "content": "",
           "finish_reason": "function_call",
           "function_calls": [
             {
               "function": {
                 "name": "lookup",
-                "params": {
-                  "key": "a"
-                }
+                "params": "{\"key\":\"a\"}"
               },
               "id": "call_1",
               "type": "function"
             }
           ],
           "index": 0,
-          "thought": "Look it up"
+          "thought": "First. "
         }
       ]
     },
     {
       "results": [
         {
-          "content": "",
           "finish_reason": "function_call",
           "function_calls": [
             {
               "function": {
-                "name": "search",
-                "params": {
-                  "query": "ax docs"
-                }
+                "name": "finish",
+                "params": "{\"note\":\"ok\"}"
               },
               "id": "call_2",
               "type": "function"
             }
           ],
           "index": 0,
-          "thought": "Stop here"
+          "thought": "Done."
         }
       ]
     }
   ],
-  "signature": "query:string -> answer:string",
-  "stop_functions": ["search"],
+  "signature": "question:string -> answer:string",
+  "stop_functions": ["finish"],
   "tools": [
-    {
-      "args": {
-        "query": {
-          "min": 1,
-          "type": "string"
-        }
-      },
-      "description": "Search docs",
-      "name": "search",
-      "result": {
-        "answer": "Found directly"
-      },
-      "returns": {
-        "answer": {
-          "type": "string"
-        }
-      }
-    },
     {
       "args": {
         "key": {
@@ -84,6 +77,16 @@
       "description": "Look up a key",
       "name": "lookup",
       "result": "status is green"
+    },
+    {
+      "args": {
+        "note": {
+          "type": "string"
+        }
+      },
+      "description": "Finish the task",
+      "name": "finish",
+      "result": "finished"
     }
   ]
 }

@@ -5069,7 +5069,8 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                 continue
             else:
                 stop_output = {}
-                stop_public = _with_output_thought_impl(stop_output, thought_field, thought_prefix, "")
+                stop_thought = _core_get(response, "thought", "")
+                stop_public = _with_output_thought_impl(stop_output, thought_field, thought_prefix, stop_thought)
                 _core_axgen_memory_cleanup_corrections(gen)
                 _record_trace(gen, values, stop_public, "ok")
                 return stop_public
@@ -6450,12 +6451,6 @@ def _render_demos(gen: AxGen) -> list[Any]:
     return messages
 
 
-def _apply_field_processors(gen: AxGen, output: Any) -> Any:
-    _core_coverage_mark("_apply_field_processors")
-    processed = _core_axgen_apply_field_processors(gen, output)
-    return processed
-
-
 def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: str) -> Any:
     _core_coverage_mark("_ace_update_bullet_feedback")
     empty_map = {}
@@ -6501,6 +6496,12 @@ def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: st
     else:
         pass
     return playbook
+
+
+def _apply_field_processors(gen: AxGen, output: Any) -> Any:
+    _core_coverage_mark("_apply_field_processors")
+    processed = _core_axgen_apply_field_processors(gen, output)
+    return processed
 
 
 def _run_assertions(gen: AxGen, output: Any) -> Any:
@@ -6926,13 +6927,6 @@ def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
     return should_continue
 
 
-def _parse_output_impl(content: str) -> Any:
-    _core_coverage_mark("_parse_output_impl")
-    text = str(content).strip()
-    output = _core_json_parse_strict(text)
-    return output
-
-
 def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
     _core_coverage_mark("_ace_prune_section_for_addition")
     candidate_index = -1
@@ -7013,6 +7007,13 @@ def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
     out["pruned"] = null_pruned
     out["section"] = section
     return out
+
+
+def _parse_output_impl(content: str) -> Any:
+    _core_coverage_mark("_parse_output_impl")
+    text = str(content).strip()
+    output = _core_json_parse_strict(text)
+    return output
 
 
 def chat_session_close_state(state: Any) -> list[Any]:
@@ -9545,7 +9546,7 @@ def _caller_function_call_impl(options: Any) -> Any:
     return none
 
 
-def _stream_text_yield_delta_impl(content: str, field: Any, start: int, end: int, xstate: Any, held: list[Any]) -> Any:
+def _stream_text_yield_delta_impl(content: str, field: Any, start: int, end: int, xstate: Any, held: list[Any], complete: bool) -> Any:
     _core_coverage_mark("_stream_text_yield_delta_impl")
     none = _core_none()
     name = _core_get(field, "name", "")
@@ -9585,13 +9586,14 @@ def _stream_text_yield_delta_impl(content: str, field: Any, start: int, end: int
         return none
     else:
         pass
-    curr = _core_get(xstate, "curr_field", None)
-    curr_type = _core_get(curr, "type", None)
-    curr_type_name = _core_get(curr_type, "name", "")
-    curr_code = _core_eq(curr_type_name, "code")
+    open = _core_not(complete)
     d2 = _stream_trim_end_impl(d1)
-    if curr_code:
+    if is_code:
         d2 = _stream_strip_trailing_fence_impl(d2)
+        if open:
+            d2 = _stream_strip_partial_closing_fence_impl(d2)
+        else:
+            pass
     else:
         pass
     d3 = d2
@@ -9599,7 +9601,16 @@ def _stream_text_yield_delta_impl(content: str, field: Any, start: int, end: int
         d3 = _stream_trim_start_impl(d2)
     else:
         pass
-    if curr_code:
+    if is_code:
+        opening = _core_and(open, first_chunk)
+        if opening:
+            partial_opening = _stream_is_partial_opening_fence_impl(d3)
+            if partial_opening:
+                return none
+            else:
+                pass
+        else:
+            pass
         d3 = _stream_strip_leading_fence_impl(d3)
     else:
         pass
@@ -9686,7 +9697,7 @@ def _append_structured_output_retry_messages_impl(messages: list[Any], response:
     return with_call
 
 
-def _stream_text_values_impl(fields: list[Any], content: str, values: Any, xstate: Any, held: list[Any]) -> list[Any]:
+def _stream_text_values_impl(fields: list[Any], content: str, values: Any, xstate: Any, held: list[Any], complete: bool) -> list[Any]:
     _core_coverage_mark("_stream_text_values_impl")
     deltas = []
     empty_prev = []
@@ -9695,7 +9706,7 @@ def _stream_text_values_impl(fields: list[Any], content: str, values: Any, xstat
         prev_field = _core_get(entry, "field", None)
         prev_start = _core_get(entry, "s", 0)
         prev_end = _core_get(entry, "e", 0)
-        prev_delta = _stream_text_yield_delta_impl(content, prev_field, prev_start, prev_end, xstate, held)
+        prev_delta = _stream_text_yield_delta_impl(content, prev_field, prev_start, prev_end, xstate, held, True)
         has_prev_delta = _core_is_not_none(prev_delta)
         if has_prev_delta:
             deltas.append(prev_delta)
@@ -9734,7 +9745,7 @@ def _stream_text_values_impl(fields: list[Any], content: str, values: Any, xstat
         pass
     curr_start = _core_get(xstate, "s", 0)
     content_length = _core_len(content)
-    curr_delta = _stream_text_yield_delta_impl(content, curr, curr_start, content_length, xstate, held)
+    curr_delta = _stream_text_yield_delta_impl(content, curr, curr_start, content_length, xstate, held, complete)
     has_curr_delta = _core_is_not_none(curr_delta)
     if has_curr_delta:
         deltas.append(curr_delta)
@@ -11294,40 +11305,6 @@ def _regex_validate_names(n: Any, path: Any, seen: Any, counter: Any) -> Any:
     return None
 
 
-def _stream_json_parse_partial_impl(json_text: str) -> Any:
-    _core_coverage_mark("_stream_json_parse_partial_impl")
-    out = {}
-    none = _core_none()
-    out["parsed"] = none
-    out["marker"] = none
-    blank = str(json_text).strip()
-    is_blank = _core_eq(blank, "")
-    if is_blank:
-        return out
-    else:
-        pass
-    complete = False
-    try:
-        parsed = _core_json_parse_strict(json_text)
-        out["parsed"] = parsed
-        complete = True
-    except Exception as partial_error:
-        pass
-    if complete:
-        return out
-    else:
-        pass
-    marker = _stream_json_context_impl(json_text)
-    out["marker"] = marker
-    repaired = _stream_json_repair_impl(json_text)
-    try:
-        repaired_value = _core_json_parse_strict(repaired)
-        out["parsed"] = repaired_value
-    except Exception as repair_error:
-        pass
-    return out
-
-
 def _parse_text_contract_output_impl(content: str, output_fields: list[Any]) -> Any:
     _core_coverage_mark("_parse_text_contract_output_impl")
     out = {}
@@ -11371,6 +11348,40 @@ def _parse_text_contract_output_impl(content: str, output_fields: list[Any]) -> 
     values = _stream_text_extract_values_impl(content, output_fields)
     out["values"] = values
     out["extracted"] = True
+    return out
+
+
+def _stream_json_parse_partial_impl(json_text: str) -> Any:
+    _core_coverage_mark("_stream_json_parse_partial_impl")
+    out = {}
+    none = _core_none()
+    out["parsed"] = none
+    out["marker"] = none
+    blank = str(json_text).strip()
+    is_blank = _core_eq(blank, "")
+    if is_blank:
+        return out
+    else:
+        pass
+    complete = False
+    try:
+        parsed = _core_json_parse_strict(json_text)
+        out["parsed"] = parsed
+        complete = True
+    except Exception as partial_error:
+        pass
+    if complete:
+        return out
+    else:
+        pass
+    marker = _stream_json_context_impl(json_text)
+    out["marker"] = marker
+    repaired = _stream_json_repair_impl(json_text)
+    try:
+        repaired_value = _core_json_parse_strict(repaired)
+        out["parsed"] = repaired_value
+    except Exception as repair_error:
+        pass
     return out
 
 
@@ -11447,6 +11458,20 @@ def _regex_clear_capture(caps: Any, key: Any) -> Any:
     return None
 
 
+def _regex_copy_map(value: Any) -> Any:
+    _core_coverage_mark("_regex_copy_map")
+    key = _core_none()
+    out = _core_none()
+    t1 = {}
+    out = t1
+    t2 = _core_map_keys(value)
+    for iter_3 in t2:
+        key = iter_3
+        t4 = _core_get(value, key, None)
+        out[key] = t4
+    return out
+
+
 def _stream_json_validate_impl(fields: list[Any], values: Any, allow_missing: bool, reject_unknown: bool) -> None:
     _core_coverage_mark("_stream_json_validate_impl")
     if reject_unknown:
@@ -11493,20 +11518,6 @@ def _stream_json_validate_impl(fields: list[Any], values: Any, allow_missing: bo
             pass
         _stream_json_validate_value_impl(field, value, allow_missing)
     return None
-
-
-def _regex_copy_map(value: Any) -> Any:
-    _core_coverage_mark("_regex_copy_map")
-    key = _core_none()
-    out = _core_none()
-    t1 = {}
-    out = t1
-    t2 = _core_map_keys(value)
-    for iter_3 in t2:
-        key = iter_3
-        t4 = _core_get(value, key, None)
-        out[key] = t4
-    return out
 
 
 def _stream_json_validate_value_impl(field: Any, value: Any, allow_missing: bool) -> None:
@@ -12432,7 +12443,7 @@ def _stream_chunk_content_impl(gen: AxGen, config: Any, state: Any, result: Any)
     for text in feedback:
         pending.append(text)
     state["feedback"] = pending
-    text_deltas = _stream_text_values_impl(fields, content, values, xstate, held)
+    text_deltas = _stream_text_values_impl(fields, content, values, xstate, held, False)
     return text_deltas
 
 
@@ -12532,7 +12543,7 @@ def _stream_finalize_impl(gen: AxGen, config: Any, ctx: Any, state: Any) -> Any:
     else:
         pass
     if text_route:
-        text_deltas = _stream_text_values_impl(fields, content, values, xstate, held)
+        text_deltas = _stream_text_values_impl(fields, content, values, xstate, held, True)
         _stream_emit_deltas_impl(ctx, index, text_deltas)
     else:
         pass
@@ -12604,5 +12615,78 @@ def _stream_result_impl(run: Any, options: Any) -> Any:
     else:
         pass
     return output
+
+
+def _stream_strip_partial_closing_fence_impl(text: str) -> str:
+    _core_coverage_mark("_stream_strip_partial_closing_fence_impl")
+    length = _core_len(text)
+    cursor = length
+    run = 0
+    while True:
+        at_start = _core_lte(cursor, 0)
+        if at_start:
+            break
+        else:
+            pass
+        before = _core_add(cursor, -1)
+        ch = _core_string_slice(text, before, cursor)
+        tick = _core_eq(ch, "`")
+        not_tick = _core_not(tick)
+        if not_tick:
+            break
+        else:
+            pass
+        run = _core_add(run, 1)
+        cursor = before
+    no_run = _core_eq(run, 0)
+    if no_run:
+        return text
+    else:
+        pass
+    long_run = _core_gte(run, 3)
+    if long_run:
+        end = _core_add(length, -2)
+        kept = _core_string_slice(text, 0, end)
+        return kept
+    else:
+        pass
+    body = _core_string_slice(text, 0, cursor)
+    out = _stream_trim_end_impl(body)
+    return out
+
+
+def _stream_is_partial_opening_fence_impl(text: str) -> bool:
+    _core_coverage_mark("_stream_is_partial_opening_fence_impl")
+    one = _core_eq(text, "`")
+    two = _core_eq(text, "``")
+    short_run = _core_or(one, two)
+    if short_run:
+        return True
+    else:
+        pass
+    fenced = _core_string_starts_with(text, "```")
+    not_fenced = _core_not(fenced)
+    if not_fenced:
+        return False
+    else:
+        pass
+    length = _core_len(text)
+    cursor = 3
+    while True:
+        at_end = _core_gte(cursor, length)
+        if at_end:
+            break
+        else:
+            pass
+        next = _core_add(cursor, 1)
+        ch = _core_string_slice(text, cursor, next)
+        word = _core_regex_match("^[a-zA-Z0-9]$", ch)
+        not_word = _core_not(word)
+        if not_word:
+            return False
+        else:
+            pass
+        cursor = next
+    return True
 
 # END AXIR CORE EMITTED FUNCTIONS

@@ -1,23 +1,36 @@
 {
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "echo `date"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "`"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
   "expected_output": {
-    "answer": "print(1)"
+    "answer": "echo `date`"
   },
   "expected_request_count": 1,
-  "forward_options": {
-    "stream": true
-  },
   "input": {
     "question": "Status?"
   },
-  "kind": "forward",
-  "name": "forward-stream-code-field",
+  "kind": "streaming_forward",
+  "name": "streaming-forward-text-code-trailing-backtick",
   "responses": [
     {
       "stream": [
         {
           "results": [
             {
-              "content": "Answer: ```py",
+              "content": "Answer: echo `date",
               "index": 0
             }
           ]
@@ -25,14 +38,7 @@
         {
           "results": [
             {
-              "content": "thon\nprint(1)\n```",
-              "index": 0
-            }
-          ]
-        },
-        {
-          "results": [
-            {
+              "content": "`",
               "finish_reason": "stop",
               "index": 0
             }

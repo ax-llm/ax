@@ -18113,7 +18113,8 @@ final class Core {
         }
         if (!Core.truthy(continue_after_tools)) {
           Object stop_output = new java.util.LinkedHashMap<String, Object>();
-          Object stop_public = Core._with_output_thought_impl(stop_output, thought_field, thought_prefix, "");
+          Object stop_thought = Core.get(response, "thought", "");
+          Object stop_public = Core._with_output_thought_impl(stop_output, thought_field, thought_prefix, stop_thought);
           Core.axgenMemoryCleanupCorrections(gen);
           Core._record_trace(gen, values, stop_public, "ok");
           return stop_public;
@@ -19413,12 +19414,6 @@ final class Core {
     return messages;
   }
 
-  static Object _apply_field_processors(Object gen, Object output) {
-    axirCoverageMark("_apply_field_processors");
-    Object processed = Core.axgenApplyFieldProcessors(gen, output);
-    return processed;
-  }
-
   static Object _ace_update_bullet_feedback(Object playbook, Object bullet_id, Object tag, Object now) {
     axirCoverageMark("_ace_update_bullet_feedback");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -19463,6 +19458,12 @@ final class Core {
       return updated;
     }
     return playbook;
+  }
+
+  static Object _apply_field_processors(Object gen, Object output) {
+    axirCoverageMark("_apply_field_processors");
+    Object processed = Core.axgenApplyFieldProcessors(gen, output);
+    return processed;
   }
 
   static Object _run_assertions(Object gen, Object output) {
@@ -19878,13 +19879,6 @@ final class Core {
     return should_continue;
   }
 
-  static Object _parse_output_impl(Object content) {
-    axirCoverageMark("_parse_output_impl");
-    Object text = Core.stringTrim(content);
-    Object output = Core.jsonParseStrict(text);
-    return output;
-  }
-
   static Object _ace_prune_section_for_addition(Object section, Object protected_ids) {
     axirCoverageMark("_ace_prune_section_for_addition");
     Object candidate_index = -1;
@@ -19964,6 +19958,13 @@ final class Core {
     Core.set(out, "pruned", null_pruned);
     Core.set(out, "section", section);
     return out;
+  }
+
+  static Object _parse_output_impl(Object content) {
+    axirCoverageMark("_parse_output_impl");
+    Object text = Core.stringTrim(content);
+    Object output = Core.jsonParseStrict(text);
+    return output;
   }
 
   static Object chat_session_close_state(Object state) {
@@ -22334,7 +22335,7 @@ final class Core {
     return none;
   }
 
-  static Object _stream_text_yield_delta_impl(Object content, Object field, Object start, Object end, Object xstate, Object held) {
+  static Object _stream_text_yield_delta_impl(Object content, Object field, Object start, Object end, Object xstate, Object held, Object complete) {
     axirCoverageMark("_stream_text_yield_delta_impl");
     Object none = Core.none();
     Object name = Core.get(field, "name", "");
@@ -22371,19 +22372,26 @@ final class Core {
     if (Core.truthy(nothing)) {
       return none;
     }
-    Object curr = Core.get(xstate, "curr_field", null);
-    Object curr_type = Core.get(curr, "type", null);
-    Object curr_type_name = Core.get(curr_type, "name", "");
-    Object curr_code = Core.eq(curr_type_name, "code");
+    Object open = Core.not(complete);
     Object d2 = Core._stream_trim_end_impl(d1);
-    if (Core.truthy(curr_code)) {
+    if (Core.truthy(is_code)) {
       d2 = Core._stream_strip_trailing_fence_impl(d2);
+      if (Core.truthy(open)) {
+        d2 = Core._stream_strip_partial_closing_fence_impl(d2);
+      }
     }
     Object d3 = d2;
     if (Core.truthy(first_chunk)) {
       d3 = Core._stream_trim_start_impl(d2);
     }
-    if (Core.truthy(curr_code)) {
+    if (Core.truthy(is_code)) {
+      Object opening = Core.and(open, first_chunk);
+      if (Core.truthy(opening)) {
+        Object partial_opening = Core._stream_is_partial_opening_fence_impl(d3);
+        if (Core.truthy(partial_opening)) {
+          return none;
+        }
+      }
       d3 = Core._stream_strip_leading_fence_impl(d3);
     }
     Object d3_length = Core.len(d3);
@@ -22464,7 +22472,7 @@ final class Core {
     return with_call;
   }
 
-  static Object _stream_text_values_impl(Object fields, Object content, Object values, Object xstate, Object held) {
+  static Object _stream_text_values_impl(Object fields, Object content, Object values, Object xstate, Object held, Object complete) {
     axirCoverageMark("_stream_text_values_impl");
     Object deltas = new java.util.ArrayList<Object>();
     Object empty_prev = new java.util.ArrayList<Object>();
@@ -22473,7 +22481,7 @@ final class Core {
       Object prev_field = Core.get(entry, "field", null);
       Object prev_start = Core.get(entry, "s", 0);
       Object prev_end = Core.get(entry, "e", 0);
-      Object prev_delta = Core._stream_text_yield_delta_impl(content, prev_field, prev_start, prev_end, xstate, held);
+      Object prev_delta = Core._stream_text_yield_delta_impl(content, prev_field, prev_start, prev_end, xstate, held, Boolean.TRUE);
       Object has_prev_delta = Core.isNotNone(prev_delta);
       if (Core.truthy(has_prev_delta)) {
         Core.append(deltas, prev_delta);
@@ -22508,7 +22516,7 @@ final class Core {
     }
     Object curr_start = Core.get(xstate, "s", 0);
     Object content_length = Core.len(content);
-    Object curr_delta = Core._stream_text_yield_delta_impl(content, curr, curr_start, content_length, xstate, held);
+    Object curr_delta = Core._stream_text_yield_delta_impl(content, curr, curr_start, content_length, xstate, held, complete);
     Object has_curr_delta = Core.isNotNone(curr_delta);
     if (Core.truthy(has_curr_delta)) {
       Core.append(deltas, curr_delta);
@@ -23991,40 +23999,6 @@ final class Core {
     return null;
   }
 
-  static Object _stream_json_parse_partial_impl(Object json_text) {
-    axirCoverageMark("_stream_json_parse_partial_impl");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object none = Core.none();
-    Core.set(out, "parsed", none);
-    Core.set(out, "marker", none);
-    Object blank = Core.stringTrim(json_text);
-    Object is_blank = Core.eq(blank, "");
-    if (Core.truthy(is_blank)) {
-      return out;
-    }
-    Object complete = Boolean.FALSE;
-    try {
-      Object parsed = Core.jsonParseStrict(json_text);
-      Core.set(out, "parsed", parsed);
-      complete = Boolean.TRUE;
-    } catch (RuntimeException partial_error) {
-      // empty
-    }
-    if (Core.truthy(complete)) {
-      return out;
-    }
-    Object marker = Core._stream_json_context_impl(json_text);
-    Core.set(out, "marker", marker);
-    Object repaired = Core._stream_json_repair_impl(json_text);
-    try {
-      Object repaired_value = Core.jsonParseStrict(repaired);
-      Core.set(out, "parsed", repaired_value);
-    } catch (RuntimeException repair_error) {
-      // empty
-    }
-    return out;
-  }
-
   static Object _parse_text_contract_output_impl(Object content, Object output_fields) {
     axirCoverageMark("_parse_text_contract_output_impl");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -24066,6 +24040,40 @@ final class Core {
     Object values = Core._stream_text_extract_values_impl(content, output_fields);
     Core.set(out, "values", values);
     Core.set(out, "extracted", Boolean.TRUE);
+    return out;
+  }
+
+  static Object _stream_json_parse_partial_impl(Object json_text) {
+    axirCoverageMark("_stream_json_parse_partial_impl");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object none = Core.none();
+    Core.set(out, "parsed", none);
+    Core.set(out, "marker", none);
+    Object blank = Core.stringTrim(json_text);
+    Object is_blank = Core.eq(blank, "");
+    if (Core.truthy(is_blank)) {
+      return out;
+    }
+    Object complete = Boolean.FALSE;
+    try {
+      Object parsed = Core.jsonParseStrict(json_text);
+      Core.set(out, "parsed", parsed);
+      complete = Boolean.TRUE;
+    } catch (RuntimeException partial_error) {
+      // empty
+    }
+    if (Core.truthy(complete)) {
+      return out;
+    }
+    Object marker = Core._stream_json_context_impl(json_text);
+    Core.set(out, "marker", marker);
+    Object repaired = Core._stream_json_repair_impl(json_text);
+    try {
+      Object repaired_value = Core.jsonParseStrict(repaired);
+      Core.set(out, "parsed", repaired_value);
+    } catch (RuntimeException repair_error) {
+      // empty
+    }
     return out;
   }
 
@@ -24137,6 +24145,21 @@ final class Core {
     return null;
   }
 
+  static Object _regex_copy_map(Object value) {
+    axirCoverageMark("_regex_copy_map");
+    Object key = Core.none();
+    Object out = Core.none();
+    Object t1 = new java.util.LinkedHashMap<String, Object>();
+    out = t1;
+    Object t2 = Core.mapKeys(value);
+    for (Object iter_3 : Core.iter(t2)) {
+      key = iter_3;
+      Object t4 = Core.get(value, key, null);
+      Core.set(out, key, t4);
+    }
+    return out;
+  }
+
   static Object _stream_json_validate_impl(Object fields, Object values, Object allow_missing, Object reject_unknown) {
     axirCoverageMark("_stream_json_validate_impl");
     if (Core.truthy(reject_unknown)) {
@@ -24180,21 +24203,6 @@ final class Core {
       Core._stream_json_validate_value_impl(field, value, allow_missing);
     }
     return null;
-  }
-
-  static Object _regex_copy_map(Object value) {
-    axirCoverageMark("_regex_copy_map");
-    Object key = Core.none();
-    Object out = Core.none();
-    Object t1 = new java.util.LinkedHashMap<String, Object>();
-    out = t1;
-    Object t2 = Core.mapKeys(value);
-    for (Object iter_3 : Core.iter(t2)) {
-      key = iter_3;
-      Object t4 = Core.get(value, key, null);
-      Core.set(out, key, t4);
-    }
-    return out;
   }
 
   static Object _stream_json_validate_value_impl(Object field, Object value, Object allow_missing) {
@@ -25074,7 +25082,7 @@ final class Core {
       Core.append(pending, text);
     }
     Core.set(state, "feedback", pending);
-    Object text_deltas = Core._stream_text_values_impl(fields, content, values, xstate, held);
+    Object text_deltas = Core._stream_text_values_impl(fields, content, values, xstate, held, Boolean.FALSE);
     return text_deltas;
   }
 
@@ -25171,7 +25179,7 @@ final class Core {
       return out;
     }
     if (Core.truthy(text_route)) {
-      Object text_deltas = Core._stream_text_values_impl(fields, content, values, xstate, held);
+      Object text_deltas = Core._stream_text_values_impl(fields, content, values, xstate, held, Boolean.TRUE);
       Core._stream_emit_deltas_impl(ctx, index, text_deltas);
     }
     Object held_deltas = new java.util.ArrayList<Object>();
@@ -25240,6 +25248,73 @@ final class Core {
       Core.axgenEmitDelta(sink, envelope);
     }
     return output;
+  }
+
+  static Object _stream_strip_partial_closing_fence_impl(Object text) {
+    axirCoverageMark("_stream_strip_partial_closing_fence_impl");
+    Object length = Core.len(text);
+    Object cursor = length;
+    Object run = 0;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object at_start = Core.lte(cursor, 0);
+      if (Core.truthy(at_start)) {
+        break;
+      }
+      Object before = Core.add(cursor, -1);
+      Object ch = Core.stringSlice(text, before, cursor);
+      Object tick = Core.eq(ch, "`");
+      Object not_tick = Core.not(tick);
+      if (Core.truthy(not_tick)) {
+        break;
+      }
+      run = Core.add(run, 1);
+      cursor = before;
+    }
+    Object no_run = Core.eq(run, 0);
+    if (Core.truthy(no_run)) {
+      return text;
+    }
+    Object long_run = Core.gte(run, 3);
+    if (Core.truthy(long_run)) {
+      Object end = Core.add(length, -2);
+      Object kept = Core.stringSlice(text, 0, end);
+      return kept;
+    }
+    Object body = Core.stringSlice(text, 0, cursor);
+    Object out = Core._stream_trim_end_impl(body);
+    return out;
+  }
+
+  static Object _stream_is_partial_opening_fence_impl(Object text) {
+    axirCoverageMark("_stream_is_partial_opening_fence_impl");
+    Object one = Core.eq(text, "`");
+    Object two = Core.eq(text, "``");
+    Object short_run = Core.or(one, two);
+    if (Core.truthy(short_run)) {
+      return Boolean.TRUE;
+    }
+    Object fenced = Core.stringStartsWith(text, "```");
+    Object not_fenced = Core.not(fenced);
+    if (Core.truthy(not_fenced)) {
+      return Boolean.FALSE;
+    }
+    Object length = Core.len(text);
+    Object cursor = 3;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object at_end = Core.gte(cursor, length);
+      if (Core.truthy(at_end)) {
+        break;
+      }
+      Object next = Core.add(cursor, 1);
+      Object ch = Core.stringSlice(text, cursor, next);
+      Object word = Core.regexMatch("^[a-zA-Z0-9]$", ch);
+      Object not_word = Core.not(word);
+      if (Core.truthy(not_word)) {
+        return Boolean.FALSE;
+      }
+      cursor = next;
+    }
+    return Boolean.TRUE;
   }
 
   static Object _agent_factory(Object signature, Object options) {
