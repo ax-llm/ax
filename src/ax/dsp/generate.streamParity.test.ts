@@ -1,3 +1,4 @@
+// cspell:ignore thon
 import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
@@ -118,6 +119,47 @@ describe('AxGen stream and non-stream parity', () => {
       expect(deltas.map((d) => d.delta)).toEqual([{ answer: 'print(1)' }]);
     }
   });
+
+  it.each([
+    [
+      'a split closing fence',
+      'question:string -> answer:code',
+      [content('Answer: ```python\nprint(1)\n``'), content('`')],
+      { answer: 'print(1)' },
+    ],
+    [
+      'a whole closing fence',
+      'question:string -> answer:code',
+      [content('Answer: ```python\nprint(1)\n```')],
+      { answer: 'print(1)' },
+    ],
+    [
+      'code that ends in a backtick',
+      'question:string -> answer:code',
+      [content('Answer: echo `date'), content('`')],
+      { answer: 'echo `date`' },
+    ],
+    [
+      'a fenced code field before another field',
+      'question:string -> answer:code, reason:string',
+      [content('Answer: ```python\nprint(1)\n```\n'), content('Reason: short')],
+      { answer: 'print(1)', reason: 'short' },
+    ],
+  ])(
+    'streams %s to the non-streaming value',
+    async (_label, signature, chunks, expected) => {
+      const gen = ax(signature);
+      const folded = await gen.forward(scriptedAI([chunks]), { question: 'q' });
+      const streamed = await gen.forward(
+        scriptedAI([chunks]),
+        { question: 'q' },
+        { stream: true }
+      );
+
+      expect(folded).toEqual(expected);
+      expect(streamed).toEqual(expected);
+    }
+  );
 
   it('keeps the thought of a step that calls a stop function', async () => {
     for (const stream of [false, true]) {

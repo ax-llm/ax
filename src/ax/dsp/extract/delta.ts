@@ -7,13 +7,16 @@ const outputFieldMaps = new WeakMap<
   { hash: string; fieldMap: Map<string, AxField> }
 >();
 
+// `final` is set once the field's text is complete: at the end of the
+// stream, or when the next field's label has arrived.
 export function* yieldDelta<OUT extends AxGenOut>(
   content: string,
   field: Readonly<AxField>,
   s: number,
   e: number,
   xstate: extractionState,
-  index: number
+  index: number,
+  final = false
 ): GenDeltaOut<OUT> {
   const { name: fieldName, isInternal } = field;
   const { isArray: fieldIsArray, name: fieldTypeName } = field.type ?? {};
@@ -35,19 +38,25 @@ export function* yieldDelta<OUT extends AxGenOut>(
     return;
   }
 
+  const isCode = fieldTypeName === 'code';
   let d2 = d1.replace(/\s+$/, '');
 
-  if (xstate.currField?.type?.name === 'code') {
+  if (isCode) {
     d2 = d2.replace(/\s*```\s*$/, '');
+    // Code fences are stripped whole, so until the field's text is complete,
+    // hold back a trailing "`" or "``" that may still grow into the closing
+    // fence, as a partial label is held back, rather than let the chunk
+    // boundary decide the value.
+    if (!final) {
+      d2 = d2.replace(/\s*`{1,2}$/, '');
+    }
   }
 
   let d3 = isFirstChunk ? d2.trimStart() : d2;
 
-  if (xstate.currField?.type?.name === 'code') {
-    // An opening fence whose line has not ended yet ("```py") is stripped
-    // once it has, so hold it back, as a partial label is, rather than let
-    // the chunk boundary decide the value.
-    if (isFirstChunk && /^(?:`{1,2}|```[a-zA-Z0-9]*)$/.test(d3)) {
+  if (isCode) {
+    // Likewise an opening fence whose line has not ended yet ("```py").
+    if (!final && isFirstChunk && /^(?:`{1,2}|```[a-zA-Z0-9]*)$/.test(d3)) {
       return;
     }
     d3 = d3.replace(/^[ ]*```[a-zA-Z0-9]*\n\s*/, '');
@@ -64,11 +73,12 @@ export function* streamValues<OUT extends AxGenOut>(
   content: string,
   values: Readonly<Record<string, OUT>>,
   xstate: extractionState,
-  index: number
+  index: number,
+  final = false
 ): GenDeltaOut<OUT> {
   for (const prevField of xstate.prevFields ?? []) {
     const { field, s, e } = prevField;
-    yield* yieldDelta<OUT>(content, field, s, e, xstate, index);
+    yield* yieldDelta<OUT>(content, field, s, e, xstate, index, true);
   }
   xstate.prevFields = undefined;
 
@@ -92,7 +102,8 @@ export function* streamValues<OUT extends AxGenOut>(
     xstate.s,
     content.length,
     xstate,
-    index
+    index,
+    final
   );
 
   const outputFieldMap = getOutputFieldMap(sig);
