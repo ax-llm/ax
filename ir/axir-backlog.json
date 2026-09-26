@@ -1946,6 +1946,28 @@
       "verification": "fold_chat_response_stream folds stream chunks (content and thought append, thought blocks accumulate, function-call fragments merge by id) and complete_once in all five ports streams and folds a forward with stream: true; the stream-forward-* fixtures match a TypeScript probe. Python and Go conformance 966/966; npm run test --workspace=@ax-llm/ax, npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass; mutation checks fail each rule; live on gemini-3.5-flash-lite and gemini-3.8-flash in TypeScript, Python and Go."
     },
     {
+      "id": "axir-2026-09-26-port-typescript-s-per-step-output-reset-and-monotonic-versions-t",
+      "status": "open",
+      "title": "Port TypeScript's per-step output reset and monotonic versions to the ports' forward and streaming",
+      "createdAt": "2026-09-26",
+      "sourcePR": null,
+      "sourceCommit": "3cf10a6e022146b06dda420f5b2bd9227e1ad20f",
+      "tsPaths": [
+        "src/ax/dsp/generate.ts",
+        "src/ax/dsp/generate.stepVersions.test.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript now starts a new delta version when a step follows emitted output fields, carrying the thought forward, and never lets versions decrease after validation or infrastructure retries. The ports' forward joins thought across steps but must also let a later step's fields replace an earlier step's, and their streaming op must yield the same versions and deltas.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-26-return-an-empty-axgen-output-on-a-user-stop-function",
       "status": "done",
       "title": "Return an empty AxGen output on a user stop function",
