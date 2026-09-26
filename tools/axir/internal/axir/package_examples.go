@@ -4562,26 +4562,43 @@ int main() {
 const cppAgentPlaybookExample = `#include "axllm/axllm.hpp"
 
 #include <iostream>
+#include <string>
 
-// The actor returns model-authored Python code and a real runtime executes it.
-// The same offline response also satisfies the playbook reflector and curator.
+// An offline model: each stage answers in its own output contract, found by
+// the output wire keys its prompt asks for. The actor returns model-authored
+// Python code that a real runtime executes; the evolve weakness miner and the
+// playbook reflector and curator answer with "Label: value" lines.
 struct ScriptedClient : axllm::AIClient {
-  axllm::Value complete(axllm::Value) override {
-    return axllm::object({{"content",
-        "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\","
-        "\"answer\":\"Ax composes typed LLM programs.\","
-        "\"reasoning\":\"The playbook lacked a brevity rule.\","
-        "\"errorIdentification\":\"Answer was too verbose.\","
-        "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
-        "\"correctApproach\":\"Add a concise-answer guideline.\","
-        "\"keyInsight\":\"Prefer one-sentence answers.\","
-        "\"weaknessDescription\":\"The agent does not verify its final step.\","
-        "\"rootCause\":\"The final step is accepted without a check.\","
-        "\"proposedGuidance\":\"Verify the final step before completing the task.\","
-        "\"evidenceQuotes\":[\"final\",\"snapshot\",\"Answer\"],"
-        "\"configRecommendations\":[],"
-        "\"bulletTags\":[],"
-        "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]}"}});
+  axllm::Value complete(axllm::Value request) override {
+    const std::string prompt = axllm::stringify(request);
+    const std::string tick(1, static_cast<char>(96));
+    auto asks = [&](const std::string& key) {
+      return prompt.find("(wire key: " + tick + key + tick + ")") != std::string::npos;
+    };
+    std::string content = "Answer: Ax composes typed LLM programs.";
+    if (asks("pythonCode")) {
+      content = "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\"}";
+    } else if (asks("weaknessDescription")) {
+      content =
+          "Weakness Description: The agent does not verify its final step.\n"
+          "Root Cause: The final step is accepted without a check.\n"
+          "Proposed Guidance: Verify the final step before completing the task.\n"
+          "Evidence Quotes: [\"final\", \"snapshot\", \"Answer\"]\n"
+          "Config Recommendations: []";
+    } else if (asks("errorIdentification")) {
+      content =
+          "Reasoning: The playbook lacked a brevity rule.\n"
+          "Error Identification: Answer was too verbose.\n"
+          "Root Cause Analysis: No guidance on conciseness.\n"
+          "Correct Approach: Add a concise-answer guideline.\n"
+          "Key Insight: Prefer one-sentence answers.\n"
+          "Bullet Tags: []";
+    } else if (asks("operations")) {
+      content =
+          "Reasoning: The playbook lacked a brevity rule.\n"
+          "Operations: [{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]";
+    }
+    return axllm::object({{"content", content}});
   }
 };
 

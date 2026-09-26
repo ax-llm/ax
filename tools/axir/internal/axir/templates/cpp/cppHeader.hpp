@@ -315,7 +315,7 @@ struct Core {
   static Value map_update(Value target, Value values);
   static Value map_keys(Value values);
   static Value map_values(Value values);
-  static Value list_get(Value values, Value index, Value default_value);
+  static Value list_get(Value values, Value index, Value default_value = Value());
   static Value type_is(Value value, Value type_name);
   static Value regex_match(Value pattern, Value value);
   static Value string_trim(Value value);
@@ -330,7 +330,8 @@ struct Core {
   static Value string_remove_suffix(Value value, Value suffix);
   static Value string_words(Value value);
   static Value string_default_if_empty(Value value, Value fallback);
-  static Value string_format(Value templ, Value a = Value(), Value b = Value(), Value c = Value());
+  static Value string_format(Value templ, Value a = Value(), Value b = Value(), Value c = Value(),
+                             Value d = Value(), Value e = Value(), Value f = Value());
   static Value string_split(Value value, Value sep);
   static Value string_split_once(Value value, Value sep);
   static Value string_split_trim_nonempty(Value value, Value sep);
@@ -430,6 +431,22 @@ struct Core {
   static Value openai_normalize_stream_delta(Value raw, Value state);
   static Value openai_normalize_embed_response(Value raw);
   static Value flow_dispatch_group(Value flow, Value client, Value plans, Value state, Value options);
+  // JS indexOf over bytes (the units of len and string_slice): the index of
+  // needle at or after start (a negative start is 0), else -1.
+  static Value string_index_of(Value text, Value needle, Value start);
+  // Pull handle over the client's provider stream: open starts it, next
+  // returns each chat response chunk as it arrives (null at the end, provider
+  // errors rethrown with their original type), close cancels it and never
+  // raises. A client without streaming answers with one chat response.
+  static Value ai_stream_open(Value client, Value request, Value options);
+  static Value ai_stream_next(Value handle);
+  static Value ai_stream_close(Value handle);
+  // AxGen streaming host seams: the delta sink, TypeScript field processors
+  // (value, {values, done}), streaming assertions, and one-time deprecations.
+  static Value axgen_emit_delta(Value sink, Value envelope);
+  static Value axgen_call_processor(Value spec, Value value, Value context);
+  static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
+  static Value axgen_deprecation(Value key, Value message);
   // AXIR_CORE_CPP_DECLARATIONS
 
 };
@@ -1037,6 +1054,10 @@ class AxProgram {
   virtual Value get_usage() const { return Value::object(); }
 };
 
+namespace detail {
+struct AxGenInternal;
+}
+
 class AxGen : public AxProgram {
  public:
   std::function<std::shared_ptr<AxProgram>()> owned_worker_factory() const override;
@@ -1077,11 +1098,36 @@ class AxGen : public AxProgram {
   Value value() const;
 
  private:
+  friend struct detail::AxGenInternal;
   Value state_;
   AxMemory memory_;
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   void refresh_prompt_template();
 };
+
+namespace detail {
+// Internal AxGen seams for the conformance runner until the public C++
+// streaming and field-processor API lands. Not part of the public API.
+struct AxGenInternal {
+  // Runs the streaming forward: each {version, index, delta} envelope goes to
+  // sink, a sink exception stops the run, and the merged output of the
+  // picked sample is returned.
+  static Value streaming_forward(AxGen& gen, AIClient& client, Value values, Value options,
+                                 std::function<void(Value)> sink, const AxRuntimeHooks& hooks = {});
+  // Rewrites a field's final value with an op ("uppercase", "lowercase",
+  // "trim", "prefix:...", "suffix:..."); streaming holds the field back.
+  static void add_field_transform(AxGen& gen, std::string field, std::string op);
+  // TypeScript field processors: processor(value, {values, done}); a
+  // non-empty result is sent to the model as a user message for another step.
+  // Feedback processors see the final value, streaming ones each chunk of a
+  // string or code field.
+  static void add_feedback_processor(AxGen& gen, std::string field, std::function<Value(Value, Value)> processor);
+  static void add_streaming_field_processor(AxGen& gen, std::string field, std::function<Value(Value, Value)> processor);
+  // check(text so far, done) returns null or true to pass, a message string
+  // to fail with it, or false to fail with message (or the default message).
+  static void add_streaming_assert(AxGen& gen, std::string field, std::function<Value(Value, bool)> check, std::string message = "");
+};
+}
 
 class AxFlow : public AxProgram {
  public:
