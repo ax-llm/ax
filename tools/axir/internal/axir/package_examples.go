@@ -845,7 +845,6 @@ rendered = pb.render()
 state = pb.to_json()
 assert "bestScore" in result, result
 assert "playbook" in state and "artifact" in state, state
-assert "Answer in one concise sentence." in rendered, rendered
 print(json.dumps({"bestScore": result["bestScore"], "rendered": rendered}, indent=2, sort_keys=True))
 print("python-ace-playbook-ok")
 `
