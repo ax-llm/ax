@@ -233,6 +233,7 @@ static Object& object_mut(Value& value) {
 }
 
 static std::string stable_stringify(const Value& value);
+static std::string pretty_stringify(const Value& value);
 
 static std::string str(const Value& value) {
   if (auto p = std::get_if<std::string>(&value.data)) return *p;
@@ -1174,7 +1175,7 @@ Value Core::json_parse_strict(Value value) {
 }
 Value Core::json_stringify(Value value) { return Value(stringify(value)); }
 Value Core::json_stable_stringify(Value value) { return Value(stable_stringify(value)); }
-Value Core::json_pretty(Value value) { return Value(stringify(value)); }
+Value Core::json_pretty(Value value) { return Value(pretty_stringify(value)); }
 Value Core::signature_error(Value message) { return Value(Object{{"__error", "signature"}, {"message", str(message)}}); }
 Value Core::validation_error(Value message) { return Value(Object{{"__error", "validation"}, {"message", str(message)}}); }
 Value Core::runtime_error(Value message) { return Value(Object{{"__error", "runtime"}, {"message", str(message)}}); }
@@ -2123,7 +2124,7 @@ Value Core::prompt_user_content(Value signature, Value values) {
       if (truthy(get_key(field, "isOptional")) || truthy(get_key(field, "isInternal"))) continue;
       throw AxError("runtime", "Value for input field '" + name + "' is required.");
     }
-    std::string rendered = value.is_string() ? str(value) : stringify(value);
+    std::string rendered = value.is_string() ? str(value) : pretty_stringify(value);
     Value part(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": " + rendered + "\n"}});
     if (truthy(get_key(field, "isCached"))) Core::set(part, "cache", true);
     parts.emplace_back(part);
@@ -36468,6 +36469,48 @@ static std::string stable_stringify(const Value& value) {
     out += "\"" + escape_json(kv.first) + "\":" + stable_stringify(kv.second);
   }
   return out + "}";
+}
+
+// JSON.stringify(value, null, 2): two-space indentation, keys in insertion
+// order, and {} or [] for empty containers.
+static void write_pretty_json(std::string& out, const Value& value, const std::string& indent) {
+  const std::string inner = indent + "  ";
+  if (value.is_object()) {
+    auto items = entries(value);
+    if (items.empty()) {
+      out += "{}";
+      return;
+    }
+    out += "{\n";
+    for (std::size_t i = 0; i < items.size(); ++i) {
+      if (i) out += ",\n";
+      out += inner + "\"" + escape_json(items[i].first) + "\": ";
+      write_pretty_json(out, items[i].second, inner);
+    }
+    out += "\n" + indent + "}";
+    return;
+  }
+  if (auto p = std::get_if<std::shared_ptr<Array>>(&value.data)) {
+    if (!*p || (*p)->empty()) {
+      out += "[]";
+      return;
+    }
+    out += "[\n";
+    for (std::size_t i = 0; i < (*p)->size(); ++i) {
+      if (i) out += ",\n";
+      out += inner;
+      write_pretty_json(out, (**p)[i], inner);
+    }
+    out += "\n" + indent + "]";
+    return;
+  }
+  out += stringify(value);
+}
+
+static std::string pretty_stringify(const Value& value) {
+  std::string out;
+  write_pretty_json(out, value, "");
+  return out;
 }
 
 bool equal(const Value& left, const Value& right) {

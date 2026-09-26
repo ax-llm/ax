@@ -148,7 +148,7 @@ func TestJSONTextOmitsOrderListsAndHTMLEscapes(t *testing.T) {
 	if got := display(Object("a", 1, "b", Array(Object("c", true)))); got != `{"a":1,"b":[{"c":true}]}` {
 		t.Fatalf("display(map) = %s", got)
 	}
-	if got := display(_core_json_pretty(parseJSON(`{"tag":"<b>&","n":1}`))); got != "{\n  \"n\": 1,\n  \"tag\": \"<b>&\"\n}" {
+	if got := display(_core_json_pretty(parseJSON(`{"tag":"<b>&","n":1}`))); got != "{\n  \"tag\": \"<b>&\",\n  \"n\": 1\n}" {
 		t.Fatalf("json.pretty = %q", got)
 	}
 }
