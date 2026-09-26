@@ -867,6 +867,34 @@ const cases: Record<string, Case> = {
     ],
   },
 
+  'streaming-forward-feedback-carries-thought': {
+    signature: 'question:string -> answer:string',
+    forward_options: { show_thoughts: true },
+    feedback_processors: [{ field: 'answer', returns: 'Check it.', times: 1 }],
+    responses: [
+      streamed(thought('First look. '), text('Answer: Lyon'), done()),
+      streamed(thought('Rechecked.'), text('Answer: Paris'), done()),
+    ],
+  },
+  'streaming-forward-infra-retry-replays-prefix': {
+    signature: 'question:string -> answer:string',
+    responses: [
+      streamed(text('Answer: hello'), text(' wor'), {
+        error: { type: 'network', message: 'socket hang up' },
+      }),
+      streamed(text('Answer: hel'), text('lo world'), done()),
+    ],
+  },
+  'streaming-forward-text-code-fence-stripped': {
+    signature: 'question:string -> answer:code',
+    responses: [
+      streamed(
+        text('Answer: ```python\nprint(1)\n'),
+        text('print(2)\n'),
+        done('```')
+      ),
+    ],
+  },
   // A processor's own error ends the run at once, with no retry.
   'streaming-forward-streaming-processor-error': {
     signature: 'question:string -> answer:string',
