@@ -6520,29 +6520,27 @@ impl AxAgent {
     ) -> AxResult<Value> {
         let input = task.get("input").cloned().unwrap_or_else(|| task.clone());
         let forward_options = options.get("forward_options").cloned().unwrap_or_else(|| json!({}));
-        match self.forward_with_options(client, input, forward_options) {
-            Ok(output) => {
-                let trace = self.export_trace()?;
-                Ok(core_value_to_json(&_build_agent_eval_prediction(&[
-                    core_value_from_json(&output),
-                    core_value_from_json(&Value::Array(self.get_action_log())),
-                    core_value_from_json(&self.get_usage()),
-                    core_value_from_json(&trace),
-                ])?))
-            }
+        // As TS evaluates each task from a fresh state, the prediction carries
+        // only this run's share of the agent's logs.
+        let marks = _agent_eval_marks(&[self.state.clone()])?;
+        let completion = match self.forward_with_options(client, input, forward_options) {
+            Ok(output) => json!({"type": "final", "output": output}),
             Err(error) => match core_agent_clarification_detail(&error) {
-                Some(detail) => Ok(json!({
-                    "completionType": "askClarification",
+                Some(detail) => json!({
+                    "type": "askClarification",
                     "clarification": detail.get("clarification").cloned().unwrap_or(Value::Null),
-                    "actionLog": Value::Array(self.get_action_log()),
-                    "functionCalls": self.state_json("function_call_traces"),
-                    "toolErrors": [],
-                    "turnCount": 0,
-                    "usage": self.get_usage(),
-                })),
-                None => Err(error),
+                }),
+                None => return Err(error),
             },
-        }
+        };
+        let trace = self.export_trace()?;
+        Ok(core_value_to_json(&_build_agent_run_prediction(&[
+            self.state.clone(),
+            marks,
+            core_value_from_json(&completion),
+            core_value_from_json(&self.get_usage()),
+            core_value_from_json(&trace),
+        ])?))
     }
 
     pub fn execute_actor_step(
@@ -15560,9 +15558,15 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
             }
         }
         "eval" => {
-            let prediction = conformance_optimization_prediction(fixture);
+            let prediction = conformance_agent_eval_prediction(fixture)?;
             if let Some(expected) = fixture.get("expected_prediction_subset") {
                 expect_json_subset("eval prediction", &prediction, expected)?;
+            }
+            // Fields that must match exactly: a list compares in full.
+            if let Some(fields) = fixture.get("expected_prediction_fields").and_then(Value::as_object) {
+                for (key, value) in fields {
+                    expect_json_equal(&format!("eval prediction {key}"), prediction.get(key).unwrap_or(&Value::Null), value)?;
+                }
             }
         }
         _ => return Err(AxError::new("fixture", format!("unsupported Rust optimize operation {operation}"))),
@@ -16197,12 +16201,37 @@ fn conformance_evaluation_result(fixture: &Value) -> Value {
     result
 }
 
-fn conformance_optimization_prediction(fixture: &Value) -> Value {
+// The optimize eval operation runs the agent's evaluate_optimization_task on
+// the fixture's scripted client, with its runtime_script as the agent's
+// runtime when given, as the other runners do.
+fn conformance_agent_eval_prediction(fixture: &Value) -> AxResult<Value> {
+    let signature = fixture
+        .get("signature")
+        .and_then(Value::as_str)
+        .unwrap_or("question:string -> answer:string");
+    let mut program = agent_with_options(signature, fixture.get("options").cloned().unwrap_or_else(|| json!({})))?;
+    if let Some(script) = fixture.get("runtime_script").and_then(Value::as_array) {
+        let language = fixture
+            .get("runtime_language")
+            .and_then(Value::as_str)
+            .unwrap_or("JavaScript")
+            .to_string();
+        program = program.with_runtime(Box::new(ScriptedCodeRuntime::new(script.clone(), language, String::new())))?;
+    }
+    let responses = fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut client = FixtureClient::scripted(
+        responses,
+        fixture.get("features").cloned().unwrap_or_else(router_default_features),
+    );
     let task = fixture
         .get("task")
         .cloned()
         .unwrap_or_else(|| json!({"input": fixture.get("input").cloned().unwrap_or_else(|| json!({}))}));
-    conformance_optimization_prediction_for_task(fixture, &task)
+    program.evaluate_optimization_task(
+        &mut client,
+        task,
+        fixture.get("eval_options").cloned().unwrap_or_else(|| json!({})),
+    )
 }
 
 fn conformance_optimization_prediction_for_task(fixture: &Value, task: &Value) -> Value {

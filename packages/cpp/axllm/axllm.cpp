@@ -32481,6 +32481,145 @@ Value Core::_resolve_agent_executor_model_policy(Value options) {
   return out;
 }
 
+Value Core::_agent_eval_marks(Value state) {
+  axir_coverage_mark("_agent_eval_marks");
+  Value empty_list = Value::array();
+  Value log = Core::get(state, Value("action_log"), empty_list);
+  Value traces = Core::get(state, Value("function_call_traces"), empty_list);
+  Value log_count = Core::len(log);
+  Value trace_count = Core::len(traces);
+  Value marks = Value::object();
+  Core::set(marks, Value("action_log"), log_count);
+  Core::set(marks, Value("function_call_traces"), trace_count);
+  return marks;
+}
+
+Value Core::_agent_eval_function_calls(Value traces) {
+  axir_coverage_mark("_agent_eval_function_calls");
+  Value calls = Value::array();
+  Value empty_map = Value::object();
+  for (auto trace : Core::iter(traces)) {
+    Value qualified = Core::get(trace, Value("qualified_name"), Value(""));
+    Value name = Core::get(trace, Value("name"), Value(""));
+    Value name_missing = Core::eq(name, Value(""));
+    Value name_qualified = Core::eq(name, qualified);
+    Value derive_name = Core::or_(name_missing, name_qualified);
+    if (Core::truthy(derive_name)) {
+      Value name_parts = Core::string_split(qualified, Value("."));
+      for (auto name_part : Core::iter(name_parts)) {
+        name = name_part;
+      }
+    }
+    Value arguments = Core::get(trace, Value("arguments"), Value());
+    Value result = Core::get(trace, Value("result"), empty_map);
+    Value result_is_map = Core::type_is(result, Value("object"));
+    if (Core::truthy(result_is_map)) {
+      // empty
+    }
+    if (!Core::truthy(result_is_map)) {
+      result = empty_map;
+    }
+    Value status = Core::get(trace, Value("status"), Value("ok"));
+    Value call = Value::object();
+    Core::set(call, Value("qualifiedName"), qualified);
+    Core::set(call, Value("name"), name);
+    Core::set(call, Value("arguments"), arguments);
+    Value failed = Core::eq(status, Value("error"));
+    if (Core::truthy(failed)) {
+      Value error = Core::get(result, Value("error"), Value("unknown error"));
+      Value error_text = Core::string_str(error);
+      Core::set(call, Value("error"), error_text);
+    }
+    if (!Core::truthy(failed)) {
+      Value value = Core::get(result, Value("value"), Value());
+      Value has_value = Core::is_not_none(value);
+      if (Core::truthy(has_value)) {
+        Core::set(call, Value("result"), value);
+      }
+    }
+    Core::append(calls, call);
+  }
+  return calls;
+}
+
+Value Core::_agent_eval_run(Value state, Value marks) {
+  axir_coverage_mark("_agent_eval_run");
+  Value empty_list = Value::array();
+  Value log = Core::get(state, Value("action_log"), empty_list);
+  Value traces = Core::get(state, Value("function_call_traces"), empty_list);
+  Value log_start = Core::get(marks, Value("action_log"), Value(0));
+  Value trace_start = Core::get(marks, Value("function_call_traces"), Value(0));
+  Value run_log = Value::array();
+  Value log_index = Value(0);
+  for (auto entry : Core::iter(log)) {
+    Value entry_in_run = Core::gte(log_index, log_start);
+    if (Core::truthy(entry_in_run)) {
+      Core::append(run_log, entry);
+    }
+    Value next_log_index = Core::add(log_index, Value(1));
+    log_index = next_log_index;
+  }
+  Value run_traces = Value::array();
+  Value trace_index = Value(0);
+  for (auto trace : Core::iter(traces)) {
+    Value trace_in_run = Core::gte(trace_index, trace_start);
+    if (Core::truthy(trace_in_run)) {
+      Core::append(run_traces, trace);
+    }
+    Value next_trace_index = Core::add(trace_index, Value(1));
+    trace_index = next_trace_index;
+  }
+  Value calls = Core::_agent_eval_function_calls(run_traces);
+  Value tool_errors = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value call_error = Core::get(call, Value("error"), Value());
+    Value has_error = Core::truthy_value(call_error);
+    if (Core::truthy(has_error)) {
+      Value call_name = Core::get(call, Value("qualifiedName"), Value(""));
+      Value tool_error = Core::string_format(Value("{}: {}"), call_name, call_error);
+      Core::append(tool_errors, tool_error);
+    }
+  }
+  Value executor_ran = Value(false);
+  Value executor_turns = Value(0);
+  Value distiller_turns = Value(0);
+  for (auto entry : Core::iter(run_log)) {
+    Value stage = Core::get(entry, Value("stage"), Value(""));
+    Value is_executor = Core::eq(stage, Value("executor"));
+    if (Core::truthy(is_executor)) {
+      executor_ran = Value(true);
+    }
+    Value type = Core::get(entry, Value("type"), Value(""));
+    Value is_step = Core::eq(type, Value("runtime_step"));
+    if (Core::truthy(is_step)) {
+      if (Core::truthy(is_executor)) {
+        Value next_executor_turns = Core::add(executor_turns, Value(1));
+        executor_turns = next_executor_turns;
+      }
+      Value is_distiller = Core::eq(stage, Value("distiller"));
+      if (Core::truthy(is_distiller)) {
+        Value next_distiller_turns = Core::add(distiller_turns, Value(1));
+        distiller_turns = next_distiller_turns;
+      }
+    }
+  }
+  Value turn_count = distiller_turns;
+  if (Core::truthy(executor_ran)) {
+    turn_count = executor_turns;
+  }
+  Value run_state = Value::object();
+  Core::set(run_state, Value("action_log"), run_log);
+  Core::set(run_state, Value("function_call_traces"), run_traces);
+  Value signals = Core::_agent_build_failure_signals(run_state);
+  Value run = Value::object();
+  Core::set(run, Value("actionLog"), run_log);
+  Core::set(run, Value("functionCalls"), calls);
+  Core::set(run, Value("toolErrors"), tool_errors);
+  Core::set(run, Value("turnCount"), turn_count);
+  Core::set(run, Value("failureSignals"), signals);
+  return run;
+}
+
 Value Core::_select_agent_executor_model(Value policy, Value actor_model_state) {
   axir_coverage_mark("_select_agent_executor_model");
   Value none = Core::none();
@@ -32564,6 +32703,48 @@ Value Core::_agent_action_log_char_count(Value entries) {
     total = Core::add(total, entry_len);
   }
   return total;
+}
+
+Value Core::_build_agent_run_prediction(Value state, Value marks, Value completion, Value usage, Value trace) {
+  axir_coverage_mark("_build_agent_run_prediction");
+  Value run = Core::_agent_eval_run(state, marks);
+  Value type = Core::get(completion, Value("type"), Value("final"));
+  Value out = Value::object();
+  Core::set(out, Value("completionType"), type);
+  Value is_final = Core::eq(type, Value("final"));
+  if (Core::truthy(is_final)) {
+    Value output = Core::get(completion, Value("output"), Value());
+    Core::set(out, Value("output"), output);
+    Core::set(out, Value("finalOutput"), output);
+  }
+  Value is_clarification = Core::eq(type, Value("askClarification"));
+  if (Core::truthy(is_clarification)) {
+    Value clarification = Core::get(completion, Value("clarification"), Value());
+    Core::set(out, Value("clarification"), clarification);
+  }
+  Value tool_errors = Core::get(run, Value("toolErrors"), Value());
+  Value is_error = Core::eq(type, Value("error"));
+  if (Core::truthy(is_error)) {
+    Value message = Core::get(completion, Value("message"), Value(""));
+    Value error = Value::object();
+    Core::set(error, Value("message"), message);
+    Core::set(out, Value("error"), error);
+    Value error_tool_errors = Value::array();
+    Core::append(error_tool_errors, message);
+    tool_errors = error_tool_errors;
+  }
+  Value run_log = Core::get(run, Value("actionLog"), Value());
+  Core::set(out, Value("actionLog"), run_log);
+  Core::set(out, Value("usage"), usage);
+  Core::set(out, Value("trace"), trace);
+  Value signals = Core::get(run, Value("failureSignals"), Value());
+  Core::set(out, Value("failureSignals"), signals);
+  Value calls = Core::get(run, Value("functionCalls"), Value());
+  Core::set(out, Value("functionCalls"), calls);
+  Core::set(out, Value("toolErrors"), tool_errors);
+  Value turn_count = Core::get(run, Value("turnCount"), Value());
+  Core::set(out, Value("turnCount"), turn_count);
+  return out;
 }
 
 Value Core::_agent_compute_dynamic_runtime_chars(Value entries, Value target_prompt_chars, Value max_runtime_chars) {
@@ -37794,12 +37975,21 @@ Value Core::_agent_playbook_action_log_text(Value action_log) {
     return Value("");
   }
   Value tagged = Value(false);
+  Value executor_ran = Value(false);
   for (auto probe : Core::iter(action_log)) {
     Value probe_stage = Core::get(probe, Value("stage"), Value());
     Value probe_has_stage = Core::is_not_none(probe_stage);
     if (Core::truthy(probe_has_stage)) {
       tagged = Value(true);
     }
+    Value probe_executor = Core::eq(probe_stage, Value("executor"));
+    if (Core::truthy(probe_executor)) {
+      executor_ran = Value(true);
+    }
+  }
+  Value kept_stage = Value("distiller");
+  if (Core::truthy(executor_ran)) {
+    kept_stage = Value("executor");
   }
   Value parts = Value::array();
   for (auto entry : Core::iter(action_log)) {
@@ -37807,9 +37997,9 @@ Value Core::_agent_playbook_action_log_text(Value action_log) {
     Value is_step = Core::eq(type, Value("runtime_step"));
     if (Core::truthy(is_step)) {
       Value stage = Core::get(entry, Value("stage"), Value("executor"));
-      Value is_executor = Core::eq(stage, Value("executor"));
+      Value is_kept_stage = Core::eq(stage, kept_stage);
       Value untagged = Core::not_(tagged);
-      Value keep = Core::or_(is_executor, untagged);
+      Value keep = Core::or_(is_kept_stage, untagged);
       if (Core::truthy(keep)) {
         Value code = Core::get(entry, Value("code"), Value(""));
         Value output = Core::get(entry, Value("output"), Value(""));
@@ -50127,16 +50317,21 @@ AxAgent& AxAgent::apply_optimization(Value artifact) {
 Value AxAgent::evaluate_optimization_task(AIClient& client, Value task, Value options) {
   Value input = Core::get(task, "input", task);
   Value forward_options = Core::get(options, "forward_options", Value::object());
+  // As TS evaluates each task from a fresh state, the prediction carries only
+  // this run's share of the agent's logs.
+  Value marks = Core::_agent_eval_marks(state_);
+  Value completion;
   try {
     Value output = forward(client, input, forward_options);
-    return Core::_build_agent_eval_prediction(output, get_action_log(), get_usage(), export_trace());
+    completion = object({{"type", Value("final")}, {"output", output}});
   } catch (const AxError& e) {
     if (e.category == "AxAgentClarificationError") {
-      return object({{"completionType", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}, {"actionLog", get_action_log()}, {"functionCalls", Core::get(state_, "function_call_traces", Value::array())}, {"toolErrors", Value::array()}, {"turnCount", Value(0)}, {"usage", get_usage()}, {"trace", export_trace()}});
+      completion = object({{"type", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}});
+    } else {
+      completion = object({{"type", Value("error")}, {"message", Value(std::string(e.what()))}});
     }
-    Value err = object({{"message", Value(std::string(e.what()))}});
-    return object({{"completionType", Value("error")}, {"error", err}, {"actionLog", get_action_log()}, {"functionCalls", Core::get(state_, "function_call_traces", Value::array())}, {"toolErrors", array({Value(std::string(e.what()))})}, {"turnCount", Value(0)}, {"usage", get_usage()}, {"trace", export_trace()}});
   }
+  return Core::_build_agent_run_prediction(state_, marks, completion, get_usage(), export_trace());
 }
 Value AxAgent::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
   Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
