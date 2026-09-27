@@ -897,6 +897,15 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `55f195ce5`
   - Verification: `Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes.`
+- `axir-2026-09-27-anthropic-gemini-sampling-support` [axai] Match TypeScript's Anthropic and Gemini sampling rules and explicit temperature 1 in the ports
+  - Status: done
+  - Source commit: `e631792d8026e0b3a9aa61c3aae5653810d94d60`
+  - TS paths: `src/ax/ai/base.ts`, `src/ax/ai/types.ts`, `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/info.ts`, `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/info.ts`, `src/ax/ai/openai/info.ts`
+  - Impact: TS dropped explicit Anthropic sampling silently (Opus 4.6 lost values the API accepts; models that deprecated sampling lost temperature 1), sent the Gemini API penalties and candidateCount 2 that it rejects with 400 on Gemini 3, and dropped an explicit temperature 1 on OpenAI models that accept only 1. TS now follows the probed APIs, passes the explicit sampling keys to the provider, and warns once for every value it drops or changes; Vertex keeps its wire and warns.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `55643ccb8085cfd3cc3d391390a977968512c2ea`
+  - Verification: `sampling-providers.test.ts (6 tests), sampling.test.ts and anthropic/api.test.ts: 10 of 86 fail on main's sources (6 on behavior, 4 on warning text); npx vitest run src/ax/ai (1059) passes. axai-goldens.ts records the new Anthropic, Gemini and temperature-one fixtures from the real TS clients with their warnings. axai + axagent pass 778/778 in Python, Go, Java, C++ and Rust; npm run axir:conformance:check and axir:check-packages. Live, TS and Python send the same fields and warnings: gpt-5.6-luna and claude-sonnet-5 take temperature 1, claude-opus-4-6 takes 0.2, claude-sonnet-5 drops 0.2 with a warning, and gemini-3.5-flash drops frequencyPenalty and n 2 with warnings (HTTP 400 on main).`
 - `axir-2026-09-27-apply-axgen-constructor-run-options-as-defaults-in-the-ports-and` [axgen] Apply AxGen constructor run options as defaults in the ports and send promptCacheRetention on OpenAI Responses
   - Status: done
   - Source commit: `911d6a72ec504ee4e6fd70c6581d732b7f1b483b`
