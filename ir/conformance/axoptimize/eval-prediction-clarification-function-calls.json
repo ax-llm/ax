@@ -1,0 +1,108 @@
+{
+  "expected_prediction_fields": {
+    "functionCalls": [
+      {
+        "arguments": {
+          "query": "ax"
+        },
+        "name": "search",
+        "qualifiedName": "tools.search",
+        "result": {
+          "title": "Docs"
+        }
+      }
+    ],
+    "toolErrors": [],
+    "turnCount": 2
+  },
+  "expected_prediction_subset": {
+    "completionType": "askClarification"
+  },
+  "kind": "optimize",
+  "name": "eval-prediction-clarification-function-calls",
+  "operation": "eval",
+  "options": {
+    "callable_results": {
+      "tools.search": {
+        "value": {
+          "title": "Docs"
+        }
+      }
+    },
+    "contextFields": [],
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Search the docs",
+            "name": "search",
+            "parameters": {
+              "properties": {
+                "query": {
+                  "description": "Query",
+                  "type": "string"
+                }
+              },
+              "required": ["query"],
+              "type": "object"
+            }
+          }
+        ],
+        "namespace": "tools",
+        "title": "Tools"
+      }
+    ]
+  },
+  "program": "agent",
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final('Answer', {'answer': 'Docs'})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"search\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"askClarification('Which docs do you mean?')\"}"
+    }
+  ],
+  "runtime_language": "JavaScript",
+  "runtime_script": [
+    {
+      "expected_code": "final('Answer', {'answer': 'Docs'})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Docs"
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "search",
+      "result": {
+        "callable": {
+          "args": {
+            "query": "ax"
+          },
+          "qualified_name": "tools.search"
+        },
+        "output": "{\"title\":\"Docs\"}"
+      }
+    },
+    {
+      "expected_code": "askClarification('Which docs do you mean?')",
+      "result": {
+        "args": ["Which docs do you mean?"],
+        "type": "askClarification"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "task": {
+    "input": {
+      "question": "Find the docs."
+    }
+  }
+}

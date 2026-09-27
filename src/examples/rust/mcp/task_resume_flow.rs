@@ -10,7 +10,7 @@
 // ax-example:end
 use axllm::{
     ax, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventTarget, AxMCPClient,
-    AxMCPEventSource, AxMCPStreamableHTTPTransport, AxResult,
+    AxMCPEventSource, AxMCPStreamableHTTPTransport, AxMCPToolCallOutcome, AxResult,
 };
 use serde_json::{json, Map};
 use std::{
@@ -36,11 +36,18 @@ fn main() -> AxResult<()> {
         json!({"namespace":"inventory"}),
     )));
     client.lock().unwrap().init()?;
-    let task = client
+    // A modern server answers with a task; a legacy server returns it inside a
+    // complete result.
+    let outcome = client
         .lock()
         .unwrap()
-        .call_tool("start_reindex", json!({"scope":"all"}))?;
-    let task_id = task["task"]["taskId"].as_str().unwrap().to_string();
+        .call_tool_outcome("start_reindex", json!({"scope":"all"}))?;
+    let task = match outcome {
+        AxMCPToolCallOutcome::Task(task) => Some(task),
+        AxMCPToolCallOutcome::Complete(result) => result.get("task").cloned(),
+    }
+    .expect("start_reindex did not start an MCP task");
+    let task_id = task["taskId"].as_str().unwrap().to_string();
     let mut llm = axllm::ai("openai", json!({"api_key": key, "model": "gpt-5.4-mini"}))?;
     let mut flow = axllm::flow("reindex-flow")
         .execute("status", ax("taskId:string -> status:string")?)
@@ -49,6 +56,10 @@ fn main() -> AxResult<()> {
     let completed_target = completed.clone();
     let mut target = AxEventTarget::new("reindex-flow", move |input, _| {
         let output = flow.forward(&mut llm, input)?;
+        for key in ["status"] {
+            let value = &output[key];
+            assert!(!value.is_null() && value != "" && *value != json!([]), "flow output field {key} is empty: {output}");
+        }
         println!("{output}");
         let (lock, changed) = &*completed_target;
         *lock.lock().unwrap() += 1;

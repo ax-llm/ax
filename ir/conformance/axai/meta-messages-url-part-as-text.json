@@ -1,0 +1,75 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Read these",
+              "type": "text"
+            },
+            {
+              "text": "Example\nA sample page\nhttps://example.com/",
+              "type": "text"
+            },
+            {
+              "text": "https://example.org/",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "name": "meta-messages-url-part-as-text",
+  "provider": "meta-messages",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "text": "Read these",
+            "type": "text"
+          },
+          {
+            "description": "A sample page",
+            "title": "Example",
+            "type": "url",
+            "url": "https://example.com/"
+          },
+          {
+            "type": "url",
+            "url": "https://example.org/"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "meta-messages-url",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}

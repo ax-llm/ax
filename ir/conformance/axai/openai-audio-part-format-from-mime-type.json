@@ -1,0 +1,68 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "What is said?",
+              "type": "text"
+            },
+            {
+              "input_audio": {
+                "data": "UklGRg==",
+                "format": "wav"
+              },
+              "type": "input_audio"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "name": "openai-audio-part-format-from-mime-type",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "text": "What is said?",
+            "type": "text"
+          },
+          {
+            "channels": 1,
+            "data": "UklGRg==",
+            "mimeType": "audio/wav",
+            "sampleRate": 24000,
+            "type": "audio"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_wire"
+      },
+      "status": 200
+    }
+  ]
+}

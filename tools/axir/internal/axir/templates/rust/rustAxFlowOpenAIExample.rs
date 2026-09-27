@@ -13,6 +13,10 @@ fn main() -> AxResult<()> {
         .execute("outline", outline)
         .returns(json!({"outline": "outline"}));
     let output = program.forward(&mut client, json!({"topic": "how Ax composes typed LLM programs"}))?;
+    for key in ["outline"] {
+        let value = &output[key];
+        assert!(!value.is_null() && value != "" && *value != json!([]), "flow output field {key} is empty: {output}");
+    }
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }

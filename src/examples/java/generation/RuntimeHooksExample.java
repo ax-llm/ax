@@ -65,8 +65,14 @@ public final class RuntimeHooksExample {
       AxFlow workflow = Ax.flow(Map.of("id", "examples.runtimeHooks"))
           .execute("outline", Ax.ax("topic:string -> outline:string"))
           .execute("polish", Ax.ax("outline:string -> answer:string"))
-          .returns(Map.of("answer", "polish"));
-      System.out.println(workflow.forward(client, Map.of("topic", "Ax runtime hooks"), Map.of(), overrideHooks));
+          .returns(Map.of("answer", "answer"));
+      Map<String, Object> result = workflow.forward(client, Map.of("topic", "Ax runtime hooks"), Map.of(), overrideHooks);
+      for (String key : List.of("answer")) {
+        if (List.of("null", "\"\"", "[]").contains(Json.stringify(result.get(key)))) {
+          throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(result));
+        }
+      }
+      System.out.println(Json.stringify(result));
     } finally {
       AxGlobals.setRateLimiter(null);
       AxGlobals.setTracer(null);

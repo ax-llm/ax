@@ -33,8 +33,13 @@ public final class SequentialFlowExample {
         Ax.flow(Map.of("id", "examples.sequentialFlow"))
             .execute("step", step)
             .map("note", state -> Map.of("note", "Mapped flow state after the provider-backed step."))
-            .returns(Map.of("step", "step", "note", "note"));
+            .returns(Map.of("summary", "summaryText", "note", "note"));
     Map<String, Object> output = program.forward(client(), Map.of("documentText", "Ax gives developers signatures, provider clients, agents, flows, tracing, and optimization."));
+    for (String key : List.of("summary", "note")) {
+      if (List.of("null", "\"\"", "[]").contains(Json.stringify(output.get(key)))) {
+        throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(output));
+      }
+    }
     System.out.println(Json.stringify(output));
   }
 }

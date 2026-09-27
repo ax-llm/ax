@@ -23,4 +23,5 @@ program = (
 )
 output = program.forward(client, {"topic": "how Ax composes typed LLM programs"})
 
+assert all(output.get(key) for key in ("outline", "summary")), output
 print(json.dumps(output, indent=2, sort_keys=True))

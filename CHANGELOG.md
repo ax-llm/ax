@@ -371,6 +371,8 @@
 
 ## Next major
 
+- Breaking changes planned for the next major now live in
+  [docs/NEXT_MAJOR.md](docs/NEXT_MAJOR.md). The list below is the 24.0.0 one.
 - Added named deployment profiles, `AxAIProfileId`, `AxAIProfileSummary`,
   `axAIProfiles()`, and `axGetAIProfile()`. The deployment name now owns endpoint,
   authentication, capabilities, and model rules; model IDs never select another

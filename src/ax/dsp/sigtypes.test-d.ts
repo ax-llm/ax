@@ -41,7 +41,17 @@ type DefaultStringResult =
 type _defaultIn = Expect<
   Equal<
     Flatten<DefaultStringResult['inputs']>,
-    { userQuestion: string; imageData: { mimeType: string; data: string } }
+    {
+      userQuestion: string;
+      imageData: {
+        mimeType: string;
+        data: string;
+        details?: 'high' | 'low' | 'auto';
+        cache?: boolean;
+        optimize?: 'quality' | 'size' | 'auto';
+        altText?: string;
+      };
+    }
   >
 >;
 type _defaultOut = Expect<
@@ -131,7 +141,17 @@ type ImageResult =
 type _imageIn = Expect<
   Equal<
     Flatten<ImageResult['inputs']>,
-    { userQuestion: string; imageData: { mimeType: string; data: string } }
+    {
+      userQuestion: string;
+      imageData: {
+        mimeType: string;
+        data: string;
+        details?: 'high' | 'low' | 'auto';
+        cache?: boolean;
+        optimize?: 'quality' | 'size' | 'auto';
+        altText?: string;
+      };
+    }
   >
 >;
 
@@ -164,8 +184,20 @@ type _fileIn = Expect<
     {
       userQuestion: string;
       fileData:
-        | { mimeType: string; data: string }
-        | { mimeType: string; fileUri: string };
+        | {
+            mimeType: string;
+            data: string;
+            filename?: string;
+            cache?: boolean;
+            extractedText?: string;
+          }
+        | {
+            mimeType: string;
+            fileUri: string;
+            filename?: string;
+            cache?: boolean;
+            extractedText?: string;
+          };
     }
   >
 >;
@@ -326,7 +358,17 @@ type MixedTypesResult =
 type _mixedIn = Expect<
   Equal<
     Flatten<MixedTypesResult['inputs']>,
-    { userQuestions: string[]; imageData: { mimeType: string; data: string } }
+    {
+      userQuestions: string[];
+      imageData: {
+        mimeType: string;
+        data: string;
+        details?: 'high' | 'low' | 'auto';
+        cache?: boolean;
+        optimize?: 'quality' | 'size' | 'auto';
+        altText?: string;
+      };
+    }
   >
 >;
 type _mixedOut = Expect<
@@ -346,7 +388,17 @@ type WhitespaceResult =
 type _whitespaceIn = Expect<
   Equal<
     Flatten<WhitespaceResult['inputs']>,
-    { userQuestion: string; imageData: { mimeType: string; data: string } }
+    {
+      userQuestion: string;
+      imageData: {
+        mimeType: string;
+        data: string;
+        details?: 'high' | 'low' | 'auto';
+        cache?: boolean;
+        optimize?: 'quality' | 'size' | 'auto';
+        altText?: string;
+      };
+    }
   >
 >;
 type _whitespaceOut = Expect<

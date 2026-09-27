@@ -1,0 +1,39 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Doc`. Your task is to generate new fields: `Answer`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nDoc:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAnswer (wire key: `answer`): (This string field must be included)\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": [
+        {
+          "text": "Doc: \n",
+          "type": "text"
+        },
+        {
+          "cache": true,
+          "data": "JVBERi0=",
+          "extractedText": "Revenue grew",
+          "filename": "report.pdf",
+          "mimeType": "application/pdf",
+          "type": "file"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "input": {
+    "doc": {
+      "mimeType": "application/pdf",
+      "data": "JVBERi0=",
+      "filename": "report.pdf",
+      "cache": true,
+      "extractedText": "Revenue grew",
+      "pages": 3
+    }
+  },
+  "kind": "prompt",
+  "name": "file-input-declared-keys-carried",
+  "signature": "doc:file -> answer:string"
+}

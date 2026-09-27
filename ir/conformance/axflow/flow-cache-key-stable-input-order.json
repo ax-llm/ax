@@ -39,6 +39,11 @@
   "returns": {
     "fullName": "fullName"
   },
+  "source": {
+    "extractor": "tools/axir/extractors/flow-cache-goldens.ts",
+    "reference": ["src/ax/flow/flow.ts", "src/ax/dsp/generate.ts"],
+    "tsDerived": true
+  },
   "steps": [
     {
       "kind": "map",

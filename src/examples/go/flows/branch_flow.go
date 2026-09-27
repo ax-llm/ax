@@ -60,5 +60,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	for _, key := range []string{"route", "response"} {
+		switch fmt.Sprint(output.(map[string]ax.Value)[key]) {
+		case "", "<nil>", "[]":
+			panic(fmt.Sprintf("flow output field %s is empty: %v", key, output))
+		}
+	}
 	printJSON(output)
 }

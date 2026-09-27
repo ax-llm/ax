@@ -595,8 +595,18 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
     boolean binary = "binary".equals(String.valueOf(descriptor.get("response")));
     Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary, operationMethod("speak"), "speak",cancellation, mergedOptions(options));
-    return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request));
+    // As TS's axFetchJsonSpeech: a JSON body arrives parsed, and a binary one
+    // as base64 with its Content-Type, which names its mime type.
+    Object contentType = null;
+    if (raw instanceof BinaryBody body) {
+      raw = body.data();
+      contentType = body.contentType().isEmpty() ? null : body.contentType();
+    }
+    return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request, contentType));
   }
+
+  /** A binary response body as base64 text, with its Content-Type. */
+  record BinaryBody(String data, String contentType) {}
 
   public Iterable<Map<String, Object>> realtime(Iterable<?> events) {
     List<Map<String, Object>> out = new ArrayList<>();
@@ -988,7 +998,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (!method.equals("GET") && !method.equals("HEAD")) call.put(resolvedBodyKey, payload);
     call.put("stream", stream);
     Map<String, Object> errorRequest = errorRequest(call, errorOptions);
-    if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();return transportResult(value,errorRequest);}
+    if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();return binaryResponse?binaryTransportResult(value,errorRequest):transportResult(value,errorRequest);}
     if (credentialProvider == null && (apiKey == null || apiKey.isBlank() || "null".equals(apiKey))) throw new AxAIServiceAuthenticationError("api_key or credential_provider is required", null, null, null, errorRequest);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(requestUrl))
@@ -1014,16 +1024,20 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         String errorBody = new String(res.body(), StandardCharsets.UTF_8);
         Object parsed;
         try { parsed = Json.parse(errorBody); } catch (RuntimeException ex) { parsed = errorBody; }
-        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest));
+        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest, null));
       }
-      return Base64.getEncoder().encodeToString(res.body());
+      // The bytes go on as base64 with their Content-Type; a JSON body (as TS
+      // reads one by its Content-Type) goes on parsed.
+      String contentType = res.headers().firstValue("content-type").orElse("");
+      if (contentType.contains("application/json")) return Json.parse(new String(res.body(), StandardCharsets.UTF_8));
+      return new BinaryBody(Base64.getEncoder().encodeToString(res.body()), contentType);
     }
     HttpResponse<String> res = sendCancellable(req, HttpResponse.BodyHandlers.ofString(), cancellation);
     String responseBody = res.body();
     if (res.statusCode() >= 400) {
       Object parsed;
       try { parsed = Json.parse(responseBody); } catch (RuntimeException ex) { parsed = responseBody; }
-      throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest));
+      throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest, null));
     }
     // Streaming responses are SSE text (text/event-stream): return the raw body
     // for iterSseJson to fold. This explicit branch matches the other ports
@@ -1068,7 +1082,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         String errorBody = new String(body.readAllBytes(), StandardCharsets.UTF_8);
         Object parsed;
         try { parsed = Json.parse(errorBody); } catch (RuntimeException ex) { parsed = errorBody; }
-        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest));
+        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest, null));
       }
     }
     InputStream body=res.body();
@@ -1171,10 +1185,6 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (modelName != null) {
       path = path.replace("{model}", URLEncoder.encode(String.valueOf(modelName), StandardCharsets.UTF_8));
     }
-    if ("api_key_query".equals(String.valueOf(descriptor.get("auth")))) {
-      String keyName = String.valueOf(descriptor.getOrDefault("apiKeyQuery", "key"));
-      path += (path.contains("?") ? "&" : "?") + URLEncoder.encode(keyName, StandardCharsets.UTF_8) + "=" + URLEncoder.encode(apiKey == null || "null".equals(apiKey) ? "" : apiKey, StandardCharsets.UTF_8);
-    }
     if (apiVersion != null && !apiVersion.isBlank() && !"null".equals(apiVersion)) {
       path += (path.contains("?") ? "&" : "?") + "api-version=" + URLEncoder.encode(apiVersion, StandardCharsets.UTF_8);
     }
@@ -1200,21 +1210,30 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     return headers;
   }
 
-  // TypeScript's includeRequestBodyInErrors: on unless the call or client options set it false.
-  static boolean includeRequestBodyInErrors(Map<String, Object> options) {
-    Object value = options == null ? null : options.get("includeRequestBodyInErrors");
-    if (value == null && options != null) value = options.get("include_request_body_in_errors");
-    return value == null || Core.truthy(value);
+  // A transport's binary answer: `body` (base64 text or bytes) with its
+  // headers' Content-Type, or parsed `json`. A JSON Content-Type makes a text
+  // body JSON, as TS reads it.
+  private Object binaryTransportResult(Object result, Map<String, Object> request) {
+    String contentType = "";
+    if (result instanceof Map<?, ?> raw && raw.get("headers") instanceof Map<?, ?> headers) {
+      for (Map.Entry<?, ?> header : headers.entrySet()) {
+        if ("content-type".equalsIgnoreCase(String.valueOf(header.getKey()))) contentType = String.valueOf(header.getValue());
+      }
+    }
+    Object body = transportResult(result, request);
+    if (body instanceof byte[] bytes) body = Base64.getEncoder().encodeToString(bytes);
+    if (body instanceof String text) {
+      if (contentType.contains("application/json")) return Json.parse(text);
+      return new BinaryBody(text, contentType);
+    }
+    return body;
   }
 
-  // The request a provider error carries, as TypeScript's AxAIServiceError keeps
-  // it: the URL, plus the body unless includeRequestBodyInErrors is false. Never
-  // the headers, which hold the API key or credential tokens.
+  // TypeScript's includeRequestBodyInErrors: on unless the call or client options set it false.
+  // The request this call's provider errors keep; Core owns the view (the URL,
+  // plus the body unless includeRequestBodyInErrors is false, never headers).
   static Map<String, Object> errorRequest(Map<String, Object> call, Map<String, Object> options) {
-    Map<String, Object> view = new LinkedHashMap<>();
-    if (call.containsKey("url")) view.put("url", call.get("url"));
-    if (includeRequestBodyInErrors(options)) for (String key : List.of("json", "data")) if (call.containsKey(key)) view.put(key, call.get(key));
-    return view;
+    return Core.asMap(Core._ai_error_request(call, options));
   }
 
   private Object transportResult(Object result, Map<String, Object> request) {
@@ -1223,7 +1242,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       if (map.containsKey("status")) {
         int status = Core.asInt(map.getOrDefault("status", 200));
         Object body = map.containsKey("json") ? map.get("json") : map.containsKey("body") ? map.get("body") : map.get("data");
-        if (status >= 400) throw Core.asRuntime(Core.openai_normalize_error(status, body, request));
+        if (status >= 400) throw Core.asRuntime(Core.openai_normalize_error(status, body, request, null));
         return body;
       }
     }

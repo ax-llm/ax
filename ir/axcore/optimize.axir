@@ -1950,4 +1950,223 @@ module @ax.optimize version "0.1" {
       core.return %picked
     }
   }
+
+  op ax.optimize.semantic @agent_eval_marks {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/pipelineForwardForEvaluation.ts#forwardPipelineForEvaluation"
+    type signature = "(json) -> json"
+    body @entry(%state: json) {
+      // Where the agent's logs stand before an evaluated run. TS evaluates
+      // each task from a fresh state, so the prediction takes only the
+      // entries the run adds after these marks.
+      %empty_list = core.list
+      %log = core.get %state["action_log"] default %empty_list
+      %traces = core.get %state["function_call_traces"] default %empty_list
+      %log_count = core.call intrinsic.len(%log)
+      %trace_count = core.call intrinsic.len(%traces)
+      %marks = core.map
+      core.set %marks["action_log"] = %log_count
+      core.set %marks["function_call_traces"] = %trace_count
+      core.return %marks
+    }
+  }
+
+  op ax.optimize.semantic @agent_eval_function_calls {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/runtimeGlobals.ts#functionCallRecorder"
+    type signature = "(json) -> json"
+    body @entry(%traces: json) {
+      // TS's AxAgentEvalFunctionCall for each recorded call: qualifiedName,
+      // name and arguments, then the result of a call that returned or the
+      // error message of one that threw. The name is the function's own
+      // name, the qualified name's last part, as TS records fn.name.
+      %calls = core.list
+      %empty_map = core.map
+      core.for %trace in %traces {
+        %qualified = core.get %trace["qualified_name"] default ""
+        %name = core.get %trace["name"] default ""
+        %name_missing = core.call intrinsic.eq(%name, "")
+        %name_qualified = core.call intrinsic.eq(%name, %qualified)
+        %derive_name = core.call intrinsic.or(%name_missing, %name_qualified)
+        core.if %derive_name {
+          %name_parts = core.call intrinsic.string.split(%qualified, ".")
+          core.for %name_part in %name_parts {
+            %name = core.let %name_part
+          }
+        }
+        %arguments = core.get %trace["arguments"]
+        %result = core.get %trace["result"] default %empty_map
+        %result_is_map = core.type_is %result type "object"
+        core.if %result_is_map {
+        } else {
+          %result = core.let %empty_map
+        }
+        %status = core.get %trace["status"] default "ok"
+        %call = core.map
+        core.set %call["qualifiedName"] = %qualified
+        core.set %call["name"] = %name
+        core.set %call["arguments"] = %arguments
+        %failed = core.call intrinsic.eq(%status, "error")
+        core.if %failed {
+          %error = core.get %result["error"] default "unknown error"
+          %error_text = core.call intrinsic.string.str(%error)
+          core.set %call["error"] = %error_text
+        } else {
+          %value = core.get %result["value"]
+          %has_value = core.call intrinsic.is_not_none(%value)
+          core.if %has_value {
+            core.set %call["result"] = %value
+          }
+        }
+        core.append %calls, %call
+      }
+      core.return %calls
+    }
+  }
+
+  op ax.optimize.semantic @agent_eval_run {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/pipelineForwardForEvaluation.ts#forwardPipelineForEvaluation"
+    type signature = "(json, json) -> json"
+    body @entry(%state: json, %marks: json) {
+      // The evaluated run's own share of the agent's logs, as TS's
+      // forwardPipelineForEvaluation reports it: the run's action log entries,
+      // its function calls and tool errors ("<qualifiedName>: <error>"), its
+      // failure signals, and the turn count of the stage whose log TS keeps:
+      // the executor's, or the distiller's when the executor did not run.
+      %empty_list = core.list
+      %log = core.get %state["action_log"] default %empty_list
+      %traces = core.get %state["function_call_traces"] default %empty_list
+      %log_start = core.get %marks["action_log"] default 0
+      %trace_start = core.get %marks["function_call_traces"] default 0
+      %run_log = core.list
+      %log_index = core.let 0
+      core.for %entry in %log {
+        %entry_in_run = core.call intrinsic.gte(%log_index, %log_start)
+        core.if %entry_in_run {
+          core.append %run_log, %entry
+        }
+        %next_log_index = core.call intrinsic.add(%log_index, 1)
+        %log_index = core.let %next_log_index
+      }
+      %run_traces = core.list
+      %trace_index = core.let 0
+      core.for %trace in %traces {
+        %trace_in_run = core.call intrinsic.gte(%trace_index, %trace_start)
+        core.if %trace_in_run {
+          core.append %run_traces, %trace
+        }
+        %next_trace_index = core.call intrinsic.add(%trace_index, 1)
+        %trace_index = core.let %next_trace_index
+      }
+      %calls = core.call @agent_eval_function_calls(%run_traces)
+      %tool_errors = core.list
+      core.for %call in %calls {
+        %call_error = core.get %call["error"]
+        %has_error = core.call intrinsic.truthy(%call_error)
+        core.if %has_error {
+          %call_name = core.get %call["qualifiedName"] default ""
+          %tool_error = core.call intrinsic.string.format("{}: {}", %call_name, %call_error)
+          core.append %tool_errors, %tool_error
+        }
+      }
+      %executor_ran = core.let false
+      %executor_turns = core.let 0
+      %distiller_turns = core.let 0
+      core.for %entry in %run_log {
+        %stage = core.get %entry["stage"] default ""
+        %is_executor = core.call intrinsic.eq(%stage, "executor")
+        core.if %is_executor {
+          %executor_ran = core.let true
+        }
+        %type = core.get %entry["type"] default ""
+        %is_step = core.call intrinsic.eq(%type, "runtime_step")
+        core.if %is_step {
+          core.if %is_executor {
+            %next_executor_turns = core.call intrinsic.add(%executor_turns, 1)
+            %executor_turns = core.let %next_executor_turns
+          }
+          %is_distiller = core.call intrinsic.eq(%stage, "distiller")
+          core.if %is_distiller {
+            %next_distiller_turns = core.call intrinsic.add(%distiller_turns, 1)
+            %distiller_turns = core.let %next_distiller_turns
+          }
+        }
+      }
+      %turn_count = core.let %distiller_turns
+      core.if %executor_ran {
+        %turn_count = core.let %executor_turns
+      }
+      %run_state = core.map
+      core.set %run_state["action_log"] = %run_log
+      core.set %run_state["function_call_traces"] = %run_traces
+      %signals = core.call @agent_build_failure_signals(%run_state)
+      %run = core.map
+      core.set %run["actionLog"] = %run_log
+      core.set %run["functionCalls"] = %calls
+      core.set %run["toolErrors"] = %tool_errors
+      core.set %run["turnCount"] = %turn_count
+      core.set %run["failureSignals"] = %signals
+      core.return %run
+    }
+  }
+
+  op ax.optimize.semantic @build_agent_run_prediction {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/pipelineForwardForEvaluation.ts#forwardPipelineForEvaluation"
+    type signature = "(json, json, json, json, json) -> json"
+    body @entry(%state: json, %marks: json, %completion: json, %usage: json, %trace: json) {
+      // An agent's evaluated prediction for one run: TS's final or
+      // askClarification prediction, or the ports' error prediction, with the
+      // run's own action log, function calls, tool errors, failure signals
+      // and turn count (see @agent_eval_run). An error prediction lists the
+      // error as its tool error, as before.
+      %run = core.call @agent_eval_run(%state, %marks)
+      %type = core.get %completion["type"] default "final"
+      %out = core.map
+      core.set %out["completionType"] = %type
+      %is_final = core.call intrinsic.eq(%type, "final")
+      core.if %is_final {
+        %output = core.get %completion["output"]
+        core.set %out["output"] = %output
+        core.set %out["finalOutput"] = %output
+      }
+      %is_clarification = core.call intrinsic.eq(%type, "askClarification")
+      core.if %is_clarification {
+        %clarification = core.get %completion["clarification"]
+        core.set %out["clarification"] = %clarification
+      }
+      %tool_errors = core.get %run["toolErrors"]
+      %is_error = core.call intrinsic.eq(%type, "error")
+      core.if %is_error {
+        %message = core.get %completion["message"] default ""
+        %error = core.map
+        core.set %error["message"] = %message
+        core.set %out["error"] = %error
+        %error_tool_errors = core.list
+        core.append %error_tool_errors, %message
+        %tool_errors = core.let %error_tool_errors
+      }
+      %run_log = core.get %run["actionLog"]
+      core.set %out["actionLog"] = %run_log
+      core.set %out["usage"] = %usage
+      core.set %out["trace"] = %trace
+      %signals = core.get %run["failureSignals"]
+      core.set %out["failureSignals"] = %signals
+      %calls = core.get %run["functionCalls"]
+      core.set %out["functionCalls"] = %calls
+      core.set %out["toolErrors"] = %tool_errors
+      %turn_count = core.get %run["turnCount"]
+      core.set %out["turnCount"] = %turn_count
+      core.return %out
+    }
+  }
 }

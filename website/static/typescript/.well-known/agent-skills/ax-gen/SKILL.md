@@ -231,21 +231,25 @@ Rules:
 ## Field Processors
 
 ```typescript
-// Post-processing after generation
-gen.addFieldProcessor('summary', (value, context) => value.toUpperCase());
+// Runs once the field is complete; a returned string is feedback for
+// another step.
+gen.addFieldProcessor('summary', (value) =>
+  String(value).length > 200 ? 'Keep the summary under 200 characters.' : null
+);
 
-// Streaming field processor (called on each chunk)
-gen.addStreamingFieldProcessor('content', (partialValue, context) => {
-  console.log(`Received ${partialValue.length} chars`);
-  return partialValue;
-});
+// Runs on each streamed chunk of the field.
+gen.addStreamingFieldProcessor('content', (partialValue) =>
+  String(partialValue).includes('TODO') ? 'Finish every section.' : null
+);
 ```
 
 Rules:
 
 - `addFieldProcessor` runs once after the field is fully generated.
 - `addStreamingFieldProcessor` runs on each streaming chunk for the target field.
-- Both must return the (possibly transformed) value.
+- A processor's result is feedback, not a new field value. Unless it is `undefined`, `null`, `''` or the text `"null"` or `"undefined"`, it goes back to the model as a user message with one text part, and the run takes another step whose answer replaces the earlier one.
+- A streaming processor's feedback waits for the end of the step: it follows the full answer and comes before the final processors' feedback.
+- A streamed delta never ends in half of a surrogate pair; a trailing high surrogate waits for its low half.
 
 ## Function Calling
 

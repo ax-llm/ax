@@ -543,32 +543,22 @@ public final class AxAgent implements AxProgram {
 
   public Map<String, Object> evaluateOptimizationTask(AiClient client, Map<String, Object> task, Map<String, Object> options) {
     Map<String, Object> opts = options == null ? Map.of() : options;
+    // As TS evaluates each task from a fresh state, the prediction carries
+    // only this run's share of the agent's logs.
+    Object marks = Core._agent_eval_marks(state);
+    Map<String, Object> completion = new LinkedHashMap<>();
     try {
       Map<String, Object> output = forward(client, Core.asMap(task.getOrDefault("input", task)), Core.asMap(opts.getOrDefault("forward_options", Map.of())));
-      return Core.asMap(Core._build_agent_eval_prediction(output, getActionLog(), getUsage(), exportTrace()));
+      completion.put("type", "final");
+      completion.put("output", output);
     } catch (AxAgentClarificationException e) {
-      Map<String, Object> out = new LinkedHashMap<>();
-      out.put("completionType", "askClarification");
-      out.put("clarification", e.clarification());
-      out.put("actionLog", getActionLog());
-      out.put("functionCalls", Core.asList(state.getOrDefault("function_call_traces", List.of())));
-      out.put("toolErrors", List.of());
-      out.put("turnCount", 0);
-      out.put("usage", getUsage());
-      out.put("trace", exportTrace());
-      return out;
+      completion.put("type", "askClarification");
+      completion.put("clarification", e.clarification());
     } catch (RuntimeException e) {
-      Map<String, Object> out = new LinkedHashMap<>();
-      out.put("completionType", "error");
-      out.put("error", Map.of("message", String.valueOf(e.getMessage())));
-      out.put("actionLog", getActionLog());
-      out.put("functionCalls", Core.asList(state.getOrDefault("function_call_traces", List.of())));
-      out.put("toolErrors", List.of(String.valueOf(e.getMessage())));
-      out.put("turnCount", 0);
-      out.put("usage", getUsage());
-      out.put("trace", exportTrace());
-      return out;
+      completion.put("type", "error");
+      completion.put("message", String.valueOf(e.getMessage()));
     }
+    return Core.asMap(Core._build_agent_run_prediction(state, marks, completion, getUsage(), exportTrace()));
   }
 
   public Map<String, Object> evaluateOptimization(AiClient client, Object dataset, Map<String, Object> candidateMap, Map<String, Object> options) {

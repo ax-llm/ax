@@ -79,7 +79,7 @@ export interface AxAPIConfig
     url: string;
     retryCount: number;
   }) => Promise<Record<string, string>>;
-  /** Whether to include request body in error messages. Defaults to true. Set to false when request may contain sensitive data or large base64 content. */
+  /** Whether to include request body in error messages and serialization. Defaults to true. Set to false when request may contain sensitive data or large base64 content; `error.requestBody` still returns it. */
   includeRequestBodyInErrors?: boolean;
 }
 
@@ -116,6 +116,12 @@ export class AxAIServiceError extends Error {
     this.errorId = randomUUID();
     this.context = context;
     this.includeRequestBodyInErrors = includeRequestBodyInErrors;
+    if (!includeRequestBodyInErrors) {
+      // error.requestBody stays readable, but a non-enumerable property is
+      // left out of JSON.stringify, object spread and Object.keys, which is
+      // how loggers and error reporters serialize an error.
+      Object.defineProperty(this, 'requestBody', { enumerable: false });
+    }
 
     this.stack = this.toString();
   }

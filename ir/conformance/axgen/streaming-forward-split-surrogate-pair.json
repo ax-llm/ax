@@ -1,0 +1,52 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "hi"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": " 😀 there"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "hi 😀 there"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-split-surrogate-pair",
+  "requires_lone_surrogates": true,
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: hi \ud83d",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "\ude00 there",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -529,7 +529,12 @@ module @ax.event version "0.1" {
       %resources = core.call intrinsic.eq(%method, "notifications/resources/list_changed")
       %progress = core.call intrinsic.eq(%method, "notifications/progress")
       %logging = core.call intrinsic.eq(%method, "notifications/message")
-      %task = core.call intrinsic.eq(%method, "notifications/tasks/status")
+      // Legacy servers send notifications/tasks/status with the task under
+      // params.task; modern (Tasks v2) servers send notifications/tasks with the
+      // task as params. TypeScript's client records either as the task's status.
+      %legacy_task = core.call intrinsic.eq(%method, "notifications/tasks/status")
+      %modern_task = core.call intrinsic.eq(%method, "notifications/tasks")
+      %task = core.call intrinsic.or(%legacy_task, %modern_task)
       core.if %resource {
         core.set %out["type"] = "mcp.resource.updated"
       }

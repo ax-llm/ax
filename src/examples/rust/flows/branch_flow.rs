@@ -44,6 +44,10 @@ fn main() -> AxResult<()> {
         &mut client,
         json!({"request": "A customer says checkout is down for their enterprise account."}),
     )?;
+    for key in ["route", "response"] {
+        let value = &output[key];
+        assert!(!value.is_null() && value != "" && *value != json!([]), "flow output field {key} is empty: {output}");
+    }
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }

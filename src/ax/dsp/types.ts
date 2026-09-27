@@ -113,8 +113,22 @@ export type AxFieldValue =
   | object
   | null
   | undefined
-  | { mimeType: string; data: string }
-  | { mimeType: string; data: string }[]
+  | {
+      mimeType: string;
+      data: string;
+      details?: 'high' | 'low' | 'auto';
+      cache?: boolean;
+      optimize?: 'quality' | 'size' | 'auto';
+      altText?: string;
+    }
+  | {
+      mimeType: string;
+      data: string;
+      details?: 'high' | 'low' | 'auto';
+      cache?: boolean;
+      optimize?: 'quality' | 'size' | 'auto';
+      altText?: string;
+    }[]
   | {
       format?: string;
       data?: string;

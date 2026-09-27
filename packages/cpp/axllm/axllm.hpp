@@ -207,6 +207,11 @@ class AxError : public std::runtime_error {
   std::string code;
   bool retryable;
   Value response_body;
+  // A provider error's request URL and body, as TypeScript's AxAIServiceError
+  // keeps them. The body is null when includeRequestBodyInErrors is false, and
+  // request headers are never kept.
+  std::string url;
+  Value request_body;
   AxError(std::string category, std::string message);
   AxError(std::string category, std::string message, std::string type, int status = 0,
           std::string code = "", bool retryable = false, Value response_body = Value());
@@ -358,6 +363,12 @@ struct Core {
   static Value string_title_from_camel(Value value);
   static Value string_ends_with(Value value, Value suffix);
   static Value string_starts_with(Value value, Value prefix);
+  // Streamed text: appending a chunk, which joins a surrogate pair split
+  // across stream events into one code point, and dropping a trailing high
+  // surrogate (half of such a pair) from a delta. parse_json keeps a lone
+  // surrogate escape as 3 WTF-8 bytes (see the definitions).
+  static Value string_concat_stream_text(Value left, Value right);
+  static Value string_drop_trailing_high_surrogate(Value value);
   static Value string_replace(Value value, Value old_value, Value new_value);
   static Value string_slice(Value value, Value start, Value end = Value());
   static Value string_remove_suffix(Value value, Value suffix);
@@ -437,6 +448,7 @@ struct Core {
   static Value fields_from_map(Value fields);
   static Value description_append(Value base, Value hint);
   static Value url_valid(Value value);
+  static Value url_encode_component(Value value);
   static Value valid_image(Value value);
   static Value valid_audio(Value value);
   static Value valid_file(Value value);
@@ -610,37 +622,38 @@ struct Core {
   static Value build_embed_request(Value service, Value request, Value options);
   static Value normalize_embed_response(Value raw);
   static Value normalize_token_usage(Value usage);
-  static Value _openai_content_part_impl(Value part);
+  static Value _url_part_text_impl(Value part);
   static Value typesafe_normalize_chat_response(Value raw, Value context);
   static Value merge_usage_context(Value defaults, Value overrides);
+  static Value _openai_content_part_impl(Value part);
   static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
   static Value typesafe_response_context(Value payload, Value options);
   static Value provider_validate_chat_request(Value profile, Value request, Value options);
   static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
-  static Value _openai_tool_call_to_provider_impl(Value call);
   static Value ai_merge_replay_metadata(Value previous, Value incoming);
+  static Value _openai_tool_call_to_provider_impl(Value call);
   static Value _openai_tool_spec_impl(Value fn);
   static Value openai_build_embed_request(Value request);
+  static Value _chat_result_to_completion(Value result, Value fallback_index);
   static Value openai_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _openai_usage_with_service_tier(Value raw, Value usage);
-  static Value _chat_result_to_completion(Value result, Value fallback_index);
   static Value _openai_normalize_chat_response_impl(Value raw, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
-  static Value _openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value chat_response_to_completion(Value response);
+  static Value _openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value ai_context_cache_rejection(Value status, Value body_json);
-  static Value _openai_normalize_tool_calls_impl(Value calls);
-  static Value _openai_finish_reason_impl(Value value);
   static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
+  static Value _openai_normalize_tool_calls_impl(Value calls);
   static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
-  static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
-  static Value openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model);
+  static Value _openai_finish_reason_impl(Value value);
   static Value ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry);
-  static Value _openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
+  static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
   static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
-  static Value _openai_stream_choice_impl(Value choice, Value index_ids, Value reasoning_content_mode, Value reasoning_details_mode);
+  static Value openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model);
+  static Value _openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value fold_chat_response_stream(Value events);
-  static Value openai_normalize_error(Value status, Value body, Value request);
+  static Value _openai_stream_choice_impl(Value choice, Value index_ids, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value _fold_chat_stream_chunk_impl(Value target, Value chunk);
+  static Value openai_normalize_error(Value status, Value body, Value request, Value options);
   static Value provider_normalize_profile(Value profile);
   static Value provider_profile_registry();
   static Value provider_resolve_profile(Value profile);
@@ -723,7 +736,7 @@ struct Core {
   static Value provider_normalize_transcribe_response(Value profile, Value raw, Value request);
   static Value _meta_build_transcribe_request(Value request);
   static Value _meta_normalize_transcribe_response(Value raw, Value request);
-  static Value provider_normalize_speak_response(Value profile, Value raw, Value request);
+  static Value provider_normalize_speak_response(Value profile, Value raw, Value request, Value content_type);
   static Value provider_normalize_realtime_event(Value profile, Value event, Value state, Value ai_name, Value model);
   static Value openai_responses_build_chat_request(Value request);
   static Value _openai_responses_apply_model_config_impl(Value payload, Value model_config);
@@ -743,13 +756,23 @@ struct Core {
   static Value openai_responses_normalize_stream_delta(Value event, Value state, Value ai_name, Value model);
   static Value openai_responses_build_transcribe_request(Value request);
   static Value openai_responses_build_speak_request(Value request);
+  static Value _mistral_build_speak_request(Value request);
+  static Value _speech_request_model_impl(Value request, Value fallback);
+  static Value _speech_request_voice_impl(Value request);
   static Value _grok_build_transcribe_request(Value request);
   static Value _grok_build_speak_request(Value request);
   static Value _gemini_build_transcribe_request(Value request);
   static Value _gemini_build_speak_request(Value request);
   static Value _gemini_normalize_transcribe_response(Value raw);
   static Value _gemini_normalize_speak_response(Value raw, Value request);
-  static Value _speech_response_ts_keys_impl(Value out, Value raw, Value request);
+  static Value _speech_request_text_impl(Value request);
+  static Value _speech_response_impl(Value data, Value format, Value mime_type, Value transcript);
+  static Value _speech_binary_response_impl(Value data, Value content_type, Value format, Value transcript);
+  static Value _speech_json_response_impl(Value json, Value format, Value transcript);
+  static Value _speech_json_data_impl(Value json);
+  static Value _speech_json_candidate_parts_impl(Value json);
+  static Value _speech_json_named_mime_type_impl(Value json);
+  static Value _audio_format_from_mime_type_impl(Value mime_type);
   static Value _audio_mime_type_impl(Value format);
   static Value _audio_mime_params_impl(Value mime_type);
   static Value _meta_asr_realtime_normalize_event(Value event, Value state, Value ai_name, Value model);
@@ -817,6 +840,7 @@ struct Core {
   static Value _provider_sampling_request_reasons_impl(Value transport, Value model, Value config, Value supported);
   static Value _provider_warn_dropped_sampling_impl(Value model, Value key, Value without_reasoning_only);
   static Value _openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model);
+  static Value _ai_error_request(Value request, Value options);
   static Value chat_session_mode_enabled(Value options);
   static Value fold_stream(Value events);
   static Value _render_audio_outputs_impl(Value gen, Value client, Value values, Value options);
@@ -937,16 +961,16 @@ struct Core {
   static Value _render_examples(Value gen);
   static Value _ace_render_playbook(Value playbook);
   static Value _render_demos(Value gen);
-  static Value chat_session_boundary_action(Value state);
   static Value _apply_field_processors(Value gen, Value output);
+  static Value chat_session_boundary_action(Value state);
   static Value _stream_convert_value_impl(Value field, Value value, Value required);
   static Value _run_assertions(Value gen, Value output);
   static Value _date_range_keyword_impl(Value units, Value at, Value end);
   static Value _ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now);
   static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
   static Value _regex_alternative(Value s);
-  static Value chat_session_mark_submitted(Value state, Value ids);
   static Value _record_trace(Value gen, Value input, Value output, Value status);
+  static Value chat_session_mark_submitted(Value state, Value ids);
   static Value _should_continue_steps(Value gen, Value calls);
   static Value _date_strip_code_fence_impl(Value value);
   static Value chat_session_queue_update(Value state, Value update);
@@ -983,16 +1007,16 @@ struct Core {
   static Value _date_ascii_matches_impl(Value units, Value at, Value end, Value word);
   static Value _regex_state(Value pos, Value caps);
   static Value _response_function_calls_impl(Value response);
-  static Value _regex_capture_ids(Value n);
   static Value _append_tool_call_messages_impl(Value messages, Value response, Value calls);
+  static Value _regex_capture_ids(Value n);
   static Value _ace_is_noop_acknowledgment(Value content);
   static Value _date_digits_impl(Value units, Value at, Value count, Value end);
   static Value _completion_call_to_chat_impl(Value call);
   static Value _date_expect_unit_impl(Value units, Value at, Value end, Value expected);
   static Value _regex_push(Value stack, Value top, Value value);
+  static Value _tool_result_message_impl(Value call, Value result);
   static Value _date_scan_date_impl(Value units, Value at);
   static Value _regex_task(Value n, Value next);
-  static Value _tool_result_message_impl(Value call, Value result);
   static Value _regex_frame(Value todo, Value st);
   static Value _tool_error_message_impl(Value call, Value error);
   static Value _regex_search(Value n, Value u, Value initial, Value d);
@@ -1001,8 +1025,8 @@ struct Core {
   static Value _stream_text_required_check_impl(Value values, Value fields);
   static Value _parse_text_field_value_impl(Value field, Value text);
   static Value _ace_normalize_curator_operations(Value operations);
-  static Value _stream_text_missed_fields_impl(Value values, Value content, Value fields);
   static Value _parse_text_output_fields_impl(Value content, Value fields, Value is_final);
+  static Value _stream_text_missed_fields_impl(Value values, Value content, Value fields);
   static Value _date_offset_zone_matches_impl(Value units, Value start, Value end);
   static Value _parse_output_fields_impl(Value content, Value fields);
   static Value _signature_has_complex_fields(Value signature, Value options);
@@ -1010,12 +1034,12 @@ struct Core {
   static Value _stream_text_final_impl(Value xstate, Value values, Value content, Value fields, Value options);
   static Value _ace_locate_bullet_section(Value playbook, Value bullet_id);
   static Value _caller_function_call_impl(Value options);
-  static Value _ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output);
   static Value _function_call_forces_tool_impl(Value choice);
+  static Value _ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output);
   static Value _function_call_names_output_impl(Value choice);
   static Value _stream_text_extract_values_impl(Value content, Value fields, Value strict_mode);
-  static Value _date_js_json_impl(Value value);
   static Value _append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage);
+  static Value _date_js_json_impl(Value value);
   static Value _stream_text_yield_delta_impl(Value content, Value field, Value start, Value end, Value xstate, Value held, Value complete);
   static Value _with_output_thought_impl(Value output, Value field, Value prefix, Value thought);
   static Value _date_js_json_string_impl(Value text);
@@ -1035,38 +1059,39 @@ struct Core {
   static Value _date_utc_ms_impl(Value parts);
   static Value _regex_read_name(Value s);
   static Value _date_parts_of_ms_impl(Value millis);
-  static Value _stream_json_complete_literal_impl(Value text, Value word);
   static Value _date_same_day_impl(Value left, Value right);
+  static Value _stream_json_complete_literal_impl(Value text, Value word);
   static Value _date_same_parts_impl(Value left, Value right);
   static Value _stream_json_repair_impl(Value json_text);
   static Value _date_pad_impl(Value value, Value width);
   static Value _date_iso_impl(Value millis);
   static Value _regex_validate_names(Value n, Value path, Value seen, Value counter);
   static Value _stream_json_parse_partial_impl(Value json_text);
-  static Value _regex_id_start_ranges();
   static Value _parse_text_contract_output_impl(Value content, Value output_fields, Value strict_mode);
+  static Value _regex_id_start_ranges();
   static Value _regex_id_continue_ranges();
-  static Value _stream_json_should_parse_impl(Value state, Value content);
   static Value _regex_clear_capture(Value caps, Value key);
+  static Value _stream_json_should_parse_impl(Value state, Value content);
   static Value _regex_copy_map(Value value);
   static Value _generate_failed_impl(Value error);
-  static Value _stream_json_validate_impl(Value fields, Value values, Value allow_missing, Value reject_unknown);
   static Value _unable_to_fix_impl(Value error, Value output);
+  static Value _stream_json_validate_impl(Value fields, Value values, Value allow_missing, Value reject_unknown);
   static Value _attempt_output_impl(Value response);
   static Value _max_tokens_error_impl(Value response);
   static Value _stream_json_validate_value_impl(Value field, Value value, Value allow_missing);
   static Value _strict_mode_option_impl(Value base_options, Value options);
+  static Value _feedback_message_impl(Value text);
   static Value _caching_function_option_impl(Value gen, Value options);
   static Value _cache_key_impl(Value gen, Value values);
   static Value _stream_json_validate_nested_impl(Value parent, Value object, Value allow_missing);
   static Value _cache_store_impl(Value cache_fn, Value key, Value output);
   static Value _cache_store_streamed_impl(Value cache_fn, Value key, Value output);
-  static Value _cache_lookup_impl(Value gen, Value values, Value options, Value ignore_read_errors);
   static Value _stream_json_select_fields_impl(Value fields, Value values);
+  static Value _cache_lookup_impl(Value gen, Value values, Value options, Value ignore_read_errors);
   static Value _stream_json_nested_fields_impl(Value fields_map);
   static Value _cache_lookup_option_impl(Value options);
-  static Value _apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates);
   static Value _stream_json_flexible_impl(Value field);
+  static Value _apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates);
   static Value _stream_json_string_value_impl(Value field, Value value);
   static Value _structured_output_render_options_impl(Value selection);
   static Value _stream_json_strings_for_field_impl(Value field, Value value);
@@ -1148,9 +1173,13 @@ struct Core {
   static Value _build_agent_actor_prompt_policy(Value state);
   static Value _resolve_agent_context_policy(Value options);
   static Value _resolve_agent_executor_model_policy(Value options);
+  static Value _agent_eval_marks(Value state);
+  static Value _agent_eval_function_calls(Value traces);
+  static Value _agent_eval_run(Value state, Value marks);
   static Value _select_agent_executor_model(Value policy, Value actor_model_state);
   static Value _agent_compute_effective_chat_budget(Value base_budget, Value fixed_overhead_chars);
   static Value _agent_action_log_char_count(Value entries);
+  static Value _build_agent_run_prediction(Value state, Value marks, Value completion, Value usage, Value trace);
   static Value _agent_compute_dynamic_runtime_chars(Value entries, Value target_prompt_chars, Value max_runtime_chars);
   static Value _agent_context_pressure(Value mutable_prompt_chars, Value effective_budget_chars, Value checkpoint_active);
   static Value _agent_render_context_pressure(Value pressure);
@@ -1320,6 +1349,7 @@ struct Core {
   static Value _agent_controlled_stage_streaming_forward(Value stage, Value state, Value client, Value values, Value options, Value sink);
   static Value _agent_streaming_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink);
   static Value _agent_streaming_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink);
+  static Value _agent_stage_render_audio(Value out, Value base_options, Value stage_options, Value forward_options);
   static Value _agent_stage_parse_dates(Value out, Value base_options, Value stage_options, Value forward_options);
   static Value _agent_actor_stage_signatures(Value runtime_enabled, Value code_field_name);
   static Value _agent_runtime_configured(Value state);
@@ -1421,7 +1451,7 @@ struct Core {
   static Value mcp_resource_subscription_selection(Value resources, Value mode, Value explicit_uris);
   static Value mcp_resource_subscription_plan(Value desired, Value current);
   static Value mcp_resource_subscription_ownership(Value owners, Value owner, Value operation);
-  static Value mcp_listen_interests(Value subscribed_uris, Value filters);
+  static Value mcp_listen_interests(Value subscribed_uris, Value filters, Value task_ids);
   static Value mcp_notification_subscription_filter(Value message, Value active_subscription_id);
   static Value mcp_oauth_parse_www_authenticate(Value www_authenticate);
   static Value mcp_oauth_discovery_endpoints(Value requested_url, Value issuer, Value resource_metadata_url);
@@ -1436,6 +1466,7 @@ struct Core {
   static Value _mcp_tool_authorization_result(Value name, Value decision);
   static Value _mcp_inheritance_plan(Value mcp, Value ucp, Value inheritance);
   static Value mcp_websocket_request_ids(Value messages, Value protocol, Value batch);
+  static Value mcp_tool_call_outcome(Value result, Value tasks_negotiated);
   // END AXIR CORE EMITTED DECLARATIONS
 
 };
@@ -1916,12 +1947,16 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
+  // error_options are the call's merged options; their includeRequestBodyInErrors
+  // decides whether a provider error keeps the request body.
+  Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options);
   Value build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
   std::string operation_method(const std::string& operation) const;
   std::string operation_path(const std::string& operation) const;
   std::string operation_path(const std::string& operation, Value model) const;
   Value headers() const;
-  Value transport_result(Value result, Value request);
+  Value transport_result(Value result, Value request, Value options);
+  std::string transport_content_type(Value result);
   std::vector<Value> iter_sse_json(Value raw);
 };
 

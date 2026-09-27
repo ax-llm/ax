@@ -26,8 +26,12 @@ func main() {
 			data, err := os.ReadFile(path)
 			if err != nil { panic(err) }
 			fixture := ax.ParseJSON(string(data))
-			if err := ax.RunConformanceFixture(fixture); err != nil { panic(err) }
 			name := strings.TrimSuffix(filepath.Base(path), ".json")
+			if reason := ax.ConformanceSkipReason(fixture); reason != "" {
+				fmt.Printf("skip %s: %s\n", name, reason)
+				return nil
+			}
+			if err := ax.RunConformanceFixture(fixture); err != nil { panic(err) }
 			fmt.Println("ok", name)
 			return nil
 		})
