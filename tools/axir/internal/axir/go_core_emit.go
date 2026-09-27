@@ -39,6 +39,8 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicAxGenEmitDelta:          true,
 	IntrinsicAxGenCallProcessor:      true,
 	IntrinsicAxGenCheckStreamAssert:  true,
+	IntrinsicAxGenCacheRead:          true,
+	IntrinsicAxGenCacheWrite:         true,
 }
 
 func BuildGoCore(model AxRuntimeModel) (string, error) {

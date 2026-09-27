@@ -1000,6 +1000,7 @@ public final class AxGenScriptedClientToolExample {
 
 const javaAxGenStreamingNoKeyExample = `import dev.axllm.ax.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.*;
 
 public final class AxGenStreamingNoKeyExample {
@@ -1055,6 +1056,16 @@ public final class AxGenStreamingNoKeyExample {
 
   static void check(boolean condition, String message) {
     if (!condition) throw new RuntimeException(message);
+  }
+
+  // An in-memory cachingFunction: apply(key, null) reads the stored output
+  // (null for a miss) and apply(key, output) stores one.
+  static AxCachingFunction memoryCache(Map<String, Map<String, Object>> store) {
+    return (key, value) -> {
+      if (value == null) return store.get(key);
+      store.put(key, value);
+      return null;
+    };
   }
 
   public static void main(String[] args) throws Exception {
@@ -1168,6 +1179,51 @@ public final class AxGenStreamingNoKeyExample {
     }
     check(Map.of("answer", "Paris").equals(providerMerged), "provider stream output: " + providerMerged);
     check(sentModels.equals(List.of("gpt-5.4-mini")), "streamed request models: " + sentModels);
+
+    // 6. A cachingFunction from the constructor, the forward call or
+    //    AxGlobals: a hit sends no request, and streamingForward yields it as
+    //    one delta.
+    AtomicInteger completions = new AtomicInteger();
+    AiClient counting = request -> {
+      completions.incrementAndGet();
+      return Map.of("content", "Answer: Paris");
+    };
+    Map<String, Object> france = Map.of("question", "Capital of France?");
+    Map<String, Map<String, Object>> store = new ConcurrentHashMap<>();
+    AxGen cachedGen = new AxGen(Ax.s("question:string -> answer:string"), Map.of("cachingFunction", memoryCache(store)));
+    Map<String, Object> stored = cachedGen.forward(counting, france);
+    Map<String, Object> hit = cachedGen.forward(counting, france);
+    check(Map.of("answer", "Paris").equals(stored) && stored.equals(hit), "cached outputs: " + stored + ", " + hit);
+    check(completions.get() == 1 && store.size() == 1, "a cache hit sent a request: " + completions.get());
+    List<AxGenDelta> cachedDeltas = new ArrayList<>();
+    try (AxGenDeltaStream stream = cachedGen.streamingForward(counting, france, Map.of())) {
+      for (AxGenDelta delta : stream) cachedDeltas.add(delta);
+    }
+    check(cachedDeltas.equals(List.of(new AxGenDelta(0, 0, Map.of("answer", "Paris")))), "cached deltas: " + cachedDeltas);
+    check(completions.get() == 1, "a streamed cache hit sent a request");
+    // The forward call's function comes before the constructor's; the
+    // caching_function key works too.
+    Map<String, Map<String, Object>> callStore = new ConcurrentHashMap<>();
+    cachedGen.forward(counting, france, Map.of("cachingFunction", memoryCache(callStore)));
+    cachedGen.forward(counting, Map.of("question", "Capital of Italy?"), Map.of("caching_function", memoryCache(callStore)));
+    check(completions.get() == 3 && callStore.size() == 2 && store.size() == 1, "per-call cache: " + callStore.keySet());
+    // A run control skips the cache.
+    cachedGen.forward(counting, france, Map.of("control", new AxRunControl()));
+    check(completions.get() == 4, "a controlled run read the cache");
+    // The process-wide function applies when neither the call nor the
+    // constructor sets one; null clears it.
+    Map<String, Map<String, Object>> globalStore = new ConcurrentHashMap<>();
+    AxGlobals.setCachingFunction(memoryCache(globalStore));
+    try {
+      AxGen globalGen = Ax.ax("question:string -> answer:string");
+      globalGen.forward(counting, france);
+      globalGen.forward(counting, france);
+      check(completions.get() == 5 && globalStore.size() == 1, "global cache: " + completions.get());
+    } finally {
+      AxGlobals.setCachingFunction(null);
+    }
+    Ax.ax("question:string -> answer:string").forward(counting, france);
+    check(completions.get() == 6, "a cleared global cache still answered");
 
     System.out.println("java-axgen-streaming-ok " + merged);
   }

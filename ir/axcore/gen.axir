@@ -2713,7 +2713,8 @@ module @ax.gen version "0.1" {
         %output_line = core.call intrinsic.string.format("output {} {} {}", %output_name, %output_label, %output_optional)
         core.append %lines, %output_line
       }
-      %inputs_json = core.call intrinsic.json.stringify(%inputs)
+      // Sorted keys, so the same values give the same key in every run.
+      %inputs_json = core.call intrinsic.json.stable_stringify(%inputs)
       core.append %lines, %inputs_json
       %text = core.call intrinsic.string.join("\n", %lines)
       %key = core.call intrinsic.crypto.sha256_hex(%text)

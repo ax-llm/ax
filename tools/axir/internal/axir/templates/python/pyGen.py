@@ -46,6 +46,10 @@ class _StreamingConsumerStopped(AxAIServiceAbortedError):
     """The streaming_forward consumer stopped the run early."""
 
 
+def _core_json_stable_stringify(value):
+    return _js_json_dumps(value or {}, sort_keys=True)
+
+
 def _core_crypto_sha256_hex(text):
     return hashlib.sha256(str(text).encode("utf-8")).hexdigest()
 

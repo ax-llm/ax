@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"encoding/base64"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -163,6 +164,137 @@ func TestExceptionRewrapKeepsClassAndCause(t *testing.T) {
 	}
 	if errors.Unwrap(rewrapped) != behind || !errors.Is(rewrapped, unavailable) {
 		t.Fatalf("rewrapped wrapper does not unwrap to it: %v", errors.Unwrap(rewrapped))
+	}
+}
+
+// cachingTestClient answers each chat with the next reply and counts the
+// requests.
+type cachingTestClient struct {
+	replies  []string
+	requests int
+}
+
+func (c *cachingTestClient) Chat(context.Context, map[string]Value, map[string]Value) (Value, error) {
+	if c.requests >= len(c.replies) {
+		return nil, errors.New("caching test client exhausted")
+	}
+	c.requests++
+	return Object("results", Array(Object("content", c.replies[c.requests-1], "function_calls", Array()))), nil
+}
+func (c *cachingTestClient) Embed(context.Context, map[string]Value, map[string]Value) (Value, error) {
+	return nil, nil
+}
+func (c *cachingTestClient) Stream(context.Context, map[string]Value, map[string]Value) ([]Value, error) {
+	return nil, nil
+}
+
+// memoryCache is an in-memory caching function: a nil map is a miss.
+type memoryCache struct {
+	entries       map[string]map[string]Value
+	reads, writes int
+}
+
+func newMemoryCache() *memoryCache { return &memoryCache{entries: map[string]map[string]Value{}} }
+
+func (m *memoryCache) cache(key string, value map[string]Value) (map[string]Value, error) {
+	if value != nil {
+		m.writes++
+		m.entries[key] = value
+		return nil, nil
+	}
+	m.reads++
+	return m.entries[key], nil
+}
+
+// TestAxGenCachingFunction uses the public caching API: the constructor's
+// function, a forward call's function, which comes first, and the
+// process-wide one.
+func TestAxGenCachingFunction(t *testing.T) {
+	ctx := context.Background()
+	question := map[string]Value{"question": "Capital of France?"}
+	answer := func(out Value) Value { return coreGet(out, "answer", nil) }
+
+	// The constructor's function: the first forward stores, the second hits.
+	constructorCache := newMemoryCache()
+	gen := NewAx("question:string -> answer:string", map[string]Value{"cachingFunction": AxCachingFunction(constructorCache.cache)})
+	client := &cachingTestClient{replies: []string{"Answer: Paris"}}
+	for i := 0; i < 2; i++ {
+		if out, err := gen.Forward(ctx, client, question, nil); err != nil || answer(out) != "Paris" {
+			t.Fatalf("constructor cache forward %d = %v, %v", i, out, err)
+		}
+	}
+	if client.requests != 1 || constructorCache.reads != 2 || constructorCache.writes != 1 {
+		t.Fatalf("constructor cache: %d requests, %d reads, %d writes", client.requests, constructorCache.reads, constructorCache.writes)
+	}
+	for key, stored := range constructorCache.entries {
+		if _, internal := stored["__order"]; internal || len(key) != 64 || strings.Trim(key, "0123456789abcdef") != "" {
+			t.Fatalf("stored %q = %v, want a plain map under a lowercase hex SHA-256 key", key, stored)
+		}
+	}
+
+	// StreamingForward yields a hit as one delta, without a request.
+	var deltas []AxGenDelta
+	for delta, err := range gen.StreamingForward(ctx, client, question, nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		deltas = append(deltas, delta)
+	}
+	if len(deltas) != 1 || deltas[0].Version != 0 || deltas[0].Index != 0 || answer(deltas[0].Delta) != "Paris" || client.requests != 1 {
+		t.Fatalf("streaming cache hit = %+v after %d requests", deltas, client.requests)
+	}
+
+	// A forward call's function, here a plain func under the snake_case key,
+	// comes before the constructor's.
+	callCache := newMemoryCache()
+	var callFunction func(string, map[string]Value) (map[string]Value, error) = callCache.cache
+	callClient := &cachingTestClient{replies: []string{"Answer: Paris, France"}}
+	for i := 0; i < 2; i++ {
+		if out, err := gen.Forward(ctx, callClient, question, map[string]Value{"caching_function": callFunction}); err != nil || answer(out) != "Paris, France" {
+			t.Fatalf("call cache forward %d = %v, %v", i, out, err)
+		}
+	}
+	if callClient.requests != 1 || callCache.reads != 2 || callCache.writes != 1 || constructorCache.reads != 3 {
+		t.Fatalf("call cache: %d requests, %d reads, %d writes; constructor cache read %d times", callClient.requests, callCache.reads, callCache.writes, constructorCache.reads)
+	}
+
+	// A run control bypasses the cache.
+	controlClient := &cachingTestClient{replies: []string{"Answer: Lyon"}}
+	if out, err := gen.Forward(ctx, controlClient, question, map[string]Value{"control": RunControl()}); err != nil || answer(out) != "Lyon" || constructorCache.reads != 3 {
+		t.Fatalf("controlled forward = %v, %v after %d cache reads", out, err, constructorCache.reads)
+	}
+
+	// An empty output is stored as an empty map, which is a hit.
+	emptyCache := newMemoryCache()
+	optional := NewAx("question:string -> answer?:string, note?:string", map[string]Value{"cachingFunction": AxCachingFunction(emptyCache.cache)})
+	emptyClient := &cachingTestClient{replies: []string{"Nothing to report."}}
+	for i := 0; i < 2; i++ {
+		if out, err := optional.Forward(ctx, emptyClient, question, nil); err != nil || len(out.(map[string]Value)) != 0 {
+			t.Fatalf("empty output forward %d = %v, %v", i, out, err)
+		}
+	}
+	if emptyClient.requests != 1 || emptyCache.writes != 1 {
+		t.Fatalf("empty output: %d requests, %d writes", emptyClient.requests, emptyCache.writes)
+	}
+
+	// The process-wide function, for an AxGen and a call that set none; nil
+	// clears it.
+	globalCache := newMemoryCache()
+	SetCachingFunction(globalCache.cache)
+	defer SetCachingFunction(nil)
+	plain := NewAx("question:string -> answer:string", nil)
+	globalClient := &cachingTestClient{replies: []string{"Answer: Paris", "Answer: Paris again"}}
+	for i := 0; i < 2; i++ {
+		if out, err := plain.Forward(ctx, globalClient, question, nil); err != nil || answer(out) != "Paris" {
+			t.Fatalf("global cache forward %d = %v, %v", i, out, err)
+		}
+	}
+	SetCachingFunction(nil)
+	if out, err := plain.Forward(ctx, globalClient, question, nil); err != nil || answer(out) != "Paris again" {
+		t.Fatalf("forward after clearing the global cache = %v, %v", out, err)
+	}
+	if globalClient.requests != 2 || globalCache.reads != 2 || globalCache.writes != 1 {
+		t.Fatalf("global cache: %d requests, %d reads, %d writes", globalClient.requests, globalCache.reads, globalCache.writes)
 	}
 }
 
