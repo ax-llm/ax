@@ -298,6 +298,14 @@ Rules:
   the chat call. This includes `promptCacheKey`, `sessionId`, and
   `contextCache` in TypeScript and every generated language package; per-call
   values take precedence.
+- Forward options given to the `AxGen` constructor are defaults for every call,
+  and a value the call gives wins. This covers `model`, `modelConfig`,
+  `sampleCount`, `showThoughts`, `thinkingTokenBudget`, `stepHooks`,
+  `onFunctionCall`, `disableMemoryCleanup`, `selfTuning`, `asyncMode`,
+  `resultPicker` and `strictMode`, as well as the options that always had a
+  fallback, such as `maxRetries` and `maxSteps`. `modelConfig` merges key by
+  key: the constructor's `{ temperature: 0.2 }` with the call's
+  `{ maxTokens: 500 }` sends both.
 
 ## Sampling And Result Picker
 
