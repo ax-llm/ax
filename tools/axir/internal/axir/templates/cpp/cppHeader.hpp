@@ -194,7 +194,8 @@ AxCachingFunctionHandle caching_function(AxCachingFunction fn);
 // TypeScript's functionResultFormatter: writes a tool result for the model.
 // Without one, a string result goes as it is, a null one as "done", and any
 // other value as pretty JSON (JSON.stringify(result, null, 2)); an empty text
-// goes as "done".
+// goes as "done". A formatter that throws fails the forward ("Generate
+// failed: ..."), as in TypeScript.
 using AxFunctionResultFormatter = std::function<std::string(const Value& result)>;
 
 // A function result formatter for one forward or streaming_forward call,
@@ -212,6 +213,10 @@ class AxFunctionResultFormatterHandle {
   std::shared_ptr<State> state_;
 };
 AxFunctionResultFormatterHandle function_result_formatter(AxFunctionResultFormatter fn);
+// The process-wide tool result formatter, as TypeScript's
+// axGlobals.functionResultFormatter: AxGen uses it when neither the call nor
+// the AxGen sets one. An empty function restores the default.
+void set_function_result_formatter(AxFunctionResultFormatter fn);
 
 void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
@@ -548,6 +553,8 @@ struct Core {
   // process-wide caching function (a caching_function() handle value, or
   // null); a read, whose errors propagate (null is a miss); and a write.
   static Value axgen_caching_function(Value gen, Value options);
+  // The process-wide tool result formatter's marker, or null.
+  static Value axgen_function_result_formatter();
   static Value axgen_cache_read(Value fn, Value key);
   static Value axgen_cache_write(Value fn, Value key, Value value);
   // AXIR_CORE_CPP_DECLARATIONS

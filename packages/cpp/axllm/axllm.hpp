@@ -194,7 +194,8 @@ AxCachingFunctionHandle caching_function(AxCachingFunction fn);
 // TypeScript's functionResultFormatter: writes a tool result for the model.
 // Without one, a string result goes as it is, a null one as "done", and any
 // other value as pretty JSON (JSON.stringify(result, null, 2)); an empty text
-// goes as "done".
+// goes as "done". A formatter that throws fails the forward ("Generate
+// failed: ..."), as in TypeScript.
 using AxFunctionResultFormatter = std::function<std::string(const Value& result)>;
 
 // A function result formatter for one forward or streaming_forward call,
@@ -212,6 +213,10 @@ class AxFunctionResultFormatterHandle {
   std::shared_ptr<State> state_;
 };
 AxFunctionResultFormatterHandle function_result_formatter(AxFunctionResultFormatter fn);
+// The process-wide tool result formatter, as TypeScript's
+// axGlobals.functionResultFormatter: AxGen uses it when neither the call nor
+// the AxGen sets one. An empty function restores the default.
+void set_function_result_formatter(AxFunctionResultFormatter fn);
 
 void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
@@ -548,6 +553,8 @@ struct Core {
   // process-wide caching function (a caching_function() handle value, or
   // null); a read, whose errors propagate (null is a miss); and a write.
   static Value axgen_caching_function(Value gen, Value options);
+  // The process-wide tool result formatter's marker, or null.
+  static Value axgen_function_result_formatter();
   static Value axgen_cache_read(Value fn, Value key);
   static Value axgen_cache_write(Value fn, Value key, Value value);
   // BEGIN AXIR CORE EMITTED DECLARATIONS
@@ -982,57 +989,57 @@ struct Core {
   static Value _ace_recompute_playbook_stats(Value playbook);
   static Value _date_delimiter_split_impl(Value text);
   static Value _set_examples(Value gen, Value examples);
-  static Value _ace_empty_playbook(Value description, Value now);
   static Value _set_demos(Value gen, Value demos);
+  static Value _ace_empty_playbook(Value description, Value now);
   static Value _render_examples(Value gen);
-  static Value _ace_render_playbook(Value playbook);
   static Value _render_demos(Value gen);
+  static Value _ace_render_playbook(Value playbook);
   static Value _apply_field_processors(Value gen, Value output);
   static Value chat_session_boundary_action(Value state);
-  static Value _stream_convert_value_impl(Value field, Value value, Value required);
   static Value _run_assertions(Value gen, Value output);
+  static Value _stream_convert_value_impl(Value field, Value value, Value required);
   static Value _date_range_keyword_impl(Value units, Value at, Value end);
-  static Value _ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now);
   static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
-  static Value _regex_alternative(Value s);
+  static Value _ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now);
   static Value _record_trace(Value gen, Value input, Value output, Value status);
-  static Value chat_session_mark_submitted(Value state, Value ids);
+  static Value _regex_alternative(Value s);
   static Value _should_continue_steps(Value gen, Value calls);
+  static Value chat_session_mark_submitted(Value state, Value ids);
   static Value _date_strip_code_fence_impl(Value value);
-  static Value chat_session_queue_update(Value state, Value update);
   static Value _parse_output_impl(Value content);
-  static Value _ace_dedupe_playbook(Value playbook);
+  static Value chat_session_queue_update(Value state, Value update);
   static Value _is_flexible_json_field(Value typ);
+  static Value _ace_dedupe_playbook(Value playbook);
   static Value _stream_field_value_impl(Value field, Value text);
   static Value _regex_word(Value c);
   static Value chat_session_record_unresolved(Value gen, Value state);
-  static Value _date_string_mode_impl();
   static Value _parse_json_string_value(Value value);
+  static Value _date_string_mode_impl();
   static Value _ace_prune_section_for_addition(Value section, Value protected_ids);
+  static Value _parse_json_string_for_field(Value field, Value value);
   static Value chat_session_close_state(Value state);
   static Value _date_native_offset_impl(Value units, Value index, Value mode);
-  static Value _parse_json_string_for_field(Value field, Value value);
   static Value chat_session_transition(Value state, Value event);
   static Value _regex_space(Value c);
-  static Value _date_js_trim_impl(Value text);
   static Value _parse_json_string_fields(Value output_fields, Value values);
+  static Value _date_js_trim_impl(Value text);
   static Value _ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now);
   static Value _date_trim_bounds_impl(Value units, Value start, Value end);
   static Value _parse_json_string_for_fields(Value fields_map, Value values);
   static Value _regex_member(Value n, Value c);
-  static Value _date_skip_space_impl(Value units, Value start, Value end);
   static Value _validate_exact_output_keys(Value fields, Value values, Value context);
+  static Value _date_skip_space_impl(Value units, Value start, Value end);
   static Value _date_space_impl(Value unit);
   static Value _stream_text_state_impl();
+  static Value _tool_spec_impl(Value fn);
   static Value _date_is_line_terminator_impl(Value unit);
   static Value _stream_text_note_field_impl(Value xstate, Value field, Value init_streamed);
-  static Value _tool_spec_impl(Value fn);
-  static Value _date_ascii_letter_impl(Value unit);
   static Value _function_call_mode_impl(Value mode);
+  static Value _date_ascii_letter_impl(Value unit);
   static Value _stream_text_extract_impl(Value xstate, Value values, Value content, Value fields, Value options);
   static Value _date_ascii_matches_impl(Value units, Value at, Value end, Value word);
-  static Value _regex_state(Value pos, Value caps);
   static Value _response_function_calls_impl(Value response);
+  static Value _regex_state(Value pos, Value caps);
   static Value _append_tool_call_messages_impl(Value messages, Value response, Value calls);
   static Value _regex_capture_ids(Value n);
   static Value _ace_is_noop_acknowledgment(Value content);
@@ -1040,14 +1047,14 @@ struct Core {
   static Value _completion_call_to_chat_impl(Value call);
   static Value _date_expect_unit_impl(Value units, Value at, Value end, Value expected);
   static Value _regex_push(Value stack, Value top, Value value);
-  static Value _tool_result_message_impl(Value call, Value result, Value options);
+  static Value _tool_result_message_impl(Value call, Value result_text);
   static Value _date_scan_date_impl(Value units, Value at);
   static Value _regex_task(Value n, Value next);
-  static Value _regex_frame(Value todo, Value st);
   static Value _tool_error_message_impl(Value call, Value error);
+  static Value _regex_frame(Value todo, Value st);
+  static Value _append_validation_retry_messages_impl(Value messages, Value response, Value error);
   static Value _regex_search(Value n, Value u, Value initial, Value d);
   static Value _date_scan_datetime_impl(Value units, Value start, Value end);
-  static Value _append_validation_retry_messages_impl(Value messages, Value response, Value error);
   static Value _stream_text_required_check_impl(Value values, Value fields);
   static Value _parse_text_field_value_impl(Value field, Value text);
   static Value _ace_normalize_curator_operations(Value operations);
@@ -1058,18 +1065,18 @@ struct Core {
   static Value _signature_has_complex_fields(Value signature, Value options);
   static Value _date_offset_minutes_impl(Value units, Value start, Value end);
   static Value _stream_text_final_impl(Value xstate, Value values, Value content, Value fields, Value options);
-  static Value _ace_locate_bullet_section(Value playbook, Value bullet_id);
   static Value _caller_function_call_impl(Value options);
+  static Value _ace_locate_bullet_section(Value playbook, Value bullet_id);
   static Value _function_call_forces_tool_impl(Value choice);
   static Value _ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output);
   static Value _function_call_names_output_impl(Value choice);
+  static Value _append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage);
   static Value _stream_text_extract_values_impl(Value content, Value fields, Value strict_mode);
   static Value _date_js_json_impl(Value value);
-  static Value _append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage);
   static Value _stream_text_yield_delta_impl(Value content, Value field, Value start, Value end, Value xstate, Value held, Value complete);
   static Value _with_output_thought_impl(Value output, Value field, Value prefix, Value thought);
-  static Value _date_js_json_string_impl(Value text);
   static Value _streaming_forward_impl(Value gen, Value client, Value values, Value options, Value sink);
+  static Value _date_js_json_string_impl(Value text);
   static Value _ace_normalize_reflection_bullet_tags(Value reflection);
   static Value _stream_text_values_impl(Value fields, Value content, Value values, Value xstate, Value held, Value complete);
   static Value _ace_dequeue_section_candidate(Value section_queues, Value section, Value used_ids, Value playbook);
@@ -1092,36 +1099,37 @@ struct Core {
   static Value _date_pad_impl(Value value, Value width);
   static Value _date_iso_impl(Value millis);
   static Value _regex_validate_names(Value n, Value path, Value seen, Value counter);
-  static Value _stream_json_parse_partial_impl(Value json_text);
   static Value _parse_text_contract_output_impl(Value content, Value output_fields, Value strict_mode);
+  static Value _stream_json_parse_partial_impl(Value json_text);
   static Value _regex_id_start_ranges();
   static Value _regex_id_continue_ranges();
   static Value _regex_clear_capture(Value caps, Value key);
+  static Value _generate_failed_impl(Value error);
   static Value _stream_json_should_parse_impl(Value state, Value content);
   static Value _regex_copy_map(Value value);
-  static Value _generate_failed_impl(Value error);
   static Value _unable_to_fix_impl(Value error, Value output);
-  static Value _stream_json_validate_impl(Value fields, Value values, Value allow_missing, Value reject_unknown);
   static Value _attempt_output_impl(Value response);
+  static Value _stream_json_validate_impl(Value fields, Value values, Value allow_missing, Value reject_unknown);
   static Value _max_tokens_error_impl(Value response);
-  static Value _stream_json_validate_value_impl(Value field, Value value, Value allow_missing);
   static Value _strict_mode_option_impl(Value base_options, Value options);
+  static Value _stream_json_validate_value_impl(Value field, Value value, Value allow_missing);
   static Value _feedback_message_impl(Value text);
   static Value _caching_function_option_impl(Value gen, Value options);
   static Value _cache_key_impl(Value gen, Value values);
   static Value _stream_json_validate_nested_impl(Value parent, Value object, Value allow_missing);
   static Value _cache_store_impl(Value cache_fn, Value key, Value output);
   static Value _cache_store_streamed_impl(Value cache_fn, Value key, Value output);
-  static Value _stream_json_select_fields_impl(Value fields, Value values);
   static Value _cache_lookup_impl(Value gen, Value values, Value options, Value ignore_read_errors);
-  static Value _stream_json_nested_fields_impl(Value fields_map);
+  static Value _stream_json_select_fields_impl(Value fields, Value values);
   static Value _cache_lookup_option_impl(Value options);
-  static Value _stream_json_flexible_impl(Value field);
+  static Value _stream_json_nested_fields_impl(Value fields_map);
   static Value _apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates);
-  static Value _stream_json_string_value_impl(Value field, Value value);
+  static Value _stream_json_flexible_impl(Value field);
   static Value _structured_output_render_options_impl(Value selection);
+  static Value _stream_json_string_value_impl(Value field, Value value);
   static Value _stream_json_strings_for_field_impl(Value field, Value value);
   static Value _function_result_text_impl(Value result, Value options);
+  static Value _run_tool_calls_impl(Value gen, Value functions, Value messages, Value calls, Value options);
   static Value _stream_json_strings_for_fields_impl(Value fields_map, Value values);
   static Value _stream_json_strings_impl(Value fields, Value values, Value partial);
   static Value _stream_state_impl(Value index);

@@ -821,6 +821,18 @@ public final class Conformance {
     if (!category.equals(expected)) throw new FixtureError("expected error category " + expected + ", got " + category);
   }
 
+  // A fixture's tool result formatter: {text} writes that text for every tool
+  // result, and {throws} fails with that message.
+  static AxGen.FunctionResultFormatter fixtureFunctionResultFormatter(Object spec) {
+    Map<String, Object> map = Core.asMap(spec);
+    String text = String.valueOf(map.getOrDefault("text", ""));
+    Object failure = map.get("throws");
+    return result -> {
+      if (failure != null) throw new RuntimeException(String.valueOf(failure));
+      return text;
+    };
+  }
+
   // "Generate failed: ..." keeps the failure it wraps as its direct cause. In
   // the Java port each rewrap also keeps the class, so the category, of the
   // error it wraps (TS wraps it in AxGenerateError).
@@ -1048,19 +1060,27 @@ public final class Conformance {
       });
     }
     if (fixture.containsKey("function_result_formatter")) {
-      // The program's formatter writes this text for every tool result.
-      String formatterText = String.valueOf(Core.asMap(fixture.get("function_result_formatter")).getOrDefault("text", ""));
-      gen.setFunctionResultFormatter(result -> formatterText);
+      // The program's formatter.
+      gen.setFunctionResultFormatter(fixtureFunctionResultFormatter(fixture.get("function_result_formatter")));
     }
     Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
     if (fixture.containsKey("call_function_result_formatter")) {
-      // The forward call's formatter writes this text for every tool result.
-      String callFormatterText = String.valueOf(Core.asMap(fixture.get("call_function_result_formatter")).getOrDefault("text", ""));
-      forwardOptions.put("functionResultFormatter", (AxGen.FunctionResultFormatter) result -> callFormatterText);
+      // The forward call's formatter.
+      forwardOptions.put("functionResultFormatter", fixtureFunctionResultFormatter(fixture.get("call_function_result_formatter")));
     }
     List<Object> callEvents = attachFixtureControl(fixture, client, forwardOptions);
     List<Object> controlEvents = Core.truthy(fixture.get("control")) ? callEvents : constructorEvents;
-    Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions), fixture, error -> assertErrorCause(error, fixture));
+    // The process-wide formatter, restored after the forward.
+    AxGen.FunctionResultFormatter previousGlobalFormatter = AxGlobals.functionResultFormatter();
+    if (fixture.containsKey("global_function_result_formatter")) {
+      AxGlobals.setFunctionResultFormatter(fixtureFunctionResultFormatter(fixture.get("global_function_result_formatter")));
+    }
+    Object output;
+    try {
+      output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions), fixture, error -> assertErrorCause(error, fixture));
+    } finally {
+      AxGlobals.setFunctionResultFormatter(previousGlobalFormatter);
+    }
     assertSpeakRequests(fixture, client);
     if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");
@@ -1099,6 +1119,15 @@ public final class Conformance {
 	    }
 	    if (fixture.containsKey("expected_memory_history_count") && gen.getMemory().history().size() != Core.asInt(fixture.get("expected_memory_history_count"))) throw new FixtureError("expected memory history count mismatch");
 	    if (fixture.containsKey("expected_memory_history_subset")) assertListSubset(gen.getMemory().history(), fixture.get("expected_memory_history_subset"), "memory history");
+	    if (fixture.containsKey("expected_memory_function_results")) {
+	      // The texts the memory keeps for the tool results, in order.
+	      List<Object> memoryTexts = new ArrayList<>();
+	      for (Map<String, Object> item : gen.getMemory().history()) {
+	        if (!"function".equals(item.get("role"))) continue;
+	        for (Object entry : Core.asList(item.get("results"))) memoryTexts.add(Core.asMap(entry).get("result"));
+	      }
+	      assertEqual(memoryTexts, fixture.get("expected_memory_function_results"), "memory function results");
+	    }
 	    if (fixture.containsKey("expected_chat_log_subset")) assertListSubset(gen.getChatLog(), fixture.get("expected_chat_log_subset"), "chat log");
 	    if (fixture.containsKey("expected_function_traces_subset")) assertListSubset(gen.getFunctionCallTraces(), fixture.get("expected_function_traces_subset"), "function call traces");
 	    if (fixture.containsKey("expected_chat_prompt")) assertEqual(client.requests.get(0).get("chat_prompt"), fixture.get("expected_chat_prompt"), "chat prompt");

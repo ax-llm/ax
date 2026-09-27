@@ -200,6 +200,7 @@ const (
 	IntrinsicAxGenCachingFunction      CoreIntrinsic = "intrinsic.axgen.caching_function"
 	IntrinsicAxGenCacheRead            CoreIntrinsic = "intrinsic.axgen.cache_read"
 	IntrinsicAxGenCacheWrite           CoreIntrinsic = "intrinsic.axgen.cache_write"
+	IntrinsicAxGenResultFormatter      CoreIntrinsic = "intrinsic.axgen.function_result_formatter"
 )
 
 var coreIntrinsicPython = map[CoreIntrinsic]string{
@@ -365,6 +366,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAxGenCachingFunction:      "_core_axgen_caching_function",
 	IntrinsicAxGenCacheRead:            "_core_axgen_cache_read",
 	IntrinsicAxGenCacheWrite:           "_core_axgen_cache_write",
+	IntrinsicAxGenResultFormatter:      "_core_axgen_function_result_formatter",
 }
 
 var knownCoreIntrinsics = map[string]bool{
@@ -433,6 +435,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.axgen.caching_function":                true,
 	"intrinsic.axgen.cache_read":                      true,
 	"intrinsic.axgen.cache_write":                     true,
+	"intrinsic.axgen.function_result_formatter":       true,
 	"intrinsic.error.runtime":                         true,
 	"intrinsic.json.parse":                            true,
 	"intrinsic.json.parse_strict":                     true,
@@ -856,6 +859,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.axgen.caching_function":              intrinsicInfo("intrinsic.axgen.caching_function", 2, 2, true, "json"),
 	"intrinsic.axgen.cache_read":                    intrinsicInfo("intrinsic.axgen.cache_read", 2, 2, true, "json"),
 	"intrinsic.axgen.cache_write":                   intrinsicInfo("intrinsic.axgen.cache_write", 3, 3, true, "void"),
+	"intrinsic.axgen.function_result_formatter":     intrinsicInfo("intrinsic.axgen.function_result_formatter", 0, 0, true, "json"),
 	"intrinsic.string.format":                       intrinsicInfo("intrinsic.string.format", 1, -1, false, "string"),
 	"intrinsic.string.join":                         intrinsicInfo("intrinsic.string.join", 2, 2, false, "string"),
 	"intrinsic.string.slice":                        intrinsicInfo("intrinsic.string.slice", 2, 3, false, "string"),

@@ -1,11 +1,11 @@
 {
   "target": "cpp",
   "enforced": true,
-  "emitted_functions": 943,
+  "emitted_functions": 944,
   "files": {
     "axllm/axllm.cpp": {
-      "emitted_lines": 42136,
-      "total_lines": 52187
+      "emitted_lines": 42155,
+      "total_lines": 52242
     }
   }
 }

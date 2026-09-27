@@ -811,20 +811,8 @@ module @ax.gen version "0.1" {
           }
           %updated_messages = core.call @append_tool_call_messages_impl(%messages, %response, %calls)
           %messages = core.let %updated_messages
-          core.for %call in %calls {
-            core.try {
-              %tool_result = core.call @execute_tool_call(%functions, %call)
-              %tool_message = core.call @tool_result_message_impl(%call, %tool_result, %runtime_options)
-              core.append %messages, %tool_message
-              core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_result, true)
-              core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_result, "ok")
-            } catch %tool_error {
-              %tool_error_message = core.call @tool_error_message_impl(%call, %tool_error)
-              core.append %messages, %tool_error_message
-              core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_error_message, false)
-              core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_error_message, "error")
-            }
-          }
+          %tool_messages = core.call @run_tool_calls_impl(%gen, %functions, %messages, %calls, %runtime_options)
+          %messages = core.let %tool_messages
           %continue_after_tools = core.call @should_continue_steps(%gen, %calls)
           core.if %continue_after_tools {
             %next_step = core.call intrinsic.add(%step, 1)
@@ -1451,15 +1439,13 @@ module @ax.gen version "0.1" {
 
   op ax.gen.semantic @tool_result_message_impl {
     attr core_kind = "func"
-    attr effect = "throws"
     attr emit_module = "gen"
     attr private = true
     tag "tool-result-message-core-helper"
-    type signature = "(json, json, json) -> json throws"
-    body @entry(%call: json, %result: json, %options: json) {
+    type signature = "(json, string) -> json"
+    body @entry(%call: json, %result_text: string) {
       %id = core.get %call["id"]
       %name = core.get %call["name"]
-      %result_text = core.call @function_result_text_impl(%result, %options)
       %message = core.map
       core.set %message["role"] = "function"
       core.set %message["function_id"] = %id
@@ -2340,20 +2326,8 @@ module @ax.gen version "0.1" {
               %tool_calls = core.get %outcome["calls"] default %empty_calls
               %updated_messages = core.call @append_tool_call_messages_impl(%messages, %response, %tool_calls)
               %messages = core.let %updated_messages
-              core.for %call in %tool_calls {
-                core.try {
-                  %tool_result = core.call @execute_tool_call(%functions, %call)
-                  %tool_message = core.call @tool_result_message_impl(%call, %tool_result, %runtime_options)
-                  core.append %messages, %tool_message
-                  core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_result, true)
-                  core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_result, "ok")
-                } catch %tool_error {
-                  %tool_error_message = core.call @tool_error_message_impl(%call, %tool_error)
-                  core.append %messages, %tool_error_message
-                  core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_error_message, false)
-                  core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_error_message, "error")
-                }
-              }
+              %tool_messages = core.call @run_tool_calls_impl(%gen, %functions, %messages, %tool_calls, %runtime_options)
+              %messages = core.let %tool_messages
               %continue_after_tools = core.call @should_continue_steps(%gen, %tool_calls)
               core.if %continue_after_tools {
                 %next_step = core.let true
@@ -2867,10 +2841,12 @@ module @ax.gen version "0.1" {
   }
 
   // TS functionResultFormatter: the run's formatter (the forward call's,
-  // else the program's) writes the result, as String(formatter(result));
-  // without one, a string result goes as it is, a missing one as "", and any
-  // other value as JSON.stringify(result, null, 2) (axGlobals' default). An
-  // empty text becomes "done", as processFunctions sends it.
+  // else the program's, else the process-wide one, as TS's
+  // axGlobals.functionResultFormatter) writes the result, as
+  // String(formatter(result)); without one, a string result goes as it is,
+  // a missing one as "", and any other value as
+  // JSON.stringify(result, null, 2) (axGlobals' default). An empty text
+  // becomes "done", as processFunctions sends it.
   op ax.gen.semantic @function_result_text_impl {
     attr core_kind = "func"
     attr effect = "throws"
@@ -2884,6 +2860,12 @@ module @ax.gen version "0.1" {
       %opts = core.call intrinsic.coalesce(%options, %empty_map)
       %formatter_snake = core.get %opts["function_result_formatter"]
       %formatter = core.get %opts["functionResultFormatter"] default %formatter_snake
+      %has_local_formatter = core.call intrinsic.is_not_none(%formatter)
+      core.if %has_local_formatter {
+      } else {
+        %global_formatter = core.call intrinsic.axgen.function_result_formatter()
+        %formatter = core.let %global_formatter
+      }
       %has_formatter = core.call intrinsic.is_not_none(%formatter)
       %text = core.let ""
       core.if %has_formatter {
@@ -2907,6 +2889,55 @@ module @ax.gen version "0.1" {
         core.return "done"
       }
       core.return %text
+    }
+  }
+
+  // Runs a tool step's calls in order and returns the messages with their
+  // results. A tool that throws answers with an error message, as before. As
+  // in TS, the memory keeps the text the model saw, and a formatter that
+  // throws fails the forward ("Generate failed: ...") without a retry: the
+  // call is traced as an error, and nothing reaches the model or the memory.
+  op ax.gen.semantic @run_tool_calls_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/functions.ts"
+    tag "tool-result-message-core-helper"
+    type signature = "(AxGen, list<Tool>, list<json>, list<json>, json) -> list<json> throws"
+    body @entry(%gen: AxGen, %functions: list<Tool>, %messages: list<json>, %calls: list<json>, %options: json) {
+      core.for %call in %calls {
+        %tool_ok = core.let false
+        %tool_result = core.call intrinsic.none()
+        core.try {
+          %executed = core.call @execute_tool_call(%functions, %call)
+          %tool_result = core.let %executed
+          %tool_ok = core.let true
+        } catch %tool_error {
+          %tool_error_message = core.call @tool_error_message_impl(%call, %tool_error)
+          core.append %messages, %tool_error_message
+          %tool_error_text = core.get %tool_error_message["result"] default ""
+          core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_error_text, false)
+          core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_error_message, "error")
+        }
+        core.if %tool_ok {
+          %tool_text = core.let ""
+          core.try {
+            %formatted_text = core.call @function_result_text_impl(%tool_result, %options)
+            %tool_text = core.let %formatted_text
+          } catch %format_error {
+            %format_error_message = core.call @tool_error_message_impl(%call, %format_error)
+            core.call intrinsic.axgen.record_function_call(%gen, %call, %format_error_message, "error")
+            %format_failure = core.call @generate_failed_impl(%format_error)
+            core.raise %format_failure
+          }
+          %tool_message = core.call @tool_result_message_impl(%call, %tool_text)
+          core.append %messages, %tool_message
+          core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_text, true)
+          core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_result, "ok")
+        }
+      }
+      core.return %messages
     }
   }
 }

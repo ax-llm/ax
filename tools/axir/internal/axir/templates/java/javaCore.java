@@ -1057,6 +1057,10 @@ final class Core {
   }
   // The forward call's cachingFunction, else the AxGen constructor's, else the
   // process-wide one (AxGlobals.setCachingFunction); null when none is set.
+  // The process-wide tool result formatter, or null.
+  static Object axgenFunctionResultFormatter() {
+    return AxGlobals.functionResultFormatter();
+  }
   static Object axgenCachingFunction(Object gen, Object options) {
     Object fromCall = cachingFunctionOption(options);
     if (fromCall != null) return fromCall;

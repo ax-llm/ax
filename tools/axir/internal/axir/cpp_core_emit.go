@@ -420,6 +420,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicAxGenCachingFunction:      "Core::axgen_caching_function",
 	IntrinsicAxGenCacheRead:            "Core::axgen_cache_read",
 	IntrinsicAxGenCacheWrite:           "Core::axgen_cache_write",
+	IntrinsicAxGenResultFormatter:      "Core::axgen_function_result_formatter",
 	IntrinsicStringSplitTrim:           "Core::string_split_trim_nonempty",
 	IntrinsicStringFindQuoted:          "Core::string_find_outside_quotes",
 	IntrinsicStringSplitQuoted:         "Core::string_split_outside_quotes",

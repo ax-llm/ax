@@ -381,6 +381,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicAxGenCachingFunction:      "Core.axgenCachingFunction",
 	IntrinsicAxGenCacheRead:            "Core.axgenCacheRead",
 	IntrinsicAxGenCacheWrite:           "Core.axgenCacheWrite",
+	IntrinsicAxGenResultFormatter:      "Core.axgenFunctionResultFormatter",
 	IntrinsicStringSplitTrim:           "Core.stringSplitTrimNonEmpty",
 	IntrinsicStringFindQuoted:          "Core.stringFindOutsideQuotes",
 	IntrinsicStringSplitQuoted:         "Core.stringSplitOutsideQuotes",
