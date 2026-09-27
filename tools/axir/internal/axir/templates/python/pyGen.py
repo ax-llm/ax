@@ -37,7 +37,7 @@ from .ai import (
 )
 from .prompt import AxPromptTemplate, _core_string_split
 from .schema import AxValidationError, _core_field_item, _core_url_valid, strip_internal, validate_fields, validate_output
-from .signature import AxSignature, _core_string_replace, _js_json_dumps, _js_number_text
+from .signature import AxSignature, _core_string_replace, _js_date_prompt_text, _js_json_dumps, _js_number_text
 from .mcp import resolve_execution_context
 # AXIR_CORE_IMPORTS
 
@@ -873,6 +873,34 @@ def _core_string_utf16_units(value):
 
 def _core_string_codepoint_length(value): return len(value)
 
+_DATE_ZONES: dict[str, Any] = {}
+# datetime covers years 1-9999. Offsets are constant before a zone's first
+# transition and follow its rule after the last, so an instant a day past
+# either end reads the same offset as the clamped one.
+_DATE_MIN_SECONDS = -62135510400  # 0001-01-02T00:00:00Z
+_DATE_MAX_SECONDS = 253402128000  # 9999-12-30T00:00:00Z
+
+
+def _core_date_zone_offset(name, epoch_ms):
+    """UTC offset in seconds of the IANA zone `name` at an instant (epoch
+    milliseconds), from the platform tz database through zoneinfo. Raises
+    for a zone the database does not have."""
+    import datetime as _datetime
+    import zoneinfo as _zoneinfo
+
+    key = str(name)
+    zone = _DATE_ZONES.get(key)
+    if zone is None:
+        try:
+            zone = _zoneinfo.ZoneInfo(key)
+        except (ValueError, OSError, _zoneinfo.ZoneInfoNotFoundError) as exc:
+            raise ValueError(f"unknown time zone {key}") from exc
+        _DATE_ZONES[key] = zone
+    seconds = math.floor(float(epoch_ms) / 1000)
+    seconds = min(max(seconds, _DATE_MIN_SECONDS), _DATE_MAX_SECONDS)
+    instant = _datetime.datetime(1970, 1, 1, tzinfo=_datetime.timezone.utc) + _datetime.timedelta(seconds=seconds)
+    return int(instant.astimezone(zone).utcoffset().total_seconds())
+
 def _core_math_is_finite(value): return math.isfinite(value)
 
 def _core_len(value): return len(value)
@@ -1301,7 +1329,11 @@ def _core_string_str(value):
     return _js_number_text(value) if isinstance(value, float) else str(value)
 
 
-def _core_axgen_value_text(value):
+def _core_axgen_value_text(value, type_name=None):
+    # A native date in a date-typed field reads as TS renders a Date.
+    dated = _js_date_prompt_text(type_name, value) if type_name else None
+    if dated is not None:
+        return dated
     if isinstance(value, str):
         return value
     return _js_json_dumps(value, sort_keys=True, separators=(", ", ": "))
@@ -1320,7 +1352,8 @@ def _core_axgen_format_values(gen, values, kind):
         name = _core_get(field, "name")
         if name in values:
             title = _core_get(field, "title", name)
-            lines.append(f"{title}: {_core_axgen_value_text(values[name])}")
+            field_type = _core_get(field, "type")
+            lines.append(f"{title}: {_core_axgen_value_text(values[name], _core_get(field_type, 'name', None))}")
     if not lines:
         for name, value in values.items():
             lines.append(f"{name}: {_core_axgen_value_text(value)}")

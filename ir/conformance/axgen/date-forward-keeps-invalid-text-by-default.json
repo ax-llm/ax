@@ -1,0 +1,25 @@
+{
+  "description": "Port-only: without parse_dates an invalid date is not a validation error; the model text comes back as is.",
+  "expected_output": {
+    "due": "2024-02-30",
+    "when": "next Tuesday"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "date-forward-keeps-invalid-text-by-default",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Due: 2024-02-30\nWhen: next Tuesday",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> due:date, when:datetime"
+}

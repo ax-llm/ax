@@ -12,6 +12,7 @@ module @ax.root version "0.1" {
   import @ax.gen from "gen.axir"
   import @ax.session from "session.axir"
   import @ax.regex from "regex.axir"
+  import @ax.dates from "dates.axir"
   import @ax.stream from "stream.axir"
   import @ax.provider from "provider.axir"
   import @ax.typesafe from "typesafe.axir"

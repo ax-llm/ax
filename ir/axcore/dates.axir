@@ -1,0 +1,2328 @@
+module @ax.dates version "0.1" {
+  dialect @ax.gen version "0.1"
+
+  // TypeScript's LLM-friendly date parsing (src/ax/dsp/datetime.ts) for
+  // date, datetime, dateRange and datetimeRange output fields, used by the
+  // text contract when a caller opts in with parse_dates / parseDates. See
+  // dates.md. Values come back as TypeScript's JSON serialization of them:
+  // Date.prototype.toISOString strings, and {start, end} maps of those.
+  //
+  // Scanning runs over UTF-16 code units, as JavaScript strings do, in one
+  // linear pass: no host regular expressions, so the patterns TS matches
+  // with backtracking regexes cannot slow a port down. Substrings are cut
+  // from the port's own string at native offsets (see
+  // @date_native_offset_impl).
+  //
+  // Times are epoch milliseconds. The only host operation is
+  // intrinsic.date.zone_offset(name, epoch_ms): the UTC offset in seconds of
+  // an IANA zone at an instant, from the platform tz database, raising for an
+  // unknown zone. Zone names, abbreviations and the Intl.DateTimeFormat
+  // arithmetic TS relies on (its DST-gap check, its earlier instant in an
+  // overlap, and its era year for years before 1) are all here.
+
+  // ----- option and fields -----
+
+  op ax.gen.semantic @date_parse_dates_option_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json) -> bool"
+    body @entry(%base_options: json, %options: json) {
+      // parseDates from the forward call, else from the AxGen constructor.
+      %empty = core.map
+      %call_options = core.call intrinsic.map.merge(%empty, %options)
+      %gen_options = core.call intrinsic.map.merge(%empty, %base_options)
+      %gen_snake = core.get %gen_options["parse_dates"] default false
+      %gen_parse = core.get %gen_options["parseDates"] default %gen_snake
+      %call_snake = core.get %call_options["parse_dates"] default %gen_parse
+      %parse = core.get %call_options["parseDates"] default %call_snake
+      %parse_dates = core.call intrinsic.truthy(%parse)
+      core.return %parse_dates
+    }
+  }
+
+  op ax.gen.semantic @date_is_date_type_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/fieldValue.ts"
+    type signature = "(json) -> bool"
+    body @entry(%name: json) {
+      %is_date = core.call intrinsic.eq(%name, "date")
+      core.if %is_date {
+        core.return true
+      }
+      %is_datetime = core.call intrinsic.eq(%name, "datetime")
+      core.if %is_datetime {
+        core.return true
+      }
+      %is_date_range = core.call intrinsic.eq(%name, "dateRange")
+      core.if %is_date_range {
+        core.return true
+      }
+      %is_datetime_range = core.call intrinsic.eq(%name, "datetimeRange")
+      core.return %is_datetime_range
+    }
+  }
+
+  op ax.gen.semantic @date_parse_fields_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/fieldValue.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%fields: json, %base_options: json, %options: json) {
+      // With parse_dates on, the text contract gets copies of the date-typed
+      // output fields that carry parse_dates, which
+      // @stream_convert_value_impl reads. Off, the list is returned as is.
+      %parse_dates = core.call @date_parse_dates_option_impl(%base_options, %options)
+      %off = core.call intrinsic.not(%parse_dates)
+      core.if %off {
+        core.return %fields
+      }
+      %out = core.list
+      core.for %field in %fields {
+        %typ = core.get %field["type"]
+        %type_name = core.get %typ["name"] default "string"
+        %dated = core.call @date_is_date_type_impl(%type_name)
+        %plain = core.call intrinsic.not(%dated)
+        core.if %plain {
+          core.append %out, %field
+          core.continue
+        }
+        %field_copy = core.map
+        %name = core.get %field["name"]
+        core.set %field_copy["name"] = %name
+        %title = core.call @stream_field_title_impl(%field)
+        core.set %field_copy["title"] = %title
+        %description = core.get %field["description"]
+        core.set %field_copy["description"] = %description
+        core.set %field_copy["type"] = %typ
+        %optional = core.call @stream_field_flag_impl(%field, "is_optional", "isOptional")
+        core.set %field_copy["is_optional"] = %optional
+        %internal = core.call @stream_field_flag_impl(%field, "is_internal", "isInternal")
+        core.set %field_copy["is_internal"] = %internal
+        %cached = core.call @stream_field_flag_impl(%field, "is_cached", "isCached")
+        core.set %field_copy["is_cached"] = %cached
+        core.set %field_copy["parse_dates"] = true
+        core.append %out, %field_copy
+      }
+      core.return %out
+    }
+  }
+
+  op ax.gen.semantic @date_convert_field_value_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json, bool) -> json throws"
+    body @entry(%field: json, %type_name: json, %value: json, %may_skip: bool) {
+      // parseLLMFriendlyDate, ...DateTime, ...DateRange and
+      // ...DateTimeRange: {has, value}, where has is false where TS returns
+      // undefined (an optional field's bad value). Other failures raise the
+      // message TS's ValidationError carries.
+      %out = core.map
+      core.set %out["has"] = true
+      %title = core.call @stream_field_title_impl(%field)
+      %is_date = core.call intrinsic.eq(%type_name, "date")
+      %is_datetime = core.call intrinsic.eq(%type_name, "datetime")
+      %is_date_range = core.call intrinsic.eq(%type_name, "dateRange")
+      %single = core.call intrinsic.or(%is_date, %is_datetime)
+      core.if %single {
+        // String(val)
+        %text = core.call @stream_js_string_impl(%value)
+        %millis = core.let 0
+        core.try {
+          core.if %is_date {
+            %millis = core.call @date_parse_date_impl(%text)
+          } else {
+            %millis = core.call @date_parse_datetime_impl(%text)
+          }
+        } catch %single_error {
+          core.if %may_skip {
+            core.set %out["has"] = false
+            core.return %out
+          }
+          %single_detail = core.call intrinsic.exception.message(%single_error)
+          %single_message = core.call @date_error_message_impl(%type_name, %title, %single_detail, %text)
+          %single_invalid = core.call intrinsic.error.runtime(%single_message)
+          core.raise %single_invalid
+        }
+        %iso = core.call @date_iso_impl(%millis)
+        core.set %out["value"] = %iso
+        core.return %out
+      }
+      %kind = core.let "datetime"
+      core.if %is_date_range {
+        %kind = core.let "date"
+      }
+      %range_millis = core.map
+      core.try {
+        %range_millis = core.call @date_parse_range_impl(%value, %kind)
+      } catch %range_error {
+        core.if %may_skip {
+          core.set %out["has"] = false
+          core.return %out
+        }
+        %range_detail = core.call intrinsic.exception.message(%range_error)
+        // stringifyRangeValue
+        %range_text = core.let ""
+        %range_is_text = core.type_is %value type "string"
+        core.if %range_is_text {
+          %range_text = core.let %value
+        } else {
+          %range_text = core.call @date_js_json_impl(%value)
+        }
+        %range_message = core.call @date_error_message_impl(%type_name, %title, %range_detail, %range_text)
+        %range_invalid = core.call intrinsic.error.runtime(%range_message)
+        core.raise %range_invalid
+      }
+      %start_millis = core.get %range_millis["start"]
+      %end_millis = core.get %range_millis["end"]
+      %range_value = core.map
+      %start_iso = core.call @date_iso_impl(%start_millis)
+      core.set %range_value["start"] = %start_iso
+      %end_iso = core.call @date_iso_impl(%end_millis)
+      core.set %range_value["end"] = %end_iso
+      core.set %out["value"] = %range_value
+      core.return %out
+    }
+  }
+
+  op ax.gen.semantic @date_error_message_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/errors.ts"
+    type signature = "(json, json, json, json) -> json"
+    body @entry(%type_name: json, %title: json, %detail: json, %provided: json) {
+      // createInvalidDateError, createInvalidDateTimeError,
+      // createInvalidDateRangeError and createInvalidDateTimeRangeError.
+      // Joined rather than formatted, so braces and "{}" in the model's text
+      // stay as they are in every port.
+      %lead = core.let "Invalid date/time range for '"
+      %advice = core.let ". Prefer JSON like {\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00Z\"} or an ISO interval like 2024-05-09T14:30:00Z/2024-05-09T15:30:00Z. You provided: "
+      %is_date = core.call intrinsic.eq(%type_name, "date")
+      core.if %is_date {
+        %lead = core.let "Invalid date for '"
+        %advice = core.let ". Use the exact format YYYY-MM-DD (e.g., 2024-05-09). You provided: "
+      }
+      %is_datetime = core.call intrinsic.eq(%type_name, "datetime")
+      core.if %is_datetime {
+        %lead = core.let "Invalid date/time for '"
+        %advice = core.let ". Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: "
+      }
+      %is_date_range = core.call intrinsic.eq(%type_name, "dateRange")
+      core.if %is_date_range {
+        %lead = core.let "Invalid date range for '"
+        %advice = core.let ". Prefer JSON like {\"start\":\"2024-05-09\",\"end\":\"2024-05-12\"} or an interval like 2024-05-09/2024-05-12. You provided: "
+      }
+      %pieces = core.list
+      core.append %pieces, %lead
+      core.append %pieces, %title
+      core.append %pieces, "': "
+      core.append %pieces, %detail
+      core.append %pieces, %advice
+      core.append %pieces, %provided
+      core.append %pieces, "."
+      %message = core.string_join %pieces sep ""
+      core.return %message
+    }
+  }
+
+  // ----- parsing -----
+
+  op ax.gen.semantic @date_parse_date_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json throws"
+    body @entry(%text: json) {
+      // ParseLlmFriendlyDate: YYYY-MM-DD after a JavaScript trim, checked by
+      // a round trip through TS's getUtcTimestamp.
+      %format_error = core.let "Invalid date format. Please provide the date in \"YYYY-MM-DD\" format."
+      %units = core.call intrinsic.string.utf16_units(%text)
+      %count = core.call intrinsic.len(%units)
+      %bounds = core.call @date_trim_bounds_impl(%units, 0, %count)
+      %start = core.get %bounds["start"]
+      %end = core.get %bounds["end"]
+      %length = core.call intrinsic.add(%end, 0)
+      %negative_start = core.call intrinsic.mul(%start, -1)
+      %length = core.call intrinsic.add(%length, %negative_start)
+      %wrong_length = core.call intrinsic.ne(%length, 10)
+      core.if %wrong_length {
+        %length_error = core.call intrinsic.error.runtime(%format_error)
+        core.raise %length_error
+      }
+      %parts = core.call @date_scan_date_impl(%units, %start)
+      %no_parts = core.call intrinsic.is_none(%parts)
+      core.if %no_parts {
+        %shape_error = core.call intrinsic.error.runtime(%format_error)
+        core.raise %shape_error
+      }
+      %millis = core.call @date_utc_ms_impl(%parts)
+      %round = core.call @date_parts_of_ms_impl(%millis)
+      %same = core.call @date_same_day_impl(%round, %parts)
+      %different = core.call intrinsic.not(%same)
+      core.if %different {
+        %value_error = core.call intrinsic.error.runtime(%format_error)
+        core.raise %value_error
+      }
+      core.return %millis
+    }
+  }
+
+  op ax.gen.semantic @date_parse_datetime_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json throws"
+    body @entry(%text: json) {
+      // ParseLlmFriendlyDateTime: the ISO form with Z or a numeric offset,
+      // else the legacy "YYYY-MM-DD HH:mm Zone" form.
+      %units = core.call intrinsic.string.utf16_units(%text)
+      %count = core.call intrinsic.len(%units)
+      %bounds = core.call @date_trim_bounds_impl(%units, 0, %count)
+      %start = core.get %bounds["start"]
+      %end = core.get %bounds["end"]
+      %offset_millis = core.call @date_parse_offset_datetime_impl(%units, %start, %end)
+      %matched = core.call intrinsic.is_not_none(%offset_millis)
+      core.if %matched {
+        core.return %offset_millis
+      }
+      %named = core.call @date_parse_named_datetime_impl(%text, %units, %start, %end)
+      core.return %named
+    }
+  }
+
+  op ax.gen.semantic @date_parse_offset_datetime_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json) -> json throws"
+    body @entry(%units: json, %start: json, %end: json) {
+      // parseOffsetDateTime: none when the text is not
+      // /^(<date time>)\s*(Z|(?:UTC|GMT)?[+-]\d{2}(?::?\d{2})?)$/i.
+      %none = core.call intrinsic.none()
+      %prefix = core.call @date_scan_datetime_impl(%units, %start, %end)
+      %no_prefix = core.call intrinsic.is_none(%prefix)
+      core.if %no_prefix {
+        core.return %none
+      }
+      %cursor = core.get %prefix["end"]
+      %zone_start = core.call @date_skip_space_impl(%units, %cursor, %end)
+      %zone_ok = core.call @date_offset_zone_matches_impl(%units, %zone_start, %end)
+      %zone_bad = core.call intrinsic.not(%zone_ok)
+      core.if %zone_bad {
+        core.return %none
+      }
+      %offset = core.call @date_offset_minutes_impl(%units, %zone_start, %end)
+      %no_offset = core.call intrinsic.is_none(%offset)
+      core.if %no_offset {
+        %format_error = core.call @date_datetime_format_error_impl()
+        core.raise %format_error
+      }
+      %parts = core.call @date_datetime_parts_impl(%prefix)
+      %local = core.call @date_utc_ms_impl(%parts)
+      %shift = core.call intrinsic.mul(%offset, -60000)
+      %millis = core.call intrinsic.add(%local, %shift)
+      core.return %millis
+    }
+  }
+
+  op ax.gen.semantic @date_parse_named_datetime_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json, json) -> json throws"
+    body @entry(%text: json, %units: json, %start: json, %end: json) {
+      // parseNamedTimeZoneDateTime: /^(<date time>)\s+(.+)$/, then the zone
+      // as an offset, a TS abbreviation, or a name Intl knows.
+      %format_error = core.call @date_datetime_format_error_impl()
+      %prefix = core.call @date_scan_datetime_impl(%units, %start, %end)
+      %no_prefix = core.call intrinsic.is_none(%prefix)
+      core.if %no_prefix {
+        core.raise %format_error
+      }
+      %cursor = core.get %prefix["end"]
+      %zone_start = core.call @date_skip_space_impl(%units, %cursor, %end)
+      %no_space = core.call intrinsic.eq(%zone_start, %cursor)
+      core.if %no_space {
+        core.raise %format_error
+      }
+      %empty_zone = core.call intrinsic.gte(%zone_start, %end)
+      core.if %empty_zone {
+        core.raise %format_error
+      }
+      // (.+) does not match a line terminator.
+      %scan = core.let %zone_start
+      core.loop {
+        %scan_done = core.call intrinsic.gte(%scan, %end)
+        core.if %scan_done {
+          core.break
+        }
+        %unit = core.get %units[%scan] default 0
+        %terminator = core.call @date_is_line_terminator_impl(%unit)
+        core.if %terminator {
+          core.raise %format_error
+        }
+        %scan = core.call intrinsic.add(%scan, 1)
+      }
+      %mode = core.call @date_string_mode_impl()
+      %zone_from = core.call @date_native_offset_impl(%units, %zone_start, %mode)
+      %zone_to = core.call @date_native_offset_impl(%units, %end, %mode)
+      %zone = core.call intrinsic.string.slice(%text, %zone_from, %zone_to)
+      %offset = core.call @date_offset_minutes_impl(%units, %zone_start, %end)
+      %parts = core.call @date_datetime_parts_impl(%prefix)
+      %local = core.call @date_utc_ms_impl(%parts)
+      %has_offset = core.call intrinsic.is_not_none(%offset)
+      core.if %has_offset {
+        %shift = core.call intrinsic.mul(%offset, -60000)
+        %offset_millis = core.call intrinsic.add(%local, %shift)
+        core.return %offset_millis
+      }
+      %abbreviation = core.call @date_abbreviation_offset_impl(%units, %zone_start, %end, %zone)
+      %has_abbreviation = core.call intrinsic.is_not_none(%abbreviation)
+      core.if %has_abbreviation {
+        %abbreviation_shift = core.call intrinsic.mul(%abbreviation, -60000)
+        %abbreviation_millis = core.call intrinsic.add(%local, %abbreviation_shift)
+        core.return %abbreviation_millis
+      }
+      %resolved = core.call @date_zone_resolve_impl(%units, %zone_start, %end, %zone, %local)
+      %millis = core.call @date_named_timestamp_impl(%parts, %resolved)
+      core.return %millis
+    }
+  }
+
+  op ax.gen.semantic @date_datetime_format_error_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "() -> json"
+    body @entry {
+      %error = core.call intrinsic.error.runtime("Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.")
+      core.return %error
+    }
+  }
+
+  op ax.gen.semantic @date_values_error_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "() -> json"
+    body @entry {
+      %error = core.call intrinsic.error.runtime("Invalid date and time values. Please ensure all components are correct.")
+      core.return %error
+    }
+  }
+
+  op ax.gen.semantic @date_datetime_parts_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json throws"
+    body @entry(%prefix: json) {
+      // parseDateTimeParts: clock ranges, then a round trip through
+      // getUtcTimestamp for the calendar.
+      %parts = core.map
+      %year = core.get %prefix["year"]
+      core.set %parts["year"] = %year
+      %month = core.get %prefix["month"]
+      core.set %parts["month"] = %month
+      %day = core.get %prefix["day"]
+      core.set %parts["day"] = %day
+      %hour = core.get %prefix["hour"]
+      core.set %parts["hour"] = %hour
+      %minute = core.get %prefix["minute"]
+      core.set %parts["minute"] = %minute
+      %second = core.get %prefix["second"]
+      core.set %parts["second"] = %second
+      %millisecond = core.get %prefix["millisecond"]
+      core.set %parts["millisecond"] = %millisecond
+      %bad_hour = core.call intrinsic.gt(%hour, 23)
+      %bad_minute = core.call intrinsic.gt(%minute, 59)
+      %bad_second = core.call intrinsic.gt(%second, 59)
+      %bad_clock = core.call intrinsic.or(%bad_hour, %bad_minute)
+      %bad_clock = core.call intrinsic.or(%bad_clock, %bad_second)
+      core.if %bad_clock {
+        %clock_error = core.call @date_values_error_impl()
+        core.raise %clock_error
+      }
+      %millis = core.call @date_utc_ms_impl(%parts)
+      %round = core.call @date_parts_of_ms_impl(%millis)
+      %same = core.call @date_same_parts_impl(%round, %parts)
+      %different = core.call intrinsic.not(%same)
+      core.if %different {
+        %calendar_error = core.call @date_values_error_impl()
+        core.raise %calendar_error
+      }
+      core.return %parts
+    }
+  }
+
+  // ----- time zones -----
+
+  op ax.gen.semantic @date_abbreviation_offset_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json, json) -> json throws"
+    body @entry(%units: json, %start: json, %end: json, %zone: json) {
+      // parseTimeZoneAbbreviation: for a zone of ASCII letters only, TS's
+      // literal offset in minutes, a correction for a rejected
+      // abbreviation, else none.
+      %none = core.call intrinsic.none()
+      %cursor = core.let %start
+      core.loop {
+        %done = core.call intrinsic.gte(%cursor, %end)
+        core.if %done {
+          core.break
+        }
+        %unit = core.get %units[%cursor] default 0
+        %letter = core.call @date_ascii_letter_impl(%unit)
+        %not_letter = core.call intrinsic.not(%letter)
+        core.if %not_letter {
+          core.return %none
+        }
+        %cursor = core.call intrinsic.add(%cursor, 1)
+      }
+      %key = core.call intrinsic.string.lower(%zone)
+      %tables = core.call intrinsic.json.parse(file "data/date-zone-abbreviations.json")
+      %empty_offsets = core.map
+      %offsets = core.get %tables["offsets_minutes"] default %empty_offsets
+      %abbreviations = core.call intrinsic.map.keys(%offsets)
+      core.for %abbreviation in %abbreviations {
+        %lowered = core.call intrinsic.string.lower(%abbreviation)
+        %same = core.call intrinsic.eq(%lowered, %key)
+        core.if %same {
+          %minutes = core.get %offsets[%abbreviation]
+          core.return %minutes
+        }
+      }
+      %empty_rejected = core.list
+      %rejected = core.get %tables["rejected"] default %empty_rejected
+      core.for %rejected_abbreviation in %rejected {
+        %rejected_lowered = core.call intrinsic.string.lower(%rejected_abbreviation)
+        %is_rejected = core.call intrinsic.eq(%rejected_lowered, %key)
+        core.if %is_rejected {
+          %message_pieces = core.list
+          core.append %message_pieces, "Ambiguous or unsupported time zone abbreviation \""
+          core.append %message_pieces, %zone
+          core.append %message_pieces, "\". Please provide an IANA time zone name or a UTC offset. For example, \"Europe/London\" or \"+01:00\"."
+          %message = core.string_join %message_pieces sep ""
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
+        }
+      }
+      core.return %none
+    }
+  }
+
+  op ax.gen.semantic @date_zone_resolve_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json, json, json) -> json throws"
+    body @entry(%units: json, %start: json, %end: json, %zone: json, %probe: json) {
+      // The zone Intl.DateTimeFormat would use: an offset time zone
+      // (+hh, +hhmm, +hh:mm, with an ASCII or U+2212 sign), or a name V8
+      // accepts (case-insensitive, from data/date-time-zones.json) that the
+      // platform tz database resolves: ICU's canonical name first, then the
+      // other names of its group. Anything else is TS's RangeError path.
+      %resolved = core.map
+      %fixed = core.call @date_offset_zone_minutes_impl(%units, %start, %end)
+      %is_fixed = core.call intrinsic.is_not_none(%fixed)
+      core.if %is_fixed {
+        core.set %resolved["kind"] = "fixed"
+        %fixed_seconds = core.call intrinsic.mul(%fixed, 60)
+        core.set %resolved["offset_seconds"] = %fixed_seconds
+        core.return %resolved
+      }
+      %unrecognized_pieces = core.list
+      core.append %unrecognized_pieces, "Unrecognized time zone "
+      core.append %unrecognized_pieces, %zone
+      core.append %unrecognized_pieces, ". Please provide a valid time zone name, abbreviation, or offset. For example, \"America/New_York\", \"EST\", or \"+05:30\"."
+      %unrecognized = core.string_join %unrecognized_pieces sep ""
+      // V8 matches names case-insensitively over ASCII only.
+      %cursor = core.let %start
+      core.loop {
+        %done = core.call intrinsic.gte(%cursor, %end)
+        core.if %done {
+          core.break
+        }
+        %unit = core.get %units[%cursor] default 0
+        %non_ascii = core.call intrinsic.gt(%unit, 127)
+        core.if %non_ascii {
+          %non_ascii_error = core.call intrinsic.error.runtime(%unrecognized)
+          core.raise %non_ascii_error
+        }
+        %cursor = core.call intrinsic.add(%cursor, 1)
+      }
+      %key = core.call intrinsic.string.lower(%zone)
+      %table = core.call intrinsic.json.parse(file "data/date-time-zones.json")
+      %empty_keys = core.map
+      %keys = core.get %table["keys"] default %empty_keys
+      %group_index = core.get %keys[%key]
+      %unknown = core.call intrinsic.is_none(%group_index)
+      core.if %unknown {
+        %unknown_error = core.call intrinsic.error.runtime(%unrecognized)
+        core.raise %unknown_error
+      }
+      %empty_zones = core.list
+      %zones = core.get %table["zones"] default %empty_zones
+      %empty_group = core.list
+      %group = core.get %zones[%group_index] default %empty_group
+      core.for %candidate in %group {
+        %works = core.let true
+        core.try {
+          core.call intrinsic.date.zone_offset(%candidate, %probe)
+        } catch %zone_error {
+          %works = core.let false
+        }
+        core.if %works {
+          core.set %resolved["kind"] = "named"
+          core.set %resolved["name"] = %candidate
+          core.return %resolved
+        }
+      }
+      %missing_error = core.call intrinsic.error.runtime(%unrecognized)
+      core.raise %missing_error
+    }
+  }
+
+  op ax.gen.semantic @date_offset_zone_minutes_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%units: json, %start: json, %end: json) {
+      // An Intl offset time zone: [+-U+2212]hh[[:]mm], hh <= 23, mm <= 59.
+      // Minutes, else none.
+      %none = core.call intrinsic.none()
+      %length = core.call intrinsic.mul(%start, -1)
+      %length = core.call intrinsic.add(%length, %end)
+      %sign_unit = core.get %units[%start] default 0
+      %sign = core.let 0
+      %plus = core.call intrinsic.eq(%sign_unit, 43)
+      core.if %plus {
+        %sign = core.let 1
+      }
+      %minus = core.call intrinsic.eq(%sign_unit, 45)
+      %math_minus = core.call intrinsic.eq(%sign_unit, 8722)
+      %negative = core.call intrinsic.or(%minus, %math_minus)
+      core.if %negative {
+        %sign = core.let -1
+      }
+      %no_sign = core.call intrinsic.eq(%sign, 0)
+      core.if %no_sign {
+        core.return %none
+      }
+      %hour_at = core.call intrinsic.add(%start, 1)
+      %hours = core.call @date_digits_impl(%units, %hour_at, 2, %end)
+      %bad_hours = core.call intrinsic.lt(%hours, 0)
+      core.if %bad_hours {
+        core.return %none
+      }
+      %minutes = core.let 0
+      %short_form = core.call intrinsic.eq(%length, 3)
+      %compact = core.call intrinsic.eq(%length, 5)
+      %colon = core.call intrinsic.eq(%length, 6)
+      core.if %compact {
+        %compact_at = core.call intrinsic.add(%start, 3)
+        %minutes = core.call @date_digits_impl(%units, %compact_at, 2, %end)
+      }
+      core.if %colon {
+        %colon_at = core.call intrinsic.add(%start, 3)
+        %colon_unit = core.get %units[%colon_at] default 0
+        %is_colon = core.call intrinsic.eq(%colon_unit, 58)
+        core.if %is_colon {
+          %colon_minutes_at = core.call intrinsic.add(%start, 4)
+          %minutes = core.call @date_digits_impl(%units, %colon_minutes_at, 2, %end)
+        } else {
+          %minutes = core.let -1
+        }
+      }
+      %known_length = core.call intrinsic.or(%short_form, %compact)
+      %known_length = core.call intrinsic.or(%known_length, %colon)
+      %unknown_length = core.call intrinsic.not(%known_length)
+      core.if %unknown_length {
+        core.return %none
+      }
+      %bad_minutes = core.call intrinsic.lt(%minutes, 0)
+      %hours_range = core.call intrinsic.gt(%hours, 23)
+      %minutes_range = core.call intrinsic.gt(%minutes, 59)
+      %invalid = core.call intrinsic.or(%bad_minutes, %hours_range)
+      %invalid = core.call intrinsic.or(%invalid, %minutes_range)
+      core.if %invalid {
+        core.return %none
+      }
+      %total = core.call intrinsic.mul(%hours, 60)
+      %total = core.call intrinsic.add(%total, %minutes)
+      %has_sign = core.call intrinsic.mul(%total, %sign)
+      core.return %has_sign
+    }
+  }
+
+  op ax.gen.semantic @date_zone_offset_seconds_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%zone: json, %millis: json) {
+      %kind = core.get %zone["kind"]
+      %fixed = core.call intrinsic.eq(%kind, "fixed")
+      core.if %fixed {
+        %fixed_seconds = core.get %zone["offset_seconds"]
+        core.return %fixed_seconds
+      }
+      %name = core.get %zone["name"]
+      %seconds = core.call intrinsic.date.zone_offset(%name, %millis)
+      core.return %seconds
+    }
+  }
+
+  op ax.gen.semantic @date_parts_in_zone_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%zone: json, %millis: json) {
+      // getPartsInTimeZone: the wall time Intl.DateTimeFormat formats for the
+      // instant. Its numeric year is the era year, so years before 1 read as
+      // 1 - year (year 0 is 1 BC and formats as 1).
+      %seconds = core.call @date_zone_offset_seconds_impl(%zone, %millis)
+      %shift = core.call intrinsic.mul(%seconds, 1000)
+      %local = core.call intrinsic.add(%millis, %shift)
+      %parts = core.call @date_parts_of_ms_impl(%local)
+      %year = core.get %parts["year"]
+      %before_era = core.call intrinsic.lte(%year, 0)
+      core.if %before_era {
+        %negated = core.call intrinsic.mul(%year, -1)
+        %era_year = core.call intrinsic.add(%negated, 1)
+        core.set %parts["year"] = %era_year
+      }
+      core.return %parts
+    }
+  }
+
+  op ax.gen.semantic @date_zone_offset_millis_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%zone: json, %millis: json) {
+      // getNamedTimeZoneOffsetMs
+      %parts = core.call @date_parts_in_zone_impl(%zone, %millis)
+      %local = core.call @date_utc_ms_impl(%parts)
+      %negated = core.call intrinsic.mul(%millis, -1)
+      %offset = core.call intrinsic.add(%local, %negated)
+      core.return %offset
+    }
+  }
+
+  op ax.gen.semantic @date_named_timestamp_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%parts: json, %zone: json) {
+      // getTimestampForNamedTimeZone: a wall time in a DST gap does not
+      // survive the round trip and is an error; in an overlap the first
+      // guess keeps the earlier offset, so the earlier instant wins.
+      %utc = core.call @date_utc_ms_impl(%parts)
+      %offset = core.call @date_zone_offset_millis_impl(%zone, %utc)
+      %negated = core.call intrinsic.mul(%offset, -1)
+      %timestamp = core.call intrinsic.add(%utc, %negated)
+      %adjusted = core.call @date_zone_offset_millis_impl(%zone, %timestamp)
+      %moved = core.call intrinsic.ne(%adjusted, %offset)
+      core.if %moved {
+        %adjusted_negated = core.call intrinsic.mul(%adjusted, -1)
+        %timestamp = core.call intrinsic.add(%utc, %adjusted_negated)
+      }
+      %actual = core.call @date_parts_in_zone_impl(%zone, %timestamp)
+      %same = core.call @date_same_parts_impl(%actual, %parts)
+      %different = core.call intrinsic.not(%same)
+      core.if %different {
+        %error = core.call @date_values_error_impl()
+        core.raise %error
+      }
+      core.return %timestamp
+    }
+  }
+
+  // ----- ranges -----
+
+  op ax.gen.semantic @date_parse_range_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%value: json, %kind: json) {
+      // parseRangeValue: {start, end} in epoch milliseconds.
+      %endpoints = core.call @date_range_endpoints_impl(%value)
+      %range_millis = core.map
+      %names = core.list
+      core.append %names, "start"
+      core.append %names, "end"
+      core.for %key in %names {
+        %endpoint = core.get %endpoints[%key]
+        %is_text = core.type_is %endpoint type "string"
+        %not_text = core.call intrinsic.not(%is_text)
+        core.if %not_text {
+          %shape_error = core.call @date_range_format_error_impl()
+          core.raise %shape_error
+        }
+        %is_date = core.call intrinsic.eq(%kind, "date")
+        core.if %is_date {
+          %date_millis = core.call @date_parse_date_impl(%endpoint)
+          core.set %range_millis[%key] = %date_millis
+        } else {
+          %datetime_millis = core.call @date_parse_datetime_impl(%endpoint)
+          core.set %range_millis[%key] = %datetime_millis
+        }
+      }
+      %start = core.get %range_millis["start"]
+      %end = core.get %range_millis["end"]
+      %reversed = core.call intrinsic.lt(%end, %start)
+      core.if %reversed {
+        %order_error = core.call intrinsic.error.runtime("Invalid range. End must be greater than or equal to start.")
+        core.raise %order_error
+      }
+      core.return %range_millis
+    }
+  }
+
+  op ax.gen.semantic @date_range_format_error_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "() -> json"
+    body @entry {
+      %error = core.call intrinsic.error.runtime("Invalid range format. Provide a JSON object with \"start\" and \"end\", a two-item array, or an interval using start/end.")
+      core.return %error
+    }
+  }
+
+  op ax.gen.semantic @date_range_endpoints_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json throws"
+    body @entry(%value: json) {
+      // getRangeEndpoints: a string, a two-item array, or an object with
+      // start ?? from and end ?? to.
+      %is_text = core.type_is %value type "string"
+      core.if %is_text {
+        %from_text = core.call @date_range_string_impl(%value)
+        core.return %from_text
+      }
+      %endpoints = core.map
+      %is_list = core.type_is %value type "list"
+      core.if %is_list {
+        %count = core.call intrinsic.len(%value)
+        %pair = core.call intrinsic.eq(%count, 2)
+        core.if %pair {
+          %first = core.call intrinsic.list.get(%value, 0)
+          core.set %endpoints["start"] = %first
+          %second = core.call intrinsic.list.get(%value, 1)
+          core.set %endpoints["end"] = %second
+          core.return %endpoints
+        }
+        %list_error = core.call @date_range_format_error_impl()
+        core.raise %list_error
+      }
+      %is_object = core.type_is %value type "object"
+      core.if %is_object {
+        %start = core.get %value["start"]
+        %no_start = core.call intrinsic.is_none(%start)
+        core.if %no_start {
+          %start = core.get %value["from"]
+        }
+        %end = core.get %value["end"]
+        %no_end = core.call intrinsic.is_none(%end)
+        core.if %no_end {
+          %end = core.get %value["to"]
+        }
+        %has_start = core.call intrinsic.is_not_none(%start)
+        %has_end = core.call intrinsic.is_not_none(%end)
+        %complete = core.call intrinsic.and(%has_start, %has_end)
+        core.if %complete {
+          core.set %endpoints["start"] = %start
+          core.set %endpoints["end"] = %end
+          core.return %endpoints
+        }
+      }
+      %error = core.call @date_range_format_error_impl()
+      core.raise %error
+    }
+  }
+
+  op ax.gen.semantic @date_range_string_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json throws"
+    body @entry(%value: json) {
+      // parseRangeString: JSON in an optional code fence, start/end, or
+      // /^(.+?)\s+(?:to|through|until|-|U+2013|U+2014)\s+(.+)$/i.
+      %text = core.call @date_strip_code_fence_impl(%value)
+      %opens_object = core.call intrinsic.string.starts_with(%text, "{")
+      %opens_list = core.call intrinsic.string.starts_with(%text, "[")
+      %is_json = core.call intrinsic.or(%opens_object, %opens_list)
+      core.if %is_json {
+        %from_json = core.map
+        core.try {
+          %parsed = core.call intrinsic.json.parse_strict(%text)
+          %from_json = core.call @date_range_endpoints_impl(%parsed)
+        } catch %json_error {
+          %json_format_error = core.call @date_range_format_error_impl()
+          core.raise %json_format_error
+        }
+        core.return %from_json
+      }
+      %endpoints = core.map
+      %slash_parts = core.call intrinsic.string.split(%text, "/")
+      %slash_count = core.call intrinsic.len(%slash_parts)
+      %one_slash = core.call intrinsic.eq(%slash_count, 2)
+      core.if %one_slash {
+        %slash_start = core.call intrinsic.list.get(%slash_parts, 0)
+        %slash_start_trimmed = core.call @date_js_trim_impl(%slash_start)
+        core.set %endpoints["start"] = %slash_start_trimmed
+        %slash_end = core.call intrinsic.list.get(%slash_parts, 1)
+        %slash_end_trimmed = core.call @date_js_trim_impl(%slash_end)
+        core.set %endpoints["end"] = %slash_end_trimmed
+        core.return %endpoints
+      }
+      %split = core.call @date_delimiter_split_impl(%text)
+      %no_split = core.call intrinsic.is_none(%split)
+      core.if %no_split {
+        %error = core.call @date_range_format_error_impl()
+        core.raise %error
+      }
+      core.return %split
+    }
+  }
+
+  op ax.gen.semantic @date_delimiter_split_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json"
+    body @entry(%text: json) {
+      // The first match of /^(.+?)\s+(?:to|through|until|-|U+2013|U+2014)\s+(.+)$/i
+      // on trimmed text, scanned once. The lazy group can only end where a
+      // whitespace run starts, and each run and the keyword after it are
+      // tried once. Neither group may hold a line terminator. None when
+      // nothing matches.
+      %none = core.call intrinsic.none()
+      %units = core.call intrinsic.string.utf16_units(%text)
+      %count = core.call intrinsic.len(%units)
+      %first_terminator = core.let %count
+      %last_terminator = core.let -1
+      %index = core.let 0
+      core.loop {
+        %scanned = core.call intrinsic.gte(%index, %count)
+        core.if %scanned {
+          core.break
+        }
+        %unit = core.get %units[%index] default 0
+        %terminator = core.call @date_is_line_terminator_impl(%unit)
+        core.if %terminator {
+          %last_terminator = core.let %index
+          %before = core.call intrinsic.lt(%index, %first_terminator)
+          core.if %before {
+            %first_terminator = core.let %index
+          }
+        }
+        %index = core.call intrinsic.add(%index, 1)
+      }
+      %cursor = core.let 1
+      core.loop {
+        %finished = core.call intrinsic.gte(%cursor, %count)
+        core.if %finished {
+          core.break
+        }
+        // (.+?) must not hold a line terminator.
+        %past_terminator = core.call intrinsic.gt(%cursor, %first_terminator)
+        core.if %past_terminator {
+          core.break
+        }
+        %unit = core.get %units[%cursor] default 0
+        %space = core.call @date_space_impl(%unit)
+        %not_space = core.call intrinsic.not(%space)
+        core.if %not_space {
+          %cursor = core.call intrinsic.add(%cursor, 1)
+          core.continue
+        }
+        %run_start = core.let %cursor
+        %keyword_at = core.call @date_skip_space_impl(%units, %cursor, %count)
+        %keyword_length = core.call @date_range_keyword_impl(%units, %keyword_at, %count)
+        %cursor = core.let %keyword_at
+        %no_keyword = core.call intrinsic.eq(%keyword_length, 0)
+        core.if %no_keyword {
+          core.continue
+        }
+        %after_keyword = core.call intrinsic.add(%keyword_at, %keyword_length)
+        %rest_at = core.call @date_skip_space_impl(%units, %after_keyword, %count)
+        %no_gap = core.call intrinsic.eq(%rest_at, %after_keyword)
+        core.if %no_gap {
+          core.continue
+        }
+        %rest_empty = core.call intrinsic.gte(%rest_at, %count)
+        %rest_terminator = core.call intrinsic.gte(%last_terminator, %rest_at)
+        %rest_bad = core.call intrinsic.or(%rest_empty, %rest_terminator)
+        core.if %rest_bad {
+          core.continue
+        }
+        %mode = core.call @date_string_mode_impl()
+        %start_to = core.call @date_native_offset_impl(%units, %run_start, %mode)
+        %rest_from = core.call @date_native_offset_impl(%units, %rest_at, %mode)
+        %start_text = core.call intrinsic.string.slice(%text, 0, %start_to)
+        %rest_text = core.call intrinsic.string.slice(%text, %rest_from)
+        %split = core.map
+        %start_trimmed = core.call @date_js_trim_impl(%start_text)
+        core.set %split["start"] = %start_trimmed
+        %rest_trimmed = core.call @date_js_trim_impl(%rest_text)
+        core.set %split["end"] = %rest_trimmed
+        core.return %split
+      }
+      core.return %none
+    }
+  }
+
+  op ax.gen.semantic @date_range_keyword_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%units: json, %at: json, %end: json) {
+      // The length of to, through or until (ASCII, any case), -, U+2013 or
+      // U+2014 at the position, when whitespace follows it; else 0.
+      %unit = core.get %units[%at] default 0
+      %hyphen = core.call intrinsic.eq(%unit, 45)
+      %en_dash = core.call intrinsic.eq(%unit, 8211)
+      %em_dash = core.call intrinsic.eq(%unit, 8212)
+      %is_dash = core.call intrinsic.or(%hyphen, %en_dash)
+      %is_dash = core.call intrinsic.or(%is_dash, %em_dash)
+      %dash_inside = core.call intrinsic.lt(%at, %end)
+      %is_dash = core.call intrinsic.and(%is_dash, %dash_inside)
+      core.if %is_dash {
+        %after_dash = core.call intrinsic.add(%at, 1)
+        %dash_space = core.let false
+        %dash_followed = core.call intrinsic.lt(%after_dash, %end)
+        core.if %dash_followed {
+          %dash_next = core.get %units[%after_dash] default 0
+          %dash_space = core.call @date_space_impl(%dash_next)
+        }
+        core.if %dash_space {
+          core.return 1
+        }
+        core.return 0
+      }
+      %letters = core.list
+      core.append %letters, "to"
+      core.append %letters, "through"
+      core.append %letters, "until"
+      core.for %word in %letters {
+        %word_units = core.call intrinsic.string.utf16_units(%word)
+        %length = core.call intrinsic.len(%word_units)
+        %matched = core.call @date_ascii_matches_impl(%units, %at, %end, %word_units)
+        core.if %matched {
+          %after_word = core.call intrinsic.add(%at, %length)
+          %word_inside = core.call intrinsic.lt(%after_word, %end)
+          core.if %word_inside {
+            %word_next = core.get %units[%after_word] default 0
+            %word_space = core.call @date_space_impl(%word_next)
+            core.if %word_space {
+              core.return %length
+            }
+          }
+        }
+      }
+      core.return 0
+    }
+  }
+
+  op ax.gen.semantic @date_strip_code_fence_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json"
+    body @entry(%value: json) {
+      // stripCodeFence: /^```(?:json)?\s*([\s\S]*?)\s*```$/i on the trimmed
+      // text. The closing fence is the last three characters, so the group
+      // is what lies between the fences, after an optional json tag,
+      // trimmed.
+      %text = core.call @date_js_trim_impl(%value)
+      %units = core.call intrinsic.string.utf16_units(%text)
+      %count = core.call intrinsic.len(%units)
+      %too_short = core.call intrinsic.lt(%count, 6)
+      core.if %too_short {
+        core.return %text
+      }
+      %opens = core.call intrinsic.string.starts_with(%text, "```")
+      %closes = core.call intrinsic.string.ends_with(%text, "```")
+      %fenced = core.call intrinsic.and(%opens, %closes)
+      %not_fenced = core.call intrinsic.not(%fenced)
+      core.if %not_fenced {
+        core.return %text
+      }
+      %inner_start = core.let 3
+      %inner_end = core.call intrinsic.add(%count, -3)
+      %json_units = core.call intrinsic.string.utf16_units("json")
+      %tagged = core.call @date_ascii_matches_impl(%units, 3, %inner_end, %json_units)
+      core.if %tagged {
+        %inner_start = core.let 7
+      }
+      %mode = core.call @date_string_mode_impl()
+      %slice_from = core.call @date_native_offset_impl(%units, %inner_start, %mode)
+      %slice_to = core.call @date_native_offset_impl(%units, %inner_end, %mode)
+      %inner = core.call intrinsic.string.slice(%text, %slice_from, %slice_to)
+      %stripped = core.call @date_js_trim_impl(%inner)
+      core.return %stripped
+    }
+  }
+
+  // ----- text scanning -----
+
+  op ax.gen.semantic @date_string_mode_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "() -> json"
+    body @entry {
+      // How the port counts string offsets: "utf8" bytes, "utf16" code units,
+      // or "codepoint" code points.
+      %accented = core.call intrinsic.len("é")
+      %wide = core.call intrinsic.gt(%accented, 1)
+      core.if %wide {
+        core.return "utf8"
+      }
+      %astral = core.call intrinsic.len("😀")
+      %pair = core.call intrinsic.gt(%astral, 1)
+      core.if %pair {
+        core.return "utf16"
+      }
+      core.return "codepoint"
+    }
+  }
+
+  op ax.gen.semantic @date_native_offset_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%units: json, %index: json, %mode: json) {
+      // The port's string offset of UTF-16 index %index, for
+      // intrinsic.string.slice.
+      %utf16 = core.call intrinsic.eq(%mode, "utf16")
+      core.if %utf16 {
+        core.return %index
+      }
+      %utf8 = core.call intrinsic.eq(%mode, "utf8")
+      %offset = core.let 0
+      %cursor = core.let 0
+      core.loop {
+        %done = core.call intrinsic.gte(%cursor, %index)
+        core.if %done {
+          core.break
+        }
+        %unit = core.get %units[%cursor] default 0
+        %width = core.let 1
+        %high = core.call intrinsic.gte(%unit, 55296)
+        %high_end = core.call intrinsic.lte(%unit, 56319)
+        %is_high = core.call intrinsic.and(%high, %high_end)
+        %next_at = core.call intrinsic.add(%cursor, 1)
+        %following = core.get %units[%next_at] default 0
+        %low = core.call intrinsic.gte(%following, 56320)
+        %low_end = core.call intrinsic.lte(%following, 57343)
+        %is_low = core.call intrinsic.and(%low, %low_end)
+        %is_pair = core.call intrinsic.and(%is_high, %is_low)
+        %step = core.let 1
+        core.if %is_pair {
+          %step = core.let 2
+          core.if %utf8 {
+            %width = core.let 4
+          }
+        } else {
+          core.if %utf8 {
+            %two = core.call intrinsic.gte(%unit, 128)
+            core.if %two {
+              %width = core.let 2
+            }
+            %three = core.call intrinsic.gte(%unit, 2048)
+            core.if %three {
+              %width = core.let 3
+            }
+          }
+        }
+        %offset = core.call intrinsic.add(%offset, %width)
+        %cursor = core.call intrinsic.add(%cursor, %step)
+      }
+      core.return %offset
+    }
+  }
+
+  op ax.gen.semantic @date_js_trim_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json"
+    body @entry(%text: json) {
+      // String.prototype.trim: JavaScript's WhiteSpace and LineTerminator.
+      %units = core.call intrinsic.string.utf16_units(%text)
+      %count = core.call intrinsic.len(%units)
+      %bounds = core.call @date_trim_bounds_impl(%units, 0, %count)
+      %start = core.get %bounds["start"]
+      %end = core.get %bounds["end"]
+      %mode = core.call @date_string_mode_impl()
+      %slice_from = core.call @date_native_offset_impl(%units, %start, %mode)
+      %slice_to = core.call @date_native_offset_impl(%units, %end, %mode)
+      %trimmed = core.call intrinsic.string.slice(%text, %slice_from, %slice_to)
+      core.return %trimmed
+    }
+  }
+
+  op ax.gen.semantic @date_trim_bounds_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%units: json, %start: json, %end: json) {
+      %first = core.call @date_skip_space_impl(%units, %start, %end)
+      %last = core.let %end
+      core.loop {
+        %empty = core.call intrinsic.lte(%last, %first)
+        core.if %empty {
+          core.break
+        }
+        %before = core.call intrinsic.add(%last, -1)
+        %unit = core.get %units[%before] default 0
+        %space = core.call @date_space_impl(%unit)
+        %kept = core.call intrinsic.not(%space)
+        core.if %kept {
+          core.break
+        }
+        %last = core.let %before
+      }
+      %bounds = core.map
+      core.set %bounds["start"] = %first
+      core.set %bounds["end"] = %last
+      core.return %bounds
+    }
+  }
+
+  op ax.gen.semantic @date_skip_space_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%units: json, %start: json, %end: json) {
+      // The index after the JavaScript \s run at %start.
+      %cursor = core.let %start
+      core.loop {
+        %done = core.call intrinsic.gte(%cursor, %end)
+        core.if %done {
+          core.break
+        }
+        %unit = core.get %units[%cursor] default 0
+        %space = core.call @date_space_impl(%unit)
+        %not_space = core.call intrinsic.not(%space)
+        core.if %not_space {
+          core.break
+        }
+        %cursor = core.call intrinsic.add(%cursor, 1)
+      }
+      core.return %cursor
+    }
+  }
+
+  op ax.gen.semantic @date_space_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> bool"
+    body @entry(%unit: json) {
+      // JavaScript \s, which is also what String.prototype.trim removes:
+      // WhiteSpace and LineTerminator code units.
+      %tab_low = core.call intrinsic.gte(%unit, 9)
+      %tab_high = core.call intrinsic.lte(%unit, 13)
+      %control = core.call intrinsic.and(%tab_low, %tab_high)
+      core.if %control {
+        core.return true
+      }
+      %space = core.call intrinsic.eq(%unit, 32)
+      %no_break = core.call intrinsic.eq(%unit, 160)
+      %ogham = core.call intrinsic.eq(%unit, 5760)
+      %en_low = core.call intrinsic.gte(%unit, 8192)
+      %en_high = core.call intrinsic.lte(%unit, 8202)
+      %typographic = core.call intrinsic.and(%en_low, %en_high)
+      %line_separator = core.call intrinsic.eq(%unit, 8232)
+      %paragraph_separator = core.call intrinsic.eq(%unit, 8233)
+      %narrow = core.call intrinsic.eq(%unit, 8239)
+      %math_space = core.call intrinsic.eq(%unit, 8287)
+      %ideographic = core.call intrinsic.eq(%unit, 12288)
+      %byte_order = core.call intrinsic.eq(%unit, 65279)
+      %blank = core.call intrinsic.or(%space, %no_break)
+      %blank = core.call intrinsic.or(%blank, %ogham)
+      %blank = core.call intrinsic.or(%blank, %typographic)
+      %blank = core.call intrinsic.or(%blank, %line_separator)
+      %blank = core.call intrinsic.or(%blank, %paragraph_separator)
+      %blank = core.call intrinsic.or(%blank, %narrow)
+      %blank = core.call intrinsic.or(%blank, %math_space)
+      %blank = core.call intrinsic.or(%blank, %ideographic)
+      %blank = core.call intrinsic.or(%blank, %byte_order)
+      core.return %blank
+    }
+  }
+
+  op ax.gen.semantic @date_is_line_terminator_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> bool"
+    body @entry(%unit: json) {
+      %line_feed = core.call intrinsic.eq(%unit, 10)
+      %carriage_return = core.call intrinsic.eq(%unit, 13)
+      %line_separator = core.call intrinsic.eq(%unit, 8232)
+      %paragraph_separator = core.call intrinsic.eq(%unit, 8233)
+      %terminator = core.call intrinsic.or(%line_feed, %carriage_return)
+      %terminator = core.call intrinsic.or(%terminator, %line_separator)
+      %terminator = core.call intrinsic.or(%terminator, %paragraph_separator)
+      core.return %terminator
+    }
+  }
+
+  op ax.gen.semantic @date_ascii_letter_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> bool"
+    body @entry(%unit: json) {
+      %upper_low = core.call intrinsic.gte(%unit, 65)
+      %upper_high = core.call intrinsic.lte(%unit, 90)
+      %upper = core.call intrinsic.and(%upper_low, %upper_high)
+      %lower_low = core.call intrinsic.gte(%unit, 97)
+      %lower_high = core.call intrinsic.lte(%unit, 122)
+      %lower = core.call intrinsic.and(%lower_low, %lower_high)
+      %letter = core.call intrinsic.or(%upper, %lower)
+      core.return %letter
+    }
+  }
+
+  op ax.gen.semantic @date_ascii_matches_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json, json) -> bool"
+    body @entry(%units: json, %at: json, %end: json, %word: json) {
+      // Whether lowercase ASCII %word is at %at, ignoring ASCII case, as a
+      // non-unicode /i regex compares ASCII letters.
+      %length = core.call intrinsic.len(%word)
+      %last = core.call intrinsic.add(%at, %length)
+      %past = core.call intrinsic.gt(%last, %end)
+      core.if %past {
+        core.return false
+      }
+      %index = core.let 0
+      core.loop {
+        %done = core.call intrinsic.gte(%index, %length)
+        core.if %done {
+          core.break
+        }
+        %position = core.call intrinsic.add(%at, %index)
+        %unit = core.get %units[%position] default 0
+        %upper_low = core.call intrinsic.gte(%unit, 65)
+        %upper_high = core.call intrinsic.lte(%unit, 90)
+        %upper = core.call intrinsic.and(%upper_low, %upper_high)
+        core.if %upper {
+          %unit = core.call intrinsic.add(%unit, 32)
+        }
+        %expected = core.get %word[%index] default 0
+        %same = core.call intrinsic.eq(%unit, %expected)
+        %different = core.call intrinsic.not(%same)
+        core.if %different {
+          core.return false
+        }
+        %index = core.call intrinsic.add(%index, 1)
+      }
+      core.return true
+    }
+  }
+
+  op ax.gen.semantic @date_digits_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json, json) -> json"
+    body @entry(%units: json, %at: json, %count: json, %end: json) {
+      // The value of %count ASCII digits at %at before %end, else -1.
+      %last = core.call intrinsic.add(%at, %count)
+      %past = core.call intrinsic.gt(%last, %end)
+      core.if %past {
+        core.return -1
+      }
+      %value = core.let 0
+      %index = core.let %at
+      core.loop {
+        %done = core.call intrinsic.gte(%index, %last)
+        core.if %done {
+          core.break
+        }
+        %unit = core.get %units[%index] default 0
+        %low = core.call intrinsic.gte(%unit, 48)
+        %high = core.call intrinsic.lte(%unit, 57)
+        %digit = core.call intrinsic.and(%low, %high)
+        %not_digit = core.call intrinsic.not(%digit)
+        core.if %not_digit {
+          core.return -1
+        }
+        %scaled = core.call intrinsic.mul(%value, 10)
+        %digit_value = core.call intrinsic.add(%unit, -48)
+        %value = core.call intrinsic.add(%scaled, %digit_value)
+        %index = core.call intrinsic.add(%index, 1)
+      }
+      core.return %value
+    }
+  }
+
+  op ax.gen.semantic @date_expect_unit_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json, json) -> bool"
+    body @entry(%units: json, %at: json, %end: json, %expected: json) {
+      %inside = core.call intrinsic.lt(%at, %end)
+      core.if %inside {
+        %unit = core.get %units[%at] default 0
+        %same = core.call intrinsic.eq(%unit, %expected)
+        core.return %same
+      }
+      core.return false
+    }
+  }
+
+  op ax.gen.semantic @date_scan_date_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json) -> json"
+    body @entry(%units: json, %at: json) {
+      // \d{4}-\d{2}-\d{2} at %at: {year, month, day}, else none.
+      %none = core.call intrinsic.none()
+      %limit = core.call intrinsic.add(%at, 10)
+      %year = core.call @date_digits_impl(%units, %at, 4, %limit)
+      %dash_at = core.call intrinsic.add(%at, 4)
+      %dash = core.call @date_expect_unit_impl(%units, %dash_at, %limit, 45)
+      %month_at = core.call intrinsic.add(%at, 5)
+      %month = core.call @date_digits_impl(%units, %month_at, 2, %limit)
+      %second_dash_at = core.call intrinsic.add(%at, 7)
+      %second_dash = core.call @date_expect_unit_impl(%units, %second_dash_at, %limit, 45)
+      %day_at = core.call intrinsic.add(%at, 8)
+      %day = core.call @date_digits_impl(%units, %day_at, 2, %limit)
+      %ok = core.call intrinsic.and(%dash, %second_dash)
+      %year_ok = core.call intrinsic.gte(%year, 0)
+      %month_ok = core.call intrinsic.gte(%month, 0)
+      %day_ok = core.call intrinsic.gte(%day, 0)
+      %ok = core.call intrinsic.and(%ok, %year_ok)
+      %ok = core.call intrinsic.and(%ok, %month_ok)
+      %ok = core.call intrinsic.and(%ok, %day_ok)
+      %bad = core.call intrinsic.not(%ok)
+      core.if %bad {
+        core.return %none
+      }
+      %parts = core.map
+      core.set %parts["year"] = %year
+      core.set %parts["month"] = %month
+      core.set %parts["day"] = %day
+      core.return %parts
+    }
+  }
+
+  op ax.gen.semantic @date_scan_datetime_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%units: json, %start: json, %end: json) {
+      // \d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(?::\d{2})?(?:\.\d{1,9})? at
+      // %start, taking the optional parts whenever they match (skipping them
+      // never lets the rest of TS's patterns match): the parts, the
+      // milliseconds of the fraction (its first three digits, zero-padded),
+      // and "end", the index after the match. None when it does not match.
+      %none = core.call intrinsic.none()
+      %date_end = core.call intrinsic.add(%start, 10)
+      %too_short = core.call intrinsic.gt(%date_end, %end)
+      core.if %too_short {
+        core.return %none
+      }
+      %parts = core.call @date_scan_date_impl(%units, %start)
+      %no_date = core.call intrinsic.is_none(%parts)
+      core.if %no_date {
+        core.return %none
+      }
+      %separator = core.get %units[%date_end] default 0
+      %upper_t = core.call intrinsic.eq(%separator, 84)
+      %lower_t = core.call intrinsic.eq(%separator, 116)
+      %space = core.call intrinsic.eq(%separator, 32)
+      %separated = core.call intrinsic.or(%upper_t, %lower_t)
+      %separated = core.call intrinsic.or(%separated, %space)
+      %inside = core.call intrinsic.lt(%date_end, %end)
+      %separated = core.call intrinsic.and(%separated, %inside)
+      %not_separated = core.call intrinsic.not(%separated)
+      core.if %not_separated {
+        core.return %none
+      }
+      %hour_at = core.call intrinsic.add(%start, 11)
+      %hour = core.call @date_digits_impl(%units, %hour_at, 2, %end)
+      %colon_at = core.call intrinsic.add(%start, 13)
+      %colon = core.call @date_expect_unit_impl(%units, %colon_at, %end, 58)
+      %minute_at = core.call intrinsic.add(%start, 14)
+      %minute = core.call @date_digits_impl(%units, %minute_at, 2, %end)
+      %hour_ok = core.call intrinsic.gte(%hour, 0)
+      %minute_ok = core.call intrinsic.gte(%minute, 0)
+      %clock_ok = core.call intrinsic.and(%hour_ok, %colon)
+      %clock_ok = core.call intrinsic.and(%clock_ok, %minute_ok)
+      %no_clock = core.call intrinsic.not(%clock_ok)
+      core.if %no_clock {
+        core.return %none
+      }
+      core.set %parts["hour"] = %hour
+      core.set %parts["minute"] = %minute
+      core.set %parts["second"] = 0
+      core.set %parts["millisecond"] = 0
+      %cursor = core.call intrinsic.add(%start, 16)
+      %second_colon = core.call @date_expect_unit_impl(%units, %cursor, %end, 58)
+      core.if %second_colon {
+        %second_at = core.call intrinsic.add(%cursor, 1)
+        %second = core.call @date_digits_impl(%units, %second_at, 2, %end)
+        %has_second = core.call intrinsic.gte(%second, 0)
+        core.if %has_second {
+          core.set %parts["second"] = %second
+          %cursor = core.call intrinsic.add(%cursor, 3)
+        }
+      }
+      %dot = core.call @date_expect_unit_impl(%units, %cursor, %end, 46)
+      core.if %dot {
+        %fraction_at = core.call intrinsic.add(%cursor, 1)
+        %digits = core.let 0
+        %millisecond = core.let 0
+        core.loop {
+          %enough = core.call intrinsic.gte(%digits, 9)
+          core.if %enough {
+            core.break
+          }
+          %digit_at = core.call intrinsic.add(%fraction_at, %digits)
+          %digit = core.call @date_digits_impl(%units, %digit_at, 1, %end)
+          %not_digit = core.call intrinsic.lt(%digit, 0)
+          core.if %not_digit {
+            core.break
+          }
+          %counted = core.call intrinsic.lt(%digits, 3)
+          core.if %counted {
+            %scaled = core.call intrinsic.mul(%millisecond, 10)
+            %millisecond = core.call intrinsic.add(%scaled, %digit)
+          }
+          %digits = core.call intrinsic.add(%digits, 1)
+        }
+        %has_fraction = core.call intrinsic.gt(%digits, 0)
+        core.if %has_fraction {
+          %pad = core.let %digits
+          core.loop {
+            %padded = core.call intrinsic.gte(%pad, 3)
+            core.if %padded {
+              core.break
+            }
+            %millisecond = core.call intrinsic.mul(%millisecond, 10)
+            %pad = core.call intrinsic.add(%pad, 1)
+          }
+          core.set %parts["millisecond"] = %millisecond
+          %fraction_end = core.call intrinsic.add(%fraction_at, %digits)
+          %cursor = core.let %fraction_end
+        }
+      }
+      core.set %parts["end"] = %cursor
+      core.return %parts
+    }
+  }
+
+  op ax.gen.semantic @date_offset_zone_matches_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json) -> bool"
+    body @entry(%units: json, %start: json, %end: json) {
+      // Whether the whole range is (Z|(?:UTC|GMT)?[+-]\d{2}(?::?\d{2})?),
+      // ignoring ASCII case.
+      %z_units = core.call intrinsic.string.utf16_units("z")
+      %one = core.call intrinsic.add(%start, 1)
+      %single = core.call intrinsic.eq(%one, %end)
+      %is_z = core.call @date_ascii_matches_impl(%units, %start, %end, %z_units)
+      %zulu = core.call intrinsic.and(%single, %is_z)
+      core.if %zulu {
+        core.return true
+      }
+      %cursor = core.let %start
+      %utc_units = core.call intrinsic.string.utf16_units("utc")
+      %gmt_units = core.call intrinsic.string.utf16_units("gmt")
+      %utc = core.call @date_ascii_matches_impl(%units, %start, %end, %utc_units)
+      %gmt = core.call @date_ascii_matches_impl(%units, %start, %end, %gmt_units)
+      %named = core.call intrinsic.or(%utc, %gmt)
+      core.if %named {
+        %cursor = core.call intrinsic.add(%start, 3)
+      }
+      %sign = core.get %units[%cursor] default 0
+      %plus = core.call intrinsic.eq(%sign, 43)
+      %minus = core.call intrinsic.eq(%sign, 45)
+      %has_sign = core.call intrinsic.or(%plus, %minus)
+      %sign_inside = core.call intrinsic.lt(%cursor, %end)
+      %has_sign = core.call intrinsic.and(%has_sign, %sign_inside)
+      %no_sign = core.call intrinsic.not(%has_sign)
+      core.if %no_sign {
+        core.return false
+      }
+      %hour_at = core.call intrinsic.add(%cursor, 1)
+      %hours = core.call @date_digits_impl(%units, %hour_at, 2, %end)
+      %no_hours = core.call intrinsic.lt(%hours, 0)
+      core.if %no_hours {
+        core.return false
+      }
+      %rest = core.call intrinsic.add(%cursor, 3)
+      %done = core.call intrinsic.eq(%rest, %end)
+      core.if %done {
+        core.return true
+      }
+      %minute_at = core.let %rest
+      %colon = core.call @date_expect_unit_impl(%units, %rest, %end, 58)
+      core.if %colon {
+        %minute_at = core.call intrinsic.add(%rest, 1)
+      }
+      %minutes = core.call @date_digits_impl(%units, %minute_at, 2, %end)
+      %has_minutes = core.call intrinsic.gte(%minutes, 0)
+      %minutes_end = core.call intrinsic.add(%minute_at, 2)
+      %at_end = core.call intrinsic.eq(%minutes_end, %end)
+      %matches = core.call intrinsic.and(%has_minutes, %at_end)
+      core.return %matches
+    }
+  }
+
+  op ax.gen.semantic @date_offset_minutes_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%units: json, %start: json, %end: json) {
+      // parseOffsetMinutes: 0 for UTC, GMT or Z; minutes for
+      // (?:UTC|GMT)?[+-]hh(?::?mm)? with hh <= 23 and mm <= 59 (ASCII case
+      // ignored); else none.
+      %none = core.call intrinsic.none()
+      %length = core.call intrinsic.mul(%start, -1)
+      %length = core.call intrinsic.add(%length, %end)
+      %utc_units = core.call intrinsic.string.utf16_units("utc")
+      %gmt_units = core.call intrinsic.string.utf16_units("gmt")
+      %z_units = core.call intrinsic.string.utf16_units("z")
+      %utc = core.call @date_ascii_matches_impl(%units, %start, %end, %utc_units)
+      %gmt = core.call @date_ascii_matches_impl(%units, %start, %end, %gmt_units)
+      %named = core.call intrinsic.or(%utc, %gmt)
+      %three = core.call intrinsic.eq(%length, 3)
+      %named_only = core.call intrinsic.and(%named, %three)
+      core.if %named_only {
+        core.return 0
+      }
+      %one = core.call intrinsic.eq(%length, 1)
+      %is_z = core.call @date_ascii_matches_impl(%units, %start, %end, %z_units)
+      %zulu = core.call intrinsic.and(%one, %is_z)
+      core.if %zulu {
+        core.return 0
+      }
+      %cursor = core.let %start
+      core.if %named {
+        %cursor = core.call intrinsic.add(%start, 3)
+      }
+      %sign_unit = core.get %units[%cursor] default 0
+      %sign_inside = core.call intrinsic.lt(%cursor, %end)
+      %plus = core.call intrinsic.eq(%sign_unit, 43)
+      %minus = core.call intrinsic.eq(%sign_unit, 45)
+      %has_sign = core.call intrinsic.or(%plus, %minus)
+      %has_sign = core.call intrinsic.and(%has_sign, %sign_inside)
+      %no_sign = core.call intrinsic.not(%has_sign)
+      core.if %no_sign {
+        core.return %none
+      }
+      %hour_at = core.call intrinsic.add(%cursor, 1)
+      %hours = core.call @date_digits_impl(%units, %hour_at, 2, %end)
+      %no_hours = core.call intrinsic.lt(%hours, 0)
+      core.if %no_hours {
+        core.return %none
+      }
+      %minutes = core.let 0
+      %rest = core.call intrinsic.add(%cursor, 3)
+      %more = core.call intrinsic.lt(%rest, %end)
+      core.if %more {
+        %minute_at = core.let %rest
+        %colon = core.call @date_expect_unit_impl(%units, %rest, %end, 58)
+        core.if %colon {
+          %minute_at = core.call intrinsic.add(%rest, 1)
+        }
+        %minutes = core.call @date_digits_impl(%units, %minute_at, 2, %end)
+        %minutes_end = core.call intrinsic.add(%minute_at, 2)
+        %at_end = core.call intrinsic.eq(%minutes_end, %end)
+        %minutes_ok = core.call intrinsic.gte(%minutes, 0)
+        %ok = core.call intrinsic.and(%at_end, %minutes_ok)
+        %bad = core.call intrinsic.not(%ok)
+        core.if %bad {
+          core.return %none
+        }
+      }
+      %hours_range = core.call intrinsic.gt(%hours, 23)
+      %minutes_range = core.call intrinsic.gt(%minutes, 59)
+      %out_of_range = core.call intrinsic.or(%hours_range, %minutes_range)
+      core.if %out_of_range {
+        core.return %none
+      }
+      %total = core.call intrinsic.mul(%hours, 60)
+      %total = core.call intrinsic.add(%total, %minutes)
+      core.if %minus {
+        %total = core.call intrinsic.mul(%total, -1)
+      }
+      core.return %total
+    }
+  }
+
+  // ----- JSON.stringify -----
+
+  op ax.gen.semantic @date_js_json_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json"
+    body @entry(%value: json) {
+      // JSON.stringify of a JSON value: compact, keys in insertion order,
+      // numbers as JavaScript writes them.
+      %is_null = core.call intrinsic.is_none(%value)
+      core.if %is_null {
+        core.return "null"
+      }
+      %is_boolean = core.type_is %value type "boolean"
+      core.if %is_boolean {
+        core.if %value {
+          core.return "true"
+        }
+        core.return "false"
+      }
+      %is_number = core.type_is %value type "number"
+      core.if %is_number {
+        %number = core.call intrinsic.string.str(%value)
+        core.return %number
+      }
+      %is_text = core.type_is %value type "string"
+      core.if %is_text {
+        %quoted = core.call @date_js_json_string_impl(%value)
+        core.return %quoted
+      }
+      %parts = core.list
+      %is_list = core.type_is %value type "list"
+      core.if %is_list {
+        core.for %item in %value {
+          %item_json = core.call @date_js_json_impl(%item)
+          core.append %parts, %item_json
+        }
+        %items = core.string_join %parts sep ","
+        %list_json = core.call intrinsic.add("[", %items)
+        %list_json = core.call intrinsic.add(%list_json, "]")
+        core.return %list_json
+      }
+      %keys = core.call intrinsic.map.keys(%value)
+      core.for %key in %keys {
+        %key_json = core.call @date_js_json_string_impl(%key)
+        %entry = core.get %value[%key]
+        %entry_json = core.call @date_js_json_impl(%entry)
+        %member = core.call intrinsic.add(%key_json, ":")
+        %member = core.call intrinsic.add(%member, %entry_json)
+        core.append %parts, %member
+      }
+      %members = core.string_join %parts sep ","
+      %object_json = core.call intrinsic.add("{", %members)
+      %object_json = core.call intrinsic.add(%object_json, "}")
+      core.return %object_json
+    }
+  }
+
+  op ax.gen.semantic @date_js_json_string_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json"
+    body @entry(%text: json) {
+      // A JSON.stringify string literal: \" \\ \b \f \n \r \t, other control
+      // characters and lone surrogates as lowercase \u escapes, everything
+      // else as is.
+      %hex = core.let "0123456789abcdef"
+      %units = core.call intrinsic.string.utf16_units(%text)
+      %count = core.call intrinsic.len(%units)
+      %mode = core.call @date_string_mode_impl()
+      %utf8 = core.call intrinsic.eq(%mode, "utf8")
+      %out = core.let "\""
+      %copied = core.let 0
+      %offset = core.let 0
+      %index = core.let 0
+      core.loop {
+        %done = core.call intrinsic.gte(%index, %count)
+        core.if %done {
+          core.break
+        }
+        %unit = core.get %units[%index] default 0
+        %following_at = core.call intrinsic.add(%index, 1)
+        %following = core.get %units[%following_at] default 0
+        %high_low = core.call intrinsic.gte(%unit, 55296)
+        %high_high = core.call intrinsic.lte(%unit, 56319)
+        %is_high = core.call intrinsic.and(%high_low, %high_high)
+        %low_low = core.call intrinsic.gte(%following, 56320)
+        %low_high = core.call intrinsic.lte(%following, 57343)
+        %next_low = core.call intrinsic.and(%low_low, %low_high)
+        %next_inside = core.call intrinsic.lt(%following_at, %count)
+        %next_low = core.call intrinsic.and(%next_low, %next_inside)
+        %is_pair = core.call intrinsic.and(%is_high, %next_low)
+        %width = core.let 1
+        %step = core.let 1
+        core.if %is_pair {
+          %step = core.let 2
+          core.if %utf8 {
+            %width = core.let 4
+          }
+          %utf16_pair = core.call intrinsic.eq(%mode, "utf16")
+          core.if %utf16_pair {
+            %width = core.let 2
+          }
+        } else {
+          core.if %utf8 {
+            %two_bytes = core.call intrinsic.gte(%unit, 128)
+            core.if %two_bytes {
+              %width = core.let 2
+            }
+            %three_bytes = core.call intrinsic.gte(%unit, 2048)
+            core.if %three_bytes {
+              %width = core.let 3
+            }
+          }
+        }
+        %escape = core.let ""
+        %quote = core.call intrinsic.eq(%unit, 34)
+        core.if %quote {
+          %escape = core.let "\\\""
+        }
+        %backslash = core.call intrinsic.eq(%unit, 92)
+        core.if %backslash {
+          %escape = core.let "\\\\"
+        }
+        %control = core.call intrinsic.lt(%unit, 32)
+        core.if %control {
+          %high_digit = core.call @date_floor_div_impl(%unit, 16)
+          %low_digit_base = core.call intrinsic.mul(%high_digit, -16)
+          %low_digit = core.call intrinsic.add(%unit, %low_digit_base)
+          %high_end = core.call intrinsic.add(%high_digit, 1)
+          %high_char = core.call intrinsic.string.slice(%hex, %high_digit, %high_end)
+          %low_end = core.call intrinsic.add(%low_digit, 1)
+          %low_char = core.call intrinsic.string.slice(%hex, %low_digit, %low_end)
+          %escape = core.call intrinsic.string.format("\\u00{}{}", %high_char, %low_char)
+          %backspace = core.call intrinsic.eq(%unit, 8)
+          core.if %backspace {
+            %escape = core.let "\\b"
+          }
+          %tab = core.call intrinsic.eq(%unit, 9)
+          core.if %tab {
+            %escape = core.let "\\t"
+          }
+          %line_feed = core.call intrinsic.eq(%unit, 10)
+          core.if %line_feed {
+            %escape = core.let "\\n"
+          }
+          %form_feed = core.call intrinsic.eq(%unit, 12)
+          core.if %form_feed {
+            %escape = core.let "\\f"
+          }
+          %carriage_return = core.call intrinsic.eq(%unit, 13)
+          core.if %carriage_return {
+            %escape = core.let "\\r"
+          }
+        }
+        %surrogate_low = core.call intrinsic.gte(%unit, 55296)
+        %surrogate_high = core.call intrinsic.lte(%unit, 57343)
+        %surrogate = core.call intrinsic.and(%surrogate_low, %surrogate_high)
+        %not_pair = core.call intrinsic.not(%is_pair)
+        %lone = core.call intrinsic.and(%surrogate, %not_pair)
+        core.if %lone {
+          %lone_text = core.call @date_js_hex4_impl(%unit)
+          %escape = core.call intrinsic.string.format("\\u{}", %lone_text)
+          core.if %utf8 {
+            %width = core.let 3
+          }
+        }
+        %escaped = core.call intrinsic.ne(%escape, "")
+        core.if %escaped {
+          %kept = core.call intrinsic.string.slice(%text, %copied, %offset)
+          %out = core.call intrinsic.add(%out, %kept)
+          %out = core.call intrinsic.add(%out, %escape)
+          %offset = core.call intrinsic.add(%offset, %width)
+          %copied = core.let %offset
+        } else {
+          %offset = core.call intrinsic.add(%offset, %width)
+        }
+        %index = core.call intrinsic.add(%index, %step)
+      }
+      %rest = core.call intrinsic.string.slice(%text, %copied, %offset)
+      %out = core.call intrinsic.add(%out, %rest)
+      %out = core.call intrinsic.add(%out, "\"")
+      core.return %out
+    }
+  }
+
+  op ax.gen.semantic @date_js_hex4_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json"
+    body @entry(%unit: json) {
+      // Four lowercase hex digits of a code unit.
+      %hex = core.let "0123456789abcdef"
+      %digits = core.list
+      %rest = core.let %unit
+      %position = core.let 0
+      core.loop {
+        %done = core.call intrinsic.gte(%position, 4)
+        core.if %done {
+          core.break
+        }
+        %quotient = core.call @date_floor_div_impl(%rest, 16)
+        %base = core.call intrinsic.mul(%quotient, -16)
+        %digit = core.call intrinsic.add(%rest, %base)
+        %digit_end = core.call intrinsic.add(%digit, 1)
+        %digit_char = core.call intrinsic.string.slice(%hex, %digit, %digit_end)
+        core.append %digits, %digit_char
+        %rest = core.let %quotient
+        %position = core.call intrinsic.add(%position, 1)
+      }
+      %d0 = core.call intrinsic.list.get(%digits, 3)
+      %d1 = core.call intrinsic.list.get(%digits, 2)
+      %d2 = core.call intrinsic.list.get(%digits, 1)
+      %d3 = core.call intrinsic.list.get(%digits, 0)
+      %text = core.call intrinsic.string.format("{}{}{}{}", %d0, %d1, %d2, %d3)
+      core.return %text
+    }
+  }
+
+  // ----- calendar arithmetic -----
+
+  op ax.gen.semantic @date_floor_div_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json) -> json"
+    body @entry(%dividend: json, %divisor: json) {
+      // floor(dividend / divisor) for integers and a positive divisor, exact
+      // for the magnitudes here even where division rounds.
+      %ratio = core.call intrinsic.div(%dividend, %divisor)
+      %quotient = core.call intrinsic.math.floor(%ratio)
+      %product = core.call intrinsic.mul(%quotient, %divisor)
+      %over = core.call intrinsic.gt(%product, %dividend)
+      core.if %over {
+        %quotient = core.call intrinsic.add(%quotient, -1)
+      }
+      %following = core.call intrinsic.add(%quotient, 1)
+      %next_product = core.call intrinsic.mul(%following, %divisor)
+      %under = core.call intrinsic.lte(%next_product, %dividend)
+      core.if %under {
+        %quotient = core.let %following
+      }
+      core.return %quotient
+    }
+  }
+
+  op ax.gen.semantic @date_days_from_civil_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%year: json, %month: json, %day: json) {
+      // Days since 1970-01-01 of a proleptic Gregorian date (month 1-12).
+      %year_of_era = core.let %year
+      %early = core.call intrinsic.lte(%month, 2)
+      core.if %early {
+        %year_of_era = core.call intrinsic.add(%year, -1)
+      }
+      %era = core.call @date_floor_div_impl(%year_of_era, 400)
+      %era_years = core.call intrinsic.mul(%era, -400)
+      %yoe = core.call intrinsic.add(%year_of_era, %era_years)
+      %shifted = core.call intrinsic.add(%month, 9)
+      %month_index = core.call @date_floor_div_impl(%shifted, 12)
+      %month_index = core.call intrinsic.mul(%month_index, -12)
+      %month_index = core.call intrinsic.add(%shifted, %month_index)
+      %month_days = core.call intrinsic.mul(%month_index, 153)
+      %month_days = core.call intrinsic.add(%month_days, 2)
+      %month_days = core.call @date_floor_div_impl(%month_days, 5)
+      %doy = core.call intrinsic.add(%month_days, %day)
+      %doy = core.call intrinsic.add(%doy, -1)
+      %doe = core.call intrinsic.mul(%yoe, 365)
+      %leap4 = core.call @date_floor_div_impl(%yoe, 4)
+      %leap100 = core.call @date_floor_div_impl(%yoe, 100)
+      %doe = core.call intrinsic.add(%doe, %leap4)
+      %leap100_negated = core.call intrinsic.mul(%leap100, -1)
+      %doe = core.call intrinsic.add(%doe, %leap100_negated)
+      %doe = core.call intrinsic.add(%doe, %doy)
+      %days = core.call intrinsic.mul(%era, 146097)
+      %days = core.call intrinsic.add(%days, %doe)
+      %days = core.call intrinsic.add(%days, -719468)
+      core.return %days
+    }
+  }
+
+  op ax.gen.semantic @date_civil_from_days_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json"
+    body @entry(%days: json) {
+      // {year, month, day} of a day count since 1970-01-01.
+      %shifted = core.call intrinsic.add(%days, 719468)
+      %era = core.call @date_floor_div_impl(%shifted, 146097)
+      %era_days = core.call intrinsic.mul(%era, -146097)
+      %doe = core.call intrinsic.add(%shifted, %era_days)
+      %a = core.call @date_floor_div_impl(%doe, 1460)
+      %b = core.call @date_floor_div_impl(%doe, 36524)
+      %c = core.call @date_floor_div_impl(%doe, 146096)
+      %a_negated = core.call intrinsic.mul(%a, -1)
+      %yoe = core.call intrinsic.add(%doe, %a_negated)
+      %yoe = core.call intrinsic.add(%yoe, %b)
+      %c_negated = core.call intrinsic.mul(%c, -1)
+      %yoe = core.call intrinsic.add(%yoe, %c_negated)
+      %yoe = core.call @date_floor_div_impl(%yoe, 365)
+      %era_years = core.call intrinsic.mul(%era, 400)
+      %year = core.call intrinsic.add(%yoe, %era_years)
+      %year_days = core.call intrinsic.mul(%yoe, 365)
+      %leap4 = core.call @date_floor_div_impl(%yoe, 4)
+      %leap100 = core.call @date_floor_div_impl(%yoe, 100)
+      %year_days = core.call intrinsic.add(%year_days, %leap4)
+      %leap100_negated = core.call intrinsic.mul(%leap100, -1)
+      %year_days = core.call intrinsic.add(%year_days, %leap100_negated)
+      %year_days_negated = core.call intrinsic.mul(%year_days, -1)
+      %doy = core.call intrinsic.add(%doe, %year_days_negated)
+      %mp = core.call intrinsic.mul(%doy, 5)
+      %mp = core.call intrinsic.add(%mp, 2)
+      %mp = core.call @date_floor_div_impl(%mp, 153)
+      %month_days = core.call intrinsic.mul(%mp, 153)
+      %month_days = core.call intrinsic.add(%month_days, 2)
+      %month_days = core.call @date_floor_div_impl(%month_days, 5)
+      %month_days_negated = core.call intrinsic.mul(%month_days, -1)
+      %day = core.call intrinsic.add(%doy, %month_days_negated)
+      %day = core.call intrinsic.add(%day, 1)
+      %month = core.call intrinsic.add(%mp, 3)
+      %late = core.call intrinsic.gte(%mp, 10)
+      core.if %late {
+        %month = core.call intrinsic.add(%mp, -9)
+      }
+      %early = core.call intrinsic.lte(%month, 2)
+      core.if %early {
+        %year = core.call intrinsic.add(%year, 1)
+      }
+      %civil = core.map
+      core.set %civil["year"] = %year
+      core.set %civil["month"] = %month
+      core.set %civil["day"] = %day
+      core.return %civil
+    }
+  }
+
+  op ax.gen.semantic @date_make_day_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%year: json, %month_index: json, %date: json) {
+      // ECMAScript MakeDay: a zero-based month past 11 or below 0 carries
+      // into the year, and the date counts on from the first of the month.
+      %carry = core.call @date_floor_div_impl(%month_index, 12)
+      %whole_year = core.call intrinsic.add(%year, %carry)
+      %carry_months = core.call intrinsic.mul(%carry, -12)
+      %month = core.call intrinsic.add(%month_index, %carry_months)
+      %month = core.call intrinsic.add(%month, 1)
+      %first = core.call @date_days_from_civil_impl(%whole_year, %month, 1)
+      %day = core.call intrinsic.add(%first, %date)
+      %day = core.call intrinsic.add(%day, -1)
+      core.return %day
+    }
+  }
+
+  op ax.gen.semantic @date_utc_ms_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json"
+    body @entry(%parts: json) {
+      // TS getUtcTimestamp: Date.UTC, which reads years 0-99 as 1900-1999,
+      // then setUTCFullYear(year), which keeps the month and date Date.UTC
+      // settled on. So an overflowing month or date moves on (Feb 30 is
+      // Mar 1), and 0000-02-29 lands on Mar 1 of year 0, since 1900 has no
+      // Feb 29.
+      %year = core.get %parts["year"]
+      %month = core.get %parts["month"]
+      %day = core.get %parts["day"]
+      %hour = core.get %parts["hour"] default 0
+      %minute = core.get %parts["minute"] default 0
+      %second = core.get %parts["second"] default 0
+      %millisecond = core.get %parts["millisecond"] default 0
+      %utc_year = core.let %year
+      %two_digit_low = core.call intrinsic.gte(%year, 0)
+      %two_digit_high = core.call intrinsic.lte(%year, 99)
+      %two_digit = core.call intrinsic.and(%two_digit_low, %two_digit_high)
+      core.if %two_digit {
+        %utc_year = core.call intrinsic.add(%year, 1900)
+      }
+      %month_index = core.call intrinsic.add(%month, -1)
+      %day_number = core.call @date_make_day_impl(%utc_year, %month_index, %day)
+      %time_ms = core.call intrinsic.mul(%hour, 3600000)
+      %minute_ms = core.call intrinsic.mul(%minute, 60000)
+      %time_ms = core.call intrinsic.add(%time_ms, %minute_ms)
+      %second_ms = core.call intrinsic.mul(%second, 1000)
+      %time_ms = core.call intrinsic.add(%time_ms, %second_ms)
+      %time_ms = core.call intrinsic.add(%time_ms, %millisecond)
+      %day_ms = core.call intrinsic.mul(%day_number, 86400000)
+      %millis = core.call intrinsic.add(%day_ms, %time_ms)
+      // setUTCFullYear(year)
+      %whole_days = core.call @date_floor_div_impl(%millis, 86400000)
+      %whole_ms = core.call intrinsic.mul(%whole_days, -86400000)
+      %within = core.call intrinsic.add(%millis, %whole_ms)
+      %civil = core.call @date_civil_from_days_impl(%whole_days)
+      %civil_month = core.get %civil["month"]
+      %civil_month_index = core.call intrinsic.add(%civil_month, -1)
+      %civil_day = core.get %civil["day"]
+      %set_day = core.call @date_make_day_impl(%year, %civil_month_index, %civil_day)
+      %set_ms = core.call intrinsic.mul(%set_day, 86400000)
+      %result = core.call intrinsic.add(%set_ms, %within)
+      core.return %result
+    }
+  }
+
+  op ax.gen.semantic @date_parts_of_ms_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json"
+    body @entry(%millis: json) {
+      // The UTC calendar and clock of an epoch-millisecond time.
+      %days = core.call @date_floor_div_impl(%millis, 86400000)
+      %day_ms = core.call intrinsic.mul(%days, -86400000)
+      %within = core.call intrinsic.add(%millis, %day_ms)
+      %parts = core.call @date_civil_from_days_impl(%days)
+      %hour = core.call @date_floor_div_impl(%within, 3600000)
+      %hour_ms = core.call intrinsic.mul(%hour, -3600000)
+      %within = core.call intrinsic.add(%within, %hour_ms)
+      %minute = core.call @date_floor_div_impl(%within, 60000)
+      %minute_ms = core.call intrinsic.mul(%minute, -60000)
+      %within = core.call intrinsic.add(%within, %minute_ms)
+      %second = core.call @date_floor_div_impl(%within, 1000)
+      %second_ms = core.call intrinsic.mul(%second, -1000)
+      %millisecond = core.call intrinsic.add(%within, %second_ms)
+      core.set %parts["hour"] = %hour
+      core.set %parts["minute"] = %minute
+      core.set %parts["second"] = %second
+      core.set %parts["millisecond"] = %millisecond
+      core.return %parts
+    }
+  }
+
+  op ax.gen.semantic @date_same_day_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json) -> bool"
+    body @entry(%left: json, %right: json) {
+      %keys = core.list
+      core.append %keys, "year"
+      core.append %keys, "month"
+      core.append %keys, "day"
+      core.for %key in %keys {
+        %left_value = core.get %left[%key] default 0
+        %right_value = core.get %right[%key] default 0
+        %same = core.call intrinsic.eq(%left_value, %right_value)
+        %different = core.call intrinsic.not(%same)
+        core.if %different {
+          core.return false
+        }
+      }
+      core.return true
+    }
+  }
+
+  op ax.gen.semantic @date_same_parts_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json) -> bool"
+    body @entry(%left: json, %right: json) {
+      // isSameDateTimeParts
+      %keys = core.list
+      core.append %keys, "year"
+      core.append %keys, "month"
+      core.append %keys, "day"
+      core.append %keys, "hour"
+      core.append %keys, "minute"
+      core.append %keys, "second"
+      core.append %keys, "millisecond"
+      core.for %key in %keys {
+        %left_value = core.get %left[%key] default 0
+        %right_value = core.get %right[%key] default 0
+        %same = core.call intrinsic.eq(%left_value, %right_value)
+        %different = core.call intrinsic.not(%same)
+        core.if %different {
+          core.return false
+        }
+      }
+      core.return true
+    }
+  }
+
+  op ax.gen.semantic @date_pad_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json, json) -> json"
+    body @entry(%value: json, %width: json) {
+      // A non-negative integer as decimal digits, zero-padded to %width.
+      %text = core.call intrinsic.string.str(%value)
+      core.loop {
+        %length = core.call intrinsic.len(%text)
+        %wide = core.call intrinsic.gte(%length, %width)
+        core.if %wide {
+          core.break
+        }
+        %text = core.call intrinsic.add("0", %text)
+      }
+      core.return %text
+    }
+  }
+
+  op ax.gen.semantic @date_iso_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/datetime.ts"
+    type signature = "(json) -> json"
+    body @entry(%millis: json) {
+      // Date.prototype.toISOString: YYYY-MM-DDTHH:mm:ss.sssZ, with a signed
+      // six-digit year outside 0000-9999.
+      %parts = core.call @date_parts_of_ms_impl(%millis)
+      %year = core.get %parts["year"]
+      %year_text = core.let ""
+      %year_low = core.call intrinsic.gte(%year, 0)
+      %year_high = core.call intrinsic.lte(%year, 9999)
+      %four_digits = core.call intrinsic.and(%year_low, %year_high)
+      core.if %four_digits {
+        %year_text = core.call @date_pad_impl(%year, 4)
+      } else {
+        %negative = core.call intrinsic.lt(%year, 0)
+        %magnitude = core.let %year
+        %sign = core.let "+"
+        core.if %negative {
+          %magnitude = core.call intrinsic.mul(%year, -1)
+          %sign = core.let "-"
+        }
+        %six = core.call @date_pad_impl(%magnitude, 6)
+        %year_text = core.call intrinsic.add(%sign, %six)
+      }
+      %month = core.get %parts["month"]
+      %month_text = core.call @date_pad_impl(%month, 2)
+      %day = core.get %parts["day"]
+      %day_text = core.call @date_pad_impl(%day, 2)
+      %hour = core.get %parts["hour"]
+      %hour_text = core.call @date_pad_impl(%hour, 2)
+      %minute = core.get %parts["minute"]
+      %minute_text = core.call @date_pad_impl(%minute, 2)
+      %second = core.get %parts["second"]
+      %second_text = core.call @date_pad_impl(%second, 2)
+      %millisecond = core.get %parts["millisecond"]
+      %millisecond_text = core.call @date_pad_impl(%millisecond, 3)
+      %pieces = core.list
+      core.append %pieces, %year_text
+      core.append %pieces, "-"
+      core.append %pieces, %month_text
+      core.append %pieces, "-"
+      core.append %pieces, %day_text
+      core.append %pieces, "T"
+      core.append %pieces, %hour_text
+      core.append %pieces, ":"
+      core.append %pieces, %minute_text
+      core.append %pieces, ":"
+      core.append %pieces, %second_text
+      core.append %pieces, "."
+      core.append %pieces, %millisecond_text
+      core.append %pieces, "Z"
+      %iso = core.string_join %pieces sep ""
+      core.return %iso
+    }
+  }
+}

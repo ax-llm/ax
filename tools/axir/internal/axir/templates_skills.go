@@ -365,6 +365,8 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			"`strictMode` / `strict_mode`, set on the constructor or the forward (the forward's wins), requires the answer to open with its first required field's label, as in TypeScript: an unlabeled answer, or one JSON object, is retried with a correction instead of being read as a single-field answer.",
 			"",
+			skillDateFieldsText(target),
+			"",
 			"`functionCall` / `function_call` sets the tool choice: `auto`, `none`, `required`, or `{ type: 'function', function: { name } }` to force one function. A forced call (`required` or named) applies to the first step only, as in TypeScript: later steps drop it together with the tools so the model can answer. Under the `function` structured-output rung the forced step withholds `__axOutput`, so the forcing reaches a user tool, and the next step forces `__axOutput`. A tool choice passed as `functionCallMode` is routed the same way.",
 			"",
 			"## Multi-Sampling",
@@ -528,6 +530,20 @@ func skillNumberFormatText(target string) string {
 		return text + "`int` and `int64` values keep their exact digits past 2^53, where TypeScript's doubles round them; JSON text parses to `float64`, which rounds as TypeScript does."
 	default:
 		return text + "Values hold numbers as doubles, so integers past 2^53 round as they do in TypeScript."
+	}
+}
+
+func skillDateFieldsText(target string) string {
+	text := "`parseDates` / `parse_dates`, set on the constructor or the forward (the forward's wins), parses `date`, `datetime`, `dateRange` and `datetimeRange` output fields as TypeScript does in the text contract: `YYYY-MM-DD`; ISO 8601 with `Z` or an offset; or `YYYY-MM-DD HH:mm Zone` with an offset, `UTC`/`GMT`, an IANA zone name (matched without regard to case, with TypeScript's handling of DST gaps, which are an error, and overlaps, which take the earlier instant), or an abbreviation at its literal offset (`PST` is -08:00 all year; ambiguous ones such as `BST`, `IST` and `CST` are rejected; `PST`/`PDT` and `CDT` follow US usage, so for Philippine time (`PST`) or Cuban daylight time (`CDT`) give an IANA name (`Asia/Manila`, `America/Havana`) or a UTC offset); and ranges as `{\"start\", \"end\"}` JSON, a two-item array, `start/end`, or `start to end`. A value comes back as TypeScript's JSON of its `Date`: a `toISOString()` string such as `2024-05-09T18:30:00.000Z`, and `{\"start\", \"end\"}` of those for a range, in forward outputs and in streamed deltas. An unparseable value is a validation error that is retried with TypeScript's correction; an optional field's bad value is left out. Structured JSON answers keep the model's strings, as in TypeScript. Without the option date fields keep the model's text as before: that is the default until the next major version, which parses by default, and `parseDates: false` keeps today's behavior after that. "
+	switch target {
+	case "python":
+		return text + "Named zones resolve through the `zoneinfo` module (the platform tz database, or the `tzdata` package where there is none, as on Windows). A date or datetime input also takes a `datetime` (an aware one is its instant, a naive one is local time) or a `date` (its UTC midnight), rendered as TypeScript renders a `Date`: the UTC day for a date field and ISO 8601 without milliseconds for a datetime; a range input takes a `{\"start\", \"end\"}` dict, of dates or of strings."
+	case "go":
+		return text + "Named zones resolve through `time.LoadLocation` (the platform tz database, `$ZONEINFO`, or `time/tzdata` when your program imports it, which Windows builds without Go installed need). A date or datetime input also takes a `time.Time`, rendered as TypeScript renders a `Date`: the UTC day for a date field and ISO 8601 without milliseconds for a datetime; a range input takes a `{\"start\", \"end\"}` map, of `time.Time` values or of strings."
+	case "java":
+		return text + "Named zones resolve through `java.time`'s bundled tz database. A date or datetime input also takes an `Instant`, `OffsetDateTime`, `ZonedDateTime` or `java.util.Date` (its instant), a `LocalDateTime` (in the JVM's zone) or a `LocalDate` (its UTC midnight), rendered as TypeScript renders a `Date`: the UTC day for a date field and ISO 8601 without milliseconds for a datetime; a range input takes a `{\"start\", \"end\"}` map, of those or of strings."
+	default:
+		return text + "Named zones resolve through the platform tz database, read directly: TZif files under `$TZDIR`, then `/usr/share/zoneinfo` and the other usual directories, with the zone's POSIX rule past its last transition. Windows has no such directory, so set `TZDIR` to a zoneinfo directory there, or named zones fail as unrecognized (offsets and UTC still work). Date inputs are strings, since `Value` has no date type; a range input can also be a `{\"start\", \"end\"}` object, rendered as JSON."
 	}
 }
 

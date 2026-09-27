@@ -279,6 +279,20 @@
           "  }",
           "}"
         ]
+      },
+      "dates": {
+        "sourcePath": "src/examples/java/generation/DateFieldsExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "AxGen planner = new AxGen(",
+          "    AxSignature.create(\"emailText:string, sentAt:datetime -> meetingStartsAt:datetime, travelWindow:dateRange\"),",
+          "    Map.of(\"parseDates\", true));",
+          "Map<String, Object> out = planner.forward(client, Map.of(",
+          "    \"emailText\", emailText,",
+          "    \"sentAt\", Instant.parse(\"2024-05-02T16:30:00Z\")));",
+          "System.out.println(out.get(\"meetingStartsAt\")); // 2024-05-07T19:00:00.000Z"
+        ]
       }
     },
     "signatures": {

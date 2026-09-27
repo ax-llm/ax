@@ -14404,6 +14404,8 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "strip_internal" => run_strip_internal_fixture(&fixture)?,
         "prompt" => run_prompt_fixture(&fixture)?,
         "number_format" => run_number_format_fixture(&fixture)?,
+        "date_field_value" => run_date_field_value_fixture(&fixture)?,
+        "date_input" => run_date_input_fixture(&fixture)?,
         "template" => run_template_fixture(&fixture)?,
         "template_error" => run_template_error_fixture(&fixture)?,
         "template_validate" => run_template_validate_fixture(&fixture)?,
@@ -24412,6 +24414,109 @@ fn run_number_format_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+// TS validateAndParseFieldValue on date-typed fields with parse_dates on:
+// each case's {has, value}, or its exact error message.
+fn run_date_field_value_fixture(fixture: &Value) -> AxResult<()> {
+    let parse_dates = fixture
+        .get("parse_dates")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    for (index, case) in fixture
+        .get("cases")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let mut field = case.get("field").cloned().unwrap_or_else(|| json!({}));
+        if let Some(map) = field.as_object_mut() {
+            map.insert("parse_dates".to_string(), Value::Bool(parse_dates));
+        }
+        let text = case.get("text").and_then(Value::as_str).unwrap_or_default();
+        let shown: String = text.chars().take(80).collect();
+        let label = format!("case {index} {shown:?}");
+        let parsed =
+            _stream_field_value_impl(&[core_value_from_json(&field), CoreValue::from(text)]);
+        match (parsed, case.get("expected_error")) {
+            (Err(error), Some(expected)) => {
+                expect_json_equal(
+                    &format!("{label} error"),
+                    &Value::String(error.message.clone()),
+                    expected,
+                )?;
+            }
+            (Err(error), None) => {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("{label}: unexpected error {}", error.message),
+                ));
+            }
+            (Ok(parsed), Some(expected)) => {
+                return Err(AxError::new(
+                    "fixture",
+                    format!(
+                        "{label}: expected error {expected}, got {}",
+                        core_value_to_json(&parsed)
+                    ),
+                ));
+            }
+            (Ok(parsed), None) => {
+                let parsed = core_value_to_json(&parsed);
+                let has = parsed.get("has").and_then(Value::as_bool).unwrap_or(false);
+                let mut actual = json!({ "has": has });
+                if has {
+                    actual["value"] = parsed.get("value").cloned().unwrap_or(Value::Null);
+                }
+                expect_json_equal(
+                    &label,
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// Date inputs: range objects and strings pass input validation and render in
+// the user prompt as TS renders them. serde_json::Value has no date type, so
+// the native: true cases (Python, Go and Java date values) do not apply here.
+fn run_date_input_fixture(fixture: &Value) -> AxResult<()> {
+    let sig = build_fixture_signature(fixture)?;
+    for (index, case) in fixture
+        .get("cases")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        if case.get("native").and_then(Value::as_bool).unwrap_or(false) {
+            continue;
+        }
+        let values = case.get("values").cloned().unwrap_or_else(|| json!({}));
+        validate_fields_native(&sig.inputs, &values)?;
+        let messages = render_prompt(&[
+            core_signature_value(&sig)?,
+            core_value_from_json(&values),
+            core_value_from_json(&json!([])),
+            CoreValue::new_map(),
+        ])?;
+        let messages = core_value_to_json(&messages);
+        let content = messages
+            .as_array()
+            .and_then(|list| list.last())
+            .and_then(|message| message.get("content"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        expect_json_equal(
+            &format!("case {index}"),
+            &content,
+            case.get("expected_user_content").unwrap_or(&Value::Null),
+        )?;
+    }
+    Ok(())
+}
+
 fn expect_json_equal(label: &str, actual: &Value, expected: &Value) -> AxResult<()> {
     if actual != expected {
         return Err(AxError::new(
@@ -25052,6 +25157,8 @@ fn core_type_is(value: &CoreValue, type_name: CoreValue) -> CoreValue {
         "boolean" => matches!(value, CoreValue::Bool(_)),
         "null" => value.is_null(),
         "json" => !matches!(value, CoreValue::Error(_)),
+        // No native date type: date and datetime fields take strings here.
+        "date" => false,
         _ => false,
     };
     CoreValue::Bool(matched)
@@ -25148,6 +25255,430 @@ fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError
     Ok(CoreValue::Num(
         core_arg(args, 0).text().chars().count() as f64
     ))
+}
+
+// ----- intrinsic.date.zone_offset: the platform tz database -----
+// A std-only reader for TZif files (RFC 8536): $TZDIR, then the usual
+// zoneinfo directories. Past the last transition the POSIX TZ footer rule
+// decides; before the first, the zone's first local time type.
+
+#[derive(Clone, Debug)]
+struct DateTzRuleDate {
+    kind: u8, // b'J' (1-365, no Feb 29), b'n' (0-365), b'M' (month.week.day)
+    day: i64,
+    week: i64,
+    month: i64,
+    time: i64,
+}
+
+#[derive(Clone, Debug)]
+struct DateTzRule {
+    std_offset: i64,
+    dst: Option<(i64, DateTzRuleDate, DateTzRuleDate)>,
+}
+
+#[derive(Debug)]
+struct DateTzZone {
+    transitions: Vec<i64>,
+    transition_types: Vec<usize>,
+    offsets: Vec<i64>,
+    footer: Option<DateTzRule>,
+}
+
+fn date_days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+fn date_is_leap(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+// The UTC second of a rule date's local time in `year`, for a zone at
+// `offset` seconds east of UTC.
+fn date_rule_instant(year: i64, rule: &DateTzRuleDate, offset: i64) -> i64 {
+    let first = date_days_from_civil(year, 1, 1);
+    let day = match rule.kind {
+        b'J' => {
+            let mut day = rule.day - 1;
+            if date_is_leap(year) && rule.day >= 60 {
+                day += 1;
+            }
+            first + day
+        }
+        b'n' => first + rule.day,
+        _ => {
+            let month_first = date_days_from_civil(year, rule.month, 1);
+            // 1970-01-01 was a Thursday (4).
+            let weekday = (month_first + 4).rem_euclid(7);
+            let mut day = month_first + (rule.day - weekday).rem_euclid(7) + (rule.week - 1) * 7;
+            let next_month = if rule.month == 12 {
+                date_days_from_civil(year + 1, 1, 1)
+            } else {
+                date_days_from_civil(year, rule.month + 1, 1)
+            };
+            while day >= next_month {
+                day -= 7;
+            }
+            day
+        }
+    };
+    day * 86400 + rule.time - offset
+}
+
+impl DateTzRule {
+    fn offset_at(&self, seconds: i64) -> i64 {
+        let Some((dst_offset, start, end)) = &self.dst else {
+            return self.std_offset;
+        };
+        let year = (seconds + self.std_offset).div_euclid(86400);
+        let year = {
+            // The civil year of the day count.
+            let z = year + 719468;
+            let era = z.div_euclid(146097);
+            let doe = z - era * 146097;
+            let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+            let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+            let mp = (5 * doy + 2) / 153;
+            let month = if mp < 10 { mp + 3 } else { mp - 9 };
+            yoe + era * 400 + if month <= 2 { 1 } else { 0 }
+        };
+        // The latest DST start or end at or before the instant, over the
+        // neighbouring years, decides. Of two at the same instant the later
+        // one in the sequence wins: a permanent-DST footer such as
+        // "XXX-2<+01>-1,0/0,J365/23" ends one year where the next begins.
+        let mut latest: Option<(i64, bool)> = None;
+        for y in [year - 1, year, year + 1] {
+            let begins = date_rule_instant(y, start, self.std_offset);
+            let ends = date_rule_instant(y, end, *dst_offset);
+            for (at, dst) in [(begins, true), (ends, false)] {
+                if at <= seconds && latest.map_or(true, |(best, _)| at >= best) {
+                    latest = Some((at, dst));
+                }
+            }
+        }
+        match latest {
+            Some((_, true)) => *dst_offset,
+            _ => self.std_offset,
+        }
+    }
+}
+
+// [+-]hh[:mm[:ss]] as seconds.
+fn date_tz_parse_seconds(text: &[u8], at: &mut usize) -> Option<i64> {
+    let mut sign = 1;
+    if *at < text.len() && (text[*at] == b'+' || text[*at] == b'-') {
+        if text[*at] == b'-' {
+            sign = -1;
+        }
+        *at += 1;
+    }
+    let mut parts = [0i64; 3];
+    for (index, part) in parts.iter_mut().enumerate() {
+        if index > 0 {
+            if *at < text.len() && text[*at] == b':' {
+                *at += 1;
+            } else {
+                break;
+            }
+        }
+        let start = *at;
+        while *at < text.len() && text[*at].is_ascii_digit() {
+            *part = *part * 10 + i64::from(text[*at] - b'0');
+            *at += 1;
+        }
+        if *at == start {
+            return None;
+        }
+    }
+    Some(sign * (parts[0] * 3600 + parts[1] * 60 + parts[2]))
+}
+
+fn date_tz_parse_name(text: &[u8], at: &mut usize) -> bool {
+    if *at < text.len() && text[*at] == b'<' {
+        while *at < text.len() && text[*at] != b'>' {
+            *at += 1;
+        }
+        if *at >= text.len() {
+            return false;
+        }
+        *at += 1;
+        return true;
+    }
+    let start = *at;
+    while *at < text.len() && text[*at].is_ascii_alphabetic() {
+        *at += 1;
+    }
+    *at > start
+}
+
+fn date_tz_parse_rule_date(text: &[u8], at: &mut usize) -> Option<DateTzRuleDate> {
+    let read_number = |at: &mut usize| -> Option<i64> {
+        let start = *at;
+        let mut value = 0i64;
+        while *at < text.len() && text[*at].is_ascii_digit() {
+            value = value * 10 + i64::from(text[*at] - b'0');
+            *at += 1;
+        }
+        if *at == start {
+            None
+        } else {
+            Some(value)
+        }
+    };
+    let mut date = DateTzRuleDate {
+        kind: b'n',
+        day: 0,
+        week: 0,
+        month: 0,
+        time: 7200,
+    };
+    match text.get(*at) {
+        Some(b'J') => {
+            *at += 1;
+            date.kind = b'J';
+            date.day = read_number(at)?;
+        }
+        Some(b'M') => {
+            *at += 1;
+            date.kind = b'M';
+            date.month = read_number(at)?;
+            if text.get(*at) != Some(&b'.') {
+                return None;
+            }
+            *at += 1;
+            date.week = read_number(at)?;
+            if text.get(*at) != Some(&b'.') {
+                return None;
+            }
+            *at += 1;
+            date.day = read_number(at)?;
+            if !(1..=12).contains(&date.month) || !(1..=5).contains(&date.week) || date.day > 6 {
+                return None;
+            }
+        }
+        _ => date.day = read_number(at)?,
+    }
+    if text.get(*at) == Some(&b'/') {
+        *at += 1;
+        date.time = date_tz_parse_seconds(text, at)?;
+    }
+    Some(date)
+}
+
+// A POSIX TZ string such as "EST5EDT,M3.2.0,M11.1.0" or "<+0530>-5:30".
+fn date_tz_parse_rule(text: &str) -> Option<DateTzRule> {
+    let text = text.as_bytes();
+    let mut at = 0;
+    if !date_tz_parse_name(text, &mut at) {
+        return None;
+    }
+    let std_offset = -date_tz_parse_seconds(text, &mut at)?;
+    if at >= text.len() {
+        return Some(DateTzRule {
+            std_offset,
+            dst: None,
+        });
+    }
+    if !date_tz_parse_name(text, &mut at) {
+        return None;
+    }
+    let mut dst_offset = std_offset + 3600;
+    if at < text.len() && text[at] != b',' {
+        dst_offset = -date_tz_parse_seconds(text, &mut at)?;
+    }
+    let (start, end) = if at >= text.len() {
+        // POSIX leaves the rule to the implementation; this is the US one.
+        (
+            DateTzRuleDate {
+                kind: b'M',
+                day: 0,
+                week: 2,
+                month: 3,
+                time: 7200,
+            },
+            DateTzRuleDate {
+                kind: b'M',
+                day: 0,
+                week: 1,
+                month: 11,
+                time: 7200,
+            },
+        )
+    } else {
+        if text[at] != b',' {
+            return None;
+        }
+        at += 1;
+        let start = date_tz_parse_rule_date(text, &mut at)?;
+        if text.get(at) != Some(&b',') {
+            return None;
+        }
+        at += 1;
+        let end = date_tz_parse_rule_date(text, &mut at)?;
+        if at != text.len() {
+            return None;
+        }
+        (start, end)
+    };
+    Some(DateTzRule {
+        std_offset,
+        dst: Some((dst_offset, start, end)),
+    })
+}
+
+fn date_tzif_u32(data: &[u8], at: usize) -> Option<u32> {
+    let bytes = data.get(at..at + 4)?;
+    Some(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+fn date_parse_tzif(data: &[u8]) -> Option<DateTzZone> {
+    if data.get(0..4)? != b"TZif" {
+        return None;
+    }
+    let version = *data.get(4)?;
+    let counts = |at: usize| -> Option<[usize; 6]> {
+        let mut out = [0usize; 6];
+        for (index, count) in out.iter_mut().enumerate() {
+            *count = date_tzif_u32(data, at + 20 + index * 4)? as usize;
+        }
+        Some(out)
+    };
+    let [isut, isstd, leap, time, typ, chars] = counts(0)?;
+    let v1_size = time * 5 + typ * 6 + chars + leap * 8 + isstd + isut;
+    let (mut at, time_size, counts) = if version >= b'2' {
+        let second = 44 + v1_size;
+        if data.get(second..second + 4)? != b"TZif" {
+            return None;
+        }
+        (second + 44, 8, counts(second)?)
+    } else {
+        (44, 4, [isut, isstd, leap, time, typ, chars])
+    };
+    let [isut, isstd, leap, time, typ, chars] = counts;
+    let mut transitions = Vec::with_capacity(time);
+    for index in 0..time {
+        let offset = at + index * time_size;
+        let value = if time_size == 8 {
+            let bytes = data.get(offset..offset + 8)?;
+            i64::from_be_bytes(bytes.try_into().ok()?)
+        } else {
+            i64::from(date_tzif_u32(data, offset)? as i32)
+        };
+        transitions.push(value);
+    }
+    at += time * time_size;
+    let mut transition_types = Vec::with_capacity(time);
+    for index in 0..time {
+        transition_types.push(*data.get(at + index)? as usize);
+    }
+    at += time;
+    let mut offsets = Vec::with_capacity(typ);
+    for index in 0..typ {
+        offsets.push(i64::from(date_tzif_u32(data, at + index * 6)? as i32));
+    }
+    at += typ * 6 + chars + leap * (time_size + 4) + isstd + isut;
+    if offsets.is_empty() || transition_types.iter().any(|&index| index >= offsets.len()) {
+        return None;
+    }
+    let mut footer = None;
+    if version >= b'2' && data.get(at) == Some(&b'\n') {
+        let rest = &data[at + 1..];
+        if let Some(end) = rest.iter().position(|&byte| byte == b'\n') {
+            let text = std::str::from_utf8(&rest[..end]).ok()?;
+            if !text.is_empty() {
+                footer = date_tz_parse_rule(text);
+            }
+        }
+    }
+    Some(DateTzZone {
+        transitions,
+        transition_types,
+        offsets,
+        footer,
+    })
+}
+
+impl DateTzZone {
+    fn offset_at(&self, seconds: i64) -> i64 {
+        if self.transitions.is_empty() {
+            return match &self.footer {
+                Some(rule) => rule.offset_at(seconds),
+                None => self.offsets[0],
+            };
+        }
+        if seconds < self.transitions[0] {
+            return self.offsets[0];
+        }
+        let index = self.transitions.partition_point(|&at| at <= seconds) - 1;
+        if index + 1 == self.transitions.len() {
+            if let Some(rule) = &self.footer {
+                return rule.offset_at(seconds);
+            }
+        }
+        self.offsets[self.transition_types[index]]
+    }
+}
+
+fn date_zone_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(dir) = std::env::var_os("TZDIR") {
+        if !dir.is_empty() {
+            dirs.push(std::path::PathBuf::from(dir));
+        }
+    }
+    for dir in [
+        "/usr/share/zoneinfo",
+        "/usr/lib/zoneinfo",
+        "/usr/share/lib/zoneinfo",
+        "/etc/zoneinfo",
+    ] {
+        dirs.push(std::path::PathBuf::from(dir));
+    }
+    dirs
+}
+
+fn date_zone_load(name: &str) -> Option<Arc<DateTzZone>> {
+    static ZONES: OnceLock<Mutex<std::collections::HashMap<String, Option<Arc<DateTzZone>>>>> =
+        OnceLock::new();
+    let zones = ZONES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    if let Some(found) = zones.lock().ok()?.get(name) {
+        return found.clone();
+    }
+    let safe = !name.is_empty()
+        && !name.starts_with('/')
+        && !name.contains('\\')
+        && !name.contains('\0')
+        && name
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..");
+    let mut loaded = None;
+    if safe {
+        for dir in date_zone_dirs() {
+            if let Ok(data) = std::fs::read(dir.join(name)) {
+                if let Some(zone) = date_parse_tzif(&data) {
+                    loaded = Some(Arc::new(zone));
+                    break;
+                }
+            }
+        }
+    }
+    zones.lock().ok()?.insert(name.to_string(), loaded.clone());
+    loaded
+}
+
+fn core_date_zone_offset(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let name = core_arg(args, 0).text();
+    let millis = core_number_arg(args, 1)?;
+    let zone = date_zone_load(&name)
+        .ok_or_else(|| AxError::runtime(format!("unknown time zone {name}")))?;
+    let seconds = (millis / 1000.0).floor() as i64;
+    Ok(CoreValue::Num(zone.offset_at(seconds) as f64))
 }
 fn core_math_is_finite(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Bool(core_number_arg(args, 0)?.is_finite()))
@@ -35929,11 +36460,15 @@ fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_field = core_arg(args, 0);
     let mut v_value = core_arg(args, 1);
     let mut v_path = core_arg(args, 2);
+    let mut v_date_types = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_field_name = CoreValue::Null;
     let mut v_field_title = CoreValue::Null;
+    let mut v_has_bounds = CoreValue::Null;
+    let mut v_has_end = CoreValue::Null;
     let mut v_has_nested = CoreValue::Null;
     let mut v_has_options = CoreValue::Null;
+    let mut v_has_start = CoreValue::Null;
     let mut v_invalid_audio = CoreValue::Null;
     let mut v_invalid_file = CoreValue::Null;
     let mut v_invalid_image = CoreValue::Null;
@@ -35945,15 +36480,19 @@ fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_is_boolean_type = CoreValue::Null;
     let mut v_is_class_string = CoreValue::Null;
     let mut v_is_class_type = CoreValue::Null;
+    let mut v_is_date_type = CoreValue::Null;
     let mut v_is_file = CoreValue::Null;
     let mut v_is_image = CoreValue::Null;
     let mut v_is_json = CoreValue::Null;
     let mut v_is_json_type = CoreValue::Null;
     let mut v_is_list = CoreValue::Null;
+    let mut v_is_native_date = CoreValue::Null;
     let mut v_is_number = CoreValue::Null;
     let mut v_is_number_type = CoreValue::Null;
     let mut v_is_object = CoreValue::Null;
     let mut v_is_object_type = CoreValue::Null;
+    let mut v_is_range_object = CoreValue::Null;
+    let mut v_is_range_type = CoreValue::Null;
     let mut v_is_string = CoreValue::Null;
     let mut v_is_string_type = CoreValue::Null;
     let mut v_is_url = CoreValue::Null;
@@ -35961,6 +36500,7 @@ fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_item_field = CoreValue::Null;
     let mut v_known_class = CoreValue::Null;
     let mut v_message = CoreValue::Null;
+    let mut v_native_date_value = CoreValue::Null;
     let mut v_nested_fields = CoreValue::Null;
     let mut v_nested_map = CoreValue::Null;
     let mut v_not_boolean = CoreValue::Null;
@@ -35971,6 +36511,8 @@ fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_not_object = CoreValue::Null;
     let mut v_not_string = CoreValue::Null;
     let mut v_options = CoreValue::Null;
+    let mut v_range_object = CoreValue::Null;
+    let mut v_range_types = CoreValue::Null;
     let mut v_string_types = CoreValue::Null;
     let mut v_typ = CoreValue::Null;
     let mut v_type_name = CoreValue::Null;
@@ -36055,6 +36597,29 @@ fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             }
         }
         return Ok(CoreValue::Null);
+    }
+    v_date_types = CoreValue::new_list();
+    core_append(&v_date_types, CoreValue::from("date"))?;
+    core_append(&v_date_types, CoreValue::from("datetime"))?;
+    v_is_date_type = core_contains(&[v_date_types.clone(), v_type_name.clone()])?;
+    v_is_native_date = core_type_is(&v_value, CoreValue::from("date"));
+    v_native_date_value = core_and(&[v_is_date_type.clone(), v_is_native_date.clone()])?;
+    if core_truthy(&v_native_date_value) {
+        return Ok(CoreValue::Null);
+    }
+    v_range_types = CoreValue::new_list();
+    core_append(&v_range_types, CoreValue::from("dateRange"))?;
+    core_append(&v_range_types, CoreValue::from("datetimeRange"))?;
+    v_is_range_type = core_contains(&[v_range_types.clone(), v_type_name.clone()])?;
+    v_is_range_object = core_type_is(&v_value, CoreValue::from("object"));
+    v_range_object = core_and(&[v_is_range_type.clone(), v_is_range_object.clone()])?;
+    if core_truthy(&v_range_object) {
+        v_has_start = core_map_contains(&[v_value.clone(), CoreValue::from("start")])?;
+        v_has_end = core_map_contains(&[v_value.clone(), CoreValue::from("end")])?;
+        v_has_bounds = core_and(&[v_has_start.clone(), v_has_end.clone()])?;
+        if core_truthy(&v_has_bounds) {
+            return Ok(CoreValue::Null);
+        }
     }
     v_string_types = CoreValue::new_list();
     core_append(&v_string_types, CoreValue::from("string"))?;
@@ -62623,6 +63188,52 @@ fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _date_parse_dates_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_parse_dates_option_impl");
+    let mut v_base_options = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_call_options = CoreValue::Null;
+    let mut v_call_snake = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_gen_options = CoreValue::Null;
+    let mut v_gen_parse = CoreValue::Null;
+    let mut v_gen_snake = CoreValue::Null;
+    let mut v_parse = CoreValue::Null;
+    let mut v_parse_dates = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_call_options = core_map_merge(&[v_empty.clone(), v_options.clone()])?;
+    v_gen_options = core_map_merge(&[v_empty.clone(), v_base_options.clone()])?;
+    v_gen_snake = core_get(
+        &v_gen_options,
+        &CoreValue::from("parse_dates"),
+        CoreValue::Bool(false),
+    );
+    v_gen_parse = core_get(
+        &v_gen_options,
+        &CoreValue::from("parseDates"),
+        v_gen_snake.clone(),
+    );
+    v_call_snake = core_get(
+        &v_call_options,
+        &CoreValue::from("parse_dates"),
+        v_gen_parse.clone(),
+    );
+    v_parse = core_get(
+        &v_call_options,
+        &CoreValue::from("parseDates"),
+        v_call_snake.clone(),
+    );
+    v_parse_dates = core_truthy_value(&[v_parse.clone()])?;
+    return Ok(v_parse_dates.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _regex_take(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_take");
     let mut v_s = core_arg(args, 0);
@@ -62784,6 +63395,36 @@ fn _chat_session_argument_equal(args: &[CoreValue]) -> Result<CoreValue, AxError
     }
     v_same = core_eq(&[v_left.clone(), v_right.clone()])?;
     return Ok(v_same.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_is_date_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_is_date_type_impl");
+    let mut v_name = core_arg(args, 0);
+    let mut v_is_date = CoreValue::Null;
+    let mut v_is_date_range = CoreValue::Null;
+    let mut v_is_datetime = CoreValue::Null;
+    let mut v_is_datetime_range = CoreValue::Null;
+    v_is_date = core_eq(&[v_name.clone(), CoreValue::from("date")])?;
+    if core_truthy(&v_is_date) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_is_datetime = core_eq(&[v_name.clone(), CoreValue::from("datetime")])?;
+    if core_truthy(&v_is_datetime) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_is_date_range = core_eq(&[v_name.clone(), CoreValue::from("dateRange")])?;
+    if core_truthy(&v_is_date_range) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_is_datetime_range = core_eq(&[v_name.clone(), CoreValue::from("datetimeRange")])?;
+    return Ok(v_is_datetime_range.clone());
 }
 
 #[allow(
@@ -63202,6 +63843,101 @@ fn _regex_hexdigit(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _date_parse_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_parse_fields_impl");
+    let mut v_fields = core_arg(args, 0);
+    let mut v_base_options = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_cached = CoreValue::Null;
+    let mut v_dated = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_copy = CoreValue::Null;
+    let mut v_internal = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_off = CoreValue::Null;
+    let mut v_optional = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parse_dates = CoreValue::Null;
+    let mut v_plain = CoreValue::Null;
+    let mut v_title = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_parse_dates = _date_parse_dates_option_impl(&[v_base_options.clone(), v_options.clone()])?;
+    v_off = core_not(&[v_parse_dates.clone()])?;
+    if core_truthy(&v_off) {
+        return Ok(v_fields.clone());
+    }
+    v_out = CoreValue::new_list();
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+        v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::from("string"));
+        v_dated = _date_is_date_type_impl(&[v_type_name.clone()])?;
+        v_plain = core_not(&[v_dated.clone()])?;
+        if core_truthy(&v_plain) {
+            core_append(&v_out, v_field.clone())?;
+            continue;
+        }
+        v_field_copy = CoreValue::new_map();
+        v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+        core_set(&v_field_copy, CoreValue::from("name"), v_name.clone())?;
+        v_title = _stream_field_title_impl(&[v_field.clone()])?;
+        core_set(&v_field_copy, CoreValue::from("title"), v_title.clone())?;
+        v_description = core_get(&v_field, &CoreValue::from("description"), CoreValue::Null);
+        core_set(
+            &v_field_copy,
+            CoreValue::from("description"),
+            v_description.clone(),
+        )?;
+        core_set(&v_field_copy, CoreValue::from("type"), v_typ.clone())?;
+        v_optional = _stream_field_flag_impl(&[
+            v_field.clone(),
+            CoreValue::from("is_optional"),
+            CoreValue::from("isOptional"),
+        ])?;
+        core_set(
+            &v_field_copy,
+            CoreValue::from("is_optional"),
+            v_optional.clone(),
+        )?;
+        v_internal = _stream_field_flag_impl(&[
+            v_field.clone(),
+            CoreValue::from("is_internal"),
+            CoreValue::from("isInternal"),
+        ])?;
+        core_set(
+            &v_field_copy,
+            CoreValue::from("is_internal"),
+            v_internal.clone(),
+        )?;
+        v_cached = _stream_field_flag_impl(&[
+            v_field.clone(),
+            CoreValue::from("is_cached"),
+            CoreValue::from("isCached"),
+        ])?;
+        core_set(
+            &v_field_copy,
+            CoreValue::from("is_cached"),
+            v_cached.clone(),
+        )?;
+        core_set(
+            &v_field_copy,
+            CoreValue::from("parse_dates"),
+            CoreValue::Bool(true),
+        )?;
+        core_append(&v_out, v_field_copy.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _regex_node(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_node");
     let mut v_k = core_arg(args, 0);
@@ -63209,6 +63945,142 @@ fn _regex_node(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_t1 = CoreValue::new_map();
     core_set(&v_t1, CoreValue::from("k"), v_k.clone())?;
     return Ok(v_t1.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_convert_field_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_convert_field_value_impl");
+    let mut v_field = core_arg(args, 0);
+    let mut v_type_name = core_arg(args, 1);
+    let mut v_value = core_arg(args, 2);
+    let mut v_may_skip = core_arg(args, 3);
+    let mut v_end_iso = CoreValue::Null;
+    let mut v_end_millis = CoreValue::Null;
+    let mut v_is_date = CoreValue::Null;
+    let mut v_is_date_range = CoreValue::Null;
+    let mut v_is_datetime = CoreValue::Null;
+    let mut v_iso = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_millis = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_range_detail = CoreValue::Null;
+    let mut v_range_error = CoreValue::Null;
+    let mut v_range_invalid = CoreValue::Null;
+    let mut v_range_is_text = CoreValue::Null;
+    let mut v_range_message = CoreValue::Null;
+    let mut v_range_millis = CoreValue::Null;
+    let mut v_range_text = CoreValue::Null;
+    let mut v_range_value = CoreValue::Null;
+    let mut v_single = CoreValue::Null;
+    let mut v_single_detail = CoreValue::Null;
+    let mut v_single_error = CoreValue::Null;
+    let mut v_single_invalid = CoreValue::Null;
+    let mut v_single_message = CoreValue::Null;
+    let mut v_start_iso = CoreValue::Null;
+    let mut v_start_millis = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_title = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("has"), CoreValue::Bool(true))?;
+    v_title = _stream_field_title_impl(&[v_field.clone()])?;
+    v_is_date = core_eq(&[v_type_name.clone(), CoreValue::from("date")])?;
+    v_is_datetime = core_eq(&[v_type_name.clone(), CoreValue::from("datetime")])?;
+    v_is_date_range = core_eq(&[v_type_name.clone(), CoreValue::from("dateRange")])?;
+    v_single = core_or(&[v_is_date.clone(), v_is_datetime.clone()])?;
+    if core_truthy(&v_single) {
+        v_text = _stream_js_string_impl(&[v_value.clone()])?;
+        v_millis = CoreValue::Num(0f64);
+        let __core_try: Result<CoreFlow, AxError> = (|| {
+            if core_truthy(&v_is_date) {
+                v_millis = _date_parse_date_impl(&[v_text.clone()])?;
+            } else {
+                v_millis = _date_parse_datetime_impl(&[v_text.clone()])?;
+            }
+            Ok(CoreFlow::Normal)
+        })();
+        match __core_try {
+            Ok(CoreFlow::Normal) => {}
+            Ok(CoreFlow::Return(value)) => return Ok(value),
+            Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+            Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+            Err(__core_caught) => {
+                v_single_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                if core_truthy(&v_may_skip) {
+                    core_set(&v_out, CoreValue::from("has"), CoreValue::Bool(false))?;
+                    return Ok(v_out.clone());
+                }
+                v_single_detail = core_exception_message(&[v_single_error.clone()])?;
+                v_single_message = _date_error_message_impl(&[
+                    v_type_name.clone(),
+                    v_title.clone(),
+                    v_single_detail.clone(),
+                    v_text.clone(),
+                ])?;
+                v_single_invalid = core_runtime_error(&[v_single_message.clone()])?;
+                return Err(core_as_error(&v_single_invalid));
+            }
+        }
+        v_iso = _date_iso_impl(&[v_millis.clone()])?;
+        core_set(&v_out, CoreValue::from("value"), v_iso.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_kind = CoreValue::from("datetime");
+    if core_truthy(&v_is_date_range) {
+        v_kind = CoreValue::from("date");
+    }
+    v_range_millis = CoreValue::new_map();
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_range_millis = _date_parse_range_impl(&[v_value.clone(), v_kind.clone()])?;
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_range_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            if core_truthy(&v_may_skip) {
+                core_set(&v_out, CoreValue::from("has"), CoreValue::Bool(false))?;
+                return Ok(v_out.clone());
+            }
+            v_range_detail = core_exception_message(&[v_range_error.clone()])?;
+            v_range_text = CoreValue::from("");
+            v_range_is_text = core_type_is(&v_value, CoreValue::from("string"));
+            if core_truthy(&v_range_is_text) {
+                v_range_text = v_value.clone();
+            } else {
+                v_range_text = _date_js_json_impl(&[v_value.clone()])?;
+            }
+            v_range_message = _date_error_message_impl(&[
+                v_type_name.clone(),
+                v_title.clone(),
+                v_range_detail.clone(),
+                v_range_text.clone(),
+            ])?;
+            v_range_invalid = core_runtime_error(&[v_range_message.clone()])?;
+            return Err(core_as_error(&v_range_invalid));
+        }
+    }
+    v_start_millis = core_get(&v_range_millis, &CoreValue::from("start"), CoreValue::Null);
+    v_end_millis = core_get(&v_range_millis, &CoreValue::from("end"), CoreValue::Null);
+    v_range_value = CoreValue::new_map();
+    v_start_iso = _date_iso_impl(&[v_start_millis.clone()])?;
+    core_set(
+        &v_range_value,
+        CoreValue::from("start"),
+        v_start_iso.clone(),
+    )?;
+    v_end_iso = _date_iso_impl(&[v_end_millis.clone()])?;
+    core_set(&v_range_value, CoreValue::from("end"), v_end_iso.clone())?;
+    core_set(&v_out, CoreValue::from("value"), v_range_value.clone())?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -64448,6 +65320,56 @@ fn _validate_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
+fn _date_error_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_error_message_impl");
+    let mut v_type_name = core_arg(args, 0);
+    let mut v_title = core_arg(args, 1);
+    let mut v_detail = core_arg(args, 2);
+    let mut v_provided = core_arg(args, 3);
+    let mut v_advice = CoreValue::Null;
+    let mut v_is_date = CoreValue::Null;
+    let mut v_is_date_range = CoreValue::Null;
+    let mut v_is_datetime = CoreValue::Null;
+    let mut v_lead = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_pieces = CoreValue::Null;
+    v_lead = CoreValue::from("Invalid date/time range for '");
+    v_advice = CoreValue::from(". Prefer JSON like {\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00Z\"} or an ISO interval like 2024-05-09T14:30:00Z/2024-05-09T15:30:00Z. You provided: ");
+    v_is_date = core_eq(&[v_type_name.clone(), CoreValue::from("date")])?;
+    if core_truthy(&v_is_date) {
+        v_lead = CoreValue::from("Invalid date for '");
+        v_advice =
+            CoreValue::from(". Use the exact format YYYY-MM-DD (e.g., 2024-05-09). You provided: ");
+    }
+    v_is_datetime = core_eq(&[v_type_name.clone(), CoreValue::from("datetime")])?;
+    if core_truthy(&v_is_datetime) {
+        v_lead = CoreValue::from("Invalid date/time for '");
+        v_advice = CoreValue::from(". Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: ");
+    }
+    v_is_date_range = core_eq(&[v_type_name.clone(), CoreValue::from("dateRange")])?;
+    if core_truthy(&v_is_date_range) {
+        v_lead = CoreValue::from("Invalid date range for '");
+        v_advice = CoreValue::from(". Prefer JSON like {\"start\":\"2024-05-09\",\"end\":\"2024-05-12\"} or an interval like 2024-05-09/2024-05-12. You provided: ");
+    }
+    v_pieces = CoreValue::new_list();
+    core_append(&v_pieces, v_lead.clone())?;
+    core_append(&v_pieces, v_title.clone())?;
+    core_append(&v_pieces, CoreValue::from("': "))?;
+    core_append(&v_pieces, v_detail.clone())?;
+    core_append(&v_pieces, v_advice.clone())?;
+    core_append(&v_pieces, v_provided.clone())?;
+    core_append(&v_pieces, CoreValue::from("."))?;
+    v_message = core_string_join(&CoreValue::from(""), &v_pieces)?;
+    return Ok(v_message.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_trim_end_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_trim_end_impl");
     let mut v_text = core_arg(args, 0);
@@ -64467,6 +65389,66 @@ fn _stream_trim_end_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_end = core_add(&[v_lead.clone(), v_trimmed_length.clone()])?;
     v_out = core_string_slice(&[v_text.clone(), CoreValue::Num(0f64), v_end.clone()])?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_parse_date_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_parse_date_impl");
+    let mut v_text = core_arg(args, 0);
+    let mut v_bounds = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_different = CoreValue::Null;
+    let mut v_end = CoreValue::Null;
+    let mut v_format_error = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_length_error = CoreValue::Null;
+    let mut v_millis = CoreValue::Null;
+    let mut v_negative_start = CoreValue::Null;
+    let mut v_no_parts = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_round = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_shape_error = CoreValue::Null;
+    let mut v_start = CoreValue::Null;
+    let mut v_units = CoreValue::Null;
+    let mut v_value_error = CoreValue::Null;
+    let mut v_wrong_length = CoreValue::Null;
+    v_format_error =
+        CoreValue::from("Invalid date format. Please provide the date in \"YYYY-MM-DD\" format.");
+    v_units = core_string_utf16_units(&[v_text.clone()])?;
+    v_count = core_len(&[v_units.clone()])?;
+    v_bounds = _date_trim_bounds_impl(&[v_units.clone(), CoreValue::Num(0f64), v_count.clone()])?;
+    v_start = core_get(&v_bounds, &CoreValue::from("start"), CoreValue::Null);
+    v_end = core_get(&v_bounds, &CoreValue::from("end"), CoreValue::Null);
+    v_length = core_add(&[v_end.clone(), CoreValue::Num(0f64)])?;
+    v_negative_start = core_mul(&[v_start.clone(), CoreValue::Num(-1f64)])?;
+    v_length = core_add(&[v_length.clone(), v_negative_start.clone()])?;
+    v_wrong_length = core_ne(&[v_length.clone(), CoreValue::Num(10f64)])?;
+    if core_truthy(&v_wrong_length) {
+        v_length_error = core_runtime_error(&[v_format_error.clone()])?;
+        return Err(core_as_error(&v_length_error));
+    }
+    v_parts = _date_scan_date_impl(&[v_units.clone(), v_start.clone()])?;
+    v_no_parts = core_is_none(&[v_parts.clone()])?;
+    if core_truthy(&v_no_parts) {
+        v_shape_error = core_runtime_error(&[v_format_error.clone()])?;
+        return Err(core_as_error(&v_shape_error));
+    }
+    v_millis = _date_utc_ms_impl(&[v_parts.clone()])?;
+    v_round = _date_parts_of_ms_impl(&[v_millis.clone()])?;
+    v_same = _date_same_day_impl(&[v_round.clone(), v_parts.clone()])?;
+    v_different = core_not(&[v_same.clone()])?;
+    if core_truthy(&v_different) {
+        v_value_error = core_runtime_error(&[v_format_error.clone()])?;
+        return Err(core_as_error(&v_value_error));
+    }
+    return Ok(v_millis.clone());
 }
 
 #[allow(
@@ -65139,6 +66121,44 @@ fn _deserialize_optimized_artifact(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
+fn _date_parse_datetime_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_parse_datetime_impl");
+    let mut v_text = core_arg(args, 0);
+    let mut v_bounds = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_end = CoreValue::Null;
+    let mut v_matched = CoreValue::Null;
+    let mut v_named = CoreValue::Null;
+    let mut v_offset_millis = CoreValue::Null;
+    let mut v_start = CoreValue::Null;
+    let mut v_units = CoreValue::Null;
+    v_units = core_string_utf16_units(&[v_text.clone()])?;
+    v_count = core_len(&[v_units.clone()])?;
+    v_bounds = _date_trim_bounds_impl(&[v_units.clone(), CoreValue::Num(0f64), v_count.clone()])?;
+    v_start = core_get(&v_bounds, &CoreValue::from("start"), CoreValue::Null);
+    v_end = core_get(&v_bounds, &CoreValue::from("end"), CoreValue::Null);
+    v_offset_millis =
+        _date_parse_offset_datetime_impl(&[v_units.clone(), v_start.clone(), v_end.clone()])?;
+    v_matched = core_is_not_none(&[v_offset_millis.clone()])?;
+    if core_truthy(&v_matched) {
+        return Ok(v_offset_millis.clone());
+    }
+    v_named = _date_parse_named_datetime_impl(&[
+        v_text.clone(),
+        v_units.clone(),
+        v_start.clone(),
+        v_end.clone(),
+    ])?;
+    return Ok(v_named.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_field_labels_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_field_labels_impl");
     let mut v_field = core_arg(args, 0);
@@ -65288,6 +66308,59 @@ fn _append_structured_output_instruction(args: &[CoreValue]) -> Result<CoreValue
     unreachable_code,
     clippy::all
 )]
+fn _date_parse_offset_datetime_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_parse_offset_datetime_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_start = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_cursor = CoreValue::Null;
+    let mut v_format_error = CoreValue::Null;
+    let mut v_local = CoreValue::Null;
+    let mut v_millis = CoreValue::Null;
+    let mut v_no_offset = CoreValue::Null;
+    let mut v_no_prefix = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_offset = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    let mut v_shift = CoreValue::Null;
+    let mut v_zone_bad = CoreValue::Null;
+    let mut v_zone_ok = CoreValue::Null;
+    let mut v_zone_start = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_prefix = _date_scan_datetime_impl(&[v_units.clone(), v_start.clone(), v_end.clone()])?;
+    v_no_prefix = core_is_none(&[v_prefix.clone()])?;
+    if core_truthy(&v_no_prefix) {
+        return Ok(v_none.clone());
+    }
+    v_cursor = core_get(&v_prefix, &CoreValue::from("end"), CoreValue::Null);
+    v_zone_start = _date_skip_space_impl(&[v_units.clone(), v_cursor.clone(), v_end.clone()])?;
+    v_zone_ok =
+        _date_offset_zone_matches_impl(&[v_units.clone(), v_zone_start.clone(), v_end.clone()])?;
+    v_zone_bad = core_not(&[v_zone_ok.clone()])?;
+    if core_truthy(&v_zone_bad) {
+        return Ok(v_none.clone());
+    }
+    v_offset = _date_offset_minutes_impl(&[v_units.clone(), v_zone_start.clone(), v_end.clone()])?;
+    v_no_offset = core_is_none(&[v_offset.clone()])?;
+    if core_truthy(&v_no_offset) {
+        v_format_error = _date_datetime_format_error_impl(&[])?;
+        return Err(core_as_error(&v_format_error));
+    }
+    v_parts = _date_datetime_parts_impl(&[v_prefix.clone()])?;
+    v_local = _date_utc_ms_impl(&[v_parts.clone()])?;
+    v_shift = core_mul(&[v_offset.clone(), CoreValue::Num(-60000f64)])?;
+    v_millis = core_add(&[v_local.clone(), v_shift.clone()])?;
+    return Ok(v_millis.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_matches_content_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_matches_content_impl");
     let mut v_content = core_arg(args, 0);
@@ -65424,6 +66497,112 @@ fn _assert_no_reserved_output_functions(args: &[CoreValue]) -> Result<CoreValue,
         }
     }
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_parse_named_datetime_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_parse_named_datetime_impl");
+    let mut v_text = core_arg(args, 0);
+    let mut v_units = core_arg(args, 1);
+    let mut v_start = core_arg(args, 2);
+    let mut v_end = core_arg(args, 3);
+    let mut v_abbreviation = CoreValue::Null;
+    let mut v_abbreviation_millis = CoreValue::Null;
+    let mut v_abbreviation_shift = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_empty_zone = CoreValue::Null;
+    let mut v_format_error = CoreValue::Null;
+    let mut v_has_abbreviation = CoreValue::Null;
+    let mut v_has_offset = CoreValue::Null;
+    let mut v_local = CoreValue::Null;
+    let mut v_millis = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_no_prefix = CoreValue::Null;
+    let mut v_no_space = CoreValue::Null;
+    let mut v_offset = CoreValue::Null;
+    let mut v_offset_millis = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    let mut v_resolved = CoreValue::Null;
+    let mut v_scan = CoreValue::Null;
+    let mut v_scan_done = CoreValue::Null;
+    let mut v_shift = CoreValue::Null;
+    let mut v_terminator = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    let mut v_zone = CoreValue::Null;
+    let mut v_zone_from = CoreValue::Null;
+    let mut v_zone_start = CoreValue::Null;
+    let mut v_zone_to = CoreValue::Null;
+    v_format_error = _date_datetime_format_error_impl(&[])?;
+    v_prefix = _date_scan_datetime_impl(&[v_units.clone(), v_start.clone(), v_end.clone()])?;
+    v_no_prefix = core_is_none(&[v_prefix.clone()])?;
+    if core_truthy(&v_no_prefix) {
+        return Err(core_as_error(&v_format_error));
+    }
+    v_cursor = core_get(&v_prefix, &CoreValue::from("end"), CoreValue::Null);
+    v_zone_start = _date_skip_space_impl(&[v_units.clone(), v_cursor.clone(), v_end.clone()])?;
+    v_no_space = core_eq(&[v_zone_start.clone(), v_cursor.clone()])?;
+    if core_truthy(&v_no_space) {
+        return Err(core_as_error(&v_format_error));
+    }
+    v_empty_zone = core_gte(&[v_zone_start.clone(), v_end.clone()])?;
+    if core_truthy(&v_empty_zone) {
+        return Err(core_as_error(&v_format_error));
+    }
+    v_scan = v_zone_start.clone();
+    loop {
+        v_scan_done = core_gte(&[v_scan.clone(), v_end.clone()])?;
+        if core_truthy(&v_scan_done) {
+            break;
+        }
+        v_unit = core_get(&v_units, &v_scan.clone(), CoreValue::Num(0f64));
+        v_terminator = _date_is_line_terminator_impl(&[v_unit.clone()])?;
+        if core_truthy(&v_terminator) {
+            return Err(core_as_error(&v_format_error));
+        }
+        v_scan = core_add(&[v_scan.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_mode = _date_string_mode_impl(&[])?;
+    v_zone_from =
+        _date_native_offset_impl(&[v_units.clone(), v_zone_start.clone(), v_mode.clone()])?;
+    v_zone_to = _date_native_offset_impl(&[v_units.clone(), v_end.clone(), v_mode.clone()])?;
+    v_zone = core_string_slice(&[v_text.clone(), v_zone_from.clone(), v_zone_to.clone()])?;
+    v_offset = _date_offset_minutes_impl(&[v_units.clone(), v_zone_start.clone(), v_end.clone()])?;
+    v_parts = _date_datetime_parts_impl(&[v_prefix.clone()])?;
+    v_local = _date_utc_ms_impl(&[v_parts.clone()])?;
+    v_has_offset = core_is_not_none(&[v_offset.clone()])?;
+    if core_truthy(&v_has_offset) {
+        v_shift = core_mul(&[v_offset.clone(), CoreValue::Num(-60000f64)])?;
+        v_offset_millis = core_add(&[v_local.clone(), v_shift.clone()])?;
+        return Ok(v_offset_millis.clone());
+    }
+    v_abbreviation = _date_abbreviation_offset_impl(&[
+        v_units.clone(),
+        v_zone_start.clone(),
+        v_end.clone(),
+        v_zone.clone(),
+    ])?;
+    v_has_abbreviation = core_is_not_none(&[v_abbreviation.clone()])?;
+    if core_truthy(&v_has_abbreviation) {
+        v_abbreviation_shift = core_mul(&[v_abbreviation.clone(), CoreValue::Num(-60000f64)])?;
+        v_abbreviation_millis = core_add(&[v_local.clone(), v_abbreviation_shift.clone()])?;
+        return Ok(v_abbreviation_millis.clone());
+    }
+    v_resolved = _date_zone_resolve_impl(&[
+        v_units.clone(),
+        v_zone_start.clone(),
+        v_end.clone(),
+        v_zone.clone(),
+        v_local.clone(),
+    ])?;
+    v_millis = _date_named_timestamp_impl(&[v_parts.clone(), v_resolved.clone()])?;
+    return Ok(v_millis.clone());
 }
 
 #[allow(
@@ -65827,6 +67006,20 @@ fn _apply_model_config_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
+fn _date_datetime_format_error_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_datetime_format_error_impl");
+    let mut v_error = CoreValue::Null;
+    v_error = core_runtime_error(&[CoreValue::from("Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.")])?;
+    return Ok(v_error.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _adjust_optimization_score_for_actions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_adjust_optimization_score_for_actions");
     let mut v_score = core_arg(args, 0);
@@ -65913,6 +67106,89 @@ fn _adjust_optimization_score_for_actions(args: &[CoreValue]) -> Result<CoreValu
         }
     }
     return Ok(v_adjusted.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_values_error_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_values_error_impl");
+    let mut v_error = CoreValue::Null;
+    v_error = core_runtime_error(&[CoreValue::from(
+        "Invalid date and time values. Please ensure all components are correct.",
+    )])?;
+    return Ok(v_error.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_datetime_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_datetime_parts_impl");
+    let mut v_prefix = core_arg(args, 0);
+    let mut v_bad_clock = CoreValue::Null;
+    let mut v_bad_hour = CoreValue::Null;
+    let mut v_bad_minute = CoreValue::Null;
+    let mut v_bad_second = CoreValue::Null;
+    let mut v_calendar_error = CoreValue::Null;
+    let mut v_clock_error = CoreValue::Null;
+    let mut v_day = CoreValue::Null;
+    let mut v_different = CoreValue::Null;
+    let mut v_hour = CoreValue::Null;
+    let mut v_millis = CoreValue::Null;
+    let mut v_millisecond = CoreValue::Null;
+    let mut v_minute = CoreValue::Null;
+    let mut v_month = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_round = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_second = CoreValue::Null;
+    let mut v_year = CoreValue::Null;
+    v_parts = CoreValue::new_map();
+    v_year = core_get(&v_prefix, &CoreValue::from("year"), CoreValue::Null);
+    core_set(&v_parts, CoreValue::from("year"), v_year.clone())?;
+    v_month = core_get(&v_prefix, &CoreValue::from("month"), CoreValue::Null);
+    core_set(&v_parts, CoreValue::from("month"), v_month.clone())?;
+    v_day = core_get(&v_prefix, &CoreValue::from("day"), CoreValue::Null);
+    core_set(&v_parts, CoreValue::from("day"), v_day.clone())?;
+    v_hour = core_get(&v_prefix, &CoreValue::from("hour"), CoreValue::Null);
+    core_set(&v_parts, CoreValue::from("hour"), v_hour.clone())?;
+    v_minute = core_get(&v_prefix, &CoreValue::from("minute"), CoreValue::Null);
+    core_set(&v_parts, CoreValue::from("minute"), v_minute.clone())?;
+    v_second = core_get(&v_prefix, &CoreValue::from("second"), CoreValue::Null);
+    core_set(&v_parts, CoreValue::from("second"), v_second.clone())?;
+    v_millisecond = core_get(&v_prefix, &CoreValue::from("millisecond"), CoreValue::Null);
+    core_set(
+        &v_parts,
+        CoreValue::from("millisecond"),
+        v_millisecond.clone(),
+    )?;
+    v_bad_hour = core_gt(&[v_hour.clone(), CoreValue::Num(23f64)])?;
+    v_bad_minute = core_gt(&[v_minute.clone(), CoreValue::Num(59f64)])?;
+    v_bad_second = core_gt(&[v_second.clone(), CoreValue::Num(59f64)])?;
+    v_bad_clock = core_or(&[v_bad_hour.clone(), v_bad_minute.clone()])?;
+    v_bad_clock = core_or(&[v_bad_clock.clone(), v_bad_second.clone()])?;
+    if core_truthy(&v_bad_clock) {
+        v_clock_error = _date_values_error_impl(&[])?;
+        return Err(core_as_error(&v_clock_error));
+    }
+    v_millis = _date_utc_ms_impl(&[v_parts.clone()])?;
+    v_round = _date_parts_of_ms_impl(&[v_millis.clone()])?;
+    v_same = _date_same_parts_impl(&[v_round.clone(), v_parts.clone()])?;
+    v_different = core_not(&[v_same.clone()])?;
+    if core_truthy(&v_different) {
+        v_calendar_error = _date_values_error_impl(&[])?;
+        return Err(core_as_error(&v_calendar_error));
+    }
+    return Ok(v_parts.clone());
 }
 
 #[allow(
@@ -66585,6 +67861,101 @@ fn chat_session_observe_output(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
+fn _date_abbreviation_offset_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_abbreviation_offset_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_start = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_zone = core_arg(args, 3);
+    let mut v_abbreviation = CoreValue::Null;
+    let mut v_abbreviations = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_empty_offsets = CoreValue::Null;
+    let mut v_empty_rejected = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_is_rejected = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_letter = CoreValue::Null;
+    let mut v_lowered = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_message_pieces = CoreValue::Null;
+    let mut v_minutes = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_letter = CoreValue::Null;
+    let mut v_offsets = CoreValue::Null;
+    let mut v_rejected = CoreValue::Null;
+    let mut v_rejected_abbreviation = CoreValue::Null;
+    let mut v_rejected_lowered = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_tables = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_cursor = v_start.clone();
+    loop {
+        v_done = core_gte(&[v_cursor.clone(), v_end.clone()])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_unit = core_get(&v_units, &v_cursor.clone(), CoreValue::Num(0f64));
+        v_letter = _date_ascii_letter_impl(&[v_unit.clone()])?;
+        v_not_letter = core_not(&[v_letter.clone()])?;
+        if core_truthy(&v_not_letter) {
+            return Ok(v_none.clone());
+        }
+        v_cursor = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_key = core_string_lower(&[v_zone.clone()])?;
+    v_tables = core_json_parse(&[CoreValue::from("{\n  \"generator\": \"tools/axir/extractors/date-goldens.ts\",\n  \"source\": \"src/ax/dsp/datetime.ts\",\n  \"offsets_minutes\": {\n    \"ACDT\": 630,\n    \"ACST\": 570,\n    \"ADT\": -180,\n    \"AEDT\": 660,\n    \"AEST\": 600,\n    \"AKDT\": -480,\n    \"AKST\": -540,\n    \"ART\": -180,\n    \"AWST\": 480,\n    \"BRT\": -180,\n    \"CAT\": 120,\n    \"CDT\": -300,\n    \"CEST\": 120,\n    \"CET\": 60,\n    \"EAT\": 180,\n    \"EDT\": -240,\n    \"EEST\": 180,\n    \"EET\": 120,\n    \"EST\": -300,\n    \"HDT\": -540,\n    \"HKT\": 480,\n    \"HST\": -600,\n    \"JST\": 540,\n    \"KST\": 540,\n    \"MDT\": -360,\n    \"MSK\": 180,\n    \"MST\": -420,\n    \"NDT\": -150,\n    \"NPT\": 345,\n    \"NZDT\": 780,\n    \"NZST\": 720,\n    \"PDT\": -420,\n    \"PKT\": 300,\n    \"PST\": -480,\n    \"SAST\": 120,\n    \"SGT\": 480,\n    \"WAT\": 60,\n    \"WEST\": 60,\n    \"WET\": 0,\n    \"WIB\": 420\n  },\n  \"rejected\": [\n    \"ACT\",\n    \"AET\",\n    \"AGT\",\n    \"AST\",\n    \"BET\",\n    \"BST\",\n    \"CNT\",\n    \"CST\",\n    \"CTT\",\n    \"ECT\",\n    \"GST\",\n    \"IET\",\n    \"IST\",\n    \"MIT\",\n    \"NET\",\n    \"NST\",\n    \"PLT\",\n    \"PNT\",\n    \"PRT\",\n    \"SST\",\n    \"VST\"\n  ]\n}\n")])?;
+    v_empty_offsets = CoreValue::new_map();
+    v_offsets = core_get(
+        &v_tables,
+        &CoreValue::from("offsets_minutes"),
+        v_empty_offsets.clone(),
+    );
+    v_abbreviations = core_map_keys(&[v_offsets.clone()])?;
+    for v_abbreviation in core_iter(&v_abbreviations)? {
+        let mut v_abbreviation = v_abbreviation;
+        v_lowered = core_string_lower(&[v_abbreviation.clone()])?;
+        v_same = core_eq(&[v_lowered.clone(), v_key.clone()])?;
+        if core_truthy(&v_same) {
+            v_minutes = core_get(&v_offsets, &v_abbreviation.clone(), CoreValue::Null);
+            return Ok(v_minutes.clone());
+        }
+    }
+    v_empty_rejected = CoreValue::new_list();
+    v_rejected = core_get(
+        &v_tables,
+        &CoreValue::from("rejected"),
+        v_empty_rejected.clone(),
+    );
+    for v_rejected_abbreviation in core_iter(&v_rejected)? {
+        let mut v_rejected_abbreviation = v_rejected_abbreviation;
+        v_rejected_lowered = core_string_lower(&[v_rejected_abbreviation.clone()])?;
+        v_is_rejected = core_eq(&[v_rejected_lowered.clone(), v_key.clone()])?;
+        if core_truthy(&v_is_rejected) {
+            v_message_pieces = CoreValue::new_list();
+            core_append(
+                &v_message_pieces,
+                CoreValue::from("Ambiguous or unsupported time zone abbreviation \""),
+            )?;
+            core_append(&v_message_pieces, v_zone.clone())?;
+            core_append(&v_message_pieces, CoreValue::from("\". Please provide an IANA time zone name or a UTC offset. For example, \"Europe/London\" or \"+01:00\"."))?;
+            v_message = core_string_join(&CoreValue::from(""), &v_message_pieces)?;
+            v_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_markdown_list_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_markdown_list_impl");
     let mut v_input = core_arg(args, 0);
@@ -66763,6 +68134,130 @@ fn chat_session_apply_boundary_updates(args: &[CoreValue]) -> Result<CoreValue, 
     core_set(&v_result, CoreValue::from("level"), v_current_level.clone())?;
     core_set(&v_result, CoreValue::from("applied"), v_applied.clone())?;
     return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_zone_resolve_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_zone_resolve_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_start = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_zone = core_arg(args, 3);
+    let mut v_probe = core_arg(args, 4);
+    let mut v_candidate = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_empty_group = CoreValue::Null;
+    let mut v_empty_keys = CoreValue::Null;
+    let mut v_empty_zones = CoreValue::Null;
+    let mut v_fixed = CoreValue::Null;
+    let mut v_fixed_seconds = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_group_index = CoreValue::Null;
+    let mut v_is_fixed = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_missing_error = CoreValue::Null;
+    let mut v_non_ascii = CoreValue::Null;
+    let mut v_non_ascii_error = CoreValue::Null;
+    let mut v_resolved = CoreValue::Null;
+    let mut v_table = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    let mut v_unknown = CoreValue::Null;
+    let mut v_unknown_error = CoreValue::Null;
+    let mut v_unrecognized = CoreValue::Null;
+    let mut v_unrecognized_pieces = CoreValue::Null;
+    let mut v_works = CoreValue::Null;
+    let mut v_zone_error = CoreValue::Null;
+    let mut v_zones = CoreValue::Null;
+    v_resolved = CoreValue::new_map();
+    v_fixed = _date_offset_zone_minutes_impl(&[v_units.clone(), v_start.clone(), v_end.clone()])?;
+    v_is_fixed = core_is_not_none(&[v_fixed.clone()])?;
+    if core_truthy(&v_is_fixed) {
+        core_set(
+            &v_resolved,
+            CoreValue::from("kind"),
+            CoreValue::from("fixed"),
+        )?;
+        v_fixed_seconds = core_mul(&[v_fixed.clone(), CoreValue::Num(60f64)])?;
+        core_set(
+            &v_resolved,
+            CoreValue::from("offset_seconds"),
+            v_fixed_seconds.clone(),
+        )?;
+        return Ok(v_resolved.clone());
+    }
+    v_unrecognized_pieces = CoreValue::new_list();
+    core_append(
+        &v_unrecognized_pieces,
+        CoreValue::from("Unrecognized time zone "),
+    )?;
+    core_append(&v_unrecognized_pieces, v_zone.clone())?;
+    core_append(&v_unrecognized_pieces, CoreValue::from(". Please provide a valid time zone name, abbreviation, or offset. For example, \"America/New_York\", \"EST\", or \"+05:30\"."))?;
+    v_unrecognized = core_string_join(&CoreValue::from(""), &v_unrecognized_pieces)?;
+    v_cursor = v_start.clone();
+    loop {
+        v_done = core_gte(&[v_cursor.clone(), v_end.clone()])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_unit = core_get(&v_units, &v_cursor.clone(), CoreValue::Num(0f64));
+        v_non_ascii = core_gt(&[v_unit.clone(), CoreValue::Num(127f64)])?;
+        if core_truthy(&v_non_ascii) {
+            v_non_ascii_error = core_runtime_error(&[v_unrecognized.clone()])?;
+            return Err(core_as_error(&v_non_ascii_error));
+        }
+        v_cursor = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_key = core_string_lower(&[v_zone.clone()])?;
+    v_table = core_json_parse(&[CoreValue::from("{\"generator\":\"tools/axir/extractors/date-goldens.ts\",\"source\":{\"node\":\"v26.7.0\",\"icu\":\"78.3\",\"tz\":\"2026a\",\"tzdata_candidates\":\"2026b-rearguard\"},\"keys\":{\"africa/abidjan\":0,\"africa/accra\":1,\"africa/addis_ababa\":2,\"africa/algiers\":3,\"africa/asmera\":4,\"africa/asmara\":4,\"africa/bamako\":5,\"africa/timbuktu\":5,\"africa/bangui\":6,\"africa/banjul\":7,\"africa/bissau\":8,\"africa/blantyre\":9,\"africa/brazzaville\":10,\"africa/bujumbura\":11,\"africa/cairo\":12,\"egypt\":12,\"africa/casablanca\":13,\"africa/ceuta\":14,\"africa/conakry\":15,\"africa/dakar\":16,\"africa/dar_es_salaam\":17,\"africa/djibouti\":18,\"africa/douala\":19,\"africa/el_aaiun\":20,\"africa/freetown\":21,\"africa/gaborone\":22,\"africa/harare\":23,\"africa/johannesburg\":24,\"africa/juba\":25,\"africa/kampala\":26,\"africa/khartoum\":27,\"africa/kigali\":28,\"africa/kinshasa\":29,\"africa/lagos\":30,\"africa/libreville\":31,\"africa/lome\":32,\"africa/luanda\":33,\"africa/lubumbashi\":34,\"africa/lusaka\":35,\"africa/malabo\":36,\"africa/maputo\":37,\"africa/maseru\":38,\"africa/mbabane\":39,\"africa/mogadishu\":40,\"africa/monrovia\":41,\"africa/nairobi\":42,\"africa/ndjamena\":43,\"africa/niamey\":44,\"africa/nouakchott\":45,\"africa/ouagadougou\":46,\"africa/porto-novo\":47,\"africa/sao_tome\":48,\"africa/tripoli\":49,\"libya\":49,\"africa/tunis\":50,\"africa/windhoek\":51,\"america/adak\":52,\"america/atka\":52,\"us/aleutian\":52,\"america/anchorage\":53,\"us/alaska\":53,\"america/anguilla\":54,\"america/antigua\":55,\"america/araguaina\":56,\"america/argentina/la_rioja\":57,\"america/argentina/rio_gallegos\":58,\"america/argentina/salta\":59,\"america/argentina/san_juan\":60,\"america/argentina/san_luis\":61,\"america/argentina/tucuman\":62,\"america/argentina/ushuaia\":63,\"america/aruba\":64,\"america/asuncion\":65,\"america/bahia\":66,\"america/bahia_banderas\":67,\"america/barbados\":68,\"america/belem\":69,\"america/belize\":70,\"america/blanc-sablon\":71,\"america/boa_vista\":72,\"america/bogota\":73,\"america/boise\":74,\"america/buenos_aires\":75,\"america/argentina/buenos_aires\":75,\"america/cambridge_bay\":76,\"america/campo_grande\":77,\"america/cancun\":78,\"america/caracas\":79,\"america/catamarca\":80,\"america/argentina/catamarca\":80,\"america/argentina/comodrivadavia\":80,\"america/cayenne\":81,\"america/cayman\":82,\"america/chicago\":83,\"cst6cdt\":83,\"us/central\":83,\"america/chihuahua\":84,\"america/ciudad_juarez\":85,\"america/coral_harbour\":86,\"america/atikokan\":86,\"america/cordoba\":87,\"america/argentina/cordoba\":87,\"america/rosario\":87,\"america/costa_rica\":88,\"america/coyhaique\":89,\"america/creston\":90,\"america/cuiaba\":91,\"america/curacao\":92,\"america/danmarkshavn\":93,\"america/dawson\":94,\"america/dawson_creek\":95,\"america/denver\":96,\"america/shiprock\":96,\"mst7mdt\":96,\"navajo\":96,\"us/mountain\":96,\"america/detroit\":97,\"us/michigan\":97,\"america/dominica\":98,\"america/edmonton\":99,\"america/yellowknife\":99,\"canada/mountain\":99,\"america/eirunepe\":100,\"america/el_salvador\":101,\"america/fort_nelson\":102,\"america/fortaleza\":103,\"america/glace_bay\":104,\"america/godthab\":105,\"america/nuuk\":105,\"america/goose_bay\":106,\"america/grand_turk\":107,\"america/grenada\":108,\"america/guadeloupe\":109,\"america/guatemala\":110,\"america/guayaquil\":111,\"america/guyana\":112,\"america/halifax\":113,\"canada/atlantic\":113,\"america/havana\":114,\"cuba\":114,\"america/hermosillo\":115,\"america/indiana/knox\":116,\"america/knox_in\":116,\"us/indiana-starke\":116,\"america/indiana/marengo\":117,\"america/indiana/petersburg\":118,\"america/indiana/tell_city\":119,\"america/indiana/vevay\":120,\"america/indiana/vincennes\":121,\"america/indiana/winamac\":122,\"america/indianapolis\":123,\"america/fort_wayne\":123,\"america/indiana/indianapolis\":123,\"us/east-indiana\":123,\"america/inuvik\":124,\"america/iqaluit\":125,\"america/pangnirtung\":125,\"america/jamaica\":126,\"jamaica\":126,\"america/jujuy\":127,\"america/argentina/jujuy\":127,\"america/juneau\":128,\"america/kentucky/monticello\":129,\"america/kralendijk\":130,\"america/la_paz\":131,\"america/lima\":132,\"america/los_angeles\":133,\"pst8pdt\":133,\"us/pacific\":133,\"us/pacific-new\":133,\"america/louisville\":134,\"america/kentucky/louisville\":134,\"america/lower_princes\":135,\"america/maceio\":136,\"america/managua\":137,\"america/manaus\":138,\"brazil/west\":138,\"america/marigot\":139,\"america/martinique\":140,\"america/matamoros\":141,\"america/mazatlan\":142,\"mexico/bajasur\":142,\"america/mendoza\":143,\"america/argentina/mendoza\":143,\"america/menominee\":144,\"america/merida\":145,\"america/metlakatla\":146,\"america/mexico_city\":147,\"mexico/general\":147,\"america/miquelon\":148,\"america/moncton\":149,\"america/monterrey\":150,\"america/montevideo\":151,\"america/montserrat\":152,\"america/nassau\":153,\"america/new_york\":154,\"est5edt\":154,\"us/eastern\":154,\"america/nome\":155,\"america/noronha\":156,\"brazil/denoronha\":156,\"america/north_dakota/beulah\":157,\"america/north_dakota/center\":158,\"america/north_dakota/new_salem\":159,\"america/ojinaga\":160,\"america/panama\":161,\"america/paramaribo\":162,\"america/phoenix\":163,\"us/arizona\":163,\"america/port-au-prince\":164,\"america/port_of_spain\":165,\"america/porto_velho\":166,\"america/puerto_rico\":167,\"america/punta_arenas\":168,\"america/rankin_inlet\":169,\"america/recife\":170,\"america/regina\":171,\"canada/east-saskatchewan\":171,\"canada/saskatchewan\":171,\"america/resolute\":172,\"america/rio_branco\":173,\"america/porto_acre\":173,\"brazil/acre\":173,\"america/santarem\":174,\"america/santiago\":175,\"chile/continental\":175,\"america/santo_domingo\":176,\"america/sao_paulo\":177,\"brazil/east\":177,\"america/scoresbysund\":178,\"america/sitka\":179,\"america/st_barthelemy\":180,\"america/st_johns\":181,\"canada/newfoundland\":181,\"america/st_kitts\":182,\"america/st_lucia\":183,\"america/st_thomas\":184,\"america/virgin\":184,\"america/st_vincent\":185,\"america/swift_current\":186,\"america/tegucigalpa\":187,\"america/thule\":188,\"america/tijuana\":189,\"america/ensenada\":189,\"america/santa_isabel\":189,\"mexico/bajanorte\":189,\"america/toronto\":190,\"america/montreal\":190,\"america/nipigon\":190,\"america/thunder_bay\":190,\"canada/eastern\":190,\"america/tortola\":191,\"america/vancouver\":192,\"canada/pacific\":192,\"america/whitehorse\":193,\"canada/yukon\":193,\"america/winnipeg\":194,\"america/rainy_river\":194,\"canada/central\":194,\"america/yakutat\":195,\"antarctica/casey\":196,\"antarctica/davis\":197,\"antarctica/dumontdurville\":198,\"antarctica/macquarie\":199,\"antarctica/mawson\":200,\"antarctica/mcmurdo\":201,\"antarctica/south_pole\":201,\"antarctica/palmer\":202,\"antarctica/rothera\":203,\"antarctica/syowa\":204,\"antarctica/troll\":205,\"antarctica/vostok\":206,\"arctic/longyearbyen\":207,\"atlantic/jan_mayen\":207,\"asia/aden\":208,\"asia/almaty\":209,\"asia/amman\":210,\"asia/anadyr\":211,\"asia/aqtau\":212,\"asia/aqtobe\":213,\"asia/ashgabat\":214,\"asia/ashkhabad\":214,\"asia/atyrau\":215,\"asia/baghdad\":216,\"asia/bahrain\":217,\"asia/baku\":218,\"asia/bangkok\":219,\"asia/barnaul\":220,\"asia/beirut\":221,\"asia/bishkek\":222,\"asia/brunei\":223,\"asia/calcutta\":224,\"asia/kolkata\":224,\"asia/chita\":225,\"asia/colombo\":226,\"asia/damascus\":227,\"asia/dhaka\":228,\"asia/dacca\":228,\"asia/dili\":229,\"asia/dubai\":230,\"asia/dushanbe\":231,\"asia/famagusta\":232,\"asia/gaza\":233,\"asia/hebron\":234,\"asia/hong_kong\":235,\"hongkong\":235,\"asia/hovd\":236,\"asia/irkutsk\":237,\"asia/jakarta\":238,\"asia/jayapura\":239,\"asia/jerusalem\":240,\"asia/tel_aviv\":240,\"israel\":240,\"asia/kabul\":241,\"asia/kamchatka\":242,\"asia/karachi\":243,\"asia/katmandu\":244,\"asia/kathmandu\":244,\"asia/khandyga\":245,\"asia/krasnoyarsk\":246,\"asia/kuala_lumpur\":247,\"asia/kuching\":248,\"asia/kuwait\":249,\"asia/macau\":250,\"asia/macao\":250,\"asia/magadan\":251,\"asia/makassar\":252,\"asia/ujung_pandang\":252,\"asia/manila\":253,\"asia/muscat\":254,\"asia/nicosia\":255,\"europe/nicosia\":255,\"asia/novokuznetsk\":256,\"asia/novosibirsk\":257,\"asia/omsk\":258,\"asia/oral\":259,\"asia/phnom_penh\":260,\"asia/pontianak\":261,\"asia/pyongyang\":262,\"asia/qatar\":263,\"asia/qostanay\":264,\"asia/qyzylorda\":265,\"asia/rangoon\":266,\"asia/yangon\":266,\"asia/riyadh\":267,\"asia/saigon\":268,\"asia/ho_chi_minh\":268,\"asia/sakhalin\":269,\"asia/samarkand\":270,\"asia/seoul\":271,\"rok\":271,\"asia/shanghai\":272,\"asia/chongqing\":272,\"asia/chungking\":272,\"asia/harbin\":272,\"prc\":272,\"asia/singapore\":273,\"singapore\":273,\"asia/srednekolymsk\":274,\"asia/taipei\":275,\"roc\":275,\"asia/tashkent\":276,\"asia/tbilisi\":277,\"asia/tehran\":278,\"iran\":278,\"asia/thimphu\":279,\"asia/thimbu\":279,\"asia/tokyo\":280,\"japan\":280,\"asia/tomsk\":281,\"asia/ulaanbaatar\":282,\"asia/choibalsan\":282,\"asia/ulan_bator\":282,\"asia/urumqi\":283,\"asia/kashgar\":283,\"asia/ust-nera\":284,\"asia/vientiane\":285,\"asia/vladivostok\":286,\"asia/yakutsk\":287,\"asia/yekaterinburg\":288,\"asia/yerevan\":289,\"atlantic/azores\":290,\"atlantic/bermuda\":291,\"atlantic/canary\":292,\"atlantic/cape_verde\":293,\"atlantic/faeroe\":294,\"atlantic/faroe\":294,\"atlantic/madeira\":295,\"atlantic/reykjavik\":296,\"iceland\":296,\"atlantic/south_georgia\":297,\"atlantic/st_helena\":298,\"atlantic/stanley\":299,\"australia/adelaide\":300,\"australia/south\":300,\"australia/brisbane\":301,\"australia/queensland\":301,\"australia/broken_hill\":302,\"australia/yancowinna\":302,\"australia/darwin\":303,\"australia/north\":303,\"australia/eucla\":304,\"australia/hobart\":305,\"australia/currie\":305,\"australia/tasmania\":305,\"australia/lindeman\":306,\"australia/lord_howe\":307,\"australia/lhi\":307,\"australia/melbourne\":308,\"australia/victoria\":308,\"australia/perth\":309,\"australia/west\":309,\"australia/sydney\":310,\"australia/act\":310,\"australia/canberra\":310,\"australia/nsw\":310,\"etc/gmt+1\":311,\"etc/gmt+10\":312,\"etc/gmt+11\":313,\"etc/gmt+12\":314,\"etc/gmt+2\":315,\"etc/gmt+3\":316,\"etc/gmt+4\":317,\"etc/gmt+5\":318,\"etc/gmt+6\":319,\"etc/gmt+7\":320,\"etc/gmt+8\":321,\"etc/gmt+9\":322,\"etc/gmt-1\":323,\"etc/gmt-10\":324,\"etc/gmt-11\":325,\"etc/gmt-12\":326,\"etc/gmt-13\":327,\"etc/gmt-14\":328,\"etc/gmt-2\":329,\"etc/gmt-3\":330,\"etc/gmt-4\":331,\"etc/gmt-5\":332,\"etc/gmt-6\":333,\"etc/gmt-7\":334,\"etc/gmt-8\":335,\"etc/gmt-9\":336,\"europe/amsterdam\":337,\"europe/andorra\":338,\"europe/astrakhan\":339,\"europe/athens\":340,\"europe/belgrade\":341,\"europe/berlin\":342,\"europe/bratislava\":343,\"europe/brussels\":344,\"met\":344,\"europe/bucharest\":345,\"europe/budapest\":346,\"europe/busingen\":347,\"europe/chisinau\":348,\"europe/tiraspol\":348,\"europe/copenhagen\":349,\"europe/dublin\":350,\"eire\":350,\"europe/gibraltar\":351,\"europe/guernsey\":352,\"europe/helsinki\":353,\"europe/isle_of_man\":354,\"europe/istanbul\":355,\"asia/istanbul\":355,\"turkey\":355,\"europe/jersey\":356,\"europe/kaliningrad\":357,\"europe/kiev\":358,\"europe/kyiv\":358,\"europe/uzhgorod\":358,\"europe/zaporozhye\":358,\"europe/kirov\":359,\"europe/lisbon\":360,\"portugal\":360,\"europe/ljubljana\":361,\"europe/london\":362,\"europe/belfast\":362,\"gb\":362,\"gb-eire\":362,\"europe/luxembourg\":363,\"europe/madrid\":364,\"europe/malta\":365,\"europe/mariehamn\":366,\"europe/minsk\":367,\"europe/monaco\":368,\"europe/moscow\":369,\"w-su\":369,\"europe/oslo\":370,\"europe/paris\":371,\"europe/podgorica\":372,\"europe/prague\":373,\"europe/riga\":374,\"europe/rome\":375,\"europe/samara\":376,\"europe/san_marino\":377,\"europe/sarajevo\":378,\"europe/saratov\":379,\"europe/simferopol\":380,\"europe/skopje\":381,\"europe/sofia\":382,\"europe/stockholm\":383,\"europe/tallinn\":384,\"europe/tirane\":385,\"europe/ulyanovsk\":386,\"europe/vaduz\":387,\"europe/vatican\":388,\"europe/vienna\":389,\"europe/vilnius\":390,\"europe/volgograd\":391,\"europe/warsaw\":392,\"poland\":392,\"europe/zagreb\":393,\"europe/zurich\":394,\"indian/antananarivo\":395,\"indian/chagos\":396,\"indian/christmas\":397,\"indian/cocos\":398,\"indian/comoro\":399,\"indian/kerguelen\":400,\"indian/mahe\":401,\"indian/maldives\":402,\"indian/mauritius\":403,\"indian/mayotte\":404,\"indian/reunion\":405,\"pacific/apia\":406,\"pacific/auckland\":407,\"nz\":407,\"pacific/bougainville\":408,\"pacific/chatham\":409,\"nz-chat\":409,\"pacific/easter\":410,\"chile/easterisland\":410,\"pacific/efate\":411,\"pacific/enderbury\":412,\"pacific/kanton\":412,\"pacific/fakaofo\":413,\"pacific/fiji\":414,\"pacific/funafuti\":415,\"pacific/galapagos\":416,\"pacific/gambier\":417,\"pacific/guadalcanal\":418,\"pacific/guam\":419,\"pacific/honolulu\":420,\"pacific/johnston\":420,\"us/hawaii\":420,\"pacific/kiritimati\":421,\"pacific/kosrae\":422,\"pacific/kwajalein\":423,\"kwajalein\":423,\"pacific/majuro\":424,\"pacific/marquesas\":425,\"pacific/midway\":426,\"pacific/nauru\":427,\"pacific/niue\":428,\"pacific/norfolk\":429,\"pacific/noumea\":430,\"pacific/pago_pago\":431,\"pacific/samoa\":431,\"us/samoa\":431,\"pacific/palau\":432,\"pacific/pitcairn\":433,\"pacific/ponape\":434,\"pacific/pohnpei\":434,\"pacific/port_moresby\":435,\"pacific/rarotonga\":436,\"pacific/saipan\":437,\"pacific/tahiti\":438,\"pacific/tarawa\":439,\"pacific/tongatapu\":440,\"pacific/truk\":441,\"pacific/chuuk\":441,\"pacific/yap\":441,\"pacific/wake\":442,\"pacific/wallis\":443,\"systemv/ast4\":444,\"systemv/ast4adt\":445,\"systemv/cst6\":446,\"systemv/cst6cdt\":447,\"systemv/est5\":448,\"systemv/est5edt\":449,\"systemv/hst10\":450,\"systemv/mst7\":451,\"systemv/mst7mdt\":452,\"systemv/pst8\":453,\"systemv/pst8pdt\":454,\"systemv/yst9\":455,\"systemv/yst9ydt\":456,\"utc\":457,\"etc/gmt\":457,\"etc/gmt+0\":457,\"etc/gmt-0\":457,\"etc/gmt0\":457,\"etc/greenwich\":457,\"etc/uct\":457,\"etc/utc\":457,\"etc/universal\":457,\"etc/zulu\":457,\"gmt\":457,\"gmt+0\":457,\"gmt-0\":457,\"gmt0\":457,\"greenwich\":457,\"uct\":457,\"universal\":457,\"zulu\":457},\"zones\":[[\"Africa/Abidjan\"],[\"Africa/Accra\"],[\"Africa/Addis_Ababa\"],[\"Africa/Algiers\"],[\"Africa/Asmera\",\"Africa/Asmara\"],[\"Africa/Bamako\",\"Africa/Timbuktu\"],[\"Africa/Bangui\"],[\"Africa/Banjul\"],[\"Africa/Bissau\"],[\"Africa/Blantyre\"],[\"Africa/Brazzaville\"],[\"Africa/Bujumbura\"],[\"Africa/Cairo\",\"Egypt\"],[\"Africa/Casablanca\"],[\"Africa/Ceuta\"],[\"Africa/Conakry\"],[\"Africa/Dakar\"],[\"Africa/Dar_es_Salaam\"],[\"Africa/Djibouti\"],[\"Africa/Douala\"],[\"Africa/El_Aaiun\"],[\"Africa/Freetown\"],[\"Africa/Gaborone\"],[\"Africa/Harare\"],[\"Africa/Johannesburg\"],[\"Africa/Juba\"],[\"Africa/Kampala\"],[\"Africa/Khartoum\"],[\"Africa/Kigali\"],[\"Africa/Kinshasa\"],[\"Africa/Lagos\"],[\"Africa/Libreville\"],[\"Africa/Lome\"],[\"Africa/Luanda\"],[\"Africa/Lubumbashi\"],[\"Africa/Lusaka\"],[\"Africa/Malabo\"],[\"Africa/Maputo\"],[\"Africa/Maseru\"],[\"Africa/Mbabane\"],[\"Africa/Mogadishu\"],[\"Africa/Monrovia\"],[\"Africa/Nairobi\"],[\"Africa/Ndjamena\"],[\"Africa/Niamey\"],[\"Africa/Nouakchott\"],[\"Africa/Ouagadougou\"],[\"Africa/Porto-Novo\"],[\"Africa/Sao_Tome\"],[\"Africa/Tripoli\",\"Libya\"],[\"Africa/Tunis\"],[\"Africa/Windhoek\"],[\"America/Adak\",\"America/Atka\",\"US/Aleutian\"],[\"America/Anchorage\",\"US/Alaska\"],[\"America/Anguilla\"],[\"America/Antigua\"],[\"America/Araguaina\"],[\"America/Argentina/La_Rioja\"],[\"America/Argentina/Rio_Gallegos\"],[\"America/Argentina/Salta\"],[\"America/Argentina/San_Juan\"],[\"America/Argentina/San_Luis\"],[\"America/Argentina/Tucuman\"],[\"America/Argentina/Ushuaia\"],[\"America/Aruba\"],[\"America/Asuncion\"],[\"America/Bahia\"],[\"America/Bahia_Banderas\"],[\"America/Barbados\"],[\"America/Belem\"],[\"America/Belize\"],[\"America/Blanc-Sablon\"],[\"America/Boa_Vista\"],[\"America/Bogota\"],[\"America/Boise\"],[\"America/Buenos_Aires\",\"America/Argentina/Buenos_Aires\"],[\"America/Cambridge_Bay\"],[\"America/Campo_Grande\"],[\"America/Cancun\"],[\"America/Caracas\"],[\"America/Catamarca\",\"America/Argentina/Catamarca\",\"America/Argentina/ComodRivadavia\"],[\"America/Cayenne\"],[\"America/Cayman\"],[\"America/Chicago\",\"CST6CDT\",\"US/Central\"],[\"America/Chihuahua\"],[\"America/Ciudad_Juarez\"],[\"America/Coral_Harbour\",\"America/Atikokan\"],[\"America/Cordoba\",\"America/Argentina/Cordoba\",\"America/Rosario\"],[\"America/Costa_Rica\"],[\"America/Coyhaique\"],[\"America/Creston\"],[\"America/Cuiaba\"],[\"America/Curacao\"],[\"America/Danmarkshavn\"],[\"America/Dawson\"],[\"America/Dawson_Creek\"],[\"America/Denver\",\"America/Shiprock\",\"MST7MDT\",\"Navajo\",\"US/Mountain\"],[\"America/Detroit\",\"US/Michigan\"],[\"America/Dominica\"],[\"America/Edmonton\",\"America/Yellowknife\",\"Canada/Mountain\"],[\"America/Eirunepe\"],[\"America/El_Salvador\"],[\"America/Fort_Nelson\"],[\"America/Fortaleza\"],[\"America/Glace_Bay\"],[\"America/Godthab\",\"America/Nuuk\"],[\"America/Goose_Bay\"],[\"America/Grand_Turk\"],[\"America/Grenada\"],[\"America/Guadeloupe\"],[\"America/Guatemala\"],[\"America/Guayaquil\"],[\"America/Guyana\"],[\"America/Halifax\",\"Canada/Atlantic\"],[\"America/Havana\",\"Cuba\"],[\"America/Hermosillo\"],[\"America/Indiana/Knox\",\"America/Knox_IN\",\"US/Indiana-Starke\"],[\"America/Indiana/Marengo\"],[\"America/Indiana/Petersburg\"],[\"America/Indiana/Tell_City\"],[\"America/Indiana/Vevay\"],[\"America/Indiana/Vincennes\"],[\"America/Indiana/Winamac\"],[\"America/Indianapolis\",\"America/Fort_Wayne\",\"America/Indiana/Indianapolis\",\"US/East-Indiana\"],[\"America/Inuvik\"],[\"America/Iqaluit\",\"America/Pangnirtung\"],[\"America/Jamaica\",\"Jamaica\"],[\"America/Jujuy\",\"America/Argentina/Jujuy\"],[\"America/Juneau\"],[\"America/Kentucky/Monticello\"],[\"America/Kralendijk\"],[\"America/La_Paz\"],[\"America/Lima\"],[\"America/Los_Angeles\",\"PST8PDT\",\"US/Pacific\",\"US/Pacific-New\"],[\"America/Louisville\",\"America/Kentucky/Louisville\"],[\"America/Lower_Princes\"],[\"America/Maceio\"],[\"America/Managua\"],[\"America/Manaus\",\"Brazil/West\"],[\"America/Marigot\"],[\"America/Martinique\"],[\"America/Matamoros\"],[\"America/Mazatlan\",\"Mexico/BajaSur\"],[\"America/Mendoza\",\"America/Argentina/Mendoza\"],[\"America/Menominee\"],[\"America/Merida\"],[\"America/Metlakatla\"],[\"America/Mexico_City\",\"Mexico/General\"],[\"America/Miquelon\"],[\"America/Moncton\"],[\"America/Monterrey\"],[\"America/Montevideo\"],[\"America/Montserrat\"],[\"America/Nassau\"],[\"America/New_York\",\"EST5EDT\",\"US/Eastern\"],[\"America/Nome\"],[\"America/Noronha\",\"Brazil/DeNoronha\"],[\"America/North_Dakota/Beulah\"],[\"America/North_Dakota/Center\"],[\"America/North_Dakota/New_Salem\"],[\"America/Ojinaga\"],[\"America/Panama\"],[\"America/Paramaribo\"],[\"America/Phoenix\",\"US/Arizona\"],[\"America/Port-au-Prince\"],[\"America/Port_of_Spain\"],[\"America/Porto_Velho\"],[\"America/Puerto_Rico\"],[\"America/Punta_Arenas\"],[\"America/Rankin_Inlet\"],[\"America/Recife\"],[\"America/Regina\",\"Canada/East-Saskatchewan\",\"Canada/Saskatchewan\"],[\"America/Resolute\"],[\"America/Rio_Branco\",\"America/Porto_Acre\",\"Brazil/Acre\"],[\"America/Santarem\"],[\"America/Santiago\",\"Chile/Continental\"],[\"America/Santo_Domingo\"],[\"America/Sao_Paulo\",\"Brazil/East\"],[\"America/Scoresbysund\"],[\"America/Sitka\"],[\"America/St_Barthelemy\"],[\"America/St_Johns\",\"Canada/Newfoundland\"],[\"America/St_Kitts\"],[\"America/St_Lucia\"],[\"America/St_Thomas\",\"America/Virgin\"],[\"America/St_Vincent\"],[\"America/Swift_Current\"],[\"America/Tegucigalpa\"],[\"America/Thule\"],[\"America/Tijuana\",\"America/Ensenada\",\"America/Santa_Isabel\",\"Mexico/BajaNorte\"],[\"America/Toronto\",\"America/Montreal\",\"America/Nipigon\",\"America/Thunder_Bay\",\"Canada/Eastern\"],[\"America/Tortola\"],[\"America/Vancouver\",\"Canada/Pacific\"],[\"America/Whitehorse\",\"Canada/Yukon\"],[\"America/Winnipeg\",\"America/Rainy_River\",\"Canada/Central\"],[\"America/Yakutat\"],[\"Antarctica/Casey\"],[\"Antarctica/Davis\"],[\"Antarctica/DumontDUrville\"],[\"Antarctica/Macquarie\"],[\"Antarctica/Mawson\"],[\"Antarctica/McMurdo\",\"Antarctica/South_Pole\"],[\"Antarctica/Palmer\"],[\"Antarctica/Rothera\"],[\"Antarctica/Syowa\"],[\"Antarctica/Troll\"],[\"Antarctica/Vostok\"],[\"Arctic/Longyearbyen\",\"Atlantic/Jan_Mayen\"],[\"Asia/Aden\"],[\"Asia/Almaty\"],[\"Asia/Amman\"],[\"Asia/Anadyr\"],[\"Asia/Aqtau\"],[\"Asia/Aqtobe\"],[\"Asia/Ashgabat\",\"Asia/Ashkhabad\"],[\"Asia/Atyrau\"],[\"Asia/Baghdad\"],[\"Asia/Bahrain\"],[\"Asia/Baku\"],[\"Asia/Bangkok\"],[\"Asia/Barnaul\"],[\"Asia/Beirut\"],[\"Asia/Bishkek\"],[\"Asia/Brunei\"],[\"Asia/Calcutta\",\"Asia/Kolkata\"],[\"Asia/Chita\"],[\"Asia/Colombo\"],[\"Asia/Damascus\"],[\"Asia/Dhaka\",\"Asia/Dacca\"],[\"Asia/Dili\"],[\"Asia/Dubai\"],[\"Asia/Dushanbe\"],[\"Asia/Famagusta\"],[\"Asia/Gaza\"],[\"Asia/Hebron\"],[\"Asia/Hong_Kong\",\"Hongkong\"],[\"Asia/Hovd\"],[\"Asia/Irkutsk\"],[\"Asia/Jakarta\"],[\"Asia/Jayapura\"],[\"Asia/Jerusalem\",\"Asia/Tel_Aviv\",\"Israel\"],[\"Asia/Kabul\"],[\"Asia/Kamchatka\"],[\"Asia/Karachi\"],[\"Asia/Katmandu\",\"Asia/Kathmandu\"],[\"Asia/Khandyga\"],[\"Asia/Krasnoyarsk\"],[\"Asia/Kuala_Lumpur\"],[\"Asia/Kuching\"],[\"Asia/Kuwait\"],[\"Asia/Macau\",\"Asia/Macao\"],[\"Asia/Magadan\"],[\"Asia/Makassar\",\"Asia/Ujung_Pandang\"],[\"Asia/Manila\"],[\"Asia/Muscat\"],[\"Asia/Nicosia\",\"Europe/Nicosia\"],[\"Asia/Novokuznetsk\"],[\"Asia/Novosibirsk\"],[\"Asia/Omsk\"],[\"Asia/Oral\"],[\"Asia/Phnom_Penh\"],[\"Asia/Pontianak\"],[\"Asia/Pyongyang\"],[\"Asia/Qatar\"],[\"Asia/Qostanay\"],[\"Asia/Qyzylorda\"],[\"Asia/Rangoon\",\"Asia/Yangon\"],[\"Asia/Riyadh\"],[\"Asia/Saigon\",\"Asia/Ho_Chi_Minh\"],[\"Asia/Sakhalin\"],[\"Asia/Samarkand\"],[\"Asia/Seoul\",\"ROK\"],[\"Asia/Shanghai\",\"Asia/Chongqing\",\"Asia/Chungking\",\"Asia/Harbin\",\"PRC\"],[\"Asia/Singapore\",\"Singapore\"],[\"Asia/Srednekolymsk\"],[\"Asia/Taipei\",\"ROC\"],[\"Asia/Tashkent\"],[\"Asia/Tbilisi\"],[\"Asia/Tehran\",\"Iran\"],[\"Asia/Thimphu\",\"Asia/Thimbu\"],[\"Asia/Tokyo\",\"Japan\"],[\"Asia/Tomsk\"],[\"Asia/Ulaanbaatar\",\"Asia/Choibalsan\",\"Asia/Ulan_Bator\"],[\"Asia/Urumqi\",\"Asia/Kashgar\"],[\"Asia/Ust-Nera\"],[\"Asia/Vientiane\"],[\"Asia/Vladivostok\"],[\"Asia/Yakutsk\"],[\"Asia/Yekaterinburg\"],[\"Asia/Yerevan\"],[\"Atlantic/Azores\"],[\"Atlantic/Bermuda\"],[\"Atlantic/Canary\"],[\"Atlantic/Cape_Verde\"],[\"Atlantic/Faeroe\",\"Atlantic/Faroe\"],[\"Atlantic/Madeira\"],[\"Atlantic/Reykjavik\",\"Iceland\"],[\"Atlantic/South_Georgia\"],[\"Atlantic/St_Helena\"],[\"Atlantic/Stanley\"],[\"Australia/Adelaide\",\"Australia/South\"],[\"Australia/Brisbane\",\"Australia/Queensland\"],[\"Australia/Broken_Hill\",\"Australia/Yancowinna\"],[\"Australia/Darwin\",\"Australia/North\"],[\"Australia/Eucla\"],[\"Australia/Hobart\",\"Australia/Currie\",\"Australia/Tasmania\"],[\"Australia/Lindeman\"],[\"Australia/Lord_Howe\",\"Australia/LHI\"],[\"Australia/Melbourne\",\"Australia/Victoria\"],[\"Australia/Perth\",\"Australia/West\"],[\"Australia/Sydney\",\"Australia/ACT\",\"Australia/Canberra\",\"Australia/NSW\"],[\"Etc/GMT+1\"],[\"Etc/GMT+10\"],[\"Etc/GMT+11\"],[\"Etc/GMT+12\"],[\"Etc/GMT+2\"],[\"Etc/GMT+3\"],[\"Etc/GMT+4\"],[\"Etc/GMT+5\"],[\"Etc/GMT+6\"],[\"Etc/GMT+7\"],[\"Etc/GMT+8\"],[\"Etc/GMT+9\"],[\"Etc/GMT-1\"],[\"Etc/GMT-10\"],[\"Etc/GMT-11\"],[\"Etc/GMT-12\"],[\"Etc/GMT-13\"],[\"Etc/GMT-14\"],[\"Etc/GMT-2\"],[\"Etc/GMT-3\"],[\"Etc/GMT-4\"],[\"Etc/GMT-5\"],[\"Etc/GMT-6\"],[\"Etc/GMT-7\"],[\"Etc/GMT-8\"],[\"Etc/GMT-9\"],[\"Europe/Amsterdam\"],[\"Europe/Andorra\"],[\"Europe/Astrakhan\"],[\"Europe/Athens\"],[\"Europe/Belgrade\"],[\"Europe/Berlin\"],[\"Europe/Bratislava\"],[\"Europe/Brussels\",\"MET\"],[\"Europe/Bucharest\"],[\"Europe/Budapest\"],[\"Europe/Busingen\"],[\"Europe/Chisinau\",\"Europe/Tiraspol\"],[\"Europe/Copenhagen\"],[\"Europe/Dublin\",\"Eire\"],[\"Europe/Gibraltar\"],[\"Europe/Guernsey\"],[\"Europe/Helsinki\"],[\"Europe/Isle_of_Man\"],[\"Europe/Istanbul\",\"Asia/Istanbul\",\"Turkey\"],[\"Europe/Jersey\"],[\"Europe/Kaliningrad\"],[\"Europe/Kiev\",\"Europe/Kyiv\",\"Europe/Uzhgorod\",\"Europe/Zaporozhye\"],[\"Europe/Kirov\"],[\"Europe/Lisbon\",\"Portugal\"],[\"Europe/Ljubljana\"],[\"Europe/London\",\"Europe/Belfast\",\"GB\",\"GB-Eire\"],[\"Europe/Luxembourg\"],[\"Europe/Madrid\"],[\"Europe/Malta\"],[\"Europe/Mariehamn\"],[\"Europe/Minsk\"],[\"Europe/Monaco\"],[\"Europe/Moscow\",\"W-SU\"],[\"Europe/Oslo\"],[\"Europe/Paris\"],[\"Europe/Podgorica\"],[\"Europe/Prague\"],[\"Europe/Riga\"],[\"Europe/Rome\"],[\"Europe/Samara\"],[\"Europe/San_Marino\"],[\"Europe/Sarajevo\"],[\"Europe/Saratov\"],[\"Europe/Simferopol\"],[\"Europe/Skopje\"],[\"Europe/Sofia\"],[\"Europe/Stockholm\"],[\"Europe/Tallinn\"],[\"Europe/Tirane\"],[\"Europe/Ulyanovsk\"],[\"Europe/Vaduz\"],[\"Europe/Vatican\"],[\"Europe/Vienna\"],[\"Europe/Vilnius\"],[\"Europe/Volgograd\"],[\"Europe/Warsaw\",\"Poland\"],[\"Europe/Zagreb\"],[\"Europe/Zurich\"],[\"Indian/Antananarivo\"],[\"Indian/Chagos\"],[\"Indian/Christmas\"],[\"Indian/Cocos\"],[\"Indian/Comoro\"],[\"Indian/Kerguelen\"],[\"Indian/Mahe\"],[\"Indian/Maldives\"],[\"Indian/Mauritius\"],[\"Indian/Mayotte\"],[\"Indian/Reunion\"],[\"Pacific/Apia\"],[\"Pacific/Auckland\",\"NZ\"],[\"Pacific/Bougainville\"],[\"Pacific/Chatham\",\"NZ-CHAT\"],[\"Pacific/Easter\",\"Chile/EasterIsland\"],[\"Pacific/Efate\"],[\"Pacific/Enderbury\",\"Pacific/Kanton\"],[\"Pacific/Fakaofo\"],[\"Pacific/Fiji\"],[\"Pacific/Funafuti\"],[\"Pacific/Galapagos\"],[\"Pacific/Gambier\"],[\"Pacific/Guadalcanal\"],[\"Pacific/Guam\"],[\"Pacific/Honolulu\",\"Pacific/Johnston\",\"US/Hawaii\"],[\"Pacific/Kiritimati\"],[\"Pacific/Kosrae\"],[\"Pacific/Kwajalein\",\"Kwajalein\"],[\"Pacific/Majuro\"],[\"Pacific/Marquesas\"],[\"Pacific/Midway\"],[\"Pacific/Nauru\"],[\"Pacific/Niue\"],[\"Pacific/Norfolk\"],[\"Pacific/Noumea\"],[\"Pacific/Pago_Pago\",\"Pacific/Samoa\",\"US/Samoa\"],[\"Pacific/Palau\"],[\"Pacific/Pitcairn\"],[\"Pacific/Ponape\",\"Pacific/Pohnpei\"],[\"Pacific/Port_Moresby\"],[\"Pacific/Rarotonga\"],[\"Pacific/Saipan\"],[\"Pacific/Tahiti\"],[\"Pacific/Tarawa\"],[\"Pacific/Tongatapu\"],[\"Pacific/Truk\",\"Pacific/Chuuk\",\"Pacific/Yap\"],[\"Pacific/Wake\"],[\"Pacific/Wallis\"],[\"SystemV/AST4\"],[\"SystemV/AST4ADT\"],[\"SystemV/CST6\"],[\"SystemV/CST6CDT\"],[\"SystemV/EST5\"],[\"SystemV/EST5EDT\"],[\"SystemV/HST10\"],[\"SystemV/MST7\"],[\"SystemV/MST7MDT\"],[\"SystemV/PST8\"],[\"SystemV/PST8PDT\"],[\"SystemV/YST9\"],[\"SystemV/YST9YDT\"],[\"UTC\",\"Etc/GMT\",\"Etc/GMT+0\",\"Etc/GMT-0\",\"Etc/GMT0\",\"Etc/Greenwich\",\"Etc/UCT\",\"Etc/UTC\",\"Etc/Universal\",\"Etc/Zulu\",\"GMT\",\"GMT+0\",\"GMT-0\",\"GMT0\",\"Greenwich\",\"UCT\",\"Universal\",\"Zulu\"]]}\n")])?;
+    v_empty_keys = CoreValue::new_map();
+    v_keys = core_get(&v_table, &CoreValue::from("keys"), v_empty_keys.clone());
+    v_group_index = core_get(&v_keys, &v_key.clone(), CoreValue::Null);
+    v_unknown = core_is_none(&[v_group_index.clone()])?;
+    if core_truthy(&v_unknown) {
+        v_unknown_error = core_runtime_error(&[v_unrecognized.clone()])?;
+        return Err(core_as_error(&v_unknown_error));
+    }
+    v_empty_zones = CoreValue::new_list();
+    v_zones = core_get(&v_table, &CoreValue::from("zones"), v_empty_zones.clone());
+    v_empty_group = CoreValue::new_list();
+    v_group = core_get(&v_zones, &v_group_index.clone(), v_empty_group.clone());
+    for v_candidate in core_iter(&v_group)? {
+        let mut v_candidate = v_candidate;
+        v_works = CoreValue::Bool(true);
+        let __core_try: Result<CoreFlow, AxError> = (|| {
+            core_date_zone_offset(&[v_candidate.clone(), v_probe.clone()])?;
+            Ok(CoreFlow::Normal)
+        })();
+        match __core_try {
+            Ok(CoreFlow::Normal) => {}
+            Ok(CoreFlow::Return(value)) => return Ok(value),
+            Ok(CoreFlow::Break) => break,
+            Ok(CoreFlow::Continue) => continue,
+            Err(__core_caught) => {
+                v_zone_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                v_works = CoreValue::Bool(false);
+            }
+        }
+        if core_truthy(&v_works) {
+            core_set(
+                &v_resolved,
+                CoreValue::from("kind"),
+                CoreValue::from("named"),
+            )?;
+            core_set(&v_resolved, CoreValue::from("name"), v_candidate.clone())?;
+            return Ok(v_resolved.clone());
+        }
+    }
+    v_missing_error = core_runtime_error(&[v_unrecognized.clone()])?;
+    return Err(core_as_error(&v_missing_error));
 }
 
 #[allow(
@@ -67145,6 +68640,126 @@ fn _regex_class_atom(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     }
     v_t4 = _regex_literal(&[v_c.clone()])?;
     return Ok(v_t4.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_offset_zone_minutes_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_offset_zone_minutes_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_start = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_bad_hours = CoreValue::Null;
+    let mut v_bad_minutes = CoreValue::Null;
+    let mut v_colon = CoreValue::Null;
+    let mut v_colon_at = CoreValue::Null;
+    let mut v_colon_minutes_at = CoreValue::Null;
+    let mut v_colon_unit = CoreValue::Null;
+    let mut v_compact = CoreValue::Null;
+    let mut v_compact_at = CoreValue::Null;
+    let mut v_has_sign = CoreValue::Null;
+    let mut v_hour_at = CoreValue::Null;
+    let mut v_hours = CoreValue::Null;
+    let mut v_hours_range = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_colon = CoreValue::Null;
+    let mut v_known_length = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_math_minus = CoreValue::Null;
+    let mut v_minus = CoreValue::Null;
+    let mut v_minutes = CoreValue::Null;
+    let mut v_minutes_range = CoreValue::Null;
+    let mut v_negative = CoreValue::Null;
+    let mut v_no_sign = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_plus = CoreValue::Null;
+    let mut v_short_form = CoreValue::Null;
+    let mut v_sign = CoreValue::Null;
+    let mut v_sign_unit = CoreValue::Null;
+    let mut v_total = CoreValue::Null;
+    let mut v_unknown_length = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_length = core_mul(&[v_start.clone(), CoreValue::Num(-1f64)])?;
+    v_length = core_add(&[v_length.clone(), v_end.clone()])?;
+    v_sign_unit = core_get(&v_units, &v_start.clone(), CoreValue::Num(0f64));
+    v_sign = CoreValue::Num(0f64);
+    v_plus = core_eq(&[v_sign_unit.clone(), CoreValue::Num(43f64)])?;
+    if core_truthy(&v_plus) {
+        v_sign = CoreValue::Num(1f64);
+    }
+    v_minus = core_eq(&[v_sign_unit.clone(), CoreValue::Num(45f64)])?;
+    v_math_minus = core_eq(&[v_sign_unit.clone(), CoreValue::Num(8722f64)])?;
+    v_negative = core_or(&[v_minus.clone(), v_math_minus.clone()])?;
+    if core_truthy(&v_negative) {
+        v_sign = CoreValue::Num(-1f64);
+    }
+    v_no_sign = core_eq(&[v_sign.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_no_sign) {
+        return Ok(v_none.clone());
+    }
+    v_hour_at = core_add(&[v_start.clone(), CoreValue::Num(1f64)])?;
+    v_hours = _date_digits_impl(&[
+        v_units.clone(),
+        v_hour_at.clone(),
+        CoreValue::Num(2f64),
+        v_end.clone(),
+    ])?;
+    v_bad_hours = core_lt(&[v_hours.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_bad_hours) {
+        return Ok(v_none.clone());
+    }
+    v_minutes = CoreValue::Num(0f64);
+    v_short_form = core_eq(&[v_length.clone(), CoreValue::Num(3f64)])?;
+    v_compact = core_eq(&[v_length.clone(), CoreValue::Num(5f64)])?;
+    v_colon = core_eq(&[v_length.clone(), CoreValue::Num(6f64)])?;
+    if core_truthy(&v_compact) {
+        v_compact_at = core_add(&[v_start.clone(), CoreValue::Num(3f64)])?;
+        v_minutes = _date_digits_impl(&[
+            v_units.clone(),
+            v_compact_at.clone(),
+            CoreValue::Num(2f64),
+            v_end.clone(),
+        ])?;
+    }
+    if core_truthy(&v_colon) {
+        v_colon_at = core_add(&[v_start.clone(), CoreValue::Num(3f64)])?;
+        v_colon_unit = core_get(&v_units, &v_colon_at.clone(), CoreValue::Num(0f64));
+        v_is_colon = core_eq(&[v_colon_unit.clone(), CoreValue::Num(58f64)])?;
+        if core_truthy(&v_is_colon) {
+            v_colon_minutes_at = core_add(&[v_start.clone(), CoreValue::Num(4f64)])?;
+            v_minutes = _date_digits_impl(&[
+                v_units.clone(),
+                v_colon_minutes_at.clone(),
+                CoreValue::Num(2f64),
+                v_end.clone(),
+            ])?;
+        } else {
+            v_minutes = CoreValue::Num(-1f64);
+        }
+    }
+    v_known_length = core_or(&[v_short_form.clone(), v_compact.clone()])?;
+    v_known_length = core_or(&[v_known_length.clone(), v_colon.clone()])?;
+    v_unknown_length = core_not(&[v_known_length.clone()])?;
+    if core_truthy(&v_unknown_length) {
+        return Ok(v_none.clone());
+    }
+    v_bad_minutes = core_lt(&[v_minutes.clone(), CoreValue::Num(0f64)])?;
+    v_hours_range = core_gt(&[v_hours.clone(), CoreValue::Num(23f64)])?;
+    v_minutes_range = core_gt(&[v_minutes.clone(), CoreValue::Num(59f64)])?;
+    v_invalid = core_or(&[v_bad_minutes.clone(), v_hours_range.clone()])?;
+    v_invalid = core_or(&[v_invalid.clone(), v_minutes_range.clone()])?;
+    if core_truthy(&v_invalid) {
+        return Ok(v_none.clone());
+    }
+    v_total = core_mul(&[v_hours.clone(), CoreValue::Num(60f64)])?;
+    v_total = core_add(&[v_total.clone(), v_minutes.clone()])?;
+    v_has_sign = core_mul(&[v_total.clone(), v_sign.clone()])?;
+    return Ok(v_has_sign.clone());
 }
 
 #[allow(
@@ -67902,6 +69517,33 @@ fn chat_session_normalize_call(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
+fn _date_zone_offset_seconds_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_zone_offset_seconds_impl");
+    let mut v_zone = core_arg(args, 0);
+    let mut v_millis = core_arg(args, 1);
+    let mut v_fixed = CoreValue::Null;
+    let mut v_fixed_seconds = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_seconds = CoreValue::Null;
+    v_kind = core_get(&v_zone, &CoreValue::from("kind"), CoreValue::Null);
+    v_fixed = core_eq(&[v_kind.clone(), CoreValue::from("fixed")])?;
+    if core_truthy(&v_fixed) {
+        v_fixed_seconds = core_get(&v_zone, &CoreValue::from("offset_seconds"), CoreValue::Null);
+        return Ok(v_fixed_seconds.clone());
+    }
+    v_name = core_get(&v_zone, &CoreValue::from("name"), CoreValue::Null);
+    v_seconds = core_date_zone_offset(&[v_name.clone(), v_millis.clone()])?;
+    return Ok(v_seconds.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _prepare_optimizer_run(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_prepare_optimizer_run");
     let mut v_program_kind = core_arg(args, 0);
@@ -68011,6 +69653,39 @@ fn chat_session_defer_final_call(args: &[CoreValue]) -> Result<CoreValue, AxErro
         return Ok(v_registered.clone());
     }
     return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_parts_in_zone_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_parts_in_zone_impl");
+    let mut v_zone = core_arg(args, 0);
+    let mut v_millis = core_arg(args, 1);
+    let mut v_before_era = CoreValue::Null;
+    let mut v_era_year = CoreValue::Null;
+    let mut v_local = CoreValue::Null;
+    let mut v_negated = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_seconds = CoreValue::Null;
+    let mut v_shift = CoreValue::Null;
+    let mut v_year = CoreValue::Null;
+    v_seconds = _date_zone_offset_seconds_impl(&[v_zone.clone(), v_millis.clone()])?;
+    v_shift = core_mul(&[v_seconds.clone(), CoreValue::Num(1000f64)])?;
+    v_local = core_add(&[v_millis.clone(), v_shift.clone()])?;
+    v_parts = _date_parts_of_ms_impl(&[v_local.clone()])?;
+    v_year = core_get(&v_parts, &CoreValue::from("year"), CoreValue::Null);
+    v_before_era = core_lte(&[v_year.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_before_era) {
+        v_negated = core_mul(&[v_year.clone(), CoreValue::Num(-1f64)])?;
+        v_era_year = core_add(&[v_negated.clone(), CoreValue::Num(1f64)])?;
+        core_set(&v_parts, CoreValue::from("year"), v_era_year.clone())?;
+    }
+    return Ok(v_parts.clone());
 }
 
 #[allow(
@@ -68590,6 +70265,28 @@ fn _normalize_optimizer_engine_response(args: &[CoreValue]) -> Result<CoreValue,
     unreachable_code,
     clippy::all
 )]
+fn _date_zone_offset_millis_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_zone_offset_millis_impl");
+    let mut v_zone = core_arg(args, 0);
+    let mut v_millis = core_arg(args, 1);
+    let mut v_local = CoreValue::Null;
+    let mut v_negated = CoreValue::Null;
+    let mut v_offset = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    v_parts = _date_parts_in_zone_impl(&[v_zone.clone(), v_millis.clone()])?;
+    v_local = _date_utc_ms_impl(&[v_parts.clone()])?;
+    v_negated = core_mul(&[v_millis.clone(), CoreValue::Num(-1f64)])?;
+    v_offset = core_add(&[v_local.clone(), v_negated.clone()])?;
+    return Ok(v_offset.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_forward_impl");
     let mut v_gen = core_arg(args, 0);
@@ -68843,6 +70540,11 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_ordered_messages.clone(),
         v_output_fields.clone(),
         v_selection.clone(),
+    ])?;
+    v_output_fields = _date_parse_fields_impl(&[
+        v_output_fields.clone(),
+        v_base_options.clone(),
+        v_options.clone(),
     ])?;
     v_validation_feedback_snake = core_get(
         &v_runtime_options,
@@ -69378,6 +71080,48 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _date_named_timestamp_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_named_timestamp_impl");
+    let mut v_parts = core_arg(args, 0);
+    let mut v_zone = core_arg(args, 1);
+    let mut v_actual = CoreValue::Null;
+    let mut v_adjusted = CoreValue::Null;
+    let mut v_adjusted_negated = CoreValue::Null;
+    let mut v_different = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_moved = CoreValue::Null;
+    let mut v_negated = CoreValue::Null;
+    let mut v_offset = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_timestamp = CoreValue::Null;
+    let mut v_utc = CoreValue::Null;
+    v_utc = _date_utc_ms_impl(&[v_parts.clone()])?;
+    v_offset = _date_zone_offset_millis_impl(&[v_zone.clone(), v_utc.clone()])?;
+    v_negated = core_mul(&[v_offset.clone(), CoreValue::Num(-1f64)])?;
+    v_timestamp = core_add(&[v_utc.clone(), v_negated.clone()])?;
+    v_adjusted = _date_zone_offset_millis_impl(&[v_zone.clone(), v_timestamp.clone()])?;
+    v_moved = core_ne(&[v_adjusted.clone(), v_offset.clone()])?;
+    if core_truthy(&v_moved) {
+        v_adjusted_negated = core_mul(&[v_adjusted.clone(), CoreValue::Num(-1f64)])?;
+        v_timestamp = core_add(&[v_utc.clone(), v_adjusted_negated.clone()])?;
+    }
+    v_actual = _date_parts_in_zone_impl(&[v_zone.clone(), v_timestamp.clone()])?;
+    v_same = _date_same_parts_impl(&[v_actual.clone(), v_parts.clone()])?;
+    v_different = core_not(&[v_same.clone()])?;
+    if core_truthy(&v_different) {
+        v_error = _date_values_error_impl(&[])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_timestamp.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_field_flag_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_field_flag_impl");
     let mut v_target = core_arg(args, 0);
@@ -69562,6 +71306,67 @@ fn _stream_field_type_label_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
         return Ok(v_array_label.clone());
     }
     return Ok(v_base.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_parse_range_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_parse_range_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_kind = core_arg(args, 1);
+    let mut v_date_millis = CoreValue::Null;
+    let mut v_datetime_millis = CoreValue::Null;
+    let mut v_end = CoreValue::Null;
+    let mut v_endpoint = CoreValue::Null;
+    let mut v_endpoints = CoreValue::Null;
+    let mut v_is_date = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    let mut v_not_text = CoreValue::Null;
+    let mut v_order_error = CoreValue::Null;
+    let mut v_range_millis = CoreValue::Null;
+    let mut v_reversed = CoreValue::Null;
+    let mut v_shape_error = CoreValue::Null;
+    let mut v_start = CoreValue::Null;
+    v_endpoints = _date_range_endpoints_impl(&[v_value.clone()])?;
+    v_range_millis = CoreValue::new_map();
+    v_names = CoreValue::new_list();
+    core_append(&v_names, CoreValue::from("start"))?;
+    core_append(&v_names, CoreValue::from("end"))?;
+    for v_key in core_iter(&v_names)? {
+        let mut v_key = v_key;
+        v_endpoint = core_get(&v_endpoints, &v_key.clone(), CoreValue::Null);
+        v_is_text = core_type_is(&v_endpoint, CoreValue::from("string"));
+        v_not_text = core_not(&[v_is_text.clone()])?;
+        if core_truthy(&v_not_text) {
+            v_shape_error = _date_range_format_error_impl(&[])?;
+            return Err(core_as_error(&v_shape_error));
+        }
+        v_is_date = core_eq(&[v_kind.clone(), CoreValue::from("date")])?;
+        if core_truthy(&v_is_date) {
+            v_date_millis = _date_parse_date_impl(&[v_endpoint.clone()])?;
+            core_set(&v_range_millis, v_key.clone(), v_date_millis.clone())?;
+        } else {
+            v_datetime_millis = _date_parse_datetime_impl(&[v_endpoint.clone()])?;
+            core_set(&v_range_millis, v_key.clone(), v_datetime_millis.clone())?;
+        }
+    }
+    v_start = core_get(&v_range_millis, &CoreValue::from("start"), CoreValue::Null);
+    v_end = core_get(&v_range_millis, &CoreValue::from("end"), CoreValue::Null);
+    v_reversed = core_lt(&[v_end.clone(), v_start.clone()])?;
+    if core_truthy(&v_reversed) {
+        v_order_error = core_runtime_error(&[CoreValue::from(
+            "Invalid range. End must be greater than or equal to start.",
+        )])?;
+        return Err(core_as_error(&v_order_error));
+    }
+    return Ok(v_range_millis.clone());
 }
 
 #[allow(
@@ -69766,6 +71571,20 @@ fn chat_session_has_queued_updates(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
+fn _date_range_format_error_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_range_format_error_impl");
+    let mut v_error = CoreValue::Null;
+    v_error = core_runtime_error(&[CoreValue::from("Invalid range format. Provide a JSON object with \"start\" and \"end\", a two-item array, or an interval using start/end.")])?;
+    return Ok(v_error.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn chat_session_native_update(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("chat_session_native_update");
     let mut v_state = core_arg(args, 0);
@@ -69830,6 +71649,79 @@ fn _stream_field_title_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         return Ok(v_title.clone());
     }
     return Ok(v_name.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_range_endpoints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_range_endpoints_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_complete = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_end = CoreValue::Null;
+    let mut v_endpoints = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_first = CoreValue::Null;
+    let mut v_from_text = CoreValue::Null;
+    let mut v_has_end = CoreValue::Null;
+    let mut v_has_start = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_list_error = CoreValue::Null;
+    let mut v_no_end = CoreValue::Null;
+    let mut v_no_start = CoreValue::Null;
+    let mut v_pair = CoreValue::Null;
+    let mut v_second = CoreValue::Null;
+    let mut v_start = CoreValue::Null;
+    v_is_text = core_type_is(&v_value, CoreValue::from("string"));
+    if core_truthy(&v_is_text) {
+        v_from_text = _date_range_string_impl(&[v_value.clone()])?;
+        return Ok(v_from_text.clone());
+    }
+    v_endpoints = CoreValue::new_map();
+    v_is_list = core_type_is(&v_value, CoreValue::from("list"));
+    if core_truthy(&v_is_list) {
+        v_count = core_len(&[v_value.clone()])?;
+        v_pair = core_eq(&[v_count.clone(), CoreValue::Num(2f64)])?;
+        if core_truthy(&v_pair) {
+            v_first = core_list_get(&[v_value.clone(), CoreValue::Num(0f64)])?;
+            core_set(&v_endpoints, CoreValue::from("start"), v_first.clone())?;
+            v_second = core_list_get(&[v_value.clone(), CoreValue::Num(1f64)])?;
+            core_set(&v_endpoints, CoreValue::from("end"), v_second.clone())?;
+            return Ok(v_endpoints.clone());
+        }
+        v_list_error = _date_range_format_error_impl(&[])?;
+        return Err(core_as_error(&v_list_error));
+    }
+    v_is_object = core_type_is(&v_value, CoreValue::from("object"));
+    if core_truthy(&v_is_object) {
+        v_start = core_get(&v_value, &CoreValue::from("start"), CoreValue::Null);
+        v_no_start = core_is_none(&[v_start.clone()])?;
+        if core_truthy(&v_no_start) {
+            v_start = core_get(&v_value, &CoreValue::from("from"), CoreValue::Null);
+        }
+        v_end = core_get(&v_value, &CoreValue::from("end"), CoreValue::Null);
+        v_no_end = core_is_none(&[v_end.clone()])?;
+        if core_truthy(&v_no_end) {
+            v_end = core_get(&v_value, &CoreValue::from("to"), CoreValue::Null);
+        }
+        v_has_start = core_is_not_none(&[v_start.clone()])?;
+        v_has_end = core_is_not_none(&[v_end.clone()])?;
+        v_complete = core_and(&[v_has_start.clone(), v_has_end.clone()])?;
+        if core_truthy(&v_complete) {
+            core_set(&v_endpoints, CoreValue::from("start"), v_start.clone())?;
+            core_set(&v_endpoints, CoreValue::from("end"), v_end.clone())?;
+            return Ok(v_endpoints.clone());
+        }
+    }
+    v_error = _date_range_format_error_impl(&[])?;
+    return Err(core_as_error(&v_error));
 }
 
 #[allow(
@@ -70350,6 +72242,89 @@ fn _stream_validate_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     unreachable_code,
     clippy::all
 )]
+fn _date_range_string_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_range_string_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_endpoints = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_from_json = CoreValue::Null;
+    let mut v_is_json = CoreValue::Null;
+    let mut v_json_error = CoreValue::Null;
+    let mut v_json_format_error = CoreValue::Null;
+    let mut v_no_split = CoreValue::Null;
+    let mut v_one_slash = CoreValue::Null;
+    let mut v_opens_list = CoreValue::Null;
+    let mut v_opens_object = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_slash_count = CoreValue::Null;
+    let mut v_slash_end = CoreValue::Null;
+    let mut v_slash_end_trimmed = CoreValue::Null;
+    let mut v_slash_parts = CoreValue::Null;
+    let mut v_slash_start = CoreValue::Null;
+    let mut v_slash_start_trimmed = CoreValue::Null;
+    let mut v_split = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_text = _date_strip_code_fence_impl(&[v_value.clone()])?;
+    v_opens_object = core_string_starts_with(&[v_text.clone(), CoreValue::from("{")])?;
+    v_opens_list = core_string_starts_with(&[v_text.clone(), CoreValue::from("[")])?;
+    v_is_json = core_or(&[v_opens_object.clone(), v_opens_list.clone()])?;
+    if core_truthy(&v_is_json) {
+        v_from_json = CoreValue::new_map();
+        let __core_try: Result<CoreFlow, AxError> = (|| {
+            v_parsed = core_json_parse_strict(&[v_text.clone()])?;
+            v_from_json = _date_range_endpoints_impl(&[v_parsed.clone()])?;
+            Ok(CoreFlow::Normal)
+        })();
+        match __core_try {
+            Ok(CoreFlow::Normal) => {}
+            Ok(CoreFlow::Return(value)) => return Ok(value),
+            Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+            Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+            Err(__core_caught) => {
+                v_json_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                v_json_format_error = _date_range_format_error_impl(&[])?;
+                return Err(core_as_error(&v_json_format_error));
+            }
+        }
+        return Ok(v_from_json.clone());
+    }
+    v_endpoints = CoreValue::new_map();
+    v_slash_parts = core_string_split(&[v_text.clone(), CoreValue::from("/")])?;
+    v_slash_count = core_len(&[v_slash_parts.clone()])?;
+    v_one_slash = core_eq(&[v_slash_count.clone(), CoreValue::Num(2f64)])?;
+    if core_truthy(&v_one_slash) {
+        v_slash_start = core_list_get(&[v_slash_parts.clone(), CoreValue::Num(0f64)])?;
+        v_slash_start_trimmed = _date_js_trim_impl(&[v_slash_start.clone()])?;
+        core_set(
+            &v_endpoints,
+            CoreValue::from("start"),
+            v_slash_start_trimmed.clone(),
+        )?;
+        v_slash_end = core_list_get(&[v_slash_parts.clone(), CoreValue::Num(1f64)])?;
+        v_slash_end_trimmed = _date_js_trim_impl(&[v_slash_end.clone()])?;
+        core_set(
+            &v_endpoints,
+            CoreValue::from("end"),
+            v_slash_end_trimmed.clone(),
+        )?;
+        return Ok(v_endpoints.clone());
+    }
+    v_split = _date_delimiter_split_impl(&[v_text.clone()])?;
+    v_no_split = core_is_none(&[v_split.clone()])?;
+    if core_truthy(&v_no_split) {
+        v_error = _date_range_format_error_impl(&[])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_split.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _regex_quantifier(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_quantifier");
     let mut v_s = core_arg(args, 0);
@@ -70724,6 +72699,129 @@ fn _ace_recompute_playbook_stats(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
+fn _date_delimiter_split_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_delimiter_split_impl");
+    let mut v_text = core_arg(args, 0);
+    let mut v_after_keyword = CoreValue::Null;
+    let mut v_before = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_finished = CoreValue::Null;
+    let mut v_first_terminator = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_keyword_at = CoreValue::Null;
+    let mut v_keyword_length = CoreValue::Null;
+    let mut v_last_terminator = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_no_gap = CoreValue::Null;
+    let mut v_no_keyword = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_space = CoreValue::Null;
+    let mut v_past_terminator = CoreValue::Null;
+    let mut v_rest_at = CoreValue::Null;
+    let mut v_rest_bad = CoreValue::Null;
+    let mut v_rest_empty = CoreValue::Null;
+    let mut v_rest_from = CoreValue::Null;
+    let mut v_rest_terminator = CoreValue::Null;
+    let mut v_rest_text = CoreValue::Null;
+    let mut v_rest_trimmed = CoreValue::Null;
+    let mut v_run_start = CoreValue::Null;
+    let mut v_scanned = CoreValue::Null;
+    let mut v_space = CoreValue::Null;
+    let mut v_split = CoreValue::Null;
+    let mut v_start_text = CoreValue::Null;
+    let mut v_start_to = CoreValue::Null;
+    let mut v_start_trimmed = CoreValue::Null;
+    let mut v_terminator = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    let mut v_units = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_units = core_string_utf16_units(&[v_text.clone()])?;
+    v_count = core_len(&[v_units.clone()])?;
+    v_first_terminator = v_count.clone();
+    v_last_terminator = CoreValue::Num(-1f64);
+    v_index = CoreValue::Num(0f64);
+    loop {
+        v_scanned = core_gte(&[v_index.clone(), v_count.clone()])?;
+        if core_truthy(&v_scanned) {
+            break;
+        }
+        v_unit = core_get(&v_units, &v_index.clone(), CoreValue::Num(0f64));
+        v_terminator = _date_is_line_terminator_impl(&[v_unit.clone()])?;
+        if core_truthy(&v_terminator) {
+            v_last_terminator = v_index.clone();
+            v_before = core_lt(&[v_index.clone(), v_first_terminator.clone()])?;
+            if core_truthy(&v_before) {
+                v_first_terminator = v_index.clone();
+            }
+        }
+        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_cursor = CoreValue::Num(1f64);
+    loop {
+        v_finished = core_gte(&[v_cursor.clone(), v_count.clone()])?;
+        if core_truthy(&v_finished) {
+            break;
+        }
+        v_past_terminator = core_gt(&[v_cursor.clone(), v_first_terminator.clone()])?;
+        if core_truthy(&v_past_terminator) {
+            break;
+        }
+        v_unit = core_get(&v_units, &v_cursor.clone(), CoreValue::Num(0f64));
+        v_space = _date_space_impl(&[v_unit.clone()])?;
+        v_not_space = core_not(&[v_space.clone()])?;
+        if core_truthy(&v_not_space) {
+            v_cursor = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+            continue;
+        }
+        v_run_start = v_cursor.clone();
+        v_keyword_at =
+            _date_skip_space_impl(&[v_units.clone(), v_cursor.clone(), v_count.clone()])?;
+        v_keyword_length =
+            _date_range_keyword_impl(&[v_units.clone(), v_keyword_at.clone(), v_count.clone()])?;
+        v_cursor = v_keyword_at.clone();
+        v_no_keyword = core_eq(&[v_keyword_length.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_no_keyword) {
+            continue;
+        }
+        v_after_keyword = core_add(&[v_keyword_at.clone(), v_keyword_length.clone()])?;
+        v_rest_at =
+            _date_skip_space_impl(&[v_units.clone(), v_after_keyword.clone(), v_count.clone()])?;
+        v_no_gap = core_eq(&[v_rest_at.clone(), v_after_keyword.clone()])?;
+        if core_truthy(&v_no_gap) {
+            continue;
+        }
+        v_rest_empty = core_gte(&[v_rest_at.clone(), v_count.clone()])?;
+        v_rest_terminator = core_gte(&[v_last_terminator.clone(), v_rest_at.clone()])?;
+        v_rest_bad = core_or(&[v_rest_empty.clone(), v_rest_terminator.clone()])?;
+        if core_truthy(&v_rest_bad) {
+            continue;
+        }
+        v_mode = _date_string_mode_impl(&[])?;
+        v_start_to =
+            _date_native_offset_impl(&[v_units.clone(), v_run_start.clone(), v_mode.clone()])?;
+        v_rest_from =
+            _date_native_offset_impl(&[v_units.clone(), v_rest_at.clone(), v_mode.clone()])?;
+        v_start_text =
+            core_string_slice(&[v_text.clone(), CoreValue::Num(0f64), v_start_to.clone()])?;
+        v_rest_text = core_string_slice(&[v_text.clone(), v_rest_from.clone()])?;
+        v_split = CoreValue::new_map();
+        v_start_trimmed = _date_js_trim_impl(&[v_start_text.clone()])?;
+        core_set(&v_split, CoreValue::from("start"), v_start_trimmed.clone())?;
+        v_rest_trimmed = _date_js_trim_impl(&[v_rest_text.clone()])?;
+        core_set(&v_split, CoreValue::from("end"), v_rest_trimmed.clone())?;
+        return Ok(v_split.clone());
+    }
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _ace_empty_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ace_empty_playbook");
     let mut v_description = core_arg(args, 0);
@@ -71033,6 +73131,8 @@ fn _stream_convert_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_class_message = CoreValue::Null;
     let mut v_class_name = CoreValue::Null;
     let mut v_code_text = CoreValue::Null;
+    let mut v_date_out = CoreValue::Null;
+    let mut v_dated = CoreValue::Null;
     let mut v_has_options = CoreValue::Null;
     let mut v_is_boolean = CoreValue::Null;
     let mut v_is_class = CoreValue::Null;
@@ -71053,6 +73153,8 @@ fn _stream_convert_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_optional = CoreValue::Null;
     let mut v_options = CoreValue::Null;
     let mut v_out = CoreValue::Null;
+    let mut v_parse = CoreValue::Null;
+    let mut v_parse_dates = CoreValue::Null;
     let mut v_text = CoreValue::Null;
     let mut v_typ = CoreValue::Null;
     let mut v_unknown = CoreValue::Null;
@@ -71147,7 +73249,104 @@ fn _stream_convert_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         core_set(&v_out, CoreValue::from("value"), v_class_name.clone())?;
         return Ok(v_out.clone());
     }
+    v_parse_dates = core_get(
+        &v_field,
+        &CoreValue::from("parse_dates"),
+        CoreValue::Bool(false),
+    );
+    v_dated = _date_is_date_type_impl(&[v_name.clone()])?;
+    v_parse = core_and(&[v_parse_dates.clone(), v_dated.clone()])?;
+    if core_truthy(&v_parse) {
+        v_date_out = _date_convert_field_value_impl(&[
+            v_field.clone(),
+            v_name.clone(),
+            v_value.clone(),
+            v_may_skip.clone(),
+        ])?;
+        return Ok(v_date_out.clone());
+    }
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_range_keyword_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_range_keyword_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_at = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_after_dash = CoreValue::Null;
+    let mut v_after_word = CoreValue::Null;
+    let mut v_dash_followed = CoreValue::Null;
+    let mut v_dash_inside = CoreValue::Null;
+    let mut v_dash_next = CoreValue::Null;
+    let mut v_dash_space = CoreValue::Null;
+    let mut v_em_dash = CoreValue::Null;
+    let mut v_en_dash = CoreValue::Null;
+    let mut v_hyphen = CoreValue::Null;
+    let mut v_is_dash = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_letters = CoreValue::Null;
+    let mut v_matched = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    let mut v_word = CoreValue::Null;
+    let mut v_word_inside = CoreValue::Null;
+    let mut v_word_next = CoreValue::Null;
+    let mut v_word_space = CoreValue::Null;
+    let mut v_word_units = CoreValue::Null;
+    v_unit = core_get(&v_units, &v_at.clone(), CoreValue::Num(0f64));
+    v_hyphen = core_eq(&[v_unit.clone(), CoreValue::Num(45f64)])?;
+    v_en_dash = core_eq(&[v_unit.clone(), CoreValue::Num(8211f64)])?;
+    v_em_dash = core_eq(&[v_unit.clone(), CoreValue::Num(8212f64)])?;
+    v_is_dash = core_or(&[v_hyphen.clone(), v_en_dash.clone()])?;
+    v_is_dash = core_or(&[v_is_dash.clone(), v_em_dash.clone()])?;
+    v_dash_inside = core_lt(&[v_at.clone(), v_end.clone()])?;
+    v_is_dash = core_and(&[v_is_dash.clone(), v_dash_inside.clone()])?;
+    if core_truthy(&v_is_dash) {
+        v_after_dash = core_add(&[v_at.clone(), CoreValue::Num(1f64)])?;
+        v_dash_space = CoreValue::Bool(false);
+        v_dash_followed = core_lt(&[v_after_dash.clone(), v_end.clone()])?;
+        if core_truthy(&v_dash_followed) {
+            v_dash_next = core_get(&v_units, &v_after_dash.clone(), CoreValue::Num(0f64));
+            v_dash_space = _date_space_impl(&[v_dash_next.clone()])?;
+        }
+        if core_truthy(&v_dash_space) {
+            return Ok(CoreValue::Num(1f64));
+        }
+        return Ok(CoreValue::Num(0f64));
+    }
+    v_letters = CoreValue::new_list();
+    core_append(&v_letters, CoreValue::from("to"))?;
+    core_append(&v_letters, CoreValue::from("through"))?;
+    core_append(&v_letters, CoreValue::from("until"))?;
+    for v_word in core_iter(&v_letters)? {
+        let mut v_word = v_word;
+        v_word_units = core_string_utf16_units(&[v_word.clone()])?;
+        v_length = core_len(&[v_word_units.clone()])?;
+        v_matched = _date_ascii_matches_impl(&[
+            v_units.clone(),
+            v_at.clone(),
+            v_end.clone(),
+            v_word_units.clone(),
+        ])?;
+        if core_truthy(&v_matched) {
+            v_after_word = core_add(&[v_at.clone(), v_length.clone()])?;
+            v_word_inside = core_lt(&[v_after_word.clone(), v_end.clone()])?;
+            if core_truthy(&v_word_inside) {
+                v_word_next = core_get(&v_units, &v_after_word.clone(), CoreValue::Num(0f64));
+                v_word_space = _date_space_impl(&[v_word_next.clone()])?;
+                if core_truthy(&v_word_space) {
+                    return Ok(v_length.clone());
+                }
+            }
+        }
+    }
+    return Ok(CoreValue::Num(0f64));
 }
 
 #[allow(
@@ -71372,6 +73571,68 @@ fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_examples = core_arg(args, 1);
     core_set(&v_gen, CoreValue::from("examples"), v_examples.clone())?;
     return Ok(v_gen.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_strip_code_fence_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_strip_code_fence_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_closes = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_fenced = CoreValue::Null;
+    let mut v_inner = CoreValue::Null;
+    let mut v_inner_end = CoreValue::Null;
+    let mut v_inner_start = CoreValue::Null;
+    let mut v_json_units = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_not_fenced = CoreValue::Null;
+    let mut v_opens = CoreValue::Null;
+    let mut v_slice_from = CoreValue::Null;
+    let mut v_slice_to = CoreValue::Null;
+    let mut v_stripped = CoreValue::Null;
+    let mut v_tagged = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_too_short = CoreValue::Null;
+    let mut v_units = CoreValue::Null;
+    v_text = _date_js_trim_impl(&[v_value.clone()])?;
+    v_units = core_string_utf16_units(&[v_text.clone()])?;
+    v_count = core_len(&[v_units.clone()])?;
+    v_too_short = core_lt(&[v_count.clone(), CoreValue::Num(6f64)])?;
+    if core_truthy(&v_too_short) {
+        return Ok(v_text.clone());
+    }
+    v_opens = core_string_starts_with(&[v_text.clone(), CoreValue::from("```")])?;
+    v_closes = core_string_ends_with(&[v_text.clone(), CoreValue::from("```")])?;
+    v_fenced = core_and(&[v_opens.clone(), v_closes.clone()])?;
+    v_not_fenced = core_not(&[v_fenced.clone()])?;
+    if core_truthy(&v_not_fenced) {
+        return Ok(v_text.clone());
+    }
+    v_inner_start = CoreValue::Num(3f64);
+    v_inner_end = core_add(&[v_count.clone(), CoreValue::Num(-3f64)])?;
+    v_json_units = core_string_utf16_units(&[CoreValue::from("json")])?;
+    v_tagged = _date_ascii_matches_impl(&[
+        v_units.clone(),
+        CoreValue::Num(3f64),
+        v_inner_end.clone(),
+        v_json_units.clone(),
+    ])?;
+    if core_truthy(&v_tagged) {
+        v_inner_start = CoreValue::Num(7f64);
+    }
+    v_mode = _date_string_mode_impl(&[])?;
+    v_slice_from =
+        _date_native_offset_impl(&[v_units.clone(), v_inner_start.clone(), v_mode.clone()])?;
+    v_slice_to = _date_native_offset_impl(&[v_units.clone(), v_inner_end.clone(), v_mode.clone()])?;
+    v_inner = core_string_slice(&[v_text.clone(), v_slice_from.clone(), v_slice_to.clone()])?;
+    v_stripped = _date_js_trim_impl(&[v_inner.clone()])?;
+    return Ok(v_stripped.clone());
 }
 
 #[allow(
@@ -72069,13 +74330,23 @@ fn chat_session_record_unresolved(args: &[CoreValue]) -> Result<CoreValue, AxErr
     unreachable_code,
     clippy::all
 )]
-fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_apply_field_processors");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_output = core_arg(args, 1);
-    let mut v_processed = CoreValue::Null;
-    v_processed = core_axgen_apply_field_processors(&[v_gen.clone(), v_output.clone()])?;
-    return Ok(v_processed.clone());
+fn _date_string_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_string_mode_impl");
+    let mut v_accented = CoreValue::Null;
+    let mut v_astral = CoreValue::Null;
+    let mut v_pair = CoreValue::Null;
+    let mut v_wide = CoreValue::Null;
+    v_accented = core_len(&[CoreValue::from("é")])?;
+    v_wide = core_gt(&[v_accented.clone(), CoreValue::Num(1f64)])?;
+    if core_truthy(&v_wide) {
+        return Ok(CoreValue::from("utf8"));
+    }
+    v_astral = core_len(&[CoreValue::from("😀")])?;
+    v_pair = core_gt(&[v_astral.clone(), CoreValue::Num(1f64)])?;
+    if core_truthy(&v_pair) {
+        return Ok(CoreValue::from("utf16"));
+    }
+    return Ok(CoreValue::from("codepoint"));
 }
 
 #[allow(
@@ -72085,45 +74356,13 @@ fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _run_assertions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_run_assertions");
+fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_apply_field_processors");
     let mut v_gen = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
-    let mut v_assertion_error = CoreValue::Null;
-    let mut v_failed = CoreValue::Null;
-    let mut v_has_message = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_message_less = CoreValue::Null;
-    let mut v_passed = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_threw = CoreValue::Null;
-    let mut v_thrown = CoreValue::Null;
-    v_result = core_axgen_run_assertions(&[v_gen.clone(), v_output.clone()])?;
-    v_status = core_get(
-        &v_result,
-        &CoreValue::from("status"),
-        CoreValue::from("pass"),
-    );
-    v_threw = core_eq(&[v_status.clone(), CoreValue::from("error")])?;
-    if core_truthy(&v_threw) {
-        v_thrown = core_get(&v_result, &CoreValue::from("error"), CoreValue::Null);
-        return Ok(v_thrown.clone());
-    }
-    v_failed = core_eq(&[v_status.clone(), CoreValue::from("fail")])?;
-    if core_truthy(&v_failed) {
-        v_message = core_get(&v_result, &CoreValue::from("message"), CoreValue::Null);
-        v_has_message = core_is_not_none(&[v_message.clone()])?;
-        if core_truthy(&v_has_message) {
-            v_assertion_error = core_runtime_error(&[v_message.clone()])?;
-            return Err(core_as_error(&v_assertion_error));
-        }
-        v_message_less =
-            core_runtime_error(&[CoreValue::from("Assertion failed without message")])?;
-        return Ok(v_message_less.clone());
-    }
-    v_passed = core_none(&[])?;
-    return Ok(v_passed.clone());
+    let mut v_processed = CoreValue::Null;
+    v_processed = core_axgen_apply_field_processors(&[v_gen.clone(), v_output.clone()])?;
+    return Ok(v_processed.clone());
 }
 
 #[allow(
@@ -72271,6 +74510,54 @@ fn _ace_prune_section_for_addition(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
+fn _run_assertions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_run_assertions");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_output = core_arg(args, 1);
+    let mut v_assertion_error = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_has_message = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_message_less = CoreValue::Null;
+    let mut v_passed = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_threw = CoreValue::Null;
+    let mut v_thrown = CoreValue::Null;
+    v_result = core_axgen_run_assertions(&[v_gen.clone(), v_output.clone()])?;
+    v_status = core_get(
+        &v_result,
+        &CoreValue::from("status"),
+        CoreValue::from("pass"),
+    );
+    v_threw = core_eq(&[v_status.clone(), CoreValue::from("error")])?;
+    if core_truthy(&v_threw) {
+        v_thrown = core_get(&v_result, &CoreValue::from("error"), CoreValue::Null);
+        return Ok(v_thrown.clone());
+    }
+    v_failed = core_eq(&[v_status.clone(), CoreValue::from("fail")])?;
+    if core_truthy(&v_failed) {
+        v_message = core_get(&v_result, &CoreValue::from("message"), CoreValue::Null);
+        v_has_message = core_is_not_none(&[v_message.clone()])?;
+        if core_truthy(&v_has_message) {
+            v_assertion_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_assertion_error));
+        }
+        v_message_less =
+            core_runtime_error(&[CoreValue::from("Assertion failed without message")])?;
+        return Ok(v_message_less.clone());
+    }
+    v_passed = core_none(&[])?;
+    return Ok(v_passed.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn chat_session_close_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("chat_session_close_state");
     let mut v_state = core_arg(args, 0);
@@ -72278,6 +74565,84 @@ fn chat_session_close_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_state, CoreValue::from("terminal"), CoreValue::Bool(true))?;
     v_unresolved = chat_session_unresolved(&[v_state.clone()])?;
     return Ok(v_unresolved.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_native_offset_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_native_offset_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_index = core_arg(args, 1);
+    let mut v_mode = core_arg(args, 2);
+    let mut v_cursor = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_following = CoreValue::Null;
+    let mut v_high = CoreValue::Null;
+    let mut v_high_end = CoreValue::Null;
+    let mut v_is_high = CoreValue::Null;
+    let mut v_is_low = CoreValue::Null;
+    let mut v_is_pair = CoreValue::Null;
+    let mut v_low = CoreValue::Null;
+    let mut v_low_end = CoreValue::Null;
+    let mut v_next_at = CoreValue::Null;
+    let mut v_offset = CoreValue::Null;
+    let mut v_step = CoreValue::Null;
+    let mut v_three = CoreValue::Null;
+    let mut v_two = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    let mut v_utf16 = CoreValue::Null;
+    let mut v_utf8 = CoreValue::Null;
+    let mut v_width = CoreValue::Null;
+    v_utf16 = core_eq(&[v_mode.clone(), CoreValue::from("utf16")])?;
+    if core_truthy(&v_utf16) {
+        return Ok(v_index.clone());
+    }
+    v_utf8 = core_eq(&[v_mode.clone(), CoreValue::from("utf8")])?;
+    v_offset = CoreValue::Num(0f64);
+    v_cursor = CoreValue::Num(0f64);
+    loop {
+        v_done = core_gte(&[v_cursor.clone(), v_index.clone()])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_unit = core_get(&v_units, &v_cursor.clone(), CoreValue::Num(0f64));
+        v_width = CoreValue::Num(1f64);
+        v_high = core_gte(&[v_unit.clone(), CoreValue::Num(55296f64)])?;
+        v_high_end = core_lte(&[v_unit.clone(), CoreValue::Num(56319f64)])?;
+        v_is_high = core_and(&[v_high.clone(), v_high_end.clone()])?;
+        v_next_at = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+        v_following = core_get(&v_units, &v_next_at.clone(), CoreValue::Num(0f64));
+        v_low = core_gte(&[v_following.clone(), CoreValue::Num(56320f64)])?;
+        v_low_end = core_lte(&[v_following.clone(), CoreValue::Num(57343f64)])?;
+        v_is_low = core_and(&[v_low.clone(), v_low_end.clone()])?;
+        v_is_pair = core_and(&[v_is_high.clone(), v_is_low.clone()])?;
+        v_step = CoreValue::Num(1f64);
+        if core_truthy(&v_is_pair) {
+            v_step = CoreValue::Num(2f64);
+            if core_truthy(&v_utf8) {
+                v_width = CoreValue::Num(4f64);
+            }
+        } else {
+            if core_truthy(&v_utf8) {
+                v_two = core_gte(&[v_unit.clone(), CoreValue::Num(128f64)])?;
+                if core_truthy(&v_two) {
+                    v_width = CoreValue::Num(2f64);
+                }
+                v_three = core_gte(&[v_unit.clone(), CoreValue::Num(2048f64)])?;
+                if core_truthy(&v_three) {
+                    v_width = CoreValue::Num(3f64);
+                }
+            }
+        }
+        v_offset = core_add(&[v_offset.clone(), v_width.clone()])?;
+        v_cursor = core_add(&[v_cursor.clone(), v_step.clone()])?;
+    }
+    return Ok(v_offset.clone());
 }
 
 #[allow(
@@ -72675,6 +75040,37 @@ fn _should_continue_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_should_continue = CoreValue::Null;
     v_should_continue = core_axgen_should_continue_steps(&[v_gen.clone(), v_calls.clone()])?;
     return Ok(v_should_continue.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_js_trim_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_js_trim_impl");
+    let mut v_text = core_arg(args, 0);
+    let mut v_bounds = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_end = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_slice_from = CoreValue::Null;
+    let mut v_slice_to = CoreValue::Null;
+    let mut v_start = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_units = CoreValue::Null;
+    v_units = core_string_utf16_units(&[v_text.clone()])?;
+    v_count = core_len(&[v_units.clone()])?;
+    v_bounds = _date_trim_bounds_impl(&[v_units.clone(), CoreValue::Num(0f64), v_count.clone()])?;
+    v_start = core_get(&v_bounds, &CoreValue::from("start"), CoreValue::Null);
+    v_end = core_get(&v_bounds, &CoreValue::from("end"), CoreValue::Null);
+    v_mode = _date_string_mode_impl(&[])?;
+    v_slice_from = _date_native_offset_impl(&[v_units.clone(), v_start.clone(), v_mode.clone()])?;
+    v_slice_to = _date_native_offset_impl(&[v_units.clone(), v_end.clone(), v_mode.clone()])?;
+    v_trimmed = core_string_slice(&[v_text.clone(), v_slice_from.clone(), v_slice_to.clone()])?;
+    return Ok(v_trimmed.clone());
 }
 
 #[allow(
@@ -73088,6 +75484,48 @@ fn _ace_apply_curator_operations(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
+fn _date_trim_bounds_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_trim_bounds_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_start = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_before = CoreValue::Null;
+    let mut v_bounds = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_first = CoreValue::Null;
+    let mut v_kept = CoreValue::Null;
+    let mut v_last = CoreValue::Null;
+    let mut v_space = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    v_first = _date_skip_space_impl(&[v_units.clone(), v_start.clone(), v_end.clone()])?;
+    v_last = v_end.clone();
+    loop {
+        v_empty = core_lte(&[v_last.clone(), v_first.clone()])?;
+        if core_truthy(&v_empty) {
+            break;
+        }
+        v_before = core_add(&[v_last.clone(), CoreValue::Num(-1f64)])?;
+        v_unit = core_get(&v_units, &v_before.clone(), CoreValue::Num(0f64));
+        v_space = _date_space_impl(&[v_unit.clone()])?;
+        v_kept = core_not(&[v_space.clone()])?;
+        if core_truthy(&v_kept) {
+            break;
+        }
+        v_last = v_before.clone();
+    }
+    v_bounds = CoreValue::new_map();
+    core_set(&v_bounds, CoreValue::from("start"), v_first.clone())?;
+    core_set(&v_bounds, CoreValue::from("end"), v_last.clone())?;
+    return Ok(v_bounds.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _is_flexible_json_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_is_flexible_json_field");
     let mut v_typ = core_arg(args, 0);
@@ -73301,6 +75739,40 @@ fn _regex_member(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _date_skip_space_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_skip_space_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_start = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_cursor = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_not_space = CoreValue::Null;
+    let mut v_space = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    v_cursor = v_start.clone();
+    loop {
+        v_done = core_gte(&[v_cursor.clone(), v_end.clone()])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_unit = core_get(&v_units, &v_cursor.clone(), CoreValue::Num(0f64));
+        v_space = _date_space_impl(&[v_unit.clone()])?;
+        v_not_space = core_not(&[v_space.clone()])?;
+        if core_truthy(&v_not_space) {
+            break;
+        }
+        v_cursor = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+    }
+    return Ok(v_cursor.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _parse_json_string_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_parse_json_string_value");
     let mut v_value = core_arg(args, 0);
@@ -73426,6 +75898,62 @@ fn _parse_json_string_for_field(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
+fn _date_space_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_space_impl");
+    let mut v_unit = core_arg(args, 0);
+    let mut v_blank = CoreValue::Null;
+    let mut v_byte_order = CoreValue::Null;
+    let mut v_control = CoreValue::Null;
+    let mut v_en_high = CoreValue::Null;
+    let mut v_en_low = CoreValue::Null;
+    let mut v_ideographic = CoreValue::Null;
+    let mut v_line_separator = CoreValue::Null;
+    let mut v_math_space = CoreValue::Null;
+    let mut v_narrow = CoreValue::Null;
+    let mut v_no_break = CoreValue::Null;
+    let mut v_ogham = CoreValue::Null;
+    let mut v_paragraph_separator = CoreValue::Null;
+    let mut v_space = CoreValue::Null;
+    let mut v_tab_high = CoreValue::Null;
+    let mut v_tab_low = CoreValue::Null;
+    let mut v_typographic = CoreValue::Null;
+    v_tab_low = core_gte(&[v_unit.clone(), CoreValue::Num(9f64)])?;
+    v_tab_high = core_lte(&[v_unit.clone(), CoreValue::Num(13f64)])?;
+    v_control = core_and(&[v_tab_low.clone(), v_tab_high.clone()])?;
+    if core_truthy(&v_control) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_space = core_eq(&[v_unit.clone(), CoreValue::Num(32f64)])?;
+    v_no_break = core_eq(&[v_unit.clone(), CoreValue::Num(160f64)])?;
+    v_ogham = core_eq(&[v_unit.clone(), CoreValue::Num(5760f64)])?;
+    v_en_low = core_gte(&[v_unit.clone(), CoreValue::Num(8192f64)])?;
+    v_en_high = core_lte(&[v_unit.clone(), CoreValue::Num(8202f64)])?;
+    v_typographic = core_and(&[v_en_low.clone(), v_en_high.clone()])?;
+    v_line_separator = core_eq(&[v_unit.clone(), CoreValue::Num(8232f64)])?;
+    v_paragraph_separator = core_eq(&[v_unit.clone(), CoreValue::Num(8233f64)])?;
+    v_narrow = core_eq(&[v_unit.clone(), CoreValue::Num(8239f64)])?;
+    v_math_space = core_eq(&[v_unit.clone(), CoreValue::Num(8287f64)])?;
+    v_ideographic = core_eq(&[v_unit.clone(), CoreValue::Num(12288f64)])?;
+    v_byte_order = core_eq(&[v_unit.clone(), CoreValue::Num(65279f64)])?;
+    v_blank = core_or(&[v_space.clone(), v_no_break.clone()])?;
+    v_blank = core_or(&[v_blank.clone(), v_ogham.clone()])?;
+    v_blank = core_or(&[v_blank.clone(), v_typographic.clone()])?;
+    v_blank = core_or(&[v_blank.clone(), v_line_separator.clone()])?;
+    v_blank = core_or(&[v_blank.clone(), v_paragraph_separator.clone()])?;
+    v_blank = core_or(&[v_blank.clone(), v_narrow.clone()])?;
+    v_blank = core_or(&[v_blank.clone(), v_math_space.clone()])?;
+    v_blank = core_or(&[v_blank.clone(), v_ideographic.clone()])?;
+    v_blank = core_or(&[v_blank.clone(), v_byte_order.clone()])?;
+    return Ok(v_blank.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_text_state_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_text_state_impl");
     let mut v_extracted = CoreValue::Null;
@@ -73466,6 +75994,31 @@ fn _stream_text_state_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     )?;
     core_set(&v_xstate, CoreValue::from("s"), CoreValue::Num(-1f64))?;
     return Ok(v_xstate.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_is_line_terminator_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_is_line_terminator_impl");
+    let mut v_unit = core_arg(args, 0);
+    let mut v_carriage_return = CoreValue::Null;
+    let mut v_line_feed = CoreValue::Null;
+    let mut v_line_separator = CoreValue::Null;
+    let mut v_paragraph_separator = CoreValue::Null;
+    let mut v_terminator = CoreValue::Null;
+    v_line_feed = core_eq(&[v_unit.clone(), CoreValue::Num(10f64)])?;
+    v_carriage_return = core_eq(&[v_unit.clone(), CoreValue::Num(13f64)])?;
+    v_line_separator = core_eq(&[v_unit.clone(), CoreValue::Num(8232f64)])?;
+    v_paragraph_separator = core_eq(&[v_unit.clone(), CoreValue::Num(8233f64)])?;
+    v_terminator = core_or(&[v_line_feed.clone(), v_carriage_return.clone()])?;
+    v_terminator = core_or(&[v_terminator.clone(), v_line_separator.clone()])?;
+    v_terminator = core_or(&[v_terminator.clone(), v_paragraph_separator.clone()])?;
+    return Ok(v_terminator.clone());
 }
 
 #[allow(
@@ -73525,6 +76078,33 @@ fn _stream_text_note_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
         )?;
     }
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_ascii_letter_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_ascii_letter_impl");
+    let mut v_unit = core_arg(args, 0);
+    let mut v_letter = CoreValue::Null;
+    let mut v_lower = CoreValue::Null;
+    let mut v_lower_high = CoreValue::Null;
+    let mut v_lower_low = CoreValue::Null;
+    let mut v_upper = CoreValue::Null;
+    let mut v_upper_high = CoreValue::Null;
+    let mut v_upper_low = CoreValue::Null;
+    v_upper_low = core_gte(&[v_unit.clone(), CoreValue::Num(65f64)])?;
+    v_upper_high = core_lte(&[v_unit.clone(), CoreValue::Num(90f64)])?;
+    v_upper = core_and(&[v_upper_low.clone(), v_upper_high.clone()])?;
+    v_lower_low = core_gte(&[v_unit.clone(), CoreValue::Num(97f64)])?;
+    v_lower_high = core_lte(&[v_unit.clone(), CoreValue::Num(122f64)])?;
+    v_lower = core_and(&[v_lower_low.clone(), v_lower_high.clone()])?;
+    v_letter = core_or(&[v_upper.clone(), v_lower.clone()])?;
+    return Ok(v_letter.clone());
 }
 
 #[allow(
@@ -73839,6 +76419,63 @@ fn _stream_text_extract_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         ])?;
     }
     return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_ascii_matches_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_ascii_matches_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_at = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_word = core_arg(args, 3);
+    let mut v_different = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_expected = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_last = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_past = CoreValue::Null;
+    let mut v_position = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    let mut v_upper = CoreValue::Null;
+    let mut v_upper_high = CoreValue::Null;
+    let mut v_upper_low = CoreValue::Null;
+    v_length = core_len(&[v_word.clone()])?;
+    v_last = core_add(&[v_at.clone(), v_length.clone()])?;
+    v_past = core_gt(&[v_last.clone(), v_end.clone()])?;
+    if core_truthy(&v_past) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_index = CoreValue::Num(0f64);
+    loop {
+        v_done = core_gte(&[v_index.clone(), v_length.clone()])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_position = core_add(&[v_at.clone(), v_index.clone()])?;
+        v_unit = core_get(&v_units, &v_position.clone(), CoreValue::Num(0f64));
+        v_upper_low = core_gte(&[v_unit.clone(), CoreValue::Num(65f64)])?;
+        v_upper_high = core_lte(&[v_unit.clone(), CoreValue::Num(90f64)])?;
+        v_upper = core_and(&[v_upper_low.clone(), v_upper_high.clone()])?;
+        if core_truthy(&v_upper) {
+            v_unit = core_add(&[v_unit.clone(), CoreValue::Num(32f64)])?;
+        }
+        v_expected = core_get(&v_word, &v_index.clone(), CoreValue::Num(0f64));
+        v_same = core_eq(&[v_unit.clone(), v_expected.clone()])?;
+        v_different = core_not(&[v_same.clone()])?;
+        if core_truthy(&v_different) {
+            return Ok(CoreValue::Bool(false));
+        }
+        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+    }
+    return Ok(CoreValue::Bool(true));
 }
 
 #[allow(
@@ -74270,6 +76907,84 @@ fn _ace_is_noop_acknowledgment(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
+fn _date_digits_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_digits_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_at = core_arg(args, 1);
+    let mut v_count = core_arg(args, 2);
+    let mut v_end = core_arg(args, 3);
+    let mut v_digit = CoreValue::Null;
+    let mut v_digit_value = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_high = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_last = CoreValue::Null;
+    let mut v_low = CoreValue::Null;
+    let mut v_not_digit = CoreValue::Null;
+    let mut v_past = CoreValue::Null;
+    let mut v_scaled = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_last = core_add(&[v_at.clone(), v_count.clone()])?;
+    v_past = core_gt(&[v_last.clone(), v_end.clone()])?;
+    if core_truthy(&v_past) {
+        return Ok(CoreValue::Num(-1f64));
+    }
+    v_value = CoreValue::Num(0f64);
+    v_index = v_at.clone();
+    loop {
+        v_done = core_gte(&[v_index.clone(), v_last.clone()])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_unit = core_get(&v_units, &v_index.clone(), CoreValue::Num(0f64));
+        v_low = core_gte(&[v_unit.clone(), CoreValue::Num(48f64)])?;
+        v_high = core_lte(&[v_unit.clone(), CoreValue::Num(57f64)])?;
+        v_digit = core_and(&[v_low.clone(), v_high.clone()])?;
+        v_not_digit = core_not(&[v_digit.clone()])?;
+        if core_truthy(&v_not_digit) {
+            return Ok(CoreValue::Num(-1f64));
+        }
+        v_scaled = core_mul(&[v_value.clone(), CoreValue::Num(10f64)])?;
+        v_digit_value = core_add(&[v_unit.clone(), CoreValue::Num(-48f64)])?;
+        v_value = core_add(&[v_scaled.clone(), v_digit_value.clone()])?;
+        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+    }
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_expect_unit_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_expect_unit_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_at = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_expected = core_arg(args, 3);
+    let mut v_inside = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    v_inside = core_lt(&[v_at.clone(), v_end.clone()])?;
+    if core_truthy(&v_inside) {
+        v_unit = core_get(&v_units, &v_at.clone(), CoreValue::Num(0f64));
+        v_same = core_eq(&[v_unit.clone(), v_expected.clone()])?;
+        return Ok(v_same.clone());
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _regex_push(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_push");
     let mut v_stack = core_arg(args, 0);
@@ -74320,6 +77035,88 @@ fn _tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         core_set(&v_spec, CoreValue::from("execution"), v_execution.clone())?;
     }
     return Ok(v_spec.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_scan_date_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_scan_date_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_at = core_arg(args, 1);
+    let mut v_bad = CoreValue::Null;
+    let mut v_dash = CoreValue::Null;
+    let mut v_dash_at = CoreValue::Null;
+    let mut v_day = CoreValue::Null;
+    let mut v_day_at = CoreValue::Null;
+    let mut v_day_ok = CoreValue::Null;
+    let mut v_limit = CoreValue::Null;
+    let mut v_month = CoreValue::Null;
+    let mut v_month_at = CoreValue::Null;
+    let mut v_month_ok = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_ok = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_second_dash = CoreValue::Null;
+    let mut v_second_dash_at = CoreValue::Null;
+    let mut v_year = CoreValue::Null;
+    let mut v_year_ok = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_limit = core_add(&[v_at.clone(), CoreValue::Num(10f64)])?;
+    v_year = _date_digits_impl(&[
+        v_units.clone(),
+        v_at.clone(),
+        CoreValue::Num(4f64),
+        v_limit.clone(),
+    ])?;
+    v_dash_at = core_add(&[v_at.clone(), CoreValue::Num(4f64)])?;
+    v_dash = _date_expect_unit_impl(&[
+        v_units.clone(),
+        v_dash_at.clone(),
+        v_limit.clone(),
+        CoreValue::Num(45f64),
+    ])?;
+    v_month_at = core_add(&[v_at.clone(), CoreValue::Num(5f64)])?;
+    v_month = _date_digits_impl(&[
+        v_units.clone(),
+        v_month_at.clone(),
+        CoreValue::Num(2f64),
+        v_limit.clone(),
+    ])?;
+    v_second_dash_at = core_add(&[v_at.clone(), CoreValue::Num(7f64)])?;
+    v_second_dash = _date_expect_unit_impl(&[
+        v_units.clone(),
+        v_second_dash_at.clone(),
+        v_limit.clone(),
+        CoreValue::Num(45f64),
+    ])?;
+    v_day_at = core_add(&[v_at.clone(), CoreValue::Num(8f64)])?;
+    v_day = _date_digits_impl(&[
+        v_units.clone(),
+        v_day_at.clone(),
+        CoreValue::Num(2f64),
+        v_limit.clone(),
+    ])?;
+    v_ok = core_and(&[v_dash.clone(), v_second_dash.clone()])?;
+    v_year_ok = core_gte(&[v_year.clone(), CoreValue::Num(0f64)])?;
+    v_month_ok = core_gte(&[v_month.clone(), CoreValue::Num(0f64)])?;
+    v_day_ok = core_gte(&[v_day.clone(), CoreValue::Num(0f64)])?;
+    v_ok = core_and(&[v_ok.clone(), v_year_ok.clone()])?;
+    v_ok = core_and(&[v_ok.clone(), v_month_ok.clone()])?;
+    v_ok = core_and(&[v_ok.clone(), v_day_ok.clone()])?;
+    v_bad = core_not(&[v_ok.clone()])?;
+    if core_truthy(&v_bad) {
+        return Ok(v_none.clone());
+    }
+    v_parts = CoreValue::new_map();
+    core_set(&v_parts, CoreValue::from("year"), v_year.clone())?;
+    core_set(&v_parts, CoreValue::from("month"), v_month.clone())?;
+    core_set(&v_parts, CoreValue::from("day"), v_day.clone())?;
+    return Ok(v_parts.clone());
 }
 
 #[allow(
@@ -75172,6 +77969,197 @@ fn _regex_search(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _date_scan_datetime_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_scan_datetime_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_start = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_clock_ok = CoreValue::Null;
+    let mut v_colon = CoreValue::Null;
+    let mut v_colon_at = CoreValue::Null;
+    let mut v_counted = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_date_end = CoreValue::Null;
+    let mut v_digit = CoreValue::Null;
+    let mut v_digit_at = CoreValue::Null;
+    let mut v_digits = CoreValue::Null;
+    let mut v_dot = CoreValue::Null;
+    let mut v_enough = CoreValue::Null;
+    let mut v_fraction_at = CoreValue::Null;
+    let mut v_fraction_end = CoreValue::Null;
+    let mut v_has_fraction = CoreValue::Null;
+    let mut v_has_second = CoreValue::Null;
+    let mut v_hour = CoreValue::Null;
+    let mut v_hour_at = CoreValue::Null;
+    let mut v_hour_ok = CoreValue::Null;
+    let mut v_inside = CoreValue::Null;
+    let mut v_lower_t = CoreValue::Null;
+    let mut v_millisecond = CoreValue::Null;
+    let mut v_minute = CoreValue::Null;
+    let mut v_minute_at = CoreValue::Null;
+    let mut v_minute_ok = CoreValue::Null;
+    let mut v_no_clock = CoreValue::Null;
+    let mut v_no_date = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_digit = CoreValue::Null;
+    let mut v_not_separated = CoreValue::Null;
+    let mut v_pad = CoreValue::Null;
+    let mut v_padded = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_scaled = CoreValue::Null;
+    let mut v_second = CoreValue::Null;
+    let mut v_second_at = CoreValue::Null;
+    let mut v_second_colon = CoreValue::Null;
+    let mut v_separated = CoreValue::Null;
+    let mut v_separator = CoreValue::Null;
+    let mut v_space = CoreValue::Null;
+    let mut v_too_short = CoreValue::Null;
+    let mut v_upper_t = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_date_end = core_add(&[v_start.clone(), CoreValue::Num(10f64)])?;
+    v_too_short = core_gt(&[v_date_end.clone(), v_end.clone()])?;
+    if core_truthy(&v_too_short) {
+        return Ok(v_none.clone());
+    }
+    v_parts = _date_scan_date_impl(&[v_units.clone(), v_start.clone()])?;
+    v_no_date = core_is_none(&[v_parts.clone()])?;
+    if core_truthy(&v_no_date) {
+        return Ok(v_none.clone());
+    }
+    v_separator = core_get(&v_units, &v_date_end.clone(), CoreValue::Num(0f64));
+    v_upper_t = core_eq(&[v_separator.clone(), CoreValue::Num(84f64)])?;
+    v_lower_t = core_eq(&[v_separator.clone(), CoreValue::Num(116f64)])?;
+    v_space = core_eq(&[v_separator.clone(), CoreValue::Num(32f64)])?;
+    v_separated = core_or(&[v_upper_t.clone(), v_lower_t.clone()])?;
+    v_separated = core_or(&[v_separated.clone(), v_space.clone()])?;
+    v_inside = core_lt(&[v_date_end.clone(), v_end.clone()])?;
+    v_separated = core_and(&[v_separated.clone(), v_inside.clone()])?;
+    v_not_separated = core_not(&[v_separated.clone()])?;
+    if core_truthy(&v_not_separated) {
+        return Ok(v_none.clone());
+    }
+    v_hour_at = core_add(&[v_start.clone(), CoreValue::Num(11f64)])?;
+    v_hour = _date_digits_impl(&[
+        v_units.clone(),
+        v_hour_at.clone(),
+        CoreValue::Num(2f64),
+        v_end.clone(),
+    ])?;
+    v_colon_at = core_add(&[v_start.clone(), CoreValue::Num(13f64)])?;
+    v_colon = _date_expect_unit_impl(&[
+        v_units.clone(),
+        v_colon_at.clone(),
+        v_end.clone(),
+        CoreValue::Num(58f64),
+    ])?;
+    v_minute_at = core_add(&[v_start.clone(), CoreValue::Num(14f64)])?;
+    v_minute = _date_digits_impl(&[
+        v_units.clone(),
+        v_minute_at.clone(),
+        CoreValue::Num(2f64),
+        v_end.clone(),
+    ])?;
+    v_hour_ok = core_gte(&[v_hour.clone(), CoreValue::Num(0f64)])?;
+    v_minute_ok = core_gte(&[v_minute.clone(), CoreValue::Num(0f64)])?;
+    v_clock_ok = core_and(&[v_hour_ok.clone(), v_colon.clone()])?;
+    v_clock_ok = core_and(&[v_clock_ok.clone(), v_minute_ok.clone()])?;
+    v_no_clock = core_not(&[v_clock_ok.clone()])?;
+    if core_truthy(&v_no_clock) {
+        return Ok(v_none.clone());
+    }
+    core_set(&v_parts, CoreValue::from("hour"), v_hour.clone())?;
+    core_set(&v_parts, CoreValue::from("minute"), v_minute.clone())?;
+    core_set(&v_parts, CoreValue::from("second"), CoreValue::Num(0f64))?;
+    core_set(
+        &v_parts,
+        CoreValue::from("millisecond"),
+        CoreValue::Num(0f64),
+    )?;
+    v_cursor = core_add(&[v_start.clone(), CoreValue::Num(16f64)])?;
+    v_second_colon = _date_expect_unit_impl(&[
+        v_units.clone(),
+        v_cursor.clone(),
+        v_end.clone(),
+        CoreValue::Num(58f64),
+    ])?;
+    if core_truthy(&v_second_colon) {
+        v_second_at = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+        v_second = _date_digits_impl(&[
+            v_units.clone(),
+            v_second_at.clone(),
+            CoreValue::Num(2f64),
+            v_end.clone(),
+        ])?;
+        v_has_second = core_gte(&[v_second.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_has_second) {
+            core_set(&v_parts, CoreValue::from("second"), v_second.clone())?;
+            v_cursor = core_add(&[v_cursor.clone(), CoreValue::Num(3f64)])?;
+        }
+    }
+    v_dot = _date_expect_unit_impl(&[
+        v_units.clone(),
+        v_cursor.clone(),
+        v_end.clone(),
+        CoreValue::Num(46f64),
+    ])?;
+    if core_truthy(&v_dot) {
+        v_fraction_at = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+        v_digits = CoreValue::Num(0f64);
+        v_millisecond = CoreValue::Num(0f64);
+        loop {
+            v_enough = core_gte(&[v_digits.clone(), CoreValue::Num(9f64)])?;
+            if core_truthy(&v_enough) {
+                break;
+            }
+            v_digit_at = core_add(&[v_fraction_at.clone(), v_digits.clone()])?;
+            v_digit = _date_digits_impl(&[
+                v_units.clone(),
+                v_digit_at.clone(),
+                CoreValue::Num(1f64),
+                v_end.clone(),
+            ])?;
+            v_not_digit = core_lt(&[v_digit.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_not_digit) {
+                break;
+            }
+            v_counted = core_lt(&[v_digits.clone(), CoreValue::Num(3f64)])?;
+            if core_truthy(&v_counted) {
+                v_scaled = core_mul(&[v_millisecond.clone(), CoreValue::Num(10f64)])?;
+                v_millisecond = core_add(&[v_scaled.clone(), v_digit.clone()])?;
+            }
+            v_digits = core_add(&[v_digits.clone(), CoreValue::Num(1f64)])?;
+        }
+        v_has_fraction = core_gt(&[v_digits.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_has_fraction) {
+            v_pad = v_digits.clone();
+            loop {
+                v_padded = core_gte(&[v_pad.clone(), CoreValue::Num(3f64)])?;
+                if core_truthy(&v_padded) {
+                    break;
+                }
+                v_millisecond = core_mul(&[v_millisecond.clone(), CoreValue::Num(10f64)])?;
+                v_pad = core_add(&[v_pad.clone(), CoreValue::Num(1f64)])?;
+            }
+            core_set(
+                &v_parts,
+                CoreValue::from("millisecond"),
+                v_millisecond.clone(),
+            )?;
+            v_fraction_end = core_add(&[v_fraction_at.clone(), v_digits.clone()])?;
+            v_cursor = v_fraction_end.clone();
+        }
+    }
+    core_set(&v_parts, CoreValue::from("end"), v_cursor.clone())?;
+    return Ok(v_parts.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_text_required_check_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_text_required_check_impl");
     let mut v_values = core_arg(args, 0);
@@ -75920,6 +78908,128 @@ fn _tool_error_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _date_offset_zone_matches_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_offset_zone_matches_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_start = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_at_end = CoreValue::Null;
+    let mut v_colon = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_gmt = CoreValue::Null;
+    let mut v_gmt_units = CoreValue::Null;
+    let mut v_has_minutes = CoreValue::Null;
+    let mut v_has_sign = CoreValue::Null;
+    let mut v_hour_at = CoreValue::Null;
+    let mut v_hours = CoreValue::Null;
+    let mut v_is_z = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_minus = CoreValue::Null;
+    let mut v_minute_at = CoreValue::Null;
+    let mut v_minutes = CoreValue::Null;
+    let mut v_minutes_end = CoreValue::Null;
+    let mut v_named = CoreValue::Null;
+    let mut v_no_hours = CoreValue::Null;
+    let mut v_no_sign = CoreValue::Null;
+    let mut v_one = CoreValue::Null;
+    let mut v_plus = CoreValue::Null;
+    let mut v_rest = CoreValue::Null;
+    let mut v_sign = CoreValue::Null;
+    let mut v_sign_inside = CoreValue::Null;
+    let mut v_single = CoreValue::Null;
+    let mut v_utc = CoreValue::Null;
+    let mut v_utc_units = CoreValue::Null;
+    let mut v_z_units = CoreValue::Null;
+    let mut v_zulu = CoreValue::Null;
+    v_z_units = core_string_utf16_units(&[CoreValue::from("z")])?;
+    v_one = core_add(&[v_start.clone(), CoreValue::Num(1f64)])?;
+    v_single = core_eq(&[v_one.clone(), v_end.clone()])?;
+    v_is_z = _date_ascii_matches_impl(&[
+        v_units.clone(),
+        v_start.clone(),
+        v_end.clone(),
+        v_z_units.clone(),
+    ])?;
+    v_zulu = core_and(&[v_single.clone(), v_is_z.clone()])?;
+    if core_truthy(&v_zulu) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_cursor = v_start.clone();
+    v_utc_units = core_string_utf16_units(&[CoreValue::from("utc")])?;
+    v_gmt_units = core_string_utf16_units(&[CoreValue::from("gmt")])?;
+    v_utc = _date_ascii_matches_impl(&[
+        v_units.clone(),
+        v_start.clone(),
+        v_end.clone(),
+        v_utc_units.clone(),
+    ])?;
+    v_gmt = _date_ascii_matches_impl(&[
+        v_units.clone(),
+        v_start.clone(),
+        v_end.clone(),
+        v_gmt_units.clone(),
+    ])?;
+    v_named = core_or(&[v_utc.clone(), v_gmt.clone()])?;
+    if core_truthy(&v_named) {
+        v_cursor = core_add(&[v_start.clone(), CoreValue::Num(3f64)])?;
+    }
+    v_sign = core_get(&v_units, &v_cursor.clone(), CoreValue::Num(0f64));
+    v_plus = core_eq(&[v_sign.clone(), CoreValue::Num(43f64)])?;
+    v_minus = core_eq(&[v_sign.clone(), CoreValue::Num(45f64)])?;
+    v_has_sign = core_or(&[v_plus.clone(), v_minus.clone()])?;
+    v_sign_inside = core_lt(&[v_cursor.clone(), v_end.clone()])?;
+    v_has_sign = core_and(&[v_has_sign.clone(), v_sign_inside.clone()])?;
+    v_no_sign = core_not(&[v_has_sign.clone()])?;
+    if core_truthy(&v_no_sign) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_hour_at = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+    v_hours = _date_digits_impl(&[
+        v_units.clone(),
+        v_hour_at.clone(),
+        CoreValue::Num(2f64),
+        v_end.clone(),
+    ])?;
+    v_no_hours = core_lt(&[v_hours.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_no_hours) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_rest = core_add(&[v_cursor.clone(), CoreValue::Num(3f64)])?;
+    v_done = core_eq(&[v_rest.clone(), v_end.clone()])?;
+    if core_truthy(&v_done) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_minute_at = v_rest.clone();
+    v_colon = _date_expect_unit_impl(&[
+        v_units.clone(),
+        v_rest.clone(),
+        v_end.clone(),
+        CoreValue::Num(58f64),
+    ])?;
+    if core_truthy(&v_colon) {
+        v_minute_at = core_add(&[v_rest.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_minutes = _date_digits_impl(&[
+        v_units.clone(),
+        v_minute_at.clone(),
+        CoreValue::Num(2f64),
+        v_end.clone(),
+    ])?;
+    v_has_minutes = core_gte(&[v_minutes.clone(), CoreValue::Num(0f64)])?;
+    v_minutes_end = core_add(&[v_minute_at.clone(), CoreValue::Num(2f64)])?;
+    v_at_end = core_eq(&[v_minutes_end.clone(), v_end.clone()])?;
+    v_matches = core_and(&[v_has_minutes.clone(), v_at_end.clone()])?;
+    return Ok(v_matches.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _append_validation_retry_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_append_validation_retry_messages_impl");
     let mut v_messages = core_arg(args, 0);
@@ -76006,6 +79116,158 @@ fn _parse_text_field_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
         return Ok(v_value.clone());
     }
     return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_offset_minutes_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_offset_minutes_impl");
+    let mut v_units = core_arg(args, 0);
+    let mut v_start = core_arg(args, 1);
+    let mut v_end = core_arg(args, 2);
+    let mut v_at_end = CoreValue::Null;
+    let mut v_bad = CoreValue::Null;
+    let mut v_colon = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_gmt = CoreValue::Null;
+    let mut v_gmt_units = CoreValue::Null;
+    let mut v_has_sign = CoreValue::Null;
+    let mut v_hour_at = CoreValue::Null;
+    let mut v_hours = CoreValue::Null;
+    let mut v_hours_range = CoreValue::Null;
+    let mut v_is_z = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_minus = CoreValue::Null;
+    let mut v_minute_at = CoreValue::Null;
+    let mut v_minutes = CoreValue::Null;
+    let mut v_minutes_end = CoreValue::Null;
+    let mut v_minutes_ok = CoreValue::Null;
+    let mut v_minutes_range = CoreValue::Null;
+    let mut v_more = CoreValue::Null;
+    let mut v_named = CoreValue::Null;
+    let mut v_named_only = CoreValue::Null;
+    let mut v_no_hours = CoreValue::Null;
+    let mut v_no_sign = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_ok = CoreValue::Null;
+    let mut v_one = CoreValue::Null;
+    let mut v_out_of_range = CoreValue::Null;
+    let mut v_plus = CoreValue::Null;
+    let mut v_rest = CoreValue::Null;
+    let mut v_sign_inside = CoreValue::Null;
+    let mut v_sign_unit = CoreValue::Null;
+    let mut v_three = CoreValue::Null;
+    let mut v_total = CoreValue::Null;
+    let mut v_utc = CoreValue::Null;
+    let mut v_utc_units = CoreValue::Null;
+    let mut v_z_units = CoreValue::Null;
+    let mut v_zulu = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_length = core_mul(&[v_start.clone(), CoreValue::Num(-1f64)])?;
+    v_length = core_add(&[v_length.clone(), v_end.clone()])?;
+    v_utc_units = core_string_utf16_units(&[CoreValue::from("utc")])?;
+    v_gmt_units = core_string_utf16_units(&[CoreValue::from("gmt")])?;
+    v_z_units = core_string_utf16_units(&[CoreValue::from("z")])?;
+    v_utc = _date_ascii_matches_impl(&[
+        v_units.clone(),
+        v_start.clone(),
+        v_end.clone(),
+        v_utc_units.clone(),
+    ])?;
+    v_gmt = _date_ascii_matches_impl(&[
+        v_units.clone(),
+        v_start.clone(),
+        v_end.clone(),
+        v_gmt_units.clone(),
+    ])?;
+    v_named = core_or(&[v_utc.clone(), v_gmt.clone()])?;
+    v_three = core_eq(&[v_length.clone(), CoreValue::Num(3f64)])?;
+    v_named_only = core_and(&[v_named.clone(), v_three.clone()])?;
+    if core_truthy(&v_named_only) {
+        return Ok(CoreValue::Num(0f64));
+    }
+    v_one = core_eq(&[v_length.clone(), CoreValue::Num(1f64)])?;
+    v_is_z = _date_ascii_matches_impl(&[
+        v_units.clone(),
+        v_start.clone(),
+        v_end.clone(),
+        v_z_units.clone(),
+    ])?;
+    v_zulu = core_and(&[v_one.clone(), v_is_z.clone()])?;
+    if core_truthy(&v_zulu) {
+        return Ok(CoreValue::Num(0f64));
+    }
+    v_cursor = v_start.clone();
+    if core_truthy(&v_named) {
+        v_cursor = core_add(&[v_start.clone(), CoreValue::Num(3f64)])?;
+    }
+    v_sign_unit = core_get(&v_units, &v_cursor.clone(), CoreValue::Num(0f64));
+    v_sign_inside = core_lt(&[v_cursor.clone(), v_end.clone()])?;
+    v_plus = core_eq(&[v_sign_unit.clone(), CoreValue::Num(43f64)])?;
+    v_minus = core_eq(&[v_sign_unit.clone(), CoreValue::Num(45f64)])?;
+    v_has_sign = core_or(&[v_plus.clone(), v_minus.clone()])?;
+    v_has_sign = core_and(&[v_has_sign.clone(), v_sign_inside.clone()])?;
+    v_no_sign = core_not(&[v_has_sign.clone()])?;
+    if core_truthy(&v_no_sign) {
+        return Ok(v_none.clone());
+    }
+    v_hour_at = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+    v_hours = _date_digits_impl(&[
+        v_units.clone(),
+        v_hour_at.clone(),
+        CoreValue::Num(2f64),
+        v_end.clone(),
+    ])?;
+    v_no_hours = core_lt(&[v_hours.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_no_hours) {
+        return Ok(v_none.clone());
+    }
+    v_minutes = CoreValue::Num(0f64);
+    v_rest = core_add(&[v_cursor.clone(), CoreValue::Num(3f64)])?;
+    v_more = core_lt(&[v_rest.clone(), v_end.clone()])?;
+    if core_truthy(&v_more) {
+        v_minute_at = v_rest.clone();
+        v_colon = _date_expect_unit_impl(&[
+            v_units.clone(),
+            v_rest.clone(),
+            v_end.clone(),
+            CoreValue::Num(58f64),
+        ])?;
+        if core_truthy(&v_colon) {
+            v_minute_at = core_add(&[v_rest.clone(), CoreValue::Num(1f64)])?;
+        }
+        v_minutes = _date_digits_impl(&[
+            v_units.clone(),
+            v_minute_at.clone(),
+            CoreValue::Num(2f64),
+            v_end.clone(),
+        ])?;
+        v_minutes_end = core_add(&[v_minute_at.clone(), CoreValue::Num(2f64)])?;
+        v_at_end = core_eq(&[v_minutes_end.clone(), v_end.clone()])?;
+        v_minutes_ok = core_gte(&[v_minutes.clone(), CoreValue::Num(0f64)])?;
+        v_ok = core_and(&[v_at_end.clone(), v_minutes_ok.clone()])?;
+        v_bad = core_not(&[v_ok.clone()])?;
+        if core_truthy(&v_bad) {
+            return Ok(v_none.clone());
+        }
+    }
+    v_hours_range = core_gt(&[v_hours.clone(), CoreValue::Num(23f64)])?;
+    v_minutes_range = core_gt(&[v_minutes.clone(), CoreValue::Num(59f64)])?;
+    v_out_of_range = core_or(&[v_hours_range.clone(), v_minutes_range.clone()])?;
+    if core_truthy(&v_out_of_range) {
+        return Ok(v_none.clone());
+    }
+    v_total = core_mul(&[v_hours.clone(), CoreValue::Num(60f64)])?;
+    v_total = core_add(&[v_total.clone(), v_minutes.clone()])?;
+    if core_truthy(&v_minus) {
+        v_total = core_mul(&[v_total.clone(), CoreValue::Num(-1f64)])?;
+    }
+    return Ok(v_total.clone());
 }
 
 #[allow(
@@ -76687,6 +79949,86 @@ fn _stream_text_extract_values_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     unreachable_code,
     clippy::all
 )]
+fn _date_js_json_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_js_json_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_json = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_null = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_item_json = CoreValue::Null;
+    let mut v_items = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_key_json = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_list_json = CoreValue::Null;
+    let mut v_member = CoreValue::Null;
+    let mut v_members = CoreValue::Null;
+    let mut v_number = CoreValue::Null;
+    let mut v_object_json = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_quoted = CoreValue::Null;
+    v_is_null = core_is_none(&[v_value.clone()])?;
+    if core_truthy(&v_is_null) {
+        return Ok(CoreValue::from("null"));
+    }
+    v_is_boolean = core_type_is(&v_value, CoreValue::from("boolean"));
+    if core_truthy(&v_is_boolean) {
+        if core_truthy(&v_value) {
+            return Ok(CoreValue::from("true"));
+        }
+        return Ok(CoreValue::from("false"));
+    }
+    v_is_number = core_type_is(&v_value, CoreValue::from("number"));
+    if core_truthy(&v_is_number) {
+        v_number = core_string_str(&[v_value.clone()])?;
+        return Ok(v_number.clone());
+    }
+    v_is_text = core_type_is(&v_value, CoreValue::from("string"));
+    if core_truthy(&v_is_text) {
+        v_quoted = _date_js_json_string_impl(&[v_value.clone()])?;
+        return Ok(v_quoted.clone());
+    }
+    v_parts = CoreValue::new_list();
+    v_is_list = core_type_is(&v_value, CoreValue::from("list"));
+    if core_truthy(&v_is_list) {
+        for v_item in core_iter(&v_value)? {
+            let mut v_item = v_item;
+            v_item_json = _date_js_json_impl(&[v_item.clone()])?;
+            core_append(&v_parts, v_item_json.clone())?;
+        }
+        v_items = core_string_join(&CoreValue::from(","), &v_parts)?;
+        v_list_json = core_add(&[CoreValue::from("["), v_items.clone()])?;
+        v_list_json = core_add(&[v_list_json.clone(), CoreValue::from("]")])?;
+        return Ok(v_list_json.clone());
+    }
+    v_keys = core_map_keys(&[v_value.clone()])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_key_json = _date_js_json_string_impl(&[v_key.clone()])?;
+        v_entry = core_get(&v_value, &v_key.clone(), CoreValue::Null);
+        v_entry_json = _date_js_json_impl(&[v_entry.clone()])?;
+        v_member = core_add(&[v_key_json.clone(), CoreValue::from(":")])?;
+        v_member = core_add(&[v_member.clone(), v_entry_json.clone()])?;
+        core_append(&v_parts, v_member.clone())?;
+    }
+    v_members = core_string_join(&CoreValue::from(","), &v_parts)?;
+    v_object_json = core_add(&[CoreValue::from("{"), v_members.clone()])?;
+    v_object_json = core_add(&[v_object_json.clone(), CoreValue::from("}")])?;
+    return Ok(v_object_json.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _parse_output_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_parse_output_fields_impl");
     let mut v_content = core_arg(args, 0);
@@ -76703,6 +80045,89 @@ fn _parse_output_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_output =
         _parse_text_output_fields_impl(&[v_text.clone(), v_fields.clone(), CoreValue::Bool(true)])?;
     return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_has_complex_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_has_complex_fields");
+    let mut v_signature = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_field = CoreValue::Null;
+    let mut v_field_type = CoreValue::Null;
+    let mut v_forced = CoreValue::Null;
+    let mut v_has_nested_fields = CoreValue::Null;
+    let mut v_is_array = CoreValue::Null;
+    let mut v_is_array_snake = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_nested_fields = CoreValue::Null;
+    let mut v_object_array = CoreValue::Null;
+    let mut v_option_forced = CoreValue::Null;
+    let mut v_option_forced_snake = CoreValue::Null;
+    let mut v_output_fields = CoreValue::Null;
+    let mut v_signature_forced = CoreValue::Null;
+    let mut v_signature_forced_snake = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_option_forced_snake = core_get(
+        &v_options,
+        &CoreValue::from("force_structured"),
+        CoreValue::Bool(false),
+    );
+    v_option_forced = core_get(
+        &v_options,
+        &CoreValue::from("forceStructured"),
+        v_option_forced_snake.clone(),
+    );
+    v_signature_forced_snake = core_get(
+        &v_signature,
+        &CoreValue::from("force_structured"),
+        CoreValue::Bool(false),
+    );
+    v_signature_forced = core_get(
+        &v_signature,
+        &CoreValue::from("forceStructured"),
+        v_signature_forced_snake.clone(),
+    );
+    v_forced = core_or(&[v_option_forced.clone(), v_signature_forced.clone()])?;
+    if core_truthy(&v_forced) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_output_fields = core_get(
+        &v_signature,
+        &CoreValue::from("output_fields"),
+        CoreValue::Null,
+    );
+    for v_field in core_iter(&v_output_fields)? {
+        let mut v_field = v_field;
+        v_field_type = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+        v_type_name = core_get(&v_field_type, &CoreValue::from("name"), CoreValue::Null);
+        v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
+        if core_truthy(&v_is_object) {
+            return Ok(CoreValue::Bool(true));
+        }
+        v_is_array_snake = core_get(
+            &v_field_type,
+            &CoreValue::from("is_array"),
+            CoreValue::Bool(false),
+        );
+        v_is_array = core_get(
+            &v_field_type,
+            &CoreValue::from("isArray"),
+            v_is_array_snake.clone(),
+        );
+        v_nested_fields = core_get(&v_field_type, &CoreValue::from("fields"), CoreValue::Null);
+        v_has_nested_fields = core_truthy_value(&[v_nested_fields.clone()])?;
+        v_object_array = core_and(&[v_is_array.clone(), v_has_nested_fields.clone()])?;
+        if core_truthy(&v_object_array) {
+            return Ok(CoreValue::Bool(true));
+        }
+    }
+    return Ok(CoreValue::Bool(false));
 }
 
 #[allow(
@@ -76848,89 +80273,6 @@ fn _stream_text_yield_delta_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
-fn _signature_has_complex_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_signature_has_complex_fields");
-    let mut v_signature = core_arg(args, 0);
-    let mut v_options = core_arg(args, 1);
-    let mut v_field = CoreValue::Null;
-    let mut v_field_type = CoreValue::Null;
-    let mut v_forced = CoreValue::Null;
-    let mut v_has_nested_fields = CoreValue::Null;
-    let mut v_is_array = CoreValue::Null;
-    let mut v_is_array_snake = CoreValue::Null;
-    let mut v_is_object = CoreValue::Null;
-    let mut v_nested_fields = CoreValue::Null;
-    let mut v_object_array = CoreValue::Null;
-    let mut v_option_forced = CoreValue::Null;
-    let mut v_option_forced_snake = CoreValue::Null;
-    let mut v_output_fields = CoreValue::Null;
-    let mut v_signature_forced = CoreValue::Null;
-    let mut v_signature_forced_snake = CoreValue::Null;
-    let mut v_type_name = CoreValue::Null;
-    v_option_forced_snake = core_get(
-        &v_options,
-        &CoreValue::from("force_structured"),
-        CoreValue::Bool(false),
-    );
-    v_option_forced = core_get(
-        &v_options,
-        &CoreValue::from("forceStructured"),
-        v_option_forced_snake.clone(),
-    );
-    v_signature_forced_snake = core_get(
-        &v_signature,
-        &CoreValue::from("force_structured"),
-        CoreValue::Bool(false),
-    );
-    v_signature_forced = core_get(
-        &v_signature,
-        &CoreValue::from("forceStructured"),
-        v_signature_forced_snake.clone(),
-    );
-    v_forced = core_or(&[v_option_forced.clone(), v_signature_forced.clone()])?;
-    if core_truthy(&v_forced) {
-        return Ok(CoreValue::Bool(true));
-    }
-    v_output_fields = core_get(
-        &v_signature,
-        &CoreValue::from("output_fields"),
-        CoreValue::Null,
-    );
-    for v_field in core_iter(&v_output_fields)? {
-        let mut v_field = v_field;
-        v_field_type = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
-        v_type_name = core_get(&v_field_type, &CoreValue::from("name"), CoreValue::Null);
-        v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
-        if core_truthy(&v_is_object) {
-            return Ok(CoreValue::Bool(true));
-        }
-        v_is_array_snake = core_get(
-            &v_field_type,
-            &CoreValue::from("is_array"),
-            CoreValue::Bool(false),
-        );
-        v_is_array = core_get(
-            &v_field_type,
-            &CoreValue::from("isArray"),
-            v_is_array_snake.clone(),
-        );
-        v_nested_fields = core_get(&v_field_type, &CoreValue::from("fields"), CoreValue::Null);
-        v_has_nested_fields = core_truthy_value(&[v_nested_fields.clone()])?;
-        v_object_array = core_and(&[v_is_array.clone(), v_has_nested_fields.clone()])?;
-        if core_truthy(&v_object_array) {
-            return Ok(CoreValue::Bool(true));
-        }
-    }
-    return Ok(CoreValue::Bool(false));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _caller_function_call_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_caller_function_call_impl");
     let mut v_options = core_arg(args, 0);
@@ -76979,6 +80321,192 @@ fn _caller_function_call_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     }
     v_none = core_none(&[])?;
     return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_js_json_string_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_js_json_string_impl");
+    let mut v_text = core_arg(args, 0);
+    let mut v_backslash = CoreValue::Null;
+    let mut v_backspace = CoreValue::Null;
+    let mut v_carriage_return = CoreValue::Null;
+    let mut v_control = CoreValue::Null;
+    let mut v_copied = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_escape = CoreValue::Null;
+    let mut v_escaped = CoreValue::Null;
+    let mut v_following = CoreValue::Null;
+    let mut v_following_at = CoreValue::Null;
+    let mut v_form_feed = CoreValue::Null;
+    let mut v_hex = CoreValue::Null;
+    let mut v_high_char = CoreValue::Null;
+    let mut v_high_digit = CoreValue::Null;
+    let mut v_high_end = CoreValue::Null;
+    let mut v_high_high = CoreValue::Null;
+    let mut v_high_low = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_is_high = CoreValue::Null;
+    let mut v_is_pair = CoreValue::Null;
+    let mut v_kept = CoreValue::Null;
+    let mut v_line_feed = CoreValue::Null;
+    let mut v_lone = CoreValue::Null;
+    let mut v_lone_text = CoreValue::Null;
+    let mut v_low_char = CoreValue::Null;
+    let mut v_low_digit = CoreValue::Null;
+    let mut v_low_digit_base = CoreValue::Null;
+    let mut v_low_end = CoreValue::Null;
+    let mut v_low_high = CoreValue::Null;
+    let mut v_low_low = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_next_inside = CoreValue::Null;
+    let mut v_next_low = CoreValue::Null;
+    let mut v_not_pair = CoreValue::Null;
+    let mut v_offset = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_quote = CoreValue::Null;
+    let mut v_rest = CoreValue::Null;
+    let mut v_step = CoreValue::Null;
+    let mut v_surrogate = CoreValue::Null;
+    let mut v_surrogate_high = CoreValue::Null;
+    let mut v_surrogate_low = CoreValue::Null;
+    let mut v_tab = CoreValue::Null;
+    let mut v_three_bytes = CoreValue::Null;
+    let mut v_two_bytes = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    let mut v_units = CoreValue::Null;
+    let mut v_utf16_pair = CoreValue::Null;
+    let mut v_utf8 = CoreValue::Null;
+    let mut v_width = CoreValue::Null;
+    v_hex = CoreValue::from("0123456789abcdef");
+    v_units = core_string_utf16_units(&[v_text.clone()])?;
+    v_count = core_len(&[v_units.clone()])?;
+    v_mode = _date_string_mode_impl(&[])?;
+    v_utf8 = core_eq(&[v_mode.clone(), CoreValue::from("utf8")])?;
+    v_out = CoreValue::from("\"");
+    v_copied = CoreValue::Num(0f64);
+    v_offset = CoreValue::Num(0f64);
+    v_index = CoreValue::Num(0f64);
+    loop {
+        v_done = core_gte(&[v_index.clone(), v_count.clone()])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_unit = core_get(&v_units, &v_index.clone(), CoreValue::Num(0f64));
+        v_following_at = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+        v_following = core_get(&v_units, &v_following_at.clone(), CoreValue::Num(0f64));
+        v_high_low = core_gte(&[v_unit.clone(), CoreValue::Num(55296f64)])?;
+        v_high_high = core_lte(&[v_unit.clone(), CoreValue::Num(56319f64)])?;
+        v_is_high = core_and(&[v_high_low.clone(), v_high_high.clone()])?;
+        v_low_low = core_gte(&[v_following.clone(), CoreValue::Num(56320f64)])?;
+        v_low_high = core_lte(&[v_following.clone(), CoreValue::Num(57343f64)])?;
+        v_next_low = core_and(&[v_low_low.clone(), v_low_high.clone()])?;
+        v_next_inside = core_lt(&[v_following_at.clone(), v_count.clone()])?;
+        v_next_low = core_and(&[v_next_low.clone(), v_next_inside.clone()])?;
+        v_is_pair = core_and(&[v_is_high.clone(), v_next_low.clone()])?;
+        v_width = CoreValue::Num(1f64);
+        v_step = CoreValue::Num(1f64);
+        if core_truthy(&v_is_pair) {
+            v_step = CoreValue::Num(2f64);
+            if core_truthy(&v_utf8) {
+                v_width = CoreValue::Num(4f64);
+            }
+            v_utf16_pair = core_eq(&[v_mode.clone(), CoreValue::from("utf16")])?;
+            if core_truthy(&v_utf16_pair) {
+                v_width = CoreValue::Num(2f64);
+            }
+        } else {
+            if core_truthy(&v_utf8) {
+                v_two_bytes = core_gte(&[v_unit.clone(), CoreValue::Num(128f64)])?;
+                if core_truthy(&v_two_bytes) {
+                    v_width = CoreValue::Num(2f64);
+                }
+                v_three_bytes = core_gte(&[v_unit.clone(), CoreValue::Num(2048f64)])?;
+                if core_truthy(&v_three_bytes) {
+                    v_width = CoreValue::Num(3f64);
+                }
+            }
+        }
+        v_escape = CoreValue::from("");
+        v_quote = core_eq(&[v_unit.clone(), CoreValue::Num(34f64)])?;
+        if core_truthy(&v_quote) {
+            v_escape = CoreValue::from("\\\"");
+        }
+        v_backslash = core_eq(&[v_unit.clone(), CoreValue::Num(92f64)])?;
+        if core_truthy(&v_backslash) {
+            v_escape = CoreValue::from("\\\\");
+        }
+        v_control = core_lt(&[v_unit.clone(), CoreValue::Num(32f64)])?;
+        if core_truthy(&v_control) {
+            v_high_digit = _date_floor_div_impl(&[v_unit.clone(), CoreValue::Num(16f64)])?;
+            v_low_digit_base = core_mul(&[v_high_digit.clone(), CoreValue::Num(-16f64)])?;
+            v_low_digit = core_add(&[v_unit.clone(), v_low_digit_base.clone()])?;
+            v_high_end = core_add(&[v_high_digit.clone(), CoreValue::Num(1f64)])?;
+            v_high_char =
+                core_string_slice(&[v_hex.clone(), v_high_digit.clone(), v_high_end.clone()])?;
+            v_low_end = core_add(&[v_low_digit.clone(), CoreValue::Num(1f64)])?;
+            v_low_char =
+                core_string_slice(&[v_hex.clone(), v_low_digit.clone(), v_low_end.clone()])?;
+            v_escape = core_string_format(&[
+                CoreValue::from("\\u00{}{}"),
+                v_high_char.clone(),
+                v_low_char.clone(),
+            ])?;
+            v_backspace = core_eq(&[v_unit.clone(), CoreValue::Num(8f64)])?;
+            if core_truthy(&v_backspace) {
+                v_escape = CoreValue::from("\\b");
+            }
+            v_tab = core_eq(&[v_unit.clone(), CoreValue::Num(9f64)])?;
+            if core_truthy(&v_tab) {
+                v_escape = CoreValue::from("\\t");
+            }
+            v_line_feed = core_eq(&[v_unit.clone(), CoreValue::Num(10f64)])?;
+            if core_truthy(&v_line_feed) {
+                v_escape = CoreValue::from("\\n");
+            }
+            v_form_feed = core_eq(&[v_unit.clone(), CoreValue::Num(12f64)])?;
+            if core_truthy(&v_form_feed) {
+                v_escape = CoreValue::from("\\f");
+            }
+            v_carriage_return = core_eq(&[v_unit.clone(), CoreValue::Num(13f64)])?;
+            if core_truthy(&v_carriage_return) {
+                v_escape = CoreValue::from("\\r");
+            }
+        }
+        v_surrogate_low = core_gte(&[v_unit.clone(), CoreValue::Num(55296f64)])?;
+        v_surrogate_high = core_lte(&[v_unit.clone(), CoreValue::Num(57343f64)])?;
+        v_surrogate = core_and(&[v_surrogate_low.clone(), v_surrogate_high.clone()])?;
+        v_not_pair = core_not(&[v_is_pair.clone()])?;
+        v_lone = core_and(&[v_surrogate.clone(), v_not_pair.clone()])?;
+        if core_truthy(&v_lone) {
+            v_lone_text = _date_js_hex4_impl(&[v_unit.clone()])?;
+            v_escape = core_string_format(&[CoreValue::from("\\u{}"), v_lone_text.clone()])?;
+            if core_truthy(&v_utf8) {
+                v_width = CoreValue::Num(3f64);
+            }
+        }
+        v_escaped = core_ne(&[v_escape.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_escaped) {
+            v_kept = core_string_slice(&[v_text.clone(), v_copied.clone(), v_offset.clone()])?;
+            v_out = core_add(&[v_out.clone(), v_kept.clone()])?;
+            v_out = core_add(&[v_out.clone(), v_escape.clone()])?;
+            v_offset = core_add(&[v_offset.clone(), v_width.clone()])?;
+            v_copied = v_offset.clone();
+        } else {
+            v_offset = core_add(&[v_offset.clone(), v_width.clone()])?;
+        }
+        v_index = core_add(&[v_index.clone(), v_step.clone()])?;
+    }
+    v_rest = core_string_slice(&[v_text.clone(), v_copied.clone(), v_offset.clone()])?;
+    v_out = core_add(&[v_out.clone(), v_rest.clone()])?;
+    v_out = core_add(&[v_out.clone(), CoreValue::from("\"")])?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -77057,6 +80585,42 @@ fn _ace_normalize_reflection_bullet_tags(args: &[CoreValue]) -> Result<CoreValue
         }
     }
     return Ok(v_normalized.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _function_call_names_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_function_call_names_output_impl");
+    let mut v_choice = core_arg(args, 0);
+    let mut v_canonical = CoreValue::Null;
+    let mut v_empty_function = CoreValue::Null;
+    let mut v_function = CoreValue::Null;
+    let mut v_is_named = CoreValue::Null;
+    let mut v_legacy = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_not_named = CoreValue::Null;
+    let mut v_reserved = CoreValue::Null;
+    v_is_named = core_type_is(&v_choice, CoreValue::from("object"));
+    v_not_named = core_not(&[v_is_named.clone()])?;
+    if core_truthy(&v_not_named) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_empty_function = CoreValue::new_map();
+    v_function = core_get(
+        &v_choice,
+        &CoreValue::from("function"),
+        v_empty_function.clone(),
+    );
+    v_name = core_get(&v_function, &CoreValue::from("name"), CoreValue::from(""));
+    v_canonical = core_eq(&[v_name.clone(), CoreValue::from("__axOutput")])?;
+    v_legacy = core_eq(&[v_name.clone(), CoreValue::from("__finalResult")])?;
+    v_reserved = core_or(&[v_canonical.clone(), v_legacy.clone()])?;
+    return Ok(v_reserved.clone());
 }
 
 #[allow(
@@ -77323,42 +80887,6 @@ fn _stream_text_values_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _function_call_names_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_function_call_names_output_impl");
-    let mut v_choice = core_arg(args, 0);
-    let mut v_canonical = CoreValue::Null;
-    let mut v_empty_function = CoreValue::Null;
-    let mut v_function = CoreValue::Null;
-    let mut v_is_named = CoreValue::Null;
-    let mut v_legacy = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_not_named = CoreValue::Null;
-    let mut v_reserved = CoreValue::Null;
-    v_is_named = core_type_is(&v_choice, CoreValue::from("object"));
-    v_not_named = core_not(&[v_is_named.clone()])?;
-    if core_truthy(&v_not_named) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_empty_function = CoreValue::new_map();
-    v_function = core_get(
-        &v_choice,
-        &CoreValue::from("function"),
-        v_empty_function.clone(),
-    );
-    v_name = core_get(&v_function, &CoreValue::from("name"), CoreValue::from(""));
-    v_canonical = core_eq(&[v_name.clone(), CoreValue::from("__axOutput")])?;
-    v_legacy = core_eq(&[v_name.clone(), CoreValue::from("__finalResult")])?;
-    v_reserved = core_or(&[v_canonical.clone(), v_legacy.clone()])?;
-    return Ok(v_reserved.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _append_structured_output_retry_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_append_structured_output_retry_messages_impl");
     let mut v_messages = core_arg(args, 0);
@@ -77573,6 +81101,63 @@ fn _with_output_thought_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         core_set(&v_output, v_field.clone(), v_joined.clone())?;
     }
     return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_js_hex4_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_js_hex4_impl");
+    let mut v_unit = core_arg(args, 0);
+    let mut v_base = CoreValue::Null;
+    let mut v_d0 = CoreValue::Null;
+    let mut v_d1 = CoreValue::Null;
+    let mut v_d2 = CoreValue::Null;
+    let mut v_d3 = CoreValue::Null;
+    let mut v_digit = CoreValue::Null;
+    let mut v_digit_char = CoreValue::Null;
+    let mut v_digit_end = CoreValue::Null;
+    let mut v_digits = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_hex = CoreValue::Null;
+    let mut v_position = CoreValue::Null;
+    let mut v_quotient = CoreValue::Null;
+    let mut v_rest = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_hex = CoreValue::from("0123456789abcdef");
+    v_digits = CoreValue::new_list();
+    v_rest = v_unit.clone();
+    v_position = CoreValue::Num(0f64);
+    loop {
+        v_done = core_gte(&[v_position.clone(), CoreValue::Num(4f64)])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_quotient = _date_floor_div_impl(&[v_rest.clone(), CoreValue::Num(16f64)])?;
+        v_base = core_mul(&[v_quotient.clone(), CoreValue::Num(-16f64)])?;
+        v_digit = core_add(&[v_rest.clone(), v_base.clone()])?;
+        v_digit_end = core_add(&[v_digit.clone(), CoreValue::Num(1f64)])?;
+        v_digit_char = core_string_slice(&[v_hex.clone(), v_digit.clone(), v_digit_end.clone()])?;
+        core_append(&v_digits, v_digit_char.clone())?;
+        v_rest = v_quotient.clone();
+        v_position = core_add(&[v_position.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_d0 = core_list_get(&[v_digits.clone(), CoreValue::Num(3f64)])?;
+    v_d1 = core_list_get(&[v_digits.clone(), CoreValue::Num(2f64)])?;
+    v_d2 = core_list_get(&[v_digits.clone(), CoreValue::Num(1f64)])?;
+    v_d3 = core_list_get(&[v_digits.clone(), CoreValue::Num(0f64)])?;
+    v_text = core_string_format(&[
+        CoreValue::from("{}{}{}{}"),
+        v_d0.clone(),
+        v_d1.clone(),
+        v_d2.clone(),
+        v_d3.clone(),
+    ])?;
+    return Ok(v_text.clone());
 }
 
 #[allow(
@@ -77955,6 +81540,11 @@ fn _streaming_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_ordered_messages.clone(),
         v_output_fields.clone(),
         v_selection.clone(),
+    ])?;
+    v_output_fields = _date_parse_fields_impl(&[
+        v_output_fields.clone(),
+        v_base_options.clone(),
+        v_options.clone(),
     ])?;
     v_validation_feedback_snake = core_get(
         &v_runtime_options,
@@ -78980,6 +82570,40 @@ fn _streaming_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _date_floor_div_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_floor_div_impl");
+    let mut v_dividend = core_arg(args, 0);
+    let mut v_divisor = core_arg(args, 1);
+    let mut v_following = CoreValue::Null;
+    let mut v_next_product = CoreValue::Null;
+    let mut v_over = CoreValue::Null;
+    let mut v_product = CoreValue::Null;
+    let mut v_quotient = CoreValue::Null;
+    let mut v_ratio = CoreValue::Null;
+    let mut v_under = CoreValue::Null;
+    v_ratio = core_div(&[v_dividend.clone(), v_divisor.clone()])?;
+    v_quotient = core_math_floor(&[v_ratio.clone()])?;
+    v_product = core_mul(&[v_quotient.clone(), v_divisor.clone()])?;
+    v_over = core_gt(&[v_product.clone(), v_dividend.clone()])?;
+    if core_truthy(&v_over) {
+        v_quotient = core_add(&[v_quotient.clone(), CoreValue::Num(-1f64)])?;
+    }
+    v_following = core_add(&[v_quotient.clone(), CoreValue::Num(1f64)])?;
+    v_next_product = core_mul(&[v_following.clone(), v_divisor.clone()])?;
+    v_under = core_lte(&[v_next_product.clone(), v_dividend.clone()])?;
+    if core_truthy(&v_under) {
+        v_quotient = v_following.clone();
+    }
+    return Ok(v_quotient.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _regex_test(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_test");
     let mut v_pattern = core_arg(args, 0);
@@ -79079,6 +82703,62 @@ fn _regex_test(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_i = v_t25.clone();
     }
     return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_days_from_civil_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_days_from_civil_impl");
+    let mut v_year = core_arg(args, 0);
+    let mut v_month = core_arg(args, 1);
+    let mut v_day = core_arg(args, 2);
+    let mut v_days = CoreValue::Null;
+    let mut v_doe = CoreValue::Null;
+    let mut v_doy = CoreValue::Null;
+    let mut v_early = CoreValue::Null;
+    let mut v_era = CoreValue::Null;
+    let mut v_era_years = CoreValue::Null;
+    let mut v_leap100 = CoreValue::Null;
+    let mut v_leap100_negated = CoreValue::Null;
+    let mut v_leap4 = CoreValue::Null;
+    let mut v_month_days = CoreValue::Null;
+    let mut v_month_index = CoreValue::Null;
+    let mut v_shifted = CoreValue::Null;
+    let mut v_year_of_era = CoreValue::Null;
+    let mut v_yoe = CoreValue::Null;
+    v_year_of_era = v_year.clone();
+    v_early = core_lte(&[v_month.clone(), CoreValue::Num(2f64)])?;
+    if core_truthy(&v_early) {
+        v_year_of_era = core_add(&[v_year.clone(), CoreValue::Num(-1f64)])?;
+    }
+    v_era = _date_floor_div_impl(&[v_year_of_era.clone(), CoreValue::Num(400f64)])?;
+    v_era_years = core_mul(&[v_era.clone(), CoreValue::Num(-400f64)])?;
+    v_yoe = core_add(&[v_year_of_era.clone(), v_era_years.clone()])?;
+    v_shifted = core_add(&[v_month.clone(), CoreValue::Num(9f64)])?;
+    v_month_index = _date_floor_div_impl(&[v_shifted.clone(), CoreValue::Num(12f64)])?;
+    v_month_index = core_mul(&[v_month_index.clone(), CoreValue::Num(-12f64)])?;
+    v_month_index = core_add(&[v_shifted.clone(), v_month_index.clone()])?;
+    v_month_days = core_mul(&[v_month_index.clone(), CoreValue::Num(153f64)])?;
+    v_month_days = core_add(&[v_month_days.clone(), CoreValue::Num(2f64)])?;
+    v_month_days = _date_floor_div_impl(&[v_month_days.clone(), CoreValue::Num(5f64)])?;
+    v_doy = core_add(&[v_month_days.clone(), v_day.clone()])?;
+    v_doy = core_add(&[v_doy.clone(), CoreValue::Num(-1f64)])?;
+    v_doe = core_mul(&[v_yoe.clone(), CoreValue::Num(365f64)])?;
+    v_leap4 = _date_floor_div_impl(&[v_yoe.clone(), CoreValue::Num(4f64)])?;
+    v_leap100 = _date_floor_div_impl(&[v_yoe.clone(), CoreValue::Num(100f64)])?;
+    v_doe = core_add(&[v_doe.clone(), v_leap4.clone()])?;
+    v_leap100_negated = core_mul(&[v_leap100.clone(), CoreValue::Num(-1f64)])?;
+    v_doe = core_add(&[v_doe.clone(), v_leap100_negated.clone()])?;
+    v_doe = core_add(&[v_doe.clone(), v_doy.clone()])?;
+    v_days = core_mul(&[v_era.clone(), CoreValue::Num(146097f64)])?;
+    v_days = core_add(&[v_days.clone(), v_doe.clone()])?;
+    v_days = core_add(&[v_days.clone(), CoreValue::Num(-719468f64)])?;
+    return Ok(v_days.clone());
 }
 
 #[allow(
@@ -79201,6 +82881,90 @@ fn _stream_json_context_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_marker, CoreValue::from("in_array"), v_in_array.clone())?;
     core_set(&v_marker, CoreValue::from("in_object"), v_in_object.clone())?;
     return Ok(v_marker.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_civil_from_days_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_civil_from_days_impl");
+    let mut v_days = core_arg(args, 0);
+    let mut v_a = CoreValue::Null;
+    let mut v_a_negated = CoreValue::Null;
+    let mut v_b = CoreValue::Null;
+    let mut v_c = CoreValue::Null;
+    let mut v_c_negated = CoreValue::Null;
+    let mut v_civil = CoreValue::Null;
+    let mut v_day = CoreValue::Null;
+    let mut v_doe = CoreValue::Null;
+    let mut v_doy = CoreValue::Null;
+    let mut v_early = CoreValue::Null;
+    let mut v_era = CoreValue::Null;
+    let mut v_era_days = CoreValue::Null;
+    let mut v_era_years = CoreValue::Null;
+    let mut v_late = CoreValue::Null;
+    let mut v_leap100 = CoreValue::Null;
+    let mut v_leap100_negated = CoreValue::Null;
+    let mut v_leap4 = CoreValue::Null;
+    let mut v_month = CoreValue::Null;
+    let mut v_month_days = CoreValue::Null;
+    let mut v_month_days_negated = CoreValue::Null;
+    let mut v_mp = CoreValue::Null;
+    let mut v_shifted = CoreValue::Null;
+    let mut v_year = CoreValue::Null;
+    let mut v_year_days = CoreValue::Null;
+    let mut v_year_days_negated = CoreValue::Null;
+    let mut v_yoe = CoreValue::Null;
+    v_shifted = core_add(&[v_days.clone(), CoreValue::Num(719468f64)])?;
+    v_era = _date_floor_div_impl(&[v_shifted.clone(), CoreValue::Num(146097f64)])?;
+    v_era_days = core_mul(&[v_era.clone(), CoreValue::Num(-146097f64)])?;
+    v_doe = core_add(&[v_shifted.clone(), v_era_days.clone()])?;
+    v_a = _date_floor_div_impl(&[v_doe.clone(), CoreValue::Num(1460f64)])?;
+    v_b = _date_floor_div_impl(&[v_doe.clone(), CoreValue::Num(36524f64)])?;
+    v_c = _date_floor_div_impl(&[v_doe.clone(), CoreValue::Num(146096f64)])?;
+    v_a_negated = core_mul(&[v_a.clone(), CoreValue::Num(-1f64)])?;
+    v_yoe = core_add(&[v_doe.clone(), v_a_negated.clone()])?;
+    v_yoe = core_add(&[v_yoe.clone(), v_b.clone()])?;
+    v_c_negated = core_mul(&[v_c.clone(), CoreValue::Num(-1f64)])?;
+    v_yoe = core_add(&[v_yoe.clone(), v_c_negated.clone()])?;
+    v_yoe = _date_floor_div_impl(&[v_yoe.clone(), CoreValue::Num(365f64)])?;
+    v_era_years = core_mul(&[v_era.clone(), CoreValue::Num(400f64)])?;
+    v_year = core_add(&[v_yoe.clone(), v_era_years.clone()])?;
+    v_year_days = core_mul(&[v_yoe.clone(), CoreValue::Num(365f64)])?;
+    v_leap4 = _date_floor_div_impl(&[v_yoe.clone(), CoreValue::Num(4f64)])?;
+    v_leap100 = _date_floor_div_impl(&[v_yoe.clone(), CoreValue::Num(100f64)])?;
+    v_year_days = core_add(&[v_year_days.clone(), v_leap4.clone()])?;
+    v_leap100_negated = core_mul(&[v_leap100.clone(), CoreValue::Num(-1f64)])?;
+    v_year_days = core_add(&[v_year_days.clone(), v_leap100_negated.clone()])?;
+    v_year_days_negated = core_mul(&[v_year_days.clone(), CoreValue::Num(-1f64)])?;
+    v_doy = core_add(&[v_doe.clone(), v_year_days_negated.clone()])?;
+    v_mp = core_mul(&[v_doy.clone(), CoreValue::Num(5f64)])?;
+    v_mp = core_add(&[v_mp.clone(), CoreValue::Num(2f64)])?;
+    v_mp = _date_floor_div_impl(&[v_mp.clone(), CoreValue::Num(153f64)])?;
+    v_month_days = core_mul(&[v_mp.clone(), CoreValue::Num(153f64)])?;
+    v_month_days = core_add(&[v_month_days.clone(), CoreValue::Num(2f64)])?;
+    v_month_days = _date_floor_div_impl(&[v_month_days.clone(), CoreValue::Num(5f64)])?;
+    v_month_days_negated = core_mul(&[v_month_days.clone(), CoreValue::Num(-1f64)])?;
+    v_day = core_add(&[v_doy.clone(), v_month_days_negated.clone()])?;
+    v_day = core_add(&[v_day.clone(), CoreValue::Num(1f64)])?;
+    v_month = core_add(&[v_mp.clone(), CoreValue::Num(3f64)])?;
+    v_late = core_gte(&[v_mp.clone(), CoreValue::Num(10f64)])?;
+    if core_truthy(&v_late) {
+        v_month = core_add(&[v_mp.clone(), CoreValue::Num(-9f64)])?;
+    }
+    v_early = core_lte(&[v_month.clone(), CoreValue::Num(2f64)])?;
+    if core_truthy(&v_early) {
+        v_year = core_add(&[v_year.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_civil = CoreValue::new_map();
+    core_set(&v_civil, CoreValue::from("year"), v_year.clone())?;
+    core_set(&v_civil, CoreValue::from("month"), v_month.clone())?;
+    core_set(&v_civil, CoreValue::from("day"), v_day.clone())?;
+    return Ok(v_civil.clone());
 }
 
 #[allow(
@@ -79452,6 +83216,120 @@ fn _stream_json_strip_dangling_key_impl(args: &[CoreValue]) -> Result<CoreValue,
         return Ok(v_result.clone());
     }
     return Ok(CoreValue::Num(-1f64));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_make_day_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_make_day_impl");
+    let mut v_year = core_arg(args, 0);
+    let mut v_month_index = core_arg(args, 1);
+    let mut v_date = core_arg(args, 2);
+    let mut v_carry = CoreValue::Null;
+    let mut v_carry_months = CoreValue::Null;
+    let mut v_day = CoreValue::Null;
+    let mut v_first = CoreValue::Null;
+    let mut v_month = CoreValue::Null;
+    let mut v_whole_year = CoreValue::Null;
+    v_carry = _date_floor_div_impl(&[v_month_index.clone(), CoreValue::Num(12f64)])?;
+    v_whole_year = core_add(&[v_year.clone(), v_carry.clone()])?;
+    v_carry_months = core_mul(&[v_carry.clone(), CoreValue::Num(-12f64)])?;
+    v_month = core_add(&[v_month_index.clone(), v_carry_months.clone()])?;
+    v_month = core_add(&[v_month.clone(), CoreValue::Num(1f64)])?;
+    v_first =
+        _date_days_from_civil_impl(&[v_whole_year.clone(), v_month.clone(), CoreValue::Num(1f64)])?;
+    v_day = core_add(&[v_first.clone(), v_date.clone()])?;
+    v_day = core_add(&[v_day.clone(), CoreValue::Num(-1f64)])?;
+    return Ok(v_day.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_utc_ms_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_utc_ms_impl");
+    let mut v_parts = core_arg(args, 0);
+    let mut v_civil = CoreValue::Null;
+    let mut v_civil_day = CoreValue::Null;
+    let mut v_civil_month = CoreValue::Null;
+    let mut v_civil_month_index = CoreValue::Null;
+    let mut v_day = CoreValue::Null;
+    let mut v_day_ms = CoreValue::Null;
+    let mut v_day_number = CoreValue::Null;
+    let mut v_hour = CoreValue::Null;
+    let mut v_millis = CoreValue::Null;
+    let mut v_millisecond = CoreValue::Null;
+    let mut v_minute = CoreValue::Null;
+    let mut v_minute_ms = CoreValue::Null;
+    let mut v_month = CoreValue::Null;
+    let mut v_month_index = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_second = CoreValue::Null;
+    let mut v_second_ms = CoreValue::Null;
+    let mut v_set_day = CoreValue::Null;
+    let mut v_set_ms = CoreValue::Null;
+    let mut v_time_ms = CoreValue::Null;
+    let mut v_two_digit = CoreValue::Null;
+    let mut v_two_digit_high = CoreValue::Null;
+    let mut v_two_digit_low = CoreValue::Null;
+    let mut v_utc_year = CoreValue::Null;
+    let mut v_whole_days = CoreValue::Null;
+    let mut v_whole_ms = CoreValue::Null;
+    let mut v_within = CoreValue::Null;
+    let mut v_year = CoreValue::Null;
+    v_year = core_get(&v_parts, &CoreValue::from("year"), CoreValue::Null);
+    v_month = core_get(&v_parts, &CoreValue::from("month"), CoreValue::Null);
+    v_day = core_get(&v_parts, &CoreValue::from("day"), CoreValue::Null);
+    v_hour = core_get(&v_parts, &CoreValue::from("hour"), CoreValue::Num(0f64));
+    v_minute = core_get(&v_parts, &CoreValue::from("minute"), CoreValue::Num(0f64));
+    v_second = core_get(&v_parts, &CoreValue::from("second"), CoreValue::Num(0f64));
+    v_millisecond = core_get(
+        &v_parts,
+        &CoreValue::from("millisecond"),
+        CoreValue::Num(0f64),
+    );
+    v_utc_year = v_year.clone();
+    v_two_digit_low = core_gte(&[v_year.clone(), CoreValue::Num(0f64)])?;
+    v_two_digit_high = core_lte(&[v_year.clone(), CoreValue::Num(99f64)])?;
+    v_two_digit = core_and(&[v_two_digit_low.clone(), v_two_digit_high.clone()])?;
+    if core_truthy(&v_two_digit) {
+        v_utc_year = core_add(&[v_year.clone(), CoreValue::Num(1900f64)])?;
+    }
+    v_month_index = core_add(&[v_month.clone(), CoreValue::Num(-1f64)])?;
+    v_day_number =
+        _date_make_day_impl(&[v_utc_year.clone(), v_month_index.clone(), v_day.clone()])?;
+    v_time_ms = core_mul(&[v_hour.clone(), CoreValue::Num(3600000f64)])?;
+    v_minute_ms = core_mul(&[v_minute.clone(), CoreValue::Num(60000f64)])?;
+    v_time_ms = core_add(&[v_time_ms.clone(), v_minute_ms.clone()])?;
+    v_second_ms = core_mul(&[v_second.clone(), CoreValue::Num(1000f64)])?;
+    v_time_ms = core_add(&[v_time_ms.clone(), v_second_ms.clone()])?;
+    v_time_ms = core_add(&[v_time_ms.clone(), v_millisecond.clone()])?;
+    v_day_ms = core_mul(&[v_day_number.clone(), CoreValue::Num(86400000f64)])?;
+    v_millis = core_add(&[v_day_ms.clone(), v_time_ms.clone()])?;
+    v_whole_days = _date_floor_div_impl(&[v_millis.clone(), CoreValue::Num(86400000f64)])?;
+    v_whole_ms = core_mul(&[v_whole_days.clone(), CoreValue::Num(-86400000f64)])?;
+    v_within = core_add(&[v_millis.clone(), v_whole_ms.clone()])?;
+    v_civil = _date_civil_from_days_impl(&[v_whole_days.clone()])?;
+    v_civil_month = core_get(&v_civil, &CoreValue::from("month"), CoreValue::Null);
+    v_civil_month_index = core_add(&[v_civil_month.clone(), CoreValue::Num(-1f64)])?;
+    v_civil_day = core_get(&v_civil, &CoreValue::from("day"), CoreValue::Null);
+    v_set_day = _date_make_day_impl(&[
+        v_year.clone(),
+        v_civil_month_index.clone(),
+        v_civil_day.clone(),
+    ])?;
+    v_set_ms = core_mul(&[v_set_day.clone(), CoreValue::Num(86400000f64)])?;
+    v_result = core_add(&[v_set_ms.clone(), v_within.clone()])?;
+    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -79768,6 +83646,51 @@ fn _regex_read_name(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _date_parts_of_ms_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_parts_of_ms_impl");
+    let mut v_millis = core_arg(args, 0);
+    let mut v_day_ms = CoreValue::Null;
+    let mut v_days = CoreValue::Null;
+    let mut v_hour = CoreValue::Null;
+    let mut v_hour_ms = CoreValue::Null;
+    let mut v_millisecond = CoreValue::Null;
+    let mut v_minute = CoreValue::Null;
+    let mut v_minute_ms = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_second = CoreValue::Null;
+    let mut v_second_ms = CoreValue::Null;
+    let mut v_within = CoreValue::Null;
+    v_days = _date_floor_div_impl(&[v_millis.clone(), CoreValue::Num(86400000f64)])?;
+    v_day_ms = core_mul(&[v_days.clone(), CoreValue::Num(-86400000f64)])?;
+    v_within = core_add(&[v_millis.clone(), v_day_ms.clone()])?;
+    v_parts = _date_civil_from_days_impl(&[v_days.clone()])?;
+    v_hour = _date_floor_div_impl(&[v_within.clone(), CoreValue::Num(3600000f64)])?;
+    v_hour_ms = core_mul(&[v_hour.clone(), CoreValue::Num(-3600000f64)])?;
+    v_within = core_add(&[v_within.clone(), v_hour_ms.clone()])?;
+    v_minute = _date_floor_div_impl(&[v_within.clone(), CoreValue::Num(60000f64)])?;
+    v_minute_ms = core_mul(&[v_minute.clone(), CoreValue::Num(-60000f64)])?;
+    v_within = core_add(&[v_within.clone(), v_minute_ms.clone()])?;
+    v_second = _date_floor_div_impl(&[v_within.clone(), CoreValue::Num(1000f64)])?;
+    v_second_ms = core_mul(&[v_second.clone(), CoreValue::Num(-1000f64)])?;
+    v_millisecond = core_add(&[v_within.clone(), v_second_ms.clone()])?;
+    core_set(&v_parts, CoreValue::from("hour"), v_hour.clone())?;
+    core_set(&v_parts, CoreValue::from("minute"), v_minute.clone())?;
+    core_set(&v_parts, CoreValue::from("second"), v_second.clone())?;
+    core_set(
+        &v_parts,
+        CoreValue::from("millisecond"),
+        v_millisecond.clone(),
+    )?;
+    return Ok(v_parts.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_json_complete_literal_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_json_complete_literal_impl");
     let mut v_text = core_arg(args, 0);
@@ -79829,6 +83752,78 @@ fn _stream_json_complete_literal_impl(args: &[CoreValue]) -> Result<CoreValue, A
         v_size = core_add(&[v_size.clone(), CoreValue::Num(-1f64)])?;
     }
     return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_same_day_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_same_day_impl");
+    let mut v_left = core_arg(args, 0);
+    let mut v_right = core_arg(args, 1);
+    let mut v_different = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_left_value = CoreValue::Null;
+    let mut v_right_value = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    v_keys = CoreValue::new_list();
+    core_append(&v_keys, CoreValue::from("year"))?;
+    core_append(&v_keys, CoreValue::from("month"))?;
+    core_append(&v_keys, CoreValue::from("day"))?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_left_value = core_get(&v_left, &v_key.clone(), CoreValue::Num(0f64));
+        v_right_value = core_get(&v_right, &v_key.clone(), CoreValue::Num(0f64));
+        v_same = core_eq(&[v_left_value.clone(), v_right_value.clone()])?;
+        v_different = core_not(&[v_same.clone()])?;
+        if core_truthy(&v_different) {
+            return Ok(CoreValue::Bool(false));
+        }
+    }
+    return Ok(CoreValue::Bool(true));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_same_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_same_parts_impl");
+    let mut v_left = core_arg(args, 0);
+    let mut v_right = core_arg(args, 1);
+    let mut v_different = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_left_value = CoreValue::Null;
+    let mut v_right_value = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    v_keys = CoreValue::new_list();
+    core_append(&v_keys, CoreValue::from("year"))?;
+    core_append(&v_keys, CoreValue::from("month"))?;
+    core_append(&v_keys, CoreValue::from("day"))?;
+    core_append(&v_keys, CoreValue::from("hour"))?;
+    core_append(&v_keys, CoreValue::from("minute"))?;
+    core_append(&v_keys, CoreValue::from("second"))?;
+    core_append(&v_keys, CoreValue::from("millisecond"))?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_left_value = core_get(&v_left, &v_key.clone(), CoreValue::Num(0f64));
+        v_right_value = core_get(&v_right, &v_key.clone(), CoreValue::Num(0f64));
+        v_same = core_eq(&[v_left_value.clone(), v_right_value.clone()])?;
+        v_different = core_not(&[v_same.clone()])?;
+        if core_truthy(&v_different) {
+            return Ok(CoreValue::Bool(false));
+        }
+    }
+    return Ok(CoreValue::Bool(true));
 }
 
 #[allow(
@@ -80125,6 +84120,116 @@ fn _stream_json_repair_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_closing = core_string_join(&CoreValue::from(""), &v_reversed)?;
     v_repaired = core_add(&[v_result.clone(), v_closing.clone()])?;
     return Ok(v_repaired.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_pad_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_pad_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_width = core_arg(args, 1);
+    let mut v_length = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_wide = CoreValue::Null;
+    v_text = core_string_str(&[v_value.clone()])?;
+    loop {
+        v_length = core_len(&[v_text.clone()])?;
+        v_wide = core_gte(&[v_length.clone(), v_width.clone()])?;
+        if core_truthy(&v_wide) {
+            break;
+        }
+        v_text = core_add(&[CoreValue::from("0"), v_text.clone()])?;
+    }
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_iso_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_iso_impl");
+    let mut v_millis = core_arg(args, 0);
+    let mut v_day = CoreValue::Null;
+    let mut v_day_text = CoreValue::Null;
+    let mut v_four_digits = CoreValue::Null;
+    let mut v_hour = CoreValue::Null;
+    let mut v_hour_text = CoreValue::Null;
+    let mut v_iso = CoreValue::Null;
+    let mut v_magnitude = CoreValue::Null;
+    let mut v_millisecond = CoreValue::Null;
+    let mut v_millisecond_text = CoreValue::Null;
+    let mut v_minute = CoreValue::Null;
+    let mut v_minute_text = CoreValue::Null;
+    let mut v_month = CoreValue::Null;
+    let mut v_month_text = CoreValue::Null;
+    let mut v_negative = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_pieces = CoreValue::Null;
+    let mut v_second = CoreValue::Null;
+    let mut v_second_text = CoreValue::Null;
+    let mut v_sign = CoreValue::Null;
+    let mut v_six = CoreValue::Null;
+    let mut v_year = CoreValue::Null;
+    let mut v_year_high = CoreValue::Null;
+    let mut v_year_low = CoreValue::Null;
+    let mut v_year_text = CoreValue::Null;
+    v_parts = _date_parts_of_ms_impl(&[v_millis.clone()])?;
+    v_year = core_get(&v_parts, &CoreValue::from("year"), CoreValue::Null);
+    v_year_text = CoreValue::from("");
+    v_year_low = core_gte(&[v_year.clone(), CoreValue::Num(0f64)])?;
+    v_year_high = core_lte(&[v_year.clone(), CoreValue::Num(9999f64)])?;
+    v_four_digits = core_and(&[v_year_low.clone(), v_year_high.clone()])?;
+    if core_truthy(&v_four_digits) {
+        v_year_text = _date_pad_impl(&[v_year.clone(), CoreValue::Num(4f64)])?;
+    } else {
+        v_negative = core_lt(&[v_year.clone(), CoreValue::Num(0f64)])?;
+        v_magnitude = v_year.clone();
+        v_sign = CoreValue::from("+");
+        if core_truthy(&v_negative) {
+            v_magnitude = core_mul(&[v_year.clone(), CoreValue::Num(-1f64)])?;
+            v_sign = CoreValue::from("-");
+        }
+        v_six = _date_pad_impl(&[v_magnitude.clone(), CoreValue::Num(6f64)])?;
+        v_year_text = core_add(&[v_sign.clone(), v_six.clone()])?;
+    }
+    v_month = core_get(&v_parts, &CoreValue::from("month"), CoreValue::Null);
+    v_month_text = _date_pad_impl(&[v_month.clone(), CoreValue::Num(2f64)])?;
+    v_day = core_get(&v_parts, &CoreValue::from("day"), CoreValue::Null);
+    v_day_text = _date_pad_impl(&[v_day.clone(), CoreValue::Num(2f64)])?;
+    v_hour = core_get(&v_parts, &CoreValue::from("hour"), CoreValue::Null);
+    v_hour_text = _date_pad_impl(&[v_hour.clone(), CoreValue::Num(2f64)])?;
+    v_minute = core_get(&v_parts, &CoreValue::from("minute"), CoreValue::Null);
+    v_minute_text = _date_pad_impl(&[v_minute.clone(), CoreValue::Num(2f64)])?;
+    v_second = core_get(&v_parts, &CoreValue::from("second"), CoreValue::Null);
+    v_second_text = _date_pad_impl(&[v_second.clone(), CoreValue::Num(2f64)])?;
+    v_millisecond = core_get(&v_parts, &CoreValue::from("millisecond"), CoreValue::Null);
+    v_millisecond_text = _date_pad_impl(&[v_millisecond.clone(), CoreValue::Num(3f64)])?;
+    v_pieces = CoreValue::new_list();
+    core_append(&v_pieces, v_year_text.clone())?;
+    core_append(&v_pieces, CoreValue::from("-"))?;
+    core_append(&v_pieces, v_month_text.clone())?;
+    core_append(&v_pieces, CoreValue::from("-"))?;
+    core_append(&v_pieces, v_day_text.clone())?;
+    core_append(&v_pieces, CoreValue::from("T"))?;
+    core_append(&v_pieces, v_hour_text.clone())?;
+    core_append(&v_pieces, CoreValue::from(":"))?;
+    core_append(&v_pieces, v_minute_text.clone())?;
+    core_append(&v_pieces, CoreValue::from(":"))?;
+    core_append(&v_pieces, v_second_text.clone())?;
+    core_append(&v_pieces, CoreValue::from("."))?;
+    core_append(&v_pieces, v_millisecond_text.clone())?;
+    core_append(&v_pieces, CoreValue::from("Z"))?;
+    v_iso = core_string_join(&CoreValue::from(""), &v_pieces)?;
+    return Ok(v_iso.clone());
 }
 
 #[allow(
@@ -81559,52 +85664,6 @@ fn _cache_store_streamed_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn _stream_json_string_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_stream_json_string_value_impl");
-    let mut v_field = core_arg(args, 0);
-    let mut v_value = core_arg(args, 1);
-    let mut v_detail = CoreValue::Null;
-    let mut v_invalid = CoreValue::Null;
-    let mut v_is_string = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_not_string = CoreValue::Null;
-    let mut v_parse_error = CoreValue::Null;
-    let mut v_parsed = CoreValue::Null;
-    let mut v_title = CoreValue::Null;
-    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
-    v_not_string = core_not(&[v_is_string.clone()])?;
-    if core_truthy(&v_not_string) {
-        return Ok(v_value.clone());
-    }
-    v_parsed = core_none(&[])?;
-    let __core_try: Result<CoreFlow, AxError> = (|| {
-        v_parsed = core_json_parse_strict(&[v_value.clone()])?;
-        Ok(CoreFlow::Normal)
-    })();
-    match __core_try {
-        Ok(CoreFlow::Normal) => {}
-        Ok(CoreFlow::Return(value)) => return Ok(value),
-        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
-        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
-        Err(__core_caught) => {
-            v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-            v_title = _stream_field_title_impl(&[v_field.clone()])?;
-            v_detail = core_exception_message(&[v_parse_error.clone()])?;
-            v_message = core_string_format(&[CoreValue::from("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text."), v_detail.clone(), v_title.clone()])?;
-            v_invalid = core_validation_error(&[v_message.clone()])?;
-            return Err(core_as_error(&v_invalid));
-        }
-    }
-    return Ok(v_parsed.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _cache_lookup_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_cache_lookup_impl");
     let mut v_gen = core_arg(args, 0);
@@ -81652,6 +85711,52 @@ fn _cache_lookup_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(v_lookup.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _stream_json_string_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_stream_json_string_value_impl");
+    let mut v_field = core_arg(args, 0);
+    let mut v_value = core_arg(args, 1);
+    let mut v_detail = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_not_string = CoreValue::Null;
+    let mut v_parse_error = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_title = CoreValue::Null;
+    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
+    v_not_string = core_not(&[v_is_string.clone()])?;
+    if core_truthy(&v_not_string) {
+        return Ok(v_value.clone());
+    }
+    v_parsed = core_none(&[])?;
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_parsed = core_json_parse_strict(&[v_value.clone()])?;
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            v_title = _stream_field_title_impl(&[v_field.clone()])?;
+            v_detail = core_exception_message(&[v_parse_error.clone()])?;
+            v_message = core_string_format(&[CoreValue::from("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text."), v_detail.clone(), v_title.clone()])?;
+            v_invalid = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_invalid));
+        }
+    }
+    return Ok(v_parsed.clone());
 }
 
 #[allow(
@@ -116282,7 +120387,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (832 of 832 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (886 of 886 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

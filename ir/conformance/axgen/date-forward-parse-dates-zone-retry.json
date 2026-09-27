@@ -1,0 +1,49 @@
+{
+  "expected_output": {
+    "when": "2024-07-01T11:00:00.000Z"
+  },
+  "expected_request_contains": [
+    "Field 'When' has an invalid value '2024-03-10 02:30 America/New_York': Invalid date/time for 'When': Invalid date and time values. Please ensure all components are correct.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like ",
+    "Field 'When' has an invalid value '2024-07-01 12:00 BST': Invalid date/time for 'When': Ambiguous or unsupported time zone abbreviation ",
+    ". Please provide an IANA time zone name or a UTC offset. For example, "
+  ],
+  "expected_request_count": 3,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "date-forward-parse-dates-zone-retry",
+  "options": {
+    "parse_dates": true
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "When: 2024-03-10 02:30 America/New_York",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "When: 2024-07-01 12:00 BST",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "When: 2024-07-01 12:00 Europe/London",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> when:datetime"
+}
