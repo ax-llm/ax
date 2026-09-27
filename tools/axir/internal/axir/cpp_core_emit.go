@@ -393,6 +393,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicAIErrorAuth:               "Core::ai_error_auth",
 	IntrinsicAIErrorTimeout:            "Core::ai_error_timeout",
 	IntrinsicAIErrorStatus:             "Core::ai_error_status",
+	IntrinsicAIWarnOnce:                "Core::ai_warn_once",
 	IntrinsicStringEndsWith:            "Core::string_ends_with",
 	IntrinsicStringJoin:                "Core::string_join",
 	IntrinsicStringLower:               "Core::string_lower",

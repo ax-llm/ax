@@ -12,7 +12,6 @@ use axllm::runtime::quickjs::QuickJsCodeRuntime;
 use axllm::{
     agent_with_options, AxEventRoute, AxEventRuntime, AxEventTarget, AxMCPClient, AxMCPEventSource,
     AxMCPResourceSubscriptionPolicy, AxMCPStreamableHTTPTransport, AxResult,
-    OpenAICompatibleClient,
 };
 use serde_json::{json, Value};
 use std::{
@@ -30,14 +29,14 @@ fn main() -> AxResult<()> {
     })?;
     let local = endpoint.starts_with("http://127.0.0.1");
     let transport = AxMCPStreamableHTTPTransport::new(
-        endpoint,
+        endpoint.clone(),
         json!({"ssrfProtection":{"requireHttps":!local,"allowLocalhost":local,"allowPrivateNetworks":local}}),
     )?;
     let client = Arc::new(Mutex::new(AxMCPClient::new(
         Box::new(transport),
         json!({"namespace":"inventory"}),
     )));
-    let mut llm = OpenAICompatibleClient::new(key, "gpt-5.4-mini");
+    let mut llm = axllm::ai("openai", json!({"api_key": key, "model": "gpt-5.4-mini"}))?;
     let mut agent = agent_with_options(
         "uri:string -> summary:string",
         json!({"runtime":{"language":"JavaScript"}}),
@@ -80,6 +79,9 @@ fn main() -> AxResult<()> {
         AxMCPResourceSubscriptionPolicy::All,
     );
     source.start()?;
+    if env::var("AX_MCP_DEMO_AUTO").as_deref() == Ok("1") {
+        update_demo_resource(&endpoint)?;
+    }
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         source.poll();
@@ -96,5 +98,26 @@ fn main() -> AxResult<()> {
     source.close()?;
     client.lock().unwrap().close()?;
     runtime.lock().unwrap().close()?;
+    Ok(())
+}
+
+// AX_MCP_DEMO_AUTO=1: the repo's demo server (plain HTTP on 127.0.0.1)
+// updates the resource on request.
+fn update_demo_resource(endpoint: &str) -> AxResult<()> {
+    use std::io::{Read, Write};
+    let authority = endpoint
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .unwrap_or_default();
+    let failed = |error: std::io::Error| axllm::AxError::runtime(error.to_string());
+    let mut stream = std::net::TcpStream::connect(authority).map_err(failed)?;
+    write!(
+        stream,
+        "POST /control/resource HTTP/1.1\r\nHost: {authority}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
+    .map_err(failed)?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response).map_err(failed)?;
     Ok(())
 }

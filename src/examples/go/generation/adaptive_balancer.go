@@ -31,8 +31,8 @@ func main() {
 		model = "gpt-5.4-mini"
 	}
 	services := []ax.AxAIService{
-		ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": key, "model": model}),
-		ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": key, "model": model}),
+		ax.NewAI("openai", map[string]ax.Value{"api_key": key, "model": model}).(ax.AxAIService),
+		ax.NewAI("openai", map[string]ax.Value{"api_key": key, "model": model}).(ax.AxAIService),
 	}
 
 	store := ax.NewAxInMemoryBalancerStatsStore()

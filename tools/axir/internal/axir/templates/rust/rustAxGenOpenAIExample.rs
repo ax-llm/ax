@@ -1,4 +1,4 @@
-use axllm::{ax, AxResult, OpenAICompatibleClient};
+use axllm::{ai, ax, AxResult};
 use serde_json::json;
 use std::env;
 
@@ -7,7 +7,7 @@ fn main() -> AxResult<()> {
         .or_else(|_| env::var("OPENAI_APIKEY"))
         .map_err(|_| axllm::AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example."))?;
     let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.6-luna".to_string());
-    let mut client = OpenAICompatibleClient::new(api_key, model).with_model_config(json!({"temperature": 0}));
+    let mut client = ai("openai", json!({"api_key": api_key, "model": model}))?;
     let mut program = ax("question:string -> answer:string")?;
     let output = program.forward_with_options(
         &mut client,

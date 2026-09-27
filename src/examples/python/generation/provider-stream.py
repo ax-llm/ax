@@ -26,7 +26,6 @@ started = time.perf_counter()
 stream = client.stream(
     {
         "chat_prompt": [{"role": "user", "content": "Reply with exactly: streaming works"}],
-        "model_config": {"temperature": 1},
     }
 )
 try:

@@ -12,7 +12,7 @@ int main() {
   }
 
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
@@ -26,7 +26,7 @@ int main() {
            })
       .returns(axllm::object({{"outline", "outline"}, {"summary", "summary"}}));
   axllm::Value output = program.forward(
-      client,
+      *client,
       axllm::object({{"topic", "how Ax composes typed LLM programs"}}));
   std::cout << axllm::stringify(output) << "\n";
 }

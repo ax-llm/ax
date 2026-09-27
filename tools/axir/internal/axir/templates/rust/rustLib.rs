@@ -2393,10 +2393,10 @@ impl OpenAICompatibleClient {
         {
             req["model"] = json!(self.model.clone());
         }
-        let mut base_config = if self.model_config.is_object() { self.model_config.clone() } else { json!({}) };
-        if self.profile != "typesafe" && base_config.get("temperature").is_none() {
-            base_config["temperature"] = json!(0);
-        }
+        // Only the caller's settings: provider_build_chat_request adds the
+        // provider's sampling defaults (as its TS class starts from) under
+        // them, after dropping the explicit ones the model rejects.
+        let base_config = if self.model_config.is_object() { self.model_config.clone() } else { json!({}) };
         let override_config = req
             .get("model_config")
             .or_else(|| req.get("modelConfig"))
@@ -2499,7 +2499,8 @@ impl OpenAICompatibleClient {
             && self.api_key.is_empty()
             && self.credential_provider.is_none()
         {
-            return Err(AxError::new("authentication", format!("{} requires api_key or credential_provider", self.profile)));
+            let message = core_value_to_json(&provider_missing_api_key_message(&[CoreValue::from(self.profile.as_str())])?);
+            return Err(AxError::new("authentication", message.as_str().unwrap_or_default().to_string()));
         }
         if let Some(provider) = self.credential_provider.as_ref() {
             for (key, value) in provider.credentials(&AxCredentialRequest {
@@ -3859,11 +3860,16 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
         .ok_or_else(|| AxError::validation(format!("unknown AxAI provider {provider}")))?;
     let profile = defaults.profile.clone();
     let vertex = options.get("project_id").or_else(|| options.get("projectId")).is_some() && options.get("region").is_some();
+    // OPENAI_API_KEY belongs to OpenAI's own profiles and the generic client:
+    // the OpenAI key never goes to another provider. A profile that needs a
+    // key and has none fails on its first request (a credential provider can
+    // still be attached after ai()).
+    let reads_openai_env = matches!(profile.as_str(), "openai" | "openai-responses" | "openai-compatible");
     let api_key = string_at(&options, "api_key")
         .or_else(|| string_at(&options, "apiKey"))
         .or_else(|| if vertex && matches!(profile.as_str(), "google-gemini" | "anthropic") { std::env::var("GOOGLE_VERTEX_ACCESS_TOKEN").ok() } else { None })
-        .or_else(|| if profile == "typesafe" { std::env::var("TYPESAFE_APIKEY").or_else(|_| std::env::var("TYPESAFE_API_KEY")).ok() } else { std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("OPENAI_APIKEY")).ok() })
-        .unwrap_or_else(|| if profile == "typesafe" { String::new() } else { "test-key".to_string() });
+        .or_else(|| if profile == "typesafe" { std::env::var("TYPESAFE_APIKEY").or_else(|_| std::env::var("TYPESAFE_API_KEY")).ok() } else if reads_openai_env { std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("OPENAI_APIKEY")).ok() } else { None })
+        .unwrap_or_default();
     if profile == "typesafe" {
         let threshold = options.get("trueThreshold").or_else(|| options.get("true_threshold")).cloned().unwrap_or(json!(0.5));
         typesafe_require_number(&[core_value_from_json(&threshold), CoreValue::from("trueThreshold"), CoreValue::Num(0.0), CoreValue::Num(1.0)])?;
@@ -3880,10 +3886,8 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
         .or_else(|| resolved_descriptor.get("baseUrl").and_then(Value::as_str).map(ToString::to_string))
         .unwrap_or_else(|| defaults.api_url.to_string());
     if defaults.requires_api_url && api_url.is_empty() {
-        return Err(AxError::validation(format!(
-            "AxAI profile {} requires api_url",
-            profile
-        )));
+        // TS resolveProfileURL: "<Name> requires apiURL".
+        provider_require_api_url(&[CoreValue::from(profile.as_str()), core_value_from_json(&json!({}))])?;
     }
     let embed_model = string_at(&options, "embed_model").unwrap_or_else(|| defaults.embed_model.to_string());
     let mut client = OpenAICompatibleClient::new(api_key, model)
@@ -17631,8 +17635,55 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+// Sets (or, for null, unsets) the fixture's environment variables and returns
+// their previous values.
+fn apply_fixture_env(fixture: &Value) -> Vec<(String, Option<String>)> {
+    let mut saved = Vec::new();
+    if let Some(env) = fixture.get("env").and_then(Value::as_object) {
+        for (name, value) in env {
+            saved.push((name.clone(), std::env::var(name).ok()));
+            match value.as_str() {
+                Some(text) => std::env::set_var(name, text),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+    saved
+}
+
+fn restore_fixture_env(saved: Vec<(String, Option<String>)>) {
+    for (name, value) in saved {
+        match value {
+            Some(text) => std::env::set_var(&name, text),
+            None => std::env::remove_var(&name),
+        }
+    }
+}
+
+// A chat fixture can set environment variables, and pins the one-time
+// warnings the request logs with expected_warnings.
 fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
-    let (mut client, requests, credential_requests) = fixture_client(fixture)?;
+    let saved = apply_fixture_env(fixture);
+    ai_capture_warnings(true);
+    let result = run_ai_chat_request_fixture(fixture);
+    let captured = ai_capture_warnings(false);
+    restore_fixture_env(saved);
+    result?;
+    if let Some(expected) = fixture.get("expected_warnings") {
+        expect_json_equal("ai chat warnings", &json!(captured), expected)?;
+    }
+    Ok(())
+}
+
+fn run_ai_chat_request_fixture(fixture: &Value) -> AxResult<()> {
+    let built = fixture_client(fixture);
+    if fixture.get("expected_error_contains").is_some() {
+        if let Err(err) = built {
+            // A client that fails to build has sent nothing.
+            return expect_validation_result(Err(err), fixture);
+        }
+    }
+    let (mut client, requests, credential_requests) = built?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     // Fixture `options` are the call's options (client options come from
     // `service_options`, falling back to `options`).
@@ -18009,8 +18060,18 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
     if fixture.get("credential_provider_fixture").is_some() {
         options["api_key"] = json!("");
     }
-    if options.get("api_key").is_none() {options["api_key"]=fixture.get("api_key").cloned().unwrap_or_else(|| json!("test-key"));}
-    let mut client = ai(provider, options)?.with_transport(transport);
+    // no_api_key: the client gets no key argument (the env fixtures).
+    if options.get("api_key").is_none() && !fixture.get("no_api_key").and_then(Value::as_bool).unwrap_or(false) {options["api_key"]=fixture.get("api_key").cloned().unwrap_or_else(|| json!("test-key"));}
+    let mut client = if fixture.get("client_class").and_then(Value::as_str) == Some("OpenAICompatibleClient") {
+        // The generic client built by its own constructor instead of ai().
+        let api_key = options.get("api_key").and_then(Value::as_str).unwrap_or("test-key").to_string();
+        let model = options.get("model").and_then(Value::as_str).unwrap_or_default().to_string();
+        OpenAICompatibleClient::new(api_key, model)
+            .with_model_config(options.get("model_config").cloned().unwrap_or_else(|| json!({})))
+            .with_transport(transport)
+    } else {
+        ai(provider, options)?.with_transport(transport)
+    };
     if let Some(credential_fixture) = fixture.get("credential_provider_fixture") {
         let header_sets = credential_fixture.get("headers").and_then(Value::as_array).cloned().unwrap_or_default();
         let error = credential_fixture.get("error").and_then(Value::as_str).map(ToString::to_string);
@@ -23147,6 +23208,50 @@ fn core_axgen_check_streaming_assertion(args: &[CoreValue]) -> Result<CoreValue,
         return core_axgen_assertion_outcome("fail", "message", CoreValue::Null);
     }
     core_axgen_assertion_outcome("pass", "message", CoreValue::Null)
+}
+
+static AI_WARNINGS_SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+static AI_WARNINGS_CAPTURED: Mutex<Option<Vec<String>>> = Mutex::new(None);
+
+// python: _core_ai_warn_once(key, message). TS console.warn, once per key per
+// process: a setting Ax could not send, such as a sampling parameter the
+// selected model rejects.
+#[allow(dead_code)]
+fn core_ai_warn_once(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let first = AI_WARNINGS_SHOWN
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(core_arg(args, 0).text());
+    if first {
+        let message = core_arg(args, 1).text();
+        let mut captured = AI_WARNINGS_CAPTURED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match captured.as_mut() {
+            Some(messages) => messages.push(message),
+            None => eprintln!("axllm: {message}"),
+        }
+    }
+    Ok(CoreValue::Null)
+}
+
+// Conformance hook: forgets the one-time warnings already shown and returns
+// the ones captured since the last call; with `capture`, collects new ones
+// instead of printing them.
+#[allow(dead_code)]
+fn ai_capture_warnings(capture: bool) -> Vec<String> {
+    AI_WARNINGS_SHOWN
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+    let mut captured = AI_WARNINGS_CAPTURED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let collected = captured.take().unwrap_or_default();
+    if capture {
+        *captured = Some(Vec::new());
+    }
+    collected
 }
 
 // python: _core_axgen_deprecation(key, message). Deprecated port behavior

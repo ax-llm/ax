@@ -1,0 +1,51 @@
+{
+  "expected_transport_json_absent": ["temperature", "top_p", "top_k"],
+  "expected_transport_request": {
+    "json": {
+      "max_tokens": 123
+    }
+  },
+  "expected_warnings": [],
+  "kind": "ai_chat",
+  "model": "claude-sonnet-5",
+  "model_config": {
+    "maxTokens": 123,
+    "temperature": 0.7,
+    "topP": 0.9
+  },
+  "name": "sampling-anthropic-claude-sonnet-5-ai-config",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "msg_sampling",
+        "model": "claude-sonnet-5",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}

@@ -20,7 +20,7 @@ int main() {
   auto decision = triage.forward(*model, object({{"ticket", "Checkout is unavailable for all customers after the latest deployment."}}));
   if (!Core::get(decision, "urgent").is_bool()) throw std::runtime_error("Invalid boolean");
   const char* openai_key = std::getenv("OPENAI_API_KEY");
-  auto writer = ai("openai", object({{"api_key", openai_key ? std::string(openai_key) : key("OPENAI_APIKEY")}, {"model", "gpt-5.6-luna"}, {"model_config", object({{"temperature", 1}})}}));
+  auto writer = ai("openai", object({{"api_key", openai_key ? std::string(openai_key) : key("OPENAI_APIKEY")}, {"model", "gpt-5.6-luna"}}));
   auto inputs = object({{"ticket", "Checkout is unavailable for all customers after the latest deployment."}, {"urgent", Core::get(decision, "urgent")}, {"team", Core::get(decision, "team")}});
   auto reply = ax("ticket:string, urgent:boolean, team:string -> reply:string").forward(*writer, inputs);
   if (display(Core::get(reply, "reply")).empty()) throw std::runtime_error("Empty reply");

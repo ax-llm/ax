@@ -34,7 +34,7 @@ func main() {
 	if model == "" {
 		model = "gpt-5.4-mini"
 	}
-	client := ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": apiKey, "model": model})
+	client := ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model})
 
 	bullet := ax.Object(
 		"id", "failures-to-avoid-00001",
@@ -59,6 +59,8 @@ func main() {
 	assistant := ax.NewAgent(
 		"question:string -> answer:string",
 		ax.Object(
+			// The playbook learns with the agent's own client.
+			"ai", client,
 			"contextFields", ax.Array(),
 			"runtime", ax.Object("language", "JavaScript"),
 			"playbook", ax.Object(

@@ -22,8 +22,8 @@ public final class SequentialFlowExample {
     return apiKey;
   }
 
-  static OpenAICompatibleClient client() {
-    return new OpenAICompatibleClient(
+  static AxAIService client() {
+    return Ax.ai("openai",
         Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"), "model_config", Map.of("temperature", 0.0)));
   }
 

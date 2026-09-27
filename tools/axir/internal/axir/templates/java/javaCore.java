@@ -962,6 +962,46 @@ final class Core {
     if (result instanceof String message) return assertionOutcome("fail", "message", message);
     return assertionOutcome("fail", null, null);
   }
+  private static final Map<String, java.util.Optional<String>> ENV_OVERRIDES = new java.util.concurrent.ConcurrentHashMap<>();
+  // Environment lookups for provider credentials and base URLs. Java cannot
+  // change its own environment, so conformance fixtures set overrides here (a
+  // null value hides the variable).
+  static String env(String name) {
+    java.util.Optional<String> override = ENV_OVERRIDES.get(name);
+    if (override != null) return override.orElse(null);
+    return System.getenv(name);
+  }
+  static void setEnvOverrides(Map<String, Object> values) {
+    ENV_OVERRIDES.clear();
+    if (values == null) return;
+    for (Map.Entry<String, Object> entry : values.entrySet()) {
+      ENV_OVERRIDES.put(entry.getKey(), java.util.Optional.ofNullable(entry.getValue() == null ? null : String.valueOf(entry.getValue())));
+    }
+  }
+  private static final Set<String> AI_WARNINGS_SHOWN = java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private static volatile java.util.function.Consumer<String> aiWarningSink;
+  // TS console.warn, once per key per process: a setting Ax could not send,
+  // such as a sampling parameter the selected model rejects.
+  static Object aiWarnOnce(Object key, Object message) {
+    if (!AI_WARNINGS_SHOWN.add(String.valueOf(key))) return null;
+    java.util.function.Consumer<String> sink = aiWarningSink;
+    if (sink != null) {
+      sink.accept(String.valueOf(message));
+      return null;
+    }
+    try {
+      System.getLogger("dev.axllm.ax").log(System.Logger.Level.WARNING, String.valueOf(message));
+    } catch (RuntimeException ignored) {
+      // a failing logger must not fail the request
+    }
+    return null;
+  }
+  // Conformance hook: forgets the one-time warnings already shown and sends
+  // new ones to sink (null logs them again).
+  static void aiCaptureWarnings(java.util.function.Consumer<String> sink) {
+    AI_WARNINGS_SHOWN.clear();
+    aiWarningSink = sink;
+  }
   private static final Set<String> AXGEN_DEPRECATIONS_SHOWN = java.util.concurrent.ConcurrentHashMap.newKeySet();
   // Deprecated port behavior warns once per key per process.
   static Object axgenDeprecation(Object key, Object message) {

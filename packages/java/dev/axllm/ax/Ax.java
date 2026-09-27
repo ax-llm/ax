@@ -72,6 +72,16 @@ public final class Ax {
     java.util.Map<String, Object> descriptor = Core.asMap(Core.provider_descriptor(canonical));
     String transport = String.valueOf(descriptor.get("transport"));
     java.util.Map<String, Object> resolvedOptions = options == null ? java.util.Map.of() : options;
+    // A profile without a base URL of its own needs the caller's (TS
+    // resolveProfileURL); the generic client also takes OPENAI_BASE_URL.
+    java.util.Map<String, Object> urlOptions = new java.util.LinkedHashMap<>(Core.asMap(resolvedOptions.get("options")));
+    urlOptions.putAll(resolvedOptions);
+    String envBaseUrl = Core.env("OPENAI_BASE_URL");
+    if (canonical.equals("openai-compatible") && envBaseUrl != null && !envBaseUrl.isBlank()
+        && !Core.truthy(urlOptions.get("base_url")) && !Core.truthy(urlOptions.get("baseUrl")) && !Core.truthy(urlOptions.get("apiURL"))) {
+      urlOptions.put("base_url", envBaseUrl);
+    }
+    Core.provider_require_api_url(canonical, urlOptions);
     if (transport.equals("openai-responses")) {
       return new OpenAIResponsesClient(canonical, resolvedOptions);
     }

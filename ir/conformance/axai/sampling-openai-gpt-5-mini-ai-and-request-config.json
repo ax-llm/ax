@@ -1,0 +1,66 @@
+{
+  "expected_transport_json_absent": [
+    "temperature",
+    "top_p",
+    "n",
+    "presence_penalty",
+    "frequency_penalty",
+    "reasoning_effort"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "max_completion_tokens": 123
+    }
+  },
+  "expected_warnings": [
+    "Ax dropped temperature for gpt-5-mini: the model does not accept it.",
+    "Ax dropped topP for gpt-5-mini: the model does not accept it."
+  ],
+  "kind": "ai_chat",
+  "model": "gpt-5-mini",
+  "model_config": {
+    "maxTokens": 123,
+    "temperature": 0.7,
+    "topP": 0.9
+  },
+  "name": "sampling-openai-gpt-5-mini-ai-and-request-config",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "temperature": 0.5
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_sampling",
+        "model": "gpt-5-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

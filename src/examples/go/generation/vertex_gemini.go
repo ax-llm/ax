@@ -45,7 +45,7 @@ func main() {
 		model = "google/gemma-4-26b-a4b-it-maas"
 	}
 	client := ax.NewAI("vertex-ai", map[string]ax.Value{
-		"api_url":             required("VERTEX_AI_API_URL"),
+		"base_url":            required("VERTEX_AI_API_URL"),
 		"model":               model,
 		"credential_provider": vertexCredentialProvider(),
 	})

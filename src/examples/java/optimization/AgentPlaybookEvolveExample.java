@@ -23,7 +23,7 @@ public final class AgentPlaybookEvolveExample {
   }
 
   public static void main(String[] args) throws Exception {
-    OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
+    AxAIService client = Ax.ai("openai", Map.of(
         "api_key", apiKey(),
         "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini")));
 

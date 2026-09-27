@@ -20,7 +20,7 @@ int main() {
     return 2;
   }
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
@@ -54,7 +54,7 @@ int main() {
 
   axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
   axllm::Value result = specialist.forward(
-      client,
+      *client,
       axllm::object({
           {"brief", brief},
           {"goal", "Propose a safe, incremental 2-quarter plan to split checkout out first, respecting the hard constraints."},

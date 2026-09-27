@@ -100,6 +100,7 @@ const (
 	IntrinsicAIErrorAuth               CoreIntrinsic = "intrinsic.ai.error.auth"
 	IntrinsicAIErrorTimeout            CoreIntrinsic = "intrinsic.ai.error.timeout"
 	IntrinsicAIErrorStatus             CoreIntrinsic = "intrinsic.ai.error.status"
+	IntrinsicAIWarnOnce                CoreIntrinsic = "intrinsic.ai.warn_once"
 	IntrinsicStringEndsWith            CoreIntrinsic = "intrinsic.string.ends_with"
 	IntrinsicStringJoin                CoreIntrinsic = "intrinsic.string.join"
 	IntrinsicStringLower               CoreIntrinsic = "intrinsic.string.lower"
@@ -260,6 +261,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAIErrorAuth:               "_core_ai_error_auth",
 	IntrinsicAIErrorTimeout:            "_core_ai_error_timeout",
 	IntrinsicAIErrorStatus:             "_core_ai_error_status",
+	IntrinsicAIWarnOnce:                "_core_ai_warn_once",
 	IntrinsicStringEndsWith:            "_core_string_ends_with",
 	IntrinsicStringJoin:                "_core_string_join",
 	IntrinsicStringLower:               "_core_string_lower",
@@ -435,6 +437,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.ai.error.auth":                         true,
 	"intrinsic.ai.error.timeout":                      true,
 	"intrinsic.ai.error.status":                       true,
+	"intrinsic.ai.warn_once":                          true,
 	"intrinsic.description.append":                    true,
 	"intrinsic.error.signature":                       true,
 	"intrinsic.error.validation":                      true,
@@ -834,6 +837,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.axgen.call_processor":            intrinsicInfo("intrinsic.axgen.call_processor", 3, 3, true, "json"),
 	"intrinsic.axgen.check_streaming_assertion": intrinsicInfo("intrinsic.axgen.check_streaming_assertion", 3, 3, true, "json"),
 	"intrinsic.axgen.deprecation":               intrinsicInfo("intrinsic.axgen.deprecation", 2, 2, true, "void"),
+	"intrinsic.ai.warn_once":                    intrinsicInfo("intrinsic.ai.warn_once", 2, 2, true, "void"),
 	"intrinsic.axgen.speak":                     intrinsicInfo("intrinsic.axgen.speak", 3, 3, true, "json"),
 	"intrinsic.date.zone_offset":                intrinsicInfo("intrinsic.date.zone_offset", 2, 2, true, "f64"),
 	"intrinsic.axgen.caching_function":          intrinsicInfo("intrinsic.axgen.caching_function", 2, 2, true, "json"),

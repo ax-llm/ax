@@ -2874,7 +2874,9 @@ struct ClientFixture {
     Value descriptor = Core::provider_descriptor(provider);
     std::string provider_transport = display(Core::get(descriptor, "transport"));
     std::unique_ptr<OpenAICompatibleClient> client;
-    if (provider_transport == "gemini-generate-content") client = std::make_unique<GoogleGeminiClient>(provider, options(fixture), transport);
+    // client_class builds the generic client by its own public constructor.
+    if (display(Core::get(fixture, "client_class", "")) == "OpenAICompatibleClient") client = std::make_unique<OpenAICompatibleClient>(options(fixture), transport);
+    else if (provider_transport == "gemini-generate-content") client = std::make_unique<GoogleGeminiClient>(provider, options(fixture), transport);
     else if (provider_transport == "anthropic-messages") client = std::make_unique<AnthropicClient>(provider, options(fixture), transport);
     else if (provider_transport == "openai-responses") client = std::make_unique<OpenAIResponsesClient>(provider, options(fixture), transport);
     else client = std::make_unique<OpenAICompatibleClient>(provider,
@@ -2912,7 +2914,8 @@ struct ClientFixture {
     std::string default_embed_model = display(Core::get(descriptor, "defaultEmbedModel", ""));
     Core::set(out, "model", Core::get(fixture, "model", default_model));
     Core::set(out, "embed_model", Core::get(fixture, "embed_model", default_embed_model));
-    Core::set(out, "api_key", Core::get(fixture, "api_key", "test-key"));
+    // no_api_key: the client gets no key argument (the env fixtures).
+    if (!Core::truthy(Core::get(fixture, "no_api_key", false))) Core::set(out, "api_key", Core::get(fixture, "api_key", "test-key"));
     Core::set(out, "model_config", Core::get(fixture, "model_config", Value::object()));
     Core::set(out, "options", Core::get(fixture, "service_options", Core::get(fixture, "options", Value::object())));
     for (const std::string& key : {"base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version"}) {
@@ -3011,14 +3014,67 @@ static void assert_ai_error(const AxError& error, Value fixture, const ScriptedT
   assert_transport(fixture, transport);
 }
 
+struct SavedEnvVar {
+  std::string name;
+  bool present;
+  std::string value;
+};
+
+// Sets (or, for null, unsets) the fixture's environment variables.
+static std::vector<SavedEnvVar> apply_fixture_env(Value fixture) {
+  std::vector<SavedEnvVar> saved;
+  Value env = Core::get(fixture, "env", Value::object());
+  for (const auto& key_value : Core::iter(Core::map_keys(env))) {
+    std::string name = display(key_value);
+    const char* previous = std::getenv(name.c_str());
+    saved.push_back({name, previous != nullptr, previous == nullptr ? std::string() : std::string(previous)});
+    Value value = Core::get(env, name);
+    if (value.is_null()) unsetenv(name.c_str());
+    else setenv(name.c_str(), display(value).c_str(), 1);
+  }
+  return saved;
+}
+
+static void restore_fixture_env(const std::vector<SavedEnvVar>& saved) {
+  for (const auto& entry : saved) {
+    if (entry.present) setenv(entry.name.c_str(), entry.value.c_str(), 1);
+    else unsetenv(entry.name.c_str());
+  }
+}
+
+static void run_ai_chat_request(Value fixture);
+
+// A chat fixture can set environment variables, and pins the one-time
+// warnings the request logs with expected_warnings.
 static void run_ai_chat(Value fixture) {
-  ClientFixture cf(fixture);
+  std::vector<SavedEnvVar> saved = apply_fixture_env(fixture);
+  Value captured = Value::array();
+  Core::ai_capture_warnings([&captured](const std::string& message) { Core::append(captured, Value(message)); });
+  try {
+    run_ai_chat_request(fixture);
+  } catch (...) {
+    Core::ai_capture_warnings({});
+    restore_fixture_env(saved);
+    throw;
+  }
+  Core::ai_capture_warnings({});
+  restore_fixture_env(saved);
+  Value expected_warnings = Core::get(fixture, "expected_warnings");
+  if (!expected_warnings.is_null()) assert_equal(captured, expected_warnings, "ai chat warnings");
+}
+
+static void run_ai_chat_request(Value fixture) {
+  std::unique_ptr<ClientFixture> built;
   // Fixture "options" are the call options (service_options configure the client).
   Value call_options = Core::get(fixture, "options");
   Value result = expect_maybe_error([&] {
+    built = std::make_unique<ClientFixture>(fixture);
     Value request = Core::get(fixture, "request", Value::object());
-    return call_options.is_null() ? cf.client->chat(request) : cf.client->chat(request, call_options);
+    return call_options.is_null() ? built->client->chat(request) : built->client->chat(request, call_options);
   }, fixture);
+  // A client that fails to build has sent nothing.
+  if (!built) return;
+  ClientFixture& cf = *built;
   if (!Core::get(fixture, "expected_error_contains").is_null()) { assert_transport(fixture, cf.transport, *cf.credential_requests); return; }
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(result, expected, "ai chat output");

@@ -19,7 +19,7 @@ public final class SkillsAndMemoryAssistantExample {
       throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.");
     }
 
-    OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
+    AxAIService client = Ax.ai("openai", Map.of(
         "api_key", apiKey,
         // gpt-5.4 (not -mini): the recall/discover loop needs reasoning to proactively
         // pull memories + runbooks instead of stopping to ask for clarification.
