@@ -388,6 +388,14 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 	agentStreamingGuide := ""
 	if spec.ID == "agent" {
 		agentStreamingGuide = readmeLines(
+			"## Where The Runtime Goes",
+			"",
+			skillAgentRuntimeText(target),
+			"",
+			"- A run with a runtime runs the RLM stages, as TypeScript's agent always does with its default JavaScript runtime: the distiller and the executor write code in the runtime's language and run it in the runtime.",
+			"- A run without one runs the ports' runtime-less stages, which answer with a completion payload instead of code; TypeScript has no such mode.",
+			"- Each run picks its stages from its own runtime, so one agent can alternate. Both stage sets are kept, and each keeps the standing instruction, actor addenda and optimized components; `set_signature` rebuilds them.",
+			"",
 			"## Streaming An Agent Run",
 			"",
 			skillAgentStreamingText(target),
@@ -507,6 +515,23 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		"",
 		skillBulletList(guardrails),
 	)
+}
+
+func skillAgentRuntimeText(target string) string {
+	switch target {
+	case "python":
+		return "Give the agent a code runtime on the constructor (`runtime`: a runtime object, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`{\"runtime\": AxQuickJsCodeRuntime()}`). The constructor's runtime wins; without one, a run uses the forward call's."
+	case "go":
+		return "Give the agent a code runtime on the constructor (`\"runtime\"`: a `CodeRuntime`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`map[string]ax.Value{\"runtime\": axgoja.NewRuntime()}`). The constructor's runtime wins; without one, a run uses the forward call's."
+	case "java":
+		return "Give the agent a code runtime on the constructor (`\"runtime\"`: an `AxCodeRuntime`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`Map.of(\"runtime\", runtime)`). The constructor's runtime wins; without one, a run uses the forward call's."
+	case "cpp":
+		return "Give the agent a code runtime on the constructor (`\"runtime\"`: `axllm::Core::code_runtime_ref(runtime)`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call's options (`{\"runtime\", axllm::Core::code_runtime_ref(runtime)}`). The constructor's runtime wins; without one, a run uses the forward call's."
+	case "rust":
+		return "Attach the code runtime to the agent with `with_runtime(Box::new(runtime))`; Rust takes no runtime on the forward call."
+	default:
+		return "Give the agent a code runtime on the constructor or on a forward call."
+	}
 }
 
 func skillAgentStreamingText(target string) string {

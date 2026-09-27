@@ -470,6 +470,7 @@ struct Core {
   static Value agent_runtime_export_state(Value session, Value options);
   static Value agent_runtime_restore_state(Value session, Value snapshot, Value options);
   static Value agent_runtime_close(Value session);
+  static Value agent_runtime_language(Value runtime);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
   static Value agent_observer_notify(Value state, Value forward_options, Value kind, Value payload);
@@ -1661,6 +1662,20 @@ class AxAgent : public AxProgram {
   void learn_playbook_failures(Value output);
   std::unique_ptr<AxGen> make_responder(const Value& options);
   Value run(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks, Value sink, const bool* consumer_stopped);
+  // Each run uses the stage set of its mode (see use_stage_mode): "runtime",
+  // the RLM stages, or "plain", the runtime-less stages. The members hold the
+  // set in use; the other mode's set waits in stage_sets_, and
+  // optimized_components_ apply to a set when a run switches to it.
+  struct StageSet {
+    std::unique_ptr<AxGen> distiller;
+    std::unique_ptr<AxGen> executor;
+    std::unique_ptr<AxGen> responder;
+  };
+  std::string stage_mode_ = "plain";
+  std::map<std::string, StageSet> stage_sets_;
+  Value optimized_components_ = Value::object();
+  void reset_stage_sets();
+  void use_stage_mode(const Value& options);
 };
 
 std::string stringify(const Value& value);

@@ -1523,6 +1523,19 @@ final class Core {
     if (!(session instanceof AxCodeSession active)) throw new RuntimeException("agent code session is not active");
     return active.restoreState(snapshot, asMap(options));
   }
+  // A runtime's language: a runtime config's "language", else the code
+  // runtime's own, else JavaScript, TS's default runtime.
+  static Object agentRuntimeLanguage(Object runtime) {
+    String language = "";
+    if (runtime instanceof Map<?, ?> config) {
+      Object raw = config.get("language");
+      language = raw == null ? "" : String.valueOf(raw).trim();
+    } else if (runtime instanceof AxCodeRuntime code) {
+      String raw = code.language();
+      language = raw == null ? "" : raw.trim();
+    }
+    return language.isEmpty() ? "JavaScript" : language;
+  }
   static Object agentRuntimeClose(Object session) {
     if (!(session instanceof AxCodeSession active)) return Map.of("closed", true);
     Object result = active.close();
@@ -28663,17 +28676,10 @@ final class Core {
     Core.set(state, "executor_exclude_fields", executor_exclude);
     Core.set(state, "responder_exclude_fields", responder_exclude);
     Object code_field_name = Core.get(runtime_contract, "code_field_name", "javascriptCode");
-    Object runtime_distiller_signature = Core.stringFormat("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name);
-    Object distiller_signature = "input:json, context:json -> completion:json";
-    if (Core.truthy(runtime_enabled)) {
-      distiller_signature = runtime_distiller_signature;
-    }
+    Object actor_signatures = Core._agent_actor_stage_signatures(runtime_enabled, code_field_name);
+    Object distiller_signature = Core.get(actor_signatures, "distiller", null);
     Core.set(state, "distiller_signature", distiller_signature);
-    Object runtime_executor_signature = Core.stringFormat("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name);
-    Object executor_signature = "input:json, executorRequest:string, distilledContext:json -> completion:json";
-    if (Core.truthy(runtime_enabled)) {
-      executor_signature = runtime_executor_signature;
-    }
+    Object executor_signature = Core.get(actor_signatures, "executor", null);
     Core.set(state, "executor_signature", executor_signature);
     Object llm_query_signature = "task:string, context:json -> answer:string";
     Core.set(state, "llm_query_signature", llm_query_signature);
@@ -37972,6 +37978,137 @@ final class Core {
       Core.set(out, "parseDates", resolved);
     }
     return out;
+  }
+
+  static Object _agent_actor_stage_signatures(Object runtime_enabled, Object code_field_name) {
+    axirCoverageMark("_agent_actor_stage_signatures");
+    Object distiller = "input:json, context:json -> completion:json";
+    Object executor = "input:json, executorRequest:string, distilledContext:json -> completion:json";
+    if (Core.truthy(runtime_enabled)) {
+      distiller = Core.stringFormat("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name);
+      executor = Core.stringFormat("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name);
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "distiller", distiller);
+    Core.set(out, "executor", executor);
+    return out;
+  }
+
+  static Object _agent_runtime_configured(Object state) {
+    axirCoverageMark("_agent_runtime_configured");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object options = Core.get(state, "options", empty_map);
+    Object has_runtime = Core.mapContains(options, "runtime");
+    Object has_config = Core.mapContains(options, "runtimeConfig");
+    Object has_config_snake = Core.mapContains(options, "runtime_config");
+    Object has_any_config = Core.or(has_config, has_config_snake);
+    Object configured = Core.or(has_runtime, has_any_config);
+    return configured;
+  }
+
+  static Object _agent_stage_mode_fields(Object state) {
+    axirCoverageMark("_agent_stage_mode_fields");
+    Object keys = new java.util.ArrayList<Object>();
+    Core.append(keys, "runtime_enabled");
+    Core.append(keys, "runtime_contract");
+    Core.append(keys, "distiller_signature");
+    Core.append(keys, "executor_signature");
+    Core.append(keys, "distiller_description");
+    Core.append(keys, "executor_description_base");
+    Core.append(keys, "responder_description");
+    Object fields = new java.util.LinkedHashMap<String, Object>();
+    for (Object key : Core.iter(keys)) {
+      Object value = Core.get(state, key, null);
+      Core.set(fields, key, value);
+    }
+    return fields;
+  }
+
+  static Object _agent_runtime_stage_fields(Object state, Object runtime) {
+    axirCoverageMark("_agent_runtime_stage_fields");
+    Object language = Core.agentRuntimeLanguage(runtime);
+    Object config = new java.util.LinkedHashMap<String, Object>();
+    Core.set(config, "language", language);
+    Object contract_options = new java.util.LinkedHashMap<String, Object>();
+    Core.set(contract_options, "runtime", config);
+    Object contract = Core._normalize_agent_runtime(contract_options);
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object saved_contract = Core.get(state, "runtime_contract", empty_map);
+    Core.set(state, "runtime_contract", contract);
+    Object options = Core.get(state, "options", empty_map);
+    Object executor_description = Core._render_rlm_executor_description(state, options);
+    Object responder_description = Core._render_rlm_responder_description(state, options);
+    Object distiller_description = Core._render_rlm_distiller_description(state, options);
+    Core.set(state, "runtime_contract", saved_contract);
+    Object code_field_name = Core.get(contract, "code_field_name", "javascriptCode");
+    Object runtime_stages = Boolean.TRUE;
+    Object signatures = Core._agent_actor_stage_signatures(runtime_stages, code_field_name);
+    Object distiller_signature = Core.get(signatures, "distiller", null);
+    Object executor_signature = Core.get(signatures, "executor", null);
+    Object fields = new java.util.LinkedHashMap<String, Object>();
+    Core.set(fields, "runtime_enabled", Boolean.TRUE);
+    Core.set(fields, "runtime_contract", contract);
+    Core.set(fields, "distiller_signature", distiller_signature);
+    Core.set(fields, "executor_signature", executor_signature);
+    Core.set(fields, "distiller_description", distiller_description);
+    Core.set(fields, "executor_description_base", executor_description);
+    Core.set(fields, "responder_description", responder_description);
+    return fields;
+  }
+
+  static Object _agent_use_stage_mode(Object state, Object options) {
+    axirCoverageMark("_agent_use_stage_mode");
+    Object configured = Core._agent_runtime_configured(state);
+    Object runtime = Core.get(options, "runtime", null);
+    Object has_runtime = Core.isNotNone(runtime);
+    Object runtime_mode = Core.or(configured, has_runtime);
+    Object mode = "plain";
+    if (Core.truthy(runtime_mode)) {
+      mode = "runtime";
+    }
+    Object state_runtime = Core.get(state, "runtime_enabled", Boolean.FALSE);
+    Object active_default = "plain";
+    if (Core.truthy(state_runtime)) {
+      active_default = "runtime";
+    }
+    Object active = Core.get(state, "stage_mode", active_default);
+    Object switching = Core.ne(mode, active);
+    if (Core.truthy(switching)) {
+      Object empty_modes = new java.util.LinkedHashMap<String, Object>();
+      Object modes = Core.get(state, "stage_modes", empty_modes);
+      Object current_fields = Core._agent_stage_mode_fields(state);
+      Core.set(modes, active, current_fields);
+      Object target = Core.get(modes, mode, null);
+      Object cached = Core.isNotNone(target);
+      if (Core.truthy(cached)) {
+        // empty
+      }
+      if (!Core.truthy(cached)) {
+        target = Core._agent_runtime_stage_fields(state, runtime);
+      }
+      for (Object field : Core.iter(target)) {
+        Object field_value = Core.get(target, field, null);
+        Core.set(state, field, field_value);
+      }
+      Core.set(state, "stage_modes", modes);
+      Core.set(state, "stage_mode", mode);
+      Object prompt_policy = Core._build_agent_actor_prompt_policy(state);
+      Core.set(state, "actor_prompt_policy", prompt_policy);
+      Core._agent_refresh_actor_instruction(state);
+    }
+    Object record = new java.util.LinkedHashMap<String, Object>();
+    Core.set(record, "mode", mode);
+    Object record_distiller_signature = Core.get(state, "distiller_signature", "");
+    Core.set(record, "distiller_signature", record_distiller_signature);
+    Object record_executor_signature = Core.get(state, "executor_signature", "");
+    Core.set(record, "executor_signature", record_executor_signature);
+    Object record_distiller_description = Core.get(state, "distiller_description", "");
+    Core.set(record, "distiller_description", record_distiller_description);
+    Object record_executor_description = Core.get(state, "executor_description", "");
+    Core.set(record, "executor_description", record_executor_description);
+    Object record_responder_description = Core.get(state, "responder_description", "");
+    Core.set(record, "responder_description", record_responder_description);
+    return record;
   }
 
   static Object _flow_factory(Object options) {

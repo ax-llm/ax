@@ -136,6 +136,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.agent.runtime.export_state":            "core_agent_runtime_export_state",
 	"intrinsic.agent.runtime.restore_state":           "core_agent_runtime_restore_state",
 	"intrinsic.agent.runtime.close":                   "core_agent_runtime_close",
+	"intrinsic.agent.runtime.language":                "core_agent_runtime_language",
 	"intrinsic.json.pretty":                           "core_json_pretty",
 	"intrinsic.regex.replace":                         "core_regex_replace",
 	"intrinsic.string.lower_camel":                    "core_string_lower_camel",

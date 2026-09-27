@@ -429,6 +429,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicAgentRuntimeExport:        "Core.agentRuntimeExportState",
 	IntrinsicAgentRuntimeRestore:       "Core.agentRuntimeRestoreState",
 	IntrinsicAgentRuntimeClose:         "Core.agentRuntimeClose",
+	IntrinsicAgentRuntimeLanguage:      "Core.agentRuntimeLanguage",
 	IntrinsicAgentMemorySearch:         "Core.agentMemorySearch",
 	IntrinsicAgentSkillSearch:          "Core.agentSkillSearch",
 	IntrinsicAgentObserverNotify:       "Core.agentObserverNotify",
