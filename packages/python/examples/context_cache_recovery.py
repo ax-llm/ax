@@ -35,8 +35,11 @@ assert client(recovery).chat(request)["results"][0]["content"] == "uncached reco
 assert [item["method"] for item in recovery.requests] == ["POST", "POST", "POST"]
 assert "cachedContent" in recovery.requests[1]["json"] and "cachedContent" not in recovery.requests[2]["json"]
 
+# The old caches expire in two minutes: inside the 300-second refresh window,
+# so the second chat refreshes them, and far enough out that a slow first chat
+# cannot let them expire first.
 refresh = ScriptedTransport([
-    {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(1)}}, chat_response("old"),
+    {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(120)}}, chat_response("old"),
     {"status": 500, "json": {"error": {"message": "refresh failed"}}},
     {"status": 200, "json": {"name": "cachedContents/new", "expireTime": future(3600)}}, chat_response("recreated"),
 ])
@@ -46,7 +49,7 @@ assert refresh_client.chat(request)["results"][0]["content"] == "recreated"
 assert [item["method"] for item in refresh.requests] == ["POST", "POST", "PATCH", "POST", "POST"]
 
 fallback = ScriptedTransport([
-    {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(1)}}, chat_response("old"),
+    {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(120)}}, chat_response("old"),
     {"status": 500, "json": {"error": {"message": "refresh failed"}}},
     {"status": 500, "json": {"error": {"message": "recreate failed"}}}, chat_response("uncached fallback"),
 ])
