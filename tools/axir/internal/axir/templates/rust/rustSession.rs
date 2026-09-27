@@ -105,28 +105,18 @@ pub(crate) fn take_open_session() -> Option<Box<dyn AxChatSession>> {
 pub struct AxForwardOptions {
     pub options: Value,
     pub control: Option<AxRunControl>,
-    pub caching_function: Option<AxCachingFunction>,
 }
 impl From<Value> for AxForwardOptions {
     fn from(options: Value) -> Self {
         Self {
             options,
             control: None,
-            caching_function: None,
         }
     }
 }
 impl AxForwardOptions {
     pub fn with_control(mut self, control: AxRunControl) -> Self {
         self.control = Some(control);
-        self
-    }
-    /// Caches this call of an [`AxGen`] forward or streaming forward with
-    /// `caching_function`, which comes before the program's own
-    /// ([`AxGen::with_caching_function`]) and the process-wide one
-    /// ([`set_caching_function`]). AxFlow and AxAgent forwards ignore it.
-    pub fn with_caching_function(mut self, caching_function: AxCachingFunction) -> Self {
-        self.caching_function = Some(caching_function);
         self
     }
 }
