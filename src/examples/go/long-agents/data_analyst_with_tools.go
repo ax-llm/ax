@@ -122,9 +122,9 @@ BUSINESS RULES
   - Compare like-for-like: always group by region AND product, not either alone.
 
 TOOLS AVAILABLE (call them, never invent figures)
-  query  filter + aggregate a slice -> {matched, totalUnits, totalRevenue, avgReturnRate}
-  top    rank a metric ("revenue"|"units") grouped by "product"|"region" -> [{key, value}]
-  trend  monthly revenue series (Jan..Dec) for one region + product
+  warehouse.query  filter + aggregate a slice -> {matched, totalUnits, totalRevenue, avgReturnRate}
+  warehouse.top    rank a metric ("revenue"|"units") grouped by "product"|"region" -> [{key, value}]
+  warehouse.trend  monthly revenue series (Jan..Dec) for one region + product
 `)
 
 func asMap(value ax.Value) map[string]ax.Value {
@@ -245,63 +245,59 @@ func main() {
 
 	fmt.Printf("Warehouse: %d rows (kept out of the prompt; reachable only via tools).\n", len(warehouse))
 
-	runtime := axgoja.NewRuntime(
-		axgoja.WithCallable("query", queryTool),
-		axgoja.WithCallable("top", topTool),
-		axgoja.WithCallable("trend", trendTool),
-	)
+	runtime := axgoja.NewRuntime()
+
+	// The tools the agent advertises and calls: warehouse.query, warehouse.top
+	// and warehouse.trend, each with its handler, as the TypeScript twin wires
+	// them.
+	warehouseTool := func(name, description string, parameters ax.Value, handler func(ax.Value) (ax.Value, error)) ax.Tool {
+		tool := ax.Fn(name).WithHandler(func(args map[string]ax.Value) (ax.Value, error) { return handler(args) })
+		tool.Description = description
+		tool.Parameters = parameters
+		return tool
+	}
 
 	analyst := ax.NewAgent(
 		`schema:string, question:string -> answer:string, evidence:string[] "Concrete figures the answer is based on"`,
 		map[string]ax.Value{
 			// Big data dictionary stays out of the prompt.
 			"contextFields": ax.Array("schema"),
-			// Tool specs advertised to the model; handlers are registered on the runtime above.
+			// Tools reach the data the prompt never sees.
 			"functions": ax.Array(
-				ax.Object(
-					"name", "query",
-					"description", "Filter the sales table and return aggregates for the matching rows.",
-					"parameters", ax.Object(
+				ax.Object("namespace", "warehouse", "functions", ax.Array(
+					warehouseTool("query", "Filter the sales table and return aggregates for the matching rows.", ax.Object(
 						"type", "object",
 						"properties", ax.Object(
-							"region", ax.Object("type", "string"),
-							"product", ax.Object("type", "string"),
-							"month", ax.Object("type", "string"),
+							"region", ax.Object("type", "string", "description", "Optional region filter"),
+							"product", ax.Object("type", "string", "description", "Optional product filter"),
+							"month", ax.Object("type", "string", "description", "Optional month filter, e.g. Jan"),
 						),
-					),
-				),
-				ax.Object(
-					"name", "top",
-					"description", "Rank a metric (revenue|units) grouped by product|region, highest first.",
-					"parameters", ax.Object(
+					), queryTool),
+					warehouseTool("top", "Rank a metric grouped by product or region, highest first.", ax.Object(
 						"type", "object",
 						"properties", ax.Object(
-							"metric", ax.Object("type", "string"),
-							"groupBy", ax.Object("type", "string"),
-							"limit", ax.Object("type", "number"),
+							"metric", ax.Object("type", "string", "description", "revenue or units"),
+							"groupBy", ax.Object("type", "string", "description", "product or region"),
+							"limit", ax.Object("type", "number", "description", "How many groups to return"),
 						),
 						"required", ax.Array("metric", "groupBy"),
-					),
-				),
-				ax.Object(
-					"name", "trend",
-					"description", "Monthly revenue series (Jan..Dec) for one region and product.",
-					"parameters", ax.Object(
+					), topTool),
+					warehouseTool("trend", "Monthly revenue series (Jan..Dec) for one region and product.", ax.Object(
 						"type", "object",
 						"properties", ax.Object(
 							"region", ax.Object("type", "string"),
 							"product", ax.Object("type", "string"),
 						),
 						"required", ax.Array("region", "product"),
-					),
-				),
+					), trendTool),
+				)),
 			),
 			"contextPolicy": ax.Object("preset", "lean", "budget", "balanced"),
 			"executorOptions": ax.Object("description", strings.Join([]string{
 				"Consult the schema for column meaning and business rules.",
 				"Answer using the warehouse tools -- never invent figures.",
-				"Return rates: call query({product}) for each of Widget-A, Widget-B, Gadget-X, Gadget-Y and read avgReturnRate; any product with avgReturnRate > 0.05 is above the review threshold.",
-				"Growth: call trend({region, product}); the returned array is revenue Jan..Dec, so growth = last element minus first element. Compare a few region+product pairs and report the largest.",
+				"Return rates: call warehouse.query({product}) for each of Widget-A, Widget-B, Gadget-X, Gadget-Y and read avgReturnRate; any product with avgReturnRate > 0.05 is above the review threshold.",
+				"Growth: call warehouse.trend({region, product}); the returned array is revenue Jan..Dec, so growth = last element minus first element. Compare a few region+product pairs and report the largest.",
 				"Cite the concrete numbers you observed as evidence, then call final(...).",
 			}, "\n")),
 			"runtime": ax.Object("language", "JavaScript"),
