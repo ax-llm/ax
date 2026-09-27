@@ -2002,6 +2002,14 @@ Value Core::program_apply_components(Value program, Value component_map) {
   if (stage_ptr) stage_ptr->apply_optimized_components(std::move(component_map));
   return Value::object();
 }
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+Value Core::program_signature(Value program) {
+  auto* stage_ptr = registered_stage(str(get_key(program, "__agent_stage_id")));
+  if (auto* gen = dynamic_cast<AxGen*>(stage_ptr)) return Core::signature_to_string(Core::get(gen->value(), "signature"));
+  if (auto* agent = dynamic_cast<AxAgent*>(stage_ptr)) return Core::signature_to_string(Core::get(agent->state_, "signature"));
+  return Value();
+}
 Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
   AIClient* registered = registered_client(id);

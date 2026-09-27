@@ -865,6 +865,13 @@ final class Core {
     if (program instanceof AxProgram axProgram) axProgram.applyOptimizedComponents(asMap(componentMap));
     return Map.of();
   }
+  // An AxGen's or AxAgent's signature text. Any other program (a nested flow,
+  // a custom program) has none, and its undeclared step is a barrier.
+  static Object programSignature(Object program) {
+    if (program instanceof AxGen gen) return gen.signature.toString();
+    if (program instanceof AxAgent agent) return String.valueOf(signature_to_string(agent.signature));
+    return null;
+  }
   static Object aiCompleteOnce(Object client, Object request, Object options) {
     try {
       // As in TS, a streamed forward folds the stream's chunks into one response.
@@ -38739,6 +38746,20 @@ final class Core {
     if (Core.truthy(may_parallel)) {
       default_barrier = Boolean.FALSE;
     }
+    Object io = Core._flow_step_program_io(kind, trimmed, program, opts);
+    Object infers_io = Core.get(io, "infer", Boolean.FALSE);
+    if (Core.truthy(infers_io)) {
+      Object io_has_signature = Core.get(io, "hasSignature", Boolean.FALSE);
+      if (Core.truthy(io_has_signature)) {
+        reads = Core.get(io, "reads", null);
+        writes = Core.get(io, "writes", null);
+        Object io_outputs = Core.get(io, "outputs", null);
+        Core.set(step, "outputs", io_outputs);
+      }
+      if (!Core.truthy(io_has_signature)) {
+        default_barrier = Boolean.TRUE;
+      }
+    }
     Object barrier_from_snake = Core.get(opts, "is_barrier", default_barrier);
     Object barrier_from_camel = Core.get(opts, "isBarrier", barrier_from_snake);
     Object barrier = Core.get(opts, "barrier", barrier_from_camel);
@@ -38827,6 +38848,11 @@ final class Core {
     Core.set(entry, "kind", kind);
     Core.set(entry, "reads", reads);
     Core.set(entry, "writes", writes);
+    Object has_outputs = Core.mapContains(step, "outputs");
+    if (Core.truthy(has_outputs)) {
+      Object outputs = Core.get(step, "outputs", null);
+      Core.set(entry, "outputs", outputs);
+    }
     Core.set(entry, "barrier", barrier);
     Core.set(entry, "stepIndex", step_index);
     return entry;
@@ -38838,6 +38864,7 @@ final class Core {
     Object candidate_barrier = Core.get(candidate, "barrier", Boolean.TRUE);
     Object candidate_writes = Core.get(candidate, "writes", empty_list);
     Object candidate_reads = Core.get(candidate, "reads", empty_list);
+    Object candidate_outputs = Core.get(candidate, "outputs", empty_list);
     Object write_count = Core.len(candidate_writes);
     Object no_writes = Core.eq(write_count, 0);
     Object can_share = Boolean.TRUE;
@@ -38854,6 +38881,7 @@ final class Core {
       }
       Object existing_writes = Core.get(existing, "writes", empty_list);
       Object existing_reads = Core.get(existing, "reads", empty_list);
+      Object existing_outputs = Core.get(existing, "outputs", empty_list);
       for (Object read : Core.iter(candidate_reads)) {
         Object read_conflict = Core.contains(existing_writes, read);
         if (Core.truthy(read_conflict)) {
@@ -38862,13 +38890,21 @@ final class Core {
       }
       for (Object existing_read : Core.iter(existing_reads)) {
         Object reverse_read_conflict = Core.contains(candidate_writes, existing_read);
-        if (Core.truthy(reverse_read_conflict)) {
+        Object reverse_read_output = Core.contains(candidate_outputs, existing_read);
+        Object reverse_read_ordered = Core.not(reverse_read_output);
+        Object reverse_read_blocks = Core.and(reverse_read_conflict, reverse_read_ordered);
+        if (Core.truthy(reverse_read_blocks)) {
           can_share = Boolean.FALSE;
         }
       }
       for (Object write : Core.iter(candidate_writes)) {
         Object write_conflict = Core.contains(existing_writes, write);
-        if (Core.truthy(write_conflict)) {
+        Object candidate_write_output = Core.contains(candidate_outputs, write);
+        Object existing_write_output = Core.contains(existing_outputs, write);
+        Object write_output = Core.or(candidate_write_output, existing_write_output);
+        Object write_ordered = Core.not(write_output);
+        Object write_blocks = Core.and(write_conflict, write_ordered);
+        if (Core.truthy(write_blocks)) {
           can_share = Boolean.FALSE;
         }
       }
@@ -41010,6 +41046,10 @@ final class Core {
           Object step_options = Core.get(step, "options", empty_map);
           Object empty_reads = new java.util.ArrayList<Object>();
           Object step_reads = Core.get(step, "reads", empty_reads);
+          Object inferred_reads = Core.mapContains(step, "outputs");
+          if (Core.truthy(inferred_reads)) {
+            step_reads = empty_reads;
+          }
           Object reads = Core.get(step_options, "reads", step_reads);
           for (Object read : Core.iter(reads)) {
             Object is_result = Core.stringEndsWith(read, "Result");
@@ -41052,6 +41092,58 @@ final class Core {
     }
     Object rendered = Core._flow_mermaid_render_flow(flow, options);
     return rendered;
+  }
+
+  static Object _flow_step_program_io(Object kind, Object name, Object program, Object options) {
+    axirCoverageMark("_flow_step_program_io");
+    Object io = new java.util.LinkedHashMap<String, Object>();
+    Core.set(io, "infer", Boolean.FALSE);
+    Object is_execute = Core.eq(kind, "execute");
+    Object not_execute = Core.not(is_execute);
+    if (Core.truthy(not_execute)) {
+      return io;
+    }
+    Object declares_reads = Core.mapContains(options, "reads");
+    Object declares_writes = Core.mapContains(options, "writes");
+    Object declares = Core.or(declares_reads, declares_writes);
+    if (Core.truthy(declares)) {
+      return io;
+    }
+    Core.set(io, "infer", Boolean.TRUE);
+    Object signature_text = Core.programSignature(program);
+    Object has_signature = Core.truthyValue(signature_text);
+    Core.set(io, "hasSignature", has_signature);
+    Object no_signature = Core.not(has_signature);
+    if (Core.truthy(no_signature)) {
+      return io;
+    }
+    Object signature = Core.parse_signature(signature_text);
+    Object reads = new java.util.ArrayList<Object>();
+    Object input_fields = Core.get(signature, "input_fields", null);
+    for (Object input_field : Core.iter(input_fields)) {
+      Object input_name = Core.get(input_field, "name", "");
+      Core.append(reads, input_name);
+    }
+    Object writes = new java.util.ArrayList<Object>();
+    Object result_key = Core.stringFormat("{}Result", name);
+    Core.append(writes, result_key);
+    Object outputs = new java.util.ArrayList<Object>();
+    Object output_fields = Core.get(signature, "output_fields", null);
+    for (Object output_field : Core.iter(output_fields)) {
+      Object output_name = Core.get(output_field, "name", "");
+      Object is_result_key = Core.eq(output_name, result_key);
+      if (Core.truthy(is_result_key)) {
+        // empty
+      }
+      if (!Core.truthy(is_result_key)) {
+        Core.append(outputs, output_name);
+        Core.append(writes, output_name);
+      }
+    }
+    Core.set(io, "reads", reads);
+    Core.set(io, "writes", writes);
+    Core.set(io, "outputs", outputs);
+    return io;
   }
 
   static Object ucp_negotiate_profile(Object profile, Object supportedVersions, Object requestedServices) {

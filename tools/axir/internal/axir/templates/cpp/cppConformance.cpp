@@ -4003,7 +4003,9 @@ static void run_flow_mermaid(Value fixture) {
     AxFlow built;
     std::vector<std::unique_ptr<AxGen>> programs;
     for (const auto& raw : Core::iter(Core::get(fixture, "builder_steps", Value::array()))) {
-      Value options = object({{"reads", Core::get(raw, "reads", Value::array())}});
+      // A builder step without "reads" declares none.
+      Value reads = Core::get(raw, "reads");
+      Value options = reads.is_null() ? Value::object() : object({{"reads", reads}});
       auto program = std::make_unique<AxGen>(s(display(Core::get(raw, "signature"))));
       built.execute(display(Core::get(raw, "name")), *program, options);
       programs.push_back(std::move(program));

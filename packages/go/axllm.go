@@ -1751,6 +1751,19 @@ func _core_program_apply_components(program Value, componentMap Value) Value {
 	}
 	return Object()
 }
+
+// _core_program_signature is an AxGen's or AxAgent's signature text. Any other
+// program (a nested flow, a custom program) has none, and its undeclared step
+// is a barrier.
+func _core_program_signature(program Value) Value {
+	switch p := program.(type) {
+	case *AxGen:
+		return p.Signature.String()
+	case *AxAgent:
+		return p.Signature.String()
+	}
+	return nil
+}
 func _core_ai_complete_once(client Value, request Value, options Value) (Value, error) {
 	if c, ok := client.(AIClient); ok {
 		// As in TS, a streamed forward folds the stream's chunks into one response.
@@ -81385,6 +81398,10 @@ func _flow_step(args ...Value) (Value, error) {
 	var v_empty_map Value
 	var v_err Value
 	var v_execute_write Value
+	var v_infers_io Value
+	var v_io Value
+	var v_io_has_signature Value
+	var v_io_outputs Value
 	var v_is_derive Value
 	var v_is_execute Value
 	var v_is_parallel Value
@@ -81414,6 +81431,10 @@ func _flow_step(args ...Value) (Value, error) {
 	_ = v_empty_map
 	_ = v_err
 	_ = v_execute_write
+	_ = v_infers_io
+	_ = v_io
+	_ = v_io_has_signature
+	_ = v_io_outputs
 	_ = v_is_derive
 	_ = v_is_execute
 	_ = v_is_parallel
@@ -81483,6 +81504,21 @@ func _flow_step(args ...Value) (Value, error) {
 	v_may_parallel = _core_or(v_is_execute, v_is_derive)
 	if coreTruthy(v_may_parallel) {
 		v_default_barrier = false
+	} else {
+	// empty
+	}
+	{ v, err := _flow_step_program_io(v_kind, v_trimmed, v_program, v_opts); if err != nil { return nil, err }; v_io = v }
+	v_infers_io = coreGet(v_io, "infer", false)
+	if coreTruthy(v_infers_io) {
+		v_io_has_signature = coreGet(v_io, "hasSignature", false)
+		if coreTruthy(v_io_has_signature) {
+			v_reads = coreGet(v_io, "reads", nil)
+			v_writes = coreGet(v_io, "writes", nil)
+			v_io_outputs = coreGet(v_io, "outputs", nil)
+			if err := coreSet(v_step, "outputs", v_io_outputs); err != nil { return nil, err }
+		} else {
+			v_default_barrier = true
+		}
 	} else {
 	// empty
 	}
@@ -81653,8 +81689,10 @@ func _flow_plan_entry(args ...Value) (Value, error) {
 	var v_barrier_snake Value
 	var v_empty_list Value
 	var v_entry Value
+	var v_has_outputs Value
 	var v_kind Value
 	var v_name Value
+	var v_outputs Value
 	var v_reads Value
 	var v_writes Value
 	if len(args) > 0 { v_step = args[0] }
@@ -81666,8 +81704,10 @@ func _flow_plan_entry(args ...Value) (Value, error) {
 	_ = v_barrier_snake
 	_ = v_empty_list
 	_ = v_entry
+	_ = v_has_outputs
 	_ = v_kind
 	_ = v_name
+	_ = v_outputs
 	_ = v_reads
 	_ = v_writes
 	v_empty_list = MutableArray()
@@ -81683,6 +81723,13 @@ func _flow_plan_entry(args ...Value) (Value, error) {
 	if err := coreSet(v_entry, "kind", v_kind); err != nil { return nil, err }
 	if err := coreSet(v_entry, "reads", v_reads); err != nil { return nil, err }
 	if err := coreSet(v_entry, "writes", v_writes); err != nil { return nil, err }
+	v_has_outputs = _core_map_contains(v_step, "outputs")
+	if coreTruthy(v_has_outputs) {
+		v_outputs = coreGet(v_step, "outputs", nil)
+		if err := coreSet(v_entry, "outputs", v_outputs); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	if err := coreSet(v_entry, "barrier", v_barrier); err != nil { return nil, err }
 	if err := coreSet(v_entry, "stepIndex", v_step_index); err != nil { return nil, err }
 	return v_entry, nil
@@ -81694,46 +81741,67 @@ func _flow_plan_can_share_group(args ...Value) (Value, error) {
 	var v_candidate Value
 	var v_can_share Value
 	var v_candidate_barrier Value
+	var v_candidate_outputs Value
 	var v_candidate_reads Value
+	var v_candidate_write_output Value
 	var v_candidate_writes Value
 	var v_empty_list Value
 	var v_existing Value
 	var v_existing_barrier Value
+	var v_existing_outputs Value
 	var v_existing_read Value
 	var v_existing_reads Value
+	var v_existing_write_output Value
 	var v_existing_writes Value
 	var v_no_writes Value
 	var v_read Value
 	var v_read_conflict Value
+	var v_reverse_read_blocks Value
 	var v_reverse_read_conflict Value
+	var v_reverse_read_ordered Value
+	var v_reverse_read_output Value
 	var v_write Value
+	var v_write_blocks Value
 	var v_write_conflict Value
 	var v_write_count Value
+	var v_write_ordered Value
+	var v_write_output Value
 	if len(args) > 0 { v_group = args[0] }
 	_ = v_group
 	if len(args) > 1 { v_candidate = args[1] }
 	_ = v_candidate
 	_ = v_can_share
 	_ = v_candidate_barrier
+	_ = v_candidate_outputs
 	_ = v_candidate_reads
+	_ = v_candidate_write_output
 	_ = v_candidate_writes
 	_ = v_empty_list
 	_ = v_existing
 	_ = v_existing_barrier
+	_ = v_existing_outputs
 	_ = v_existing_read
 	_ = v_existing_reads
+	_ = v_existing_write_output
 	_ = v_existing_writes
 	_ = v_no_writes
 	_ = v_read
 	_ = v_read_conflict
+	_ = v_reverse_read_blocks
 	_ = v_reverse_read_conflict
+	_ = v_reverse_read_ordered
+	_ = v_reverse_read_output
 	_ = v_write
+	_ = v_write_blocks
 	_ = v_write_conflict
 	_ = v_write_count
+	_ = v_write_ordered
+	_ = v_write_output
 	v_empty_list = MutableArray()
 	v_candidate_barrier = coreGet(v_candidate, "barrier", true)
 	v_candidate_writes = coreGet(v_candidate, "writes", v_empty_list)
 	v_candidate_reads = coreGet(v_candidate, "reads", v_empty_list)
+	v_candidate_outputs = coreGet(v_candidate, "outputs", v_empty_list)
 	v_write_count = _core_len(v_candidate_writes)
 	v_no_writes = _core_eq(v_write_count, 0)
 	v_can_share = true
@@ -81756,6 +81824,7 @@ func _flow_plan_can_share_group(args ...Value) (Value, error) {
 		}
 		v_existing_writes = coreGet(v_existing, "writes", v_empty_list)
 		v_existing_reads = coreGet(v_existing, "reads", v_empty_list)
+		v_existing_outputs = coreGet(v_existing, "outputs", v_empty_list)
 		for _, v_read = range coreIter(v_candidate_reads) {
 			v_read_conflict = _core_contains(v_existing_writes, v_read)
 			if coreTruthy(v_read_conflict) {
@@ -81766,7 +81835,10 @@ func _flow_plan_can_share_group(args ...Value) (Value, error) {
 		}
 		for _, v_existing_read = range coreIter(v_existing_reads) {
 			v_reverse_read_conflict = _core_contains(v_candidate_writes, v_existing_read)
-			if coreTruthy(v_reverse_read_conflict) {
+			v_reverse_read_output = _core_contains(v_candidate_outputs, v_existing_read)
+			v_reverse_read_ordered = _core_not(v_reverse_read_output)
+			v_reverse_read_blocks = _core_and(v_reverse_read_conflict, v_reverse_read_ordered)
+			if coreTruthy(v_reverse_read_blocks) {
 				v_can_share = false
 			} else {
 			// empty
@@ -81774,7 +81846,12 @@ func _flow_plan_can_share_group(args ...Value) (Value, error) {
 		}
 		for _, v_write = range coreIter(v_candidate_writes) {
 			v_write_conflict = _core_contains(v_existing_writes, v_write)
-			if coreTruthy(v_write_conflict) {
+			v_candidate_write_output = _core_contains(v_candidate_outputs, v_write)
+			v_existing_write_output = _core_contains(v_existing_outputs, v_write)
+			v_write_output = _core_or(v_candidate_write_output, v_existing_write_output)
+			v_write_ordered = _core_not(v_write_output)
+			v_write_blocks = _core_and(v_write_conflict, v_write_ordered)
+			if coreTruthy(v_write_blocks) {
 				v_can_share = false
 			} else {
 			// empty
@@ -86077,6 +86154,7 @@ func _flow_mermaid_render_flow(args ...Value) (Value, error) {
 	var v_has_diamond Value
 	var v_has_signature Value
 	var v_header Value
+	var v_inferred_reads Value
 	var v_is_execute Value
 	var v_is_map Value
 	var v_is_result Value
@@ -86129,6 +86207,7 @@ func _flow_mermaid_render_flow(args ...Value) (Value, error) {
 	_ = v_has_diamond
 	_ = v_has_signature
 	_ = v_header
+	_ = v_inferred_reads
 	_ = v_is_execute
 	_ = v_is_map
 	_ = v_is_result
@@ -86242,6 +86321,12 @@ func _flow_mermaid_render_flow(args ...Value) (Value, error) {
 				v_step_options = coreGet(v_step, "options", v_empty_map)
 				v_empty_reads = MutableArray()
 				v_step_reads = coreGet(v_step, "reads", v_empty_reads)
+				v_inferred_reads = _core_map_contains(v_step, "outputs")
+				if coreTruthy(v_inferred_reads) {
+					v_step_reads = v_empty_reads
+				} else {
+				// empty
+				}
 				v_reads = coreGet(v_step_options, "reads", v_step_reads)
 				for _, v_read = range coreIter(v_reads) {
 					v_is_result = _core_string_ends_with(v_read, "Result")
@@ -86320,6 +86405,117 @@ func _flow_to_mermaid(args ...Value) (Value, error) {
 	}
 	{ v, err := _flow_mermaid_render_flow(v_flow, v_options); if err != nil { return nil, err }; v_rendered = v }
 	return v_rendered, nil
+}
+
+func _flow_step_program_io(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_step_program_io")
+	var v_kind Value
+	var v_name Value
+	var v_program Value
+	var v_options Value
+	var v_declares Value
+	var v_declares_reads Value
+	var v_declares_writes Value
+	var v_has_signature Value
+	var v_input_field Value
+	var v_input_fields Value
+	var v_input_name Value
+	var v_io Value
+	var v_is_execute Value
+	var v_is_result_key Value
+	var v_no_signature Value
+	var v_not_execute Value
+	var v_output_field Value
+	var v_output_fields Value
+	var v_output_name Value
+	var v_outputs Value
+	var v_reads Value
+	var v_result_key Value
+	var v_signature Value
+	var v_signature_text Value
+	var v_writes Value
+	if len(args) > 0 { v_kind = args[0] }
+	_ = v_kind
+	if len(args) > 1 { v_name = args[1] }
+	_ = v_name
+	if len(args) > 2 { v_program = args[2] }
+	_ = v_program
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
+	_ = v_declares
+	_ = v_declares_reads
+	_ = v_declares_writes
+	_ = v_has_signature
+	_ = v_input_field
+	_ = v_input_fields
+	_ = v_input_name
+	_ = v_io
+	_ = v_is_execute
+	_ = v_is_result_key
+	_ = v_no_signature
+	_ = v_not_execute
+	_ = v_output_field
+	_ = v_output_fields
+	_ = v_output_name
+	_ = v_outputs
+	_ = v_reads
+	_ = v_result_key
+	_ = v_signature
+	_ = v_signature_text
+	_ = v_writes
+	v_io = Object()
+	if err := coreSet(v_io, "infer", false); err != nil { return nil, err }
+	v_is_execute = _core_eq(v_kind, "execute")
+	v_not_execute = _core_not(v_is_execute)
+	if coreTruthy(v_not_execute) {
+		return v_io, nil
+	} else {
+	// empty
+	}
+	v_declares_reads = _core_map_contains(v_options, "reads")
+	v_declares_writes = _core_map_contains(v_options, "writes")
+	v_declares = _core_or(v_declares_reads, v_declares_writes)
+	if coreTruthy(v_declares) {
+		return v_io, nil
+	} else {
+	// empty
+	}
+	if err := coreSet(v_io, "infer", true); err != nil { return nil, err }
+	v_signature_text = _core_program_signature(v_program)
+	v_has_signature = _core_truthy(v_signature_text)
+	if err := coreSet(v_io, "hasSignature", v_has_signature); err != nil { return nil, err }
+	v_no_signature = _core_not(v_has_signature)
+	if coreTruthy(v_no_signature) {
+		return v_io, nil
+	} else {
+	// empty
+	}
+	{ v, err := parse_signature(v_signature_text); if err != nil { return nil, err }; v_signature = v }
+	v_reads = MutableArray()
+	v_input_fields = coreGet(v_signature, "input_fields", nil)
+	for _, v_input_field = range coreIter(v_input_fields) {
+		v_input_name = coreGet(v_input_field, "name", "")
+		v_reads = coreAppend(v_reads, v_input_name)
+	}
+	v_writes = MutableArray()
+	v_result_key = _core_string_format("{}Result", v_name)
+	v_writes = coreAppend(v_writes, v_result_key)
+	v_outputs = MutableArray()
+	v_output_fields = coreGet(v_signature, "output_fields", nil)
+	for _, v_output_field = range coreIter(v_output_fields) {
+		v_output_name = coreGet(v_output_field, "name", "")
+		v_is_result_key = _core_eq(v_output_name, v_result_key)
+		if coreTruthy(v_is_result_key) {
+		// empty
+		} else {
+			v_outputs = coreAppend(v_outputs, v_output_name)
+			v_writes = coreAppend(v_writes, v_output_name)
+		}
+	}
+	if err := coreSet(v_io, "reads", v_reads); err != nil { return nil, err }
+	if err := coreSet(v_io, "writes", v_writes); err != nil { return nil, err }
+	if err := coreSet(v_io, "outputs", v_outputs); err != nil { return nil, err }
+	return v_io, nil
 }
 
 func ucp_negotiate_profile(args ...Value) (Value, error) {
@@ -103052,7 +103248,12 @@ func runConformanceFlowMermaid(fixture map[string]Value) {
 		built := NewFlow(Object())
 		for _, raw := range asSlice(coreGet(fixture, "builder_steps", Array())) {
 			step := asMap(raw)
-			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), Object("reads", coreGet(step, "reads", Array())))
+			// A builder step without "reads" declares none.
+			options := Object()
+			if reads, ok := step["reads"]; ok {
+				options["reads"] = reads
+			}
+			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), options)
 		}
 		assertEqual(built.String(), coreGet(fixture, "expected_rendered", ""), "flow mermaid builder render")
 		return

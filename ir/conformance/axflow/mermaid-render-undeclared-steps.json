@@ -1,0 +1,17 @@
+{
+  "kind": "flow_mermaid",
+  "name": "mermaid-render-undeclared-steps",
+  "operation": "builder_render",
+  "description": "Port-only. Steps added without reads render as before: edges come from declared reads, so report's searchResult input draws no edge from a search node.",
+  "builder_steps": [
+    {
+      "name": "lookup",
+      "signature": "query:string -> notes:string"
+    },
+    {
+      "name": "report",
+      "signature": "notes:string, searchResult:string -> finalReport:string"
+    }
+  ],
+  "expected_rendered": "flowchart TD\n  %%ax lookup: query:string -> notes:string\n  %%ax report: notes:string, searchResult:string -> finalReport:string\n\n  lookup[Lookup]\n  report[Report]\n"
+}

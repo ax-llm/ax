@@ -75,6 +75,19 @@ parallel_flow = (
 )
 ```
 
+### Undeclared steps
+
+A step added with a program and no `reads` or `writes` plans from the program's signature: it reads the input fields and writes `{name}Result` plus the output fields. An output field orders only the later steps that read it, so steps with independent inputs still share a group. A program without a signature (a nested flow, a custom program) runs alone, as a barrier.
+
+```python
+outline_flow = (
+    flow({"id": "docs.outlineFlow"})
+    .execute("outline", ax("topic:string -> outline:string"))
+    .execute("polish", ax("outline:string -> answer:string"))  # after outline
+    .returns({"answer": "answer"})
+)
+```
+
 ### Draft, critique, revise
 
 A linear refinement pipeline makes each dependency explicit.
