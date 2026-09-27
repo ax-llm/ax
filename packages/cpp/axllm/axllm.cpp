@@ -11016,6 +11016,9 @@ Value Core::provider_build_chat_request(Value profile, Value request, Value opti
     if (Core::truthy(is_meta)) {
       responses_payload = Core::_meta_prepare_responses_request(responses_payload, sampled_request, options);
     }
+    if (!Core::truthy(is_meta)) {
+      responses_payload = Core::_openai_responses_apply_prompt_cache_retention(responses_payload, sampled_request, options, model);
+    }
     payload = Core::openai_responses_apply_astra_caching(responses_payload, sampled_request, options);
   }
   if (!Core::truthy(is_responses)) {
@@ -16830,6 +16833,25 @@ Value Core::_provider_warn_dropped_sampling_impl(Value model, Value key, Value w
   Value warning_key = Core::string_format(Value("sampling:{}:{}"), model, key);
   Core::ai_warn_once(warning_key, message);
   return Value();
+}
+
+Value Core::_openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model) {
+  axir_coverage_mark("_openai_responses_apply_prompt_cache_retention");
+  Value empty_map = Value::object();
+  Value model_config_snake = Core::get(request, Value("model_config"), empty_map);
+  Value model_config = Core::get(request, Value("modelConfig"), model_config_snake);
+  Value config_retention_snake = Core::get(model_config, Value("prompt_cache_retention"), Value());
+  Value config_retention = Core::get(model_config, Value("promptCacheRetention"), config_retention_snake);
+  Value option_retention_snake = Core::get(options, Value("prompt_cache_retention"), config_retention);
+  Value retention = Core::get(options, Value("promptCacheRetention"), option_retention_snake);
+  Value has_retention = Core::truthy_value(retention);
+  Value is_astra = Core::_openai_is_gpt6_astra_impl(model);
+  Value not_astra = Core::not_(is_astra);
+  Value send = Core::and_(has_retention, not_astra);
+  if (Core::truthy(send)) {
+    Core::set(payload, Value("prompt_cache_retention"), retention);
+  }
+  return payload;
 }
 
 Value Core::chat_session_mode_enabled(Value options) {
@@ -28738,7 +28760,9 @@ Value Core::_caching_function_option_impl(Value gen, Value options) {
   axir_coverage_mark("_caching_function_option_impl");
   Value empty = Value::object();
   Value call_options = Core::map_merge(empty, options);
-  Value control = Core::get(call_options, Value("control"), Value());
+  Value base_options = Core::get(gen, Value("options"), empty);
+  Value run_options = Core::map_merge(base_options, call_options);
+  Value control = Core::get(run_options, Value("control"), Value());
   Value controlled = Core::is_not_none(control);
   if (Core::truthy(controlled)) {
     Value no_cache = Core::none();

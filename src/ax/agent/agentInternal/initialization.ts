@@ -1,4 +1,4 @@
-import { AxGen } from '../../dsp/generate.js';
+import { AxGen, withoutRunScopedOptions } from '../../dsp/generate.js';
 import type { AxTunable, AxUsable } from '../../dsp/types.js';
 import { AxJSRuntime } from '../../funcs/jsRuntime.js';
 import {
@@ -227,7 +227,7 @@ export function initializeAgentInternal(
     mem: _mem,
     ...genOptions
   } = options as typeof options & { description?: string };
-  s.program = new AxGen(signature, genOptions);
+  s.program = new AxGen(signature, withoutRunScopedOptions(genOptions));
   const inputFields = s.program.getSignature().getInputFields();
 
   const normalizedContext = normalizeContextFields(

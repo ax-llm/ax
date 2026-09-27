@@ -391,6 +391,7 @@ Providers without the requested audio endpoint throw `AxMediaNotSupportedError`.
 - `showThoughts`: include thoughts in output
 - `functionCallMode`: `'auto'` | `'native'` | `'prompt'`
 - `debug`, `logger`, `tracer`, `rateLimiter`, `timeout`
+- `timeout`, `fetch` and `corsProxy` given to one `chat()` or `embed()` call override the service's own
 
 ## Sampling Parameters
 

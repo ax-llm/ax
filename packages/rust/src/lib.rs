@@ -5800,6 +5800,7 @@ pub struct AxGen {
     field_transforms: Vec<AxGenFieldTransform>,
     caching_function: Option<AxCachingFunction>,
     host_assertions: Vec<AxGenHostAssertionFn>,
+    control: Option<AxRunControl>,
 }
 
 pub fn ax(spec: &str) -> AxResult<AxGen> {
@@ -5836,6 +5837,10 @@ impl AxGen {
         let field_transforms = self.field_transforms.clone();
         let caching_function = self.caching_function.clone();
         let host_assertions = self.host_assertions.clone();
+        // The program's run control goes with it, as TS's parallel flow nodes
+        // share their program: a worker's run uses it unless a caller's
+        // control reaches the worker (see session::with_program_control).
+        let control = self.control.clone();
         Some(Box::new(move || AxGen {
             execution_context: None,
             signature,
@@ -5859,6 +5864,7 @@ impl AxGen {
             field_transforms,
             caching_function,
             host_assertions,
+            control,
         }))
     }
 
@@ -5895,6 +5901,7 @@ impl AxGen {
             field_transforms: Vec::new(),
             caching_function: None,
             host_assertions: Vec::new(),
+            control: None,
         }
     }
 
@@ -6115,10 +6122,28 @@ impl AxGen {
     /// A call's own function
     /// ([`forward_with_caching_function`](Self::forward_with_caching_function))
     /// takes precedence over this one, and this one over the process-wide
-    /// function ([`set_caching_function`]). A run under a control
-    /// ([`AxForwardOptions::with_control`]) skips the cache.
+    /// function ([`set_caching_function`]). A run under a control, the call's
+    /// ([`AxForwardOptions::with_control`]) or the program's
+    /// ([`with_control`](Self::with_control)), skips the cache.
     pub fn with_caching_function(mut self, caching_function: AxCachingFunction) -> Self {
         self.caching_function = Some(caching_function);
+        self
+    }
+
+    /// Gives this program a run control for every forward and streaming
+    /// forward, as TypeScript's constructor `control` option does: each run
+    /// reports its `started`, `completed`, `failed` or `aborted` event to it,
+    /// applies its steering at each model request, and stops when it aborts.
+    /// A call's control ([`AxForwardOptions::with_control`]) wins, and so does
+    /// the control of a run this forward is part of, such as a controlled
+    /// flow's, which TypeScript passes to the calls it makes. A run under
+    /// either control skips the cache.
+    ///
+    /// The program keeps its control on a parallel flow node's worker: a flow
+    /// without a control reports that node's events to this control, and a
+    /// controlled flow's control wins there as well.
+    pub fn with_control(mut self, control: AxRunControl) -> Self {
+        self.control = Some(control);
         self
     }
 
@@ -6200,7 +6225,8 @@ impl AxGen {
     /// for example `AxError::new("stopped", "enough output")`, and match its
     /// category.
     ///
-    /// Under a run control ([`AxForwardOptions::with_control`]) the stream
+    /// Under a run control, the call's ([`AxForwardOptions::with_control`]) or
+    /// the program's ([`with_control`](Self::with_control)), the stream
     /// works as a controlled forward does: the run reports `started`, then
     /// `completed` or `failed`, and applies steering at each model request.
     /// A stop from `on_delta` ends the run with an `aborted` event rather than
@@ -6270,7 +6296,9 @@ impl AxGen {
         // don't inherit.
         let caching_function = bound_caching_function();
         with_caching_function_binding(None, || {
-            session::with_control(options, |mut options| {
+            // The program's own control (with_control) runs a forward that has
+            // none from its call or from a controlled run around it.
+            session::with_program_control(options, self.control.clone(), |mut options| {
                 // As in TS, the cache is read before the run's span and metrics. A
                 // stored output comes back without them (to a sink as one delta),
                 // and a forward's read error ends it before them. The forward op
@@ -6285,7 +6313,8 @@ impl AxGen {
                             core_forward_options(&options, caching_function.as_ref())?;
                         // A flow worker's relay control, with no caller's control
                         // behind it, doesn't skip the cache: TS's parallel flow nodes
-                        // run without a control.
+                        // run without a control. A program's own control has taken
+                        // its place here, and skips it.
                         if session::current_control().is_some_and(|control| !control.has_caller()) {
                             core_map_delete(&[lookup_options.clone(), CoreValue::from("control")])?;
                         }
@@ -6348,10 +6377,19 @@ impl AxGen {
                             Some(state) => state.clone(),
                             None => core_gen_state(self)?,
                         };
+                        // As in TS, the constructor's options are defaults for every forward
+                        // and the call's win: the run's path, asyncMode and maxSteps come
+                        // from both.
+                        let mut run_options = if self.options.is_object() {
+                            self.options.clone()
+                        } else {
+                            json!({})
+                        };
+                        merge_object(&mut run_options, &options);
                         let mut session_run = session::SessionRun::new(
                             state.clone(),
                             self.tools.clone(),
-                            options.clone(),
+                            run_options,
                         );
                         let run_session = session::current_control().is_some()
                             || self.tools.iter().any(|tool| tool.execution == "background");
@@ -23276,6 +23314,11 @@ fn fixture_field_processor(
     }
 }
 
+// Whether a fixture sets the boolean flag `key`.
+fn fixture_flag(fixture: &Value, key: &str) -> bool {
+    fixture.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
 // python: _attach_fixture_control. A fixture's run control, recording its
 // lifecycle events (started, completed, failed, aborted) as {path, type}.
 // With control_steer ({during_request, text}) it records every event, and
@@ -23442,14 +23485,16 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
             .unwrap_or_else(|| json!({})),
     );
     let mut control_events = Arc::new(Mutex::new(Vec::new()));
-    if fixture
-        .get("control")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
+    // constructor_control gives the program the run control, as the AxGen
+    // constructor's control option does; control gives it to the call.
+    if fixture_flag(fixture, "control") || fixture_flag(fixture, "constructor_control") {
         let (control, events) = attach_fixture_control(fixture, &mut client);
         control_events = events;
-        options = options.with_control(control);
+        if fixture_flag(fixture, "constructor_control") {
+            program = program.with_control(control);
+        } else {
+            options = options.with_control(control);
+        }
     }
     let stop_after = fixture.get("stop_after_deltas").and_then(Value::as_u64);
     let deltas = Rc::new(RefCell::new(Vec::new()));
@@ -23688,7 +23733,8 @@ fn expect_cache_sequence(
 // requests, and every cache read and write. cache_in sets the cache for each
 // call ("call", the default: the *_with_caching_function methods), on the
 // program ("constructor") or for the process ("global", restored
-// afterwards), and a call's `control` runs it under a run control.
+// afterwards). A call's `control` runs it under a run control, and
+// constructor_control gives the program one (with_control) for every call.
 // cache_read_error and cache_write_error fail every read or write with that
 // message. A forward's error is compared by its first line
 // (expected_errors); a streaming forward's error fails the fixture.
@@ -23711,6 +23757,9 @@ fn run_cache_sequence_fixture(fixture: &Value) -> AxResult<()> {
     }
     if let Some(picker_index) = fixture.get("result_picker_index").and_then(Value::as_u64) {
         program = program.with_result_picker(move |_| Ok(picker_index as usize));
+    }
+    if fixture_flag(fixture, "constructor_control") {
+        program = program.with_control(run_control());
     }
     let mut client = FixtureClient::scripted(
         fixture
@@ -24024,17 +24073,20 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
             .cloned()
             .unwrap_or(Value::Null),
     );
-    let control_events = if fixture
-        .get("control")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        let (control, events) = attach_fixture_control(fixture, &mut client);
-        options = options.with_control(control);
-        Some(events)
-    } else {
-        None
-    };
+    // constructor_control gives the program the run control, as the AxGen
+    // constructor's control option does; control gives it to the call.
+    let control_events =
+        if fixture_flag(fixture, "control") || fixture_flag(fixture, "constructor_control") {
+            let (control, events) = attach_fixture_control(fixture, &mut client);
+            if fixture_flag(fixture, "constructor_control") {
+                program = program.with_control(control);
+            } else {
+                options = options.with_control(control);
+            }
+            Some(events)
+        } else {
+            None
+        };
     let result = program.forward_with_options(&mut client, input, options);
     // expected_error_cause_contains is not checked: AxError gains its cause
     // (and source()) in the next major version.
@@ -51388,6 +51440,13 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
                 v_sampled_request.clone(),
                 v_options.clone(),
             ])?;
+        } else {
+            v_responses_payload = _openai_responses_apply_prompt_cache_retention(&[
+                v_responses_payload.clone(),
+                v_sampled_request.clone(),
+                v_options.clone(),
+                v_model.clone(),
+            ])?;
         }
         v_payload = openai_responses_apply_astra_caching(&[
             v_responses_payload.clone(),
@@ -64501,6 +64560,77 @@ fn _provider_warn_dropped_sampling_impl(args: &[CoreValue]) -> Result<CoreValue,
     ])?;
     core_ai_warn_once(&[v_warning_key.clone(), v_message.clone()])?;
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_responses_apply_prompt_cache_retention(
+    args: &[CoreValue],
+) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_apply_prompt_cache_retention");
+    let mut v_payload = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_model = core_arg(args, 3);
+    let mut v_config_retention = CoreValue::Null;
+    let mut v_config_retention_snake = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_has_retention = CoreValue::Null;
+    let mut v_is_astra = CoreValue::Null;
+    let mut v_model_config = CoreValue::Null;
+    let mut v_model_config_snake = CoreValue::Null;
+    let mut v_not_astra = CoreValue::Null;
+    let mut v_option_retention_snake = CoreValue::Null;
+    let mut v_retention = CoreValue::Null;
+    let mut v_send = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_model_config_snake = core_get(
+        &v_request,
+        &CoreValue::from("model_config"),
+        v_empty_map.clone(),
+    );
+    v_model_config = core_get(
+        &v_request,
+        &CoreValue::from("modelConfig"),
+        v_model_config_snake.clone(),
+    );
+    v_config_retention_snake = core_get(
+        &v_model_config,
+        &CoreValue::from("prompt_cache_retention"),
+        CoreValue::Null,
+    );
+    v_config_retention = core_get(
+        &v_model_config,
+        &CoreValue::from("promptCacheRetention"),
+        v_config_retention_snake.clone(),
+    );
+    v_option_retention_snake = core_get(
+        &v_options,
+        &CoreValue::from("prompt_cache_retention"),
+        v_config_retention.clone(),
+    );
+    v_retention = core_get(
+        &v_options,
+        &CoreValue::from("promptCacheRetention"),
+        v_option_retention_snake.clone(),
+    );
+    v_has_retention = core_truthy_value(&[v_retention.clone()])?;
+    v_is_astra = _openai_is_gpt6_astra_impl(&[v_model.clone()])?;
+    v_not_astra = core_not(&[v_is_astra.clone()])?;
+    v_send = core_and(&[v_has_retention.clone(), v_not_astra.clone()])?;
+    if core_truthy(&v_send) {
+        core_set(
+            &v_payload,
+            CoreValue::from("prompt_cache_retention"),
+            v_retention.clone(),
+        )?;
+    }
+    return Ok(v_payload.clone());
 }
 
 #[allow(
@@ -87713,19 +87843,19 @@ fn _caching_function_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     axir_coverage_mark("_caching_function_option_impl");
     let mut v_gen = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
+    let mut v_base_options = CoreValue::Null;
     let mut v_cache_fn = CoreValue::Null;
     let mut v_call_options = CoreValue::Null;
     let mut v_control = CoreValue::Null;
     let mut v_controlled = CoreValue::Null;
     let mut v_empty = CoreValue::Null;
     let mut v_no_cache = CoreValue::Null;
+    let mut v_run_options = CoreValue::Null;
     v_empty = CoreValue::new_map();
     v_call_options = core_map_merge(&[v_empty.clone(), v_options.clone()])?;
-    v_control = core_get(
-        &v_call_options,
-        &CoreValue::from("control"),
-        CoreValue::Null,
-    );
+    v_base_options = core_get(&v_gen, &CoreValue::from("options"), v_empty.clone());
+    v_run_options = core_map_merge(&[v_base_options.clone(), v_call_options.clone()])?;
+    v_control = core_get(&v_run_options, &CoreValue::from("control"), CoreValue::Null);
     v_controlled = core_is_not_none(&[v_control.clone()])?;
     if core_truthy(&v_controlled) {
         v_no_cache = core_none(&[])?;
@@ -123988,7 +124118,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (915 of 915 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (916 of 916 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
@@ -125622,6 +125752,107 @@ mod axflow_caching_function_tests {
         }
         Ok(())
     }
+
+    // Records a control's started and completed events as "type path", with
+    // the thread each one came from.
+    fn record_runs(control: &AxRunControl) -> Arc<Mutex<Vec<(String, std::thread::ThreadId)>>> {
+        let runs = Arc::new(Mutex::new(Vec::new()));
+        let recorded = runs.clone();
+        control.on_event(move |event| {
+            if matches!(event["type"].as_str(), Some("started" | "completed")) {
+                let run = format!(
+                    "{} {}",
+                    event["type"].as_str().unwrap_or_default(),
+                    event["path"].as_str().unwrap_or_default()
+                );
+                recorded
+                    .lock()
+                    .unwrap()
+                    .push((run, std::thread::current().id()));
+            }
+        });
+        runs
+    }
+
+    #[test]
+    fn a_parallel_node_keeps_its_program_control_on_a_worker() -> AxResult<()> {
+        // TS's parallel nodes share their program, and a flow without a
+        // control runs each with its program's constructor control, at the
+        // node's path. A worker's program keeps its control (with_control):
+        // the node's run reports to it from the worker, on every run of the
+        // flow, and skips the cache, which its sibling still uses.
+        let mut client = ai(
+            "openai",
+            json!({"api_key": "test", "model": "gpt-5.4-mini"}),
+        )?
+        .with_transport(Answering(Arc::new(Mutex::new(Vec::new()))));
+        let own = run_control();
+        let own_runs = record_runs(&own);
+        let mut program = flow("controlled.flow")
+            .execute(
+                "first",
+                ax("question:string -> answer:string")?.with_control(own),
+            )
+            .execute("second", ax("question:string -> reply:string")?)
+            .returns(json!({"answer": "firstResult.answer", "reply": "secondResult.reply"}));
+        let options = json!({"autoParallel": true});
+        let here = std::thread::current().id();
+        for run in 1..=2 {
+            let output = program.forward_with_options(
+                &mut client,
+                json!({"question": "Capital of France?"}),
+                options.clone(),
+            )?;
+            assert_eq!(output, json!({"answer": "Paris", "reply": "Paris"}));
+            let runs = own_runs.lock().unwrap().clone();
+            let paths: Vec<_> = runs.iter().map(|(path, _)| path.clone()).collect();
+            assert_eq!(
+                paths,
+                ["started root/first", "completed root/first"].repeat(run),
+                "run {run}"
+            );
+            assert!(
+                runs.iter().all(|(_, thread)| *thread != here),
+                "run {run}: a node ran on this thread"
+            );
+        }
+        // The flow's read and write, and the second node's: the first node's
+        // control skipped the cache.
+        let (cache, reads, writes) = counting_cache();
+        program.forward_with_caching_function(
+            &mut client,
+            json!({"question": "Capital of Italy?"}),
+            options.clone(),
+            cache,
+        )?;
+        assert_eq!(
+            (reads.load(Ordering::SeqCst), writes.load(Ordering::SeqCst)),
+            (2, 2)
+        );
+        // A flow's control wins over the program's, as TS passes the flow's
+        // control to each node's forward.
+        let before = own_runs.lock().unwrap().len();
+        let flow_control = run_control();
+        let flow_runs = record_runs(&flow_control);
+        let controlled = AxForwardOptions::from(options).with_control(flow_control);
+        program.forward_with_options(
+            &mut client,
+            json!({"question": "Capital of France?"}),
+            controlled,
+        )?;
+        assert_eq!(own_runs.lock().unwrap().len(), before);
+        let paths: BTreeSet<_> = flow_runs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect();
+        assert!(
+            paths.contains("started root/first") && paths.contains("completed root/first"),
+            "{paths:?}"
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -125665,6 +125896,150 @@ mod axgen_control_boundary_tests {
             methods,
             vec!["control_take_pending", "control_pending_count"]
         );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod axgen_program_control_tests {
+    use super::*;
+
+    // Answers every chat request, keeping each request's text.
+    struct Prompts(Vec<String>);
+
+    impl AxAIClient for Prompts {
+        fn chat(&mut self, request: Value) -> AxResult<Value> {
+            self.0.push(request.to_string());
+            Ok(
+                json!({"results": [{"index": 0, "content": "Answer: Paris", "finish_reason": "stop"}]}),
+            )
+        }
+    }
+
+    // Records a control's events as "type path".
+    fn record(control: &AxRunControl) -> Arc<Mutex<Vec<String>>> {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = events.clone();
+        control.on_event(move |event| {
+            let event = format!(
+                "{} {}",
+                event["type"].as_str().unwrap_or_default(),
+                event["path"].as_str().unwrap_or_default()
+            );
+            recorded.lock().unwrap().push(event);
+        });
+        events
+    }
+
+    #[test]
+    fn program_control_runs_each_forward_and_a_call_control_wins() -> AxResult<()> {
+        // As TS's constructor control: the program's control gets each run's
+        // events and its steering, and a call's control takes its place.
+        let own = run_control();
+        let own_events = record(&own);
+        let mut program = ax("question:string -> answer:string")?.with_control(own.clone());
+        let mut client = Prompts(Vec::new());
+        let question = json!({"question": "Capital of France?"});
+        own.steer("Answer in French.")?;
+        assert_eq!(
+            program.forward(&mut client, question.clone())?,
+            json!({"answer": "Paris"})
+        );
+        assert!(client.0[0].contains("Answer in French."), "{}", client.0[0]);
+        assert_eq!(
+            *own_events.lock().unwrap(),
+            [
+                "queued root",
+                "started root",
+                "applied root",
+                "completed root"
+            ]
+        );
+        let call = run_control();
+        let call_events = record(&call);
+        program.forward_with_options(
+            &mut client,
+            question.clone(),
+            AxForwardOptions::from(json!({})).with_control(call),
+        )?;
+        assert_eq!(
+            *call_events.lock().unwrap(),
+            ["started root", "completed root"]
+        );
+        assert_eq!(own_events.lock().unwrap().len(), 4);
+        // An aborted program control stops its forwards before a request.
+        own.abort();
+        let requests = client.0.len();
+        let error = program.forward(&mut client, question).unwrap_err();
+        assert!(error.message.contains("Run aborted"), "{}", error.message);
+        assert_eq!(client.0.len(), requests);
+        Ok(())
+    }
+
+    // Answers each chat request with a greeting, and keeps each text it speaks.
+    struct Speaking {
+        chats: usize,
+        spoken: Vec<Value>,
+    }
+
+    impl AxAIClient for Speaking {
+        fn chat(&mut self, _request: Value) -> AxResult<Value> {
+            self.chats += 1;
+            Ok(
+                json!({"results": [{"index": 0, "content": "Speech: Hello there\nSummary: A greeting", "finish_reason": "stop"}]}),
+            )
+        }
+
+        fn speak(&mut self, request: Value) -> AxResult<Value> {
+            self.spoken.push(request["text"].clone());
+            Ok(json!({"audio": "SUQzBAA=", "format": "mp3"}))
+        }
+    }
+
+    #[test]
+    fn program_control_skips_a_stored_output_with_audio() -> AxResult<()> {
+        // A stored output comes back with its audio outputs rendered through
+        // speak(). Under the program's control a forward and a streaming
+        // forward skip that read, and the store, as under a call's control.
+        let (reads, writes) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+        let (read, write) = (reads.clone(), writes.clone());
+        let stored: AxCachingFunction =
+            Arc::new(move |_key: &str, output: Option<&Value>| match output {
+                Some(_) => {
+                    write.fetch_add(1, Ordering::SeqCst);
+                    Ok(None)
+                }
+                None => {
+                    read.fetch_add(1, Ordering::SeqCst);
+                    Ok(Some(json!({"speech": "Stored hello", "summary": "Stored"})))
+                }
+            });
+        let mut program = ax("question:string -> speech:audio, summary:string")?
+            .with_caching_function(stored)
+            .with_control(run_control());
+        let mut client = Speaking {
+            chats: 0,
+            spoken: Vec::new(),
+        };
+        let options = json!({"renderAudio": true});
+        let output = program.forward_with_options(
+            &mut client,
+            json!({"question": "Say hi"}),
+            options.clone(),
+        )?;
+        assert_eq!(output["summary"], json!("A greeting"));
+        program.streaming_forward(&mut client, json!({"question": "Say hi"}), options, |_| {
+            Ok(())
+        })?;
+        assert_eq!(
+            (
+                reads.load(Ordering::SeqCst),
+                writes.load(Ordering::SeqCst),
+                client.chats
+            ),
+            (0, 0, 2)
+        );
+        assert_eq!(client.spoken, [json!("Hello there")]);
         Ok(())
     }
 }

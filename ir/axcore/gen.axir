@@ -2788,10 +2788,13 @@ module @ax.gen version "0.1" {
     body @entry(%gen: AxGen, %options: json) {
       // The forward call's cachingFunction, else the AxGen constructor's,
       // else the process-wide one; none without one, and none under a run
-      // control, which bypasses the cache.
+      // control, the call's or, as a constructor default, the AxGen's, which
+      // bypasses the cache.
       %empty = core.map
       %call_options = core.call intrinsic.map.merge(%empty, %options)
-      %control = core.get %call_options["control"]
+      %base_options = core.get %gen["options"] default %empty
+      %run_options = core.call intrinsic.map.merge(%base_options, %call_options)
+      %control = core.get %run_options["control"]
       %controlled = core.call intrinsic.is_not_none(%control)
       core.if %controlled {
         %no_cache = core.call intrinsic.none()

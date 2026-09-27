@@ -810,6 +810,7 @@ struct Core {
   static Value _provider_sampling_snake_key_impl(Value key);
   static Value _provider_sampling_request_reasons_impl(Value transport, Value model, Value config, Value supported);
   static Value _provider_warn_dropped_sampling_impl(Value model, Value key, Value without_reasoning_only);
+  static Value _openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model);
   static Value chat_session_mode_enabled(Value options);
   static Value fold_stream(Value events);
   static Value _render_audio_outputs_impl(Value gen, Value client, Value values, Value options);

@@ -9105,7 +9105,7 @@ def provider_build_chat_request(profile: str, request: AxChatRequest, options: A
         if is_meta:
             responses_payload = _meta_prepare_responses_request(responses_payload, sampled_request, options)
         else:
-            pass
+            responses_payload = _openai_responses_apply_prompt_cache_retention(responses_payload, sampled_request, options, model)
         payload = openai_responses_apply_astra_caching(responses_payload, sampled_request, options)
     else:
         if is_gemini:
@@ -15145,6 +15145,26 @@ def _provider_warn_dropped_sampling_impl(model: str, key: str, without_reasoning
     warning_key = _core_string_format("sampling:{}:{}", model, key)
     _core_ai_warn_once(warning_key, message)
     return None
+
+
+def _openai_responses_apply_prompt_cache_retention(payload: Any, request: AxChatRequest, options: Any, model: str) -> Any:
+    _core_coverage_mark("_openai_responses_apply_prompt_cache_retention")
+    empty_map = {}
+    model_config_snake = _core_get(request, "model_config", empty_map)
+    model_config = _core_get(request, "modelConfig", model_config_snake)
+    config_retention_snake = _core_get(model_config, "prompt_cache_retention", None)
+    config_retention = _core_get(model_config, "promptCacheRetention", config_retention_snake)
+    option_retention_snake = _core_get(options, "prompt_cache_retention", config_retention)
+    retention = _core_get(options, "promptCacheRetention", option_retention_snake)
+    has_retention = _core_truthy(retention)
+    is_astra = _openai_is_gpt6_astra_impl(model)
+    not_astra = _core_not(is_astra)
+    send = _core_and(has_retention, not_astra)
+    if send:
+        payload["prompt_cache_retention"] = retention
+    else:
+        pass
+    return payload
 
 # END AXIR CORE EMITTED FUNCTIONS
 
