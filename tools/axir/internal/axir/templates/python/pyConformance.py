@@ -2395,6 +2395,11 @@ def _run_agent_forward(fixture):
     if "runtime_engine" in fixture:
         runtime = _AxQuickJsRuntime()
         agent_options["runtime"] = runtime
+    # runtime_on_forward: the runtime goes on each forward call (unless a run
+    # says without_runtime) instead of the constructor.
+    forward_runtime = None
+    if fixture.get("runtime_on_forward") and "runtime" in agent_options:
+        forward_runtime = agent_options.pop("runtime")
     ag = None
     run_state_projections = []
     saved_runtime_state = None
@@ -2423,6 +2428,8 @@ def _run_agent_forward(fixture):
             ag.set_state(fixture.get("set_state") or {})
         if "restore_runtime_state" in fixture:
             ag.restore_runtime_state(fixture.get("restore_runtime_state") or {})
+        if "apply_components" in fixture:
+            ag.apply_optimized_components(copy.deepcopy(fixture["apply_components"]))
         forward_runs = fixture.get("forward_runs")
         if forward_runs:
             output = []
@@ -2437,12 +2444,16 @@ def _run_agent_forward(fixture):
                     state_roundtrip_projection["restored"] = {
                         "loaded_skill_docs": restored.get("loaded_skill_docs") or [],
                     }
+                if run.get("set_signature"):
+                    ag.set_signature(run["set_signature"])
                 forward_options = copy.deepcopy(run.get("forward_options") or {})
                 if semantic_observers_enabled:
                     if "onUsedSkills" in forward_options:
                         forward_options["onUsedSkills"] = _semantic_observer("forward.used_skills")
                     if "onUsedMemories" in forward_options:
                         forward_options["onUsedMemories"] = _semantic_observer("forward.used_memories")
+                if forward_runtime is not None and not run.get("without_runtime"):
+                    forward_options["runtime"] = forward_runtime
                 output.append(ag.forward(client, run.get("input") or {}, forward_options))
                 run_exported = ag.export_runtime_state()
                 if run.get("save_runtime_state"):
@@ -2464,6 +2475,8 @@ def _run_agent_forward(fixture):
                 if "onUsedMemories" in forward_options:
                     forward_options["onUsedMemories"] = _semantic_observer("forward.used_memories")
             forward_options.update(control_options)
+            if forward_runtime is not None:
+                forward_options["runtime"] = forward_runtime
             if streaming:
                 stop_after = fixture.get("stop_after_deltas")
                 stream = ag.streaming_forward(client, fixture.get("input") or {}, forward_options)
@@ -2661,6 +2674,9 @@ def _agent_request_stage(request):
         return "executor"
     if "`Generator answer`" in system or "`Question context`" in system:
         return "playbook"
+    if "Your task is to generate new fields: `Completion`" in system:
+        # The ports' runtime-less distiller or executor (port-only).
+        return "runtime_less"
     if "context-map Distiller" in system or "context-map Cartographer" in system:
         return "context_map"
     return "responder"

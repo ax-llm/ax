@@ -161,6 +161,7 @@ const (
 	IntrinsicAgentRuntimeExport        CoreIntrinsic = "intrinsic.agent.runtime.export_state"
 	IntrinsicAgentRuntimeRestore       CoreIntrinsic = "intrinsic.agent.runtime.restore_state"
 	IntrinsicAgentRuntimeClose         CoreIntrinsic = "intrinsic.agent.runtime.close"
+	IntrinsicAgentRuntimeLanguage      CoreIntrinsic = "intrinsic.agent.runtime.language"
 	IntrinsicAgentMemorySearch         CoreIntrinsic = "intrinsic.agent.memory_search"
 	IntrinsicAgentSkillSearch          CoreIntrinsic = "intrinsic.agent.skill_search"
 	IntrinsicAgentObserverNotify       CoreIntrinsic = "intrinsic.agent.observer.notify"
@@ -319,6 +320,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAgentRuntimeExport:        "_core_agent_runtime_export_state",
 	IntrinsicAgentRuntimeRestore:       "_core_agent_runtime_restore_state",
 	IntrinsicAgentRuntimeClose:         "_core_agent_runtime_close",
+	IntrinsicAgentRuntimeLanguage:      "_core_agent_runtime_language",
 	IntrinsicAgentMemorySearch:         "_core_agent_memory_search",
 	IntrinsicAgentSkillSearch:          "_core_agent_skill_search",
 	IntrinsicAgentObserverNotify:       "_core_agent_observer_notify",
@@ -501,6 +503,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.agent.runtime.export_state":            true,
 	"intrinsic.agent.runtime.restore_state":           true,
 	"intrinsic.agent.runtime.close":                   true,
+	"intrinsic.agent.runtime.language":                true,
 	"intrinsic.agent.memory_search":                   true,
 	"intrinsic.agent.skill_search":                    true,
 	"intrinsic.agent.observer.notify":                 true,
@@ -799,6 +802,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.agent.runtime.export_state":      intrinsicInfo("intrinsic.agent.runtime.export_state", 2, 2, true, "json"),
 	"intrinsic.agent.runtime.restore_state":     intrinsicInfo("intrinsic.agent.runtime.restore_state", 3, 3, true, "json"),
 	"intrinsic.agent.runtime.close":             intrinsicInfo("intrinsic.agent.runtime.close", 1, 1, true, "json"),
+	"intrinsic.agent.runtime.language":          intrinsicInfo("intrinsic.agent.runtime.language", 1, 1, true, "string"),
 	"intrinsic.agent.memory_search":             intrinsicInfo("intrinsic.agent.memory_search", 3, 3, true, "json"),
 	"intrinsic.agent.skill_search":              intrinsicInfo("intrinsic.agent.skill_search", 2, 2, true, "json"),
 	"intrinsic.agent.observer.notify":           intrinsicInfo("intrinsic.agent.observer.notify", 4, 4, true, "json"),

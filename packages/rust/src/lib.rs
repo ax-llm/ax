@@ -7154,6 +7154,13 @@ pub struct AxAgent {
     citations_observer: Option<Box<dyn FnMut(Value)>>,
     playbook_observer: Option<Box<dyn FnMut(Value)>>,
     runtime_hooks: AxRuntimeHooks,
+    // Each run uses the stage set of its mode (see use_stage_mode): "runtime",
+    // the RLM stages, or "plain", the runtime-less stages. The fields above hold
+    // the set in use; the other mode's set waits in stage_sets, and
+    // optimized_components apply to a set when a run switches to it.
+    stage_mode: String,
+    stage_sets: BTreeMap<String, (CoreValue, CoreValue, CoreValue)>,
+    optimized_components: Value,
 }
 
 thread_local! {
@@ -7484,6 +7491,16 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
     ));
     let responder =
         agent_responder_gen(&state, &options, responder_signature, responder_instruction)?;
+    let stage_mode = if core_truthy(&core_get(
+        &state,
+        &CoreValue::from("runtime_enabled"),
+        CoreValue::Bool(false),
+    )) {
+        "runtime"
+    } else {
+        "plain"
+    }
+    .to_string();
     Ok(AxAgent {
         configured_options: options.clone(),
         state,
@@ -7505,6 +7522,9 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         citations_observer: None,
         playbook_observer: None,
         runtime_hooks: AxRuntimeHooks::default(),
+        stage_mode,
+        stage_sets: BTreeMap::new(),
+        optimized_components: json!({}),
     })
 }
 
@@ -7672,6 +7692,98 @@ impl AxAgent {
         Self::write_stage_instruction(target, &instruction);
     }
 
+    // A run's stages follow its runtime: the agent's, else the forward call's;
+    // without one, the runtime-less stages run. A set coming back into use
+    // takes the instructions from the agent's state (a standing instruction set
+    // since) and the optimized components again.
+    fn use_stage_mode(&mut self, options: &CoreValue) -> AxResult<()> {
+        let record = core_value_to_json(&_agent_use_stage_mode(&[
+            self.state.clone(),
+            options.clone(),
+        ])?);
+        let mode = record
+            .get("mode")
+            .and_then(Value::as_str)
+            .unwrap_or("plain")
+            .to_string();
+        if mode == self.stage_mode {
+            return Ok(());
+        }
+        let text = |field: &str| {
+            record
+                .get(field)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let (distiller, executor, responder) = match self.stage_sets.remove(&mode) {
+            Some(set) => {
+                Self::write_stage_instruction(&set.0, &text("distiller_description"));
+                Self::write_stage_instruction(&set.1, &text("executor_description"));
+                Self::write_stage_instruction(&set.2, &text("responder_description"));
+                set
+            }
+            None => {
+                let retries = core_value_to_json(&core_get(
+                    &self.configured_options,
+                    &CoreValue::from("validation_retries"),
+                    core_get(
+                        &self.configured_options,
+                        &CoreValue::from("validationRetries"),
+                        CoreValue::Num(1.0),
+                    ),
+                ));
+                let distiller = agent_stage_gen(
+                    s(&text("distiller_signature"))?,
+                    json!({"validation_retries": retries.clone(), "id": "ctx.root.actor", "instruction": text("distiller_description")}),
+                );
+                let executor = agent_stage_gen(
+                    s(&text("executor_signature"))?,
+                    json!({"validation_retries": retries, "id": "task.root.actor", "instruction": text("executor_description")}),
+                );
+                let responder_signature = signature_from_record(&core_get(
+                    &self.state,
+                    &CoreValue::from("responder_signature"),
+                    CoreValue::Null,
+                ))?;
+                let responder = agent_responder_gen(
+                    &self.state,
+                    &self.configured_options,
+                    responder_signature,
+                    json!(text("responder_description")),
+                )?;
+                (distiller, executor, responder)
+            }
+        };
+        if self
+            .optimized_components
+            .as_object()
+            .is_some_and(|map| !map.is_empty())
+        {
+            let components = core_value_from_json(&self.optimized_components);
+            core_program_apply_components(&[distiller.clone(), components.clone()])?;
+            core_program_apply_components(&[executor.clone(), components.clone()])?;
+            core_program_apply_components(&[responder.clone(), components])?;
+        }
+        let outgoing = (
+            std::mem::replace(&mut self.distiller, distiller),
+            std::mem::replace(&mut self.executor, executor),
+            std::mem::replace(&mut self.responder, responder),
+        );
+        let previous = std::mem::replace(&mut self.stage_mode, mode);
+        self.stage_sets.insert(previous, outgoing);
+        if self.playbook_configured() {
+            let field = if self.playbook_stage_name() == "responder" {
+                "responder_description"
+            } else {
+                "executor_description"
+            };
+            self.playbook_instruction_base = text(field);
+            self.refresh_playbook_prompt();
+        }
+        Ok(())
+    }
+
     pub fn get_instruction(&self) -> String {
         self.state_json("stage_instruction")
             .as_str()
@@ -7716,7 +7828,20 @@ impl AxAgent {
         input: Value,
         options: impl Into<AxForwardOptions>,
     ) -> AxResult<Value> {
-        self.run(client, input, options.into(), None)
+        self.run(client, input, options.into(), None, None)
+    }
+
+    // A forward with a runtime on the call, as the other ports take one (the
+    // conformance runner's runtime_on_forward). Rust attaches runtimes with
+    // with_runtime, so a runtime per call is reachable only inside the crate.
+    pub(crate) fn forward_with_runtime_host<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: AxForwardOptions,
+        runtime: Option<CoreValue>,
+    ) -> AxResult<Value> {
+        self.run(client, input, options, None, runtime)
     }
 
     /// Runs the agent and streams the responder's output, as TypeScript's
@@ -7736,6 +7861,18 @@ impl AxAgent {
         client: &mut C,
         input: Value,
         options: impl Into<AxForwardOptions>,
+        on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
+    ) -> AxResult<Value> {
+        self.streaming_forward_with_runtime_host(client, input, options.into(), None, on_delta)
+    }
+
+    // streaming_forward with a runtime on the call; see forward_with_runtime_host.
+    pub(crate) fn streaming_forward_with_runtime_host<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: AxForwardOptions,
+        runtime: Option<CoreValue>,
         mut on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
     ) -> AxResult<Value> {
         let host = Rc::new(CoreDeltaSinkHost {
@@ -7744,7 +7881,7 @@ impl AxAgent {
             })),
             stopped: RefCell::new(None),
         });
-        let result = self.run(client, input, options.into(), Some(host.clone()));
+        let result = self.run(client, input, options, Some(host.clone()), runtime);
         // The consumer's own error, not the abort that carried it out of the run.
         let stop = host.stopped.borrow_mut().take();
         match stop {
@@ -7760,6 +7897,7 @@ impl AxAgent {
         input: Value,
         options: AxForwardOptions,
         sink: Option<Rc<CoreDeltaSinkHost>>,
+        forward_runtime: Option<CoreValue>,
     ) -> AxResult<Value> {
         session::with_control(options, |options| {
             let defaults = self.runtime_hooks.clone();
@@ -7775,6 +7913,12 @@ impl AxAgent {
                 "agent",
                 attributes,
                 || {
+                    // The run's options as the IR takes them, with a runtime on the call.
+                    let run_options = core_value_from_json(&options);
+                    if let Some(runtime) = &forward_runtime {
+                        core_set(&run_options, CoreValue::from("runtime"), runtime.clone())?;
+                    }
+                    self.use_stage_mode(&run_options)?;
                     let call_context = self
                         .execution_context
                         .clone()
@@ -7794,7 +7938,7 @@ impl AxAgent {
                         _agent_apply_run_context(&[
                             self.state.clone(),
                             self.configured_options.clone(),
-                            core_value_from_json(&options),
+                            run_options.clone(),
                             modules,
                         ])?;
                         if core_truthy(&core_get(
@@ -7855,8 +7999,12 @@ impl AxAgent {
                     // here resolves to that binding), so it captures only Send + Sync data.
                     let state_options =
                         core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
-                    let runtime_host =
-                        core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null);
+                    let runtime_host = match &forward_runtime {
+                        Some(runtime) => runtime.clone(),
+                        None => {
+                            core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null)
+                        }
+                    };
                     let invocation_binding = AgentRunBinding::new(self.state.clone());
                     if let CoreValue::Host(host) = &runtime_host {
                         for raw_name in
@@ -7926,7 +8074,7 @@ impl AxAgent {
                             self.responder.clone(),
                             CoreValue::Null,
                             core_value_from_json(&input),
-                            core_value_from_json(&options),
+                            run_options.clone(),
                         ]),
                         Some(sink) => _agent_streaming_forward(&[
                             self.state.clone(),
@@ -7935,7 +8083,7 @@ impl AxAgent {
                             self.responder.clone(),
                             CoreValue::Null,
                             core_value_from_json(&input),
-                            core_value_from_json(&options),
+                            run_options.clone(),
                             CoreValue::Host(sink.clone()),
                         ]),
                     });
@@ -8332,6 +8480,15 @@ impl AxAgent {
             core_value_from_json(&components),
             core_value_from_json(component_map),
         ])?;
+        // Kept for the other stage set, which gets them when a run switches to it.
+        if let (Some(kept), Some(updates)) = (
+            self.optimized_components.as_object_mut(),
+            component_map.as_object(),
+        ) {
+            for (key, value) in updates {
+                kept.insert(key.clone(), value.clone());
+            }
+        }
         let component_core = core_value_from_json(component_map);
         core_program_apply_components(&[self.distiller.clone(), component_core.clone()])?;
         core_program_apply_components(&[self.executor.clone(), component_core.clone()])?;
@@ -18571,12 +18728,23 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             ScriptedCodeRuntime::new(script.clone(), language, usage)
         });
     let executed_handle = scripted.as_ref().map(|runtime| runtime.executed_handle());
+    // runtime_on_forward: the runtime goes on each forward call (unless a run
+    // says without_runtime) instead of the constructor.
+    let runtime_on_forward = fixture
+        .get("runtime_on_forward")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut forward_runtime: Option<CoreValue> = None;
     if let Some(runtime) = scripted {
         let host = core_code_runtime_host_shared(
             Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
             core_runtime_capabilities_full(),
         );
-        core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        if runtime_on_forward {
+            forward_runtime = Some(host);
+        } else {
+            core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        }
     }
     // agent_runtime_real (G1): drive forward() through the REAL embedded engine.
     if fixture.get("runtime_engine").is_some() {
@@ -18729,6 +18897,9 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(snapshot) = fixture.get("restore_runtime_state") {
         agent.restore_runtime_state(snapshot.clone())?;
     }
+    if let Some(components) = fixture.get("apply_components") {
+        agent.apply_optimized_components(components)?;
+    }
     let mut run_state_projections = Vec::<Value>::new();
     let mut saved_runtime_state: Option<Value> = None;
     let mut state_roundtrip_projection = json!({});
@@ -18764,6 +18935,9 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                     }
                     _ => {}
                 }
+                if let Some(signature) = run.get("set_signature").and_then(Value::as_str) {
+                    agent.set_signature(signature)?;
+                }
                 let input = run.get("input").cloned().unwrap_or_else(|| json!({}));
                 let mut forward_options = run
                     .get("forward_options")
@@ -18783,7 +18957,21 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                         false,
                     );
                 }
-                outputs.push(agent.forward_with_options(&mut client, input, forward_options)?);
+                let run_runtime = if run
+                    .get("without_runtime")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    None
+                } else {
+                    forward_runtime.clone()
+                };
+                outputs.push(agent.forward_with_runtime_host(
+                    &mut client,
+                    input,
+                    AxForwardOptions::from(forward_options),
+                    run_runtime,
+                )?);
                 let run_exported = agent.export_runtime_state()?;
                 if run
                     .get("save_runtime_state")
@@ -18826,7 +19014,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         if streaming {
             let deltas = stream_deltas.clone();
             let stop_after = fixture.get("stop_after_deltas").and_then(Value::as_u64);
-            let result = agent.streaming_forward(&mut client, input, run_options, move |update| {
+            let result = agent.streaming_forward_with_runtime_host(&mut client, input, run_options, forward_runtime.clone(), move |update| {
                 let mut deltas = deltas.borrow_mut();
                 deltas.push(json!({"version": update.version, "index": update.index, "delta": update.delta}));
                 if stop_after.is_some_and(|limit| deltas.len() as u64 >= limit) {
@@ -18842,7 +19030,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                 other => other,
             };
         }
-        agent.forward_with_options(&mut client, input, run_options)
+        agent.forward_with_runtime_host(&mut client, input, run_options, forward_runtime.clone())
     })();
     let assert_run_projections = |agent: &mut AxAgent, client: &FixtureClient| -> AxResult<()> {
         if streaming || fixture.get("expected_deltas").is_some() {
@@ -19390,6 +19578,9 @@ fn agent_request_stage(request: &Value) -> &'static str {
         "executor"
     } else if system.contains("`Generator answer`") || system.contains("`Question context`") {
         "playbook"
+    } else if system.contains("Your task is to generate new fields: `Completion`") {
+        // The ports' runtime-less distiller or executor (port-only).
+        "runtime_less"
     } else if system.contains("context-map Distiller")
         || system.contains("context-map Cartographer")
     {
@@ -32489,6 +32680,29 @@ fn core_agent_runtime_restore_state(args: &[CoreValue]) -> Result<CoreValue, AxE
 // python: _core_agent_runtime_close(session); None results normalize to
 // {"closed": True}.
 #[allow(dead_code)]
+// A runtime's language: a runtime config's "language", else the code runtime's
+// own, else JavaScript, TS's default runtime.
+fn core_agent_runtime_language(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let runtime = core_arg(args, 0);
+    let language = match core_host_try(&runtime, "language", &[]) {
+        Some(result) => result?.text(),
+        None => {
+            let raw = core_get(&runtime, &CoreValue::from("language"), CoreValue::Null);
+            if raw.is_null() {
+                String::new()
+            } else {
+                raw.text()
+            }
+        }
+    };
+    let trimmed = language.trim();
+    Ok(CoreValue::from_string(if trimmed.is_empty() {
+        "JavaScript".to_string()
+    } else {
+        trimmed.to_string()
+    }))
+}
+
 fn core_agent_runtime_close(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let session = core_arg(args, 0);
     let closed = || core_agent_map(&[("closed", CoreValue::Bool(true))]);
@@ -88966,6 +89180,7 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_action_log = CoreValue::Null;
     let mut v_actor_model_state = CoreValue::Null;
     let mut v_actor_prompt_policy = CoreValue::Null;
+    let mut v_actor_signatures = CoreValue::Null;
     let mut v_auto_upgrade = CoreValue::Null;
     let mut v_callable_inventory = CoreValue::Null;
     let mut v_callable_split = CoreValue::Null;
@@ -89054,9 +89269,7 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_responder_options_camel = CoreValue::Null;
     let mut v_responder_signature = CoreValue::Null;
     let mut v_runtime_contract = CoreValue::Null;
-    let mut v_runtime_distiller_signature = CoreValue::Null;
     let mut v_runtime_enabled = CoreValue::Null;
-    let mut v_runtime_executor_signature = CoreValue::Null;
     let mut v_sig = CoreValue::Null;
     let mut v_skills_catalog = CoreValue::Null;
     let mut v_skills_catalog_camel = CoreValue::Null;
@@ -89281,23 +89494,23 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &CoreValue::from("code_field_name"),
         CoreValue::from("javascriptCode"),
     );
-    v_runtime_distiller_signature = core_string_format(&[CoreValue::from("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), v_code_field_name.clone()])?;
-    v_distiller_signature = CoreValue::from("input:json, context:json -> completion:json");
-    if core_truthy(&v_runtime_enabled) {
-        v_distiller_signature = v_runtime_distiller_signature.clone();
-    }
+    v_actor_signatures =
+        _agent_actor_stage_signatures(&[v_runtime_enabled.clone(), v_code_field_name.clone()])?;
+    v_distiller_signature = core_get(
+        &v_actor_signatures,
+        &CoreValue::from("distiller"),
+        CoreValue::Null,
+    );
     core_set(
         &v_state,
         CoreValue::from("distiller_signature"),
         v_distiller_signature.clone(),
     )?;
-    v_runtime_executor_signature = core_string_format(&[CoreValue::from("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), v_code_field_name.clone()])?;
-    v_executor_signature = CoreValue::from(
-        "input:json, executorRequest:string, distilledContext:json -> completion:json",
+    v_executor_signature = core_get(
+        &v_actor_signatures,
+        &CoreValue::from("executor"),
+        CoreValue::Null,
     );
-    if core_truthy(&v_runtime_enabled) {
-        v_executor_signature = v_runtime_executor_signature.clone();
-    }
     core_set(
         &v_state,
         CoreValue::from("executor_signature"),
@@ -112374,6 +112587,348 @@ fn _agent_stage_parse_dates(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _agent_actor_stage_signatures(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_actor_stage_signatures");
+    let mut v_runtime_enabled = core_arg(args, 0);
+    let mut v_code_field_name = core_arg(args, 1);
+    let mut v_distiller = CoreValue::Null;
+    let mut v_executor = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_distiller = CoreValue::from("input:json, context:json -> completion:json");
+    v_executor = CoreValue::from(
+        "input:json, executorRequest:string, distilledContext:json -> completion:json",
+    );
+    if core_truthy(&v_runtime_enabled) {
+        v_distiller = core_string_format(&[CoreValue::from("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), v_code_field_name.clone()])?;
+        v_executor = core_string_format(&[CoreValue::from("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), v_code_field_name.clone()])?;
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("distiller"), v_distiller.clone())?;
+    core_set(&v_out, CoreValue::from("executor"), v_executor.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_configured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_configured");
+    let mut v_state = core_arg(args, 0);
+    let mut v_configured = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_has_any_config = CoreValue::Null;
+    let mut v_has_config = CoreValue::Null;
+    let mut v_has_config_snake = CoreValue::Null;
+    let mut v_has_runtime = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_options = core_get(&v_state, &CoreValue::from("options"), v_empty_map.clone());
+    v_has_runtime = core_map_contains(&[v_options.clone(), CoreValue::from("runtime")])?;
+    v_has_config = core_map_contains(&[v_options.clone(), CoreValue::from("runtimeConfig")])?;
+    v_has_config_snake =
+        core_map_contains(&[v_options.clone(), CoreValue::from("runtime_config")])?;
+    v_has_any_config = core_or(&[v_has_config.clone(), v_has_config_snake.clone()])?;
+    v_configured = core_or(&[v_has_runtime.clone(), v_has_any_config.clone()])?;
+    return Ok(v_configured.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_stage_mode_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_stage_mode_fields");
+    let mut v_state = core_arg(args, 0);
+    let mut v_fields = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_keys = CoreValue::new_list();
+    core_append(&v_keys, CoreValue::from("runtime_enabled"))?;
+    core_append(&v_keys, CoreValue::from("runtime_contract"))?;
+    core_append(&v_keys, CoreValue::from("distiller_signature"))?;
+    core_append(&v_keys, CoreValue::from("executor_signature"))?;
+    core_append(&v_keys, CoreValue::from("distiller_description"))?;
+    core_append(&v_keys, CoreValue::from("executor_description_base"))?;
+    core_append(&v_keys, CoreValue::from("responder_description"))?;
+    v_fields = CoreValue::new_map();
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_value = core_get(&v_state, &v_key.clone(), CoreValue::Null);
+        core_set(&v_fields, v_key.clone(), v_value.clone())?;
+    }
+    return Ok(v_fields.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_stage_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_stage_fields");
+    let mut v_state = core_arg(args, 0);
+    let mut v_runtime = core_arg(args, 1);
+    let mut v_code_field_name = CoreValue::Null;
+    let mut v_config = CoreValue::Null;
+    let mut v_contract = CoreValue::Null;
+    let mut v_contract_options = CoreValue::Null;
+    let mut v_distiller_description = CoreValue::Null;
+    let mut v_distiller_signature = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_executor_description = CoreValue::Null;
+    let mut v_executor_signature = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_language = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_responder_description = CoreValue::Null;
+    let mut v_runtime_stages = CoreValue::Null;
+    let mut v_saved_contract = CoreValue::Null;
+    let mut v_signatures = CoreValue::Null;
+    v_language = core_agent_runtime_language(&[v_runtime.clone()])?;
+    v_config = CoreValue::new_map();
+    core_set(&v_config, CoreValue::from("language"), v_language.clone())?;
+    v_contract_options = CoreValue::new_map();
+    core_set(
+        &v_contract_options,
+        CoreValue::from("runtime"),
+        v_config.clone(),
+    )?;
+    v_contract = _normalize_agent_runtime(&[v_contract_options.clone()])?;
+    v_empty_map = CoreValue::new_map();
+    v_saved_contract = core_get(
+        &v_state,
+        &CoreValue::from("runtime_contract"),
+        v_empty_map.clone(),
+    );
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_contract"),
+        v_contract.clone(),
+    )?;
+    v_options = core_get(&v_state, &CoreValue::from("options"), v_empty_map.clone());
+    v_executor_description =
+        _render_rlm_executor_description(&[v_state.clone(), v_options.clone()])?;
+    v_responder_description =
+        _render_rlm_responder_description(&[v_state.clone(), v_options.clone()])?;
+    v_distiller_description =
+        _render_rlm_distiller_description(&[v_state.clone(), v_options.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_contract"),
+        v_saved_contract.clone(),
+    )?;
+    v_code_field_name = core_get(
+        &v_contract,
+        &CoreValue::from("code_field_name"),
+        CoreValue::from("javascriptCode"),
+    );
+    v_runtime_stages = CoreValue::Bool(true);
+    v_signatures =
+        _agent_actor_stage_signatures(&[v_runtime_stages.clone(), v_code_field_name.clone()])?;
+    v_distiller_signature = core_get(
+        &v_signatures,
+        &CoreValue::from("distiller"),
+        CoreValue::Null,
+    );
+    v_executor_signature = core_get(&v_signatures, &CoreValue::from("executor"), CoreValue::Null);
+    v_fields = CoreValue::new_map();
+    core_set(
+        &v_fields,
+        CoreValue::from("runtime_enabled"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_fields,
+        CoreValue::from("runtime_contract"),
+        v_contract.clone(),
+    )?;
+    core_set(
+        &v_fields,
+        CoreValue::from("distiller_signature"),
+        v_distiller_signature.clone(),
+    )?;
+    core_set(
+        &v_fields,
+        CoreValue::from("executor_signature"),
+        v_executor_signature.clone(),
+    )?;
+    core_set(
+        &v_fields,
+        CoreValue::from("distiller_description"),
+        v_distiller_description.clone(),
+    )?;
+    core_set(
+        &v_fields,
+        CoreValue::from("executor_description_base"),
+        v_executor_description.clone(),
+    )?;
+    core_set(
+        &v_fields,
+        CoreValue::from("responder_description"),
+        v_responder_description.clone(),
+    )?;
+    return Ok(v_fields.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_use_stage_mode(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_use_stage_mode");
+    let mut v_state = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_active = CoreValue::Null;
+    let mut v_active_default = CoreValue::Null;
+    let mut v_cached = CoreValue::Null;
+    let mut v_configured = CoreValue::Null;
+    let mut v_current_fields = CoreValue::Null;
+    let mut v_empty_modes = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_value = CoreValue::Null;
+    let mut v_has_runtime = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_modes = CoreValue::Null;
+    let mut v_prompt_policy = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_record_distiller_description = CoreValue::Null;
+    let mut v_record_distiller_signature = CoreValue::Null;
+    let mut v_record_executor_description = CoreValue::Null;
+    let mut v_record_executor_signature = CoreValue::Null;
+    let mut v_record_responder_description = CoreValue::Null;
+    let mut v_runtime = CoreValue::Null;
+    let mut v_runtime_mode = CoreValue::Null;
+    let mut v_state_runtime = CoreValue::Null;
+    let mut v_switching = CoreValue::Null;
+    let mut v_target = CoreValue::Null;
+    v_configured = _agent_runtime_configured(&[v_state.clone()])?;
+    v_runtime = core_get(&v_options, &CoreValue::from("runtime"), CoreValue::Null);
+    v_has_runtime = core_is_not_none(&[v_runtime.clone()])?;
+    v_runtime_mode = core_or(&[v_configured.clone(), v_has_runtime.clone()])?;
+    v_mode = CoreValue::from("plain");
+    if core_truthy(&v_runtime_mode) {
+        v_mode = CoreValue::from("runtime");
+    }
+    v_state_runtime = core_get(
+        &v_state,
+        &CoreValue::from("runtime_enabled"),
+        CoreValue::Bool(false),
+    );
+    v_active_default = CoreValue::from("plain");
+    if core_truthy(&v_state_runtime) {
+        v_active_default = CoreValue::from("runtime");
+    }
+    v_active = core_get(
+        &v_state,
+        &CoreValue::from("stage_mode"),
+        v_active_default.clone(),
+    );
+    v_switching = core_ne(&[v_mode.clone(), v_active.clone()])?;
+    if core_truthy(&v_switching) {
+        v_empty_modes = CoreValue::new_map();
+        v_modes = core_get(
+            &v_state,
+            &CoreValue::from("stage_modes"),
+            v_empty_modes.clone(),
+        );
+        v_current_fields = _agent_stage_mode_fields(&[v_state.clone()])?;
+        core_set(&v_modes, v_active.clone(), v_current_fields.clone())?;
+        v_target = core_get(&v_modes, &v_mode.clone(), CoreValue::Null);
+        v_cached = core_is_not_none(&[v_target.clone()])?;
+        if core_truthy(&v_cached) {
+        } else {
+            v_target = _agent_runtime_stage_fields(&[v_state.clone(), v_runtime.clone()])?;
+        }
+        for v_field in core_iter(&v_target)? {
+            let mut v_field = v_field;
+            v_field_value = core_get(&v_target, &v_field.clone(), CoreValue::Null);
+            core_set(&v_state, v_field.clone(), v_field_value.clone())?;
+        }
+        core_set(&v_state, CoreValue::from("stage_modes"), v_modes.clone())?;
+        core_set(&v_state, CoreValue::from("stage_mode"), v_mode.clone())?;
+        v_prompt_policy = _build_agent_actor_prompt_policy(&[v_state.clone()])?;
+        core_set(
+            &v_state,
+            CoreValue::from("actor_prompt_policy"),
+            v_prompt_policy.clone(),
+        )?;
+        _agent_refresh_actor_instruction(&[v_state.clone()])?;
+    }
+    v_record = CoreValue::new_map();
+    core_set(&v_record, CoreValue::from("mode"), v_mode.clone())?;
+    v_record_distiller_signature = core_get(
+        &v_state,
+        &CoreValue::from("distiller_signature"),
+        CoreValue::from(""),
+    );
+    core_set(
+        &v_record,
+        CoreValue::from("distiller_signature"),
+        v_record_distiller_signature.clone(),
+    )?;
+    v_record_executor_signature = core_get(
+        &v_state,
+        &CoreValue::from("executor_signature"),
+        CoreValue::from(""),
+    );
+    core_set(
+        &v_record,
+        CoreValue::from("executor_signature"),
+        v_record_executor_signature.clone(),
+    )?;
+    v_record_distiller_description = core_get(
+        &v_state,
+        &CoreValue::from("distiller_description"),
+        CoreValue::from(""),
+    );
+    core_set(
+        &v_record,
+        CoreValue::from("distiller_description"),
+        v_record_distiller_description.clone(),
+    )?;
+    v_record_executor_description = core_get(
+        &v_state,
+        &CoreValue::from("executor_description"),
+        CoreValue::from(""),
+    );
+    core_set(
+        &v_record,
+        CoreValue::from("executor_description"),
+        v_record_executor_description.clone(),
+    )?;
+    v_record_responder_description = core_get(
+        &v_state,
+        &CoreValue::from("responder_description"),
+        CoreValue::from(""),
+    );
+    core_set(
+        &v_record,
+        CoreValue::from("responder_description"),
+        v_record_responder_description.clone(),
+    )?;
+    return Ok(v_record.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _flow_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_flow_factory");
     let mut v_options = core_arg(args, 0);
@@ -122130,7 +122685,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (898 of 898 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (903 of 903 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
