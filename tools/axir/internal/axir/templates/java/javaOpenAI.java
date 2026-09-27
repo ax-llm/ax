@@ -172,7 +172,16 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   }
 
   public OpenAICompatibleClient(Map<String, Object> options) {
-    this("openai-compatible", "openai", options == null ? Map.of() : options, "gpt-4.1-mini", "text-embedding-3-small");
+    this("openai-compatible", "openai", withDefaultBaseUrl(options == null ? Map.of() : options), "gpt-4.1-mini", "text-embedding-3-small");
+  }
+
+  // Built directly without a base_url (or OPENAI_BASE_URL), the generic client
+  // talks to OpenAI, as it does in the other languages.
+  private static Map<String, Object> withDefaultBaseUrl(Map<String, Object> options) {
+    if (options.get("base_url") != null || options.get("baseUrl") != null || System.getenv("OPENAI_BASE_URL") != null) return options;
+    Map<String, Object> resolved = new LinkedHashMap<>(options);
+    resolved.put("base_url", "https://api.openai.com/v1");
+    return resolved;
   }
 
   public OpenAICompatibleClient(String profile, String name, Map<String, Object> options, String defaultModel, String defaultEmbedModel) {
@@ -193,11 +202,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     }
     Map<String, Object> resolvedOptions = Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))));
     this.descriptor = Core.asMap(Core.provider_resolve_descriptor(this.profile, resolvedOptions));
-    Object rawDescriptorBaseUrl = this.descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1");
-    // The generic client's descriptor has no base URL; without a base_url it
-    // talks to OpenAI (OpenAICompatibleClient default_base_url).
-    if (rawDescriptorBaseUrl == null && this.profile.equals("openai-compatible")) rawDescriptorBaseUrl = "https://api.openai.com/v1";
-    String descriptorBaseUrl = String.valueOf(rawDescriptorBaseUrl);
+    String descriptorBaseUrl = String.valueOf(this.descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1"));
     this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", (this.profile.equals("typesafe") ? descriptorBaseUrl : System.getenv().getOrDefault("OPENAI_BASE_URL", descriptorBaseUrl))))).replaceAll("/+$", "");
     this.apiKey = String.valueOf(options.getOrDefault("api_key", options.getOrDefault("apiKey", this.profile.equals("typesafe") ? System.getenv().getOrDefault("TYPESAFE_APIKEY", System.getenv("TYPESAFE_API_KEY")) : System.getenv("OPENAI_API_KEY"))));
     this.apiVersion = String.valueOf(this.descriptor.getOrDefault("apiVersion", options.getOrDefault("api_version", options.getOrDefault("apiVersion", ""))));

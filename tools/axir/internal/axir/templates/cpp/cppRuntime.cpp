@@ -3925,12 +3925,13 @@ static std::string env_or_default(const char* name, const std::string& fallback)
   return value == nullptr ? fallback : std::string(value);
 }
 
-static std::string descriptor_base_url(const std::string& profile, const Value& descriptor) {
-  Value base = Core::get(descriptor, "baseUrl", "https://api.openai.com/v1");
-  // The generic client's descriptor has no base URL; without a base_url it
-  // talks to OpenAI (OpenAICompatibleClient default_base_url).
-  if (base.is_null() && profile == "openai-compatible") return "https://api.openai.com/v1";
-  return str(base);
+// Built directly without a base_url (or OPENAI_BASE_URL), the generic client
+// talks to OpenAI, as it does in the other languages.
+static Value with_default_openai_base_url(Value options) {
+  if (!Core::get(options, "base_url").is_null() || !Core::get(options, "baseUrl").is_null() || std::getenv("OPENAI_BASE_URL") != nullptr) return options;
+  Value resolved = Core::map_merge(Value::object(), options);
+  Core::set(resolved, "base_url", "https://api.openai.com/v1");
+  return resolved;
 }
 
 static std::string strip_trailing_slashes(std::string value) {
@@ -3951,7 +3952,7 @@ static std::string url_component(std::string value) {
 }
 
 OpenAICompatibleClient::OpenAICompatibleClient(Value options, Transport* transport, AxCredentialProvider credential_provider)
-    : OpenAICompatibleClient("openai-compatible", "openai", std::move(options), transport, "gpt-4.1-mini", "text-embedding-3-small", std::move(credential_provider)) {}
+    : OpenAICompatibleClient("openai-compatible", "openai", with_default_openai_base_url(std::move(options)), transport, "gpt-4.1-mini", "text-embedding-3-small", std::move(credential_provider)) {}
 
 OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model, AxCredentialProvider credential_provider)
     : AxBaseAI(
@@ -3962,7 +3963,7 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
           Core::map_merge(options, Core::get(options, "options", Value::object()))),
       profile_(std::move(profile)),
       descriptor_(Core::provider_resolve_descriptor(profile_, Core::map_merge(options, Core::get(options, "options", Value::object())))),
-      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", (profile_ == "typesafe" ? str(Core::get(descriptor_, "baseUrl")) : env_or_default("OPENAI_BASE_URL", descriptor_base_url(profile_, descriptor_)))))),
+      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", (profile_ == "typesafe" ? str(Core::get(descriptor_, "baseUrl")) : env_or_default("OPENAI_BASE_URL", str(Core::get(descriptor_, "baseUrl", "https://api.openai.com/v1"))))))),
       api_key_(option_string(options, "api_key", "apiKey", (profile_ == "typesafe" ? env_or_default("TYPESAFE_APIKEY", env_or_default("TYPESAFE_API_KEY", "")) : env_or_default("OPENAI_API_KEY", "")))),
       api_version_(str(Core::get(descriptor_, "apiVersion", option_string(options, "api_version", "apiVersion", "")))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),

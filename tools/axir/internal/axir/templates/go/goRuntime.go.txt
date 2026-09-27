@@ -3315,6 +3315,12 @@ type AnthropicClient struct{ *OpenAICompatibleClient }
 
 func NewOpenAICompatibleClient(options map[string]Value) *OpenAICompatibleClient {
 	descriptor := asMap(mustCore(provider_descriptor("openai-compatible")))
+	if coreGet(options, "base_url", coreGet(options, "baseUrl", nil)) == nil {
+		// Built directly without a base_url, the generic client talks to
+		// OpenAI, as it does in the other languages.
+		options = cloneMap(options)
+		coreSet(options, "base_url", "https://api.openai.com/v1")
+	}
 	return newProviderClient("openai-compatible", "openai-compatible", options, display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))
 }
 func newProviderClient(profile, name string, options map[string]Value, defaultModel, defaultEmbed string) *OpenAICompatibleClient {
@@ -4140,11 +4146,6 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	path := display(mustCore(provider_chat_operation_path(c.Profile, coreGet(request, "model", ""), operation, coreGet(operationDescriptor, "path", "/chat/completions"))))
 	descriptor := mustCore(provider_resolve_descriptor(c.Profile, opts))
 	base := display(coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://api.openai.com/v1"))))
-	if base == "" && c.Profile == "openai-compatible" {
-		// The generic client's descriptor has no base URL; without a base_url
-		// it talks to OpenAI (OpenAICompatibleClient default_base_url).
-		base = "https://api.openai.com/v1"
-	}
 	headers := Object("Content-Type", "application/json")
 	defaultKey:=os.Getenv("OPENAI_API_KEY");if c.Profile=="typesafe" { defaultKey="" }
 	apiKey := display(coreGet(opts, "api_key", coreGet(opts, "apiKey", defaultKey)))

@@ -269,6 +269,8 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"- The exact Vertex `google/gemma-4-26b-a4b-it-maas` rule prefers `json_object`, excludes native schema, defaults thinking to `max`, writes nested `enable_thinking`, and extracts/replays `reasoning_content`. Unknown Vertex models stay conservative.",
 			"- Use named factories for Azure OpenAI, Cohere, DeepSeek, DeepSeek Responses, Mistral, Reka, Grok, routers, hosted inference, and configurable runtimes. Profile-only branded client constructors were removed.",
 			"- Retained client classes are transport/runtime boundaries: OpenAI-compatible Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini GenerateContent. Build ordinary applications through the named factory.",
+			"- Built directly without a base URL, the OpenAI-compatible client class talks to `https://api.openai.com/v1` with the conservative `openai-compatible` profile. For OpenAI itself use the `openai` factory, which applies OpenAI's model catalog.",
+			"- Sampling follows TypeScript. A client starts from its provider's defaults: temperature 0, or temperature 0.7 and top-p 1 for `openai-responses`, and none for the other Responses profiles. The client's model config and then the request's merge over them, key by key. Temperature and top-p are then dropped when the model's catalog entry marks them unsupported (GPT-5.x, GPT-6, Gemini 3.5 Flash-Lite and 3.6-3.8 Flash). The OpenAI o-series reasoning models send no sampling fields, and on Chat Completions no token limit either.",
 			"- Provider descriptors and conformance fixtures are generated from the shared profile manifest. Do not add provider-name switches or cross-profile model normalization in a generated package.",
 			"",
 		) + "\n"
