@@ -149,6 +149,30 @@ pub fn set_meter(meter: Option<Arc<dyn AxMeter>>) {
     }
 }
 
+/// TypeScript's `cachingFunction` for [`AxGen`] forwards: a get and a set on
+/// one cache. `f(key, None)` reads the cache and returns `Ok(Some(output))`
+/// for a stored output, or `Ok(None)` for a miss. `f(key, Some(output))`
+/// stores an output, and its `Ok` value is ignored. The key is a hex SHA-256
+/// digest of the program's signature and the input values.
+///
+/// A call's function ([`AxForwardOptions::with_caching_function`]) comes
+/// first, then the program's ([`AxGen::with_caching_function`]), then the
+/// process-wide one ([`set_caching_function`]).
+pub type AxCachingFunction =
+    Arc<dyn Fn(&str, Option<&Value>) -> AxResult<Option<Value>> + Send + Sync>;
+
+static CACHING_FUNCTION: Mutex<Option<AxCachingFunction>> = Mutex::new(None);
+
+/// Sets the process-wide [`AxCachingFunction`], which an [`AxGen`] forward
+/// uses when neither the call nor the program sets one. `None` clears it.
+pub fn set_caching_function(caching_function: Option<AxCachingFunction>) {
+    *CACHING_FUNCTION.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = caching_function;
+}
+
+fn global_caching_function() -> Option<AxCachingFunction> {
+    CACHING_FUNCTION.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+}
+
 #[derive(Clone, Default)]
 struct RuntimeHookFrame {
     hooks: AxRuntimeHooks,
@@ -4201,6 +4225,7 @@ pub struct AxGen {
     feedback_processors: Vec<AxGenFieldProcessor>,
     streaming_field_processors: Vec<AxGenFieldProcessor>,
     field_transforms: Vec<AxGenFieldTransform>,
+    caching_function: Option<AxCachingFunction>,
 }
 
 pub fn ax(spec: &str) -> AxResult<AxGen> {
@@ -4233,7 +4258,8 @@ impl AxGen {
         let feedback_processors=self.feedback_processors.clone();
         let streaming_field_processors=self.streaming_field_processors.clone();
         let field_transforms=self.field_transforms.clone();
-        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms}))
+        let caching_function=self.caching_function.clone();
+        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms,caching_function}))
     }
 
     pub fn new(spec: &str) -> AxResult<Self> {
@@ -4262,6 +4288,7 @@ impl AxGen {
             feedback_processors: Vec::new(),
             streaming_field_processors: Vec::new(),
             field_transforms: Vec::new(),
+            caching_function: None,
         }
     }
 
@@ -4456,6 +4483,24 @@ impl AxGen {
         self
     }
 
+    /// Caches this program's forwards, as TypeScript's `cachingFunction`
+    /// option does (see [`AxCachingFunction`]). A forward reads the cache
+    /// first. A stored output comes back without a request, and an `Err` from
+    /// the read becomes the forward's error. The forward stores each output
+    /// it returns and ignores an `Err` from the store.
+    /// [`streaming_forward`](Self::streaming_forward) sends a stored output as
+    /// one delta (version 0, index 0), ignores an `Err` from the read, and
+    /// stores a non-empty output.
+    ///
+    /// A call's own function ([`AxForwardOptions::with_caching_function`])
+    /// takes precedence over this one, and this one over the process-wide
+    /// function ([`set_caching_function`]). A run under a control
+    /// ([`AxForwardOptions::with_control`]) skips the cache.
+    pub fn with_caching_function(mut self, caching_function: AxCachingFunction) -> Self {
+        self.caching_function = Some(caching_function);
+        self
+    }
+
     pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
         self.runtime_hooks = hooks;
         self
@@ -4550,6 +4595,7 @@ impl AxGen {
         options: AxForwardOptions,
         sink: Option<Rc<CoreDeltaSinkHost>>,
     ) -> AxResult<Value> {
+        let caching_function = options.caching_function.clone();
         session::with_control(options, |mut options| {
         let defaults = self.runtime_hooks.clone();
         let mut attributes = BTreeMap::new();
@@ -4594,7 +4640,7 @@ impl AxGen {
         };
         let result = with_core_client(&mut chat, || {
             let values = core_value_from_json(&input);
-            let options = core_value_from_json(&options);
+            let options = core_forward_options(&options, caching_function.as_ref())?;
             match &sink {
                 Some(sink) => _streaming_forward_impl(&[state.clone(), CoreValue::Null, values, options, CoreValue::Host(sink.clone())]),
                 None => _forward_impl(&[state.clone(), CoreValue::Null, values, options]),
@@ -9995,6 +10041,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "template_validate" => run_template_validate_fixture(&fixture)?,
         "forward" => run_simple_forward_fixture(&fixture)?,
         "streaming_forward" => run_streaming_forward_fixture(&fixture)?,
+        "cache_sequence" => run_cache_sequence_fixture(&fixture)?,
         "stream" => run_stream_fixture(&fixture)?,
         "ai_session_state" => run_ai_session_state_fixture(&fixture)?,
         "ai_session_events" => run_ai_session_events_fixture(&fixture)?,
@@ -16107,6 +16154,118 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+// python: _run_cache_sequence. Several forward and streaming_forward calls on
+// one AxGen with one in-memory cache: each call's output, deltas and
+// requests, and every cache read and write. cache_in sets the cache on each
+// call ("call", the default), on the program ("constructor") or for the
+// process ("global", restored afterwards), and a call's `control` runs it
+// under a run control. cache_read_error and cache_write_error fail every
+// read or write with that message. A forward's error is compared by its
+// first line (expected_errors); a streaming forward's error fails the
+// fixture.
+fn run_cache_sequence_fixture(fixture: &Value) -> AxResult<()> {
+    let reads = Arc::new(Mutex::new(Vec::<String>::new()));
+    let writes = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let caching_function: AxCachingFunction = {
+        let (reads, writes) = (reads.clone(), writes.clone());
+        let store = Mutex::new(BTreeMap::<String, Value>::new());
+        let read_error = fixture.get("cache_read_error").and_then(Value::as_str).map(ToString::to_string);
+        let write_error = fixture.get("cache_write_error").and_then(Value::as_str).map(ToString::to_string);
+        Arc::new(move |key: &str, output: Option<&Value>| {
+            if let Some(output) = output {
+                if let Some(message) = &write_error {
+                    return Err(AxError::runtime(message.clone()));
+                }
+                writes.lock().unwrap().push(output.clone());
+                store.lock().unwrap().insert(key.to_string(), output.clone());
+                return Ok(None);
+            }
+            reads.lock().unwrap().push(key.to_string());
+            if let Some(message) = &read_error {
+                return Err(AxError::runtime(message.clone()));
+            }
+            Ok(store.lock().unwrap().get(key).cloned())
+        })
+    };
+    let cache_in = fixture.get("cache_in").and_then(Value::as_str).unwrap_or("call");
+    let mut program = AxGen::with_signature(build_fixture_signature(fixture)?);
+    program.options = fixture.get("options").filter(|options| options.is_object()).cloned().unwrap_or_else(|| json!({}));
+    if cache_in == "constructor" {
+        program = program.with_caching_function(caching_function.clone());
+    }
+    if let Some(picker_index) = fixture.get("result_picker_index").and_then(Value::as_u64) {
+        program = program.with_result_picker(move |_| Ok(picker_index as usize));
+    }
+    let mut client = FixtureClient::scripted(
+        fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default(),
+        fixture.get("features").cloned().unwrap_or_else(router_default_features),
+    );
+    let (mut outputs, mut deltas_per_call, mut requests, mut errors) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let previous_global = global_caching_function();
+    if cache_in == "global" {
+        set_caching_function(Some(caching_function.clone()));
+    }
+    let run = (|| -> AxResult<()> {
+        for call in fixture.get("calls").and_then(Value::as_array).into_iter().flatten() {
+            let before = client.requests.len();
+            let mut options = AxForwardOptions::from(
+                call.get("forward_options").filter(|options| options.is_object()).cloned().unwrap_or_else(|| json!({})),
+            );
+            if cache_in == "call" {
+                options = options.with_caching_function(caching_function.clone());
+            }
+            if call.get("control").and_then(Value::as_bool).unwrap_or(false) {
+                options = options.with_control(run_control());
+            }
+            let input = call.get("input").cloned().unwrap_or_else(|| json!({}));
+            if call.get("kind").and_then(Value::as_str) == Some("streaming_forward") {
+                let deltas = Rc::new(RefCell::new(Vec::new()));
+                let sink = deltas.clone();
+                outputs.push(program.streaming_forward(&mut client, input, options, move |update| {
+                    sink.borrow_mut().push(json!({"version": update.version, "index": update.index, "delta": update.delta}));
+                    Ok(())
+                })?);
+                deltas_per_call.push(Value::Array(deltas.take()));
+                errors.push(Value::Null);
+            } else {
+                match program.forward_with_options(&mut client, input, options) {
+                    Ok(output) => {
+                        outputs.push(output);
+                        errors.push(Value::Null);
+                    }
+                    Err(error) => {
+                        outputs.push(Value::Null);
+                        errors.push(json!(error.message.split('\n').next().unwrap_or_default()));
+                    }
+                }
+                deltas_per_call.push(Value::Null);
+            }
+            requests.push(json!(client.requests.len() - before));
+        }
+        Ok(())
+    })();
+    set_caching_function(previous_global);
+    run?;
+    let expected_errors = fixture.get("expected_errors");
+    if expected_errors.is_some() || errors.iter().any(|error| !error.is_null()) {
+        expect_json_equal("cache sequence errors", &Value::Array(errors), expected_errors.unwrap_or(&Value::Null))?;
+    }
+    expect_json_equal("cache sequence outputs", &Value::Array(outputs), fixture.get("expected_outputs").unwrap_or(&Value::Null))?;
+    expect_json_equal("cache sequence deltas", &Value::Array(deltas_per_call), fixture.get("expected_deltas").unwrap_or(&Value::Null))?;
+    expect_json_equal("cache sequence requests per call", &Value::Array(requests), fixture.get("expected_requests").unwrap_or(&Value::Null))?;
+    let expected_request_count = fixture.get("expected_request_count").unwrap_or(&Value::Null);
+    if expected_request_count.as_u64() != Some(client.requests.len() as u64) {
+        return Err(AxError::new("fixture", format!("expected {expected_request_count} requests, got {}", client.requests.len())));
+    }
+    let expected_cache_gets = fixture.get("expected_cache_gets").unwrap_or(&Value::Null);
+    let cache_gets = reads.lock().unwrap().len();
+    if expected_cache_gets.as_u64() != Some(cache_gets as u64) {
+        return Err(AxError::new("fixture", format!("expected {expected_cache_gets} cache reads, got {cache_gets}")));
+    }
+    let cache_sets = Value::Array(writes.lock().unwrap().clone());
+    expect_json_equal("cache writes", &cache_sets, fixture.get("expected_cache_sets").unwrap_or(&Value::Null))
+}
+
 fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     let signature = build_fixture_signature(fixture)?;
     let responses = fixture
@@ -21213,6 +21372,82 @@ fn core_axgen_deprecation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Null)
 }
 
+// python: _core_crypto_sha256_hex(text). The lowercase hex SHA-256 of the
+// text's UTF-8 bytes.
+#[allow(dead_code)]
+fn core_crypto_sha256_hex(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let digest = mcp::ax_mcp_sha256(core_arg(args, 0).text().as_bytes());
+    Ok(CoreValue::from_string(digest.iter().map(|byte| format!("{byte:02x}")).collect()))
+}
+
+// An AxCachingFunction as a Core value: call(key) reads the cache (null for
+// a miss) and call(key, output) stores an output.
+struct CoreCachingFunctionHost {
+    caching_function: AxCachingFunction,
+}
+
+fn core_caching_function_value(caching_function: AxCachingFunction) -> CoreValue {
+    CoreValue::Host(Rc::new(CoreCachingFunctionHost { caching_function }))
+}
+
+impl CoreHost for CoreCachingFunctionHost {
+    fn host_type(&self) -> &'static str {
+        "AxCachingFunction"
+    }
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        if name != "call" {
+            return Err(AxError::runtime(format!("AxCachingFunction has no method '{name}'")));
+        }
+        let key = core_arg(args, 0).text();
+        match args.get(1) {
+            Some(output) => {
+                (self.caching_function)(&key, Some(&core_value_to_json(output)))?;
+                Ok(CoreValue::Null)
+            }
+            None => Ok((self.caching_function)(&key, None)?
+                .map(|output| core_value_from_json(&output))
+                .unwrap_or(CoreValue::Null)),
+        }
+    }
+}
+
+// python: _core_axgen_caching_function(gen, options). The forward call's
+// caching function, else the program's, else the process-wide one; null
+// when none is set.
+#[allow(dead_code)]
+fn core_axgen_caching_function(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let program_options = core_get(&core_arg(args, 0), &CoreValue::from("options"), CoreValue::Null);
+    for source in [core_arg(args, 1), program_options] {
+        let found = core_get(&source, &CoreValue::from("caching_function"), CoreValue::Null);
+        if matches!(&found, CoreValue::Host(host) if host.host_type() == "AxCachingFunction") {
+            return Ok(found);
+        }
+    }
+    Ok(global_caching_function().map(core_caching_function_value).unwrap_or(CoreValue::Null))
+}
+
+// python: _core_axgen_cache_read(fn, key). The stored output, or null for a
+// miss; an error from the read propagates.
+#[allow(dead_code)]
+fn core_axgen_cache_read(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_arg(args, 0) {
+        CoreValue::Host(caching_function) => caching_function.call_method("call", &[core_arg(args, 1)]),
+        _ => Err(AxError::runtime("caching function is not callable")),
+    }
+}
+
+// python: _core_axgen_cache_write(fn, key, value). Stores an output.
+#[allow(dead_code)]
+fn core_axgen_cache_write(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_arg(args, 0) {
+        CoreValue::Host(caching_function) => {
+            caching_function.call_method("call", &[core_arg(args, 1), core_arg(args, 2)])?;
+            Ok(CoreValue::Null)
+        }
+        _ => Err(AxError::runtime("caching function is not callable")),
+    }
+}
+
 #[allow(dead_code)]
 fn core_axgen_record_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let gen = core_arg(args, 0);
@@ -21476,6 +21711,9 @@ fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
             CoreValue::Host(Rc::new(ResultPickerHost { picker: result_picker.clone() })),
         )?;
     }
+    if let Some(caching_function) = &gen.caching_function {
+        core_set(&options, CoreValue::from("caching_function"), core_caching_function_value(caching_function.clone()))?;
+    }
     core_set(&state, CoreValue::from("options"), options.clone())?;
     let tools = CoreValue::new_list();
     for tool in &gen.tools {
@@ -21571,6 +21809,18 @@ fn entry_method(host: &CoreValue, name: &str) -> CoreValue {
         CoreValue::Host(h) => h.call_method(name, &[]).unwrap_or(CoreValue::Null),
         _ => CoreValue::Null,
     }
+}
+
+// The forward options as a Core value. A call's caching function goes in
+// them under caching_function, where intrinsic.axgen.caching_function looks
+// first; the program's own is in the state's options.
+fn core_forward_options(options: &Value, caching_function: Option<&AxCachingFunction>) -> AxResult<CoreValue> {
+    let Some(caching_function) = caching_function else {
+        return Ok(core_value_from_json(options));
+    };
+    let value = if options.is_object() { core_value_from_json(options) } else { CoreValue::new_map() };
+    core_set(&value, CoreValue::from("caching_function"), core_caching_function_value(caching_function.clone()))?;
+    Ok(value)
 }
 
 fn core_gen_writeback(gen: &mut AxGen, state: &CoreValue) {
@@ -23890,6 +24140,189 @@ mod axgen_streaming_surface_tests {
             .unwrap_err();
         assert_eq!(error.category, "stopped");
         assert_eq!(*events.lock().unwrap(), vec!["started", "aborted"]);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod axgen_caching_function_tests {
+    use super::*;
+
+    // Answers each chat request with the next scripted answer.
+    struct Answers {
+        answers: VecDeque<&'static str>,
+        requests: usize,
+    }
+
+    impl Answers {
+        fn new(answers: &[&'static str]) -> Self {
+            Self { answers: answers.iter().copied().collect(), requests: 0 }
+        }
+    }
+
+    impl AxAIClient for Answers {
+        fn chat(&mut self, _request: Value) -> AxResult<Value> {
+            self.requests += 1;
+            let content = self.answers.pop_front().ok_or_else(|| AxError::runtime("scripted answers exhausted"))?;
+            Ok(json!({"results": [{"index": 0, "content": content, "finish_reason": "stop"}]}))
+        }
+    }
+
+    // An in-memory cache that counts its reads and writes.
+    #[derive(Default)]
+    struct Cache {
+        entries: Mutex<BTreeMap<String, Value>>,
+        reads: AtomicU64,
+        writes: AtomicU64,
+    }
+
+    impl Cache {
+        fn counts(&self) -> (u64, u64) {
+            (self.reads.load(Ordering::SeqCst), self.writes.load(Ordering::SeqCst))
+        }
+    }
+
+    // The cache as an AxCachingFunction. With `thread`, calls from other
+    // threads miss and store nothing: tests run in parallel, and a
+    // process-wide function sees their forwards too.
+    fn caching_function(cache: &Arc<Cache>, thread: Option<std::thread::ThreadId>) -> AxCachingFunction {
+        let cache = cache.clone();
+        Arc::new(move |key: &str, output: Option<&Value>| {
+            if thread.is_some_and(|thread| thread != std::thread::current().id()) {
+                return Ok(None);
+            }
+            let mut entries = cache.entries.lock().unwrap();
+            match output {
+                Some(output) => {
+                    cache.writes.fetch_add(1, Ordering::SeqCst);
+                    entries.insert(key.to_string(), output.clone());
+                    Ok(None)
+                }
+                None => {
+                    cache.reads.fetch_add(1, Ordering::SeqCst);
+                    Ok(entries.get(key).cloned())
+                }
+            }
+        })
+    }
+
+    fn question() -> Value {
+        json!({"question": "Capital of France?"})
+    }
+
+    #[test]
+    fn program_caching_function_serves_forwards_streams_and_workers() -> AxResult<()> {
+        let cache = Arc::new(Cache::default());
+        let mut program = ax("question:string -> answer:string")?.with_caching_function(caching_function(&cache, None));
+        let mut client = Answers::new(&["Answer: Paris"]);
+        assert_eq!(program.forward(&mut client, question())?, json!({"answer": "Paris"}));
+        assert_eq!(program.forward(&mut client, question())?, json!({"answer": "Paris"}));
+        assert_eq!((client.requests, cache.counts()), (1, (2, 1)));
+        // A stored output streams as one delta.
+        let deltas = Rc::new(RefCell::new(Vec::new()));
+        let sink = deltas.clone();
+        let output = program.streaming_forward(&mut client, question(), json!({}), move |delta| {
+            sink.borrow_mut().push(delta);
+            Ok(())
+        })?;
+        assert_eq!(output, json!({"answer": "Paris"}));
+        assert_eq!(*deltas.borrow(), vec![AxGenDelta { version: 0, index: 0, delta: json!({"answer": "Paris"}) }]);
+        assert_eq!((client.requests, cache.counts()), (1, (3, 1)));
+        // A worker built by owned_worker_factory keeps the function: its
+        // client has no answers, so only the cache can answer.
+        let factory = program.owned_worker_factory().expect("the program has a worker factory");
+        let worker = std::thread::spawn(move || -> AxResult<(Value, usize)> {
+            let mut worker = factory();
+            let mut client = Answers::new(&[]);
+            let output = worker.forward(&mut client, question())?;
+            Ok((output, client.requests))
+        });
+        let (output, requests) = worker.join().expect("the worker thread finished")?;
+        assert_eq!((output, requests), (json!({"answer": "Paris"}), 0));
+        assert_eq!(cache.counts(), (4, 1));
+        Ok(())
+    }
+
+    #[test]
+    fn call_caching_function_comes_first_and_control_skips_the_cache() -> AxResult<()> {
+        let program_cache = Arc::new(Cache::default());
+        let call_cache = Arc::new(Cache::default());
+        let mut program = ax("question:string -> answer:string")?.with_caching_function(caching_function(&program_cache, None));
+        let mut client = Answers::new(&["Answer: Paris", "Answer: Paris again", "Answer: Paris once more"]);
+        assert_eq!(program.forward(&mut client, question())?, json!({"answer": "Paris"}));
+        // The call's own cache is empty, so the forward asks the model and
+        // stores the answer there.
+        let options = AxForwardOptions::from(json!({})).with_caching_function(caching_function(&call_cache, None));
+        assert_eq!(program.forward_with_options(&mut client, question(), options.clone())?, json!({"answer": "Paris again"}));
+        assert_eq!(program.forward_with_options(&mut client, question(), options)?, json!({"answer": "Paris again"}));
+        assert_eq!((client.requests, program_cache.counts(), call_cache.counts()), (2, (1, 1), (2, 1)));
+        // A run control skips the cache.
+        let options = AxForwardOptions::from(json!({})).with_control(run_control());
+        assert_eq!(program.forward_with_options(&mut client, question(), options)?, json!({"answer": "Paris once more"}));
+        assert_eq!((client.requests, program_cache.counts()), (3, (1, 1)));
+        Ok(())
+    }
+
+    #[test]
+    fn caching_functions_stay_off_the_wire() -> AxResult<()> {
+        struct Recording(Arc<Mutex<Vec<Value>>>);
+        impl AxTransport for Recording {
+            fn send(&mut self, request: Value) -> AxResult<Value> {
+                self.0.lock().unwrap().push(request);
+                let message = json!({"role": "assistant", "content": "Answer: Paris"});
+                Ok(json!({"status": 200, "json": {"id": "reply", "choices": [{"index": 0, "message": message, "finish_reason": "stop"}]}}))
+            }
+        }
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut client = ai("openai", json!({"api_key": "test", "model": "gpt-5.4-mini"}))?.with_transport(Recording(requests.clone()));
+        let cache = Arc::new(Cache::default());
+        let mut program = ax("question:string -> answer:string")?.with_caching_function(caching_function(&cache, None));
+        let options = AxForwardOptions::from(json!({})).with_caching_function(caching_function(&cache, None));
+        assert_eq!(program.forward_with_options(&mut client, question(), options)?, json!({"answer": "Paris"}));
+        let wire = stable_stringify(&Value::Array(requests.lock().unwrap().clone()));
+        assert_eq!((requests.lock().unwrap().len(), cache.counts()), (1, (1, 1)));
+        assert!(!wire.contains("caching_function"), "{wire}");
+        Ok(())
+    }
+
+    #[test]
+    fn process_caching_function_is_the_fallback() -> AxResult<()> {
+        // Clears the process-wide function even when an assertion fails.
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                set_caching_function(None);
+            }
+        }
+        let cache = Arc::new(Cache::default());
+        set_caching_function(Some(caching_function(&cache, Some(std::thread::current().id()))));
+        let _restore = Restore;
+        let mut program = ax("question:string -> answer:string")?;
+        let mut client = Answers::new(&["Answer: Paris"]);
+        assert_eq!(program.forward(&mut client, question())?, json!({"answer": "Paris"}));
+        assert_eq!(program.forward(&mut client, question())?, json!({"answer": "Paris"}));
+        assert_eq!((client.requests, cache.counts()), (1, (2, 1)));
+        // The program's own function comes before it.
+        let own = Arc::new(Cache::default());
+        let mut program = program.with_caching_function(caching_function(&own, None));
+        let mut client = Answers::new(&["Answer: Lyon"]);
+        assert_eq!(program.forward(&mut client, question())?, json!({"answer": "Lyon"}));
+        assert_eq!((client.requests, own.counts(), cache.counts()), (1, (1, 1), (2, 1)));
+        Ok(())
+    }
+
+    #[test]
+    fn sha256_hex_matches_the_standard_vectors() -> AxResult<()> {
+        for (text, digest) in [
+            ("", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+            ("abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
+            (
+                "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+                "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+            ),
+        ] {
+            assert_eq!(core_crypto_sha256_hex(&[CoreValue::from(text)])?.text(), digest);
+        }
         Ok(())
     }
 }

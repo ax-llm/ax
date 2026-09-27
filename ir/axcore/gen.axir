@@ -759,18 +759,27 @@ module @ax.gen version "0.1" {
       %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
       core.call @apply_model_config_option_impl(%runtime_options, %base_options, %options)
       // TS forward reads its cachingFunction first: a stored output comes
-      // back without a request, and an error from the read propagates.
-      %cache_fn = core.call @caching_function_option_impl(%gen, %options)
+      // back without a request, and an error from the read propagates. A
+      // host that read it before opening the run's telemetry, as TS does,
+      // passes that lookup, and only the store is left.
+      %cache_fn = core.call intrinsic.none()
       %cache_key = core.let ""
-      %use_cache = core.call intrinsic.is_not_none(%cache_fn)
-      core.if %use_cache {
-        %cache_key = core.call @cache_key_impl(%gen, %values)
-        %cached = core.call intrinsic.axgen.cache_read(%cache_fn, %cache_key)
-        %cache_hit = core.call intrinsic.is_not_none(%cached)
-        core.if %cache_hit {
+      %lookup = core.call @cache_lookup_option_impl(%options)
+      %looked_up = core.call intrinsic.is_not_none(%lookup)
+      core.if %looked_up {
+        %cache_fn = core.get %lookup["fn"]
+        %cache_key = core.get %lookup["key"] default ""
+      } else {
+        %read = core.call @cache_lookup_impl(%gen, %values, %options, false)
+        %read_hit = core.get %read["hit"] default false
+        core.if %read_hit {
+          %cached = core.get %read["value"]
           core.return %cached
         }
+        %cache_fn = core.get %read["fn"]
+        %cache_key = core.get %read["key"] default ""
       }
+      core.call intrinsic.map.delete(%runtime_options, "_ax_cache_lookup")
       // As in TS, a streamed forward returns what a streaming consumer merges.
       %stream_option = core.get %runtime_options["stream"] default false
       %streamed = core.call intrinsic.truthy(%stream_option)
@@ -1949,23 +1958,24 @@ module @ax.gen version "0.1" {
       core.set %runtime_options["stream"] = true
       // TS streamingForward reads its cachingFunction first and ignores an
       // error from the read; a stored output comes back as one delta.
-      // Without a sink, forward reads and stores the cache itself.
+      // Without a sink, forward reads and stores the cache itself; a host
+      // that read it before opening the run's telemetry passes that lookup.
       %cache_fn = core.call intrinsic.none()
       %cache_key = core.let ""
       %has_sink = core.call intrinsic.is_not_none(%sink)
       core.if %has_sink {
-        %resolved_cache = core.call @caching_function_option_impl(%gen, %options)
-        %use_cache = core.call intrinsic.is_not_none(%resolved_cache)
-        core.if %use_cache {
-          %cache_fn = core.let %resolved_cache
-          %cache_key = core.call @cache_key_impl(%gen, %values)
-          %cached = core.call intrinsic.none()
-          core.try {
-            %cached = core.call intrinsic.axgen.cache_read(%cache_fn, %cache_key)
-          } catch %cache_read_error {
-          }
-          %cache_hit = core.call intrinsic.is_not_none(%cached)
-          core.if %cache_hit {
+        %lookup = core.call @cache_lookup_option_impl(%options)
+        %looked_up = core.call intrinsic.is_not_none(%lookup)
+        core.if %looked_up {
+          %cache_fn = core.get %lookup["fn"]
+          %cache_key = core.get %lookup["key"] default ""
+        } else {
+          %read = core.call @cache_lookup_impl(%gen, %values, %options, true)
+          %cache_fn = core.get %read["fn"]
+          %cache_key = core.get %read["key"] default ""
+          %read_hit = core.get %read["hit"] default false
+          core.if %read_hit {
+            %cached = core.get %read["value"]
             %cached_envelope = core.map
             core.set %cached_envelope["version"] = 0
             core.set %cached_envelope["index"] = 0
@@ -1975,6 +1985,7 @@ module @ax.gen version "0.1" {
           }
         }
       }
+      core.call intrinsic.map.delete(%runtime_options, "_ax_cache_lookup")
       %signature = core.get %gen["signature"]
       %model = core.get %runtime_options["model"]
       %features = core.call intrinsic.ai.client_features(%client, %model)
@@ -2788,6 +2799,63 @@ module @ax.gen version "0.1" {
         core.call @cache_store_impl(%cache_fn, %key, %output)
       }
       core.return
+    }
+  }
+
+  op ax.gen.semantic @cache_lookup_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(AxGen, json, json, bool) -> json throws"
+    body @entry(%gen: AxGen, %values: json, %options: json, %ignore_read_errors: bool) {
+      // The forward's cache read: {fn, key, hit, value}, with fn none when
+      // the forward does not cache. Hosts call it before they open the
+      // run's span and metrics, as TS reads the cache before any telemetry,
+      // and pass the result to the forward as its _ax_cache_lookup option.
+      // A read error propagates unless ignore_read_errors, as for
+      // streamingForward.
+      %lookup = core.map
+      %cache_fn = core.call @caching_function_option_impl(%gen, %options)
+      core.set %lookup["fn"] = %cache_fn
+      core.set %lookup["key"] = ""
+      core.set %lookup["hit"] = false
+      %use_cache = core.call intrinsic.is_not_none(%cache_fn)
+      core.if %use_cache {
+        %cache_key = core.call @cache_key_impl(%gen, %values)
+        core.set %lookup["key"] = %cache_key
+        %cached = core.call intrinsic.none()
+        core.if %ignore_read_errors {
+          core.try {
+            %cached = core.call intrinsic.axgen.cache_read(%cache_fn, %cache_key)
+          } catch %cache_read_error {
+          }
+        } else {
+          %cached = core.call intrinsic.axgen.cache_read(%cache_fn, %cache_key)
+        }
+        %cache_hit = core.call intrinsic.is_not_none(%cached)
+        core.if %cache_hit {
+          core.set %lookup["hit"] = true
+          core.set %lookup["value"] = %cached
+        }
+      }
+      core.return %lookup
+    }
+  }
+
+  op ax.gen.semantic @cache_lookup_option_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json) -> json"
+    body @entry(%options: json) {
+      // The lookup a host already made for this forward, if any.
+      %empty = core.map
+      %call_options = core.call intrinsic.map.merge(%empty, %options)
+      %lookup = core.get %call_options["_ax_cache_lookup"]
+      core.return %lookup
     }
   }
 }

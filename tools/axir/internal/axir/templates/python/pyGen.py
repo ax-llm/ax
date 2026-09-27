@@ -557,6 +557,12 @@ class AxGen:
         options: dict[str, Any] | None = None,
         hooks: AxRuntimeHooks | None = None,
     ):
+        # As in TS, the cache is read before the run's span and metrics, so a
+        # stored output records neither.
+        run_options = _strip_runtime_hooks(options) or {}
+        lookup = _cache_lookup_impl(self, values, run_options, False)
+        if lookup.get("hit"):
+            return lookup.get("value")
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -564,7 +570,7 @@ class AxGen:
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen"},
         ):
-            return self._forward_unscoped(client, values, _strip_runtime_hooks(options))
+            return self._forward_unscoped(client, values, {**run_options, "_ax_cache_lookup": lookup})
 
     def _forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_context = resolve_execution_context(options, self.execution_context)
@@ -704,7 +710,14 @@ class AxGen:
 
     def _streaming_forward_with(self, client, values, options, sink, hooks=None):
         # Runs the streaming forward, sending each {version, index, delta} to
-        # sink, and returns the merged output of the picked sample.
+        # sink, and returns the merged output of the picked sample. As in TS,
+        # the cache is read before the run's span and metrics, a read error
+        # is ignored, and a stored output arrives as one delta.
+        run_options = _strip_runtime_hooks(options) or {}
+        lookup = _cache_lookup_impl(self, values, run_options, True)
+        if lookup.get("hit"):
+            sink({"version": 0, "index": 0, "delta": lookup.get("value")})
+            return lookup.get("value")
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -712,7 +725,7 @@ class AxGen:
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen", "ax.streaming": True},
         ):
-            return self._streaming_forward_unscoped_with(client, values, _strip_runtime_hooks(options), sink)
+            return self._streaming_forward_unscoped_with(client, values, {**run_options, "_ax_cache_lookup": lookup}, sink)
 
     def _streaming_forward_unscoped_with(self, client, values, options, sink):
         run_options = {**self.options, **(options or {})}
