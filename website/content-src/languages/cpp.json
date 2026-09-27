@@ -284,6 +284,19 @@
           "  return true;  // return false to stop the run",
           "});"
         ]
+      },
+      "dates": {
+        "sourcePath": "src/examples/cpp/generation/date_fields.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "auto planner = axllm::ax(",
+          "    \"emailText:string, sentAt:datetime -> meetingStartsAt:datetime, travelWindow:dateRange\",",
+          "    axllm::object({{\"parse_dates\", true}}));",
+          "axllm::Value out = planner.forward(",
+          "    *client, axllm::object({{\"emailText\", email_text}, {\"sentAt\", \"2024-05-02T16:30:00Z\"}}));",
+          "std::cout << axllm::display(axllm::Core::get(out, \"meetingStartsAt\"));  // 2024-05-07T19:00:00.000Z"
+        ]
       }
     },
     "signatures": {

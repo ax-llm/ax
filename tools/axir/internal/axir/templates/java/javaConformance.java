@@ -609,6 +609,8 @@ public final class Conformance {
       case "validate_output" -> runValidateOutput(fixture);
       case "strip_internal" -> runStripInternal(fixture);
       case "number_format" -> runNumberFormat(fixture);
+      case "date_field_value" -> runDateFieldValue(fixture);
+      case "date_input" -> runDateInput(fixture);
       case "prompt" -> runPrompt(fixture);
       case "template" -> assertEqual(Core.render_template_content(fixture.get("template"), fixture.getOrDefault("vars", Map.of()), fixture.getOrDefault("context", "fixture-template")), fixture.getOrDefault("expected_output", ""), "template output");
       case "template_error" -> runTemplateError(fixture);
@@ -864,6 +866,67 @@ public final class Conformance {
       checkNumberFormat("json.stringify", input, String.valueOf(Core.jsonStringify(list)), "[" + json + "]");
       checkNumberFormat("json.stable_stringify", input, String.valueOf(Core.jsonStableStringify(list)), "[" + json + "]");
       checkNumberFormat("json.pretty", input, String.valueOf(Core.jsonPretty(list)), "[\n  " + json + "\n]");
+    }
+  }
+  // TS validateAndParseFieldValue on date-typed fields with parse_dates on:
+  // each case's {has, value}, or its exact error message.
+  static void runDateFieldValue(Map<String, Object> fixture) {
+    boolean parseDates = Core.truthy(fixture.getOrDefault("parse_dates", false));
+    int index = 0;
+    for (Object item : Core.asList(fixture.get("cases"))) {
+      Map<String, Object> field = new LinkedHashMap<>(Core.asMap(Core.get(item, "field", Map.of())));
+      field.put("parse_dates", parseDates);
+      String text = String.valueOf(Core.get(item, "text", ""));
+      String label = "case " + index + " " + Json.stringify(text.length() > 80 ? text.substring(0, 80) : text);
+      index++;
+      Map<String, Object> caseMap = Core.asMap(item);
+      Object parsed;
+      try {
+        parsed = Core._stream_field_value_impl(field, text);
+      } catch (RuntimeException error) {
+        if (!caseMap.containsKey("expected_error")) throw new FixtureError(label + ": unexpected error " + error.getMessage());
+        assertEqual(error.getMessage(), caseMap.get("expected_error"), label + " error");
+        continue;
+      }
+      if (caseMap.containsKey("expected_error")) throw new FixtureError(label + ": expected error " + caseMap.get("expected_error") + ", got " + Json.stringify(parsed));
+      Map<String, Object> actual = new LinkedHashMap<>();
+      boolean has = Core.truthy(Core.get(parsed, "has", false));
+      actual.put("has", has);
+      if (has) actual.put("value", Core.get(parsed, "value", null));
+      assertEqual(actual, caseMap.get("expected"), label);
+    }
+  }
+  // Fixture date markers as java.time values: {"$date": iso} is an Instant
+  // (an OffsetDateTime when it has an offset), {"$date_only": "YYYY-MM-DD"} a
+  // LocalDate.
+  static Object nativeDateValues(Object value) {
+    if (value instanceof List<?> list) {
+      List<Object> out = new ArrayList<>();
+      for (Object item : list) out.add(nativeDateValues(item));
+      return out;
+    }
+    if (value instanceof Map<?, ?> map) {
+      Object instant = map.get("$date");
+      if (instant instanceof String iso) return iso.endsWith("Z") ? java.time.Instant.parse(iso) : java.time.OffsetDateTime.parse(iso);
+      Object day = map.get("$date_only");
+      if (day instanceof String text) return java.time.LocalDate.parse(text);
+      Map<String, Object> out = new LinkedHashMap<>();
+      for (Map.Entry<?, ?> entry : map.entrySet()) out.put(String.valueOf(entry.getKey()), nativeDateValues(entry.getValue()));
+      return out;
+    }
+    return value;
+  }
+  // Native date inputs and range objects pass input validation and render in
+  // the user prompt as TS renders Dates.
+  static void runDateInput(Map<String, Object> fixture) {
+    AxSignature sig = buildSignature(fixture);
+    int index = 0;
+    for (Object item : Core.asList(fixture.get("cases"))) {
+      Map<String, Object> values = Core.asMap(nativeDateValues(Core.get(item, "values", Map.of())));
+      Core.validate_fields(sig.inputs, values, "input");
+      List<Map<String, Object>> messages = new PromptTemplate(sig, List.of(), null, null).render(values);
+      assertEqual(messages.get(messages.size() - 1).get("content"), Core.get(item, "expected_user_content", null), "case " + index);
+      index++;
     }
   }
   static void checkNumberFormat(String label, String input, String actual, String expected) {

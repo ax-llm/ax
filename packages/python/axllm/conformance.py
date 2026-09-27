@@ -18,6 +18,7 @@ from .ai import _snapshot_global_caching_function, set_caching_function
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
+    _stream_field_value_impl,
     ax,
     chat_session_create_state, chat_session_transition, chat_session_unresolved, chat_session_validate_required_arguments,
     fold_stream,
@@ -88,7 +89,7 @@ from .agent import (
 from .prompt import AxPromptTemplate, collect_template_variable_names, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, RuntimeCapabilities, RuntimeEnvelope, RuntimeProtocolError
 from .runtime_quickjs import AxQuickJsCodeRuntime
-from .schema import strip_internal, to_json_schema, validate_output, validate_value
+from .schema import strip_internal, to_json_schema, validate_fields, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
 from .mcp import AxExecutionContext, AxEventCancellationToken, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventTarget, AxManualEventClock, AxMCPClient, AxMCPEventSource, AxMCPScriptedTransport, AxPushEventSource, AxSystemEventClock, event_continuation_match, event_map_input, event_normalize_mcp, event_path, event_retry_transition, event_route, event_route_commands, event_target, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, mcp_resource_subscription_ownership, mcp_resource_subscription_selection, run_mcp_conformance_fixture
@@ -560,6 +561,10 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_strip_internal(fixture)
         elif kind == "number_format":
             _run_number_format(fixture)
+        elif kind == "date_field_value":
+            _run_date_field_value(fixture)
+        elif kind == "date_input":
+            _run_date_input(fixture)
         elif kind == "forward":
             _run_forward(fixture)
         elif kind == "streaming_forward":
@@ -1080,6 +1085,56 @@ def _run_validate_output(fixture):
     if "expected_error_contains" in fixture:
         raise FixtureError("expected validate_output to fail")
     _assert_equal(result, fixture.get("expected_values", values), "validated output")
+
+
+def _run_date_field_value(fixture):
+    """TS validateAndParseFieldValue on date-typed fields with parse_dates
+    on: each case's {has, value}, or its exact error message."""
+    for index, case in enumerate(fixture.get("cases") or []):
+        field = dict(case["field"])
+        field["parse_dates"] = bool(fixture.get("parse_dates"))
+        label = f"case {index} {case['text'][:80]!r}"
+        try:
+            parsed = _stream_field_value_impl(field, case["text"])
+        except Exception as exc:
+            if "expected_error" not in case:
+                raise FixtureError(f"{label}: unexpected error {exc}") from exc
+            _assert_equal(str(exc), case["expected_error"], f"{label} error")
+            continue
+        if "expected_error" in case:
+            raise FixtureError(f"{label}: expected error {case['expected_error']!r}, got {parsed!r}")
+        actual = {"has": bool(parsed.get("has"))}
+        if actual["has"]:
+            actual["value"] = parsed.get("value")
+        _assert_equal(actual, case["expected"], label)
+
+
+def _native_date_values(value):
+    """Fixture date markers as Python values: {"$date": iso} is an aware
+    datetime, {"$date_only": "YYYY-MM-DD"} a date."""
+    import datetime as _datetime
+
+    if isinstance(value, list):
+        return [_native_date_values(item) for item in value]
+    if isinstance(value, dict):
+        if isinstance(value.get("$date"), str):
+            return _datetime.datetime.fromisoformat(value["$date"].replace("Z", "+00:00"))
+        if isinstance(value.get("$date_only"), str):
+            return _datetime.date.fromisoformat(value["$date_only"])
+        return {key: _native_date_values(item) for key, item in value.items()}
+    return value
+
+
+def _run_date_input(fixture):
+    """Native date inputs and range objects pass input validation and render
+    in the user prompt as TS renders Dates."""
+    sig = _build_signature(fixture)
+    for index, case in enumerate(fixture.get("cases") or []):
+        values = _native_date_values(case["values"])
+        label = f"case {index}"
+        validate_fields(sig.input_fields, values, "input")
+        messages = AxPromptTemplate(sig).render(values)
+        _assert_equal(messages[-1]["content"], case["expected_user_content"], label)
 
 
 def _run_number_format(fixture):

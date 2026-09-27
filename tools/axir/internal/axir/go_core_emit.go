@@ -41,6 +41,7 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicAxGenEmitDelta:          true,
 	IntrinsicAxGenCallProcessor:      true,
 	IntrinsicAxGenCheckStreamAssert:  true,
+	IntrinsicDateZoneOffset:          true,
 	IntrinsicAxGenCacheRead:          true,
 	IntrinsicAxGenCacheWrite:         true,
 }

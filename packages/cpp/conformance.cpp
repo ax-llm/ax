@@ -3483,6 +3483,52 @@ static void run_flow(Value fixture) {
 // string.format's "{}" (the streaming extractor's number text). The JSON form
 // must come out of every encoder: stringify (wire bodies and json.stringify),
 // the key-sorted json.stable_stringify and json.pretty (prompt values).
+// TS validateAndParseFieldValue on date-typed fields with parse_dates on:
+// each case's {has, value}, or its exact error message.
+static void run_date_field_value(Value fixture) {
+  const bool parse_dates = Core::truthy(Core::get(fixture, "parse_dates", false));
+  size_t index = 0;
+  for (const auto& item : Core::iter(Core::get(fixture, "cases", Value::array()))) {
+    Value field = Value(as_object(Core::get(item, "field", Value::object())));
+    Core::set(field, "parse_dates", Value(parse_dates));
+    const std::string text = display(Core::get(item, "text", ""));
+    std::string shown = text.substr(0, 80);
+    const std::string label = "case " + std::to_string(index++) + " " + stringify(Value(shown));
+    const Value expected_error = Core::get(item, "expected_error");
+    Value parsed;
+    try {
+      parsed = Core::_stream_field_value_impl(field, Value(text));
+    } catch (const std::exception& error) {
+      if (expected_error.is_null()) throw AxError("fixture", label + ": unexpected error " + error.what());
+      assert_equal(Value(std::string(error.what())), expected_error, label + " error");
+      continue;
+    }
+    if (!expected_error.is_null()) throw AxError("fixture", label + ": expected error " + display(expected_error) + ", got " + stringify(parsed));
+    const bool has = Core::truthy(Core::get(parsed, "has", false));
+    Value actual = Value::object();
+    Core::set(actual, "has", Value(has));
+    if (has) Core::set(actual, "value", Core::get(parsed, "value"));
+    assert_equal(actual, Core::get(item, "expected"), label);
+  }
+}
+
+// Date inputs: range objects and strings pass input validation and render in
+// the user prompt as TS renders them. axllm::Value has no date type, so the
+// native: true cases (Python, Go and Java date values) do not apply here.
+static void run_date_input(Value fixture) {
+  Value sig = build_signature(fixture);
+  size_t index = 0;
+  for (const auto& item : Core::iter(Core::get(fixture, "cases", Value::array()))) {
+    const std::string label = "case " + std::to_string(index++);
+    if (Core::truthy(Core::get(item, "native", false))) continue;
+    Value values = Core::get(item, "values", Value::object());
+    Core::validate_fields(Core::get(sig, "inputs"), values, Value("input"));
+    Value messages = Core::render_prompt(sig, values, Value::array(), Value::object());
+    const auto& list = *std::get<std::shared_ptr<Array>>(messages.data);
+    assert_equal(Core::get(list.back(), "content"), Core::get(item, "expected_user_content"), label);
+  }
+}
+
 static void run_number_format(Value fixture) {
   for (const auto& item : Core::iter(Core::get(fixture, "cases", Value::array()))) {
     std::string input = display(Core::get(item, "input"));
@@ -3568,6 +3614,10 @@ static void run(Value fixture) {
     assert_equal(Core::strip_internal(Core::get(sig, "outputs"), Core::get(fixture, "values", Value::object())), Core::get(fixture, "expected_output"), "strip internal");
   } else if (kind == "number_format") {
     run_number_format(fixture);
+  } else if (kind == "date_field_value") {
+    run_date_field_value(fixture);
+  } else if (kind == "date_input") {
+    run_date_input(fixture);
   } else if (kind == "template") {
     assert_equal(Core::render_template_content(Core::get(fixture, "template"), Core::get(fixture, "vars", Value::object()), Core::get(fixture, "context", "fixture-template")), Core::get(fixture, "expected_output", ""), "template");
   } else if (kind == "template_error") {

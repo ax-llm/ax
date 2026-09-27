@@ -4,10 +4,12 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildProviderModelIndex,
+  compareDateData,
   compareGeneratedFixtures,
   compareValues,
   normalizeCatalog,
   readProviderDataJson,
+  sameZoneTableSource,
   writeProviderDataJson,
 } from './axir-conformance-sync.mjs';
 
@@ -194,5 +196,46 @@ describe('axir-conformance-sync helpers', () => {
     ).toEqual([
       'stale fixture ir/conformance/axagent/semantic-parity-lifecycle-oracle.json',
     ]);
+  });
+
+  it('compares the zone-name table only on the ICU and tz source it records', () => {
+    const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'axir-sync-repo-'));
+    const generatedRoot = mkdtempSync(
+      path.join(os.tmpdir(), 'axir-sync-generated-')
+    );
+    for (const root of [repoRoot, generatedRoot]) {
+      mkdirSync(path.join(root, 'ir', 'axcore', 'data'), { recursive: true });
+    }
+    const write = (root, name, value) =>
+      writeFileSync(
+        path.join(root, 'ir', 'axcore', 'data', name),
+        JSON.stringify(value)
+      );
+    const source = { icu: '78.3', tz: '2026a', tzdata_candidates: '2026b' };
+    write(repoRoot, 'date-zone-abbreviations.json', { rejected: ['BST'] });
+    write(generatedRoot, 'date-zone-abbreviations.json', { rejected: ['BST'] });
+    write(repoRoot, 'date-time-zones.json', { source, zones: [['UTC']] });
+
+    // Another ICU: skipped, even though the tables differ.
+    write(generatedRoot, 'date-time-zones.json', {
+      source: { ...source, icu: '77.1' },
+      zones: [],
+    });
+    expect(compareDateData(repoRoot, generatedRoot, false)).toEqual([]);
+    expect(
+      sameZoneTableSource({ source }, { source: { ...source, tz: '2025b' } })
+    ).toBe(false);
+
+    // The same source: a different table is stale.
+    write(generatedRoot, 'date-time-zones.json', { source, zones: [] });
+    expect(compareDateData(repoRoot, generatedRoot, false)).toEqual([
+      'stale data ir/axcore/data/date-time-zones.json',
+    ]);
+
+    // The abbreviation tables come from TypeScript source: always compared.
+    write(generatedRoot, 'date-zone-abbreviations.json', { rejected: [] });
+    expect(compareDateData(repoRoot, generatedRoot, false)).toContain(
+      'stale data ir/axcore/data/date-zone-abbreviations.json'
+    );
   });
 });

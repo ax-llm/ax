@@ -270,6 +270,21 @@
           "    Ok(())",
           "})?;"
         ]
+      },
+      "dates": {
+        "sourcePath": "src/examples/rust/generation/date_fields.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let mut planner = ax(r#\"emailText:string, sentAt:datetime -> meetingStartsAt:datetime, travelWindow:dateRange\"#)?;",
+          "planner.options = json!({\"parse_dates\": true});",
+          "let out = planner.forward_with_options(",
+          "    &mut client,",
+          "    json!({\"emailText\": email_text, \"sentAt\": \"2024-05-02T16:30:00Z\"}),",
+          "    json!({}),",
+          ")?;",
+          "println!(\"{}\", out[\"meetingStartsAt\"]); // \"2024-05-07T19:00:00.000Z\""
+        ]
       }
     },
     "signatures": {

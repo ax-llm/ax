@@ -1,0 +1,37 @@
+{
+  "expected_output": {
+    "dues": ["2024-05-09T00:00:00.000Z", "2024-05-10T00:00:00.000Z"],
+    "spans": [
+      {
+        "end": "2024-05-10T00:00:00.000Z",
+        "start": "2024-05-09T00:00:00.000Z"
+      },
+      {
+        "end": "2024-05-12T00:00:00.000Z",
+        "start": "2024-05-11T00:00:00.000Z"
+      }
+    ],
+    "summary": "two"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "date-forward-parse-dates-arrays",
+  "options": {
+    "parse_dates": true
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Dues: [\"2024-05-09\", \"2024-05-10\"]\nSpans: [{\"start\":\"2024-05-09\",\"end\":\"2024-05-10\"}, \"2024-05-11 to 2024-05-12\"]\nSummary: two",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> dues:date[], spans:dateRange[], summary:string"
+}
