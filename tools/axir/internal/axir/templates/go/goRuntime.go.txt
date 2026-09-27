@@ -139,7 +139,9 @@ func snapshotGlobalRuntimeHooks() AxRuntimeHooks {
 // does. To read, AxGen calls it with a nil value: return a nil map for a miss
 // or the stored output for a hit. An empty map that is not nil is a hit (a
 // stored empty output). Forward returns a hit without a request, and
-// StreamingForward yields it as one delta {Version: 0, Index: 0}. To store,
+// StreamingForward yields it as one delta {Version: 0, Index: 0}. The read
+// comes before the run's ax_gen_forward span and ax_gen_generation metrics,
+// so a hit records neither. To store,
 // AxGen calls it with the output of a successful run, never nil, and ignores
 // the map it returns. key is the lowercase hex SHA-256 of the signature and
 // the input values; Go writes its own key text, so keys differ from other
@@ -6386,11 +6388,42 @@ func (g *AxGen) ForwardWithHooks(ctx context.Context, client AIClient, values ma
 func (g *AxGen) forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
 	return g.forwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
 }
+
+// cacheLookupFirst reads the cache for a forward before the run opens its
+// span and metrics, as TypeScript does (@cache_lookup_impl). It reports the
+// stored output on a hit; on a miss it returns the options with the lookup
+// under "_ax_cache_lookup", so the forward only stores. Options that already
+// carry a lookup, as a forward's nested call does, are not read again.
+// StreamingForward passes ignoreReadErrors, since it ignores a read error.
+func (g *AxGen) cacheLookupFirst(values map[string]Value, options map[string]Value, ignoreReadErrors bool) (map[string]Value, Value, bool, error) {
+	if _, looked := options["_ax_cache_lookup"]; looked {
+		return options, nil, false, nil
+	}
+	lookup, err := safeValue(func() Value {
+		return mustCore(_cache_lookup_impl(g, values, options, ignoreReadErrors))
+	})
+	if err != nil {
+		return options, nil, false, err
+	}
+	if coreTruthy(coreGet(lookup, "hit", false)) {
+		return options, coreGet(lookup, "value", nil), true, nil
+	}
+	options = cloneMap(options)
+	options["_ax_cache_lookup"] = lookup
+	return options, nil, false, nil
+}
+
 func (g *AxGen) forwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
+	options = stripRuntimeHooks(options)
+	// As in TypeScript, the cache is read before the run's span and metrics:
+	// a hit, or a read error, records neither.
+	options, cached, hit, err := g.cacheLookupFirst(values, options, false)
+	if err != nil || hit {
+		return cached, err
+	}
 	attributes := Object("ax.program.id", g.ProgramID, "ax.program.type", "AxGen")
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes)
 	defer func() { finish(err) }()
-	options = stripRuntimeHooks(options)
 	if g.ExecutionContextError != nil {
 		return nil, g.ExecutionContextError
 	}
@@ -6620,10 +6653,26 @@ func (g *AxGen) StreamingForward(ctx context.Context, client AIClient, values ma
 // index, delta} envelope to sink, and returns the merged output of the picked
 // sample with its "__order" lists (for callers inside the runtime).
 func (g *AxGen) streamingForwardWith(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, sink axGenDeltaSink, hooks AxRuntimeHooks) (out Value, err error) {
+	options = stripRuntimeHooks(options)
+	if sink != nil {
+		// As in TypeScript, the cache is read before the run's span and
+		// metrics and a read error is ignored: a hit is one delta and records
+		// neither.
+		var cached Value
+		var hit bool
+		if options, cached, hit, err = g.cacheLookupFirst(values, options, true); err != nil {
+			return nil, err
+		}
+		if hit {
+			if _, err := _core_axgen_emit_delta(sink, Object("version", 0, "index", 0, "delta", cached)); err != nil {
+				return nil, err
+			}
+			return cached, nil
+		}
+	}
 	attributes := Object("ax.program.id", g.ProgramID, "ax.program.type", "AxGen", "ax.streaming", true)
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes)
 	defer func() { finish(err) }()
-	options = stripRuntimeHooks(options)
 	if g.ExecutionContextError != nil {
 		return nil, g.ExecutionContextError
 	}

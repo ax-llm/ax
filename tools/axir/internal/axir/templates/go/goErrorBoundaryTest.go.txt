@@ -298,6 +298,156 @@ func TestAxGenCachingFunction(t *testing.T) {
 	}
 }
 
+// cacheTelemetryTracer records the name of each span started.
+type cacheTelemetryTracer struct {
+	mu    sync.Mutex
+	spans []string
+}
+
+func (r *cacheTelemetryTracer) StartSpan(start AxSpanStart) AxSpan {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.spans = append(r.spans, start.Name)
+	return cacheTelemetrySpan{}
+}
+
+// take returns the spans started since the last take.
+func (r *cacheTelemetryTracer) take() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	spans := r.spans
+	r.spans = nil
+	return spans
+}
+
+type cacheTelemetrySpan struct{}
+
+func (cacheTelemetrySpan) SetAttributes(map[string]Value)    {}
+func (cacheTelemetrySpan) AddEvent(string, map[string]Value) {}
+func (cacheTelemetrySpan) RecordException(error)             {}
+func (cacheTelemetrySpan) SetStatus(string, string)          {}
+func (cacheTelemetrySpan) End()                              {}
+
+// cacheTelemetryMeter records the name of each metric written.
+type cacheTelemetryMeter struct {
+	mu      sync.Mutex
+	metrics []string
+}
+
+type cacheTelemetryInstrument struct {
+	meter *cacheTelemetryMeter
+	name  string
+}
+
+func (i cacheTelemetryInstrument) Add(float64, map[string]Value)    { i.meter.record(i.name) }
+func (i cacheTelemetryInstrument) Record(float64, map[string]Value) { i.meter.record(i.name) }
+
+func (m *cacheTelemetryMeter) record(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.metrics = append(m.metrics, name)
+}
+
+// take returns the metrics written since the last take.
+func (m *cacheTelemetryMeter) take() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	metrics := m.metrics
+	m.metrics = nil
+	return metrics
+}
+
+func (m *cacheTelemetryMeter) CreateCounter(name string, _ AxMetricInstrumentOptions) AxCounter {
+	return cacheTelemetryInstrument{m, name}
+}
+func (m *cacheTelemetryMeter) CreateHistogram(name string, _ AxMetricInstrumentOptions) AxHistogram {
+	return cacheTelemetryInstrument{m, name}
+}
+func (m *cacheTelemetryMeter) CreateGauge(name string, _ AxMetricInstrumentOptions) AxGauge {
+	return cacheTelemetryInstrument{m, name}
+}
+
+// TestAxGenCacheReadPrecedesTelemetry: as in TypeScript, AxGen reads the cache
+// before it opens the run's ax_gen_forward span and ax_gen_generation
+// metrics, so a hit from Forward (with or without stream) or StreamingForward
+// records neither, and nor does a read error that fails Forward; a miss
+// records both.
+func TestAxGenCacheReadPrecedesTelemetry(t *testing.T) {
+	ctx := context.Background()
+	tracer, meter := &cacheTelemetryTracer{}, &cacheTelemetryMeter{}
+	cache := newMemoryCache()
+	gen := NewAx("question:string -> answer:string", map[string]Value{"cachingFunction": AxCachingFunction(cache.cache)})
+	gen.SetTracer(tracer).SetMeter(meter)
+	client := &cachingTestClient{replies: []string{"Answer: Paris", "Answer: Rome"}}
+	france := map[string]Value{"question": "Capital of France?"}
+	italy := map[string]Value{"question": "Capital of Italy?"}
+	answer := func(out Value) Value { return coreGet(out, "answer", nil) }
+	// expectTelemetry checks what the calls since the last check recorded.
+	expectTelemetry := func(label string, recorded bool) {
+		t.Helper()
+		spans, metrics := tracer.take(), meter.take()
+		span, metric := false, false
+		for _, name := range spans {
+			span = span || name == "ax_gen_forward"
+		}
+		for _, name := range metrics {
+			metric = metric || strings.HasPrefix(name, "ax_gen_generation_")
+		}
+		if span != recorded || metric != recorded {
+			t.Fatalf("%s recorded spans %v and metrics %v; want the ax_gen_forward span and ax_gen_generation metrics: %v", label, spans, metrics, recorded)
+		}
+	}
+	// streamedAnswer runs StreamingForward and joins the answer deltas.
+	streamedAnswer := func(values map[string]Value) (string, int, error) {
+		text, count := "", 0
+		for delta, err := range gen.StreamingForward(ctx, client, values, nil) {
+			if err != nil {
+				return text, count, err
+			}
+			text += display(delta.Delta["answer"])
+			count++
+		}
+		return text, count, nil
+	}
+
+	if out, err := gen.Forward(ctx, client, france, nil); err != nil || answer(out) != "Paris" {
+		t.Fatalf("Forward miss = %v, %v", out, err)
+	}
+	expectTelemetry("Forward miss", true)
+	if out, err := gen.Forward(ctx, client, france, nil); err != nil || answer(out) != "Paris" {
+		t.Fatalf("Forward hit = %v, %v", out, err)
+	}
+	expectTelemetry("Forward hit", false)
+	if out, err := gen.Forward(ctx, client, france, map[string]Value{"stream": true}); err != nil || answer(out) != "Paris" {
+		t.Fatalf("Forward hit with stream = %v, %v", out, err)
+	}
+	expectTelemetry("Forward hit with stream", false)
+	if text, count, err := streamedAnswer(france); err != nil || text != "Paris" || count != 1 {
+		t.Fatalf("StreamingForward hit = %q in %d deltas, %v", text, count, err)
+	}
+	expectTelemetry("StreamingForward hit", false)
+	if text, _, err := streamedAnswer(italy); err != nil || text != "Rome" {
+		t.Fatalf("StreamingForward miss = %q, %v", text, err)
+	}
+	expectTelemetry("StreamingForward miss", true)
+	if out, err := gen.Forward(ctx, client, italy, nil); err != nil || answer(out) != "Rome" {
+		t.Fatalf("Forward hit after StreamingForward = %v, %v", out, err)
+	}
+	expectTelemetry("Forward hit after StreamingForward", false)
+	// One read per call: the forward does not read again after the host.
+	if client.requests != 2 || cache.reads != 6 || cache.writes != 2 {
+		t.Fatalf("%d requests, %d cache reads and %d cache writes, want 2, 6 and 2", client.requests, cache.reads, cache.writes)
+	}
+
+	failing := AxCachingFunction(func(string, map[string]Value) (map[string]Value, error) {
+		return nil, errors.New("cache offline")
+	})
+	if _, err := gen.Forward(ctx, client, france, map[string]Value{"cachingFunction": failing}); err == nil || err.Error() != "cache offline" {
+		t.Fatalf("Forward read error = %v, want cache offline", err)
+	}
+	expectTelemetry("Forward read error", false)
+}
+
 func TestIsRetryableFollowsCoreStatusSet(t *testing.T) {
 	for status, want := range map[int]bool{
 		408: true, 429: true, 500: true, 502: true, 503: true, 504: true, 529: true,
