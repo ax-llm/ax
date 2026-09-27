@@ -551,6 +551,9 @@ pub(crate) struct SessionRun {
     controls_use_session: Option<bool>,
 }
 impl SessionRun {
+    // `options` are the run's: the program's merged with the call's, which
+    // win, as TS merges them. The run's path, asyncMode (session_enabled) and
+    // maxSteps come from them.
     pub(crate) fn new(gen: CoreValue, tools: Vec<Tool>, options: Value) -> Self {
         let (sender, results) = mpsc::channel();
         let path = options
@@ -1676,6 +1679,30 @@ mod tests {
         let mut workflow=flow("balanced-fallback").execute("lookup",node).returns(json!({"result":"lookupResult"}));
         assert_eq!(workflow.forward(&mut client,json!({"question":"Lookup"}))?,json!({"result":{"answer":"FALLBACK"}}));
         assert_eq!(calls.load(Ordering::SeqCst),2);assert_eq!(unused.load(Ordering::SeqCst),0);assert_eq!(tools.load(Ordering::SeqCst),1);Ok(())
+    }
+
+    // Offers async tools and answers each request, and counts the runs that
+    // ask it for a chat session (it opens none).
+    struct SessionProbe(Arc<AtomicUsize>);
+    impl AxAIClient for SessionProbe {
+        fn get_features(&self,_:Option<&str>)->Value{json!({"functions":true,"streaming":false,"asyncTools":true})}
+        fn chat(&mut self,_:Value)->AxResult<Value>{Ok(json!({"results":[{"content":"Answer: ok"}]}))}
+        fn open_chat_session(&mut self,_:Value,_:Value)->AxResult<Option<Box<dyn AxChatSession>>>{self.0.fetch_add(1,Ordering::SeqCst);Ok(None)}
+    }
+    #[test]
+    fn constructor_async_mode_off_keeps_a_run_off_a_session()->AxResult<()> {
+        // As in TS, the constructor's options are defaults for every forward
+        // and the call's win: a constructor asyncMode "off" keeps a controlled
+        // run off a native chat session, as the call's does.
+        let opened=Arc::new(AtomicUsize::new(0));let mut client=SessionProbe(opened.clone());
+        let run=|program:&mut AxGen,client:&mut SessionProbe,options:Value|->AxResult<Value>{program.forward_with_options(client,json!({"question":"Status?"}),AxForwardOptions::from(options).with_control(run_control()))};
+        let mut program=ax("question -> answer")?;program.options=json!({"asyncMode":"off"});
+        assert_eq!(run(&mut program,&mut client,json!({}))?,json!({"answer":"ok"}));
+        assert_eq!(opened.load(Ordering::SeqCst),0);
+        // The call's asyncMode wins, and without either the run asks for one.
+        assert_eq!(run(&mut program,&mut client,json!({"asyncMode":"auto"}))?,json!({"answer":"ok"}));
+        assert_eq!(run(&mut ax("question -> answer")?,&mut client,json!({}))?,json!({"answer":"ok"}));
+        assert_eq!(opened.load(Ordering::SeqCst),2);Ok(())
     }
 
 }

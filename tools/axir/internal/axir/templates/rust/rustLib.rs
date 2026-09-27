@@ -4709,7 +4709,12 @@ impl AxGen {
             Some(state) => state.clone(),
             None => core_gen_state(self)?,
         };
-        let mut session_run=session::SessionRun::new(state.clone(), self.tools.clone(), options.clone());
+        // As in TS, the constructor's options are defaults for every forward
+        // and the call's win: the run's path, asyncMode and maxSteps come
+        // from both.
+        let mut run_options = if self.options.is_object() { self.options.clone() } else { json!({}) };
+        merge_object(&mut run_options, &options);
+        let mut session_run=session::SessionRun::new(state.clone(), self.tools.clone(), run_options);
         let run_session = session::current_control().is_some() || self.tools.iter().any(|tool|tool.execution=="background");
         if run_session { if !options.is_object(){options=json!({});} options["infraRetries"]=json!(0); }
         // The run's model, as the forward op reads it, whose features decide
@@ -16365,6 +16370,11 @@ fn fixture_field_processor(
     }
 }
 
+// Whether a fixture sets the boolean flag `key`.
+fn fixture_flag(fixture: &Value, key: &str) -> bool {
+    fixture.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
 // python: _attach_fixture_control. A fixture's run control, recording its
 // lifecycle events (started, completed, failed, aborted) as {path, type}.
 // With control_steer ({during_request, text}) it records every event, and
@@ -16452,7 +16462,10 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
     let mut options = AxForwardOptions::from(fixture.get("forward_options").cloned().unwrap_or_else(|| json!({})));
     let mut control_events = Arc::new(Mutex::new(Vec::new()));
-    if fixture.get("control").and_then(Value::as_bool).unwrap_or(false) {
+    // constructor_control puts the run control in the AxGen constructor's
+    // options. Rust's AxGen.options is JSON and can't hold an AxRunControl,
+    // so the call gets that control instead, as Rust runs a program under one.
+    if fixture_flag(fixture, "control") || fixture_flag(fixture, "constructor_control") {
         let (control, events) = attach_fixture_control(fixture, &mut client);
         control_events = events;
         options = options.with_control(control);
@@ -16643,12 +16656,19 @@ fn run_cache_sequence_fixture(fixture: &Value) -> AxResult<()> {
     if cache_in == "global" {
         set_caching_function(Some(caching_function.clone()));
     }
+    // constructor_control puts one run control in the AxGen constructor's
+    // options. Rust's AxGen.options is JSON and can't hold an AxRunControl,
+    // so each call gets that control instead, as Rust runs a program under one.
+    let constructor_control = fixture_flag(fixture, "constructor_control").then(run_control);
     let run = (|| -> AxResult<()> {
         for call in fixture.get("calls").and_then(Value::as_array).into_iter().flatten() {
             let before = client.requests.len();
             let mut options = AxForwardOptions::from(
                 call.get("forward_options").filter(|options| options.is_object()).cloned().unwrap_or_else(|| json!({})),
             );
+            if let Some(control) = &constructor_control {
+                options = options.with_control(control.clone());
+            }
             if call.get("control").and_then(Value::as_bool).unwrap_or(false) {
                 options = options.with_control(run_control());
             }
@@ -16827,7 +16847,10 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     )
     .with_client_spec(fixture.get("client"));
     let mut options = AxForwardOptions::from(fixture.get("forward_options").cloned().unwrap_or(Value::Null));
-    let control_events = if fixture.get("control").and_then(Value::as_bool).unwrap_or(false) {
+    // constructor_control puts the run control in the AxGen constructor's
+    // options. Rust's AxGen.options is JSON and can't hold an AxRunControl,
+    // so the call gets that control instead, as Rust runs a program under one.
+    let control_events = if fixture_flag(fixture, "control") || fixture_flag(fixture, "constructor_control") {
         let (control, events) = attach_fixture_control(fixture, &mut client);
         options = options.with_control(control);
         Some(events)
