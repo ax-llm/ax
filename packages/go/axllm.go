@@ -73151,11 +73151,13 @@ func _agent_record_callable_result(args ...Value) (Value, error) {
 	var v_has_guidance Value
 	var v_host_event Value
 	var v_name Value
+	var v_no_step_turn Value
 	var v_payload Value
 	var v_qualified Value
 	var v_record Value
 	var v_rendered_result Value
 	var v_status Value
+	var v_step_turn Value
 	var v_trace Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
@@ -73175,11 +73177,13 @@ func _agent_record_callable_result(args ...Value) (Value, error) {
 	_ = v_has_guidance
 	_ = v_host_event
 	_ = v_name
+	_ = v_no_step_turn
 	_ = v_payload
 	_ = v_qualified
 	_ = v_record
 	_ = v_rendered_result
 	_ = v_status
+	_ = v_step_turn
 	_ = v_trace
 	v_empty_list = MutableArray()
 	v_qualified = coreGet(v_request, "qualified_name", "")
@@ -73200,6 +73204,14 @@ func _agent_record_callable_result(args ...Value) (Value, error) {
 	if err := coreSet(v_record, "arguments", v_args); err != nil { return nil, err }
 	if err := coreSet(v_record, "status", v_status); err != nil { return nil, err }
 	if err := coreSet(v_record, "result", v_result); err != nil { return nil, err }
+	v_step_turn = coreGet(v_state, "active_step_turn", nil)
+	v_no_step_turn = _core_is_none(v_step_turn)
+	if coreTruthy(v_no_step_turn) {
+		{ v, err := _agent_stage_step_turn(v_state); if err != nil { return nil, err }; v_step_turn = v }
+	} else {
+	// empty
+	}
+	if err := coreSet(v_record, "turn", v_step_turn); err != nil { return nil, err }
 	v_trace = coreAppend(v_trace, v_record)
 	if err := coreSet(v_state, "function_call_traces", v_trace); err != nil { return nil, err }
 	v_action_log = coreGet(v_state, "action_log", v_empty_list)
@@ -75067,6 +75079,7 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	var v_status Value
 	var v_status_log Value
 	var v_step_error Value
+	var v_step_turn Value
 	var v_used_request Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
@@ -75113,6 +75126,7 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	_ = v_status
 	_ = v_status_log
 	_ = v_step_error
+	_ = v_step_turn
 	_ = v_used_request
 	{ v, err := _agent_runtime_execution_options(v_state, v_options); if err != nil { return nil, err }; v_runtime_options = v }
 	v_empty_map = Object()
@@ -75123,6 +75137,8 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	{ v, err := _agent_stage_step_turn(v_state); if err != nil { return nil, err }; v_step_turn = v }
+	if err := coreSet(v_state, "active_step_turn", v_step_turn); err != nil { return nil, err }
 	{ v, err := _core_agent_runtime_execute(v_session, v_code, v_runtime_options); if err != nil { return nil, err }; v_raw = v }
 	{ v, err := _normalize_agent_runtime_step_result(v_raw, v_code); if err != nil { return nil, err }; v_normalized = v }
 	v_closed = coreGet(v_normalized, "error_category", "")
@@ -75225,6 +75241,7 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	_core_map_delete(v_state, "active_step_turn")
 	return v_normalized, nil
 }
 
@@ -79233,10 +79250,12 @@ func _agent_build_failure_signals(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_build_failure_signals")
 	var v_state Value
 	var v_action_log Value
+	var v_add_signal Value
 	var v_arguments Value
 	var v_arguments_preview Value
 	var v_arguments_text Value
 	var v_call Value
+	var v_call_turn Value
 	var v_category Value
 	var v_code Value
 	var v_code_preview Value
@@ -79245,18 +79264,30 @@ func _agent_build_failure_signals(args ...Value) (Value, error) {
 	var v_detail_preview Value
 	var v_empty_list Value
 	var v_entry Value
-	var v_error_preview Value
+	var v_error_line Value
+	var v_error_raw Value
 	var v_error_text Value
+	var v_existing Value
+	var v_existing_count Value
+	var v_existing_kind Value
+	var v_existing_signature Value
 	var v_failed Value
 	var v_function_traces Value
 	var v_has_arguments Value
 	var v_has_code Value
 	var v_is_error Value
 	var v_kind Value
+	var v_merge_here Value
+	var v_merged Value
+	var v_next_count Value
+	var v_not_merged Value
 	var v_previous_signature Value
 	var v_qualified_name Value
 	var v_repeated Value
 	var v_result Value
+	var v_same Value
+	var v_same_kind Value
+	var v_same_signature Value
 	var v_signal Value
 	var v_signals Value
 	var v_signature Value
@@ -79267,10 +79298,12 @@ func _agent_build_failure_signals(args ...Value) (Value, error) {
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	_ = v_action_log
+	_ = v_add_signal
 	_ = v_arguments
 	_ = v_arguments_preview
 	_ = v_arguments_text
 	_ = v_call
+	_ = v_call_turn
 	_ = v_category
 	_ = v_code
 	_ = v_code_preview
@@ -79279,18 +79312,30 @@ func _agent_build_failure_signals(args ...Value) (Value, error) {
 	_ = v_detail_preview
 	_ = v_empty_list
 	_ = v_entry
-	_ = v_error_preview
+	_ = v_error_line
+	_ = v_error_raw
 	_ = v_error_text
+	_ = v_existing
+	_ = v_existing_count
+	_ = v_existing_kind
+	_ = v_existing_signature
 	_ = v_failed
 	_ = v_function_traces
 	_ = v_has_arguments
 	_ = v_has_code
 	_ = v_is_error
 	_ = v_kind
+	_ = v_merge_here
+	_ = v_merged
+	_ = v_next_count
+	_ = v_not_merged
 	_ = v_previous_signature
 	_ = v_qualified_name
 	_ = v_repeated
 	_ = v_result
+	_ = v_same
+	_ = v_same_kind
+	_ = v_same_signature
 	_ = v_signal
 	_ = v_signals
 	_ = v_signature
@@ -79356,28 +79401,53 @@ func _agent_build_failure_signals(args ...Value) (Value, error) {
 		v_failed = _core_eq(v_status, "error")
 		if coreTruthy(v_failed) {
 			v_result = coreGet(v_call, "result", nil)
-			v_error_text = coreGet(v_result, "error", "tool call failed")
-			v_error_preview = _core_string_slice(v_error_text, 0, 120)
+			v_error_raw = coreGet(v_result, "error", "tool call failed")
+			v_error_text = _core_string_str(v_error_raw)
+			{ v, err := _agent_truncate_inline(v_error_text, 120); if err != nil { return nil, err }; v_error_line = v }
 			v_qualified_name = coreGet(v_call, "qualified_name", "tool")
-			v_signature_error = _core_string_slice(v_error_text, 0, 60)
-			v_signature = _core_string_format("{}:{}", v_qualified_name, v_signature_error)
-			v_detail = _core_string_format("{} failed: {}", v_qualified_name, v_error_preview)
-			v_signal = Object()
-			if err := coreSet(v_signal, "kind", "tool_error"); err != nil { return nil, err }
-			if err := coreSet(v_signal, "turn", 0); err != nil { return nil, err }
-			if err := coreSet(v_signal, "signature", v_signature); err != nil { return nil, err }
-			if err := coreSet(v_signal, "detail", v_detail); err != nil { return nil, err }
-			v_arguments = coreGet(v_call, "arguments", nil)
-			v_has_arguments = _core_is_not_none(v_arguments)
-			if coreTruthy(v_has_arguments) {
-				v_arguments_text = _core_string_format("{}", v_arguments)
-				v_arguments_preview = _core_string_slice(v_arguments_text, 0, 240)
-				if err := coreSet(v_signal, "code", v_arguments_preview); err != nil { return nil, err }
+			v_signature_error = _core_string_slice(v_error_line, 0, 60)
+			v_signature = _core_string_format("{}: {}", v_qualified_name, v_signature_error)
+			v_merged = false
+			for _, v_existing = range coreIter(v_signals) {
+				v_existing_kind = coreGet(v_existing, "kind", "")
+				v_existing_signature = coreGet(v_existing, "signature", "")
+				v_same_kind = _core_eq(v_existing_kind, "tool_error")
+				v_same_signature = _core_eq(v_existing_signature, v_signature)
+				v_same = _core_and(v_same_kind, v_same_signature)
+				v_not_merged = _core_not(v_merged)
+				v_merge_here = _core_and(v_same, v_not_merged)
+				if coreTruthy(v_merge_here) {
+					v_existing_count = coreGet(v_existing, "occurrences", 1)
+					v_next_count = _core_add(v_existing_count, 1)
+					if err := coreSet(v_existing, "occurrences", v_next_count); err != nil { return nil, err }
+					v_merged = true
+				} else {
+				// empty
+				}
+			}
+			v_add_signal = _core_not(v_merged)
+			if coreTruthy(v_add_signal) {
+				v_detail = _core_string_format("{} failed: {}", v_qualified_name, v_error_line)
+				v_signal = Object()
+				if err := coreSet(v_signal, "kind", "tool_error"); err != nil { return nil, err }
+				v_call_turn = coreGet(v_call, "turn", 0)
+				if err := coreSet(v_signal, "turn", v_call_turn); err != nil { return nil, err }
+				if err := coreSet(v_signal, "signature", v_signature); err != nil { return nil, err }
+				if err := coreSet(v_signal, "detail", v_detail); err != nil { return nil, err }
+				v_has_arguments = _core_map_contains(v_call, "arguments")
+				if coreTruthy(v_has_arguments) {
+					v_arguments = coreGet(v_call, "arguments", nil)
+					v_arguments_text = _core_json_stringify(v_arguments)
+					{ v, err := _agent_truncate_inline(v_arguments_text, 240); if err != nil { return nil, err }; v_arguments_preview = v }
+					if err := coreSet(v_signal, "code", v_arguments_preview); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+				if err := coreSet(v_signal, "occurrences", 1); err != nil { return nil, err }
+				v_signals = coreAppend(v_signals, v_signal)
 			} else {
 			// empty
 			}
-			if err := coreSet(v_signal, "occurrences", 1); err != nil { return nil, err }
-			v_signals = coreAppend(v_signals, v_signal)
 		} else {
 		// empty
 		}
@@ -82084,6 +82154,8 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	var v_distiller_globals Value
 	var v_distiller_has_completion Value
 	var v_distiller_is_respond Value
+	var v_distiller_log_start Value
+	var v_distiller_log_start_count Value
 	var v_distiller_max_steps Value
 	var v_distiller_options Value
 	var v_distiller_output Value
@@ -82124,6 +82196,8 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	var v_exec_step_ok Value
 	var v_executor_completion_is_respond Value
 	var v_executor_completion_type Value
+	var v_executor_log_start Value
+	var v_executor_log_start_count Value
 	var v_executor_options Value
 	var v_executor_output Value
 	var v_executor_payload Value
@@ -82218,6 +82292,8 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	_ = v_distiller_globals
 	_ = v_distiller_has_completion
 	_ = v_distiller_is_respond
+	_ = v_distiller_log_start
+	_ = v_distiller_log_start_count
 	_ = v_distiller_max_steps
 	_ = v_distiller_options
 	_ = v_distiller_output
@@ -82258,6 +82334,8 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	_ = v_exec_step_ok
 	_ = v_executor_completion_is_respond
 	_ = v_executor_completion_type
+	_ = v_executor_log_start
+	_ = v_executor_log_start_count
 	_ = v_executor_options
 	_ = v_executor_output
 	_ = v_executor_payload
@@ -82367,6 +82445,9 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	// empty
 	}
 	if err := coreSet(v_state, "active_stage", "distiller"); err != nil { return nil, err }
+	v_distiller_log_start = coreGet(v_state, "action_log", v_empty_list)
+	v_distiller_log_start_count = _core_len(v_distiller_log_start)
+	if err := coreSet(v_state, "stage_log_start", v_distiller_log_start_count); err != nil { return nil, err }
 	{ v, err := _agent_transcribe_audio_inputs(v_state, v_client, v_values, v_options); if err != nil { return nil, err }; v_transcribed_values = v }
 	v_values = v_transcribed_values
 	v_runtime_input_names = MutableArray()
@@ -82495,6 +82576,9 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	{ v, err := _agent_merge_skill_results(v_executor_skills_after, v_distiller_skills_after); if err != nil { return nil, err }; v_executor_skills_after = v }
 	if err := coreSet(v_state, "loaded_skill_docs", v_executor_skills_after); err != nil { return nil, err }
 	if err := coreSet(v_state, "active_stage", "executor"); err != nil { return nil, err }
+	v_executor_log_start = coreGet(v_state, "action_log", v_empty_list)
+	v_executor_log_start_count = _core_len(v_executor_log_start)
+	if err := coreSet(v_state, "stage_log_start", v_executor_log_start_count); err != nil { return nil, err }
 	v_executor_payload = _core_none()
 	v_distiller_payload_type = coreGet(v_distiller_payload, "type", "")
 	v_distiller_is_respond = _core_eq(v_distiller_payload_type, "respond")
@@ -83471,6 +83555,97 @@ func _agent_use_stage_mode(args ...Value) (Value, error) {
 	v_record_responder_description = coreGet(v_state, "responder_description", "")
 	if err := coreSet(v_record, "responder_description", v_record_responder_description); err != nil { return nil, err }
 	return v_record, nil
+}
+
+func _agent_truncate_inline(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_truncate_inline")
+	var v_text Value
+	var v_max_chars Value
+	var v_collapsed Value
+	var v_cut Value
+	var v_head Value
+	var v_keep Value
+	var v_length Value
+	var v_spaced Value
+	var v_too_long Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	if len(args) > 1 { v_max_chars = args[1] }
+	_ = v_max_chars
+	_ = v_collapsed
+	_ = v_cut
+	_ = v_head
+	_ = v_keep
+	_ = v_length
+	_ = v_spaced
+	_ = v_too_long
+	v_spaced = _core_regex_replace("\\s+", " ", v_text)
+	v_collapsed = coreStringTrim(v_spaced)
+	v_length = _core_len(v_collapsed)
+	v_too_long = _core_gt(v_length, v_max_chars)
+	if coreTruthy(v_too_long) {
+		v_keep = _core_add(v_max_chars, -1)
+		v_head = _core_string_slice(v_collapsed, 0, v_keep)
+		v_cut = _core_string_format("{}…", v_head)
+		return v_cut, nil
+	} else {
+	// empty
+	}
+	return v_collapsed, nil
+}
+
+func _agent_stage_step_turn(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_stage_step_turn")
+	var v_state Value
+	var v_counts Value
+	var v_empty_list Value
+	var v_entry Value
+	var v_entry_type Value
+	var v_in_stage Value
+	var v_index Value
+	var v_is_step Value
+	var v_log Value
+	var v_log_start Value
+	var v_next_index Value
+	var v_next_steps Value
+	var v_steps Value
+	var v_turn Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_counts
+	_ = v_empty_list
+	_ = v_entry
+	_ = v_entry_type
+	_ = v_in_stage
+	_ = v_index
+	_ = v_is_step
+	_ = v_log
+	_ = v_log_start
+	_ = v_next_index
+	_ = v_next_steps
+	_ = v_steps
+	_ = v_turn
+	v_empty_list = MutableArray()
+	v_log = coreGet(v_state, "action_log", v_empty_list)
+	v_log_start = coreGet(v_state, "stage_log_start", 0)
+	v_steps = 0
+	v_index = 0
+	for _, v_entry = range coreIter(v_log) {
+		v_in_stage = _core_gte(v_index, v_log_start)
+		v_entry_type = coreGet(v_entry, "type", "")
+		v_is_step = _core_eq(v_entry_type, "runtime_step")
+		v_counts = _core_and(v_in_stage, v_is_step)
+		if coreTruthy(v_counts) {
+			v_next_steps = _core_add(v_steps, 1)
+			v_steps = v_next_steps
+		} else {
+		// empty
+		}
+		v_next_index = _core_add(v_index, 1)
+		v_index = v_next_index
+	}
+	v_turn = _core_add(v_steps, 1)
+	return v_turn, nil
 }
 
 func _flow_factory(args ...Value) (Value, error) {

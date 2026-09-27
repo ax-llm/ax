@@ -1381,6 +1381,8 @@ struct Core {
   static Value _agent_stage_mode_fields(Value state);
   static Value _agent_runtime_stage_fields(Value state, Value runtime);
   static Value _agent_use_stage_mode(Value state, Value options);
+  static Value _agent_truncate_inline(Value text, Value max_chars);
+  static Value _agent_stage_step_turn(Value state);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);

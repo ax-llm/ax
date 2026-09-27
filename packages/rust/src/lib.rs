@@ -107082,11 +107082,13 @@ fn _agent_record_callable_result(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_has_guidance = CoreValue::Null;
     let mut v_host_event = CoreValue::Null;
     let mut v_name = CoreValue::Null;
+    let mut v_no_step_turn = CoreValue::Null;
     let mut v_payload = CoreValue::Null;
     let mut v_qualified = CoreValue::Null;
     let mut v_record = CoreValue::Null;
     let mut v_rendered_result = CoreValue::Null;
     let mut v_status = CoreValue::Null;
+    let mut v_step_turn = CoreValue::Null;
     let mut v_trace = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
     v_qualified = core_get(
@@ -107117,6 +107119,16 @@ fn _agent_record_callable_result(args: &[CoreValue]) -> Result<CoreValue, AxErro
     core_set(&v_record, CoreValue::from("arguments"), v_args.clone())?;
     core_set(&v_record, CoreValue::from("status"), v_status.clone())?;
     core_set(&v_record, CoreValue::from("result"), v_result.clone())?;
+    v_step_turn = core_get(
+        &v_state,
+        &CoreValue::from("active_step_turn"),
+        CoreValue::Null,
+    );
+    v_no_step_turn = core_is_none(&[v_step_turn.clone()])?;
+    if core_truthy(&v_no_step_turn) {
+        v_step_turn = _agent_stage_step_turn(&[v_state.clone()])?;
+    }
+    core_set(&v_record, CoreValue::from("turn"), v_step_turn.clone())?;
     core_append(&v_trace, v_record.clone())?;
     core_set(
         &v_state,
@@ -109655,6 +109667,7 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_status = CoreValue::Null;
     let mut v_status_log = CoreValue::Null;
     let mut v_step_error = CoreValue::Null;
+    let mut v_step_turn = CoreValue::Null;
     let mut v_used_request = CoreValue::Null;
     v_runtime_options = _agent_runtime_execution_options(&[v_state.clone(), v_options.clone()])?;
     v_empty_map = CoreValue::new_map();
@@ -109672,6 +109685,12 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
             v_runtime_options.clone(),
         ])?;
     }
+    v_step_turn = _agent_stage_step_turn(&[v_state.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("active_step_turn"),
+        v_step_turn.clone(),
+    )?;
     v_raw = core_agent_runtime_execute(&[
         v_session.clone(),
         v_code.clone(),
@@ -109907,6 +109926,7 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
         )?;
         _agent_record_trace_event(&[v_state.clone(), CoreValue::from("status"), v_status.clone()])?;
     }
+    core_map_delete(&[v_state.clone(), CoreValue::from("active_step_turn")])?;
     return Ok(v_normalized.clone());
 }
 
@@ -113988,10 +114008,12 @@ fn _agent_build_failure_signals(args: &[CoreValue]) -> Result<CoreValue, AxError
     axir_coverage_mark("_agent_build_failure_signals");
     let mut v_state = core_arg(args, 0);
     let mut v_action_log = CoreValue::Null;
+    let mut v_add_signal = CoreValue::Null;
     let mut v_arguments = CoreValue::Null;
     let mut v_arguments_preview = CoreValue::Null;
     let mut v_arguments_text = CoreValue::Null;
     let mut v_call = CoreValue::Null;
+    let mut v_call_turn = CoreValue::Null;
     let mut v_category = CoreValue::Null;
     let mut v_code = CoreValue::Null;
     let mut v_code_preview = CoreValue::Null;
@@ -114000,18 +114022,30 @@ fn _agent_build_failure_signals(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_detail_preview = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_entry = CoreValue::Null;
-    let mut v_error_preview = CoreValue::Null;
+    let mut v_error_line = CoreValue::Null;
+    let mut v_error_raw = CoreValue::Null;
     let mut v_error_text = CoreValue::Null;
+    let mut v_existing = CoreValue::Null;
+    let mut v_existing_count = CoreValue::Null;
+    let mut v_existing_kind = CoreValue::Null;
+    let mut v_existing_signature = CoreValue::Null;
     let mut v_failed = CoreValue::Null;
     let mut v_function_traces = CoreValue::Null;
     let mut v_has_arguments = CoreValue::Null;
     let mut v_has_code = CoreValue::Null;
     let mut v_is_error = CoreValue::Null;
     let mut v_kind = CoreValue::Null;
+    let mut v_merge_here = CoreValue::Null;
+    let mut v_merged = CoreValue::Null;
+    let mut v_next_count = CoreValue::Null;
+    let mut v_not_merged = CoreValue::Null;
     let mut v_previous_signature = CoreValue::Null;
     let mut v_qualified_name = CoreValue::Null;
     let mut v_repeated = CoreValue::Null;
     let mut v_result = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_same_kind = CoreValue::Null;
+    let mut v_same_signature = CoreValue::Null;
     let mut v_signal = CoreValue::Null;
     let mut v_signals = CoreValue::Null;
     let mut v_signature = CoreValue::Null;
@@ -114109,67 +114143,97 @@ fn _agent_build_failure_signals(args: &[CoreValue]) -> Result<CoreValue, AxError
         v_failed = core_eq(&[v_status.clone(), CoreValue::from("error")])?;
         if core_truthy(&v_failed) {
             v_result = core_get(&v_call, &CoreValue::from("result"), CoreValue::Null);
-            v_error_text = core_get(
+            v_error_raw = core_get(
                 &v_result,
                 &CoreValue::from("error"),
                 CoreValue::from("tool call failed"),
             );
-            v_error_preview = core_string_slice(&[
-                v_error_text.clone(),
-                CoreValue::Num(0f64),
-                CoreValue::Num(120f64),
-            ])?;
+            v_error_text = core_string_str(&[v_error_raw.clone()])?;
+            v_error_line = _agent_truncate_inline(&[v_error_text.clone(), CoreValue::Num(120f64)])?;
             v_qualified_name = core_get(
                 &v_call,
                 &CoreValue::from("qualified_name"),
                 CoreValue::from("tool"),
             );
             v_signature_error = core_string_slice(&[
-                v_error_text.clone(),
+                v_error_line.clone(),
                 CoreValue::Num(0f64),
                 CoreValue::Num(60f64),
             ])?;
             v_signature = core_string_format(&[
-                CoreValue::from("{}:{}"),
+                CoreValue::from("{}: {}"),
                 v_qualified_name.clone(),
                 v_signature_error.clone(),
             ])?;
-            v_detail = core_string_format(&[
-                CoreValue::from("{} failed: {}"),
-                v_qualified_name.clone(),
-                v_error_preview.clone(),
-            ])?;
-            v_signal = CoreValue::new_map();
-            core_set(
-                &v_signal,
-                CoreValue::from("kind"),
-                CoreValue::from("tool_error"),
-            )?;
-            core_set(&v_signal, CoreValue::from("turn"), CoreValue::Num(0f64))?;
-            core_set(&v_signal, CoreValue::from("signature"), v_signature.clone())?;
-            core_set(&v_signal, CoreValue::from("detail"), v_detail.clone())?;
-            v_arguments = core_get(&v_call, &CoreValue::from("arguments"), CoreValue::Null);
-            v_has_arguments = core_is_not_none(&[v_arguments.clone()])?;
-            if core_truthy(&v_has_arguments) {
-                v_arguments_text =
-                    core_string_format(&[CoreValue::from("{}"), v_arguments.clone()])?;
-                v_arguments_preview = core_string_slice(&[
-                    v_arguments_text.clone(),
-                    CoreValue::Num(0f64),
-                    CoreValue::Num(240f64),
+            v_merged = CoreValue::Bool(false);
+            for v_existing in core_iter(&v_signals)? {
+                let mut v_existing = v_existing;
+                v_existing_kind =
+                    core_get(&v_existing, &CoreValue::from("kind"), CoreValue::from(""));
+                v_existing_signature = core_get(
+                    &v_existing,
+                    &CoreValue::from("signature"),
+                    CoreValue::from(""),
+                );
+                v_same_kind = core_eq(&[v_existing_kind.clone(), CoreValue::from("tool_error")])?;
+                v_same_signature = core_eq(&[v_existing_signature.clone(), v_signature.clone()])?;
+                v_same = core_and(&[v_same_kind.clone(), v_same_signature.clone()])?;
+                v_not_merged = core_not(&[v_merged.clone()])?;
+                v_merge_here = core_and(&[v_same.clone(), v_not_merged.clone()])?;
+                if core_truthy(&v_merge_here) {
+                    v_existing_count = core_get(
+                        &v_existing,
+                        &CoreValue::from("occurrences"),
+                        CoreValue::Num(1f64),
+                    );
+                    v_next_count = core_add(&[v_existing_count.clone(), CoreValue::Num(1f64)])?;
+                    core_set(
+                        &v_existing,
+                        CoreValue::from("occurrences"),
+                        v_next_count.clone(),
+                    )?;
+                    v_merged = CoreValue::Bool(true);
+                }
+            }
+            v_add_signal = core_not(&[v_merged.clone()])?;
+            if core_truthy(&v_add_signal) {
+                v_detail = core_string_format(&[
+                    CoreValue::from("{} failed: {}"),
+                    v_qualified_name.clone(),
+                    v_error_line.clone(),
                 ])?;
+                v_signal = CoreValue::new_map();
                 core_set(
                     &v_signal,
-                    CoreValue::from("code"),
-                    v_arguments_preview.clone(),
+                    CoreValue::from("kind"),
+                    CoreValue::from("tool_error"),
                 )?;
+                v_call_turn = core_get(&v_call, &CoreValue::from("turn"), CoreValue::Num(0f64));
+                core_set(&v_signal, CoreValue::from("turn"), v_call_turn.clone())?;
+                core_set(&v_signal, CoreValue::from("signature"), v_signature.clone())?;
+                core_set(&v_signal, CoreValue::from("detail"), v_detail.clone())?;
+                v_has_arguments =
+                    core_map_contains(&[v_call.clone(), CoreValue::from("arguments")])?;
+                if core_truthy(&v_has_arguments) {
+                    v_arguments = core_get(&v_call, &CoreValue::from("arguments"), CoreValue::Null);
+                    v_arguments_text = core_json_stringify(&[v_arguments.clone()])?;
+                    v_arguments_preview = _agent_truncate_inline(&[
+                        v_arguments_text.clone(),
+                        CoreValue::Num(240f64),
+                    ])?;
+                    core_set(
+                        &v_signal,
+                        CoreValue::from("code"),
+                        v_arguments_preview.clone(),
+                    )?;
+                }
+                core_set(
+                    &v_signal,
+                    CoreValue::from("occurrences"),
+                    CoreValue::Num(1f64),
+                )?;
+                core_append(&v_signals, v_signal.clone())?;
             }
-            core_set(
-                &v_signal,
-                CoreValue::from("occurrences"),
-                CoreValue::Num(1f64),
-            )?;
-            core_append(&v_signals, v_signal.clone())?;
         }
     }
     core_set(
@@ -117126,6 +117190,8 @@ fn _agent_run_actor_stages(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_distiller_globals = CoreValue::Null;
     let mut v_distiller_has_completion = CoreValue::Null;
     let mut v_distiller_is_respond = CoreValue::Null;
+    let mut v_distiller_log_start = CoreValue::Null;
+    let mut v_distiller_log_start_count = CoreValue::Null;
     let mut v_distiller_max_steps = CoreValue::Null;
     let mut v_distiller_options = CoreValue::Null;
     let mut v_distiller_output = CoreValue::Null;
@@ -117166,6 +117232,8 @@ fn _agent_run_actor_stages(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_exec_step_ok = CoreValue::Null;
     let mut v_executor_completion_is_respond = CoreValue::Null;
     let mut v_executor_completion_type = CoreValue::Null;
+    let mut v_executor_log_start = CoreValue::Null;
+    let mut v_executor_log_start_count = CoreValue::Null;
     let mut v_executor_options = CoreValue::Null;
     let mut v_executor_output = CoreValue::Null;
     let mut v_executor_payload = CoreValue::Null;
@@ -117352,6 +117420,17 @@ fn _agent_run_actor_stages(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &v_state,
         CoreValue::from("active_stage"),
         CoreValue::from("distiller"),
+    )?;
+    v_distiller_log_start = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_distiller_log_start_count = core_len(&[v_distiller_log_start.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("stage_log_start"),
+        v_distiller_log_start_count.clone(),
     )?;
     v_transcribed_values = _agent_transcribe_audio_inputs(&[
         v_state.clone(),
@@ -117699,6 +117778,17 @@ fn _agent_run_actor_stages(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &v_state,
         CoreValue::from("active_stage"),
         CoreValue::from("executor"),
+    )?;
+    v_executor_log_start = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_executor_log_start_count = core_len(&[v_executor_log_start.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("stage_log_start"),
+        v_executor_log_start_count.clone(),
     )?;
     v_executor_payload = core_none(&[])?;
     v_distiller_payload_type = core_get(
@@ -119071,6 +119161,94 @@ fn _agent_use_stage_mode(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_record_responder_description.clone(),
     )?;
     return Ok(v_record.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_truncate_inline(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_truncate_inline");
+    let mut v_text = core_arg(args, 0);
+    let mut v_max_chars = core_arg(args, 1);
+    let mut v_collapsed = CoreValue::Null;
+    let mut v_cut = CoreValue::Null;
+    let mut v_head = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_spaced = CoreValue::Null;
+    let mut v_too_long = CoreValue::Null;
+    v_spaced = core_regex_replace(&[
+        CoreValue::from("\\s+"),
+        CoreValue::from(" "),
+        v_text.clone(),
+    ])?;
+    v_collapsed = core_string_trim(&v_spaced);
+    v_length = core_len(&[v_collapsed.clone()])?;
+    v_too_long = core_gt(&[v_length.clone(), v_max_chars.clone()])?;
+    if core_truthy(&v_too_long) {
+        v_keep = core_add(&[v_max_chars.clone(), CoreValue::Num(-1f64)])?;
+        v_head = core_string_slice(&[v_collapsed.clone(), CoreValue::Num(0f64), v_keep.clone()])?;
+        v_cut = core_string_format(&[CoreValue::from("{}…"), v_head.clone()])?;
+        return Ok(v_cut.clone());
+    }
+    return Ok(v_collapsed.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_stage_step_turn(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_stage_step_turn");
+    let mut v_state = core_arg(args, 0);
+    let mut v_counts = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_type = CoreValue::Null;
+    let mut v_in_stage = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_is_step = CoreValue::Null;
+    let mut v_log = CoreValue::Null;
+    let mut v_log_start = CoreValue::Null;
+    let mut v_next_index = CoreValue::Null;
+    let mut v_next_steps = CoreValue::Null;
+    let mut v_steps = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_log_start = core_get(
+        &v_state,
+        &CoreValue::from("stage_log_start"),
+        CoreValue::Num(0f64),
+    );
+    v_steps = CoreValue::Num(0f64);
+    v_index = CoreValue::Num(0f64);
+    for v_entry in core_iter(&v_log)? {
+        let mut v_entry = v_entry;
+        v_in_stage = core_gte(&[v_index.clone(), v_log_start.clone()])?;
+        v_entry_type = core_get(&v_entry, &CoreValue::from("type"), CoreValue::from(""));
+        v_is_step = core_eq(&[v_entry_type.clone(), CoreValue::from("runtime_step")])?;
+        v_counts = core_and(&[v_in_stage.clone(), v_is_step.clone()])?;
+        if core_truthy(&v_counts) {
+            v_next_steps = core_add(&[v_steps.clone(), CoreValue::Num(1f64)])?;
+            v_steps = v_next_steps.clone();
+        }
+        v_next_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+        v_index = v_next_index.clone();
+    }
+    v_turn = core_add(&[v_steps.clone(), CoreValue::Num(1f64)])?;
+    return Ok(v_turn.clone());
 }
 
 #[allow(
@@ -129317,7 +129495,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (961 of 961 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (963 of 963 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

@@ -34738,6 +34738,12 @@ final class Core {
     Core.set(record, "arguments", args);
     Core.set(record, "status", status);
     Core.set(record, "result", result);
+    Object step_turn = Core.get(state, "active_step_turn", null);
+    Object no_step_turn = Core.isNone(step_turn);
+    if (Core.truthy(no_step_turn)) {
+      step_turn = Core._agent_stage_step_turn(state);
+    }
+    Core.set(record, "turn", step_turn);
     Core.append(trace, record);
     Core.set(state, "function_call_traces", trace);
     Object action_log = Core.get(state, "action_log", empty_list);
@@ -35686,6 +35692,8 @@ final class Core {
     if (Core.truthy(missing_session)) {
       session = Core._agent_runtime_create_session(state, runtime, globals, runtime_options);
     }
+    Object step_turn = Core._agent_stage_step_turn(state);
+    Core.set(state, "active_step_turn", step_turn);
     Object raw = Core.agentRuntimeExecute(session, code, runtime_options);
     Object normalized = Core._normalize_agent_runtime_step_result(raw, code);
     Object closed = Core.get(normalized, "error_category", "");
@@ -35769,6 +35777,7 @@ final class Core {
       Core.set(state, "status_log", status_log);
       Core._agent_record_trace_event(state, "status", status);
     }
+    Core.mapDelete(state, "active_step_turn");
     return normalized;
   }
 
@@ -37647,26 +37656,47 @@ final class Core {
       Object failed = Core.eq(status, "error");
       if (Core.truthy(failed)) {
         Object result = Core.get(call, "result", null);
-        Object error_text = Core.get(result, "error", "tool call failed");
-        Object error_preview = Core.stringSlice(error_text, 0, 120);
+        Object error_raw = Core.get(result, "error", "tool call failed");
+        Object error_text = Core.stringStr(error_raw);
+        Object error_line = Core._agent_truncate_inline(error_text, 120);
         Object qualified_name = Core.get(call, "qualified_name", "tool");
-        Object signature_error = Core.stringSlice(error_text, 0, 60);
-        Object signature = Core.stringFormat("{}:{}", qualified_name, signature_error);
-        Object detail = Core.stringFormat("{} failed: {}", qualified_name, error_preview);
-        Object signal = new java.util.LinkedHashMap<String, Object>();
-        Core.set(signal, "kind", "tool_error");
-        Core.set(signal, "turn", 0);
-        Core.set(signal, "signature", signature);
-        Core.set(signal, "detail", detail);
-        Object arguments = Core.get(call, "arguments", null);
-        Object has_arguments = Core.isNotNone(arguments);
-        if (Core.truthy(has_arguments)) {
-          Object arguments_text = Core.stringFormat("{}", arguments);
-          Object arguments_preview = Core.stringSlice(arguments_text, 0, 240);
-          Core.set(signal, "code", arguments_preview);
+        Object signature_error = Core.stringSlice(error_line, 0, 60);
+        Object signature = Core.stringFormat("{}: {}", qualified_name, signature_error);
+        Object merged = Boolean.FALSE;
+        for (Object existing : Core.iter(signals)) {
+          Object existing_kind = Core.get(existing, "kind", "");
+          Object existing_signature = Core.get(existing, "signature", "");
+          Object same_kind = Core.eq(existing_kind, "tool_error");
+          Object same_signature = Core.eq(existing_signature, signature);
+          Object same = Core.and(same_kind, same_signature);
+          Object not_merged = Core.not(merged);
+          Object merge_here = Core.and(same, not_merged);
+          if (Core.truthy(merge_here)) {
+            Object existing_count = Core.get(existing, "occurrences", 1);
+            Object next_count = Core.add(existing_count, 1);
+            Core.set(existing, "occurrences", next_count);
+            merged = Boolean.TRUE;
+          }
         }
-        Core.set(signal, "occurrences", 1);
-        Core.append(signals, signal);
+        Object add_signal = Core.not(merged);
+        if (Core.truthy(add_signal)) {
+          Object detail = Core.stringFormat("{} failed: {}", qualified_name, error_line);
+          Object signal = new java.util.LinkedHashMap<String, Object>();
+          Core.set(signal, "kind", "tool_error");
+          Object call_turn = Core.get(call, "turn", 0);
+          Core.set(signal, "turn", call_turn);
+          Core.set(signal, "signature", signature);
+          Core.set(signal, "detail", detail);
+          Object has_arguments = Core.mapContains(call, "arguments");
+          if (Core.truthy(has_arguments)) {
+            Object arguments = Core.get(call, "arguments", null);
+            Object arguments_text = Core.jsonStringify(arguments);
+            Object arguments_preview = Core._agent_truncate_inline(arguments_text, 240);
+            Core.set(signal, "code", arguments_preview);
+          }
+          Core.set(signal, "occurrences", 1);
+          Core.append(signals, signal);
+        }
       }
     }
     Core.set(state, "failure_signals", signals);
@@ -38944,6 +38974,9 @@ final class Core {
       Core.set(state, "distiller_loaded_skill_docs", distiller_skills);
     }
     Core.set(state, "active_stage", "distiller");
+    Object distiller_log_start = Core.get(state, "action_log", empty_list);
+    Object distiller_log_start_count = Core.len(distiller_log_start);
+    Core.set(state, "stage_log_start", distiller_log_start_count);
     Object transcribed_values = Core._agent_transcribe_audio_inputs(state, client, values, options);
     values = transcribed_values;
     Object runtime_input_names = new java.util.ArrayList<Object>();
@@ -39062,6 +39095,9 @@ final class Core {
     executor_skills_after = Core._agent_merge_skill_results(executor_skills_after, distiller_skills_after);
     Core.set(state, "loaded_skill_docs", executor_skills_after);
     Core.set(state, "active_stage", "executor");
+    Object executor_log_start = Core.get(state, "action_log", empty_list);
+    Object executor_log_start_count = Core.len(executor_log_start);
+    Core.set(state, "stage_log_start", executor_log_start_count);
     Object executor_payload = Core.none();
     Object distiller_payload_type = Core.get(distiller_payload, "type", "");
     Object distiller_is_respond = Core.eq(distiller_payload_type, "respond");
@@ -39562,6 +39598,44 @@ final class Core {
     Object record_responder_description = Core.get(state, "responder_description", "");
     Core.set(record, "responder_description", record_responder_description);
     return record;
+  }
+
+  static Object _agent_truncate_inline(Object text, Object max_chars) {
+    axirCoverageMark("_agent_truncate_inline");
+    Object spaced = Core.regexReplace("\\s+", " ", text);
+    Object collapsed = Core.stringTrim(spaced);
+    Object length = Core.len(collapsed);
+    Object too_long = Core.gt(length, max_chars);
+    if (Core.truthy(too_long)) {
+      Object keep = Core.add(max_chars, -1);
+      Object head = Core.stringSlice(collapsed, 0, keep);
+      Object cut = Core.stringFormat("{}…", head);
+      return cut;
+    }
+    return collapsed;
+  }
+
+  static Object _agent_stage_step_turn(Object state) {
+    axirCoverageMark("_agent_stage_step_turn");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object log = Core.get(state, "action_log", empty_list);
+    Object log_start = Core.get(state, "stage_log_start", 0);
+    Object steps = 0;
+    Object index = 0;
+    for (Object entry : Core.iter(log)) {
+      Object in_stage = Core.gte(index, log_start);
+      Object entry_type = Core.get(entry, "type", "");
+      Object is_step = Core.eq(entry_type, "runtime_step");
+      Object counts = Core.and(in_stage, is_step);
+      if (Core.truthy(counts)) {
+        Object next_steps = Core.add(steps, 1);
+        steps = next_steps;
+      }
+      Object next_index = Core.add(index, 1);
+      index = next_index;
+    }
+    Object turn = Core.add(steps, 1);
+    return turn;
   }
 
   static Object _flow_factory(Object options) {

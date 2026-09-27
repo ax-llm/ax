@@ -36366,6 +36366,12 @@ Value Core::_agent_record_callable_result(Value state, Value request, Value resu
   Core::set(record, Value("arguments"), args);
   Core::set(record, Value("status"), status);
   Core::set(record, Value("result"), result);
+  Value step_turn = Core::get(state, Value("active_step_turn"), Value());
+  Value no_step_turn = Core::is_none(step_turn);
+  if (Core::truthy(no_step_turn)) {
+    step_turn = Core::_agent_stage_step_turn(state);
+  }
+  Core::set(record, Value("turn"), step_turn);
   Core::append(trace, record);
   Core::set(state, Value("function_call_traces"), trace);
   Value action_log = Core::get(state, Value("action_log"), empty_list);
@@ -37314,6 +37320,8 @@ Value Core::_agent_runtime_execute_step(Value state, Value runtime, Value sessio
   if (Core::truthy(missing_session)) {
     session = Core::_agent_runtime_create_session(state, runtime, globals, runtime_options);
   }
+  Value step_turn = Core::_agent_stage_step_turn(state);
+  Core::set(state, Value("active_step_turn"), step_turn);
   Value raw = Core::agent_runtime_execute(session, code, runtime_options);
   Value normalized = Core::_normalize_agent_runtime_step_result(raw, code);
   Value closed = Core::get(normalized, Value("error_category"), Value(""));
@@ -37397,6 +37405,7 @@ Value Core::_agent_runtime_execute_step(Value state, Value runtime, Value sessio
     Core::set(state, Value("status_log"), status_log);
     Core::_agent_record_trace_event(state, Value("status"), status);
   }
+  Core::map_delete(state, Value("active_step_turn"));
   return normalized;
 }
 
@@ -39276,26 +39285,47 @@ Value Core::_agent_build_failure_signals(Value state) {
     Value failed = Core::eq(status, Value("error"));
     if (Core::truthy(failed)) {
       Value result = Core::get(call, Value("result"), Value());
-      Value error_text = Core::get(result, Value("error"), Value("tool call failed"));
-      Value error_preview = Core::string_slice(error_text, Value(0), Value(120));
+      Value error_raw = Core::get(result, Value("error"), Value("tool call failed"));
+      Value error_text = Core::string_str(error_raw);
+      Value error_line = Core::_agent_truncate_inline(error_text, Value(120));
       Value qualified_name = Core::get(call, Value("qualified_name"), Value("tool"));
-      Value signature_error = Core::string_slice(error_text, Value(0), Value(60));
-      Value signature = Core::string_format(Value("{}:{}"), qualified_name, signature_error);
-      Value detail = Core::string_format(Value("{} failed: {}"), qualified_name, error_preview);
-      Value signal = Value::object();
-      Core::set(signal, Value("kind"), Value("tool_error"));
-      Core::set(signal, Value("turn"), Value(0));
-      Core::set(signal, Value("signature"), signature);
-      Core::set(signal, Value("detail"), detail);
-      Value arguments = Core::get(call, Value("arguments"), Value());
-      Value has_arguments = Core::is_not_none(arguments);
-      if (Core::truthy(has_arguments)) {
-        Value arguments_text = Core::string_format(Value("{}"), arguments);
-        Value arguments_preview = Core::string_slice(arguments_text, Value(0), Value(240));
-        Core::set(signal, Value("code"), arguments_preview);
+      Value signature_error = Core::string_slice(error_line, Value(0), Value(60));
+      Value signature = Core::string_format(Value("{}: {}"), qualified_name, signature_error);
+      Value merged = Value(false);
+      for (auto existing : Core::iter(signals)) {
+        Value existing_kind = Core::get(existing, Value("kind"), Value(""));
+        Value existing_signature = Core::get(existing, Value("signature"), Value(""));
+        Value same_kind = Core::eq(existing_kind, Value("tool_error"));
+        Value same_signature = Core::eq(existing_signature, signature);
+        Value same = Core::and_(same_kind, same_signature);
+        Value not_merged = Core::not_(merged);
+        Value merge_here = Core::and_(same, not_merged);
+        if (Core::truthy(merge_here)) {
+          Value existing_count = Core::get(existing, Value("occurrences"), Value(1));
+          Value next_count = Core::add(existing_count, Value(1));
+          Core::set(existing, Value("occurrences"), next_count);
+          merged = Value(true);
+        }
       }
-      Core::set(signal, Value("occurrences"), Value(1));
-      Core::append(signals, signal);
+      Value add_signal = Core::not_(merged);
+      if (Core::truthy(add_signal)) {
+        Value detail = Core::string_format(Value("{} failed: {}"), qualified_name, error_line);
+        Value signal = Value::object();
+        Core::set(signal, Value("kind"), Value("tool_error"));
+        Value call_turn = Core::get(call, Value("turn"), Value(0));
+        Core::set(signal, Value("turn"), call_turn);
+        Core::set(signal, Value("signature"), signature);
+        Core::set(signal, Value("detail"), detail);
+        Value has_arguments = Core::map_contains(call, Value("arguments"));
+        if (Core::truthy(has_arguments)) {
+          Value arguments = Core::get(call, Value("arguments"), Value());
+          Value arguments_text = Core::json_stringify(arguments);
+          Value arguments_preview = Core::_agent_truncate_inline(arguments_text, Value(240));
+          Core::set(signal, Value("code"), arguments_preview);
+        }
+        Core::set(signal, Value("occurrences"), Value(1));
+        Core::append(signals, signal);
+      }
     }
   }
   Core::set(state, Value("failure_signals"), signals);
@@ -40576,6 +40606,9 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
     Core::set(state, Value("distiller_loaded_skill_docs"), distiller_skills);
   }
   Core::set(state, Value("active_stage"), Value("distiller"));
+  Value distiller_log_start = Core::get(state, Value("action_log"), empty_list);
+  Value distiller_log_start_count = Core::len(distiller_log_start);
+  Core::set(state, Value("stage_log_start"), distiller_log_start_count);
   Value transcribed_values = Core::_agent_transcribe_audio_inputs(state, client, values, options);
   values = transcribed_values;
   Value runtime_input_names = Value::array();
@@ -40694,6 +40727,9 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
   executor_skills_after = Core::_agent_merge_skill_results(executor_skills_after, distiller_skills_after);
   Core::set(state, Value("loaded_skill_docs"), executor_skills_after);
   Core::set(state, Value("active_stage"), Value("executor"));
+  Value executor_log_start = Core::get(state, Value("action_log"), empty_list);
+  Value executor_log_start_count = Core::len(executor_log_start);
+  Core::set(state, Value("stage_log_start"), executor_log_start_count);
   Value executor_payload = Core::none();
   Value distiller_payload_type = Core::get(distiller_payload, Value("type"), Value(""));
   Value distiller_is_respond = Core::eq(distiller_payload_type, Value("respond"));
@@ -41198,6 +41234,44 @@ Value Core::_agent_use_stage_mode(Value state, Value options) {
   Value record_responder_description = Core::get(state, Value("responder_description"), Value(""));
   Core::set(record, Value("responder_description"), record_responder_description);
   return record;
+}
+
+Value Core::_agent_truncate_inline(Value text, Value max_chars) {
+  axir_coverage_mark("_agent_truncate_inline");
+  Value spaced = Core::regex_replace(Value("\\s+"), Value(" "), text);
+  Value collapsed = Core::string_trim(spaced);
+  Value length = Core::len(collapsed);
+  Value too_long = Core::gt(length, max_chars);
+  if (Core::truthy(too_long)) {
+    Value keep = Core::add(max_chars, Value(-1));
+    Value head = Core::string_slice(collapsed, Value(0), keep);
+    Value cut = Core::string_format(Value("{}…"), head);
+    return cut;
+  }
+  return collapsed;
+}
+
+Value Core::_agent_stage_step_turn(Value state) {
+  axir_coverage_mark("_agent_stage_step_turn");
+  Value empty_list = Value::array();
+  Value log = Core::get(state, Value("action_log"), empty_list);
+  Value log_start = Core::get(state, Value("stage_log_start"), Value(0));
+  Value steps = Value(0);
+  Value index = Value(0);
+  for (auto entry : Core::iter(log)) {
+    Value in_stage = Core::gte(index, log_start);
+    Value entry_type = Core::get(entry, Value("type"), Value(""));
+    Value is_step = Core::eq(entry_type, Value("runtime_step"));
+    Value counts = Core::and_(in_stage, is_step);
+    if (Core::truthy(counts)) {
+      Value next_steps = Core::add(steps, Value(1));
+      steps = next_steps;
+    }
+    Value next_index = Core::add(index, Value(1));
+    index = next_index;
+  }
+  Value turn = Core::add(steps, Value(1));
+  return turn;
 }
 
 Value Core::_flow_factory(Value options) {

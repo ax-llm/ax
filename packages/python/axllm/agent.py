@@ -7745,6 +7745,13 @@ def _agent_record_callable_result(state: Any, request: Any, result: Any, options
     record["arguments"] = args
     record["status"] = status
     record["result"] = result
+    step_turn = _core_get(state, "active_step_turn", None)
+    no_step_turn = _core_is_none(step_turn)
+    if no_step_turn:
+        step_turn = _agent_stage_step_turn(state)
+    else:
+        pass
+    record["turn"] = step_turn
     trace.append(record)
     state["function_call_traces"] = trace
     action_log = _core_get(state, "action_log", empty_list)
@@ -8693,6 +8700,8 @@ def _agent_runtime_execute_step(state: Any, runtime: Any, session: Any, code: st
         session = _agent_runtime_create_session(state, runtime, globals, runtime_options)
     else:
         pass
+    step_turn = _agent_stage_step_turn(state)
+    state["active_step_turn"] = step_turn
     raw = _core_agent_runtime_execute(session, code, runtime_options)
     normalized = _normalize_agent_runtime_step_result(raw, code)
     closed = _core_get(normalized, "error_category", "")
@@ -8784,6 +8793,7 @@ def _agent_runtime_execute_step(state: Any, runtime: Any, session: Any, code: st
         _agent_record_trace_event(state, "status", status)
     else:
         pass
+    _core_map_delete(state, "active_step_turn")
     return normalized
 
 
@@ -10700,27 +10710,49 @@ def _agent_build_failure_signals(state: Any) -> list[Any]:
         failed = _core_eq(status, "error")
         if failed:
             result = _core_get(call, "result", None)
-            error_text = _core_get(result, "error", "tool call failed")
-            error_preview = _core_string_slice(error_text, 0, 120)
+            error_raw = _core_get(result, "error", "tool call failed")
+            error_text = _core_string_str(error_raw)
+            error_line = _agent_truncate_inline(error_text, 120)
             qualified_name = _core_get(call, "qualified_name", "tool")
-            signature_error = _core_string_slice(error_text, 0, 60)
-            signature = _core_string_format("{}:{}", qualified_name, signature_error)
-            detail = _core_string_format("{} failed: {}", qualified_name, error_preview)
-            signal = {}
-            signal["kind"] = "tool_error"
-            signal["turn"] = 0
-            signal["signature"] = signature
-            signal["detail"] = detail
-            arguments = _core_get(call, "arguments", None)
-            has_arguments = _core_is_not_none(arguments)
-            if has_arguments:
-                arguments_text = _core_string_format("{}", arguments)
-                arguments_preview = _core_string_slice(arguments_text, 0, 240)
-                signal["code"] = arguments_preview
+            signature_error = _core_string_slice(error_line, 0, 60)
+            signature = _core_string_format("{}: {}", qualified_name, signature_error)
+            merged = False
+            for existing in signals:
+                existing_kind = _core_get(existing, "kind", "")
+                existing_signature = _core_get(existing, "signature", "")
+                same_kind = _core_eq(existing_kind, "tool_error")
+                same_signature = _core_eq(existing_signature, signature)
+                same = _core_and(same_kind, same_signature)
+                not_merged = _core_not(merged)
+                merge_here = _core_and(same, not_merged)
+                if merge_here:
+                    existing_count = _core_get(existing, "occurrences", 1)
+                    next_count = _core_add(existing_count, 1)
+                    existing["occurrences"] = next_count
+                    merged = True
+                else:
+                    pass
+            add_signal = _core_not(merged)
+            if add_signal:
+                detail = _core_string_format("{} failed: {}", qualified_name, error_line)
+                signal = {}
+                signal["kind"] = "tool_error"
+                call_turn = _core_get(call, "turn", 0)
+                signal["turn"] = call_turn
+                signal["signature"] = signature
+                signal["detail"] = detail
+                has_arguments = _core_map_contains(call, "arguments")
+                if has_arguments:
+                    arguments = _core_get(call, "arguments", None)
+                    arguments_text = _core_json_stringify(arguments)
+                    arguments_preview = _agent_truncate_inline(arguments_text, 240)
+                    signal["code"] = arguments_preview
+                else:
+                    pass
+                signal["occurrences"] = 1
+                signals.append(signal)
             else:
                 pass
-            signal["occurrences"] = 1
-            signals.append(signal)
         else:
             pass
     state["failure_signals"] = signals
@@ -11986,6 +12018,9 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
     else:
         pass
     state["active_stage"] = "distiller"
+    distiller_log_start = _core_get(state, "action_log", empty_list)
+    distiller_log_start_count = _core_len(distiller_log_start)
+    state["stage_log_start"] = distiller_log_start_count
     transcribed_values = _agent_transcribe_audio_inputs(state, client, values, options)
     values = transcribed_values
     runtime_input_names = []
@@ -12104,6 +12139,9 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
     executor_skills_after = _agent_merge_skill_results(executor_skills_after, distiller_skills_after)
     state["loaded_skill_docs"] = executor_skills_after
     state["active_stage"] = "executor"
+    executor_log_start = _core_get(state, "action_log", empty_list)
+    executor_log_start_count = _core_len(executor_log_start)
+    state["stage_log_start"] = executor_log_start_count
     executor_payload = _core_none()
     distiller_payload_type = _core_get(distiller_payload, "type", "")
     distiller_is_respond = _core_eq(distiller_payload_type, "respond")
@@ -12617,5 +12655,44 @@ def _agent_use_stage_mode(state: Any, options: Any) -> Any:
     record_responder_description = _core_get(state, "responder_description", "")
     record["responder_description"] = record_responder_description
     return record
+
+
+def _agent_truncate_inline(text: str, max_chars: int) -> str:
+    _core_coverage_mark("_agent_truncate_inline")
+    spaced = _core_regex_replace("\\s+", " ", text)
+    collapsed = str(spaced).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    length = _core_len(collapsed)
+    too_long = _core_gt(length, max_chars)
+    if too_long:
+        keep = _core_add(max_chars, -1)
+        head = _core_string_slice(collapsed, 0, keep)
+        cut = _core_string_format("{}…", head)
+        return cut
+    else:
+        pass
+    return collapsed
+
+
+def _agent_stage_step_turn(state: Any) -> i64:
+    _core_coverage_mark("_agent_stage_step_turn")
+    empty_list = []
+    log = _core_get(state, "action_log", empty_list)
+    log_start = _core_get(state, "stage_log_start", 0)
+    steps = 0
+    index = 0
+    for entry in log:
+        in_stage = _core_gte(index, log_start)
+        entry_type = _core_get(entry, "type", "")
+        is_step = _core_eq(entry_type, "runtime_step")
+        counts = _core_and(in_stage, is_step)
+        if counts:
+            next_steps = _core_add(steps, 1)
+            steps = next_steps
+        else:
+            pass
+        next_index = _core_add(index, 1)
+        index = next_index
+    turn = _core_add(steps, 1)
+    return turn
 
 # END AXIR CORE EMITTED FUNCTIONS
