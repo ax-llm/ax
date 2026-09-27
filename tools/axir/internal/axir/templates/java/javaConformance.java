@@ -1262,6 +1262,11 @@ public final class Conformance {
       String text = Json.stringify(client.requests);
       for (Object item : Core.asList(fixture.get("expected_request_contains"))) if (!text.contains(String.valueOf(item))) throw new FixtureError("request missing " + item + ": " + text);
     }
+    // expected_chat_prompt: the first request's whole chat prompt.
+    if (fixture.containsKey("expected_chat_prompt")) {
+      if (client.requests.isEmpty()) throw new FixtureError("fixture expected a request but none were sent");
+      assertEqual(client.requests.get(0).get("chat_prompt"), fixture.get("expected_chat_prompt"), "chat prompt");
+    }
     // A fixture that stops early already ran through the public stream.
     if (stopAfter == null) runPublicStreamingForward(fixture, deltas, failure, toolBuild.calls, processorCalls);
   }
