@@ -1396,6 +1396,11 @@ func coreTypeIs(value Value, typeName Value) Value {
 		return value == nil
 	case "json":
 		return true
+	case "date":
+		// A time.Time, which a date or datetime field takes where TypeScript
+		// takes a Date.
+		_, ok := jsDateMillis(value)
+		return ok
 	default:
 		return false
 	}
@@ -1431,6 +1436,117 @@ func _core_math_abs(value Value) Value             { return math.Abs(num(value))
 func _core_string_utf16_units(value Value) Value { units:=utf16.Encode([]rune(display(value)));out:=[]Value{};for _,unit:=range units{out=append(out,int(unit))};return out }
 
 func _core_string_codepoint_length(value Value) Value { return len([]rune(display(value))) }
+
+// jsDateMillis is the epoch milliseconds of a time.Time (or *time.Time), which
+// a date or datetime field takes where TypeScript takes a Date.
+func jsDateMillis(value Value) (int64, bool) {
+	switch v := value.(type) {
+	case time.Time:
+		return v.UnixMilli(), true
+	case *time.Time:
+		if v != nil {
+			return v.UnixMilli(), true
+		}
+	}
+	return 0, false
+}
+
+// jsISOString is Date.prototype.toISOString of epoch milliseconds.
+func jsISOString(millis int64) string {
+	t := time.UnixMilli(millis).UTC()
+	year := t.Year()
+	yearText := fmt.Sprintf("%04d", year)
+	if year < 0 {
+		yearText = fmt.Sprintf("-%06d", -year)
+	} else if year > 9999 {
+		yearText = fmt.Sprintf("+%06d", year)
+	}
+	return fmt.Sprintf("%s-%02d-%02dT%02d:%02d:%02d.%03dZ", yearText, int(t.Month()), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond()/1000000)
+}
+
+// jsDatePromptText is the prompt text TypeScript writes for a Date in a
+// date-typed field (processValue in src/ax/dsp/prompt.ts): a date field's UTC
+// day, a datetime without milliseconds, and for a range with two dates the
+// {start, end} JSON of those; a range object holding anything else is its
+// JSON with each date as toISOString. It reports false when TS would not see
+// a Date.
+func jsDatePromptText(typeName string, value Value) (string, bool) {
+	switch typeName {
+	case "date", "datetime":
+		millis, ok := jsDateMillis(value)
+		if !ok {
+			return "", false
+		}
+		iso := jsISOString(millis)
+		if typeName == "date" {
+			return iso[:strings.Index(iso, "T")], true
+		}
+		return iso[:len(iso)-5] + "Z", true
+	case "dateRange", "datetimeRange":
+		bounds, ok := value.(map[string]Value)
+		if !ok {
+			return "", false
+		}
+		start, hasStart := bounds["start"]
+		end, hasEnd := bounds["end"]
+		if !hasStart || !hasEnd {
+			return "", false
+		}
+		startMillis, startDate := jsDateMillis(start)
+		endMillis, endDate := jsDateMillis(end)
+		if startDate && endDate {
+			format := func(millis int64) string {
+				iso := jsISOString(millis)
+				if typeName == "dateRange" {
+					return iso[:10]
+				}
+				return iso[:len(iso)-5] + "Z"
+			}
+			return prettyJSONText(Object("start", format(startMillis), "end", format(endMillis))), true
+		}
+		dated := false
+		copied := Object()
+		for _, key := range orderedKeys(bounds) {
+			item := bounds[key]
+			if millis, ok := jsDateMillis(item); ok {
+				item = jsISOString(millis)
+				dated = true
+			}
+			coreSet(copied, key, item)
+		}
+		if dated {
+			return prettyJSONText(copied), true
+		}
+	}
+	return "", false
+}
+
+var dateZoneLocations sync.Map
+
+// _core_date_zone_offset is the UTC offset in seconds of the IANA zone name
+// at an instant (epoch milliseconds), from time.LoadLocation (the platform
+// tz database, $ZONEINFO, or an embedded time/tzdata). It errors for a zone
+// the database does not have; "" and "Local" are not zone names.
+func _core_date_zone_offset(name Value, epochMillis Value) (Value, error) {
+	zone := display(name)
+	var location *time.Location
+	if cached, ok := dateZoneLocations.Load(zone); ok {
+		location = cached.(*time.Location)
+	} else {
+		if zone == "" || zone == "Local" {
+			return nil, AxError{Category: "runtime", Message: "unknown time zone " + zone}
+		}
+		loaded, err := time.LoadLocation(zone)
+		if err != nil {
+			return nil, AxError{Category: "runtime", Message: "unknown time zone " + zone}
+		}
+		dateZoneLocations.Store(zone, loaded)
+		location = loaded
+	}
+	seconds := math.Floor(num(epochMillis) / 1000)
+	_, offset := time.Unix(int64(seconds), 0).In(location).Zone()
+	return float64(offset), nil
+}
 func _core_math_is_finite(value Value) Value { return !math.IsNaN(num(value)) && !math.IsInf(num(value), 0) }
 
 func _core_math_floor(value Value) Value { return math.Floor(num(value)) }
@@ -9869,9 +9985,26 @@ func _core_axgen_render_examples_impl(turns Value, label string, gen Value) Valu
 func axgenFormatValues(gen Value, values Value) string {
 	lines := []string{}
 	for _, key := range orderedKeys(asMap(values)) {
-		lines = append(lines, title(key)+": "+display(coreGet(values, key, nil)))
+		value := coreGet(values, key, nil)
+		text := display(value)
+		// A time.Time in a date-typed field reads as TS renders a Date.
+		if dated, ok := jsDatePromptText(axgenFieldTypeName(gen, key), value); ok {
+			text = dated
+		}
+		lines = append(lines, title(key)+": "+text)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// axgenFieldTypeName is the type name of the signature field called name.
+func axgenFieldTypeName(gen Value, name string) string {
+	sig := signatureFromValue(coreGet(gen, "signature", nil))
+	for _, field := range append(append([]Field{}, sig.Inputs...), sig.Outputs...) {
+		if field.Name == name {
+			return field.Type.Name
+		}
+	}
+	return ""
 }
 func _core_axgen_apply_field_processors(gen Value, output Value) Value {
 	result := cloneMap(asMap(output))
@@ -11087,6 +11220,10 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformancePrompt(fixture)
 	case "number_format":
 		runConformanceNumberFormat(fixture)
+	case "date_field_value":
+		runConformanceDateFieldValue(fixture)
+	case "date_input":
+		runConformanceDateInput(fixture)
 	case "template":
 		assertEqual(mustCore(render_template_content(coreGet(fixture, "template", ""), coreGet(fixture, "vars", Object()), coreGet(fixture, "context", "fixture-template"))), coreGet(fixture, "expected_output", ""), "template output")
 	case "template_error":
@@ -13457,6 +13594,91 @@ func runConformanceNumberFormat(fixture map[string]Value) {
 		check("ordered JSON", orderedStringify(list), "["+text+"]")
 		check("json.pretty", display(_core_json_pretty(list)), "[\n  "+text+"\n]")
 	}
+}
+
+// runConformanceDateFieldValue runs TS's validateAndParseFieldValue cases on
+// date-typed fields with parse_dates on: each case's {has, value}, or its
+// exact error message.
+func runConformanceDateFieldValue(fixture map[string]Value) {
+	parseDates := coreTruthy(coreGet(fixture, "parse_dates", false))
+	for index, item := range coreIter(coreGet(fixture, "cases", Array())) {
+		field := cloneMap(asMap(coreGet(item, "field", Object())))
+		field["parse_dates"] = parseDates
+		text := display(coreGet(item, "text", ""))
+		label := fmt.Sprintf("case %d %q", index, truncateRunes(text, 80))
+		parsed, err := _stream_field_value_impl(field, text)
+		expectedError, wantsError := asMap(item)["expected_error"]
+		if err != nil {
+			if !wantsError {
+				panic(AxError{Category: "fixture", Message: label + ": unexpected error " + err.Error()})
+			}
+			assertEqual(err.Error(), expectedError, label+" error")
+			continue
+		}
+		if wantsError {
+			panic(AxError{Category: "fixture", Message: label + ": expected error " + display(expectedError) + ", got " + stableStringify(parsed)})
+		}
+		actual := Object("has", coreTruthy(coreGet(parsed, "has", false)))
+		if coreTruthy(actual["has"]) {
+			actual["value"] = coreGet(parsed, "value", nil)
+		}
+		assertEqual(actual, coreGet(item, "expected", nil), label)
+	}
+}
+
+// conformanceNativeDates turns fixture date markers into time.Time values:
+// {"$date": iso} is its instant, {"$date_only": "YYYY-MM-DD"} midnight UTC.
+func conformanceNativeDates(value Value) Value {
+	switch v := value.(type) {
+	case []Value:
+		out := make([]Value, len(v))
+		for index, item := range v {
+			out[index] = conformanceNativeDates(item)
+		}
+		return out
+	case map[string]Value:
+		if iso, ok := v["$date"].(string); ok {
+			parsed, err := time.Parse(time.RFC3339Nano, iso)
+			if err != nil {
+				panic(AxError{Category: "fixture", Message: "bad $date " + iso})
+			}
+			return parsed
+		}
+		if day, ok := v["$date_only"].(string); ok {
+			parsed, err := time.Parse("2006-01-02", day)
+			if err != nil {
+				panic(AxError{Category: "fixture", Message: "bad $date_only " + day})
+			}
+			return parsed
+		}
+		out := Object()
+		for _, key := range orderedKeys(v) {
+			coreSet(out, key, conformanceNativeDates(v[key]))
+		}
+		return out
+	}
+	return value
+}
+
+// runConformanceDateInput checks that native date inputs and range objects
+// pass input validation and render in the user prompt as TS renders Dates.
+func runConformanceDateInput(fixture map[string]Value) {
+	sig := conformanceBuildSignature(fixture)
+	for index, item := range coreIter(coreGet(fixture, "cases", Array())) {
+		values := conformanceNativeDates(coreGet(item, "values", Object()))
+		label := fmt.Sprintf("case %d", index)
+		mustCore(validate_fields(sig.Inputs, values, "input"))
+		messages := asSlice(mustCore(render_prompt(sig, values, Array(), Object())))
+		assertEqual(coreGet(messages[len(messages)-1], "content", nil), coreGet(item, "expected_user_content", nil), label)
+	}
+}
+
+func truncateRunes(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return text
 }
 
 func runConformanceFlowMermaid(fixture map[string]Value) {
@@ -15959,7 +16181,12 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 			}
 			panic(AxError{Category: "runtime", Message: "Value for input field '" + field.Name + "' is required."})
 		}
-		text := field.Title + ": " + goPromptValueText(value) + "\n"
+		valueText := goPromptValueText(value)
+		// A time.Time in a date-typed field reads as TS renders a Date.
+		if dated, ok := jsDatePromptText(field.Type.Name, value); ok {
+			valueText = dated
+		}
+		text := field.Title + ": " + valueText + "\n"
 		part := Object("type", "text", "text", text)
 		if field.IsCached {
 			coreSet(part, "cache", true)

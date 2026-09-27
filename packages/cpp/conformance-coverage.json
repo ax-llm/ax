@@ -300,6 +300,18 @@
       },
       {
         "suite": "axgen",
+        "kind": "date_field_value",
+        "runner": "cpp:axgen",
+        "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "date_input",
+        "runner": "cpp:axgen",
+        "category": "semantic"
+      },
+      {
+        "suite": "axgen",
         "kind": "stream",
         "runner": "cpp:axgen",
         "category": "semantic"

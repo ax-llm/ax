@@ -284,6 +284,23 @@
           "    for field, value in delta[\"delta\"].items():",
           "        merged[field] = merged.get(field, \"\") + value if isinstance(value, str) else value"
         ]
+      },
+      "dates": {
+        "sourcePath": "src/examples/python/generation/date-fields.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "planner = ax(",
+          "    'emailText:string, sentAt:datetime -> meetingStartsAt:datetime, travelWindow:dateRange',",
+          "    {\"parse_dates\": True},",
+          ")",
+          "out = planner.forward(client, {",
+          "    \"emailText\": email_text,",
+          "    \"sentAt\": datetime.datetime(2024, 5, 2, 16, 30, tzinfo=datetime.timezone.utc),",
+          "})",
+          "print(out[\"meetingStartsAt\"])  # 2024-05-07T19:00:00.000Z",
+          "print(out[\"travelWindow\"])  # {\"start\": \"2024-05-08T00:00:00.000Z\", \"end\": ...}"
+        ]
       }
     },
     "signatures": {
