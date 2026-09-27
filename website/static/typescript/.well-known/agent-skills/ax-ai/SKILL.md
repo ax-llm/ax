@@ -944,9 +944,10 @@ Use `const control = runControl()` and pass `{ control }` in forward options.
 Call `control.steer(text)`, `control.setThinkingTokenBudget('high')`, or
 `control.abort()`. `control.onEvent(listener)` observes queued/applied updates,
 run lifecycle, tool activity, and model output activity. A run emits `started`,
-then `completed`, `failed` with its `error`, or `aborted`. `aborted` means the
-run ended on purpose before completing: through `control.abort()`, or because
-the consumer stopped a `streamingForward` early (for example with `break`).
+then `completed` or `failed` (with its `error`). `control.abort()` emits
+`aborted` at once, and the run then ends as `failed` with the abort error. A
+consumer that stops a `streamingForward` early (for example with `break`) ends
+the run as `aborted` instead.
 Untargeted updates apply
 to the root and future descendants. `{ target: 'root/nodeName' }` restricts an
 update to a flow node and its descendants. Completed nodes are not rerun.

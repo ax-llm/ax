@@ -6507,15 +6507,16 @@ func (g *AxGen) outputFieldFor(method string, field string, text bool) {
 	panic(AxError{Category: "signature", Message: method + ": field " + field + " not found"})
 }
 
-// StreamingForward runs the forward and yields TypeScript's streamed updates
-// as the model streams (see AxGenDelta); retries, steps and tools work as in
-// Forward. The forward runs in its own goroutine and waits while the caller
-// handles each update. An error ends the sequence as a final (AxGenDelta{},
-// err) pair. Stopping the iteration early cancels the run.
 // errStreamingConsumerStopped is the cancel cause of a streaming forward
 // whose consumer stopped the iteration early.
 var errStreamingConsumerStopped = errors.New("streaming consumer stopped")
 
+// StreamingForward runs the forward and yields TypeScript's streamed updates
+// as the model streams (see AxGenDelta); retries, steps and tools work as in
+// Forward. The forward runs in its own goroutine and waits while the caller
+// handles each update. An error ends the sequence as a final (AxGenDelta{},
+// err) pair. Stopping the iteration early cancels the run; with a run control
+// the run then ends with an "aborted" event instead of "failed".
 func (g *AxGen) StreamingForward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) iter.Seq2[AxGenDelta, error] {
 	return func(yield func(AxGenDelta, error) bool) {
 		if ctx == nil {

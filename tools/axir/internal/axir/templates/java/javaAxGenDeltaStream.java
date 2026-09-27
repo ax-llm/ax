@@ -14,7 +14,7 @@ import java.util.function.Consumer;
  * caller handles each delta, so processors, assertions and tools never run while the loop body
  * does. Consume the stream once, in try-with-resources: closing it, or leaving the block early,
  * stops the run and waits for the worker to finish; with a run {@code control} the run then ends
- * as aborted, as {@code control.abort()} reports it. An error the forward raises is rethrown from
+ * with an aborted event rather than failed. An error the forward raises is rethrown from
  * the iterator's {@code hasNext()} as the forward raised it, after the deltas sent before it.
  *
  * <pre>{@code

@@ -929,9 +929,8 @@ impl SessionRun {
         }
         Ok(())
     }
-    // Ends the run. A run the streaming consumer stopped early ends as
-    // aborted, as control.abort() reports it; any other run as failed or
-    // completed.
+    // Ends the run. A run the streaming consumer stopped early ends with an
+    // aborted event rather than failed; any other run as failed or completed.
     pub(crate) fn finish(&mut self, error: Option<&AxError>, consumer_stopped: bool) {
         if self.finished { return; }
         self.finished = true;
