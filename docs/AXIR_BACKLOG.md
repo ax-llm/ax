@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-27-stable-stringify-locale-order` [axai] TS stableStringify sorts keys with localeCompare while the ports sort by code point (context-cache tool-state hash)
+  - Status: open
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/ai/base.ts`
+  - Impact: normalizeForStableStringify in src/ax/ai/base.ts orders object keys with localeCompare, which depends on the machine's locale; the ports' stable_stringify sorts by code point. For mixed-case keys the context-cache tool-state hash, and so the provider cache key, differs between TS and the ports and between TS machines. Measure where the hash is persisted before choosing code-point order in TS.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
