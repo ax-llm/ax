@@ -17071,6 +17071,17 @@ fn conformance_flow_mapper_call(spec: &Value, state: &Value) -> Value {
             );
             Value::Object(out)
         }
+        // As the other runners do: the value at "from", stored under "to".
+        "copy" => {
+            let from = map.get("from").and_then(Value::as_str).unwrap_or("");
+            let to = map.get("to").and_then(Value::as_str).unwrap_or("");
+            let mut out = Map::new();
+            out.insert(
+                to.to_string(),
+                conformance_flow_state_value(state, from, Value::Null),
+            );
+            Value::Object(out)
+        }
         _ => map.get("values").cloned().unwrap_or_else(|| json!({})),
     }
 }
@@ -117576,6 +117587,10 @@ fn _flow_execute_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_record_groups_snake = CoreValue::Null;
     let mut v_report = CoreValue::Null;
     let mut v_report_count = CoreValue::Null;
+    let mut v_report_plan_step = CoreValue::Null;
+    let mut v_report_position = CoreValue::Null;
+    let mut v_report_step = CoreValue::Null;
+    let mut v_report_step_index = CoreValue::Null;
     let mut v_reports = CoreValue::Null;
     let mut v_result_state = CoreValue::Null;
     let mut v_sequential_groups = CoreValue::Null;
@@ -117724,8 +117739,12 @@ fn _flow_execute_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                         v_group_start.clone(),
                         v_options.clone(),
                     ])?;
-                    v_current =
-                        _flow_merge_parallel_results(&[v_current.clone(), v_result_state.clone()])?;
+                    v_current = _flow_merge_group_step(&[
+                        v_current.clone(),
+                        v_step.clone(),
+                        v_group_start.clone(),
+                        v_result_state.clone(),
+                    ])?;
                 }
             } else {
                 v_report_count = core_len(&[v_reports.clone()])?;
@@ -117738,6 +117757,7 @@ fn _flow_execute_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                     return Err(core_as_error(&v_error));
                 }
                 v_failures = CoreValue::new_list();
+                v_report_position = CoreValue::Num(0f64);
                 for v_report in core_iter(&v_reports)? {
                     let mut v_report = v_report;
                     v_worker_traces =
@@ -117770,11 +117790,30 @@ fn _flow_execute_steps(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                     } else {
                         v_result_state =
                             core_get(&v_report, &CoreValue::from("state"), CoreValue::Null);
-                        v_current = _flow_merge_parallel_results(&[
+                        v_report_plan_step = core_list_get(&[
+                            v_group_steps.clone(),
+                            v_report_position.clone(),
+                            CoreValue::Null,
+                        ])?;
+                        v_report_step_index = core_get(
+                            &v_report_plan_step,
+                            &CoreValue::from("stepIndex"),
+                            CoreValue::Num(0f64),
+                        );
+                        v_report_step = core_list_get(&[
+                            v_steps.clone(),
+                            v_report_step_index.clone(),
+                            CoreValue::Null,
+                        ])?;
+                        v_current = _flow_merge_group_step(&[
                             v_current.clone(),
+                            v_report_step.clone(),
+                            v_group_start.clone(),
                             v_result_state.clone(),
                         ])?;
                     }
+                    v_report_position =
+                        core_add(&[v_report_position.clone(), CoreValue::Num(1f64)])?;
                 }
                 v_failure_count = core_len(&[v_failures.clone()])?;
                 v_failed = core_gt(&[v_failure_count.clone(), CoreValue::Num(0f64)])?;
@@ -120709,6 +120748,184 @@ fn _flow_to_mermaid(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     }
     v_rendered = _flow_mermaid_render_flow(&[v_flow.clone(), v_options.clone()])?;
     return Ok(v_rendered.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_group_step_changes(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_group_step_changes");
+    let mut v_step = core_arg(args, 0);
+    let mut v_group_start = core_arg(args, 1);
+    let mut v_result_state = core_arg(args, 2);
+    let mut v_after = CoreValue::Null;
+    let mut v_before = CoreValue::Null;
+    let mut v_changes = CoreValue::Null;
+    let mut v_compares_values = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_field_listed = CoreValue::Null;
+    let mut v_guard = CoreValue::Null;
+    let mut v_guard_matches = CoreValue::Null;
+    let mut v_guard_skipped = CoreValue::Null;
+    let mut v_has_guard = CoreValue::Null;
+    let mut v_in_start = CoreValue::Null;
+    let mut v_is_branch = CoreValue::Null;
+    let mut v_is_control = CoreValue::Null;
+    let mut v_is_derive = CoreValue::Null;
+    let mut v_is_explicit_parallel = CoreValue::Null;
+    let mut v_is_feedback = CoreValue::Null;
+    let mut v_is_loop = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_is_parallel = CoreValue::Null;
+    let mut v_is_parallel_merge = CoreValue::Null;
+    let mut v_is_program = CoreValue::Null;
+    let mut v_is_while = CoreValue::Null;
+    let mut v_key_listed = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_missing_step = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_not_program = CoreValue::Null;
+    let mut v_output_field = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_result_field = CoreValue::Null;
+    let mut v_result_fields = CoreValue::Null;
+    let mut v_result_is_map = CoreValue::Null;
+    let mut v_result_key = CoreValue::Null;
+    let mut v_state_key = CoreValue::Null;
+    let mut v_state_keys = CoreValue::Null;
+    let mut v_step_options = CoreValue::Null;
+    let mut v_unchanged = CoreValue::Null;
+    let mut v_writes = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_changes = CoreValue::new_list();
+    v_missing_step = core_is_none(&[v_step.clone()])?;
+    if core_truthy(&v_missing_step) {
+        return Ok(v_changes.clone());
+    }
+    v_kind = core_get(
+        &v_step,
+        &CoreValue::from("kind"),
+        CoreValue::from("execute"),
+    );
+    v_name = core_get(&v_step, &CoreValue::from("name"), CoreValue::from(""));
+    v_step_options = core_get(&v_step, &CoreValue::from("options"), v_empty_map.clone());
+    v_guard = core_get(&v_step_options, &CoreValue::from("guard"), CoreValue::Null);
+    v_has_guard = core_is_not_none(&[v_guard.clone()])?;
+    if core_truthy(&v_has_guard) {
+        v_guard_matches = _flow_evaluate_data_predicate(&[
+            v_guard.clone(),
+            v_group_start.clone(),
+            CoreValue::Bool(false),
+        ])?;
+        v_guard_skipped = core_not(&[v_guard_matches.clone()])?;
+        if core_truthy(&v_guard_skipped) {
+            return Ok(v_changes.clone());
+        }
+    }
+    v_result_key = core_string_format(&[CoreValue::from("{}Result"), v_name.clone()])?;
+    v_is_derive = core_eq(&[v_kind.clone(), CoreValue::from("derive")])?;
+    if core_truthy(&v_is_derive) {
+        v_writes = core_get(&v_step, &CoreValue::from("writes"), v_empty_list.clone());
+        v_output_field = core_list_get(&[v_writes.clone(), CoreValue::Num(0f64), v_name.clone()])?;
+        core_append(&v_changes, v_output_field.clone())?;
+        return Ok(v_changes.clone());
+    }
+    v_is_map = core_eq(&[v_kind.clone(), CoreValue::from("map")])?;
+    v_is_branch = core_eq(&[v_kind.clone(), CoreValue::from("branch")])?;
+    v_is_while = core_eq(&[v_kind.clone(), CoreValue::from("while")])?;
+    v_is_feedback = core_eq(&[v_kind.clone(), CoreValue::from("feedback")])?;
+    v_is_parallel = core_eq(&[v_kind.clone(), CoreValue::from("parallel")])?;
+    v_is_parallel_merge = core_eq(&[v_kind.clone(), CoreValue::from("parallelMerge")])?;
+    v_is_loop = core_or(&[v_is_while.clone(), v_is_feedback.clone()])?;
+    v_is_control = core_or(&[v_is_branch.clone(), v_is_loop.clone()])?;
+    v_is_explicit_parallel = core_or(&[v_is_parallel.clone(), v_is_parallel_merge.clone()])?;
+    v_compares_values = core_or(&[v_is_control.clone(), v_is_explicit_parallel.clone()])?;
+    v_not_program = core_or(&[v_is_map.clone(), v_compares_values.clone()])?;
+    v_is_program = core_not(&[v_not_program.clone()])?;
+    if core_truthy(&v_is_program) {
+        core_append(&v_changes, v_result_key.clone())?;
+        v_result = core_get(&v_result_state, &v_result_key.clone(), CoreValue::Null);
+        v_result_is_map = core_type_is(&v_result, CoreValue::from("object"));
+        if core_truthy(&v_result_is_map) {
+            v_result_fields = core_map_keys(&[v_result.clone()])?;
+            for v_result_field in core_iter(&v_result_fields)? {
+                let mut v_result_field = v_result_field;
+                v_field_listed = core_contains(&[v_changes.clone(), v_result_field.clone()])?;
+                if core_truthy(&v_field_listed) {
+                } else {
+                    core_append(&v_changes, v_result_field.clone())?;
+                }
+            }
+        }
+        return Ok(v_changes.clone());
+    }
+    if core_truthy(&v_is_map) {
+        core_append(&v_changes, v_result_key.clone())?;
+    }
+    v_state_keys = core_map_keys(&[v_result_state.clone()])?;
+    for v_state_key in core_iter(&v_state_keys)? {
+        let mut v_state_key = v_state_key;
+        v_key_listed = core_contains(&[v_changes.clone(), v_state_key.clone()])?;
+        if core_truthy(&v_key_listed) {
+        } else {
+            v_in_start = core_map_contains(&[v_group_start.clone(), v_state_key.clone()])?;
+            if core_truthy(&v_in_start) {
+                v_before = core_get(&v_group_start, &v_state_key.clone(), CoreValue::Null);
+                v_after = core_get(&v_result_state, &v_state_key.clone(), CoreValue::Null);
+                v_unchanged = core_eq(&[v_before.clone(), v_after.clone()])?;
+                if core_truthy(&v_unchanged) {
+                } else {
+                    core_append(&v_changes, v_state_key.clone())?;
+                }
+            } else {
+                core_append(&v_changes, v_state_key.clone())?;
+            }
+        }
+    }
+    return Ok(v_changes.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_merge_group_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_merge_group_step");
+    let mut v_current = core_arg(args, 0);
+    let mut v_step = core_arg(args, 1);
+    let mut v_group_start = core_arg(args, 2);
+    let mut v_result_state = core_arg(args, 3);
+    let mut v_change = CoreValue::Null;
+    let mut v_changes = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_present = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_out = core_map_merge(&[v_current.clone(), v_empty_map.clone()])?;
+    v_changes = _flow_group_step_changes(&[
+        v_step.clone(),
+        v_group_start.clone(),
+        v_result_state.clone(),
+    ])?;
+    for v_change in core_iter(&v_changes)? {
+        let mut v_change = v_change;
+        v_present = core_map_contains(&[v_result_state.clone(), v_change.clone()])?;
+        if core_truthy(&v_present) {
+            v_value = core_get(&v_result_state, &v_change.clone(), CoreValue::Null);
+            core_set(&v_out, v_change.clone(), v_value.clone())?;
+        }
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -125381,7 +125598,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (930 of 930 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (932 of 932 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

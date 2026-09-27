@@ -978,7 +978,7 @@ module @ax.flow version "0.1" {
               %index = core.get %plan_step["stepIndex"] default 0
               %step = core.call intrinsic.list.get(%steps, %index, null)
               %result_state = core.call @flow_execute_step(%flow, %step, %plan_step, %client, %group_start, %options)
-              %current = core.call @flow_merge_parallel_results(%current, %result_state)
+              %current = core.call @flow_merge_group_step(%current, %step, %group_start, %result_state)
             }
           } else {
             %report_count = core.call intrinsic.len(%reports)
@@ -989,6 +989,7 @@ module @ax.flow version "0.1" {
               core.raise %error
             }
             %failures = core.list
+            %report_position = core.let 0
             core.for %report in %reports {
               %worker_traces = core.get %report["traces"] default %empty_list
               %traces = core.get %flow["traces"] default %empty_list
@@ -1010,8 +1011,12 @@ module @ax.flow version "0.1" {
                 core.append %failures, %failure
               } else {
                 %result_state = core.get %report["state"]
-                %current = core.call @flow_merge_parallel_results(%current, %result_state)
+                %report_plan_step = core.call intrinsic.list.get(%group_steps, %report_position, null)
+                %report_step_index = core.get %report_plan_step["stepIndex"] default 0
+                %report_step = core.call intrinsic.list.get(%steps, %report_step_index, null)
+                %current = core.call @flow_merge_group_step(%current, %report_step, %group_start, %result_state)
               }
+              %report_position = core.call intrinsic.add(%report_position, 1)
             }
             %failure_count = core.call intrinsic.len(%failures)
             %failed = core.call intrinsic.gt(%failure_count, 0)
@@ -2553,6 +2558,126 @@ module @ax.flow version "0.1" {
       }
       %rendered = core.call @flow_mermaid_render_flow(%flow, %options)
       core.return %rendered
+    }
+  }
+
+  op ax.flow.semantic @flow_group_step_changes {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(step:json, group_start:json, result_state:json) -> list<json> throws"
+    body @entry(%step: json, %group_start: json, %result_state: json) {
+      // The keys a parallel group's step changed. Every step in a group runs
+      // from the group's starting state, so a step's returned state still
+      // holds the starting value of each key another step changed. A program
+      // node writes {name}Result and spreads its result's fields (all of them,
+      // so a later step that writes a field's starting value back still wins,
+      // as it would running after the others); a derive step writes its output
+      // field; a map step writes {name}Result and the keys whose value it
+      // changed; any other step, the keys whose value differs from the start.
+      // A step its guard skipped changed nothing.
+      %empty_map = core.map
+      %empty_list = core.list
+      %changes = core.list
+      %missing_step = core.call intrinsic.is_none(%step)
+      core.if %missing_step {
+        core.return %changes
+      }
+      %kind = core.get %step["kind"] default "execute"
+      %name = core.get %step["name"] default ""
+      %step_options = core.get %step["options"] default %empty_map
+      %guard = core.get %step_options["guard"] default null
+      %has_guard = core.call intrinsic.is_not_none(%guard)
+      core.if %has_guard {
+        %guard_matches = core.call @flow_evaluate_data_predicate(%guard, %group_start, false)
+        %guard_skipped = core.call intrinsic.not(%guard_matches)
+        core.if %guard_skipped {
+          core.return %changes
+        }
+      }
+      %result_key = core.call intrinsic.string.format("{}Result", %name)
+      %is_derive = core.call intrinsic.eq(%kind, "derive")
+      core.if %is_derive {
+        %writes = core.get %step["writes"] default %empty_list
+        %output_field = core.call intrinsic.list.get(%writes, 0, %name)
+        core.append %changes, %output_field
+        core.return %changes
+      }
+      %is_map = core.call intrinsic.eq(%kind, "map")
+      %is_branch = core.call intrinsic.eq(%kind, "branch")
+      %is_while = core.call intrinsic.eq(%kind, "while")
+      %is_feedback = core.call intrinsic.eq(%kind, "feedback")
+      %is_parallel = core.call intrinsic.eq(%kind, "parallel")
+      %is_parallel_merge = core.call intrinsic.eq(%kind, "parallelMerge")
+      %is_loop = core.call intrinsic.or(%is_while, %is_feedback)
+      %is_control = core.call intrinsic.or(%is_branch, %is_loop)
+      %is_explicit_parallel = core.call intrinsic.or(%is_parallel, %is_parallel_merge)
+      %compares_values = core.call intrinsic.or(%is_control, %is_explicit_parallel)
+      %not_program = core.call intrinsic.or(%is_map, %compares_values)
+      %is_program = core.call intrinsic.not(%not_program)
+      core.if %is_program {
+        core.append %changes, %result_key
+        %result = core.get %result_state[%result_key] default null
+        %result_is_map = core.type_is %result type "object"
+        core.if %result_is_map {
+          %result_fields = core.call intrinsic.map.keys(%result)
+          core.for %result_field in %result_fields {
+            %field_listed = core.call intrinsic.contains(%changes, %result_field)
+            core.if %field_listed {
+            } else {
+              core.append %changes, %result_field
+            }
+          }
+        }
+        core.return %changes
+      }
+      core.if %is_map {
+        core.append %changes, %result_key
+      }
+      %state_keys = core.call intrinsic.map.keys(%result_state)
+      core.for %state_key in %state_keys {
+        %key_listed = core.call intrinsic.contains(%changes, %state_key)
+        core.if %key_listed {
+        } else {
+          %in_start = core.call intrinsic.map.contains(%group_start, %state_key)
+          core.if %in_start {
+            %before = core.get %group_start[%state_key] default null
+            %after = core.get %result_state[%state_key] default null
+            %unchanged = core.call intrinsic.eq(%before, %after)
+            core.if %unchanged {
+            } else {
+              core.append %changes, %state_key
+            }
+          } else {
+            core.append %changes, %state_key
+          }
+        }
+      }
+      core.return %changes
+    }
+  }
+
+  op ax.flow.semantic @flow_merge_group_step {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(current:json, step:json, group_start:json, result_state:json) -> json throws"
+    body @entry(%current: json, %step: json, %group_start: json, %result_state: json) {
+      // A parallel group merges each step's changes, in step order, into the
+      // state so far: a later step can't undo an earlier one's update, and a
+      // key two steps write ends with the later step's value, as running them
+      // one after another would leave it.
+      %empty_map = core.map
+      %out = core.call intrinsic.map.merge(%current, %empty_map)
+      %changes = core.call @flow_group_step_changes(%step, %group_start, %result_state)
+      core.for %change in %changes {
+        %present = core.call intrinsic.map.contains(%result_state, %change)
+        core.if %present {
+          %value = core.get %result_state[%change] default null
+          core.set %out[%change] = %value
+        }
+      }
+      core.return %out
     }
   }
 }

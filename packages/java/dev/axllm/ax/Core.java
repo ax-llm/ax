@@ -39295,7 +39295,7 @@ final class Core {
             Object index = Core.get(plan_step, "stepIndex", 0);
             Object step = Core.listGet(steps, index, null);
             Object result_state = Core._flow_execute_step(flow, step, plan_step, client, group_start, options);
-            current = Core._flow_merge_parallel_results(current, result_state);
+            current = Core._flow_merge_group_step(current, step, group_start, result_state);
           }
         }
         if (!Core.truthy(fallback)) {
@@ -39309,6 +39309,7 @@ final class Core {
             throw Core.asRuntime(error);
           }
           Object failures = new java.util.ArrayList<Object>();
+          Object report_position = 0;
           for (Object report : Core.iter(reports)) {
             Object worker_traces = Core.get(report, "traces", empty_list);
             Object traces = Core.get(flow, "traces", empty_list);
@@ -39331,8 +39332,12 @@ final class Core {
             }
             if (!Core.truthy(failed)) {
               Object result_state = Core.get(report, "state", null);
-              current = Core._flow_merge_parallel_results(current, result_state);
+              Object report_plan_step = Core.listGet(group_steps, report_position, null);
+              Object report_step_index = Core.get(report_plan_step, "stepIndex", 0);
+              Object report_step = Core.listGet(steps, report_step_index, null);
+              current = Core._flow_merge_group_step(current, report_step, group_start, result_state);
             }
+            report_position = Core.add(report_position, 1);
           }
           Object failure_count = Core.len(failures);
           Object failed = Core.gt(failure_count, 0);
@@ -40791,6 +40796,110 @@ final class Core {
     }
     Object rendered = Core._flow_mermaid_render_flow(flow, options);
     return rendered;
+  }
+
+  static Object _flow_group_step_changes(Object step, Object group_start, Object result_state) {
+    axirCoverageMark("_flow_group_step_changes");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object changes = new java.util.ArrayList<Object>();
+    Object missing_step = Core.isNone(step);
+    if (Core.truthy(missing_step)) {
+      return changes;
+    }
+    Object kind = Core.get(step, "kind", "execute");
+    Object name = Core.get(step, "name", "");
+    Object step_options = Core.get(step, "options", empty_map);
+    Object guard = Core.get(step_options, "guard", null);
+    Object has_guard = Core.isNotNone(guard);
+    if (Core.truthy(has_guard)) {
+      Object guard_matches = Core._flow_evaluate_data_predicate(guard, group_start, Boolean.FALSE);
+      Object guard_skipped = Core.not(guard_matches);
+      if (Core.truthy(guard_skipped)) {
+        return changes;
+      }
+    }
+    Object result_key = Core.stringFormat("{}Result", name);
+    Object is_derive = Core.eq(kind, "derive");
+    if (Core.truthy(is_derive)) {
+      Object writes = Core.get(step, "writes", empty_list);
+      Object output_field = Core.listGet(writes, 0, name);
+      Core.append(changes, output_field);
+      return changes;
+    }
+    Object is_map = Core.eq(kind, "map");
+    Object is_branch = Core.eq(kind, "branch");
+    Object is_while = Core.eq(kind, "while");
+    Object is_feedback = Core.eq(kind, "feedback");
+    Object is_parallel = Core.eq(kind, "parallel");
+    Object is_parallel_merge = Core.eq(kind, "parallelMerge");
+    Object is_loop = Core.or(is_while, is_feedback);
+    Object is_control = Core.or(is_branch, is_loop);
+    Object is_explicit_parallel = Core.or(is_parallel, is_parallel_merge);
+    Object compares_values = Core.or(is_control, is_explicit_parallel);
+    Object not_program = Core.or(is_map, compares_values);
+    Object is_program = Core.not(not_program);
+    if (Core.truthy(is_program)) {
+      Core.append(changes, result_key);
+      Object result = Core.get(result_state, result_key, null);
+      Object result_is_map = Core.typeIs(result, "object");
+      if (Core.truthy(result_is_map)) {
+        Object result_fields = Core.mapKeys(result);
+        for (Object result_field : Core.iter(result_fields)) {
+          Object field_listed = Core.contains(changes, result_field);
+          if (Core.truthy(field_listed)) {
+            // empty
+          }
+          if (!Core.truthy(field_listed)) {
+            Core.append(changes, result_field);
+          }
+        }
+      }
+      return changes;
+    }
+    if (Core.truthy(is_map)) {
+      Core.append(changes, result_key);
+    }
+    Object state_keys = Core.mapKeys(result_state);
+    for (Object state_key : Core.iter(state_keys)) {
+      Object key_listed = Core.contains(changes, state_key);
+      if (Core.truthy(key_listed)) {
+        // empty
+      }
+      if (!Core.truthy(key_listed)) {
+        Object in_start = Core.mapContains(group_start, state_key);
+        if (Core.truthy(in_start)) {
+          Object before = Core.get(group_start, state_key, null);
+          Object after = Core.get(result_state, state_key, null);
+          Object unchanged = Core.eq(before, after);
+          if (Core.truthy(unchanged)) {
+            // empty
+          }
+          if (!Core.truthy(unchanged)) {
+            Core.append(changes, state_key);
+          }
+        }
+        if (!Core.truthy(in_start)) {
+          Core.append(changes, state_key);
+        }
+      }
+    }
+    return changes;
+  }
+
+  static Object _flow_merge_group_step(Object current, Object step, Object group_start, Object result_state) {
+    axirCoverageMark("_flow_merge_group_step");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object out = Core.mapMerge(current, empty_map);
+    Object changes = Core._flow_group_step_changes(step, group_start, result_state);
+    for (Object change : Core.iter(changes)) {
+      Object present = Core.mapContains(result_state, change);
+      if (Core.truthy(present)) {
+        Object value = Core.get(result_state, change, null);
+        Core.set(out, change, value);
+      }
+    }
+    return out;
   }
 
   static Object ucp_negotiate_profile(Object profile, Object supportedVersions, Object requestedServices) {

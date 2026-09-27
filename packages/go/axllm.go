@@ -82576,6 +82576,10 @@ func _flow_execute_steps(args ...Value) (Value, error) {
 	var v_record_groups_snake Value
 	var v_report Value
 	var v_report_count Value
+	var v_report_plan_step Value
+	var v_report_position Value
+	var v_report_step Value
+	var v_report_step_index Value
 	var v_reports Value
 	var v_result_state Value
 	var v_sequential_groups Value
@@ -82638,6 +82642,10 @@ func _flow_execute_steps(args ...Value) (Value, error) {
 	_ = v_record_groups_snake
 	_ = v_report
 	_ = v_report_count
+	_ = v_report_plan_step
+	_ = v_report_position
+	_ = v_report_step
+	_ = v_report_step_index
 	_ = v_reports
 	_ = v_result_state
 	_ = v_sequential_groups
@@ -82716,7 +82724,7 @@ func _flow_execute_steps(args ...Value) (Value, error) {
 					v_index = coreGet(v_plan_step, "stepIndex", 0)
 					v_step = _core_list_get(v_steps, v_index, nil)
 					{ v, err := _flow_execute_step(v_flow, v_step, v_plan_step, v_client, v_group_start, v_options); if err != nil { return nil, err }; v_result_state = v }
-					{ v, err := _flow_merge_parallel_results(v_current, v_result_state); if err != nil { return nil, err }; v_current = v }
+					{ v, err := _flow_merge_group_step(v_current, v_step, v_group_start, v_result_state); if err != nil { return nil, err }; v_current = v }
 				}
 			} else {
 				v_report_count = _core_len(v_reports)
@@ -82728,6 +82736,7 @@ func _flow_execute_steps(args ...Value) (Value, error) {
 					return nil, asError(v_error)
 				}
 				v_failures = MutableArray()
+				v_report_position = 0
 				for _, v_report = range coreIter(v_reports) {
 					v_worker_traces = coreGet(v_report, "traces", v_empty_list)
 					v_traces = coreGet(v_flow, "traces", v_empty_list)
@@ -82749,8 +82758,12 @@ func _flow_execute_steps(args ...Value) (Value, error) {
 						v_failures = coreAppend(v_failures, v_failure)
 					} else {
 						v_result_state = coreGet(v_report, "state", nil)
-						{ v, err := _flow_merge_parallel_results(v_current, v_result_state); if err != nil { return nil, err }; v_current = v }
+						v_report_plan_step = _core_list_get(v_group_steps, v_report_position, nil)
+						v_report_step_index = coreGet(v_report_plan_step, "stepIndex", 0)
+						v_report_step = _core_list_get(v_steps, v_report_step_index, nil)
+						{ v, err := _flow_merge_group_step(v_current, v_report_step, v_group_start, v_result_state); if err != nil { return nil, err }; v_current = v }
 					}
+					v_report_position = _core_add(v_report_position, 1)
 				}
 				v_failure_count = _core_len(v_failures)
 				v_failed = _core_gt(v_failure_count, 0)
@@ -85727,6 +85740,233 @@ func _flow_to_mermaid(args ...Value) (Value, error) {
 	}
 	{ v, err := _flow_mermaid_render_flow(v_flow, v_options); if err != nil { return nil, err }; v_rendered = v }
 	return v_rendered, nil
+}
+
+func _flow_group_step_changes(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_group_step_changes")
+	var v_step Value
+	var v_group_start Value
+	var v_result_state Value
+	var v_after Value
+	var v_before Value
+	var v_changes Value
+	var v_compares_values Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_field_listed Value
+	var v_guard Value
+	var v_guard_matches Value
+	var v_guard_skipped Value
+	var v_has_guard Value
+	var v_in_start Value
+	var v_is_branch Value
+	var v_is_control Value
+	var v_is_derive Value
+	var v_is_explicit_parallel Value
+	var v_is_feedback Value
+	var v_is_loop Value
+	var v_is_map Value
+	var v_is_parallel Value
+	var v_is_parallel_merge Value
+	var v_is_program Value
+	var v_is_while Value
+	var v_key_listed Value
+	var v_kind Value
+	var v_missing_step Value
+	var v_name Value
+	var v_not_program Value
+	var v_output_field Value
+	var v_result Value
+	var v_result_field Value
+	var v_result_fields Value
+	var v_result_is_map Value
+	var v_result_key Value
+	var v_state_key Value
+	var v_state_keys Value
+	var v_step_options Value
+	var v_unchanged Value
+	var v_writes Value
+	if len(args) > 0 { v_step = args[0] }
+	_ = v_step
+	if len(args) > 1 { v_group_start = args[1] }
+	_ = v_group_start
+	if len(args) > 2 { v_result_state = args[2] }
+	_ = v_result_state
+	_ = v_after
+	_ = v_before
+	_ = v_changes
+	_ = v_compares_values
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_field_listed
+	_ = v_guard
+	_ = v_guard_matches
+	_ = v_guard_skipped
+	_ = v_has_guard
+	_ = v_in_start
+	_ = v_is_branch
+	_ = v_is_control
+	_ = v_is_derive
+	_ = v_is_explicit_parallel
+	_ = v_is_feedback
+	_ = v_is_loop
+	_ = v_is_map
+	_ = v_is_parallel
+	_ = v_is_parallel_merge
+	_ = v_is_program
+	_ = v_is_while
+	_ = v_key_listed
+	_ = v_kind
+	_ = v_missing_step
+	_ = v_name
+	_ = v_not_program
+	_ = v_output_field
+	_ = v_result
+	_ = v_result_field
+	_ = v_result_fields
+	_ = v_result_is_map
+	_ = v_result_key
+	_ = v_state_key
+	_ = v_state_keys
+	_ = v_step_options
+	_ = v_unchanged
+	_ = v_writes
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_changes = MutableArray()
+	v_missing_step = _core_is_none(v_step)
+	if coreTruthy(v_missing_step) {
+		return v_changes, nil
+	} else {
+	// empty
+	}
+	v_kind = coreGet(v_step, "kind", "execute")
+	v_name = coreGet(v_step, "name", "")
+	v_step_options = coreGet(v_step, "options", v_empty_map)
+	v_guard = coreGet(v_step_options, "guard", nil)
+	v_has_guard = _core_is_not_none(v_guard)
+	if coreTruthy(v_has_guard) {
+		{ v, err := _flow_evaluate_data_predicate(v_guard, v_group_start, false); if err != nil { return nil, err }; v_guard_matches = v }
+		v_guard_skipped = _core_not(v_guard_matches)
+		if coreTruthy(v_guard_skipped) {
+			return v_changes, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_result_key = _core_string_format("{}Result", v_name)
+	v_is_derive = _core_eq(v_kind, "derive")
+	if coreTruthy(v_is_derive) {
+		v_writes = coreGet(v_step, "writes", v_empty_list)
+		v_output_field = _core_list_get(v_writes, 0, v_name)
+		v_changes = coreAppend(v_changes, v_output_field)
+		return v_changes, nil
+	} else {
+	// empty
+	}
+	v_is_map = _core_eq(v_kind, "map")
+	v_is_branch = _core_eq(v_kind, "branch")
+	v_is_while = _core_eq(v_kind, "while")
+	v_is_feedback = _core_eq(v_kind, "feedback")
+	v_is_parallel = _core_eq(v_kind, "parallel")
+	v_is_parallel_merge = _core_eq(v_kind, "parallelMerge")
+	v_is_loop = _core_or(v_is_while, v_is_feedback)
+	v_is_control = _core_or(v_is_branch, v_is_loop)
+	v_is_explicit_parallel = _core_or(v_is_parallel, v_is_parallel_merge)
+	v_compares_values = _core_or(v_is_control, v_is_explicit_parallel)
+	v_not_program = _core_or(v_is_map, v_compares_values)
+	v_is_program = _core_not(v_not_program)
+	if coreTruthy(v_is_program) {
+		v_changes = coreAppend(v_changes, v_result_key)
+		v_result = coreGet(v_result_state, v_result_key, nil)
+		v_result_is_map = coreTypeIs(v_result, "object")
+		if coreTruthy(v_result_is_map) {
+			v_result_fields = _core_map_keys(v_result)
+			for _, v_result_field = range coreIter(v_result_fields) {
+				v_field_listed = _core_contains(v_changes, v_result_field)
+				if coreTruthy(v_field_listed) {
+				// empty
+				} else {
+					v_changes = coreAppend(v_changes, v_result_field)
+				}
+			}
+		} else {
+		// empty
+		}
+		return v_changes, nil
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_map) {
+		v_changes = coreAppend(v_changes, v_result_key)
+	} else {
+	// empty
+	}
+	v_state_keys = _core_map_keys(v_result_state)
+	for _, v_state_key = range coreIter(v_state_keys) {
+		v_key_listed = _core_contains(v_changes, v_state_key)
+		if coreTruthy(v_key_listed) {
+		// empty
+		} else {
+			v_in_start = _core_map_contains(v_group_start, v_state_key)
+			if coreTruthy(v_in_start) {
+				v_before = coreGet(v_group_start, v_state_key, nil)
+				v_after = coreGet(v_result_state, v_state_key, nil)
+				v_unchanged = _core_eq(v_before, v_after)
+				if coreTruthy(v_unchanged) {
+				// empty
+				} else {
+					v_changes = coreAppend(v_changes, v_state_key)
+				}
+			} else {
+				v_changes = coreAppend(v_changes, v_state_key)
+			}
+		}
+	}
+	return v_changes, nil
+}
+
+func _flow_merge_group_step(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_merge_group_step")
+	var v_current Value
+	var v_step Value
+	var v_group_start Value
+	var v_result_state Value
+	var v_change Value
+	var v_changes Value
+	var v_empty_map Value
+	var v_out Value
+	var v_present Value
+	var v_value Value
+	if len(args) > 0 { v_current = args[0] }
+	_ = v_current
+	if len(args) > 1 { v_step = args[1] }
+	_ = v_step
+	if len(args) > 2 { v_group_start = args[2] }
+	_ = v_group_start
+	if len(args) > 3 { v_result_state = args[3] }
+	_ = v_result_state
+	_ = v_change
+	_ = v_changes
+	_ = v_empty_map
+	_ = v_out
+	_ = v_present
+	_ = v_value
+	v_empty_map = Object()
+	v_out = _core_map_merge(v_current, v_empty_map)
+	{ v, err := _flow_group_step_changes(v_step, v_group_start, v_result_state); if err != nil { return nil, err }; v_changes = v }
+	for _, v_change = range coreIter(v_changes) {
+		v_present = _core_map_contains(v_result_state, v_change)
+		if coreTruthy(v_present) {
+			v_value = coreGet(v_result_state, v_change, nil)
+			if err := coreSet(v_out, v_change, v_value); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	return v_out, nil
 }
 
 func ucp_negotiate_profile(args ...Value) (Value, error) {
