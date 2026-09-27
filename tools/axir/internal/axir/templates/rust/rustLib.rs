@@ -10784,6 +10784,20 @@ pub fn conformance_fixture_skip(text: &str) -> Option<(String, &'static str)> {
 }
 
 pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
+    // expected_deprecations pins the one-time deprecation warnings the run
+    // gives (the ones already shown are forgotten first).
+    if let Some(expected) = fixture.get("expected_deprecations").cloned() {
+        core_axgen_capture_deprecations(true);
+        let result = run_conformance_fixture_kind(fixture);
+        let captured = core_axgen_capture_deprecations(false);
+        result?;
+        let actual = Value::Array(captured.into_iter().map(Value::String).collect());
+        return expect_json_equal("deprecation warnings", &actual, &expected);
+    }
+    run_conformance_fixture_kind(fixture)
+}
+
+fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
     let kind = fixture
         .get("kind")
         .and_then(Value::as_str)
@@ -10797,6 +10811,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "strip_internal" => run_strip_internal_fixture(&fixture)?,
         "prompt" => run_prompt_fixture(&fixture)?,
         "number_format" => run_number_format_fixture(&fixture)?,
+        "string_format" => run_string_format_fixture(&fixture)?,
         "date_field_value" => run_date_field_value_fixture(&fixture)?,
         "date_input" => run_date_input_fixture(&fixture)?,
         "template" => run_template_fixture(&fixture)?,
@@ -18452,6 +18467,32 @@ fn wire_json_equal(left: &Value, right: &Value) -> bool {
 // text). The JSON form must come out of every encoder: the wire body
 // (js_json_string), the json.stringify, json.stable_stringify and json.pretty
 // intrinsics, and AxGen's value text.
+// string.format and string.str against JavaScript's text of each case.
+fn run_string_format_fixture(fixture: &Value) -> AxResult<()> {
+    let text = |value: CoreValue| value.as_str().map(str::to_string).unwrap_or_default();
+    for case in fixture.get("format_cases").and_then(Value::as_array).into_iter().flatten() {
+        let template = case.get("template").and_then(Value::as_str).unwrap_or_default();
+        let mut args = vec![CoreValue::from(template)];
+        for arg in case.get("input").and_then(Value::as_array).into_iter().flatten() {
+            args.push(core_value_from_json(arg));
+        }
+        let actual = text(core_string_format(&args)?);
+        let expected = case.get("expected").and_then(Value::as_str).unwrap_or_default();
+        if actual != expected {
+            return Err(AxError::new("fixture", format!("string.format of {template:?}: expected {expected:?}, got {actual:?}")));
+        }
+    }
+    for case in fixture.get("str_cases").and_then(Value::as_array).into_iter().flatten() {
+        let input = case.get("input").cloned().unwrap_or(Value::Null);
+        let actual = text(core_string_str(&[core_value_from_json(&input)])?);
+        let expected = case.get("expected").and_then(Value::as_str).unwrap_or_default();
+        if actual != expected {
+            return Err(AxError::new("fixture", format!("string.str of {input}: expected {expected:?}, got {actual:?}")));
+        }
+    }
+    Ok(())
+}
+
 fn run_number_format_fixture(fixture: &Value) -> AxResult<()> {
     for case in fixture.get("cases").and_then(Value::as_array).into_iter().flatten() {
         let input = case.get("input").and_then(Value::as_str).unwrap_or_default();
@@ -19844,18 +19885,54 @@ fn core_validation_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Error(Rc::new(AxError::validation(core_arg(args, 0).text()))))
 }
 
+// A value's text in string.format and string.str, as every port writes it: a
+// string as is, null as "null", a boolean as "true" or "false", a number as
+// JavaScript's String(x), and a list or map as compact JSON with its keys in
+// insertion order (JSON.stringify).
+fn core_js_text(value: &CoreValue) -> String {
+    match value {
+        CoreValue::Null => "null".to_string(),
+        CoreValue::Bool(flag) => if *flag { "true" } else { "false" }.to_string(),
+        CoreValue::List(_) | CoreValue::Map(_) => js_json_string(&core_value_to_json(value)),
+        other => other.text(),
+    }
+}
+
+// Each {} takes the next argument's core_js_text, from left to right and
+// inserted as is (never read as a template); {{ and }} write one brace, any
+// other brace is kept, and a {} past the last argument stays {}.
 fn core_string_format(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let template = core_arg(args, 0).text();
+    let bytes = template.as_bytes();
     let mut out = String::new();
-    let mut rest = template.as_str();
-    let mut index = 1;
-    while let Some(pos) = rest.find("{}") {
-        out.push_str(&rest[..pos]);
-        out.push_str(&core_arg(args, index).text());
-        index += 1;
-        rest = &rest[pos + 2..];
+    let mut next = 1;
+    let mut literal_start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() {
+            let pair = (bytes[i], bytes[i + 1]);
+            let replacement = match pair {
+                (b'{', b'{') => Some("{".to_string()),
+                (b'}', b'}') => Some("}".to_string()),
+                (b'{', b'}') => Some(if next < args.len() {
+                    next += 1;
+                    core_js_text(&args[next - 1])
+                } else {
+                    "{}".to_string()
+                }),
+                _ => None,
+            };
+            if let Some(text) = replacement {
+                out.push_str(&template[literal_start..i]);
+                out.push_str(&text);
+                i += 2;
+                literal_start = i;
+                continue;
+            }
+        }
+        i += 1;
     }
-    out.push_str(rest);
+    out.push_str(&template[literal_start..]);
     Ok(CoreValue::from_string(out))
 }
 
@@ -21892,7 +21969,7 @@ fn core_string_index_of(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 fn core_string_str(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    Ok(CoreValue::from_string(core_arg(args, 0).text()))
+    Ok(CoreValue::from_string(core_js_text(&core_arg(args, 0))))
 }
 
 fn core_string_join_intrinsic(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -23676,19 +23753,41 @@ fn ai_capture_warnings(capture: bool) -> Vec<String> {
     collected
 }
 
+static AXGEN_DEPRECATIONS_SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+static AXGEN_DEPRECATION_CAPTURE: Mutex<Option<Vec<String>>> = Mutex::new(None);
+
 // python: _core_axgen_deprecation(key, message). Deprecated port behavior
 // warns once per key per process.
 #[allow(dead_code)]
 fn core_axgen_deprecation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    static SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
-    let first = SHOWN
+    let first = AXGEN_DEPRECATIONS_SHOWN
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(core_arg(args, 0).text());
     if first {
-        eprintln!("axllm: deprecated: {}", core_arg(args, 1).text());
+        let message = core_arg(args, 1).text();
+        let mut capture = AXGEN_DEPRECATION_CAPTURE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match capture.as_mut() {
+            Some(captured) => captured.push(message),
+            None => eprintln!("axllm: deprecated: {message}"),
+        }
     }
     Ok(CoreValue::Null)
+}
+
+// Conformance hook: turning capture on forgets the deprecations already shown
+// and keeps new ones; each call returns what the last capture kept (off
+// prints them again).
+fn core_axgen_capture_deprecations(on: bool) -> Vec<String> {
+    if on {
+        AXGEN_DEPRECATIONS_SHOWN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
+    }
+    let mut capture = AXGEN_DEPRECATION_CAPTURE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let captured = capture.take().unwrap_or_default();
+    if on {
+        *capture = Some(Vec::new());
+    }
+    captured
 }
 
 // python: _core_crypto_sha256_hex(text). The lowercase hex SHA-256 of the

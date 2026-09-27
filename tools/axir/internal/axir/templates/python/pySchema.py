@@ -4,7 +4,7 @@ import os
 import copy
 import re
 from typing import Any
-from .signature import _js_date_millis, _js_number_text
+from .signature import _js_date_millis, _js_number_text, _js_format
 # AXIR_CORE_IMPORTS
 
 
@@ -170,8 +170,7 @@ def _core_string_lower(value):
 
 
 def _core_string_format(template, *args):
-    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
-    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
+    return _js_format(template, args)
 
 
 def _core_description_append(base, hint):

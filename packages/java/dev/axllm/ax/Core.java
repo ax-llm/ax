@@ -286,7 +286,7 @@ final class Core {
   }
   static int asInt(Object value) { return value instanceof Number n ? n.intValue() : Integer.parseInt(String.valueOf(value)); }
   static double asDouble(Object value) { return value instanceof Number n ? n.doubleValue() : Double.parseDouble(String.valueOf(value)); }
-  static String stringStr(Object value) { return display(value); }
+  static String stringStr(Object value) { return jsText(value); }
 
   static Object get(Object target, Object key, Object defaultValue) {
     if (target == null) return defaultValue;
@@ -482,19 +482,37 @@ final class Core {
   }
   static Object stringWords(Object value) { return Arrays.asList(String.valueOf(value).split("\\s+")); }
   static Object stringDefaultIfEmpty(Object value, Object fallback) { String text = String.valueOf(value).trim(); return text.isEmpty() ? fallback : text; }
+  // Each {} takes the next argument's jsText, from left to right and inserted
+  // as is (never read as a template); {{ and }} write one brace, any other
+  // brace is kept, and a {} past the last argument stays {}.
   static Object stringFormat(Object template, Object... args) {
-    // Each value fills the next {} after the previous one, so a value that
-    // itself contains {} is not formatted again.
-    String out = String.valueOf(template);
-    int cursor = 0;
-    for (Object arg : args) {
-      int index = out.indexOf("{}", cursor);
-      if (index < 0) break;
-      String text = display(arg);
-      out = out.substring(0, index) + text + out.substring(index + 2);
-      cursor = index + text.length();
+    String text = String.valueOf(template);
+    StringBuilder out = new StringBuilder();
+    int next = 0;
+    for (int i = 0; i < text.length(); ) {
+      if (i + 1 < text.length()) {
+        String pair = text.substring(i, i + 2);
+        if (pair.equals("{{")) { out.append('{'); i += 2; continue; }
+        if (pair.equals("}}")) { out.append('}'); i += 2; continue; }
+        if (pair.equals("{}")) {
+          out.append(next < args.length ? jsText(args[next++]) : "{}");
+          i += 2;
+          continue;
+        }
+      }
+      out.append(text.charAt(i));
+      i++;
     }
-    return out;
+    return out.toString();
+  }
+  // A value's text in string.format and string.str, as every port writes it:
+  // a string as is, null as "null", a boolean as "true" or "false", a number
+  // as JavaScript's String(x), and a list or map as compact JSON with its keys
+  // in insertion order (JSON.stringify).
+  static String jsText(Object value) {
+    if (value == null) return "null";
+    if (value instanceof List<?> || value instanceof Map<?, ?>) return Json.stringify(value);
+    return display(value);
   }
   static String display(Object value) {
     if (value instanceof Number n) return Json.numberText(n);
@@ -1033,15 +1051,27 @@ final class Core {
     aiWarningSink = sink;
   }
   private static final Set<String> AXGEN_DEPRECATIONS_SHOWN = java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private static volatile java.util.function.Consumer<String> axgenDeprecationSink;
   // Deprecated port behavior warns once per key per process.
   static Object axgenDeprecation(Object key, Object message) {
     if (!AXGEN_DEPRECATIONS_SHOWN.add(String.valueOf(key))) return null;
+    java.util.function.Consumer<String> sink = axgenDeprecationSink;
+    if (sink != null) {
+      sink.accept(String.valueOf(message));
+      return null;
+    }
     try {
       System.getLogger("dev.axllm.ax").log(System.Logger.Level.WARNING, String.valueOf(message));
     } catch (RuntimeException ignored) {
       // a failing logger must not fail the forward
     }
     return null;
+  }
+  // Conformance hook: forgets the deprecations already shown and sends new
+  // ones to sink (null logs them again).
+  static void axgenCaptureDeprecations(java.util.function.Consumer<String> sink) {
+    AXGEN_DEPRECATIONS_SHOWN.clear();
+    axgenDeprecationSink = sink;
   }
   // The lowercase hex SHA-256 of the text's UTF-8 bytes (AxGen cache keys).
   static Object cryptoSha256Hex(Object text) {
@@ -5153,6 +5183,21 @@ final class Core {
     }
     for (Object message : Core.iter(prompt)) {
       Object role = Core.get(message, "role", null);
+      Object role_is_text = Core.typeIs(role, "string");
+      Object role_given = Boolean.FALSE;
+      if (Core.truthy(role_is_text)) {
+        role_given = Core.ne(role, "");
+      }
+      Object role_missing = Core.not(role_given);
+      if (Core.truthy(role_missing)) {
+        Object received_role = "undefined";
+        if (Core.truthy(role_is_text)) {
+          received_role = Core.jsonPretty(role);
+        }
+        Object missing_role_text = Core.stringFormat("Chat request message must have a role, received: {}", received_role);
+        Object missing_role_error = Core.aiErrorResponse(missing_role_text);
+        throw Core.asRuntime(missing_role_error);
+      }
       Object is_system = Core.eq(role, "system");
       Object is_user = Core.eq(role, "user");
       Object is_assistant = Core.eq(role, "assistant");
@@ -5162,11 +5207,47 @@ final class Core {
       Object valid_role = Core.or(valid_left, valid_right);
       Object invalid_role = Core.not(valid_role);
       if (Core.truthy(invalid_role)) {
-        Object message_text = Core.stringFormat("Invalid chat message role: {}", role);
+        Object role_json = Core.jsonPretty(role);
+        Object message_text = Core.stringFormat("Unsupported message role: {}", role_json);
         Object error = Core.aiErrorResponse(message_text);
         throw Core.asRuntime(error);
       }
       Object content = Core.get(message, "content", null);
+      Object content_is_list = Core.typeIs(content, "list");
+      Object user_items = Core.and(is_user, content_is_list);
+      if (Core.truthy(user_items)) {
+        Object item_index = 0;
+        for (Object item : Core.iter(content)) {
+          Object item_is_map = Core.typeIs(item, "object");
+          Object item_is_list = Core.typeIs(item, "list");
+          Object item_is_object = Core.or(item_is_map, item_is_list);
+          Object item_not_map = Core.not(item_is_object);
+          if (Core.truthy(item_not_map)) {
+            Object item_json = Core.jsonPretty(item);
+            Object item_text = Core.stringFormat("User message content item at index {} must be an object, received: {}", item_index, item_json);
+            Object item_error = Core.aiErrorUnsupported(item_text);
+            throw Core.asRuntime(item_error);
+          }
+          Object item_type = Core.get(item, "type", null);
+          Object item_type_is_text = Core.typeIs(item_type, "string");
+          Object item_type_given = Boolean.FALSE;
+          if (Core.truthy(item_type_is_text)) {
+            item_type_given = Core.ne(item_type, "");
+          }
+          Object item_type_missing = Core.not(item_type_given);
+          if (Core.truthy(item_type_missing)) {
+            Object received_type = "undefined";
+            if (Core.truthy(item_type_is_text)) {
+              received_type = Core.jsonPretty(item_type);
+            }
+            Object type_text = Core.stringFormat("User message content item at index {} must have a type, received: {}", item_index, received_type);
+            Object type_error = Core.aiErrorUnsupported(type_text);
+            throw Core.asRuntime(type_error);
+          }
+          Object next_item_index = Core.add(item_index, 1);
+          item_index = next_item_index;
+        }
+      }
       Object empty_function_calls = new java.util.ArrayList<Object>();
       Object function_calls_snake = Core.get(message, "function_calls", empty_function_calls);
       Object function_calls = Core.get(message, "functionCalls", function_calls_snake);
@@ -5211,13 +5292,6 @@ final class Core {
       Core.set(payload, target, value);
     }
     return null;
-  }
-
-  static Object build_chat_request(Object service, Object request, Object options) {
-    axirCoverageMark("build_chat_request");
-    Core.validate_chat_request(request);
-    Object payload = Core.openai_build_chat_request(request, options, Boolean.TRUE);
-    return payload;
   }
 
   static Object _openai_message_impl(Object message, Object reasoning_content_mode, Object reasoning_details_mode) {
@@ -5329,6 +5403,13 @@ final class Core {
     Object message_text = Core.stringFormat("Invalid role: {}", role);
     Object error = Core.aiErrorResponse(message_text);
     throw Core.asRuntime(error);
+  }
+
+  static Object build_chat_request(Object service, Object request, Object options) {
+    axirCoverageMark("build_chat_request");
+    Core.validate_chat_request(request);
+    Object payload = Core.openai_build_chat_request(request, options, Boolean.TRUE);
+    return payload;
   }
 
   static Object normalize_chat_response(Object raw) {
@@ -5531,19 +5612,6 @@ final class Core {
     return response;
   }
 
-  static Object merge_usage_context(Object defaults, Object overrides) {
-    axirCoverageMark("merge_usage_context");
-    Object merged = Core.mapMerge(defaults, overrides);
-    Object default_attributes = Core.get(defaults, "attributes", null);
-    Object override_attributes = Core.get(overrides, "attributes", null);
-    Object attributes = Core.mapMerge(default_attributes, override_attributes);
-    Object has_attributes = Core.truthyValue(attributes);
-    if (Core.truthy(has_attributes)) {
-      Core.set(merged, "attributes", attributes);
-    }
-    return merged;
-  }
-
   static Object _openai_content_part_impl(Object part) {
     axirCoverageMark("_openai_content_part_impl");
     Object type = Core.get(part, "type", null);
@@ -5681,6 +5749,39 @@ final class Core {
     throw Core.asRuntime(error);
   }
 
+  static Object typesafe_response_context(Object payload, Object options) {
+    axirCoverageMark("typesafe_response_context");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object context = Core.mapMerge(empty, payload);
+    Object threshold_snake = Core.get(options, "true_threshold", 0.5);
+    Object threshold = Core.get(options, "trueThreshold", threshold_snake);
+    Core.set(context, "trueThreshold", threshold);
+    return context;
+  }
+
+  static Object merge_usage_context(Object defaults, Object overrides) {
+    axirCoverageMark("merge_usage_context");
+    Object merged = Core.mapMerge(defaults, overrides);
+    Object default_attributes = Core.get(defaults, "attributes", null);
+    Object override_attributes = Core.get(overrides, "attributes", null);
+    Object attributes = Core.mapMerge(default_attributes, override_attributes);
+    Object has_attributes = Core.truthyValue(attributes);
+    if (Core.truthy(has_attributes)) {
+      Core.set(merged, "attributes", attributes);
+    }
+    return merged;
+  }
+
+  static Object provider_validate_chat_request(Object profile, Object request, Object options) {
+    axirCoverageMark("provider_validate_chat_request");
+    Object canonical = Core.provider_normalize_profile(profile);
+    Object is_typesafe = Core.eq(canonical, "typesafe");
+    if (Core.truthy(is_typesafe)) {
+      Core.typesafe_build_chat_request(request, options);
+    }
+    return null;
+  }
+
   static Object build_usage_event(Object operation, Object response, Object options, Object streaming) {
     axirCoverageMark("build_usage_event");
     Object model_usage_snake = Core.get(response, "model_usage", null);
@@ -5747,24 +5848,28 @@ final class Core {
     return event;
   }
 
-  static Object typesafe_response_context(Object payload, Object options) {
-    axirCoverageMark("typesafe_response_context");
-    Object empty = new java.util.LinkedHashMap<String, Object>();
-    Object context = Core.mapMerge(empty, payload);
-    Object threshold_snake = Core.get(options, "true_threshold", 0.5);
-    Object threshold = Core.get(options, "trueThreshold", threshold_snake);
-    Core.set(context, "trueThreshold", threshold);
-    return context;
-  }
-
-  static Object provider_validate_chat_request(Object profile, Object request, Object options) {
-    axirCoverageMark("provider_validate_chat_request");
-    Object canonical = Core.provider_normalize_profile(profile);
-    Object is_typesafe = Core.eq(canonical, "typesafe");
-    if (Core.truthy(is_typesafe)) {
-      Core.typesafe_build_chat_request(request, options);
+  static Object _openai_tool_call_to_provider_impl(Object call) {
+    axirCoverageMark("_openai_tool_call_to_provider_impl");
+    Object fn = Core.get(call, "function", null);
+    Object params = Core.get(fn, "params", null);
+    Object params_is_string = Core.typeIs(params, "string");
+    if (Core.truthy(params_is_string)) {
+      // empty
     }
-    return null;
+    if (!Core.truthy(params_is_string)) {
+      Object params_json = Core.jsonStringify(params);
+      params = params_json;
+    }
+    Object id = Core.get(call, "id", null);
+    Object name = Core.get(fn, "name", null);
+    Object function = new java.util.LinkedHashMap<String, Object>();
+    Core.set(function, "name", name);
+    Core.set(function, "arguments", params);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "id", id);
+    Core.set(out, "type", "function");
+    Core.set(out, "function", function);
+    return out;
   }
 
   static Object _ai_model_usage_impl(Object ai_name, Object model, Object usage) {
@@ -5780,6 +5885,24 @@ final class Core {
     Core.set(out, "ai", ai_name);
     Core.set(out, "model", model);
     Core.set(out, "tokens", tokens);
+    return out;
+  }
+
+  static Object _openai_tool_spec_impl(Object fn) {
+    axirCoverageMark("_openai_tool_spec_impl");
+    Object name = Core.get(fn, "name", null);
+    Object description = Core.get(fn, "description", "");
+    Object parameters = Core.get(fn, "parameters", null);
+    Object function = new java.util.LinkedHashMap<String, Object>();
+    Core.set(function, "name", name);
+    Core.set(function, "description", description);
+    Object has_parameters = Core.truthyValue(parameters);
+    if (Core.truthy(has_parameters)) {
+      Core.set(function, "parameters", parameters);
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "type", "function");
+    Core.set(out, "function", function);
     return out;
   }
 
@@ -5870,48 +5993,6 @@ final class Core {
     return out;
   }
 
-  static Object _openai_tool_call_to_provider_impl(Object call) {
-    axirCoverageMark("_openai_tool_call_to_provider_impl");
-    Object fn = Core.get(call, "function", null);
-    Object params = Core.get(fn, "params", null);
-    Object params_is_string = Core.typeIs(params, "string");
-    if (Core.truthy(params_is_string)) {
-      // empty
-    }
-    if (!Core.truthy(params_is_string)) {
-      Object params_json = Core.jsonStringify(params);
-      params = params_json;
-    }
-    Object id = Core.get(call, "id", null);
-    Object name = Core.get(fn, "name", null);
-    Object function = new java.util.LinkedHashMap<String, Object>();
-    Core.set(function, "name", name);
-    Core.set(function, "arguments", params);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "id", id);
-    Core.set(out, "type", "function");
-    Core.set(out, "function", function);
-    return out;
-  }
-
-  static Object _openai_tool_spec_impl(Object fn) {
-    axirCoverageMark("_openai_tool_spec_impl");
-    Object name = Core.get(fn, "name", null);
-    Object description = Core.get(fn, "description", "");
-    Object parameters = Core.get(fn, "parameters", null);
-    Object function = new java.util.LinkedHashMap<String, Object>();
-    Core.set(function, "name", name);
-    Core.set(function, "description", description);
-    Object has_parameters = Core.truthyValue(parameters);
-    if (Core.truthy(has_parameters)) {
-      Core.set(function, "parameters", parameters);
-    }
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "type", "function");
-    Core.set(out, "function", function);
-    return out;
-  }
-
   static Object openai_build_embed_request(Object request) {
     axirCoverageMark("openai_build_embed_request");
     Object embed_model_snake = Core.get(request, "embed_model", null);
@@ -5927,59 +6008,6 @@ final class Core {
       Core.set(payload, "dimensions", dimensions);
     }
     return payload;
-  }
-
-  static Object _chat_result_to_completion(Object result, Object fallback_index) {
-    axirCoverageMark("_chat_result_to_completion");
-    Object content = Core.get(result, "content", "");
-    Object calls = new java.util.ArrayList<Object>();
-    Object empty_calls = new java.util.ArrayList<Object>();
-    Object function_calls = Core.get(result, "function_calls", empty_calls);
-    for (Object call : Core.iter(function_calls)) {
-      Object fn = Core.get(call, "function", null);
-      Object id = Core.get(call, "id", null);
-      Object flat_name = Core.get(call, "name", null);
-      Object name = Core.get(fn, "name", flat_name);
-      Object flat_params = Core.get(call, "params", null);
-      Object params = Core.get(fn, "params", flat_params);
-      Object compat_call = new java.util.LinkedHashMap<String, Object>();
-      Core.set(compat_call, "id", id);
-      Core.set(compat_call, "name", name);
-      Core.set(compat_call, "params", params);
-      Core.append(calls, compat_call);
-    }
-    Object index = Core.get(result, "index", fallback_index);
-    Object thought = Core.get(result, "thought", null);
-    Object has_thought = Core.isNotNone(thought);
-    Object thought_blocks = Core.get(result, "thought_blocks", null);
-    Object has_thought_blocks = Core.isNotNone(thought_blocks);
-    Object completion = new java.util.LinkedHashMap<String, Object>();
-    Core.set(completion, "index", index);
-    Core.set(completion, "content", content);
-    Core.set(completion, "function_calls", calls);
-    if (Core.truthy(has_thought)) {
-      Core.set(completion, "thought", thought);
-    }
-    if (Core.truthy(has_thought_blocks)) {
-      Core.set(completion, "thought_blocks", thought_blocks);
-    }
-    Object images = Core.get(result, "images", null);
-    Object has_images = Core.isNotNone(images);
-    if (Core.truthy(has_images)) {
-      Core.set(completion, "images", images);
-    }
-    Object phase = Core.get(result, "phase", null);
-    Object has_phase = Core.isNotNone(phase);
-    if (Core.truthy(has_phase)) {
-      Core.set(completion, "phase", phase);
-    }
-    Object finish_snake = Core.get(result, "finish_reason", null);
-    Object finish = Core.get(result, "finishReason", finish_snake);
-    Object has_finish = Core.isNotNone(finish);
-    if (Core.truthy(has_finish)) {
-      Core.set(completion, "finish_reason", finish);
-    }
-    return completion;
   }
 
   static Object openai_normalize_chat_response(Object raw, Object ai_name, Object model) {
@@ -6049,66 +6077,66 @@ final class Core {
     return out;
   }
 
-  static Object chat_response_to_completion(Object response) {
-    axirCoverageMark("chat_response_to_completion");
-    Object has_routing = Core.mapContains(response, "routing");
-    Object has_response = Core.mapContains(response, "response");
-    Object router_envelope = Core.and(has_routing, has_response);
-    if (Core.truthy(router_envelope)) {
-      response = Core.get(response, "response", null);
+  static Object _chat_result_to_completion(Object result, Object fallback_index) {
+    axirCoverageMark("_chat_result_to_completion");
+    Object content = Core.get(result, "content", "");
+    Object calls = new java.util.ArrayList<Object>();
+    Object empty_calls = new java.util.ArrayList<Object>();
+    Object function_calls = Core.get(result, "function_calls", empty_calls);
+    for (Object call : Core.iter(function_calls)) {
+      Object fn = Core.get(call, "function", null);
+      Object id = Core.get(call, "id", null);
+      Object flat_name = Core.get(call, "name", null);
+      Object name = Core.get(fn, "name", flat_name);
+      Object flat_params = Core.get(call, "params", null);
+      Object params = Core.get(fn, "params", flat_params);
+      Object fn_is_map = Core.typeIs(fn, "object");
+      Object fn_has_name = Boolean.FALSE;
+      if (Core.truthy(fn_is_map)) {
+        fn_has_name = Core.mapContains(fn, "name");
+      }
+      Object flat_has_name = Core.mapContains(call, "name");
+      Object has_name = Core.or(fn_has_name, flat_has_name);
+      Object compat_call = new java.util.LinkedHashMap<String, Object>();
+      Core.set(compat_call, "id", id);
+      if (Core.truthy(has_name)) {
+        Core.set(compat_call, "name", name);
+      }
+      Core.set(compat_call, "params", params);
+      Core.append(calls, compat_call);
     }
-    Object empty_results = new java.util.ArrayList<Object>();
-    Object results = Core.get(response, "results", empty_results);
-    Object completions = new java.util.ArrayList<Object>();
-    Object position = 0;
-    for (Object result : Core.iter(results)) {
-      Object completion = Core._chat_result_to_completion(result, position);
-      Core.append(completions, completion);
-      Object next_position = Core.add(position, 1);
-      position = next_position;
-    }
-    Object empty_completion = new java.util.LinkedHashMap<String, Object>();
-    Object first = Core.listGet(completions, 0, empty_completion);
-    Object content = Core.get(first, "content", "");
-    Object calls = Core.get(first, "function_calls", empty_results);
-    Object model_usage = Core.get(response, "model_usage", null);
-    Object usage = Core.get(model_usage, "tokens", null);
-    Object thought = Core.get(first, "thought", null);
+    Object index = Core.get(result, "index", fallback_index);
+    Object thought = Core.get(result, "thought", null);
     Object has_thought = Core.isNotNone(thought);
-    Object thought_blocks = Core.get(first, "thought_blocks", null);
+    Object thought_blocks = Core.get(result, "thought_blocks", null);
     Object has_thought_blocks = Core.isNotNone(thought_blocks);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "content", content);
-    Core.set(out, "function_calls", calls);
-    Core.set(out, "results", completions);
-    Core.set(out, "usage", usage);
+    Object completion = new java.util.LinkedHashMap<String, Object>();
+    Core.set(completion, "index", index);
+    Core.set(completion, "content", content);
+    Core.set(completion, "function_calls", calls);
     if (Core.truthy(has_thought)) {
-      Core.set(out, "thought", thought);
+      Core.set(completion, "thought", thought);
     }
     if (Core.truthy(has_thought_blocks)) {
-      Core.set(out, "thought_blocks", thought_blocks);
+      Core.set(completion, "thought_blocks", thought_blocks);
     }
-    Object session_id = Core.get(response, "__session_response_id", null);
-    Object has_session_id = Core.isNotNone(session_id);
-    if (Core.truthy(has_session_id)) {
-      Core.set(out, "remote_id", session_id);
-    }
-    Object images = Core.get(first, "images", null);
+    Object images = Core.get(result, "images", null);
     Object has_images = Core.isNotNone(images);
     if (Core.truthy(has_images)) {
-      Core.set(out, "images", images);
+      Core.set(completion, "images", images);
     }
-    Object phase = Core.get(first, "phase", null);
+    Object phase = Core.get(result, "phase", null);
     Object has_phase = Core.isNotNone(phase);
     if (Core.truthy(has_phase)) {
-      Core.set(out, "phase", phase);
+      Core.set(completion, "phase", phase);
     }
-    Object finish = Core.get(first, "finish_reason", null);
+    Object finish_snake = Core.get(result, "finish_reason", null);
+    Object finish = Core.get(result, "finishReason", finish_snake);
     Object has_finish = Core.isNotNone(finish);
     if (Core.truthy(has_finish)) {
-      Core.set(out, "finish_reason", finish);
+      Core.set(completion, "finish_reason", finish);
     }
-    return out;
+    return completion;
   }
 
   static Object _openai_normalize_choice_impl(Object choice, Object raw, Object reasoning_content_mode, Object reasoning_details_mode) {
@@ -6183,6 +6211,97 @@ final class Core {
     return out;
   }
 
+  static Object chat_response_to_completion(Object response) {
+    axirCoverageMark("chat_response_to_completion");
+    Object has_routing = Core.mapContains(response, "routing");
+    Object has_response = Core.mapContains(response, "response");
+    Object router_envelope = Core.and(has_routing, has_response);
+    if (Core.truthy(router_envelope)) {
+      response = Core.get(response, "response", null);
+    }
+    Object empty_results = new java.util.ArrayList<Object>();
+    Object results = Core.get(response, "results", empty_results);
+    Object completions = new java.util.ArrayList<Object>();
+    Object position = 0;
+    for (Object result : Core.iter(results)) {
+      Object completion = Core._chat_result_to_completion(result, position);
+      Core.append(completions, completion);
+      Object next_position = Core.add(position, 1);
+      position = next_position;
+    }
+    Object empty_completion = new java.util.LinkedHashMap<String, Object>();
+    Object first = Core.listGet(completions, 0, empty_completion);
+    Object content = Core.get(first, "content", "");
+    Object calls = Core.get(first, "function_calls", empty_results);
+    Object model_usage = Core.get(response, "model_usage", null);
+    Object usage = Core.get(model_usage, "tokens", null);
+    Object thought = Core.get(first, "thought", null);
+    Object has_thought = Core.isNotNone(thought);
+    Object thought_blocks = Core.get(first, "thought_blocks", null);
+    Object has_thought_blocks = Core.isNotNone(thought_blocks);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "content", content);
+    Core.set(out, "function_calls", calls);
+    Core.set(out, "results", completions);
+    Core.set(out, "usage", usage);
+    if (Core.truthy(has_thought)) {
+      Core.set(out, "thought", thought);
+    }
+    if (Core.truthy(has_thought_blocks)) {
+      Core.set(out, "thought_blocks", thought_blocks);
+    }
+    Object session_id = Core.get(response, "__session_response_id", null);
+    Object has_session_id = Core.isNotNone(session_id);
+    if (Core.truthy(has_session_id)) {
+      Core.set(out, "remote_id", session_id);
+    }
+    Object images = Core.get(first, "images", null);
+    Object has_images = Core.isNotNone(images);
+    if (Core.truthy(has_images)) {
+      Core.set(out, "images", images);
+    }
+    Object phase = Core.get(first, "phase", null);
+    Object has_phase = Core.isNotNone(phase);
+    if (Core.truthy(has_phase)) {
+      Core.set(out, "phase", phase);
+    }
+    Object finish = Core.get(first, "finish_reason", null);
+    Object has_finish = Core.isNotNone(finish);
+    if (Core.truthy(has_finish)) {
+      Core.set(out, "finish_reason", finish);
+    }
+    return out;
+  }
+
+  static Object _openai_normalize_tool_calls_impl(Object calls) {
+    axirCoverageMark("_openai_normalize_tool_calls_impl");
+    Object out = new java.util.ArrayList<Object>();
+    for (Object call : Core.iter(calls)) {
+      Object fn = Core.get(call, "function", null);
+      Object params = Core.get(fn, "arguments", null);
+      Object params_is_string = Core.typeIs(params, "string");
+      if (Core.truthy(params_is_string)) {
+        try {
+          Object parsed_params = Core.jsonParse(params);
+          params = parsed_params;
+        } catch (RuntimeException parse_error) {
+          // empty
+        }
+      }
+      Object id = Core.get(call, "id", null);
+      Object name = Core.get(fn, "name", null);
+      Object function = new java.util.LinkedHashMap<String, Object>();
+      Core.set(function, "name", name);
+      Core.set(function, "params", params);
+      Object normalized = new java.util.LinkedHashMap<String, Object>();
+      Core.set(normalized, "id", id);
+      Core.set(normalized, "type", "function");
+      Core.set(normalized, "function", function);
+      Core.append(out, normalized);
+    }
+    return out;
+  }
+
   static Object ai_context_cache_rejection(Object status, Object body_json) {
     axirCoverageMark("ai_context_cache_rejection");
     Object status_400_min = Core.gte(status, 400);
@@ -6213,6 +6332,30 @@ final class Core {
     return out;
   }
 
+  static Object _openai_finish_reason_impl(Object value) {
+    axirCoverageMark("_openai_finish_reason_impl");
+    Object is_stop = Core.eq(value, "stop");
+    if (Core.truthy(is_stop)) {
+      return "stop";
+    }
+    Object is_length = Core.eq(value, "length");
+    if (Core.truthy(is_length)) {
+      return "length";
+    }
+    Object is_content_filter = Core.eq(value, "content_filter");
+    if (Core.truthy(is_content_filter)) {
+      return "error";
+    }
+    Object is_tool_calls = Core.eq(value, "tool_calls");
+    Object is_function_call = Core.eq(value, "function_call");
+    Object is_call = Core.or(is_tool_calls, is_function_call);
+    if (Core.truthy(is_call)) {
+      return "function_call";
+    }
+    Object none = Core.none();
+    return none;
+  }
+
   static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
     axirCoverageMark("ai_context_cache_expiry");
     Object is_number = Core.typeIs(provider_expire_time, "number");
@@ -6225,32 +6368,25 @@ final class Core {
     return 0;
   }
 
-  static Object _openai_normalize_tool_calls_impl(Object calls) {
-    axirCoverageMark("_openai_normalize_tool_calls_impl");
-    Object out = new java.util.ArrayList<Object>();
-    for (Object call : Core.iter(calls)) {
-      Object fn = Core.get(call, "function", null);
-      Object params = Core.get(fn, "arguments", null);
-      Object params_is_string = Core.typeIs(params, "string");
-      if (Core.truthy(params_is_string)) {
-        try {
-          Object parsed_params = Core.jsonParse(params);
-          params = parsed_params;
-        } catch (RuntimeException parse_error) {
-          // empty
-        }
-      }
-      Object id = Core.get(call, "id", null);
-      Object name = Core.get(fn, "name", null);
-      Object function = new java.util.LinkedHashMap<String, Object>();
-      Core.set(function, "name", name);
-      Core.set(function, "params", params);
-      Object normalized = new java.util.LinkedHashMap<String, Object>();
-      Core.set(normalized, "id", id);
-      Core.set(normalized, "type", "function");
-      Core.set(normalized, "function", function);
-      Core.append(out, normalized);
+  static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_embed_response");
+    Object embeddings = new java.util.ArrayList<Object>();
+    Object empty_data = new java.util.ArrayList<Object>();
+    Object data = Core.get(raw, "data", empty_data);
+    for (Object item : Core.iter(data)) {
+      Object embedding = Core.get(item, "embedding", null);
+      Core.append(embeddings, embedding);
     }
+    Object raw_model = Core.get(raw, "model", null);
+    Object used_model = Core.coalesce(raw_model, model);
+    Object raw_usage = Core.get(raw, "usage", null);
+    Object usage = Core._openai_usage_with_service_tier(raw, raw_usage);
+    Object model_usage = Core._ai_model_usage_impl(ai_name, used_model, usage);
+    Object remote_id = Core.get(raw, "id", null);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "embeddings", embeddings);
+    Core.set(out, "remote_id", remote_id);
+    Core.set(out, "model_usage", model_usage);
     return out;
   }
 
@@ -6300,28 +6436,57 @@ final class Core {
     return out;
   }
 
-  static Object _openai_finish_reason_impl(Object value) {
-    axirCoverageMark("_openai_finish_reason_impl");
-    Object is_stop = Core.eq(value, "stop");
-    if (Core.truthy(is_stop)) {
-      return "stop";
+  static Object openai_normalize_stream_delta(Object raw, Object state, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_stream_delta");
+    Object response = Core._openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none");
+    return response;
+  }
+
+  static Object _openai_normalize_stream_delta_impl(Object raw, Object state, Object ai_name, Object model, Object reasoning_content_mode, Object reasoning_details_mode) {
+    axirCoverageMark("_openai_normalize_stream_delta_impl");
+    Object raw_is_object = Core.typeIs(raw, "object");
+    Object raw_not_object = Core.not(raw_is_object);
+    if (Core.truthy(raw_not_object)) {
+      Object error = Core.aiErrorStream("provider stream event must be a JSON object", raw, Boolean.TRUE);
+      throw Core.asRuntime(error);
     }
-    Object is_length = Core.eq(value, "length");
-    if (Core.truthy(is_length)) {
-      return "length";
+    Object provider_error = Core.get(raw, "error", null);
+    Object has_provider_error = Core.truthyValue(provider_error);
+    if (Core.truthy(has_provider_error)) {
+      Object message = Core.get(provider_error, "message", "provider stream error");
+      Object error = Core.aiErrorStream(message, raw, Boolean.TRUE);
+      throw Core.asRuntime(error);
     }
-    Object is_content_filter = Core.eq(value, "content_filter");
-    if (Core.truthy(is_content_filter)) {
-      return "error";
+    Object index_ids = Core.get(state, "index_ids", null);
+    Object missing_index_ids = Core.isNone(index_ids);
+    if (Core.truthy(missing_index_ids)) {
+      Object new_index_ids = new java.util.LinkedHashMap<String, Object>();
+      Core.set(state, "index_ids", new_index_ids);
+      index_ids = new_index_ids;
     }
-    Object is_tool_calls = Core.eq(value, "tool_calls");
-    Object is_function_call = Core.eq(value, "function_call");
-    Object is_call = Core.or(is_tool_calls, is_function_call);
-    if (Core.truthy(is_call)) {
-      return "function_call";
+    Object raw_remote_id = Core.get(raw, "id", null);
+    Object has_raw_remote_id = Core.truthyValue(raw_remote_id);
+    if (Core.truthy(has_raw_remote_id)) {
+      Core.set(state, "remote_id", raw_remote_id);
     }
-    Object none = Core.none();
-    return none;
+    Object remote_id = Core.get(state, "remote_id", raw_remote_id);
+    Object results = new java.util.ArrayList<Object>();
+    Object empty_choices = new java.util.ArrayList<Object>();
+    Object choices = Core.get(raw, "choices", empty_choices);
+    for (Object choice : Core.iter(choices)) {
+      Object result = Core._openai_stream_choice_impl(choice, index_ids, reasoning_content_mode, reasoning_details_mode);
+      Core.append(results, result);
+    }
+    Object raw_model = Core.get(raw, "model", null);
+    Object used_model = Core.coalesce(raw_model, model);
+    Object raw_usage = Core.get(raw, "usage", null);
+    Object usage = Core._openai_usage_with_service_tier(raw, raw_usage);
+    Object model_usage = Core._ai_model_usage_impl(ai_name, used_model, usage);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "results", results);
+    Core.set(out, "remote_id", remote_id);
+    Core.set(out, "model_usage", model_usage);
+    return out;
   }
 
   static Object ai_context_cache_recovery(Object current_entry, Object cache_name, Object external_registry) {
@@ -6346,28 +6511,6 @@ final class Core {
         }
       }
     }
-    return out;
-  }
-
-  static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {
-    axirCoverageMark("openai_normalize_embed_response");
-    Object embeddings = new java.util.ArrayList<Object>();
-    Object empty_data = new java.util.ArrayList<Object>();
-    Object data = Core.get(raw, "data", empty_data);
-    for (Object item : Core.iter(data)) {
-      Object embedding = Core.get(item, "embedding", null);
-      Core.append(embeddings, embedding);
-    }
-    Object raw_model = Core.get(raw, "model", null);
-    Object used_model = Core.coalesce(raw_model, model);
-    Object raw_usage = Core.get(raw, "usage", null);
-    Object usage = Core._openai_usage_with_service_tier(raw, raw_usage);
-    Object model_usage = Core._ai_model_usage_impl(ai_name, used_model, usage);
-    Object remote_id = Core.get(raw, "id", null);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "embeddings", embeddings);
-    Core.set(out, "remote_id", remote_id);
-    Core.set(out, "model_usage", model_usage);
     return out;
   }
 
@@ -6430,111 +6573,6 @@ final class Core {
     Core.set(out, "update", update);
     Core.set(out, "delete", delete_op);
     return out;
-  }
-
-  static Object openai_normalize_stream_delta(Object raw, Object state, Object ai_name, Object model) {
-    axirCoverageMark("openai_normalize_stream_delta");
-    Object response = Core._openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none");
-    return response;
-  }
-
-  static Object _openai_normalize_stream_delta_impl(Object raw, Object state, Object ai_name, Object model, Object reasoning_content_mode, Object reasoning_details_mode) {
-    axirCoverageMark("_openai_normalize_stream_delta_impl");
-    Object raw_is_object = Core.typeIs(raw, "object");
-    Object raw_not_object = Core.not(raw_is_object);
-    if (Core.truthy(raw_not_object)) {
-      Object error = Core.aiErrorStream("provider stream event must be a JSON object", raw, Boolean.TRUE);
-      throw Core.asRuntime(error);
-    }
-    Object provider_error = Core.get(raw, "error", null);
-    Object has_provider_error = Core.truthyValue(provider_error);
-    if (Core.truthy(has_provider_error)) {
-      Object message = Core.get(provider_error, "message", "provider stream error");
-      Object error = Core.aiErrorStream(message, raw, Boolean.TRUE);
-      throw Core.asRuntime(error);
-    }
-    Object index_ids = Core.get(state, "index_ids", null);
-    Object missing_index_ids = Core.isNone(index_ids);
-    if (Core.truthy(missing_index_ids)) {
-      Object new_index_ids = new java.util.LinkedHashMap<String, Object>();
-      Core.set(state, "index_ids", new_index_ids);
-      index_ids = new_index_ids;
-    }
-    Object raw_remote_id = Core.get(raw, "id", null);
-    Object has_raw_remote_id = Core.truthyValue(raw_remote_id);
-    if (Core.truthy(has_raw_remote_id)) {
-      Core.set(state, "remote_id", raw_remote_id);
-    }
-    Object remote_id = Core.get(state, "remote_id", raw_remote_id);
-    Object results = new java.util.ArrayList<Object>();
-    Object empty_choices = new java.util.ArrayList<Object>();
-    Object choices = Core.get(raw, "choices", empty_choices);
-    for (Object choice : Core.iter(choices)) {
-      Object result = Core._openai_stream_choice_impl(choice, index_ids, reasoning_content_mode, reasoning_details_mode);
-      Core.append(results, result);
-    }
-    Object raw_model = Core.get(raw, "model", null);
-    Object used_model = Core.coalesce(raw_model, model);
-    Object raw_usage = Core.get(raw, "usage", null);
-    Object usage = Core._openai_usage_with_service_tier(raw, raw_usage);
-    Object model_usage = Core._ai_model_usage_impl(ai_name, used_model, usage);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "results", results);
-    Core.set(out, "remote_id", remote_id);
-    Core.set(out, "model_usage", model_usage);
-    return out;
-  }
-
-  static Object fold_chat_response_stream(Object events) {
-    axirCoverageMark("fold_chat_response_stream");
-    Object results = new java.util.ArrayList<Object>();
-    Object usage = Core.none();
-    for (Object raw_event : Core.iter(events)) {
-      Object event = raw_event;
-      Object has_routing = Core.mapContains(raw_event, "routing");
-      Object has_response = Core.mapContains(raw_event, "response");
-      Object router_envelope = Core.and(has_routing, has_response);
-      if (Core.truthy(router_envelope)) {
-        event = Core.get(raw_event, "response", null);
-      }
-      Object empty_chunks = new java.util.ArrayList<Object>();
-      Object chunks = Core.get(event, "results", empty_chunks);
-      for (Object chunk : Core.iter(chunks)) {
-        Object index = Core.get(chunk, "index", 0);
-        Object target = Core.none();
-        for (Object candidate : Core.iter(results)) {
-          Object candidate_index = Core.get(candidate, "index", null);
-          Object same_index = Core.eq(candidate_index, index);
-          if (Core.truthy(same_index)) {
-            target = candidate;
-          }
-        }
-        Object missing_target = Core.isNone(target);
-        if (Core.truthy(missing_target)) {
-          Object new_target = new java.util.LinkedHashMap<String, Object>();
-          Core.set(new_target, "index", index);
-          Core.set(new_target, "content", "");
-          Object new_calls = new java.util.ArrayList<Object>();
-          Core.set(new_target, "function_calls", new_calls);
-          Core.append(results, new_target);
-          target = new_target;
-        }
-        Core._fold_chat_stream_chunk_impl(target, chunk);
-      }
-      Object usage_snake = Core.get(event, "model_usage", null);
-      Object event_usage = Core.get(event, "modelUsage", usage_snake);
-      Object has_usage = Core.isNotNone(event_usage);
-      if (Core.truthy(has_usage)) {
-        usage = event_usage;
-      }
-    }
-    Object response = new java.util.LinkedHashMap<String, Object>();
-    Core.set(response, "results", results);
-    Object found_usage = Core.isNotNone(usage);
-    if (Core.truthy(found_usage)) {
-      Core.set(response, "model_usage", usage);
-    }
-    return response;
   }
 
   static Object _openai_stream_choice_impl(Object choice, Object index_ids, Object reasoning_content_mode, Object reasoning_details_mode) {
@@ -6616,6 +6654,107 @@ final class Core {
     Core.set(out, "function_calls", calls);
     Core.set(out, "finish_reason", finish_reason);
     return out;
+  }
+
+  static Object fold_chat_response_stream(Object events) {
+    axirCoverageMark("fold_chat_response_stream");
+    Object results = new java.util.ArrayList<Object>();
+    Object usage = Core.none();
+    for (Object raw_event : Core.iter(events)) {
+      Object event = raw_event;
+      Object has_routing = Core.mapContains(raw_event, "routing");
+      Object has_response = Core.mapContains(raw_event, "response");
+      Object router_envelope = Core.and(has_routing, has_response);
+      if (Core.truthy(router_envelope)) {
+        event = Core.get(raw_event, "response", null);
+      }
+      Object empty_chunks = new java.util.ArrayList<Object>();
+      Object chunks = Core.get(event, "results", empty_chunks);
+      for (Object chunk : Core.iter(chunks)) {
+        Object index = Core.get(chunk, "index", 0);
+        Object target = Core.none();
+        for (Object candidate : Core.iter(results)) {
+          Object candidate_index = Core.get(candidate, "index", null);
+          Object same_index = Core.eq(candidate_index, index);
+          if (Core.truthy(same_index)) {
+            target = candidate;
+          }
+        }
+        Object missing_target = Core.isNone(target);
+        if (Core.truthy(missing_target)) {
+          Object new_target = new java.util.LinkedHashMap<String, Object>();
+          Core.set(new_target, "index", index);
+          Core.set(new_target, "content", "");
+          Object new_calls = new java.util.ArrayList<Object>();
+          Core.set(new_target, "function_calls", new_calls);
+          Core.append(results, new_target);
+          target = new_target;
+        }
+        Core._fold_chat_stream_chunk_impl(target, chunk);
+      }
+      Object usage_snake = Core.get(event, "model_usage", null);
+      Object event_usage = Core.get(event, "modelUsage", usage_snake);
+      Object has_usage = Core.isNotNone(event_usage);
+      if (Core.truthy(has_usage)) {
+        usage = event_usage;
+      }
+    }
+    Object response = new java.util.LinkedHashMap<String, Object>();
+    Core.set(response, "results", results);
+    Object found_usage = Core.isNotNone(usage);
+    if (Core.truthy(found_usage)) {
+      Core.set(response, "model_usage", usage);
+    }
+    return response;
+  }
+
+  static Object openai_normalize_error(Object status, Object body, Object request, Object options) {
+    axirCoverageMark("openai_normalize_error");
+    Object error_request = Core._ai_error_request(request, options);
+    Object message = body;
+    Object code = Core.none();
+    Object body_is_object = Core.typeIs(body, "object");
+    if (Core.truthy(body_is_object)) {
+      Object error_body = Core.get(body, "error", body);
+      Object error_is_object = Core.typeIs(error_body, "object");
+      if (Core.truthy(error_is_object)) {
+        Object body_text = Core.stringStr(body);
+        Object message_value = Core.get(error_body, "message", body_text);
+        Object code_value = Core.get(error_body, "code", null);
+        message = message_value;
+        code = code_value;
+      }
+      if (!Core.truthy(error_is_object)) {
+        Object message_value = Core.stringStr(error_body);
+        message = message_value;
+      }
+    }
+    Object is_401 = Core.eq(status, 401);
+    Object is_403 = Core.eq(status, 403);
+    Object is_auth = Core.or(is_401, is_403);
+    if (Core.truthy(is_auth)) {
+      Object error = Core.aiErrorAuth(message, status, code, body, error_request);
+      return error;
+    }
+    Object is_408 = Core.eq(status, 408);
+    Object is_504 = Core.eq(status, 504);
+    Object is_timeout = Core.or(is_408, is_504);
+    if (Core.truthy(is_timeout)) {
+      Object error = Core.aiErrorTimeout(message, status, code, body, error_request, Boolean.TRUE);
+      return error;
+    }
+    Object is_429 = Core.eq(status, 429);
+    Object is_500 = Core.eq(status, 500);
+    Object is_502 = Core.eq(status, 502);
+    Object is_503 = Core.eq(status, 503);
+    Object is_529 = Core.eq(status, 529);
+    Object retry_left = Core.or(is_429, is_500);
+    Object retry_right = Core.or(is_502, is_503);
+    Object retry_some = Core.or(retry_left, retry_right);
+    Object retry_more = Core.or(retry_some, is_504);
+    Object retryable = Core.or(retry_more, is_529);
+    Object error = Core.aiErrorStatus(message, status, code, body, error_request, retryable);
+    return error;
   }
 
   static Object _fold_chat_stream_chunk_impl(Object target, Object chunk) {
@@ -6703,55 +6842,6 @@ final class Core {
       Core.set(target, "finish_reason", finish);
     }
     return null;
-  }
-
-  static Object openai_normalize_error(Object status, Object body, Object request, Object options) {
-    axirCoverageMark("openai_normalize_error");
-    Object error_request = Core._ai_error_request(request, options);
-    Object message = body;
-    Object code = Core.none();
-    Object body_is_object = Core.typeIs(body, "object");
-    if (Core.truthy(body_is_object)) {
-      Object error_body = Core.get(body, "error", body);
-      Object error_is_object = Core.typeIs(error_body, "object");
-      if (Core.truthy(error_is_object)) {
-        Object body_text = Core.stringStr(body);
-        Object message_value = Core.get(error_body, "message", body_text);
-        Object code_value = Core.get(error_body, "code", null);
-        message = message_value;
-        code = code_value;
-      }
-      if (!Core.truthy(error_is_object)) {
-        Object message_value = Core.stringStr(error_body);
-        message = message_value;
-      }
-    }
-    Object is_401 = Core.eq(status, 401);
-    Object is_403 = Core.eq(status, 403);
-    Object is_auth = Core.or(is_401, is_403);
-    if (Core.truthy(is_auth)) {
-      Object error = Core.aiErrorAuth(message, status, code, body, error_request);
-      return error;
-    }
-    Object is_408 = Core.eq(status, 408);
-    Object is_504 = Core.eq(status, 504);
-    Object is_timeout = Core.or(is_408, is_504);
-    if (Core.truthy(is_timeout)) {
-      Object error = Core.aiErrorTimeout(message, status, code, body, error_request, Boolean.TRUE);
-      return error;
-    }
-    Object is_429 = Core.eq(status, 429);
-    Object is_500 = Core.eq(status, 500);
-    Object is_502 = Core.eq(status, 502);
-    Object is_503 = Core.eq(status, 503);
-    Object is_529 = Core.eq(status, 529);
-    Object retry_left = Core.or(is_429, is_500);
-    Object retry_right = Core.or(is_502, is_503);
-    Object retry_some = Core.or(retry_left, retry_right);
-    Object retry_more = Core.or(retry_some, is_504);
-    Object retryable = Core.or(retry_more, is_529);
-    Object error = Core.aiErrorStatus(message, status, code, body, error_request, retryable);
-    return error;
   }
 
   static Object provider_normalize_profile(Object profile) {
@@ -19407,6 +19497,12 @@ final class Core {
         }
         continue;
       }
+      try {
+        Core._check_completion_function_call_names(response, runtime_options);
+      } catch (RuntimeException unnamed_call_error) {
+        Object unnamed_call_failure = Core._generate_failed_impl(unnamed_call_error);
+        throw Core.asRuntime(unnamed_call_failure);
+      }
       Core.axgenMemoryAddResponse(gen, request, response);
       Core.axgenRecordChatLog(gen, request, response);
       Object calls = Core._response_function_calls_impl(response);
@@ -21373,12 +21469,6 @@ final class Core {
     return none;
   }
 
-  static Object _set_examples(Object gen, Object examples) {
-    axirCoverageMark("_set_examples");
-    Core.set(gen, "examples", examples);
-    return gen;
-  }
-
   static Object _ace_empty_playbook(Object description, Object now) {
     axirCoverageMark("_ace_empty_playbook");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -21399,16 +21489,16 @@ final class Core {
     return out;
   }
 
+  static Object _set_examples(Object gen, Object examples) {
+    axirCoverageMark("_set_examples");
+    Core.set(gen, "examples", examples);
+    return gen;
+  }
+
   static Object _set_demos(Object gen, Object demos) {
     axirCoverageMark("_set_demos");
     Core.set(gen, "demos", demos);
     return gen;
-  }
-
-  static Object _render_examples(Object gen) {
-    axirCoverageMark("_render_examples");
-    Object messages = Core.axgenRenderExamples(gen);
-    return messages;
   }
 
   static Object _ace_render_playbook(Object playbook) {
@@ -21468,16 +21558,16 @@ final class Core {
     return result;
   }
 
+  static Object _render_examples(Object gen) {
+    axirCoverageMark("_render_examples");
+    Object messages = Core.axgenRenderExamples(gen);
+    return messages;
+  }
+
   static Object _render_demos(Object gen) {
     axirCoverageMark("_render_demos");
     Object messages = Core.axgenRenderDemos(gen);
     return messages;
-  }
-
-  static Object _apply_field_processors(Object gen, Object output) {
-    axirCoverageMark("_apply_field_processors");
-    Object processed = Core.axgenApplyFieldProcessors(gen, output);
-    return processed;
   }
 
   static Object chat_session_boundary_action(Object state) {
@@ -21633,6 +21723,12 @@ final class Core {
       return date_out;
     }
     return out;
+  }
+
+  static Object _apply_field_processors(Object gen, Object output) {
+    axirCoverageMark("_apply_field_processors");
+    Object processed = Core.axgenApplyFieldProcessors(gen, output);
+    return processed;
   }
 
   static Object _run_assertions(Object gen, Object output) {
@@ -21805,12 +21901,6 @@ final class Core {
     return t17;
   }
 
-  static Object _record_trace(Object gen, Object input, Object output, Object status) {
-    axirCoverageMark("_record_trace");
-    Core.axgenRecordTrace(gen, input, output, status);
-    return null;
-  }
-
   static Object chat_session_mark_submitted(Object state, Object ids) {
     axirCoverageMark("chat_session_mark_submitted");
     Object pending = Core.get(state, "pending", null);
@@ -21825,10 +21915,10 @@ final class Core {
     return null;
   }
 
-  static Object _should_continue_steps(Object gen, Object calls) {
-    axirCoverageMark("_should_continue_steps");
-    Object should_continue = Core.axgenShouldContinueSteps(gen, calls);
-    return should_continue;
+  static Object _record_trace(Object gen, Object input, Object output, Object status) {
+    axirCoverageMark("_record_trace");
+    Core.axgenRecordTrace(gen, input, output, status);
+    return null;
   }
 
   static Object _date_strip_code_fence_impl(Object value) {
@@ -21890,11 +21980,10 @@ final class Core {
     return Boolean.TRUE;
   }
 
-  static Object _parse_output_impl(Object content) {
-    axirCoverageMark("_parse_output_impl");
-    Object text = Core.stringTrim(content);
-    Object output = Core.jsonParseStrict(text);
-    return output;
+  static Object _should_continue_steps(Object gen, Object calls) {
+    axirCoverageMark("_should_continue_steps");
+    Object should_continue = Core.axgenShouldContinueSteps(gen, calls);
+    return should_continue;
   }
 
   static Object _ace_dedupe_playbook(Object playbook) {
@@ -21936,21 +22025,11 @@ final class Core {
     return recomputed;
   }
 
-  static Object _is_flexible_json_field(Object typ) {
-    axirCoverageMark("_is_flexible_json_field");
-    Object type_name = Core.get(typ, "name", null);
-    Object is_json = Core.eq(type_name, "json");
-    Object is_object = Core.eq(type_name, "object");
-    Object fields = Core.get(typ, "fields", null);
-    Object has_fields = Core.truthyValue(fields);
-    Object no_fields = Core.not(has_fields);
-    Object flexible = is_json;
-    if (Core.truthy(is_object)) {
-      if (Core.truthy(no_fields)) {
-        flexible = Boolean.TRUE;
-      }
-    }
-    return flexible;
+  static Object _parse_output_impl(Object content) {
+    axirCoverageMark("_parse_output_impl");
+    Object text = Core.stringTrim(content);
+    Object output = Core.jsonParseStrict(text);
+    return output;
   }
 
   static Object _stream_field_value_impl(Object field, Object text) {
@@ -22172,6 +22251,23 @@ final class Core {
     return t4;
   }
 
+  static Object _is_flexible_json_field(Object typ) {
+    axirCoverageMark("_is_flexible_json_field");
+    Object type_name = Core.get(typ, "name", null);
+    Object is_json = Core.eq(type_name, "json");
+    Object is_object = Core.eq(type_name, "object");
+    Object fields = Core.get(typ, "fields", null);
+    Object has_fields = Core.truthyValue(fields);
+    Object no_fields = Core.not(has_fields);
+    Object flexible = is_json;
+    if (Core.truthy(is_object)) {
+      if (Core.truthy(no_fields)) {
+        flexible = Boolean.TRUE;
+      }
+    }
+    return flexible;
+  }
+
   static Object chat_session_record_unresolved(Object gen, Object state) {
     axirCoverageMark("chat_session_record_unresolved");
     Object pending = Core.get(state, "pending", null);
@@ -22208,23 +22304,6 @@ final class Core {
       return "utf16";
     }
     return "codepoint";
-  }
-
-  static Object _parse_json_string_value(Object value) {
-    axirCoverageMark("_parse_json_string_value");
-    Object is_string = Core.typeIs(value, "string");
-    Object not_string = Core.not(is_string);
-    if (Core.truthy(not_string)) {
-      return value;
-    }
-    Object result = value;
-    try {
-      Object parsed = Core.jsonParse(value);
-      result = parsed;
-    } catch (RuntimeException parse_error) {
-      result = value;
-    }
-    return result;
   }
 
   static Object _ace_prune_section_for_addition(Object section, Object protected_ids) {
@@ -22308,6 +22387,23 @@ final class Core {
     return out;
   }
 
+  static Object _parse_json_string_value(Object value) {
+    axirCoverageMark("_parse_json_string_value");
+    Object is_string = Core.typeIs(value, "string");
+    Object not_string = Core.not(is_string);
+    if (Core.truthy(not_string)) {
+      return value;
+    }
+    Object result = value;
+    try {
+      Object parsed = Core.jsonParse(value);
+      result = parsed;
+    } catch (RuntimeException parse_error) {
+      result = value;
+    }
+    return result;
+  }
+
   static Object chat_session_close_state(Object state) {
     axirCoverageMark("chat_session_close_state");
     Core.set(state, "terminal", Boolean.TRUE);
@@ -22363,62 +22459,6 @@ final class Core {
       cursor = Core.add(cursor, step);
     }
     return offset;
-  }
-
-  static Object _parse_json_string_for_field(Object field, Object value) {
-    axirCoverageMark("_parse_json_string_for_field");
-    Object typ = Core.get(field, "type", null);
-    Object value_is_none = Core.isNone(value);
-    if (Core.truthy(value_is_none)) {
-      return value;
-    }
-    Object flexible = Core._is_flexible_json_field(typ);
-    Object is_array = Core.get(typ, "is_array", Boolean.FALSE);
-    Object typ_fields = Core.get(typ, "fields", null);
-    Object has_typ_fields = Core.truthyValue(typ_fields);
-    if (Core.truthy(is_array)) {
-      Object value_is_list = Core.typeIs(value, "list");
-      Object not_list = Core.not(value_is_list);
-      if (Core.truthy(not_list)) {
-        return value;
-      }
-      if (Core.truthy(flexible)) {
-        Object out = new java.util.ArrayList<Object>();
-        for (Object item : Core.iter(value)) {
-          Object parsed_item = Core._parse_json_string_value(item);
-          Core.append(out, parsed_item);
-        }
-        return out;
-      }
-      if (Core.truthy(has_typ_fields)) {
-        Object rebuilt = new java.util.ArrayList<Object>();
-        for (Object item : Core.iter(value)) {
-          Object item_is_map = Core.typeIs(item, "object");
-          if (Core.truthy(item_is_map)) {
-            Object parsed_obj = Core._parse_json_string_for_fields(typ_fields, item);
-            Core.append(rebuilt, parsed_obj);
-          }
-          if (!Core.truthy(item_is_map)) {
-            Core.append(rebuilt, item);
-          }
-        }
-        return rebuilt;
-      }
-      return value;
-    }
-    if (Core.truthy(flexible)) {
-      Object parsed_scalar = Core._parse_json_string_value(value);
-      return parsed_scalar;
-    }
-    Object type_name = Core.get(typ, "name", null);
-    Object is_object = Core.eq(type_name, "object");
-    if (Core.truthy(is_object)) {
-      if (Core.truthy(has_typ_fields)) {
-        Object parsed_obj2 = Core._parse_json_string_for_fields(typ_fields, value);
-        return parsed_obj2;
-      }
-    }
-    return value;
   }
 
   static Object chat_session_transition(Object state, Object event) {
@@ -22622,6 +22662,62 @@ final class Core {
     return t2;
   }
 
+  static Object _parse_json_string_for_field(Object field, Object value) {
+    axirCoverageMark("_parse_json_string_for_field");
+    Object typ = Core.get(field, "type", null);
+    Object value_is_none = Core.isNone(value);
+    if (Core.truthy(value_is_none)) {
+      return value;
+    }
+    Object flexible = Core._is_flexible_json_field(typ);
+    Object is_array = Core.get(typ, "is_array", Boolean.FALSE);
+    Object typ_fields = Core.get(typ, "fields", null);
+    Object has_typ_fields = Core.truthyValue(typ_fields);
+    if (Core.truthy(is_array)) {
+      Object value_is_list = Core.typeIs(value, "list");
+      Object not_list = Core.not(value_is_list);
+      if (Core.truthy(not_list)) {
+        return value;
+      }
+      if (Core.truthy(flexible)) {
+        Object out = new java.util.ArrayList<Object>();
+        for (Object item : Core.iter(value)) {
+          Object parsed_item = Core._parse_json_string_value(item);
+          Core.append(out, parsed_item);
+        }
+        return out;
+      }
+      if (Core.truthy(has_typ_fields)) {
+        Object rebuilt = new java.util.ArrayList<Object>();
+        for (Object item : Core.iter(value)) {
+          Object item_is_map = Core.typeIs(item, "object");
+          if (Core.truthy(item_is_map)) {
+            Object parsed_obj = Core._parse_json_string_for_fields(typ_fields, item);
+            Core.append(rebuilt, parsed_obj);
+          }
+          if (!Core.truthy(item_is_map)) {
+            Core.append(rebuilt, item);
+          }
+        }
+        return rebuilt;
+      }
+      return value;
+    }
+    if (Core.truthy(flexible)) {
+      Object parsed_scalar = Core._parse_json_string_value(value);
+      return parsed_scalar;
+    }
+    Object type_name = Core.get(typ, "name", null);
+    Object is_object = Core.eq(type_name, "object");
+    if (Core.truthy(is_object)) {
+      if (Core.truthy(has_typ_fields)) {
+        Object parsed_obj2 = Core._parse_json_string_for_fields(typ_fields, value);
+        return parsed_obj2;
+      }
+    }
+    return value;
+  }
+
   static Object _date_js_trim_impl(Object text) {
     axirCoverageMark("_date_js_trim_impl");
     Object units = Core.stringUTF16Units(text);
@@ -22634,25 +22730,6 @@ final class Core {
     Object slice_to = Core._date_native_offset_impl(units, end, mode);
     Object trimmed = Core.stringSlice(text, slice_from, slice_to);
     return trimmed;
-  }
-
-  static Object _parse_json_string_fields(Object output_fields, Object values) {
-    axirCoverageMark("_parse_json_string_fields");
-    Object values_is_map = Core.typeIs(values, "object");
-    Object not_map = Core.not(values_is_map);
-    if (Core.truthy(not_map)) {
-      return values;
-    }
-    for (Object field : Core.iter(output_fields)) {
-      Object name = Core.get(field, "name", null);
-      Object has_key = Core.mapContains(values, name);
-      if (Core.truthy(has_key)) {
-        Object value = Core.get(values, name, null);
-        Object parsed = Core._parse_json_string_for_field(field, value);
-        Core.set(values, name, parsed);
-      }
-    }
-    return values;
   }
 
   static Object _ace_apply_curator_operations(Object playbook, Object operations, Object options, Object now) {
@@ -22825,6 +22902,25 @@ final class Core {
     return out;
   }
 
+  static Object _parse_json_string_fields(Object output_fields, Object values) {
+    axirCoverageMark("_parse_json_string_fields");
+    Object values_is_map = Core.typeIs(values, "object");
+    Object not_map = Core.not(values_is_map);
+    if (Core.truthy(not_map)) {
+      return values;
+    }
+    for (Object field : Core.iter(output_fields)) {
+      Object name = Core.get(field, "name", null);
+      Object has_key = Core.mapContains(values, name);
+      if (Core.truthy(has_key)) {
+        Object value = Core.get(values, name, null);
+        Object parsed = Core._parse_json_string_for_field(field, value);
+        Core.set(values, name, parsed);
+      }
+    }
+    return values;
+  }
+
   static Object _date_trim_bounds_impl(Object units, Object start, Object end) {
     axirCoverageMark("_date_trim_bounds_impl");
     Object first = Core._date_skip_space_impl(units, start, end);
@@ -22847,26 +22943,6 @@ final class Core {
     Core.set(bounds, "start", first);
     Core.set(bounds, "end", last);
     return bounds;
-  }
-
-  static Object _parse_json_string_for_fields(Object fields_map, Object values) {
-    axirCoverageMark("_parse_json_string_for_fields");
-    Object values_is_map = Core.typeIs(values, "object");
-    Object not_map = Core.not(values_is_map);
-    if (Core.truthy(not_map)) {
-      return values;
-    }
-    Object nested_fields = Core.fieldsFromMap(fields_map);
-    for (Object field : Core.iter(nested_fields)) {
-      Object name = Core.get(field, "name", null);
-      Object has_key = Core.mapContains(values, name);
-      if (Core.truthy(has_key)) {
-        Object value = Core.get(values, name, null);
-        Object parsed = Core._parse_json_string_for_field(field, value);
-        Core.set(values, name, parsed);
-      }
-    }
-    return values;
   }
 
   static Object _regex_member(Object n, Object c) {
@@ -22988,6 +23064,26 @@ final class Core {
       return yes;
     }
     return Boolean.FALSE;
+  }
+
+  static Object _parse_json_string_for_fields(Object fields_map, Object values) {
+    axirCoverageMark("_parse_json_string_for_fields");
+    Object values_is_map = Core.typeIs(values, "object");
+    Object not_map = Core.not(values_is_map);
+    if (Core.truthy(not_map)) {
+      return values;
+    }
+    Object nested_fields = Core.fieldsFromMap(fields_map);
+    for (Object field : Core.iter(nested_fields)) {
+      Object name = Core.get(field, "name", null);
+      Object has_key = Core.mapContains(values, name);
+      if (Core.truthy(has_key)) {
+        Object value = Core.get(values, name, null);
+        Object parsed = Core._parse_json_string_for_field(field, value);
+        Core.set(values, name, parsed);
+      }
+    }
+    return values;
   }
 
   static Object _date_skip_space_impl(Object units, Object start, Object end) {
@@ -23176,25 +23272,6 @@ final class Core {
     return letter;
   }
 
-  static Object _function_call_mode_impl(Object mode) {
-    axirCoverageMark("_function_call_mode_impl");
-    Object missing = Core.isNone(mode);
-    if (Core.truthy(missing)) {
-      return "auto";
-    }
-    Object is_native = Core.eq(mode, "native");
-    Object is_auto = Core.eq(mode, "auto");
-    Object native_or_auto = Core.or(is_native, is_auto);
-    if (Core.truthy(native_or_auto)) {
-      return "auto";
-    }
-    Object is_prompt = Core.eq(mode, "prompt");
-    if (Core.truthy(is_prompt)) {
-      return "none";
-    }
-    return "auto";
-  }
-
   static Object _stream_text_extract_impl(Object xstate, Object values, Object content, Object fields, Object options) {
     axirCoverageMark("_stream_text_extract_impl");
     Object field_count = Core.len(fields);
@@ -23326,6 +23403,25 @@ final class Core {
     return Boolean.FALSE;
   }
 
+  static Object _function_call_mode_impl(Object mode) {
+    axirCoverageMark("_function_call_mode_impl");
+    Object missing = Core.isNone(mode);
+    if (Core.truthy(missing)) {
+      return "auto";
+    }
+    Object is_native = Core.eq(mode, "native");
+    Object is_auto = Core.eq(mode, "auto");
+    Object native_or_auto = Core.or(is_native, is_auto);
+    if (Core.truthy(native_or_auto)) {
+      return "auto";
+    }
+    Object is_prompt = Core.eq(mode, "prompt");
+    if (Core.truthy(is_prompt)) {
+      return "none";
+    }
+    return "auto";
+  }
+
   static Object _date_ascii_matches_impl(Object units, Object at, Object end, Object word) {
     axirCoverageMark("_date_ascii_matches_impl");
     Object length = Core.len(word);
@@ -23373,42 +23469,6 @@ final class Core {
     Object empty = new java.util.ArrayList<Object>();
     Object calls = Core.get(response, "function_calls", empty);
     return calls;
-  }
-
-  static Object _append_tool_call_messages_impl(Object messages, Object response, Object calls) {
-    axirCoverageMark("_append_tool_call_messages_impl");
-    Object chat_calls = new java.util.ArrayList<Object>();
-    for (Object call : Core.iter(calls)) {
-      Object chat_call = Core._completion_call_to_chat_impl(call);
-      Core.append(chat_calls, chat_call);
-    }
-    Object content = Core.get(response, "content", "");
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "assistant");
-    Core.set(message, "content", content);
-    Core.set(message, "function_calls", chat_calls);
-    Object thought = Core.get(response, "thought", null);
-    Object has_thought = Core.isNotNone(thought);
-    if (Core.truthy(has_thought)) {
-      Core.set(message, "thought", thought);
-    }
-    Object thought_blocks = Core.get(response, "thought_blocks", null);
-    Object has_thought_blocks = Core.isNotNone(thought_blocks);
-    if (Core.truthy(has_thought_blocks)) {
-      Core.set(message, "thought_blocks", thought_blocks);
-    }
-    Object images = Core.get(response, "images", null);
-    Object has_images = Core.isNotNone(images);
-    if (Core.truthy(has_images)) {
-      Core.set(message, "images", images);
-    }
-    Object phase = Core.get(response, "phase", null);
-    Object has_phase = Core.isNotNone(phase);
-    if (Core.truthy(has_phase)) {
-      Core.set(message, "phase", phase);
-    }
-    Core.append(messages, message);
-    return messages;
   }
 
   static Object _regex_capture_ids(Object n) {
@@ -23585,6 +23645,42 @@ final class Core {
     return is_noop;
   }
 
+  static Object _append_tool_call_messages_impl(Object messages, Object response, Object calls) {
+    axirCoverageMark("_append_tool_call_messages_impl");
+    Object chat_calls = new java.util.ArrayList<Object>();
+    for (Object call : Core.iter(calls)) {
+      Object chat_call = Core._completion_call_to_chat_impl(call);
+      Core.append(chat_calls, chat_call);
+    }
+    Object content = Core.get(response, "content", "");
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "assistant");
+    Core.set(message, "content", content);
+    Core.set(message, "function_calls", chat_calls);
+    Object thought = Core.get(response, "thought", null);
+    Object has_thought = Core.isNotNone(thought);
+    if (Core.truthy(has_thought)) {
+      Core.set(message, "thought", thought);
+    }
+    Object thought_blocks = Core.get(response, "thought_blocks", null);
+    Object has_thought_blocks = Core.isNotNone(thought_blocks);
+    if (Core.truthy(has_thought_blocks)) {
+      Core.set(message, "thought_blocks", thought_blocks);
+    }
+    Object images = Core.get(response, "images", null);
+    Object has_images = Core.isNotNone(images);
+    if (Core.truthy(has_images)) {
+      Core.set(message, "images", images);
+    }
+    Object phase = Core.get(response, "phase", null);
+    Object has_phase = Core.isNotNone(phase);
+    if (Core.truthy(has_phase)) {
+      Core.set(message, "phase", phase);
+    }
+    Core.append(messages, message);
+    return messages;
+  }
+
   static Object _date_digits_impl(Object units, Object at, Object count, Object end) {
     axirCoverageMark("_date_digits_impl");
     Object last = Core.add(at, count);
@@ -23615,6 +23711,17 @@ final class Core {
     return value;
   }
 
+  static Object _date_expect_unit_impl(Object units, Object at, Object end, Object expected) {
+    axirCoverageMark("_date_expect_unit_impl");
+    Object inside = Core.lt(at, end);
+    if (Core.truthy(inside)) {
+      Object unit = Core.get(units, at, 0);
+      Object same = Core.eq(unit, expected);
+      return same;
+    }
+    return Boolean.FALSE;
+  }
+
   static Object _completion_call_to_chat_impl(Object call) {
     axirCoverageMark("_completion_call_to_chat_impl");
     Object id = Core.get(call, "id", null);
@@ -23630,36 +23737,12 @@ final class Core {
     return out;
   }
 
-  static Object _date_expect_unit_impl(Object units, Object at, Object end, Object expected) {
-    axirCoverageMark("_date_expect_unit_impl");
-    Object inside = Core.lt(at, end);
-    if (Core.truthy(inside)) {
-      Object unit = Core.get(units, at, 0);
-      Object same = Core.eq(unit, expected);
-      return same;
-    }
-    return Boolean.FALSE;
-  }
-
   static Object _regex_push(Object stack, Object top, Object value) {
     axirCoverageMark("_regex_push");
     Object t1 = Core.stringFormat("{}", top);
     Core.set(stack, t1, value);
     Object t2 = Core.add(top, 1);
     return t2;
-  }
-
-  static Object _tool_result_message_impl(Object call, Object result) {
-    axirCoverageMark("_tool_result_message_impl");
-    Object id = Core.get(call, "id", null);
-    Object name = Core.get(call, "name", null);
-    Object result_json = Core.jsonStringify(result);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "name", name);
-    Core.set(message, "result", result_json);
-    return message;
   }
 
   static Object _date_scan_date_impl(Object units, Object at) {
@@ -23699,6 +23782,19 @@ final class Core {
     Core.set(t1, "node", n);
     Core.set(t1, "next", next);
     return t1;
+  }
+
+  static Object _tool_result_message_impl(Object call, Object result) {
+    axirCoverageMark("_tool_result_message_impl");
+    Object id = Core.get(call, "id", null);
+    Object name = Core.get(call, "name", null);
+    Object result_json = Core.jsonStringify(result);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "name", name);
+    Core.set(message, "result", result_json);
+    return message;
   }
 
   static Object _regex_frame(Object todo, Object st) {
@@ -24321,23 +24417,6 @@ final class Core {
     return parts;
   }
 
-  static Object _append_validation_retry_messages_impl(Object messages, Object response, Object error) {
-    axirCoverageMark("_append_validation_retry_messages_impl");
-    Object content = Core.get(response, "content", "");
-    Object assistant_message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(assistant_message, "role", "assistant");
-    Core.set(assistant_message, "content", content);
-    Core.append(messages, assistant_message);
-    Object error_text = Core.exceptionMessage(error);
-    Object prefix_message = Core.add("The previous response failed validation: ", error_text);
-    Object retry_content = Core.add(prefix_message, ". Return only corrected JSON.");
-    Object retry_message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(retry_message, "role", "user");
-    Core.set(retry_message, "content", retry_content);
-    Core.append(messages, retry_message);
-    return messages;
-  }
-
   static Object _stream_text_required_check_impl(Object values, Object fields) {
     axirCoverageMark("_stream_text_required_check_impl");
     Object parts = new java.util.ArrayList<Object>();
@@ -24372,6 +24451,23 @@ final class Core {
     Object message = Core.stringFormat("Required field not found: {}. Add a line starting with the exact label followed by a colon (e.g., \"{}:\") and then provide a valid {} value. Keep the output concise and avoid unrelated text.", list, first_title, first_label);
     Object error = Core.validationError(message);
     throw Core.asRuntime(error);
+  }
+
+  static Object _append_validation_retry_messages_impl(Object messages, Object response, Object error) {
+    axirCoverageMark("_append_validation_retry_messages_impl");
+    Object content = Core.get(response, "content", "");
+    Object assistant_message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(assistant_message, "role", "assistant");
+    Core.set(assistant_message, "content", content);
+    Core.append(messages, assistant_message);
+    Object error_text = Core.exceptionMessage(error);
+    Object prefix_message = Core.add("The previous response failed validation: ", error_text);
+    Object retry_content = Core.add(prefix_message, ". Return only corrected JSON.");
+    Object retry_message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(retry_message, "role", "user");
+    Core.set(retry_message, "content", retry_content);
+    Core.append(messages, retry_message);
+    return messages;
   }
 
   static Object _parse_text_field_value_impl(Object field, Object text) {
@@ -24535,86 +24631,6 @@ final class Core {
     return empty_list;
   }
 
-  static Object _parse_text_output_fields_impl(Object content, Object fields, Object is_final) {
-    axirCoverageMark("_parse_text_output_fields_impl");
-    Object lines = Core.stringSplit(content, "\n");
-    Object count = Core.len(lines);
-    Object index = 0;
-    Object values = new java.util.LinkedHashMap<String, Object>();
-    Object current = Core.none();
-    Object current_name = "";
-    Object parts = new java.util.ArrayList<Object>();
-    for (Object line : Core.iter(lines)) {
-      index = Core.add(index, 1);
-      Object line_trimmed = Core.stringTrim(line);
-      Object matched = Core.none();
-      Object value = "";
-      Object withhold = Boolean.FALSE;
-      for (Object field : Core.iter(fields)) {
-        Object name = Core.get(field, "name", null);
-        Object title = Core.get(field, "title", name);
-        Object labels = new java.util.ArrayList<Object>();
-        Core.append(labels, name);
-        Core.append(labels, title);
-        for (Object label : Core.iter(labels)) {
-          Object prefix = Core.stringFormat("{}:", label);
-          Object found = Core.stringStartsWith(line_trimmed, prefix);
-          if (Core.truthy(found)) {
-            matched = field;
-            Object length = Core.len(prefix);
-            value = Core.stringSlice(line_trimmed, length);
-            break;
-          }
-          Object last = Core.eq(index, count);
-          Object partial = Core.not(is_final);
-          partial = Core.and(partial, last);
-          if (Core.truthy(partial)) {
-            Object prefix_partial = Core.stringStartsWith(prefix, line_trimmed);
-            withhold = Core.or(withhold, prefix_partial);
-          }
-        }
-        Object has_match = Core.isNotNone(matched);
-        if (Core.truthy(has_match)) {
-          break;
-        }
-      }
-      Object has_match = Core.isNotNone(matched);
-      if (Core.truthy(has_match)) {
-        Object has_current = Core.ne(current_name, "");
-        if (Core.truthy(has_current)) {
-          Object raw = Core.stringJoin("\n", parts);
-          Object parsed = Core._parse_text_field_value_impl(current, raw);
-          Core.set(values, current_name, parsed);
-        }
-        current = matched;
-        current_name = Core.get(matched, "name", null);
-        parts = new java.util.ArrayList<Object>();
-        Core.append(parts, value);
-      }
-      if (!Core.truthy(has_match)) {
-        Object has_current = Core.ne(current_name, "");
-        Object keep = Core.not(withhold);
-        keep = Core.and(keep, has_current);
-        if (Core.truthy(keep)) {
-          Core.append(parts, line);
-        }
-      }
-    }
-    Object has_current = Core.ne(current_name, "");
-    if (Core.truthy(has_current)) {
-      Object raw = Core.stringJoin("\n", parts);
-      try {
-        Object parsed = Core._parse_text_field_value_impl(current, raw);
-        Core.set(values, current_name, parsed);
-      } catch (RuntimeException parse_error) {
-        if (Core.truthy(is_final)) {
-          throw Core.asRuntime(parse_error);
-        }
-      }
-    }
-    return values;
-  }
-
   static Object _stream_text_missed_fields_impl(Object values, Object content, Object fields) {
     axirCoverageMark("_stream_text_missed_fields_impl");
     Object field_count = Core.len(fields);
@@ -24722,6 +24738,86 @@ final class Core {
       }
     }
     return null;
+  }
+
+  static Object _parse_text_output_fields_impl(Object content, Object fields, Object is_final) {
+    axirCoverageMark("_parse_text_output_fields_impl");
+    Object lines = Core.stringSplit(content, "\n");
+    Object count = Core.len(lines);
+    Object index = 0;
+    Object values = new java.util.LinkedHashMap<String, Object>();
+    Object current = Core.none();
+    Object current_name = "";
+    Object parts = new java.util.ArrayList<Object>();
+    for (Object line : Core.iter(lines)) {
+      index = Core.add(index, 1);
+      Object line_trimmed = Core.stringTrim(line);
+      Object matched = Core.none();
+      Object value = "";
+      Object withhold = Boolean.FALSE;
+      for (Object field : Core.iter(fields)) {
+        Object name = Core.get(field, "name", null);
+        Object title = Core.get(field, "title", name);
+        Object labels = new java.util.ArrayList<Object>();
+        Core.append(labels, name);
+        Core.append(labels, title);
+        for (Object label : Core.iter(labels)) {
+          Object prefix = Core.stringFormat("{}:", label);
+          Object found = Core.stringStartsWith(line_trimmed, prefix);
+          if (Core.truthy(found)) {
+            matched = field;
+            Object length = Core.len(prefix);
+            value = Core.stringSlice(line_trimmed, length);
+            break;
+          }
+          Object last = Core.eq(index, count);
+          Object partial = Core.not(is_final);
+          partial = Core.and(partial, last);
+          if (Core.truthy(partial)) {
+            Object prefix_partial = Core.stringStartsWith(prefix, line_trimmed);
+            withhold = Core.or(withhold, prefix_partial);
+          }
+        }
+        Object has_match = Core.isNotNone(matched);
+        if (Core.truthy(has_match)) {
+          break;
+        }
+      }
+      Object has_match = Core.isNotNone(matched);
+      if (Core.truthy(has_match)) {
+        Object has_current = Core.ne(current_name, "");
+        if (Core.truthy(has_current)) {
+          Object raw = Core.stringJoin("\n", parts);
+          Object parsed = Core._parse_text_field_value_impl(current, raw);
+          Core.set(values, current_name, parsed);
+        }
+        current = matched;
+        current_name = Core.get(matched, "name", null);
+        parts = new java.util.ArrayList<Object>();
+        Core.append(parts, value);
+      }
+      if (!Core.truthy(has_match)) {
+        Object has_current = Core.ne(current_name, "");
+        Object keep = Core.not(withhold);
+        keep = Core.and(keep, has_current);
+        if (Core.truthy(keep)) {
+          Core.append(parts, line);
+        }
+      }
+    }
+    Object has_current = Core.ne(current_name, "");
+    if (Core.truthy(has_current)) {
+      Object raw = Core.stringJoin("\n", parts);
+      try {
+        Object parsed = Core._parse_text_field_value_impl(current, raw);
+        Core.set(values, current_name, parsed);
+      } catch (RuntimeException parse_error) {
+        if (Core.truthy(is_final)) {
+          throw Core.asRuntime(parse_error);
+        }
+      }
+    }
+    return values;
   }
 
   static Object _date_offset_zone_matches_impl(Object units, Object start, Object end) {
@@ -25017,16 +25113,6 @@ final class Core {
     return none;
   }
 
-  static Object _function_call_forces_tool_impl(Object choice) {
-    axirCoverageMark("_function_call_forces_tool_impl");
-    Object is_required = Core.eq(choice, "required");
-    if (Core.truthy(is_required)) {
-      return Boolean.TRUE;
-    }
-    Object is_named = Core.typeIs(choice, "object");
-    return is_named;
-  }
-
   static Object _ace_resolve_curator_operation_targets(Object operations, Object playbook, Object reflection, Object generator_output) {
     axirCoverageMark("_ace_resolve_curator_operation_targets");
     Object op_count = Core.len(operations);
@@ -25158,6 +25244,16 @@ final class Core {
     return resolved;
   }
 
+  static Object _function_call_forces_tool_impl(Object choice) {
+    axirCoverageMark("_function_call_forces_tool_impl");
+    Object is_required = Core.eq(choice, "required");
+    if (Core.truthy(is_required)) {
+      return Boolean.TRUE;
+    }
+    Object is_named = Core.typeIs(choice, "object");
+    return is_named;
+  }
+
   static Object _function_call_names_output_impl(Object choice) {
     axirCoverageMark("_function_call_names_output_impl");
     Object is_named = Core.typeIs(choice, "object");
@@ -25190,44 +25286,6 @@ final class Core {
       }
     }
     return values;
-  }
-
-  static Object _append_structured_output_retry_messages_impl(Object messages, Object response, Object call, Object error, Object stage) {
-    axirCoverageMark("_append_structured_output_retry_messages_impl");
-    Object output_calls = new java.util.ArrayList<Object>();
-    Core.append(output_calls, call);
-    Object with_call = Core._append_tool_call_messages_impl(messages, response, output_calls);
-    Object id = Core.get(call, "id", null);
-    Object direct_name = Core.get(call, "name", null);
-    Object fn = Core.get(call, "function", null);
-    Object name = Core.get(fn, "name", direct_name);
-    Object result_message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(result_message, "role", "function");
-    Core.set(result_message, "function_id", id);
-    Core.set(result_message, "name", name);
-    Core.set(result_message, "result", "done");
-    Core.append(with_call, result_message);
-    Object notice = new java.util.LinkedHashMap<String, Object>();
-    Core.set(notice, "role", "user");
-    Core.set(notice, "content", "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema.");
-    Core.append(with_call, notice);
-    Object error_text = Core.exceptionMessage(error);
-    error_text = Core.stringTrim(error_text);
-    Object correction_text = Core.stringFormat("Invalid Field: {}", error_text);
-    Object is_assertion = Core.eq(stage, "assertion");
-    if (Core.truthy(is_assertion)) {
-      Object has_period = Core.stringEndsWith(error_text, ".");
-      Object period = ".";
-      if (Core.truthy(has_period)) {
-        period = "";
-      }
-      correction_text = Core.stringFormat("Follow these instructions: {}{}", error_text, period);
-    }
-    Object correction = new java.util.LinkedHashMap<String, Object>();
-    Core.set(correction, "role", "user");
-    Core.set(correction, "content", correction_text);
-    Core.append(with_call, correction);
-    return with_call;
   }
 
   static Object _date_js_json_impl(Object value) {
@@ -25278,6 +25336,44 @@ final class Core {
     Object object_json = Core.add("{", members);
     object_json = Core.add(object_json, "}");
     return object_json;
+  }
+
+  static Object _append_structured_output_retry_messages_impl(Object messages, Object response, Object call, Object error, Object stage) {
+    axirCoverageMark("_append_structured_output_retry_messages_impl");
+    Object output_calls = new java.util.ArrayList<Object>();
+    Core.append(output_calls, call);
+    Object with_call = Core._append_tool_call_messages_impl(messages, response, output_calls);
+    Object id = Core.get(call, "id", null);
+    Object direct_name = Core.get(call, "name", null);
+    Object fn = Core.get(call, "function", null);
+    Object name = Core.get(fn, "name", direct_name);
+    Object result_message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(result_message, "role", "function");
+    Core.set(result_message, "function_id", id);
+    Core.set(result_message, "name", name);
+    Core.set(result_message, "result", "done");
+    Core.append(with_call, result_message);
+    Object notice = new java.util.LinkedHashMap<String, Object>();
+    Core.set(notice, "role", "user");
+    Core.set(notice, "content", "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema.");
+    Core.append(with_call, notice);
+    Object error_text = Core.exceptionMessage(error);
+    error_text = Core.stringTrim(error_text);
+    Object correction_text = Core.stringFormat("Invalid Field: {}", error_text);
+    Object is_assertion = Core.eq(stage, "assertion");
+    if (Core.truthy(is_assertion)) {
+      Object has_period = Core.stringEndsWith(error_text, ".");
+      Object period = ".";
+      if (Core.truthy(has_period)) {
+        period = "";
+      }
+      correction_text = Core.stringFormat("Follow these instructions: {}{}", error_text, period);
+    }
+    Object correction = new java.util.LinkedHashMap<String, Object>();
+    Core.set(correction, "role", "user");
+    Core.set(correction, "content", correction_text);
+    Core.append(with_call, correction);
+    return with_call;
   }
 
   static Object _stream_text_yield_delta_impl(Object content, Object field, Object start, Object end, Object xstate, Object held, Object complete) {
@@ -25355,16 +25451,6 @@ final class Core {
       return delta;
     }
     return none;
-  }
-
-  static Object _with_output_thought_impl(Object output, Object field, Object prefix, Object thought) {
-    axirCoverageMark("_with_output_thought_impl");
-    Object joined = Core.add(prefix, thought);
-    Object has_thought = Core.truthyValue(joined);
-    if (Core.truthy(has_thought)) {
-      Core.set(output, field, joined);
-    }
-    return output;
   }
 
   static Object _date_js_json_string_impl(Object text) {
@@ -25488,6 +25574,16 @@ final class Core {
     out = Core.add(out, rest);
     out = Core.add(out, "\"");
     return out;
+  }
+
+  static Object _with_output_thought_impl(Object output, Object field, Object prefix, Object thought) {
+    axirCoverageMark("_with_output_thought_impl");
+    Object joined = Core.add(prefix, thought);
+    Object has_thought = Core.truthyValue(joined);
+    if (Core.truthy(has_thought)) {
+      Core.set(output, field, joined);
+    }
+    return output;
   }
 
   static Object _streaming_forward_impl(Object gen, Object client, Object values, Object options, Object sink) {
@@ -25811,6 +25907,9 @@ final class Core {
             stage = "validation";
             Object folded = Core.fold_chat_response_stream(events);
             response = Core.chat_response_to_completion(folded);
+            stage = "fatal";
+            Core._check_completion_function_call_names(response, runtime_options);
+            stage = "validation";
             Core.axgenMemoryAddResponse(gen, request, response);
             Core.axgenRecordChatLog(gen, request, response);
             recorded = Boolean.TRUE;
@@ -27442,6 +27541,18 @@ final class Core {
     return out;
   }
 
+  static Object _regex_id_start_ranges() {
+    axirCoverageMark("_regex_id_start_ranges");
+    Object t1 = Core.jsonParse("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]");
+    return t1;
+  }
+
+  static Object _regex_id_continue_ranges() {
+    axirCoverageMark("_regex_id_continue_ranges");
+    Object t1 = Core.jsonParse("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]");
+    return t1;
+  }
+
   static Object _parse_text_contract_output_impl(Object content, Object output_fields, Object strict_mode) {
     axirCoverageMark("_parse_text_contract_output_impl");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -27486,18 +27597,6 @@ final class Core {
     Core.set(out, "values", values);
     Core.set(out, "extracted", Boolean.TRUE);
     return out;
-  }
-
-  static Object _regex_id_start_ranges() {
-    axirCoverageMark("_regex_id_start_ranges");
-    Object t1 = Core.jsonParse("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]");
-    return t1;
-  }
-
-  static Object _regex_id_continue_ranges() {
-    axirCoverageMark("_regex_id_continue_ranges");
-    Object t1 = Core.jsonParse("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]");
-    return t1;
   }
 
   static Object _regex_clear_capture(Object caps, Object key) {
@@ -27583,17 +27682,6 @@ final class Core {
     return wrapped;
   }
 
-  static Object _unable_to_fix_impl(Object error, Object output) {
-    axirCoverageMark("_unable_to_fix_impl");
-    Object text = Core.exceptionMessage(error);
-    Object message = Core.add("Unable to fix validation error: ", text);
-    message = Core.add(message, "\n\nLLM Output:\n");
-    message = Core.add(message, output);
-    Object unfixed = Core.exceptionRewrap(error, message);
-    Object wrapped = Core._generate_failed_impl(unfixed);
-    return wrapped;
-  }
-
   static Object _stream_json_validate_impl(Object fields, Object values, Object allow_missing, Object reject_unknown) {
     axirCoverageMark("_stream_json_validate_impl");
     if (Core.truthy(reject_unknown)) {
@@ -27640,6 +27728,17 @@ final class Core {
     return null;
   }
 
+  static Object _unable_to_fix_impl(Object error, Object output) {
+    axirCoverageMark("_unable_to_fix_impl");
+    Object text = Core.exceptionMessage(error);
+    Object message = Core.add("Unable to fix validation error: ", text);
+    message = Core.add(message, "\n\nLLM Output:\n");
+    message = Core.add(message, output);
+    Object unfixed = Core.exceptionRewrap(error, message);
+    Object wrapped = Core._generate_failed_impl(unfixed);
+    return wrapped;
+  }
+
   static Object _attempt_output_impl(Object response) {
     axirCoverageMark("_attempt_output_impl");
     Object empty_results = new java.util.ArrayList<Object>();
@@ -27662,31 +27761,6 @@ final class Core {
     }
     Object joined = Core.stringJoin("\n---\n", contents);
     return joined;
-  }
-
-  static Object _max_tokens_error_impl(Object response) {
-    axirCoverageMark("_max_tokens_error_impl");
-    Object empty_results = new java.util.ArrayList<Object>();
-    Object completions = Core.get(response, "results", empty_results);
-    Object count = Core.len(completions);
-    Object single = Core.eq(count, 0);
-    if (Core.truthy(single)) {
-      completions = new java.util.ArrayList<Object>();
-      Core.append(completions, response);
-    }
-    for (Object completion : Core.iter(completions)) {
-      Object finish_snake = Core.get(completion, "finish_reason", null);
-      Object finish = Core.get(completion, "finishReason", finish_snake);
-      Object cut = Core.eq(finish, "length");
-      if (Core.truthy(cut)) {
-        Object content = Core.get(completion, "content", "");
-        Object message = Core.add("Max tokens reached before completion\nContent: ", content);
-        Object error = Core.runtimeError(message);
-        return error;
-      }
-    }
-    Object none = Core.none();
-    return none;
   }
 
   static Object _stream_json_validate_value_impl(Object field, Object value, Object allow_missing) {
@@ -27780,6 +27854,31 @@ final class Core {
     return value;
   }
 
+  static Object _max_tokens_error_impl(Object response) {
+    axirCoverageMark("_max_tokens_error_impl");
+    Object empty_results = new java.util.ArrayList<Object>();
+    Object completions = Core.get(response, "results", empty_results);
+    Object count = Core.len(completions);
+    Object single = Core.eq(count, 0);
+    if (Core.truthy(single)) {
+      completions = new java.util.ArrayList<Object>();
+      Core.append(completions, response);
+    }
+    for (Object completion : Core.iter(completions)) {
+      Object finish_snake = Core.get(completion, "finish_reason", null);
+      Object finish = Core.get(completion, "finishReason", finish_snake);
+      Object cut = Core.eq(finish, "length");
+      if (Core.truthy(cut)) {
+        Object content = Core.get(completion, "content", "");
+        Object message = Core.add("Max tokens reached before completion\nContent: ", content);
+        Object error = Core.runtimeError(message);
+        return error;
+      }
+    }
+    Object none = Core.none();
+    return none;
+  }
+
   static Object _strict_mode_option_impl(Object base_options, Object options) {
     axirCoverageMark("_strict_mode_option_impl");
     Object empty = new java.util.LinkedHashMap<String, Object>();
@@ -27820,39 +27919,6 @@ final class Core {
     }
     Object cache_fn = Core.axgenCachingFunction(gen, call_options);
     return cache_fn;
-  }
-
-  static Object _cache_key_impl(Object gen, Object values) {
-    axirCoverageMark("_cache_key_impl");
-    Object signature = Core.get(gen, "signature", null);
-    Object description = Core.get(signature, "description", "");
-    Object lines = new java.util.ArrayList<Object>();
-    Object description_line = Core.stringFormat("description {}", description);
-    Core.append(lines, description_line);
-    Object inputs = new java.util.ArrayList<Object>();
-    Object input_fields = Core.get(signature, "input_fields", null);
-    for (Object field : Core.iter(input_fields)) {
-      Object input_name = Core.get(field, "name", "");
-      Object input_label = Core._stream_field_type_label_impl(field);
-      Object input_optional = Core._stream_field_flag_impl(field, "is_optional", "isOptional");
-      Object input_line = Core.stringFormat("input {} {} {}", input_name, input_label, input_optional);
-      Core.append(lines, input_line);
-      Object input_value = Core.get(values, input_name, null);
-      Core.append(inputs, input_value);
-    }
-    Object output_fields = Core.get(signature, "output_fields", null);
-    for (Object field : Core.iter(output_fields)) {
-      Object output_name = Core.get(field, "name", "");
-      Object output_label = Core._stream_field_type_label_impl(field);
-      Object output_optional = Core._stream_field_flag_impl(field, "is_optional", "isOptional");
-      Object output_line = Core.stringFormat("output {} {} {}", output_name, output_label, output_optional);
-      Core.append(lines, output_line);
-    }
-    Object inputs_json = Core.jsonStableStringify(inputs);
-    Core.append(lines, inputs_json);
-    Object text = Core.stringJoin("\n", lines);
-    Object key = Core.cryptoSha256Hex(text);
-    return key;
   }
 
   static Object _stream_json_validate_nested_impl(Object parent, Object object, Object allow_missing) {
@@ -27912,6 +27978,39 @@ final class Core {
     return null;
   }
 
+  static Object _cache_key_impl(Object gen, Object values) {
+    axirCoverageMark("_cache_key_impl");
+    Object signature = Core.get(gen, "signature", null);
+    Object description = Core.get(signature, "description", "");
+    Object lines = new java.util.ArrayList<Object>();
+    Object description_line = Core.stringFormat("description {}", description);
+    Core.append(lines, description_line);
+    Object inputs = new java.util.ArrayList<Object>();
+    Object input_fields = Core.get(signature, "input_fields", null);
+    for (Object field : Core.iter(input_fields)) {
+      Object input_name = Core.get(field, "name", "");
+      Object input_label = Core._stream_field_type_label_impl(field);
+      Object input_optional = Core._stream_field_flag_impl(field, "is_optional", "isOptional");
+      Object input_line = Core.stringFormat("input {} {} {}", input_name, input_label, input_optional);
+      Core.append(lines, input_line);
+      Object input_value = Core.get(values, input_name, null);
+      Core.append(inputs, input_value);
+    }
+    Object output_fields = Core.get(signature, "output_fields", null);
+    for (Object field : Core.iter(output_fields)) {
+      Object output_name = Core.get(field, "name", "");
+      Object output_label = Core._stream_field_type_label_impl(field);
+      Object output_optional = Core._stream_field_flag_impl(field, "is_optional", "isOptional");
+      Object output_line = Core.stringFormat("output {} {} {}", output_name, output_label, output_optional);
+      Core.append(lines, output_line);
+    }
+    Object inputs_json = Core.jsonStableStringify(inputs);
+    Core.append(lines, inputs_json);
+    Object text = Core.stringJoin("\n", lines);
+    Object key = Core.cryptoSha256Hex(text);
+    return key;
+  }
+
   static Object _cache_store_impl(Object cache_fn, Object key, Object output) {
     axirCoverageMark("_cache_store_impl");
     Object no_cache = Core.isNone(cache_fn);
@@ -27922,16 +28021,6 @@ final class Core {
       Core.axgenCacheWrite(cache_fn, key, output);
     } catch (RuntimeException cache_write_error) {
       // empty
-    }
-    return null;
-  }
-
-  static Object _cache_store_streamed_impl(Object cache_fn, Object key, Object output) {
-    axirCoverageMark("_cache_store_streamed_impl");
-    Object output_count = Core.len(output);
-    Object yielded = Core.gt(output_count, 0);
-    if (Core.truthy(yielded)) {
-      Core._cache_store_impl(cache_fn, key, output);
     }
     return null;
   }
@@ -27955,6 +28044,16 @@ final class Core {
       }
     }
     return out;
+  }
+
+  static Object _cache_store_streamed_impl(Object cache_fn, Object key, Object output) {
+    axirCoverageMark("_cache_store_streamed_impl");
+    Object output_count = Core.len(output);
+    Object yielded = Core.gt(output_count, 0);
+    if (Core.truthy(yielded)) {
+      Core._cache_store_impl(cache_fn, key, output);
+    }
+    return null;
   }
 
   static Object _cache_lookup_impl(Object gen, Object values, Object options, Object ignore_read_errors) {
@@ -28008,14 +28107,6 @@ final class Core {
     return out;
   }
 
-  static Object _cache_lookup_option_impl(Object options) {
-    axirCoverageMark("_cache_lookup_option_impl");
-    Object empty = new java.util.LinkedHashMap<String, Object>();
-    Object call_options = Core.mapMerge(empty, options);
-    Object lookup = Core.get(call_options, "_ax_cache_lookup", null);
-    return lookup;
-  }
-
   static Object _stream_json_flexible_impl(Object field) {
     axirCoverageMark("_stream_json_flexible_impl");
     Object typ = Core.get(field, "type", null);
@@ -28030,6 +28121,14 @@ final class Core {
     Object open_object = Core.not(has_nested);
     Object flexible = Core.and(is_object, open_object);
     return flexible;
+  }
+
+  static Object _cache_lookup_option_impl(Object options) {
+    axirCoverageMark("_cache_lookup_option_impl");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object call_options = Core.mapMerge(empty, options);
+    Object lookup = Core.get(call_options, "_ax_cache_lookup", null);
+    return lookup;
   }
 
   static Object _apply_control_updates_impl(Object gen, Object messages, Object runtime_options, Object updates) {
@@ -28077,25 +28176,6 @@ final class Core {
       throw Core.asRuntime(invalid);
     }
     return parsed;
-  }
-
-  static Object _structured_output_render_options_impl(Object selection) {
-    axirCoverageMark("_structured_output_render_options_impl");
-    Object render_options = new java.util.LinkedHashMap<String, Object>();
-    Object rung = Core.get(selection, "rung", null);
-    Object structured = Core.isNotNone(rung);
-    Core.set(render_options, "structured_output", structured);
-    Object extra_functions = new java.util.ArrayList<Object>();
-    Object function_rung = Core.eq(rung, "function");
-    if (Core.truthy(function_rung)) {
-      Core.set(render_options, "structured_output_function_name", "__axOutput");
-      Object output_function = new java.util.LinkedHashMap<String, Object>();
-      Core.set(output_function, "name", "__axOutput");
-      Core.set(output_function, "description", "Emit the complete structured program output using the declared argument shape.");
-      Core.append(extra_functions, output_function);
-    }
-    Core.set(render_options, "extra_functions", extra_functions);
-    return render_options;
   }
 
   static Object _stream_json_strings_for_field_impl(Object field, Object value) {
@@ -28150,6 +28230,75 @@ final class Core {
     return value;
   }
 
+  static Object _structured_output_render_options_impl(Object selection) {
+    axirCoverageMark("_structured_output_render_options_impl");
+    Object render_options = new java.util.LinkedHashMap<String, Object>();
+    Object rung = Core.get(selection, "rung", null);
+    Object structured = Core.isNotNone(rung);
+    Core.set(render_options, "structured_output", structured);
+    Object extra_functions = new java.util.ArrayList<Object>();
+    Object function_rung = Core.eq(rung, "function");
+    if (Core.truthy(function_rung)) {
+      Core.set(render_options, "structured_output_function_name", "__axOutput");
+      Object output_function = new java.util.LinkedHashMap<String, Object>();
+      Core.set(output_function, "name", "__axOutput");
+      Core.set(output_function, "description", "Emit the complete structured program output using the declared argument shape.");
+      Core.append(extra_functions, output_function);
+    }
+    Core.set(render_options, "extra_functions", extra_functions);
+    return render_options;
+  }
+
+  static Object _validate_completion_function_call_names(Object response) {
+    axirCoverageMark("_validate_completion_function_call_names");
+    Object empty = new java.util.ArrayList<Object>();
+    Object results = Core.get(response, "results", null);
+    Object no_results = Core.isNone(results);
+    if (Core.truthy(no_results)) {
+      results = new java.util.ArrayList<Object>();
+      Core.append(results, response);
+    }
+    Object result_index = 0;
+    for (Object result : Core.iter(results)) {
+      Object calls = Core.get(result, "function_calls", empty);
+      Object call_index = 0;
+      for (Object call : Core.iter(calls)) {
+        Object has_name = Core.mapContains(call, "name");
+        Object name = Core.get(call, "name", null);
+        Object fn = Core.get(call, "function", null);
+        Object fn_is_map = Core.typeIs(fn, "object");
+        if (Core.truthy(fn_is_map)) {
+          Object fn_has_name = Core.mapContains(fn, "name");
+          if (Core.truthy(fn_has_name)) {
+            has_name = Boolean.TRUE;
+            name = Core.get(fn, "name", null);
+          }
+        }
+        Object name_is_text = Core.typeIs(name, "string");
+        Object named = Boolean.FALSE;
+        if (Core.truthy(name_is_text)) {
+          Object trimmed = Core.stringTrim(name);
+          named = Core.ne(trimmed, "");
+        }
+        Object unnamed = Core.not(named);
+        if (Core.truthy(unnamed)) {
+          Object received = "undefined";
+          if (Core.truthy(has_name)) {
+            received = Core.jsonPretty(name);
+          }
+          Object message = Core.stringFormat("Function call at index {} in result {} must have a non-empty function name, received: {}", call_index, result_index, received);
+          Object error = Core.runtimeError(message);
+          throw Core.asRuntime(error);
+        }
+        Object next_call_index = Core.add(call_index, 1);
+        call_index = next_call_index;
+      }
+      Object next_result_index = Core.add(result_index, 1);
+      result_index = next_result_index;
+    }
+    return null;
+  }
+
   static Object _stream_json_strings_for_fields_impl(Object fields_map, Object values) {
     axirCoverageMark("_stream_json_strings_for_fields_impl");
     Object nested_fields = Core._stream_json_nested_fields_impl(fields_map);
@@ -28189,6 +28338,39 @@ final class Core {
         }
         Core.mapDelete(values, name);
       }
+    }
+    return null;
+  }
+
+  static Object _check_completion_function_call_names(Object response, Object options) {
+    axirCoverageMark("_check_completion_function_call_names");
+    Object mode_snake = Core.get(options, "function_call_validation", null);
+    Object mode = Core.get(options, "functionCallValidation", mode_snake);
+    Object mode_set = Core.isNotNone(mode);
+    if (Core.truthy(mode_set)) {
+      Object is_fail = Core.eq(mode, "fail");
+      Object is_correct = Core.eq(mode, "correct");
+      Object known = Core.or(is_fail, is_correct);
+      Object unknown = Core.not(known);
+      if (Core.truthy(unknown)) {
+        Object mode_json = Core.jsonPretty(mode);
+        Object mode_message = Core.stringFormat("functionCallValidation must be 'correct' or 'fail', received: {}", mode_json);
+        Object mode_error = Core.validationError(mode_message);
+        throw Core.asRuntime(mode_error);
+      }
+      if (Core.truthy(is_fail)) {
+        Core._validate_completion_function_call_names(response);
+      }
+      return null;
+    }
+    Object unnamed = Boolean.FALSE;
+    try {
+      Core._validate_completion_function_call_names(response);
+    } catch (RuntimeException unnamed_error) {
+      unnamed = Boolean.TRUE;
+    }
+    if (Core.truthy(unnamed)) {
+      Core.axgenDeprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.");
     }
     return null;
   }

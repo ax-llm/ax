@@ -645,7 +645,24 @@ public final class Conformance {
     }
   }
 
+  // expected_deprecations pins the one-time deprecation warnings the run
+  // gives (the ones already shown are forgotten first).
   static void run(Map<String, Object> fixture) {
+    if (!fixture.containsKey("expected_deprecations")) {
+      runKind(fixture);
+      return;
+    }
+    List<Object> captured = java.util.Collections.synchronizedList(new ArrayList<>());
+    Core.axgenCaptureDeprecations(captured::add);
+    try {
+      runKind(fixture);
+    } finally {
+      Core.axgenCaptureDeprecations(null);
+    }
+    assertEqual(new ArrayList<>(captured), fixture.get("expected_deprecations"), "deprecation warnings");
+  }
+
+  static void runKind(Map<String, Object> fixture) {
     String kind = String.valueOf(fixture.getOrDefault("kind", "forward"));
     switch (kind) {
       case "signature_error" -> runSignatureError(fixture);
@@ -655,6 +672,7 @@ public final class Conformance {
       case "validate_output" -> runValidateOutput(fixture);
       case "strip_internal" -> runStripInternal(fixture);
       case "number_format" -> runNumberFormat(fixture);
+      case "string_format" -> runStringFormat(fixture);
       case "date_field_value" -> runDateFieldValue(fixture);
       case "date_input" -> runDateInput(fixture);
       case "prompt" -> runPrompt(fixture);
@@ -902,6 +920,25 @@ public final class Conformance {
   // text). The JSON form must come out of every encoder: Json.stringify (wire
   // bodies and json.stringify), the key-sorted json.stable_stringify and
   // json.pretty (prompt values).
+  // string.format and string.str against JavaScript's text of each case.
+  static void runStringFormat(Map<String, Object> fixture) {
+    for (Object item : Core.asList(fixture.getOrDefault("format_cases", List.of()))) {
+      String template = String.valueOf(Core.get(item, "template", ""));
+      Object[] args = Core.asList(Core.get(item, "input", List.of())).toArray();
+      String actual = String.valueOf(Core.stringFormat(template, args));
+      String expected = String.valueOf(Core.get(item, "expected", ""));
+      if (!actual.equals(expected))
+        throw new FixtureError("string.format of " + Json.stringify(template) + ": expected " + Json.stringify(expected) + ", got " + Json.stringify(actual));
+    }
+    for (Object item : Core.asList(fixture.getOrDefault("str_cases", List.of()))) {
+      Object input = Core.get(item, "input", null);
+      String actual = Core.stringStr(input);
+      String expected = String.valueOf(Core.get(item, "expected", ""));
+      if (!actual.equals(expected))
+        throw new FixtureError("string.str of " + Json.stringify(input) + ": expected " + Json.stringify(expected) + ", got " + Json.stringify(actual));
+    }
+  }
+
   static void runNumberFormat(Map<String, Object> fixture) {
     for (Object item : Core.asList(fixture.get("cases"))) {
       String input = String.valueOf(Core.get(item, "input", ""));

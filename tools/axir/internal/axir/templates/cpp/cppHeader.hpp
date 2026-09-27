@@ -518,6 +518,9 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  // Conformance hook: forgets the deprecations already shown and sends new
+  // ones to sink (an empty sink prints them to stderr again).
+  static void axgen_capture_deprecations(std::function<void(const std::string&)> sink);
   static Value ai_warn_once(Value key, Value message);
   // Conformance hook: forgets the one-time warnings already shown and sends
   // new ones to sink (an empty sink prints them to stderr again).

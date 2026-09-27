@@ -63,6 +63,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .signature import (
+    _js_text,
     _core_string_extract_leading_group,
     _core_string_find_outside_quotes,
     _core_string_split_once,
@@ -572,8 +573,7 @@ def _core_string_split_trim_nonempty(value, sep):
 
 
 def _core_string_str(value):
-    # String(x): a float two is "2", not "2.0".
-    return _js_number_text(value) if isinstance(value, float) else str(value)
+    return _js_text(value)
 
 
 def _core_string_starts_with(value, prefix):

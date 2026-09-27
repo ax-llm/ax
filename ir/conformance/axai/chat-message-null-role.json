@@ -1,0 +1,14 @@
+{
+  "expected_error_contains": "Chat request message must have a role, received: undefined",
+  "expected_error_type": "AxAIServiceResponseError",
+  "kind": "ai_error",
+  "name": "chat-message-null-role",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": null
+      }
+    ]
+  }
+}
