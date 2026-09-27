@@ -1,0 +1,68 @@
+{
+  "kind": "flow",
+  "name": "plan-undeclared-same-program-parallel",
+  "operation": "plan",
+  "description": "Port-only. One program added twice without reads or writes (the astra_parallel examples): both steps spread answer, but output fields order later readers only. A group runs from one snapshot and merges its results in step order, so the steps share a parallel group.",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "left",
+      "signature": "question:string -> answer:string"
+    },
+    {
+      "kind": "execute",
+      "name": "right",
+      "signature": "question:string -> answer:string"
+    }
+  ],
+  "expected_plan": {
+    "totalSteps": 2,
+    "parallelGroups": 1,
+    "maxParallelism": 2,
+    "steps": [
+      {
+        "name": "left",
+        "kind": "execute",
+        "reads": ["question"],
+        "writes": ["leftResult", "answer"],
+        "outputs": ["answer"],
+        "barrier": false,
+        "stepIndex": 0
+      },
+      {
+        "name": "right",
+        "kind": "execute",
+        "reads": ["question"],
+        "writes": ["rightResult", "answer"],
+        "outputs": ["answer"],
+        "barrier": false,
+        "stepIndex": 1
+      }
+    ],
+    "groups": [
+      {
+        "level": 0,
+        "steps": [
+          {
+            "name": "left",
+            "kind": "execute",
+            "reads": ["question"],
+            "writes": ["leftResult", "answer"],
+            "outputs": ["answer"],
+            "barrier": false,
+            "stepIndex": 0
+          },
+          {
+            "name": "right",
+            "kind": "execute",
+            "reads": ["question"],
+            "writes": ["rightResult", "answer"],
+            "outputs": ["answer"],
+            "barrier": false,
+            "stepIndex": 1
+          }
+        ]
+      }
+    ]
+  }
+}

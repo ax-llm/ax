@@ -898,14 +898,16 @@
           "canonical_name": "AxMCPClient",
           "public_name": "axllm.AxMCPClient",
           "kind": "type",
-          "description": "MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions.",
+          "description": "MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions. `CallTool` waits for a modern server's task; `CallToolWithOptions(ctx, name, args, AxMCPToolCallOptions{TaskHandling: \"expose\"})` returns it as its CreateTaskResult, and `CallToolOutcome` returns an `AxMCPToolCallOutcome` with Kind \"complete\" (Result) or \"task\" (Task), as TypeScript's callTool taskHandling and callToolOutcome. A legacy server's task-shaped result is a complete result.",
           "form": "axllm.NewAxMCPClient(transport, options)",
           "important_options": [
             "transport",
             "client info",
             "roots",
             "tool overrides",
-            "host tool authorization"
+            "host tool authorization",
+            "task handling (await or expose)",
+            "tool call outcome"
           ],
           "returns": "MCP client",
           "example": "client := axllm.NewAxMCPClient(transport, nil)"

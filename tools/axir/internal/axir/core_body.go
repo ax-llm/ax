@@ -79,6 +79,7 @@ const (
 	IntrinsicObjectCallMethod          CoreIntrinsic = "intrinsic.object.call_method"
 	IntrinsicProgramComponents         CoreIntrinsic = "intrinsic.program.components"
 	IntrinsicProgramApplyComponents    CoreIntrinsic = "intrinsic.program.apply_components"
+	IntrinsicProgramSignature          CoreIntrinsic = "intrinsic.program.signature"
 	IntrinsicAICompleteOnce            CoreIntrinsic = "intrinsic.ai.complete_once"
 	IntrinsicAIControlTakePending      CoreIntrinsic = "intrinsic.ai.control_take_pending"
 	IntrinsicAIControlPendingCount     CoreIntrinsic = "intrinsic.ai.control_pending_count"
@@ -244,6 +245,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicObjectCallMethod:          "_core_object_call_method",
 	IntrinsicProgramComponents:         "_core_program_components",
 	IntrinsicProgramApplyComponents:    "_core_program_apply_components",
+	IntrinsicProgramSignature:          "_core_program_signature",
 	IntrinsicAICompleteOnce:            "_core_ai_complete_once",
 	IntrinsicAIControlTakePending:      "_core_ai_control_take_pending",
 	IntrinsicAIControlPendingCount:     "_core_ai_control_pending_count",
@@ -408,6 +410,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.object.call_method":                    true,
 	"intrinsic.program.components":                    true,
 	"intrinsic.program.apply_components":              true,
+	"intrinsic.program.signature":                     true,
 	"intrinsic.ai.complete_once":                      true,
 	"intrinsic.ai.control_take_pending":               true,
 	"intrinsic.ai.control_pending_count":              true,
@@ -829,6 +832,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.object.call_method":                  intrinsicInfo("intrinsic.object.call_method", 2, -1, true, "json"),
 	"intrinsic.program.components":                  intrinsicInfo("intrinsic.program.components", 1, 1, true, "list<json>"),
 	"intrinsic.program.apply_components":            intrinsicInfo("intrinsic.program.apply_components", 2, 2, true, "json"),
+	"intrinsic.program.signature":                   intrinsicInfo("intrinsic.program.signature", 1, 1, true, "json"),
 	"intrinsic.ai.complete_once":                    intrinsicInfo("intrinsic.ai.complete_once", 3, 3, true, "json"),
 	"intrinsic.ai.control_take_pending":             intrinsicInfo("intrinsic.ai.control_take_pending", 1, 1, true, "json"),
 	"intrinsic.ai.control_pending_count":            intrinsicInfo("intrinsic.ai.control_pending_count", 1, 1, true, "i64"),

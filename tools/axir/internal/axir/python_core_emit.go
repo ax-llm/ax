@@ -665,6 +665,10 @@ func pythonType(typ Type) string {
 
 func pythonArgDefault(funcName, argName string) string {
 	switch funcName {
+	case "mcp_listen_interests":
+		if argName == "task_ids" {
+			return "None"
+		}
 	case "to_json_schema":
 		if argName == "schema_title" {
 			return strconv.Quote("Schema")

@@ -762,6 +762,15 @@ module @ax.gen version "0.1" {
           }
           core.continue
         }
+        // With functionCallValidation: 'fail', a call without a name fails
+        // the forward before the response is kept or any function runs, as
+        // TS's AxMemory does; the default corrects it.
+        core.try {
+          core.call @check_completion_function_call_names(%response, %runtime_options)
+        } catch %unnamed_call_error {
+          %unnamed_call_failure = core.call @generate_failed_impl(%unnamed_call_error)
+          core.raise %unnamed_call_failure
+        }
         core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
         core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
         %calls = core.call @response_function_calls_impl(%response)
@@ -2191,6 +2200,12 @@ module @ax.gen version "0.1" {
               %stage = core.let "validation"
               %folded = core.call @fold_chat_response_stream(%events)
               %response = core.call @chat_response_to_completion(%folded)
+              // The merged calls get the forward's check: with
+              // functionCallValidation: 'fail', a call without a name fails
+              // the run without a retry.
+              %stage = core.let "fatal"
+              core.call @check_completion_function_call_names(%response, %runtime_options)
+              %stage = core.let "validation"
               core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
               core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
               %recorded = core.let true
@@ -2887,6 +2902,117 @@ module @ax.gen version "0.1" {
       }
       core.set %render_options["extra_functions"] = %extra_functions
       core.return %render_options
+    }
+  }
+
+  op ax.gen.semantic @validate_completion_function_call_names {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "source:src/ax/ai/validate.ts#validateChatResponseFunctionCalls"
+    type signature = "(json) -> void throws"
+    body @entry(%response: json) {
+      // TS checks a model response's function calls before any runs (a
+      // forward's in AxMemory.addResponse, a stream's merged calls when it
+      // ends): a call whose name is missing, not a string, empty or blank
+      // fails with "Function call at index <call> in result <result> must
+      // have a non-empty function name, received: <JSON.stringify(name, null,
+      // 2)>", undefined for a missing name. The caller fails the forward
+      // without a retry. A complete()-only client's answer without results
+      // is result 0.
+      %empty = core.list
+      %results = core.get %response["results"]
+      %no_results = core.call intrinsic.is_none(%results)
+      core.if %no_results {
+        %results = core.list
+        core.append %results, %response
+      }
+      %result_index = core.let 0
+      core.for %result in %results {
+        %calls = core.get %result["function_calls"] default %empty
+        %call_index = core.let 0
+        core.for %call in %calls {
+          // The flat {id, name, params} call, or TS's nested {function:
+          // {name, params}} one.
+          %has_name = core.call intrinsic.map.contains(%call, "name")
+          %name = core.get %call["name"]
+          %fn = core.get %call["function"]
+          %fn_is_map = core.type_is %fn type "object"
+          core.if %fn_is_map {
+            %fn_has_name = core.call intrinsic.map.contains(%fn, "name")
+            core.if %fn_has_name {
+              %has_name = core.let true
+              %name = core.get %fn["name"]
+            }
+          }
+          %name_is_text = core.type_is %name type "string"
+          %named = core.let false
+          core.if %name_is_text {
+            %trimmed = core.string_trim %name
+            %named = core.call intrinsic.ne(%trimmed, "")
+          }
+          %unnamed = core.call intrinsic.not(%named)
+          core.if %unnamed {
+            %received = core.let "undefined"
+            core.if %has_name {
+              %received = core.call intrinsic.json.pretty(%name)
+            }
+            %message = core.call intrinsic.string.format("Function call at index {} in result {} must have a non-empty function name, received: {}", %call_index, %result_index, %received)
+            %error = core.call intrinsic.error.runtime(%message)
+            core.raise %error
+          }
+          %next_call_index = core.call intrinsic.add(%call_index, 1)
+          %call_index = core.let %next_call_index
+        }
+        %next_result_index = core.call intrinsic.add(%result_index, 1)
+        %result_index = core.let %next_result_index
+      }
+      core.return
+    }
+  }
+
+  op ax.gen.semantic @check_completion_function_call_names {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "source:src/ax/ai/validate.ts#validateChatResponseFunctionCalls"
+    type signature = "(json, json) -> void throws"
+    body @entry(%response: json, %options: json) {
+      // functionCallValidation says what a forward does with a model function
+      // call that has no usable name. 'fail' fails it at once with TS's
+      // message, as TypeScript does. 'correct', this release's default, runs
+      // it as an unknown function, so the model gets a correction and another
+      // request. Left unset, the correction warns once that the next major
+      // version fails such a call.
+      %mode_snake = core.get %options["function_call_validation"]
+      %mode = core.get %options["functionCallValidation"] default %mode_snake
+      %mode_set = core.call intrinsic.is_not_none(%mode)
+      core.if %mode_set {
+        %is_fail = core.call intrinsic.eq(%mode, "fail")
+        %is_correct = core.call intrinsic.eq(%mode, "correct")
+        %known = core.call intrinsic.or(%is_fail, %is_correct)
+        %unknown = core.call intrinsic.not(%known)
+        core.if %unknown {
+          %mode_json = core.call intrinsic.json.pretty(%mode)
+          %mode_message = core.call intrinsic.string.format("functionCallValidation must be 'correct' or 'fail', received: {}", %mode_json)
+          %mode_error = core.call intrinsic.error.validation(%mode_message)
+          core.raise %mode_error
+        }
+        core.if %is_fail {
+          core.call @validate_completion_function_call_names(%response)
+        }
+        core.return
+      }
+      %unnamed = core.let false
+      core.try {
+        core.call @validate_completion_function_call_names(%response)
+      } catch %unnamed_error {
+        %unnamed = core.let true
+      }
+      core.if %unnamed {
+        core.call intrinsic.axgen.deprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")
+      }
+      core.return
     }
   }
 }

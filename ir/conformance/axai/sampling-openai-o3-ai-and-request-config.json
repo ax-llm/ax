@@ -13,7 +13,7 @@
     }
   },
   "expected_warnings": [
-    "Ax dropped temperature for o3: the model does not accept it.",
+    "Ax dropped temperature for o3: the model accepts it only as 1.",
     "Ax dropped topP for o3: the model does not accept it."
   ],
   "kind": "ai_chat",

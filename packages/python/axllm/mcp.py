@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .signature import AxSignature, _js_json_dumps, _js_number_text
+from .signature import AxSignature, _js_json_dumps, _js_number_text, _js_format
 from .tool import Tool
 from .ai import AxCancellationToken, AxAIServiceAbortedError
 
@@ -82,6 +82,7 @@ def _core_none(): return None
 def _core_json_stringify(value): return _js_json_dumps(value, sort_keys=True)
 def _core_json_parse(value): return json.loads(value)
 def _core_math_abs(value): return abs(value)
+def _core_sorted_strings(values): return sorted(str(value) for value in (values or []))
 
 
 def _core_map_merge(left, right):
@@ -120,10 +121,7 @@ def _core_validation_error(message): return AxMCPError(str(message))
 
 
 def _core_string_format(template, *args):
-    rendered = str(template)
-    for value in args:
-        rendered = rendered.replace("{}", _js_number_text(value) if isinstance(value, float) else str(value), 1)
-    return rendered
+    return _js_format(template, args)
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
@@ -1009,7 +1007,9 @@ def event_normalize_mcp(namespace: str, method: str, params: Any) -> Any:
     resources = _core_eq(method, "notifications/resources/list_changed")
     progress = _core_eq(method, "notifications/progress")
     logging = _core_eq(method, "notifications/message")
-    task = _core_eq(method, "notifications/tasks/status")
+    legacy_task = _core_eq(method, "notifications/tasks/status")
+    modern_task = _core_eq(method, "notifications/tasks")
+    task = _core_or(legacy_task, modern_task)
     if resource:
         out["type"] = "mcp.resource.updated"
     else:
@@ -1685,12 +1685,36 @@ def mcp_resource_subscription_ownership(owners: list[Any], owner: str, operation
     return out
 
 
-def mcp_listen_interests(subscribed_uris: list[Any], filters: Any) -> Any:
+def mcp_listen_interests(subscribed_uris: list[Any], filters: Any, task_ids: Any = None) -> Any:
     _core_coverage_mark("mcp_listen_interests")
     out = {}
     filters_object = _core_type_is(filters, "object")
     if filters_object:
         out = _core_map_merge(out, filters)
+    else:
+        pass
+    tasks = []
+    task_ids_list = _core_type_is(task_ids, "list")
+    if task_ids_list:
+        for task_id in task_ids:
+            task_id_string = _core_type_is(task_id, "string")
+            if task_id_string:
+                task_id_empty = _core_eq(task_id, "")
+                task_id_duplicate = _core_contains(tasks, task_id)
+                task_id_skip = _core_or(task_id_empty, task_id_duplicate)
+                if task_id_skip:
+                    pass
+                else:
+                    tasks.append(task_id)
+            else:
+                pass
+    else:
+        pass
+    task_count = _core_len(tasks)
+    has_tasks = _core_gt(task_count, 0)
+    if has_tasks:
+        sorted_tasks = _core_sorted_strings(tasks)
+        out["taskIds"] = sorted_tasks
     else:
         pass
     subscriptions = []
@@ -2453,6 +2477,38 @@ def mcp_websocket_request_ids(messages: Any, protocol: str, batch: bool) -> list
             pass
         ids.append(key)
     return ids
+
+
+def mcp_tool_call_outcome(result: Any, tasks_negotiated: bool) -> Any:
+    _core_coverage_mark("mcp_tool_call_outcome")
+    out = {}
+    result_type = _core_get(result, "resultType", None)
+    is_task = _core_eq(result_type, "task")
+    not_task = _core_not(is_task)
+    if not_task:
+        out["kind"] = "complete"
+        out["result"] = result
+        return out
+    else:
+        pass
+    no_tasks = _core_not(tasks_negotiated)
+    if no_tasks:
+        out["kind"] = "violation"
+        out["message"] = "MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"
+        return out
+    else:
+        pass
+    valid = mcp_validate_modern_task(result)
+    invalid = _core_not(valid)
+    if invalid:
+        out["kind"] = "violation"
+        out["message"] = "MCP protocol violation: invalid CreateTaskResult"
+        return out
+    else:
+        pass
+    out["kind"] = "task"
+    out["task"] = result
+    return out
 
 # END AXIR CORE EMITTED FUNCTIONS
 
@@ -3349,6 +3405,8 @@ class AxMCPClient:
         self._request_id_lock = threading.Lock()
         self._notification_listeners: list[Callable[[dict[str, Any]], None]] = []
         self._lifecycle_listeners: list[Callable[[str], None]] = []
+        # Latest snapshot of each task this client has seen, by task id.
+        self._tasks: dict[str, dict[str, Any]] = {}
         self._initialized = False
         self.transport.set_message_handler(self._handle_inbound_message)
         self.transport.set_request_handler(self._handle_server_request)
@@ -3556,7 +3614,29 @@ class AxMCPClient:
         params = {"cursor": cursor} if cursor else {}
         return self._request("tools/list", params)
 
-    def call_tool(self, name: str, arguments: dict[str, Any] | None = None, *, context=None) -> dict[str, Any]:
+    def call_tool(self, name: str, arguments: dict[str, Any] | None = None, *, context=None, task_handling: str = "await") -> dict[str, Any]:
+        """Calls a tool, as TypeScript's callTool. When a modern server answers with a
+        task, task_handling="await" (the default) waits for its result and
+        task_handling="expose" returns the flattened CreateTaskResult (with its
+        top-level taskId) instead."""
+        if task_handling not in ("await", "expose"):
+            raise ValueError(f"task_handling must be 'await' or 'expose', not {task_handling!r}")
+        outcome = self._request_tool_call_outcome(name, arguments, context=context)
+        if outcome["kind"] == "complete":
+            return outcome["result"]
+        task = outcome["task"]
+        if task_handling == "expose":
+            return task
+        return self._await_modern_task(str(task["taskId"]), context=context)
+
+    def call_tool_outcome(self, name: str, arguments: dict[str, Any] | None = None, *, context=None) -> dict[str, Any]:
+        """Calls a tool without waiting on a task, as TypeScript's callToolOutcome:
+        {"kind": "complete", "result": ...} or {"kind": "task", "task": ...}. A task
+        is a modern server's CreateTaskResult; a legacy server's task-shaped result
+        is a complete result."""
+        return self._request_tool_call_outcome(name, arguments, context=context)
+
+    def _request_tool_call_outcome(self, name: str, arguments: dict[str, Any] | None, *, context=None) -> dict[str, Any]:
         _mcp_check_context(context)
         args = arguments or {}
         authorize = self.options.get("authorizeToolCall", self.options.get("authorize_tool_call"))
@@ -3587,13 +3667,31 @@ class AxMCPClient:
             bindings = mcp_param_header_bindings((tool or {}).get("inputSchema") or {})
             headers = {str(key): str(value) for key, value in mcp_param_header_values(bindings, args).items()}
             result = self._request_with_input_rounds("tools/call", {"name": name, "arguments": args}, extra_headers=headers, context=context)
-        if result.get("resultType") != "task":
-            return result
-        if not self._has_tasks_capability():
-            raise AxMCPError("MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks")
-        if not mcp_validate_modern_task(result):
-            raise AxMCPError("MCP protocol violation: invalid CreateTaskResult")
-        return self._await_modern_task(str(result["taskId"]), context=context)
+        outcome = dict(mcp_tool_call_outcome(result, self._has_tasks_capability()))
+        if outcome.get("kind") == "violation":
+            raise AxMCPError(str(outcome.get("message")))
+        if outcome.get("kind") == "task":
+            self._record_task(outcome["task"])
+        return outcome
+
+    def _record_task(self, task: Any) -> None:
+        # As TypeScript's recordTask: keep the task's latest snapshot, and ask a
+        # running modern listener for a new task's updates.
+        task_id = task.get("taskId") if isinstance(task, dict) else None
+        if not isinstance(task_id, str) or not task_id:
+            return
+        is_new = task_id not in self._tasks
+        self._tasks[task_id] = json.loads(json.dumps(task))
+        if is_new and self.era == "modern":
+            self._restart_modern_listener()
+
+    def _listen_task_ids(self) -> list[str]:
+        # TypeScript's modern listener asks for its recorded tasks' updates when
+        # something listens for them.
+        listening = bool(self._notification_listeners) or callable(self.options.get("onNotification"))
+        if not listening or not self._has_tasks_capability():
+            return []
+        return sorted(self._tasks)
 
     def _await_modern_task(self, task_id: str, *, context=None) -> dict[str, Any]:
         max_polls = int(self.options.get("maxTaskPolls", 1000))
@@ -3703,7 +3801,8 @@ class AxMCPClient:
         self._active_subscription_id = subscription_id
         self._subscription_ready.clear()
         notifications = mcp_listen_interests(
-            sorted(self._subscription_owners), self.options.get("subscriptionFilters") or {}
+            sorted(self._subscription_owners), self.options.get("subscriptionFilters") or {},
+            self._listen_task_ids(),
         )
         params = {"notifications": notifications}
         params["_meta"] = mcp_build_request_meta(
@@ -3743,6 +3842,7 @@ class AxMCPClient:
         result = self._request("tasks/get", {"taskId": task_id}, context=context)
         if self.era == "modern" and not mcp_validate_modern_task(result):
             raise AxMCPError("MCP protocol violation: invalid tasks/get result")
+        self._record_task(result)
         return result
 
     def cancel_task(self, task_id: str) -> dict[str, Any]:
@@ -3956,6 +4056,9 @@ class AxMCPClient:
             uri = (message.get("params") or {}).get("uri")
             if uri:
                 self._resource_read_cache.pop(str(uri), None)
+        if method in {"notifications/tasks", "notifications/tasks/status"}:
+            params = message.get("params") or {}
+            self._record_task(params.get("task") if isinstance(params.get("task"), dict) else params)
         callback = self.options.get("onNotification")
         if callable(callback):
             callback(message)
@@ -5073,6 +5176,31 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
                 for request in sent:
                     assert request["params"]["name"] == case["name"] and request["params"]["arguments"] == {"query": "REF-42"}
             return
+        if operation == "tool_task_handling":
+            for case in fixture["cases"]:
+                transport = AxMCPScriptedTransport(case["responses"])
+                client = AxMCPClient(transport, {**fixture["client_options"], "era": case["era"]})
+                client.init()
+                before = len(transport.requests)
+                error = None
+                result = None
+                try:
+                    if case["api"] == "call_tool":
+                        result = client.call_tool(fixture["tool"], fixture["arguments"])
+                    elif case["api"] == "call_tool_expose":
+                        result = client.call_tool(fixture["tool"], fixture["arguments"], task_handling="expose")
+                    elif case["api"] == "call_tool_outcome":
+                        result = client.call_tool_outcome(fixture["tool"], fixture["arguments"])
+                    else:
+                        raise AssertionError(f"unknown task-handling api {case['api']}")
+                except AxMCPError as caught:
+                    error = str(caught)
+                assert error == case.get("expected_error"), (case["name"], error)
+                if error is None:
+                    assert result == case["expected"], (case["name"], result)
+                methods = [request["method"] for request in transport.requests[before:]]
+                assert methods == case["expected_methods"], (case["name"], methods)
+            return
         if operation == "ssrf":
             ax_mcp_validate_endpoint(fixture.get("endpoint", "https://127.0.0.1/mcp"), fixture.get("ssrfProtection"))
             if expected_error:
@@ -5505,7 +5633,7 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             return
         if operation == "subscriptions_listen":
             for case in fixture.get("semantic_cases") or []:
-                actual = mcp_listen_interests(case.get("subscribed_uris") or [], case.get("filters") or {})
+                actual = mcp_listen_interests(case.get("subscribed_uris") or [], case.get("filters") or {}, case.get("task_ids"))
                 if actual != (case.get("expected") or {}):
                     raise AssertionError(f"listen interests mismatch: {actual!r}")
             delivered: list[dict[str, Any]] = []
@@ -5537,6 +5665,29 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             for forbidden in fixture.get("expected_forbidden_methods") or []:
                 if forbidden in methods:
                     raise AssertionError(f"modern subscription emitted legacy method {forbidden}")
+            return
+        if operation == "task_listen_restart":
+            delivered: list[dict[str, Any]] = []
+            client.add_notification_listener(delivered.append)
+            client.start_listening()
+            if len(transport.request_streams) != 1:
+                raise AssertionError("initial subscriptions/listen stream missing")
+            if "taskIds" in ((transport.request_streams[0].get("params") or {}).get("notifications") or {}):
+                raise AssertionError("listener asked for tasks before any were recorded")
+            outcome = client.call_tool_outcome(fixture["tool"], fixture.get("arguments") or {})
+            if outcome.get("kind") != "task":
+                raise AssertionError(f"expected a task outcome, got {outcome!r}")
+            if len(transport.request_streams) != 2:
+                raise AssertionError("a recorded task did not restart the listener")
+            second = transport.request_streams[-1]
+            _assert_subset((second.get("params") or {}).get("notifications") or {}, fixture["expected_second_notifications"], "task listen interests")
+            notification = json.loads(json.dumps(fixture["task_notification"]))
+            notification.setdefault("params", {})["_meta"] = {"io.modelcontextprotocol/subscriptionId": second.get("id")}
+            transport.emit(notification)
+            if len([item for item in delivered if item.get("method") == "notifications/tasks"]) != 1:
+                raise AssertionError("task notification was not delivered")
+            if len(transport.request_streams) != 2:
+                raise AssertionError("a known task restarted the listener")
             return
         if operation == "initialize":
             _assert_requests(transport.requests, fixture)

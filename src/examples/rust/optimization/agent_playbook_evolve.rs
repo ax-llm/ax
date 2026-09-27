@@ -99,7 +99,22 @@ fn main() -> AxResult<()> {
         )?
     };
 
+    // Each train task replays on the runtime. A replay that fails scores 0 and
+    // would be mined as the weakness, so stop instead.
+    let mut replays = Vec::new();
+    for record in evolution["records"].as_array().cloned().unwrap_or_default() {
+        let completion = record["prediction"]["completionType"].clone();
+        if !record["error"].is_null() || completion == "error" {
+            return Err(axllm::AxError::runtime(format!(
+                "evolve replay failed: {} {}",
+                record["error"], record["prediction"]["error"]
+            )));
+        }
+        replays.push(completion);
+    }
+
     println!("{}", serde_json::to_string_pretty(&answer)?);
+    println!("replays: {}", serde_json::Value::Array(replays));
     println!("citations: {}", observed_citations.borrow());
     println!("run-end updates: {}", playbook_updates.borrow().len());
     println!("outcomes: {}", evolution["outcomes"]);

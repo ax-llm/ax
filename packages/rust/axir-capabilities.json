@@ -371,6 +371,7 @@
     "mcp_resource_subscription_ownership",
     "mcp_resource_subscription_plan",
     "mcp_resource_subscription_selection",
+    "mcp_tool_call_outcome",
     "optimize",
     "playbook",
     "s",

@@ -645,7 +645,24 @@ public final class Conformance {
     }
   }
 
+  // expected_deprecations pins the one-time deprecation warnings the run
+  // gives (the ones already shown are forgotten first).
   static void run(Map<String, Object> fixture) {
+    if (!fixture.containsKey("expected_deprecations")) {
+      runKind(fixture);
+      return;
+    }
+    List<Object> captured = java.util.Collections.synchronizedList(new ArrayList<>());
+    Core.axgenCaptureDeprecations(captured::add);
+    try {
+      runKind(fixture);
+    } finally {
+      Core.axgenCaptureDeprecations(null);
+    }
+    assertEqual(new ArrayList<>(captured), fixture.get("expected_deprecations"), "deprecation warnings");
+  }
+
+  static void runKind(Map<String, Object> fixture) {
     String kind = String.valueOf(fixture.getOrDefault("kind", "forward"));
     switch (kind) {
       case "signature_error" -> runSignatureError(fixture);
@@ -655,6 +672,7 @@ public final class Conformance {
       case "validate_output" -> runValidateOutput(fixture);
       case "strip_internal" -> runStripInternal(fixture);
       case "number_format" -> runNumberFormat(fixture);
+      case "string_format" -> runStringFormat(fixture);
       case "date_field_value" -> runDateFieldValue(fixture);
       case "date_input" -> runDateInput(fixture);
       case "prompt" -> runPrompt(fixture);
@@ -902,6 +920,25 @@ public final class Conformance {
   // text). The JSON form must come out of every encoder: Json.stringify (wire
   // bodies and json.stringify), the key-sorted json.stable_stringify and
   // json.pretty (prompt values).
+  // string.format and string.str against JavaScript's text of each case.
+  static void runStringFormat(Map<String, Object> fixture) {
+    for (Object item : Core.asList(fixture.getOrDefault("format_cases", List.of()))) {
+      String template = String.valueOf(Core.get(item, "template", ""));
+      Object[] args = Core.asList(Core.get(item, "input", List.of())).toArray();
+      String actual = String.valueOf(Core.stringFormat(template, args));
+      String expected = String.valueOf(Core.get(item, "expected", ""));
+      if (!actual.equals(expected))
+        throw new FixtureError("string.format of " + Json.stringify(template) + ": expected " + Json.stringify(expected) + ", got " + Json.stringify(actual));
+    }
+    for (Object item : Core.asList(fixture.getOrDefault("str_cases", List.of()))) {
+      Object input = Core.get(item, "input", null);
+      String actual = Core.stringStr(input);
+      String expected = String.valueOf(Core.get(item, "expected", ""));
+      if (!actual.equals(expected))
+        throw new FixtureError("string.str of " + Json.stringify(input) + ": expected " + Json.stringify(expected) + ", got " + Json.stringify(actual));
+    }
+  }
+
   static void runNumberFormat(Map<String, Object> fixture) {
     for (Object item : Core.asList(fixture.get("cases"))) {
       String input = String.valueOf(Core.get(item, "input", ""));
@@ -1720,10 +1757,11 @@ public final class Conformance {
       AxFlow built = new AxFlow();
       for (Object raw : Core.asList(fixture.getOrDefault("builder_steps", List.of()))) {
         Map<String, Object> step = Core.asMap(raw);
+        // A builder step without "reads" declares none.
         built.execute(
           String.valueOf(step.get("name")),
           new AxGen(AxSignature.create(String.valueOf(step.get("signature")))),
-          Map.of("reads", Core.asList(step.getOrDefault("reads", List.of())))
+          step.containsKey("reads") ? Map.of("reads", Core.asList(step.get("reads"))) : Map.of()
         );
       }
       assertEqual(built.toString(), fixture.get("expected_rendered"), "flow mermaid builder render");
@@ -2250,7 +2288,12 @@ public final class Conformance {
           String.valueOf(fixture.getOrDefault("runtime_language", "Python")),
           "");
       Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
-      agentOptions.put("runtime", runtime);
+      // runtime_on_evolve: the agent gets only a runtime descriptor and the
+      // runtime goes on the evolve call, as the examples pass it.
+      boolean runtimeOnEvolve = Boolean.TRUE.equals(fixture.get("runtime_on_evolve"));
+      agentOptions.put("runtime", runtimeOnEvolve
+          ? Map.of("language", String.valueOf(fixture.getOrDefault("runtime_language", "Python")))
+          : runtime);
       AxAgent agent = Ax.agent(String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string")), agentOptions);
       Map<String, Object> playbookOptions = new LinkedHashMap<>();
       playbookOptions.put("target", "responder");
@@ -2263,6 +2306,7 @@ public final class Conformance {
       String before = Json.stringify(playbook.toJson());
       Map<String, Object> evolveOptions = new LinkedHashMap<>(Core.asMap(testCase.getOrDefault("options", Map.of())));
       if (teacherSpec != null) evolveOptions.put("teacherAI", teacher);
+      if (runtimeOnEvolve) evolveOptions.put("runtime", runtime);
       Map<String, Object> actual = playbook.evolve(fixture.getOrDefault("dataset", Map.of()), evolveOptions);
       List<Object> outcomes = Core.asList(actual.getOrDefault("outcomes", List.of()));
       Map<String, Object> expected = Core.asMap(testCase.getOrDefault("expected", Map.of()));

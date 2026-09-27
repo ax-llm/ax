@@ -14,7 +14,7 @@
     }
   },
   "expected_warnings": [
-    "Ax dropped temperature for gpt-5.4-mini: the model accepts it only with reasoning effort none."
+    "Ax dropped temperature for gpt-5.4-mini: the model accepts it only as 1 or with reasoning effort none."
   ],
   "kind": "ai_chat",
   "model": "gpt-5.4-mini",

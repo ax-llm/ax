@@ -1368,18 +1368,34 @@ Value Core::string_words(Value value) {
 Value Core::string_default_if_empty(Value value, Value fallback) {
   return truthy(string_trim(value)) ? string_trim(value) : fallback;
 }
+// A value's text in string.format and string.str, as every port writes it: a
+// string as is, null as "null", a boolean as "true" or "false", a number as
+// JavaScript's String(x), and a list or object as compact JSON with its keys
+// in insertion order (JSON.stringify).
+static std::string js_text(const Value& value) {
+  if (value.is_null()) return "null";
+  if (value.is_array() || value.is_object()) return stringify(value);
+  return display(value);
+}
+// Each {} takes the next argument's js_text, from left to right and inserted
+// as is (never read as a template); {{ and }} write one brace, any other brace
+// is kept, and a {} past the last argument stays {}.
 Value Core::string_format_values(Value templ, const std::vector<Value>& args) {
-  // Each value fills the next {} after the previous one, so a value that
-  // itself contains {} is not formatted again. A null value fills its {} as
-  // well (display() writes it as the empty string, as Go's does).
-  std::string out = str(templ);
-  size_t cursor = 0;
-  for (const auto& arg : args) {
-    size_t pos = out.find("{}", cursor);
-    if (pos == std::string::npos) break;
-    std::string text = display(arg);
-    out.replace(pos, 2, text);
-    cursor = pos + text.size();
+  std::string text = str(templ);
+  std::string out;
+  size_t next = 0;
+  for (size_t i = 0; i < text.size();) {
+    if (i + 1 < text.size()) {
+      if (text[i] == '{' && text[i + 1] == '{') { out += '{'; i += 2; continue; }
+      if (text[i] == '}' && text[i + 1] == '}') { out += '}'; i += 2; continue; }
+      if (text[i] == '{' && text[i + 1] == '}') {
+        out += next < args.size() ? js_text(args[next++]) : std::string("{}");
+        i += 2;
+        continue;
+      }
+    }
+    out += text[i];
+    i++;
   }
   return Value(out);
 }
@@ -1550,7 +1566,7 @@ Value Core::string_extract_quoted_suffix(Value text) {
   }
   return Value(Object{{"value", Value()}, {"index", Value()}, {"rest", ""}, {"head", s}, {"found", false}});
 }
-Value Core::string_str(Value value) { return Value(display(value)); }
+Value Core::string_str(Value value) { return Value(js_text(value)); }
 Value Core::regex_replace(Value pattern, Value repl, Value value) {
   return Value(std::regex_replace(str(value), std::regex(str(pattern)), str(repl)));
 }
@@ -2032,6 +2048,14 @@ Value Core::program_apply_components(Value program, Value component_map) {
   auto* stage_ptr = registered_stage(stage_id);
   if (stage_ptr) stage_ptr->apply_optimized_components(std::move(component_map));
   return Value::object();
+}
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+Value Core::program_signature(Value program) {
+  auto* stage_ptr = registered_stage(str(get_key(program, "__agent_stage_id")));
+  if (auto* gen = dynamic_cast<AxGen*>(stage_ptr)) return Core::signature_to_string(Core::get(gen->value(), "signature"));
+  if (auto* agent = dynamic_cast<AxAgent*>(stage_ptr)) return Core::signature_to_string(Core::get(agent->state_, "signature"));
+  return Value();
 }
 Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
@@ -4273,19 +4297,44 @@ void Core::ai_capture_warnings(std::function<void(const std::string&)> sink) {
   ai_warning_sink() = std::move(sink);
 }
 
+static std::mutex& axgen_deprecations_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+static std::set<std::string>& axgen_deprecations_shown() {
+  static std::set<std::string> shown;
+  return shown;
+}
+
+static std::function<void(const std::string&)>& axgen_deprecation_sink() {
+  static std::function<void(const std::string&)> sink;
+  return sink;
+}
+
 // Deprecated port behavior warns once per key per process.
 Value Core::axgen_deprecation(Value key, Value message) {
-  static std::mutex shown_mutex;
-  static std::set<std::string> shown;
   try {
+    std::function<void(const std::string&)> sink;
     {
-      std::lock_guard<std::mutex> lock(shown_mutex);
-      if (!shown.insert(str(key)).second) return Value();
+      std::lock_guard<std::mutex> lock(axgen_deprecations_mutex());
+      if (!axgen_deprecations_shown().insert(str(key)).second) return Value();
+      sink = axgen_deprecation_sink();
+    }
+    if (sink) {
+      sink(str(message));
+      return Value();
     }
     std::cerr << "axllm deprecation: " << str(message) << std::endl;
   } catch (...) {
   }
   return Value();
+}
+
+void Core::axgen_capture_deprecations(std::function<void(const std::string&)> sink) {
+  std::lock_guard<std::mutex> lock(axgen_deprecations_mutex());
+  axgen_deprecations_shown().clear();
+  axgen_deprecation_sink() = std::move(sink);
 }
 
 // Caching functions the AxGen IR reaches through {"__caching_function_id"}
@@ -8583,7 +8632,12 @@ AxAgent& AxAgent::apply_optimization(Value artifact) {
 }
 Value AxAgent::evaluate_optimization_task(AIClient& client, Value task, Value options) {
   Value input = Core::get(task, "input", task);
-  Value forward_options = Core::get(options, "forward_options", Value::object());
+  // A runtime on the evolve or optimize call runs each task, as it runs a
+  // forward call (the agent may hold only a runtime descriptor), unless
+  // forward_options names one. A copy: the caller's options stay as they are.
+  Value forward_options = Core::map_merge(Value::object(), Core::get(options, "forward_options", Value::object()));
+  Value call_runtime = Core::get(options, "runtime");
+  if (!call_runtime.is_null() && Core::get(forward_options, "runtime").is_null()) Core::set(forward_options, "runtime", call_runtime);
   // As TS evaluates each task from a fresh state, the prediction carries only
   // this run's share of the agent's logs.
   Value marks = Core::_agent_eval_marks(state_);

@@ -1110,16 +1110,35 @@ export class AxMCPEventDemoServer {
     for (const response of this.listeners) {
       const modern = this.modernListeners.get(response);
       if (modern) {
-        if (!this.modernFilterAllows(modern.notifications, method, params)) {
+        // Modern (Tasks v2) listeners get a task update as notifications/tasks
+        // with the task as params; legacy listeners keep
+        // notifications/tasks/status with the task under params.task.
+        const taskUpdate =
+          method === 'notifications/tasks/status' &&
+          params?.task &&
+          typeof params.task === 'object'
+            ? (params.task as Record<string, unknown>)
+            : undefined;
+        const modernMethod = taskUpdate ? 'notifications/tasks' : method;
+        const modernParams = taskUpdate ?? params;
+        if (
+          !this.modernFilterAllows(
+            modern.notifications,
+            modernMethod,
+            modernParams
+          )
+        ) {
           continue;
         }
         this.writeModernEvent(response, modern.id, {
           jsonrpc: '2.0',
-          method,
+          method: modernMethod,
           params: {
-            ...(params ?? {}),
+            ...(modernParams ?? {}),
             _meta: {
-              ...((params?._meta as Record<string, unknown> | undefined) ?? {}),
+              ...((modernParams?._meta as
+                | Record<string, unknown>
+                | undefined) ?? {}),
               'io.modelcontextprotocol/subscriptionId': modern.id,
             },
           },
@@ -1219,6 +1238,13 @@ export async function waitForDemoSignal(
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const server = new AxMCPEventDemoServer();
+  // AX_MCP_DEMO_ERA serves one era only (modern or legacy); the default serves both.
+  const era = process.env.AX_MCP_DEMO_ERA ?? 'dual';
+  if (era !== 'dual' && era !== 'modern' && era !== 'legacy') {
+    throw new Error(
+      `AX_MCP_DEMO_ERA must be dual, modern or legacy, not ${era}`
+    );
+  }
+  const server = new AxMCPEventDemoServer({ era });
   console.log(await server.start(Number(process.env.PORT ?? 3001)));
 }

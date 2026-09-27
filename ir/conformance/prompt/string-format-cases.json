@@ -1,0 +1,118 @@
+{
+  "format_cases": [
+    {
+      "expected": "Function not found: null.",
+      "input": [null],
+      "template": "Function not found: {}."
+    },
+    {
+      "expected": "true and false",
+      "input": [true, false],
+      "template": "{} and {}"
+    },
+    {
+      "expected": "0 2 1.5 -12.25",
+      "input": [0, 2, 1.5, -12.25],
+      "template": "{} {} {} {}"
+    },
+    {
+      "expected": "list [1,\"x\",null,true]",
+      "input": [[1, "x", null, true]],
+      "template": "list {}"
+    },
+    {
+      "expected": "object {\"query\":\"scope-probe\",\"limit\":2}",
+      "input": [
+        {
+          "query": "scope-probe",
+          "limit": 2
+        }
+      ],
+      "template": "object {}"
+    },
+    {
+      "expected": "nested {\"z\":[1,{\"a\":null}],\"a\":\"b\"}",
+      "input": [
+        {
+          "z": [
+            1,
+            {
+              "a": null
+            }
+          ],
+          "a": "b"
+        }
+      ],
+      "template": "nested {}"
+    },
+    {
+      "expected": "Field \"profile\": unbalanced \"{\" in object type",
+      "input": ["profile"],
+      "template": "Field \"{}\": unbalanced \"{\" in object type"
+    },
+    {
+      "expected": "type 'object ({ mimeType: string; data: string })' for sourceFile",
+      "input": ["sourceFile"],
+      "template": "type 'object ({{ mimeType: string; data: string }})' for {}"
+    },
+    {
+      "expected": "{} is literal, x fills",
+      "input": ["x"],
+      "template": "{{}} is literal, {} fills"
+    },
+    {
+      "expected": "as is: a{}b then c",
+      "input": ["a{}b", "c"],
+      "template": "as is: {} then {}"
+    },
+    {
+      "expected": "one arg and {}",
+      "input": ["arg"],
+      "template": "one {} and {}"
+    },
+    {
+      "expected": "text é \"quoted\"\n ✓",
+      "input": ["é \"quoted\"\n"],
+      "template": "text {} ✓"
+    }
+  ],
+  "kind": "string_format",
+  "name": "string-format-cases",
+  "str_cases": [
+    {
+      "expected": "null",
+      "input": null
+    },
+    {
+      "expected": "true",
+      "input": true
+    },
+    {
+      "expected": "false",
+      "input": false
+    },
+    {
+      "expected": "0",
+      "input": 0
+    },
+    {
+      "expected": "1.5",
+      "input": 1.5
+    },
+    {
+      "expected": "text",
+      "input": "text"
+    },
+    {
+      "expected": "[1,\"a\",null]",
+      "input": [1, "a", null]
+    },
+    {
+      "expected": "{\"b\":1,\"a\":[null,false]}",
+      "input": {
+        "b": 1,
+        "a": [null, false]
+      }
+    }
+  ]
+}
