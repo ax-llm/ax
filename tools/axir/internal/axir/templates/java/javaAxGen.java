@@ -30,6 +30,8 @@ public final class AxGen implements AxProgram {
   public interface FieldProcessorCallback { Object apply(Object value); }
   public interface FunctionCallHook { void accept(Map<String, Object> record); }
   public interface ResultPickerCallback { int pick(List<Map<String, Object>> samples); }
+  /** Writes a tool result for the model, as TS's functionResultFormatter option does. */
+  public interface FunctionResultFormatter { String format(Object result); }
 
   final AxSignature signature;
   final Map<String, Object> options;
@@ -133,6 +135,14 @@ public final class AxGen implements AxProgram {
 
   public AxGen setResultPicker(ResultPickerCallback resultPicker) {
     this.options.put("resultPicker", resultPicker);
+    return this;
+  }
+
+  // The program's tool result formatter. Without one, a string goes as it is,
+  // null as "done", and any other value as pretty JSON; a forward call's
+  // "functionResultFormatter" option wins over it.
+  public AxGen setFunctionResultFormatter(FunctionResultFormatter formatter) {
+    this.options.put("functionResultFormatter", formatter);
     return this;
   }
 

@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
+import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
 import {
   type extractionState,
   extractValues,
@@ -9,6 +9,7 @@ import {
 } from '../../../src/ax/dsp/extract.js';
 import { createStructuredDelta } from '../../../src/ax/dsp/response/structuredDelta.js';
 import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
+import { ax } from '../../../src/ax/dsp/template.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
@@ -1811,3 +1812,132 @@ writeFixture('json-input-prompt-plain-json', {
   expected_chat_prompt_contains: ['<b>&', 'inner'],
   expected_request_not_contains: ['__order', '\\u003c', '\\u0026'],
 });
+
+// Tool results reach the model as TS's functionResultFormatter writes them
+// (axGlobals' default): a string as it is, null or undefined as '', any other
+// value as JSON.stringify(result, null, 2); an empty text goes as 'done', as
+// processFunctions sends it. A program's formatter (or a forward call's)
+// writes them instead. The expected texts are the function results TS put in
+// the request after the tool step, run here through a mock client.
+const formatterResults: [string, Json][] = [
+  ['lookupObject', { a: [2], b: 1, c: null }],
+  ['lookupText', 'plain text'],
+  ['lookupNone', null],
+  ['lookupNumber', 42],
+];
+const formatterRun = async (
+  programOptions: Record<string, unknown>,
+  forwardOptions: Record<string, unknown>
+) => {
+  const sent: string[] = [];
+  let calls = 0;
+  const mock = new AxMockAIService<string>({
+    name: 'mock',
+    features: { functions: true, streaming: false },
+    chatResponse: async (req) => {
+      calls++;
+      if (calls === 2) {
+        for (const message of req.chatPrompt) {
+          if (message.role === 'function') sent.push(String(message.result));
+        }
+      }
+      return calls === 1
+        ? {
+            results: [
+              {
+                index: 0,
+                content: '',
+                functionCalls: formatterResults.map(([name], i) => ({
+                  id: `call_${i + 1}`,
+                  type: 'function' as const,
+                  function: { name, params: {} },
+                })),
+                finishReason: 'function_call' as const,
+              },
+            ],
+          }
+        : {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: done',
+                finishReason: 'stop' as const,
+              },
+            ],
+          };
+    },
+  });
+  const program = ax('query:string -> answer:string', {
+    ...programOptions,
+    functions: formatterResults.map(([name, value]) => ({
+      name,
+      description: `Look up ${name}`,
+      func: async () => value,
+    })),
+  } as never);
+  const output = await program.forward(
+    mock as never,
+    { query: 'q' },
+    forwardOptions as never
+  );
+  return { sent, output };
+};
+for (const [name, programOptions, forwardOptions, fixtureExtra] of [
+  ['function-result-format-default', {}, {}, {}],
+  [
+    'function-result-format-caller-formatter',
+    { functionResultFormatter: () => 'formatted by the caller' },
+    {},
+    { function_result_formatter: { text: 'formatted by the caller' } },
+  ],
+  // The forward call's formatter comes before the program's.
+  [
+    'function-result-format-call-formatter',
+    { functionResultFormatter: () => 'from the program' },
+    { functionResultFormatter: () => 'from the call' },
+    {
+      function_result_formatter: { text: 'from the program' },
+      call_function_result_formatter: { text: 'from the call' },
+      expected_request_not_contains: ['from the program'],
+    },
+  ],
+] as const) {
+  const { sent, output } = await formatterRun(programOptions, forwardOptions);
+  if (sent.length !== formatterResults.length) {
+    throw new Error(`${name}: TS sent ${sent.length} function results`);
+  }
+  const notContains = (fixtureExtra as Fixture).expected_request_not_contains;
+  if (
+    Array.isArray(notContains) &&
+    sent.some((text) =>
+      notContains.some((needle) => text.includes(String(needle)))
+    )
+  ) {
+    throw new Error(`${name}: TS sent a text the fixture says it doesn't`);
+  }
+  writeFixture(name, {
+    kind: 'forward',
+    signature: 'query:string -> answer:string',
+    input: { query: 'q' },
+    ...(fixtureExtra as Fixture),
+    tools: formatterResults.map(([toolName, result]) => ({
+      name: toolName,
+      description: `Look up ${toolName}`,
+      result,
+    })),
+    responses: [
+      {
+        content: '',
+        function_calls: formatterResults.map(([toolName], i) => ({
+          id: `call_${i + 1}`,
+          name: toolName,
+          params: {},
+        })),
+      },
+      { content: 'Answer: done' },
+    ],
+    expected_output: output as Json,
+    expected_request_count: 2,
+    expected_request_contains: sent.map((text) => JSON.stringify(text)),
+  });
+}

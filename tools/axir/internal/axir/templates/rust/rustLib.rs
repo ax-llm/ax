@@ -203,6 +203,31 @@ fn bound_caching_function() -> Option<AxCachingFunction> {
     CACHING_FUNCTION_BINDINGS.with(|bindings| bindings.borrow().last().cloned().flatten())
 }
 
+// The call's function result formatter, bound as the call's caching function
+// is: the AxGen forward the *_with_function_result_formatter methods start
+// takes it and binds None for the rest of its run.
+thread_local! {
+    static FUNCTION_RESULT_FORMATTER_BINDINGS: RefCell<Vec<Option<AxFunctionResultFormatter>>> = const { RefCell::new(Vec::new()) };
+}
+
+fn with_function_result_formatter_binding<R>(formatter: Option<AxFunctionResultFormatter>, run: impl FnOnce() -> R) -> R {
+    struct Binding;
+    impl Drop for Binding {
+        fn drop(&mut self) {
+            FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| {
+                bindings.borrow_mut().pop();
+            });
+        }
+    }
+    FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| bindings.borrow_mut().push(formatter));
+    let _binding = Binding;
+    run()
+}
+
+fn bound_function_result_formatter() -> Option<AxFunctionResultFormatter> {
+    FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| bindings.borrow().last().cloned().flatten())
+}
+
 #[derive(Clone, Default)]
 struct RuntimeHookFrame {
     hooks: AxRuntimeHooks,
@@ -4396,6 +4421,11 @@ pub struct AxResultPickerSample {
 
 pub type AxResultPicker = Arc<dyn Fn(&[AxResultPickerSample]) -> AxResult<usize> + Send + Sync>;
 
+/// Writes a tool result for the model, as TypeScript's
+/// `functionResultFormatter` option does. Without one, a string goes as it
+/// is, null as `"done"`, and any other value as pretty JSON.
+pub type AxFunctionResultFormatter = Arc<dyn Fn(&Value) -> String + Send + Sync>;
+
 /// One update of [`AxGen::streaming_forward`], as TypeScript's
 /// `streamingForward` yields it. `delta` is an object of output fields: merge
 /// it into the sample at `index` (strings and arrays append, other values
@@ -4491,6 +4521,7 @@ pub struct AxGen {
     pub traces: Vec<Value>,
     pub chat_log: Vec<Value>,
     pub result_picker: Option<AxResultPicker>,
+    pub function_result_formatter: Option<AxFunctionResultFormatter>,
     runtime_hooks: AxRuntimeHooks,
     streaming_assertions: Vec<AxGenStreamingAssertion>,
     feedback_processors: Vec<AxGenFieldProcessor>,
@@ -4526,6 +4557,7 @@ impl AxGen {
         let traces=self.traces.clone();
         let chat_log=self.chat_log.clone();
         let result_picker=self.result_picker.clone();
+        let function_result_formatter=self.function_result_formatter.clone();
         let runtime_hooks=self.runtime_hooks.clone();
         let streaming_assertions=self.streaming_assertions.clone();
         let feedback_processors=self.feedback_processors.clone();
@@ -4537,7 +4569,7 @@ impl AxGen {
         // share their program: a worker's run uses it unless a caller's
         // control reaches the worker (see session::with_program_control).
         let control=self.control.clone();
-        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms,caching_function,host_assertions,control}))
+        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,function_result_formatter,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms,caching_function,host_assertions,control}))
     }
 
     // Adds a host-callable assertion, checked after the declarative ones.
@@ -4566,6 +4598,7 @@ impl AxGen {
             traces: Vec::new(),
             chat_log: Vec::new(),
             result_picker: None,
+            function_result_formatter: None,
             runtime_hooks: AxRuntimeHooks::default(),
             streaming_assertions: Vec::new(),
             feedback_processors: Vec::new(),
@@ -4768,6 +4801,17 @@ impl AxGen {
         self
     }
 
+    /// Writes each tool result for the model, as TypeScript's
+    /// `functionResultFormatter` option does (see
+    /// [`AxFunctionResultFormatter`]).
+    pub fn with_function_result_formatter<F>(mut self, formatter: F) -> Self
+    where
+        F: Fn(&Value) -> String + Send + Sync + 'static,
+    {
+        self.function_result_formatter = Some(Arc::new(formatter));
+        self
+    }
+
     /// Caches this program's forwards, as TypeScript's `cachingFunction`
     /// option does (see [`AxCachingFunction`]). A forward reads the cache
     /// first, before it opens its span or records metrics. A stored output
@@ -4907,6 +4951,47 @@ impl AxGen {
         })
     }
 
+    /// [`forward_with_options`](Self::forward_with_options) with a tool result
+    /// formatter for this call, as TypeScript's `functionResultFormatter`
+    /// forward option (see [`AxFunctionResultFormatter`]). It comes before the
+    /// program's own
+    /// ([`with_function_result_formatter`](Self::with_function_result_formatter)).
+    /// The forwards this one starts, such as a tool that calls another
+    /// program, don't use it.
+    pub fn forward_with_function_result_formatter<C: AxAIClient, F>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: impl Into<AxForwardOptions>,
+        formatter: F,
+    ) -> AxResult<Value>
+    where
+        F: Fn(&Value) -> String + Send + Sync + 'static,
+    {
+        with_function_result_formatter_binding(Some(Arc::new(formatter)), || {
+            self.forward_with_options(client, input, options)
+        })
+    }
+
+    /// [`streaming_forward`](Self::streaming_forward) with a tool result
+    /// formatter for this call, as in
+    /// [`forward_with_function_result_formatter`](Self::forward_with_function_result_formatter).
+    pub fn streaming_forward_with_function_result_formatter<C: AxAIClient, F>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: impl Into<AxForwardOptions>,
+        formatter: F,
+        on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
+    ) -> AxResult<Value>
+    where
+        F: Fn(&Value) -> String + Send + Sync + 'static,
+    {
+        with_function_result_formatter_binding(Some(Arc::new(formatter)), || {
+            self.streaming_forward(client, input, options, on_delta)
+        })
+    }
+
     /// [`streaming_forward`](Self::streaming_forward) with the raw
     /// `{version, index, delta}` envelopes; `sink` stops the run the same way.
     #[doc(hidden)]
@@ -4935,9 +5020,11 @@ impl AxGen {
         options: AxForwardOptions,
         sink: Option<Rc<CoreDeltaSinkHost>>,
     ) -> AxResult<Value> {
-        // The call's caching function, which the forwards this run starts
-        // don't inherit.
+        // The call's caching function and function result formatter, which
+        // the forwards this run starts don't inherit.
         let caching_function = bound_caching_function();
+        let call_formatter = bound_function_result_formatter();
+        with_function_result_formatter_binding(None, || {
         with_caching_function_binding(None, || {
         // The program's own control (with_control) runs a forward that has
         // none from its call or from a controlled run around it.
@@ -5071,6 +5158,14 @@ impl AxGen {
             if !lookup.is_null() {
                 core_set(&options, CoreValue::from("_ax_cache_lookup"), lookup.clone())?;
             }
+            // The call's formatter comes before the program's.
+            if let Some(formatter) = &call_formatter {
+                core_set(
+                    &options,
+                    CoreValue::from("functionResultFormatter"),
+                    CoreValue::Host(Rc::new(FunctionResultFormatterHost { formatter: formatter.clone() })),
+                )?;
+            }
             match &sink {
                 Some(sink) => _streaming_forward_impl(&[state.clone(), CoreValue::Null, values.clone(), options, CoreValue::Host(sink.clone())]),
                 None => _forward_impl(&[state.clone(), CoreValue::Null, values.clone(), options]),
@@ -5081,6 +5176,7 @@ impl AxGen {
         session_run.finish(result.as_ref().err(), consumer_stopped);
         core_gen_writeback(self, &state);
         Ok(core_value_to_json(&result?))
+        })
         })
         })
         })
@@ -17998,6 +18094,11 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     {
         program = program.with_sample_count(sample_count as usize);
     }
+    if let Some(spec) = fixture.get("function_result_formatter") {
+        // The program's formatter writes this text for every tool result.
+        let text = spec.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+        program = program.with_function_result_formatter(move |_| text.clone());
+    }
     if let Some(picker_index) = fixture.get("result_picker_index").and_then(Value::as_u64) {
         let expected_samples = fixture.get("expected_picker_samples").cloned();
         program = program.with_result_picker(move |samples| {
@@ -18034,7 +18135,14 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     } else {
         None
     };
-    let result = program.forward_with_options(&mut client, input, options);
+    // The forward call's formatter writes this text for every tool result.
+    let result = match fixture.get("call_function_result_formatter") {
+        Some(spec) => {
+            let text = spec.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+            program.forward_with_function_result_formatter(&mut client, input, options, move |_| text.clone())
+        }
+        None => program.forward_with_options(&mut client, input, options),
+    };
     // expected_error_cause_contains is not checked: AxError gains its cause
     // (and source()) in the next major version.
     if fixture.get("expected_error_contains").is_some() {
@@ -22487,6 +22595,23 @@ pub(crate) trait CoreHost {
     fn native_tool(&self)->Option<Tool>{None}
 }
 
+struct FunctionResultFormatterHost {
+    formatter: AxFunctionResultFormatter,
+}
+
+impl CoreHost for FunctionResultFormatterHost {
+    fn host_type(&self) -> &'static str {
+        "AxFunctionResultFormatter"
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        if name != "format_result" {
+            return Err(AxError::runtime(format!("AxFunctionResultFormatter has no method '{name}'")));
+        }
+        Ok(CoreValue::from_string((self.formatter)(&core_value_to_json(&core_arg(args, 0)))))
+    }
+}
+
 struct ResultPickerHost {
     picker: AxResultPicker,
 }
@@ -24528,6 +24653,13 @@ fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
             &options,
             CoreValue::from("resultPicker"),
             CoreValue::Host(Rc::new(ResultPickerHost { picker: result_picker.clone() })),
+        )?;
+    }
+    if let Some(formatter) = &gen.function_result_formatter {
+        core_set(
+            &options,
+            CoreValue::from("functionResultFormatter"),
+            CoreValue::Host(Rc::new(FunctionResultFormatterHost { formatter: formatter.clone() })),
         )?;
     }
     if let Some(caching_function) = &gen.caching_function {

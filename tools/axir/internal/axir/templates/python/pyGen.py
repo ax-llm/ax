@@ -289,6 +289,14 @@ class AxGen:
         self.options["result_picker"] = result_picker
         return self
 
+    def set_function_result_formatter(self, formatter):
+        """Write each tool result for the model as TS's functionResultFormatter
+        option does: formatter(result) -> text. Without one, a string goes as it
+        is, None as "done", and any other value as pretty JSON. A forward
+        call's function_result_formatter option wins over this one."""
+        self.options["function_result_formatter"] = formatter
+        return self
+
     def add_assert(self, assertion, message=None):
         """Add an assertion: a declarative spec or a callable over the outputs.
 
@@ -855,6 +863,7 @@ def ax(
     *,
     sample_count: int | None = None,
     result_picker=None,
+    function_result_formatter=None,
     hooks: AxRuntimeHooks | None = None,
 ) -> AxGen:
     normalized = dict(options or {})
@@ -862,6 +871,8 @@ def ax(
         normalized["sample_count"] = int(sample_count)
     if result_picker is not None:
         normalized["result_picker"] = result_picker
+    if function_result_formatter is not None:
+        normalized["function_result_formatter"] = function_result_formatter
     return AxGen(signature, normalized, hooks=hooks)
 
 
@@ -1014,6 +1025,9 @@ def _core_map_values(values):
 
 
 def _core_object_call_method(target, method_name, *args):
+    if str(method_name) == "format_result" and callable(target):
+        # A function result formatter: formatter(result) -> text.
+        return target(args[0] if args else None)
     if str(method_name) == "call" and callable(target):
         payload = args[0] if args else None
         if isinstance(payload, dict) and payload.get("type") == "fields":
@@ -1039,6 +1053,11 @@ def _core_json_parse_strict(value):
 def _core_json_stringify(value):
     # TS JSON.stringify(value): keys in insertion order, null as null.
     return _js_json_dumps(value)
+
+
+def _core_json_pretty(value):
+    # TS JSON.stringify(value, null, 2).
+    return _js_json_dumps(value, indent=2)
 
 
 def _core_fields_from_map(fields):

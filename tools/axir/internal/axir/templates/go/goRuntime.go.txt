@@ -7128,6 +7128,11 @@ type AxResultPickerSample struct {
 
 type AxResultPicker func([]AxResultPickerSample) (int, error)
 
+// AxFunctionResultFormatter writes a tool result for the model, as TS's
+// functionResultFormatter option does. Without one, a string goes as it is,
+// nil as "done", and any other value as pretty JSON.
+type AxFunctionResultFormatter func(result Value) string
+
 func NewAx(signature string, options map[string]Value) *AxGen {
 	if options == nil {
 		options = Object()
@@ -7167,6 +7172,13 @@ func (g *AxGen) SetSampleCount(sampleCount int) *AxGen {
 }
 func (g *AxGen) SetResultPicker(resultPicker AxResultPicker) *AxGen {
 	g.Options["resultPicker"] = resultPicker
+	return g
+}
+
+// SetFunctionResultFormatter sets the program's tool result formatter; a
+// forward call's "functionResultFormatter" option wins over it.
+func (g *AxGen) SetFunctionResultFormatter(formatter AxFunctionResultFormatter) *AxGen {
+	g.Options["functionResultFormatter"] = formatter
 	return g
 }
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
@@ -11002,6 +11014,14 @@ func objectCallMethod(target Value, method string, arg Value, rest ...Value) (Va
 		}
 		return render_prompt(coreGet(target, "signature", nil), arg, functions, options)
 	}
+	if method == "format_result" {
+		if formatter, ok := target.(AxFunctionResultFormatter); ok {
+			return formatter(arg), nil
+		}
+		if formatter, ok := target.(func(Value) string); ok {
+			return formatter(arg), nil
+		}
+	}
 	if method == "call" {
 		if fn, ok := target.(func(map[string]Value) Value); ok {
 			return fn(asMap(arg)), nil
@@ -13898,7 +13918,18 @@ func runConformanceForward(fixture map[string]Value) {
 			return int(num(pickerIndex)), nil
 		})
 	}
+	if spec := coreGet(fixture, "function_result_formatter", nil); spec != nil {
+		// The program's formatter writes this text for every tool result.
+		text := display(coreGet(spec, "text", ""))
+		gen.SetFunctionResultFormatter(func(Value) string { return text })
+	}
 	forwardOptions := asMap(coreGet(fixture, "forward_options", Object()))
+	if spec := coreGet(fixture, "call_function_result_formatter", nil); spec != nil {
+		// The forward call's formatter writes this text for every tool result.
+		text := display(coreGet(spec, "text", ""))
+		forwardOptions = cloneMap(forwardOptions)
+		forwardOptions["functionResultFormatter"] = AxFunctionResultFormatter(func(Value) string { return text })
+	}
 	if coreTruthy(coreGet(fixture, "control", false)) {
 		forwardOptions = cloneMap(forwardOptions)
 		controlEvents = conformanceAttachControl(fixture, client, forwardOptions)
