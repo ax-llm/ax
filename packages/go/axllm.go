@@ -91302,7 +91302,6 @@ func wireJSONBody(payload Value) []byte {
 type requestTimer struct {
 	ms     float64
 	timer  *time.Timer
-	fired  atomic.Bool
 	cancel context.CancelFunc
 }
 
@@ -91313,18 +91312,14 @@ func startRequestTimer(ctx context.Context, request map[string]Value) (context.C
 	}
 	timed, cancel := context.WithCancel(ctx)
 	t := &requestTimer{ms: ms, cancel: cancel}
-	t.timer = time.AfterFunc(time.Duration(ms*float64(time.Millisecond)), func() {
-		t.fired.Store(true)
-		cancel()
-	})
+	t.timer = time.AfterFunc(time.Duration(ms*float64(time.Millisecond)), cancel)
 	return timed, t
 }
 
-// headers stops the timer: the response has started.
-func (t *requestTimer) headers() {
-	if t != nil {
-		t.timer.Stop()
-	}
+// headers stops the timer once the transport returns. It reports whether the
+// timer had already ended the request, even as the headers arrived.
+func (t *requestTimer) headers() bool {
+	return t != nil && !t.timer.Stop()
 }
 
 // release ends the request's context once its body is done.
@@ -91333,14 +91328,6 @@ func (t *requestTimer) release() {
 		t.timer.Stop()
 		t.cancel()
 	}
-}
-
-// timedOut is TS's AxAIServiceTimeoutError when the timer ended the request.
-func (t *requestTimer) timedOut() error {
-	if t == nil || !t.fired.Load() {
-		return nil
-	}
-	return callTimeoutError(t.ms)
 }
 
 // timerBody releases the request's timer context when the stream body closes.
@@ -91410,11 +91397,14 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 		client = http.DefaultClient
 	}
 	resp, err := client.Do(httpReq)
-	timer.headers()
+	timedOut := timer.headers()
+	if err == nil && timedOut {
+		resp.Body.Close()
+	}
+	if timedOut {
+		return nil, callTimeoutError(timer.ms)
+	}
 	if err != nil {
-		if timedOut := timer.timedOut(); timedOut != nil {
-			return nil, timedOut
-		}
 		return nil, normalizeContextError(ctx, err)
 	}
 	defer resp.Body.Close()
@@ -91465,11 +91455,14 @@ func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamR
 		client = http.DefaultClient
 	}
 	resp, err := client.Do(httpReq)
-	timer.headers()
-	if err != nil {
+	timedOut := timer.headers()
+	if err != nil || timedOut {
+		if err == nil {
+			resp.Body.Close()
+		}
 		timer.release()
-		if timedOut := timer.timedOut(); timedOut != nil {
-			return AxHTTPStreamResponse{}, timedOut
+		if timedOut {
+			return AxHTTPStreamResponse{}, callTimeoutError(timer.ms)
 		}
 		return AxHTTPStreamResponse{}, normalizeContextError(ctx, err)
 	}
