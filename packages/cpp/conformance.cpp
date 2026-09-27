@@ -2085,6 +2085,8 @@ static std::string agent_request_stage(const Value& request) {
   if (system.find("You (`distiller`)") != std::string::npos) return "distiller";
   if (system.find("You (`executor`)") != std::string::npos) return "executor";
   if (system.find("`Generator answer`") != std::string::npos || system.find("`Question context`") != std::string::npos) return "playbook";
+  // The ports' runtime-less distiller or executor (port-only).
+  if (system.find("Your task is to generate new fields: `Completion`") != std::string::npos) return "runtime_less";
   if (system.find("context-map Distiller") != std::string::npos || system.find("context-map Cartographer") != std::string::npos) return "context_map";
   return "responder";
 }
@@ -2184,6 +2186,13 @@ static void run_agent_forward(Value fixture) {
     throw AxError("fixture", "agent_runtime_real requires building conformance with -DAX_CONFORMANCE_QUICKJS and the quickjs runtime");
   }
 #endif
+  // runtime_on_forward: the runtime goes on each forward call (unless a run
+  // says without_runtime) instead of the constructor.
+  Value forward_runtime;
+  if (Core::truthy(Core::get(fixture, "runtime_on_forward", false)) && !Core::get(agent_options, "runtime").is_null()) {
+    forward_runtime = Core::get(agent_options, "runtime");
+    Core::map_delete(agent_options, Value("runtime"));
+  }
   std::map<std::string,std::shared_ptr<AxMCPScriptedTransport>> mcp_transports;
   std::map<std::string,std::vector<std::shared_ptr<AxMCPClient>>> context_clients;
   std::map<std::string,std::shared_ptr<AxExecutionContext>> contexts;
@@ -2244,6 +2253,7 @@ static void run_agent_forward(Value fixture) {
     }
     if (!Core::get(fixture, "set_state").is_null()) ag->set_state(Core::get(fixture, "set_state"));
     if (!Core::get(fixture, "restore_runtime_state").is_null()) ag->restore_runtime_state(Core::get(fixture, "restore_runtime_state"));
+    if (!Core::get(fixture, "apply_components").is_null()) ag->apply_optimized_components(parse_json(stringify(Core::get(fixture, "apply_components"))));
     Value output;
     Value forward_runs = Core::get(fixture, "forward_runs");
     if (!forward_runs.is_null()) {
@@ -2259,9 +2269,11 @@ static void run_agent_forward(Value fixture) {
               {"loaded_skill_docs", Core::get(restored, "loaded_skill_docs", Value::array())},
           }));
         }
-        Value forward_options = Core::get(run, "forward_options", Value::object());
+        if (!Core::get(run, "set_signature").is_null()) ag->set_signature(Core::get(run, "set_signature"));
+        Value forward_options = parse_json(stringify(Core::get(run, "forward_options", Value::object())));
         install_semantic_observer(forward_options, "onUsedSkills", "forward.used_skills", false);
         install_semantic_observer(forward_options, "onUsedMemories", "forward.used_memories", false);
+        if (!forward_runtime.is_null() && !Core::truthy(Core::get(run, "without_runtime", false))) Core::set(forward_options, "runtime", forward_runtime);
         Core::append(output, ag->forward(client, Core::get(run, "input", Value::object()), forward_options));
         Value run_exported = ag->export_runtime_state();
         if (Core::truthy(Core::get(run, "save_runtime_state", false))) {
@@ -2282,6 +2294,7 @@ static void run_agent_forward(Value fixture) {
       install_semantic_observer(forward_options, "onUsedSkills", "forward.used_skills", false);
       install_semantic_observer(forward_options, "onUsedMemories", "forward.used_memories", false);
       if (run_control_handle) Core::set(forward_options, "control", run_control_handle->value());
+      if (!forward_runtime.is_null()) Core::set(forward_options, "runtime", forward_runtime);
       if (streaming) {
         Value stop_after = Core::get(fixture, "stop_after_deltas");
         output = ag->streaming_forward(client, Core::get(fixture, "input", Value::object()), forward_options, [&](const AxGenDelta& delta) {

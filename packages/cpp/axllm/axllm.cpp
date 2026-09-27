@@ -2125,6 +2125,25 @@ Value Core::agent_runtime_restore_state(Value session, Value snapshot, Value opt
   if (it == code_session_registry().end() || it->second == nullptr) throw AxError("runtime", "agent code session is not active");
   return it->second->restore_state(snapshot, options);
 }
+// A runtime's language: a runtime config's "language", else the code runtime's
+// own, else JavaScript, TS's default runtime.
+Value Core::agent_runtime_language(Value runtime) {
+  std::string language;
+  if (runtime.is_object()) {
+    std::string runtime_id = str(Core::get(runtime, "__code_runtime_id", Value("")));
+    if (!runtime_id.empty()) {
+      auto it = code_runtime_registry().find(runtime_id);
+      if (it != code_runtime_registry().end() && it->second != nullptr) language = it->second->language();
+    } else {
+      Value raw = Core::get(runtime, "language", Value());
+      if (!raw.is_null()) language = display(raw);
+    }
+  }
+  size_t start = language.find_first_not_of(" \t\r\n");
+  size_t end = language.find_last_not_of(" \t\r\n");
+  language = start == std::string::npos ? std::string() : language.substr(start, end - start + 1);
+  return Value(language.empty() ? std::string("JavaScript") : language);
+}
 Value Core::agent_runtime_close(Value session) {
   std::string session_id = str(get_key(session, "__code_session_id"));
   auto it = code_session_registry().find(session_id);
@@ -29834,17 +29853,10 @@ Value Core::_agent_factory(Value signature, Value options) {
   Core::set(state, Value("executor_exclude_fields"), executor_exclude);
   Core::set(state, Value("responder_exclude_fields"), responder_exclude);
   Value code_field_name = Core::get(runtime_contract, Value("code_field_name"), Value("javascriptCode"));
-  Value runtime_distiller_signature = Core::string_format(Value("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), code_field_name);
-  Value distiller_signature = Value("input:json, context:json -> completion:json");
-  if (Core::truthy(runtime_enabled)) {
-    distiller_signature = runtime_distiller_signature;
-  }
+  Value actor_signatures = Core::_agent_actor_stage_signatures(runtime_enabled, code_field_name);
+  Value distiller_signature = Core::get(actor_signatures, Value("distiller"), Value());
   Core::set(state, Value("distiller_signature"), distiller_signature);
-  Value runtime_executor_signature = Core::string_format(Value("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), code_field_name);
-  Value executor_signature = Value("input:json, executorRequest:string, distilledContext:json -> completion:json");
-  if (Core::truthy(runtime_enabled)) {
-    executor_signature = runtime_executor_signature;
-  }
+  Value executor_signature = Core::get(actor_signatures, Value("executor"), Value());
   Core::set(state, Value("executor_signature"), executor_signature);
   Value llm_query_signature = Value("task:string, context:json -> answer:string");
   Core::set(state, Value("llm_query_signature"), llm_query_signature);
@@ -39136,6 +39148,137 @@ Value Core::_agent_stage_parse_dates(Value out, Value base_options, Value stage_
     Core::set(out, Value("parseDates"), resolved);
   }
   return out;
+}
+
+Value Core::_agent_actor_stage_signatures(Value runtime_enabled, Value code_field_name) {
+  axir_coverage_mark("_agent_actor_stage_signatures");
+  Value distiller = Value("input:json, context:json -> completion:json");
+  Value executor = Value("input:json, executorRequest:string, distilledContext:json -> completion:json");
+  if (Core::truthy(runtime_enabled)) {
+    distiller = Core::string_format(Value("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), code_field_name);
+    executor = Core::string_format(Value("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code"), code_field_name);
+  }
+  Value out = Value::object();
+  Core::set(out, Value("distiller"), distiller);
+  Core::set(out, Value("executor"), executor);
+  return out;
+}
+
+Value Core::_agent_runtime_configured(Value state) {
+  axir_coverage_mark("_agent_runtime_configured");
+  Value empty_map = Value::object();
+  Value options = Core::get(state, Value("options"), empty_map);
+  Value has_runtime = Core::map_contains(options, Value("runtime"));
+  Value has_config = Core::map_contains(options, Value("runtimeConfig"));
+  Value has_config_snake = Core::map_contains(options, Value("runtime_config"));
+  Value has_any_config = Core::or_(has_config, has_config_snake);
+  Value configured = Core::or_(has_runtime, has_any_config);
+  return configured;
+}
+
+Value Core::_agent_stage_mode_fields(Value state) {
+  axir_coverage_mark("_agent_stage_mode_fields");
+  Value keys = Value::array();
+  Core::append(keys, Value("runtime_enabled"));
+  Core::append(keys, Value("runtime_contract"));
+  Core::append(keys, Value("distiller_signature"));
+  Core::append(keys, Value("executor_signature"));
+  Core::append(keys, Value("distiller_description"));
+  Core::append(keys, Value("executor_description_base"));
+  Core::append(keys, Value("responder_description"));
+  Value fields = Value::object();
+  for (auto key : Core::iter(keys)) {
+    Value value = Core::get(state, key, Value());
+    Core::set(fields, key, value);
+  }
+  return fields;
+}
+
+Value Core::_agent_runtime_stage_fields(Value state, Value runtime) {
+  axir_coverage_mark("_agent_runtime_stage_fields");
+  Value language = Core::agent_runtime_language(runtime);
+  Value config = Value::object();
+  Core::set(config, Value("language"), language);
+  Value contract_options = Value::object();
+  Core::set(contract_options, Value("runtime"), config);
+  Value contract = Core::_normalize_agent_runtime(contract_options);
+  Value empty_map = Value::object();
+  Value saved_contract = Core::get(state, Value("runtime_contract"), empty_map);
+  Core::set(state, Value("runtime_contract"), contract);
+  Value options = Core::get(state, Value("options"), empty_map);
+  Value executor_description = Core::_render_rlm_executor_description(state, options);
+  Value responder_description = Core::_render_rlm_responder_description(state, options);
+  Value distiller_description = Core::_render_rlm_distiller_description(state, options);
+  Core::set(state, Value("runtime_contract"), saved_contract);
+  Value code_field_name = Core::get(contract, Value("code_field_name"), Value("javascriptCode"));
+  Value runtime_stages = Value(true);
+  Value signatures = Core::_agent_actor_stage_signatures(runtime_stages, code_field_name);
+  Value distiller_signature = Core::get(signatures, Value("distiller"), Value());
+  Value executor_signature = Core::get(signatures, Value("executor"), Value());
+  Value fields = Value::object();
+  Core::set(fields, Value("runtime_enabled"), Value(true));
+  Core::set(fields, Value("runtime_contract"), contract);
+  Core::set(fields, Value("distiller_signature"), distiller_signature);
+  Core::set(fields, Value("executor_signature"), executor_signature);
+  Core::set(fields, Value("distiller_description"), distiller_description);
+  Core::set(fields, Value("executor_description_base"), executor_description);
+  Core::set(fields, Value("responder_description"), responder_description);
+  return fields;
+}
+
+Value Core::_agent_use_stage_mode(Value state, Value options) {
+  axir_coverage_mark("_agent_use_stage_mode");
+  Value configured = Core::_agent_runtime_configured(state);
+  Value runtime = Core::get(options, Value("runtime"), Value());
+  Value has_runtime = Core::is_not_none(runtime);
+  Value runtime_mode = Core::or_(configured, has_runtime);
+  Value mode = Value("plain");
+  if (Core::truthy(runtime_mode)) {
+    mode = Value("runtime");
+  }
+  Value state_runtime = Core::get(state, Value("runtime_enabled"), Value(false));
+  Value active_default = Value("plain");
+  if (Core::truthy(state_runtime)) {
+    active_default = Value("runtime");
+  }
+  Value active = Core::get(state, Value("stage_mode"), active_default);
+  Value switching = Core::ne(mode, active);
+  if (Core::truthy(switching)) {
+    Value empty_modes = Value::object();
+    Value modes = Core::get(state, Value("stage_modes"), empty_modes);
+    Value current_fields = Core::_agent_stage_mode_fields(state);
+    Core::set(modes, active, current_fields);
+    Value target = Core::get(modes, mode, Value());
+    Value cached = Core::is_not_none(target);
+    if (Core::truthy(cached)) {
+      // empty
+    }
+    if (!Core::truthy(cached)) {
+      target = Core::_agent_runtime_stage_fields(state, runtime);
+    }
+    for (auto field : Core::iter(target)) {
+      Value field_value = Core::get(target, field, Value());
+      Core::set(state, field, field_value);
+    }
+    Core::set(state, Value("stage_modes"), modes);
+    Core::set(state, Value("stage_mode"), mode);
+    Value prompt_policy = Core::_build_agent_actor_prompt_policy(state);
+    Core::set(state, Value("actor_prompt_policy"), prompt_policy);
+    Core::_agent_refresh_actor_instruction(state);
+  }
+  Value record = Value::object();
+  Core::set(record, Value("mode"), mode);
+  Value record_distiller_signature = Core::get(state, Value("distiller_signature"), Value(""));
+  Core::set(record, Value("distiller_signature"), record_distiller_signature);
+  Value record_executor_signature = Core::get(state, Value("executor_signature"), Value(""));
+  Core::set(record, Value("executor_signature"), record_executor_signature);
+  Value record_distiller_description = Core::get(state, Value("distiller_description"), Value(""));
+  Core::set(record, Value("distiller_description"), record_distiller_description);
+  Value record_executor_description = Core::get(state, Value("executor_description"), Value(""));
+  Core::set(record, Value("executor_description"), record_executor_description);
+  Value record_responder_description = Core::get(state, Value("responder_description"), Value(""));
+  Core::set(record, Value("responder_description"), record_responder_description);
+  return record;
 }
 
 Value Core::_flow_factory(Value options) {
@@ -48680,7 +48823,52 @@ AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  reset_stage_sets();
   attach_configured_playbook();
+}
+
+// The stages just built are the set in use, for the mode the agent was built in.
+void AxAgent::reset_stage_sets() {
+  stage_mode_ = Core::truthy(Core::get(state_, "runtime_enabled", false)) ? "runtime" : "plain";
+  stage_sets_.clear();
+  optimized_components_ = Value::object();
+}
+
+// A run's stages follow its runtime: the constructor's, else the forward
+// call's; without one, the runtime-less stages run. A set coming back into use
+// takes the instructions from the agent's state (a standing instruction set
+// since) and the optimized components again.
+void AxAgent::use_stage_mode(const Value& options) {
+  Value record = Core::_agent_use_stage_mode(state_, options);
+  std::string mode = str(Core::get(record, "mode", Value("plain")));
+  if (mode == stage_mode_) return;
+  StageSet incoming;
+  auto cached = stage_sets_.find(mode);
+  if (cached != stage_sets_.end()) {
+    incoming = std::move(cached->second);
+    stage_sets_.erase(cached);
+    incoming.distiller->set_instruction(Core::get(record, "distiller_description", Value("")));
+    incoming.executor->set_instruction(Core::get(record, "executor_description", Value("")));
+    incoming.responder->set_instruction(Core::get(record, "responder_description", Value("")));
+  } else {
+    Value actor_validation_retries = Core::get(options_, "validation_retries", Core::get(options_, "validationRetries", 1));
+    incoming.distiller = std::make_unique<AxGen>(s(str(Core::get(record, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(record, "distiller_description", "")}}));
+    incoming.executor = std::make_unique<AxGen>(s(str(Core::get(record, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(record, "executor_description", "")}}));
+    incoming.responder = make_responder(options_);
+  }
+  incoming.distiller->apply_optimized_components(optimized_components_);
+  incoming.executor->apply_optimized_components(optimized_components_);
+  incoming.responder->apply_optimized_components(optimized_components_);
+  StageSet outgoing;
+  outgoing.distiller = std::move(distiller_);
+  outgoing.executor = std::move(executor_);
+  outgoing.responder = std::move(responder_);
+  stage_sets_[stage_mode_] = std::move(outgoing);
+  distiller_ = std::move(incoming.distiller);
+  executor_ = std::move(incoming.executor);
+  responder_ = std::move(incoming.responder);
+  stage_mode_ = mode;
+  rebind_playbook();
 }
 
 // The responder stage. As in TypeScript, its validation budget is maxRetries
@@ -48706,6 +48894,7 @@ AxAgent& AxAgent::set_signature(Value signature) {
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  reset_stage_sets();
   rebind_playbook();
   return *this;
 }
@@ -48755,6 +48944,7 @@ Value AxAgent::run(AIClient& client, Value values, Value options, const AxRuntim
   Value attributes = object({{"ax.program.id", "root.agent"}, {"ax.program.type", "AxAgent"}});
   if (!sink.is_null()) Core::set(attributes, "ax.streaming", true);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_agent_forward", "ax_gen_agent", attributes);
+  use_stage_mode(options);
   auto call_context=execution_context_ ? execution_context_ : detail::MCPRunScope::current();
   detail::MCPRunScope context_scope(call_context);
   if(call_context || Core::truthy(Core::get(state_,"mcp_run_context_active",false))) {
@@ -48903,6 +49093,7 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  reset_stage_sets();
   rebind_playbook();
   return *this;
 }
@@ -48984,6 +49175,8 @@ Value AxAgent::get_optimizable_components() const {
 }
 AxAgent& AxAgent::apply_optimized_components(Value component_map) {
   Core::_validate_optimization_component_map(get_optimizable_components(), component_map);
+  // Kept for the other stage set, which gets them when a run switches to it.
+  optimized_components_ = Core::map_merge(optimized_components_, component_map);
   distiller_->apply_optimized_components(component_map);
   executor_->apply_optimized_components(component_map);
   responder_->apply_optimized_components(component_map);

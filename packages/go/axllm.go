@@ -59598,6 +59598,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_action_log Value
 	var v_actor_model_state Value
 	var v_actor_prompt_policy Value
+	var v_actor_signatures Value
 	var v_auto_upgrade Value
 	var v_callable_inventory Value
 	var v_callable_split Value
@@ -59686,9 +59687,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_responder_options_camel Value
 	var v_responder_signature Value
 	var v_runtime_contract Value
-	var v_runtime_distiller_signature Value
 	var v_runtime_enabled Value
-	var v_runtime_executor_signature Value
 	var v_sig Value
 	var v_skills_catalog Value
 	var v_skills_catalog_camel Value
@@ -59709,6 +59708,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_action_log
 	_ = v_actor_model_state
 	_ = v_actor_prompt_policy
+	_ = v_actor_signatures
 	_ = v_auto_upgrade
 	_ = v_callable_inventory
 	_ = v_callable_split
@@ -59797,9 +59797,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_responder_options_camel
 	_ = v_responder_signature
 	_ = v_runtime_contract
-	_ = v_runtime_distiller_signature
 	_ = v_runtime_enabled
-	_ = v_runtime_executor_signature
 	_ = v_sig
 	_ = v_skills_catalog
 	_ = v_skills_catalog_camel
@@ -59915,21 +59913,10 @@ func _agent_factory(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "executor_exclude_fields", v_executor_exclude); err != nil { return nil, err }
 	if err := coreSet(v_state, "responder_exclude_fields", v_responder_exclude); err != nil { return nil, err }
 	v_code_field_name = coreGet(v_runtime_contract, "code_field_name", "javascriptCode")
-	v_runtime_distiller_signature = _core_string_format("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", v_code_field_name)
-	v_distiller_signature = "input:json, context:json -> completion:json"
-	if coreTruthy(v_runtime_enabled) {
-		v_distiller_signature = v_runtime_distiller_signature
-	} else {
-	// empty
-	}
+	{ v, err := _agent_actor_stage_signatures(v_runtime_enabled, v_code_field_name); if err != nil { return nil, err }; v_actor_signatures = v }
+	v_distiller_signature = coreGet(v_actor_signatures, "distiller", nil)
 	if err := coreSet(v_state, "distiller_signature", v_distiller_signature); err != nil { return nil, err }
-	v_runtime_executor_signature = _core_string_format("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", v_code_field_name)
-	v_executor_signature = "input:json, executorRequest:string, distilledContext:json -> completion:json"
-	if coreTruthy(v_runtime_enabled) {
-		v_executor_signature = v_runtime_executor_signature
-	} else {
-	// empty
-	}
+	v_executor_signature = coreGet(v_actor_signatures, "executor", nil)
 	if err := coreSet(v_state, "executor_signature", v_executor_signature); err != nil { return nil, err }
 	v_llm_query_signature = "task:string, context:json -> answer:string"
 	if err := coreSet(v_state, "llm_query_signature", v_llm_query_signature); err != nil { return nil, err }
@@ -79355,6 +79342,274 @@ func _agent_stage_parse_dates(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _agent_actor_stage_signatures(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_actor_stage_signatures")
+	var v_runtime_enabled Value
+	var v_code_field_name Value
+	var v_distiller Value
+	var v_executor Value
+	var v_out Value
+	if len(args) > 0 { v_runtime_enabled = args[0] }
+	_ = v_runtime_enabled
+	if len(args) > 1 { v_code_field_name = args[1] }
+	_ = v_code_field_name
+	_ = v_distiller
+	_ = v_executor
+	_ = v_out
+	v_distiller = "input:json, context:json -> completion:json"
+	v_executor = "input:json, executorRequest:string, distilledContext:json -> completion:json"
+	if coreTruthy(v_runtime_enabled) {
+		v_distiller = _core_string_format("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", v_code_field_name)
+		v_executor = _core_string_format("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", v_code_field_name)
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "distiller", v_distiller); err != nil { return nil, err }
+	if err := coreSet(v_out, "executor", v_executor); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _agent_runtime_configured(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_configured")
+	var v_state Value
+	var v_configured Value
+	var v_empty_map Value
+	var v_has_any_config Value
+	var v_has_config Value
+	var v_has_config_snake Value
+	var v_has_runtime Value
+	var v_options Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_configured
+	_ = v_empty_map
+	_ = v_has_any_config
+	_ = v_has_config
+	_ = v_has_config_snake
+	_ = v_has_runtime
+	_ = v_options
+	v_empty_map = Object()
+	v_options = coreGet(v_state, "options", v_empty_map)
+	v_has_runtime = _core_map_contains(v_options, "runtime")
+	v_has_config = _core_map_contains(v_options, "runtimeConfig")
+	v_has_config_snake = _core_map_contains(v_options, "runtime_config")
+	v_has_any_config = _core_or(v_has_config, v_has_config_snake)
+	v_configured = _core_or(v_has_runtime, v_has_any_config)
+	return v_configured, nil
+}
+
+func _agent_stage_mode_fields(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_stage_mode_fields")
+	var v_state Value
+	var v_fields Value
+	var v_key Value
+	var v_keys Value
+	var v_value Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_fields
+	_ = v_key
+	_ = v_keys
+	_ = v_value
+	v_keys = MutableArray()
+	v_keys = coreAppend(v_keys, "runtime_enabled")
+	v_keys = coreAppend(v_keys, "runtime_contract")
+	v_keys = coreAppend(v_keys, "distiller_signature")
+	v_keys = coreAppend(v_keys, "executor_signature")
+	v_keys = coreAppend(v_keys, "distiller_description")
+	v_keys = coreAppend(v_keys, "executor_description_base")
+	v_keys = coreAppend(v_keys, "responder_description")
+	v_fields = Object()
+	for _, v_key = range coreIter(v_keys) {
+		v_value = coreGet(v_state, v_key, nil)
+		if err := coreSet(v_fields, v_key, v_value); err != nil { return nil, err }
+	}
+	return v_fields, nil
+}
+
+func _agent_runtime_stage_fields(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_stage_fields")
+	var v_state Value
+	var v_runtime Value
+	var v_code_field_name Value
+	var v_config Value
+	var v_contract Value
+	var v_contract_options Value
+	var v_distiller_description Value
+	var v_distiller_signature Value
+	var v_empty_map Value
+	var v_executor_description Value
+	var v_executor_signature Value
+	var v_fields Value
+	var v_language Value
+	var v_options Value
+	var v_responder_description Value
+	var v_runtime_stages Value
+	var v_saved_contract Value
+	var v_signatures Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_runtime = args[1] }
+	_ = v_runtime
+	_ = v_code_field_name
+	_ = v_config
+	_ = v_contract
+	_ = v_contract_options
+	_ = v_distiller_description
+	_ = v_distiller_signature
+	_ = v_empty_map
+	_ = v_executor_description
+	_ = v_executor_signature
+	_ = v_fields
+	_ = v_language
+	_ = v_options
+	_ = v_responder_description
+	_ = v_runtime_stages
+	_ = v_saved_contract
+	_ = v_signatures
+	v_language = _core_agent_runtime_language(v_runtime)
+	v_config = Object()
+	if err := coreSet(v_config, "language", v_language); err != nil { return nil, err }
+	v_contract_options = Object()
+	if err := coreSet(v_contract_options, "runtime", v_config); err != nil { return nil, err }
+	{ v, err := _normalize_agent_runtime(v_contract_options); if err != nil { return nil, err }; v_contract = v }
+	v_empty_map = Object()
+	v_saved_contract = coreGet(v_state, "runtime_contract", v_empty_map)
+	if err := coreSet(v_state, "runtime_contract", v_contract); err != nil { return nil, err }
+	v_options = coreGet(v_state, "options", v_empty_map)
+	{ v, err := _render_rlm_executor_description(v_state, v_options); if err != nil { return nil, err }; v_executor_description = v }
+	{ v, err := _render_rlm_responder_description(v_state, v_options); if err != nil { return nil, err }; v_responder_description = v }
+	{ v, err := _render_rlm_distiller_description(v_state, v_options); if err != nil { return nil, err }; v_distiller_description = v }
+	if err := coreSet(v_state, "runtime_contract", v_saved_contract); err != nil { return nil, err }
+	v_code_field_name = coreGet(v_contract, "code_field_name", "javascriptCode")
+	v_runtime_stages = true
+	{ v, err := _agent_actor_stage_signatures(v_runtime_stages, v_code_field_name); if err != nil { return nil, err }; v_signatures = v }
+	v_distiller_signature = coreGet(v_signatures, "distiller", nil)
+	v_executor_signature = coreGet(v_signatures, "executor", nil)
+	v_fields = Object()
+	if err := coreSet(v_fields, "runtime_enabled", true); err != nil { return nil, err }
+	if err := coreSet(v_fields, "runtime_contract", v_contract); err != nil { return nil, err }
+	if err := coreSet(v_fields, "distiller_signature", v_distiller_signature); err != nil { return nil, err }
+	if err := coreSet(v_fields, "executor_signature", v_executor_signature); err != nil { return nil, err }
+	if err := coreSet(v_fields, "distiller_description", v_distiller_description); err != nil { return nil, err }
+	if err := coreSet(v_fields, "executor_description_base", v_executor_description); err != nil { return nil, err }
+	if err := coreSet(v_fields, "responder_description", v_responder_description); err != nil { return nil, err }
+	return v_fields, nil
+}
+
+func _agent_use_stage_mode(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_use_stage_mode")
+	var v_state Value
+	var v_options Value
+	var v_active Value
+	var v_active_default Value
+	var v_cached Value
+	var v_configured Value
+	var v_current_fields Value
+	var v_empty_modes Value
+	var v_field Value
+	var v_field_value Value
+	var v_has_runtime Value
+	var v_mode Value
+	var v_modes Value
+	var v_prompt_policy Value
+	var v_record Value
+	var v_record_distiller_description Value
+	var v_record_distiller_signature Value
+	var v_record_executor_description Value
+	var v_record_executor_signature Value
+	var v_record_responder_description Value
+	var v_runtime Value
+	var v_runtime_mode Value
+	var v_state_runtime Value
+	var v_switching Value
+	var v_target Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_active
+	_ = v_active_default
+	_ = v_cached
+	_ = v_configured
+	_ = v_current_fields
+	_ = v_empty_modes
+	_ = v_field
+	_ = v_field_value
+	_ = v_has_runtime
+	_ = v_mode
+	_ = v_modes
+	_ = v_prompt_policy
+	_ = v_record
+	_ = v_record_distiller_description
+	_ = v_record_distiller_signature
+	_ = v_record_executor_description
+	_ = v_record_executor_signature
+	_ = v_record_responder_description
+	_ = v_runtime
+	_ = v_runtime_mode
+	_ = v_state_runtime
+	_ = v_switching
+	_ = v_target
+	{ v, err := _agent_runtime_configured(v_state); if err != nil { return nil, err }; v_configured = v }
+	v_runtime = coreGet(v_options, "runtime", nil)
+	v_has_runtime = _core_is_not_none(v_runtime)
+	v_runtime_mode = _core_or(v_configured, v_has_runtime)
+	v_mode = "plain"
+	if coreTruthy(v_runtime_mode) {
+		v_mode = "runtime"
+	} else {
+	// empty
+	}
+	v_state_runtime = coreGet(v_state, "runtime_enabled", false)
+	v_active_default = "plain"
+	if coreTruthy(v_state_runtime) {
+		v_active_default = "runtime"
+	} else {
+	// empty
+	}
+	v_active = coreGet(v_state, "stage_mode", v_active_default)
+	v_switching = _core_ne(v_mode, v_active)
+	if coreTruthy(v_switching) {
+		v_empty_modes = Object()
+		v_modes = coreGet(v_state, "stage_modes", v_empty_modes)
+		{ v, err := _agent_stage_mode_fields(v_state); if err != nil { return nil, err }; v_current_fields = v }
+		if err := coreSet(v_modes, v_active, v_current_fields); err != nil { return nil, err }
+		v_target = coreGet(v_modes, v_mode, nil)
+		v_cached = _core_is_not_none(v_target)
+		if coreTruthy(v_cached) {
+		// empty
+		} else {
+			{ v, err := _agent_runtime_stage_fields(v_state, v_runtime); if err != nil { return nil, err }; v_target = v }
+		}
+		for _, v_field = range coreIter(v_target) {
+			v_field_value = coreGet(v_target, v_field, nil)
+			if err := coreSet(v_state, v_field, v_field_value); err != nil { return nil, err }
+		}
+		if err := coreSet(v_state, "stage_modes", v_modes); err != nil { return nil, err }
+		if err := coreSet(v_state, "stage_mode", v_mode); err != nil { return nil, err }
+		{ v, err := _build_agent_actor_prompt_policy(v_state); if err != nil { return nil, err }; v_prompt_policy = v }
+		if err := coreSet(v_state, "actor_prompt_policy", v_prompt_policy); err != nil { return nil, err }
+		if _, err := _agent_refresh_actor_instruction(v_state); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_record = Object()
+	if err := coreSet(v_record, "mode", v_mode); err != nil { return nil, err }
+	v_record_distiller_signature = coreGet(v_state, "distiller_signature", "")
+	if err := coreSet(v_record, "distiller_signature", v_record_distiller_signature); err != nil { return nil, err }
+	v_record_executor_signature = coreGet(v_state, "executor_signature", "")
+	if err := coreSet(v_record, "executor_signature", v_record_executor_signature); err != nil { return nil, err }
+	v_record_distiller_description = coreGet(v_state, "distiller_description", "")
+	if err := coreSet(v_record, "distiller_description", v_record_distiller_description); err != nil { return nil, err }
+	v_record_executor_description = coreGet(v_state, "executor_description", "")
+	if err := coreSet(v_record, "executor_description", v_record_executor_description); err != nil { return nil, err }
+	v_record_responder_description = coreGet(v_state, "responder_description", "")
+	if err := coreSet(v_record, "responder_description", v_record_responder_description); err != nil { return nil, err }
+	return v_record, nil
+}
+
 func _flow_factory(args ...Value) (Value, error) {
 	axirCoverageMark("_flow_factory")
 	var v_options Value
@@ -93504,6 +93759,17 @@ type AxAgent struct {
 	// prompt, kept to rebind the playbook when SetSignature rebuilds stages.
 	playbookTarget string
 	playbookApply  bool
+	// Each run uses the stage set of its mode (see useStageMode): "runtime",
+	// the RLM stages, or "plain", the runtime-less stages. The other mode's
+	// set is built on first use and kept; optimizedComponents apply to a set
+	// when a run switches to it.
+	stageMode           string
+	stageSets           map[string]agentStageSet
+	optimizedComponents map[string]Value
+}
+
+type agentStageSet struct {
+	distiller, executor, responder *AxGen
 }
 
 // AxMemoriesSearchFn / AxSkillsSearchFn are native host callbacks the agent invokes (from the agent
@@ -93544,8 +93810,60 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
 	a := &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: newAgentResponder(state, responderSignature, options), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions), ExecutionContext: executionContext, ExecutionContextError: contextErr, PlaybookConfig: coreGet(options, "playbook", nil), RuntimeHooks: hooks}
+	a.resetStageSets()
 	a.attachConfiguredPlaybook()
 	return a
+}
+
+// resetStageSets makes the stages just built the only stage set, for the
+// mode the agent was built in.
+func (a *AxAgent) resetStageSets() {
+	a.stageMode = "plain"
+	if coreTruthy(coreGet(a.State, "runtime_enabled", false)) {
+		a.stageMode = "runtime"
+	}
+	a.stageSets = map[string]agentStageSet{a.stageMode: {a.Distiller, a.Executor, a.Responder}}
+	a.optimizedComponents = map[string]Value{}
+}
+
+// useStageMode gives the run the stages of its runtime: the constructor's,
+// else the forward call's; without one, the runtime-less stages run. A set
+// coming back into use takes the instructions from the agent's state (a
+// standing instruction set since) and the optimized components again.
+func (a *AxAgent) useStageMode(options map[string]Value) error {
+	raw, err := _agent_use_stage_mode(a.State, options)
+	if err != nil {
+		return err
+	}
+	record := asMap(raw)
+	mode := display(coreGet(record, "mode", "plain"))
+	if mode == a.stageMode {
+		return nil
+	}
+	set, ok := a.stageSets[mode]
+	if !ok {
+		actorValidationRetries := coreGet(a.Options, "validation_retries", coreGet(a.Options, "validationRetries", 1))
+		set = agentStageSet{
+			distiller: NewAx(display(coreGet(record, "distiller_signature", "")), Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(record, "distiller_description", ""))),
+			executor:  NewAx(display(coreGet(record, "executor_signature", "")), Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(record, "executor_description", ""))),
+			responder: newAgentResponder(a.State, display(coreGet(a.State, "responder_signature", a.Signature.String())), a.Options),
+		}
+		a.stageSets[mode] = set
+	} else {
+		for stage, field := range map[*AxGen]string{set.distiller: "distiller_description", set.executor: "executor_description", set.responder: "responder_description"} {
+			stage.Instruction = display(coreGet(record, field, ""))
+			coreSet(stage.Options, "instruction", stage.Instruction)
+		}
+	}
+	if len(a.optimizedComponents) > 0 {
+		set.distiller.ApplyOptimizedComponents(a.optimizedComponents)
+		set.executor.ApplyOptimizedComponents(a.optimizedComponents)
+		set.responder.ApplyOptimizedComponents(a.optimizedComponents)
+	}
+	a.Distiller, a.Executor, a.Responder = set.distiller, set.executor, set.responder
+	a.stageMode = mode
+	a.rebindPlaybook()
+	return nil
 }
 // newAgentResponder builds the responder stage. As in TypeScript, its
 // validation budget is maxRetries unless validation_retries is set, and with
@@ -93595,6 +93913,7 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	a.Executor = NewAx(executorSignature, executorOptions)
 	a.Responder = newAgentResponder(state, responderSignature, a.Options)
 	a.LlmQuery = NewAx(llmQuerySignature, llmQueryOptions)
+	a.resetStageSets()
 	a.rebindPlaybook()
 	return a
 }
@@ -93721,6 +94040,9 @@ func (a *AxAgent) run(ctx context.Context, client AIClient, values map[string]Va
 	}
 	if a.ExecutionContextError != nil {
 		return nil, a.ExecutionContextError
+	}
+	if err := a.useStageMode(options); err != nil {
+		return nil, err
 	}
 	callOptions := map[string]Value{}
 	for key, value := range options {
@@ -93900,6 +94222,13 @@ func (a *AxAgent) GetOptimizableComponents() Value {
 }
 func (a *AxAgent) ApplyOptimizedComponents(m map[string]Value) {
 	mustCore(_validate_optimization_component_map(a.GetOptimizableComponents(), m))
+	// Kept for the other stage set, which gets them when a run switches to it.
+	if a.optimizedComponents == nil {
+		a.optimizedComponents = map[string]Value{}
+	}
+	for key, value := range m {
+		a.optimizedComponents[key] = value
+	}
 	a.Distiller.ApplyOptimizedComponents(m)
 	a.Executor.ApplyOptimizedComponents(m)
 	a.Responder.ApplyOptimizedComponents(m)
@@ -97542,6 +97871,29 @@ func _core_agent_runtime_restore_state(values ...Value) (Value, error) {
 	}
 	return Object(), nil
 }
+// _core_agent_runtime_language is a runtime's language: a runtime config's
+// "language", else the code runtime's own, else JavaScript, TS's default
+// runtime.
+func _core_agent_runtime_language(values ...Value) Value {
+	var runtime Value
+	if len(values) > 0 {
+		runtime = values[0]
+	}
+	language := ""
+	switch v := runtime.(type) {
+	case map[string]Value:
+		if raw := coreGet(v, "language", nil); raw != nil {
+			language = strings.TrimSpace(display(raw))
+		}
+	case CodeRuntime:
+		language = strings.TrimSpace(v.Language())
+	}
+	if language == "" {
+		return "JavaScript"
+	}
+	return language
+}
+
 func _core_agent_runtime_close(values ...Value) Value {
 	var session Value
 	if len(values) == 1 {
@@ -101899,6 +102251,9 @@ func conformanceAgentRequestStage(request map[string]Value) string {
 		return "executor"
 	case strings.Contains(system, "`Generator answer`"), strings.Contains(system, "`Question context`"):
 		return "playbook"
+	case strings.Contains(system, "Your task is to generate new fields: `Completion`"):
+		// The ports' runtime-less distiller or executor (port-only).
+		return "runtime_less"
 	case strings.Contains(system, "context-map Distiller"), strings.Contains(system, "context-map Cartographer"):
 		return "context_map"
 	}
@@ -101989,6 +102344,13 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		runtime.Usage = display(coreGet(runtimeConfig, "usageInstructions", coreGet(runtimeConfig, "usage_instructions", "")))
 		coreSet(options, "runtime", runtime)
 	}
+	// runtime_on_forward: the runtime goes on each forward call (unless a run
+	// says without_runtime) instead of the constructor.
+	var forwardRuntime Value
+	if coreTruthy(coreGet(fixture, "runtime_on_forward", false)) && options["runtime"] != nil {
+		forwardRuntime = options["runtime"]
+		delete(options, "runtime")
+	}
 	// As the other runners do, a playbook config gets the scripted client as
 	// its student, so the agent can attach the playbook at construction.
 	var playbookConfig map[string]Value
@@ -102032,6 +102394,9 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		if snapshot := coreGet(fixture, "restore_runtime_state", nil); snapshot != nil {
 			ag.RestoreRuntimeState(snapshot)
 		}
+		if components := coreGet(fixture, "apply_components", nil); components != nil {
+			ag.ApplyOptimizedComponents(cloneMap(asMap(components)))
+		}
 		if forwardRuns := coreGet(fixture, "forward_runs", nil); forwardRuns != nil {
 			outputs := MutableArray()
 			for _, rawRun := range asSlice(forwardRuns) {
@@ -102048,9 +102413,15 @@ func runConformanceAgentForward(fixture map[string]Value) {
 						"loaded_skill_docs", coreGet(restored, "loaded_skill_docs", Array()),
 					))
 				}
+				if signature := coreGet(run, "set_signature", nil); signature != nil {
+					ag.SetSignature(display(signature))
+				}
 				forwardOptions := cloneMap(asMap(coreGet(run, "forward_options", Object())))
 				installSemanticObserver(forwardOptions, "onUsedSkills", "forward.used_skills", false)
 				installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
+				if forwardRuntime != nil && !coreTruthy(coreGet(run, "without_runtime", false)) {
+					forwardOptions["runtime"] = forwardRuntime
+				}
 				out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(run, "input", Object())), forwardOptions)
 				if forwardErr != nil {
 					panic(forwardErr)
@@ -102078,6 +102449,9 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
 		for key, value := range controlOptions {
 			forwardOptions[key] = value
+		}
+		if forwardRuntime != nil {
+			forwardOptions["runtime"] = forwardRuntime
 		}
 		if streaming {
 			stopAfter := coreGet(fixture, "stop_after_deltas", nil)

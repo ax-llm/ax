@@ -1483,6 +1483,19 @@ final class Core {
     if (!(session instanceof AxCodeSession active)) throw new RuntimeException("agent code session is not active");
     return active.restoreState(snapshot, asMap(options));
   }
+  // A runtime's language: a runtime config's "language", else the code
+  // runtime's own, else JavaScript, TS's default runtime.
+  static Object agentRuntimeLanguage(Object runtime) {
+    String language = "";
+    if (runtime instanceof Map<?, ?> config) {
+      Object raw = config.get("language");
+      language = raw == null ? "" : String.valueOf(raw).trim();
+    } else if (runtime instanceof AxCodeRuntime code) {
+      String raw = code.language();
+      language = raw == null ? "" : raw.trim();
+    }
+    return language.isEmpty() ? "JavaScript" : language;
+  }
   static Object agentRuntimeClose(Object session) {
     if (!(session instanceof AxCodeSession active)) return Map.of("closed", true);
     Object result = active.close();
