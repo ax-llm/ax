@@ -32,8 +32,13 @@ public final class ComposedFlowExample {
         Ax.flow(Map.of("id", "examples.composedFlow"))
             .execute("step", step)
             .map("note", state -> Map.of("note", "Mapped flow state after the provider-backed step."))
-            .returns(Map.of("step", "step", "note", "note"));
+            .returns(Map.of("outline", "outline", "note", "note"));
     Map<String, Object> output = program.forward(client(), Map.of("topic", "How Ax moves from typed generation to agents, flows, and optimization"));
+    for (String key : List.of("outline", "note")) {
+      if (List.of("null", "\"\"", "[]").contains(Json.stringify(output.get(key)))) {
+        throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(output));
+      }
+    }
     System.out.println(Json.stringify(output));
   }
 }

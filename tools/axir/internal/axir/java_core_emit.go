@@ -438,6 +438,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicStreamEventParts:          "Core.streamEventContentParts",
 	IntrinsicDescriptionAppend:         "Core.descriptionAppend",
 	IntrinsicURLValid:                  "Core.urlValid",
+	IntrinsicURLEncodeComponent:        "Core.urlEncodeComponent",
 	IntrinsicSignatureError:            "Core.signatureError",
 	IntrinsicValidationError:           "Core.validationError",
 	IntrinsicListGet:                   "Core.listGet",

@@ -1247,8 +1247,9 @@ module @ax.provider version "0.1" {
     attr effect = "throws"
     attr emit_module = "ai"
     tag "src/ax/util/apicall.ts"
-    type signature = "(i64, json, request?:json) -> AxAIServiceError throws"
-    body @entry(%status: i64, %body: json, %request: json) {
+    type signature = "(i64, json, request?:json, options?:json) -> AxAIServiceError throws"
+    body @entry(%status: i64, %body: json, %request: json, %options: json) {
+      %error_request = core.call @ai_error_request(%request, %options)
       %message = core.let %body
       %code = core.call intrinsic.none()
       %body_is_object = core.type_is %body type "object"
@@ -1270,14 +1271,14 @@ module @ax.provider version "0.1" {
       %is_403 = core.call intrinsic.eq(%status, 403)
       %is_auth = core.call intrinsic.or(%is_401, %is_403)
       core.if %is_auth {
-        %error = core.call intrinsic.ai.error.auth(%message, %status, %code, %body, %request)
+        %error = core.call intrinsic.ai.error.auth(%message, %status, %code, %body, %error_request)
         core.return %error
       }
       %is_408 = core.call intrinsic.eq(%status, 408)
       %is_504 = core.call intrinsic.eq(%status, 504)
       %is_timeout = core.call intrinsic.or(%is_408, %is_504)
       core.if %is_timeout {
-        %error = core.call intrinsic.ai.error.timeout(%message, %status, %code, %body, %request, true)
+        %error = core.call intrinsic.ai.error.timeout(%message, %status, %code, %body, %error_request, true)
         core.return %error
       }
       %is_429 = core.call intrinsic.eq(%status, 429)
@@ -1290,7 +1291,7 @@ module @ax.provider version "0.1" {
       %retry_some = core.call intrinsic.or(%retry_left, %retry_right)
       %retry_more = core.call intrinsic.or(%retry_some, %is_504)
       %retryable = core.call intrinsic.or(%retry_more, %is_529)
-      %error = core.call intrinsic.ai.error.status(%message, %status, %code, %body, %request, %retryable)
+      %error = core.call intrinsic.ai.error.status(%message, %status, %code, %body, %error_request, %retryable)
       core.return %error
     }
   }
@@ -2982,7 +2983,6 @@ module @ax.provider version "0.1" {
           }
           core.set %descriptor["baseUrl"] = %base_url
           core.set %descriptor["auth"] = "bearer"
-          core.call intrinsic.map.delete(%descriptor, "apiKeyQuery")
           core.call intrinsic.map.delete(%descriptor, "apiKeyHeader")
           %operations = core.get %descriptor["operations"]
           %resource_parent = core.call intrinsic.string.format("projects/{}/locations/{}", %project, %region)
@@ -3130,7 +3130,9 @@ module @ax.provider version "0.1" {
       %headers = core.map
       %is_gemini = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
       core.if %is_gemini {
-        %gemini_url = core.call intrinsic.string.format("{}?key={}", %base, %api_key)
+        // TypeScript encodes the key with encodeURIComponent.
+        %encoded_key = core.call intrinsic.url.encode_component(%api_key)
+        %gemini_url = core.call intrinsic.string.format("{}?key={}", %base, %encoded_key)
         core.set %out["url"] = %gemini_url
         core.set %out["headers"] = %headers
         core.return %out
@@ -11484,6 +11486,51 @@ module @ax.provider version "0.1" {
         core.call intrinsic.ai.warn_once("call-timeout", %message)
       }
       core.return
+    }
+  }
+
+  // The request a provider error keeps, as TypeScript's AxAIServiceError keeps
+  // it: the URL, plus the body (json, or data for a multipart upload) unless
+  // includeRequestBodyInErrors is false. Never the headers, which hold the API
+  // key or a credential provider's token. Every error that carries a request
+  // is built from this view.
+  op ax.provider.semantic @ai_error_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/util/apicall.ts"
+    type signature = "(request?:json, options?:json) -> json"
+    body @entry(%request: json, %options: json) {
+      %none = core.call intrinsic.none()
+      %is_object = core.type_is %request type "object"
+      %not_object = core.call intrinsic.not(%is_object)
+      core.if %not_object {
+        core.return %none
+      }
+      %view = core.map
+      %has_url = core.call intrinsic.map.contains(%request, "url")
+      core.if %has_url {
+        %url = core.get %request["url"]
+        core.set %view["url"] = %url
+      }
+      %flag_snake = core.get %options["include_request_body_in_errors"]
+      %flag = core.get %options["includeRequestBodyInErrors"] default %flag_snake
+      %flag_unset = core.call intrinsic.is_none(%flag)
+      %flag_true = core.call intrinsic.truthy(%flag)
+      %include_body = core.call intrinsic.or(%flag_unset, %flag_true)
+      core.if %include_body {
+        %has_json = core.call intrinsic.map.contains(%request, "json")
+        core.if %has_json {
+          %json_body = core.get %request["json"]
+          core.set %view["json"] = %json_body
+        }
+        %has_data = core.call intrinsic.map.contains(%request, "data")
+        core.if %has_data {
+          %data_body = core.get %request["data"]
+          core.set %view["data"] = %data_body
+        }
+      }
+      core.return %view
     }
   }
 }

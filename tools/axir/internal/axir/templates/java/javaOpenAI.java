@@ -1048,7 +1048,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         String errorBody = new String(res.body(), StandardCharsets.UTF_8);
         Object parsed;
         try { parsed = Json.parse(errorBody); } catch (RuntimeException ex) { parsed = errorBody; }
-        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest));
+        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest, null));
       }
       // The bytes go on as base64 with their Content-Type; a JSON body (as TS
       // reads one by its Content-Type) goes on parsed.
@@ -1061,7 +1061,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (res.statusCode() >= 400) {
       Object parsed;
       try { parsed = Json.parse(responseBody); } catch (RuntimeException ex) { parsed = responseBody; }
-      throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest));
+      throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest, null));
     }
     // Streaming responses are SSE text (text/event-stream): return the raw body
     // for iterSseJson to fold. This explicit branch matches the other ports
@@ -1109,7 +1109,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         String errorBody = new String(body.readAllBytes(), StandardCharsets.UTF_8);
         Object parsed;
         try { parsed = Json.parse(errorBody); } catch (RuntimeException ex) { parsed = errorBody; }
-        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest));
+        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest, null));
       }
     }
     InputStream body=res.body();
@@ -1271,10 +1271,6 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (modelName != null) {
       path = path.replace("{model}", URLEncoder.encode(String.valueOf(modelName), StandardCharsets.UTF_8));
     }
-    if ("api_key_query".equals(String.valueOf(descriptor.get("auth")))) {
-      String keyName = String.valueOf(descriptor.getOrDefault("apiKeyQuery", "key"));
-      path += (path.contains("?") ? "&" : "?") + URLEncoder.encode(keyName, StandardCharsets.UTF_8) + "=" + URLEncoder.encode(apiKey == null || "null".equals(apiKey) ? "" : apiKey, StandardCharsets.UTF_8);
-    }
     if (apiVersion != null && !apiVersion.isBlank() && !"null".equals(apiVersion)) {
       path += (path.contains("?") ? "&" : "?") + "api-version=" + URLEncoder.encode(apiVersion, StandardCharsets.UTF_8);
     }
@@ -1320,20 +1316,10 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   }
 
   // TypeScript's includeRequestBodyInErrors: on unless the call or client options set it false.
-  static boolean includeRequestBodyInErrors(Map<String, Object> options) {
-    Object value = options == null ? null : options.get("includeRequestBodyInErrors");
-    if (value == null && options != null) value = options.get("include_request_body_in_errors");
-    return value == null || Core.truthy(value);
-  }
-
-  // The request a provider error carries, as TypeScript's AxAIServiceError keeps
-  // it: the URL, plus the body unless includeRequestBodyInErrors is false. Never
-  // the headers, which hold the API key or credential tokens.
+  // The request this call's provider errors keep; Core owns the view (the URL,
+  // plus the body unless includeRequestBodyInErrors is false, never headers).
   static Map<String, Object> errorRequest(Map<String, Object> call, Map<String, Object> options) {
-    Map<String, Object> view = new LinkedHashMap<>();
-    if (call.containsKey("url")) view.put("url", call.get("url"));
-    if (includeRequestBodyInErrors(options)) for (String key : List.of("json", "data")) if (call.containsKey(key)) view.put(key, call.get(key));
-    return view;
+    return Core.asMap(Core._ai_error_request(call, options));
   }
 
   private Object transportResult(Object result, Map<String, Object> request) {
@@ -1342,7 +1328,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       if (map.containsKey("status")) {
         int status = Core.asInt(map.getOrDefault("status", 200));
         Object body = map.containsKey("json") ? map.get("json") : map.containsKey("body") ? map.get("body") : map.get("data");
-        if (status >= 400) throw Core.asRuntime(Core.openai_normalize_error(status, body, request));
+        if (status >= 400) throw Core.asRuntime(Core.openai_normalize_error(status, body, request, null));
         return body;
       }
     }

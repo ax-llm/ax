@@ -610,7 +610,7 @@ func skillErrorsText(target string) string {
 		"java":   "The error it wraps is its `getCause()`.",
 		"go":     "The error it wraps is what `errors.Unwrap` returns, so `errors.Is` and `errors.As` reach it; an error the runtime caught and raised again comes back rebuilt with the same category, type and message.",
 		"cpp":    "The error it wraps is its `cause()`.",
-		"rust":   "The message includes the wrapped error's text; `AxError` gains a `cause`, `source()` and `#[non_exhaustive]` in the next major version, since a new public field would break struct literals now.",
+		"rust":   "The message includes the wrapped error's text; `AxError` gains a `cause`, `source()`, a provider error's request (its URL and body, as TypeScript keeps them) and `#[non_exhaustive]` in the next major version, since a new public field would break struct literals now.",
 	}[target]
 	return text + cause + " TypeScript raises an `AxGenerateError`, which the ports raise from the next major version."
 }

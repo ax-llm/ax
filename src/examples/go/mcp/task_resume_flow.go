@@ -56,6 +56,12 @@ func main() {
 		Invoke: func(input ax.Value, _ map[string]ax.Value) (ax.Value, error) {
 			out, err := program.Forward(context.Background(), llm, input.(map[string]ax.Value), nil)
 			if err == nil {
+				for _, key := range []string{"status"} {
+					switch fmt.Sprint(out.(map[string]ax.Value)[key]) {
+					case "", "<nil>", "[]":
+						panic(fmt.Sprintf("flow output field %s is empty: %v", key, out))
+					}
+				}
 				fmt.Println(out)
 				if calls.Add(1) >= 2 {
 					select {

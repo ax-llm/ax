@@ -38,6 +38,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	for _, key := range []string{"outline"} {
+		switch fmt.Sprint(output.(map[string]ax.Value)[key]) {
+		case "", "<nil>", "[]":
+			panic(fmt.Sprintf("flow output field %s is empty: %v", key, output))
+		}
+	}
 	data, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
 		panic(err)

@@ -42,8 +42,14 @@ func main() {
 	step := ax.NewAx("topic:string -> outline:string[]", nil)
 	program := ax.NewFlow(map[string]ax.Value{"id": "examples.composedFlow"}).
 		Execute("step", step, nil).
-		Returns(map[string]ax.Value{"step": "step"})
+		Returns(map[string]ax.Value{"outline": "outline"})
 	output, err := program.Forward(ctx, client, map[string]ax.Value{"topic": "How Ax moves from typed generation to agents, flows, and optimization"}, nil)
 	if err != nil { panic(err) }
+	for _, key := range []string{"outline"} {
+		switch fmt.Sprint(output.(map[string]ax.Value)[key]) {
+		case "", "<nil>", "[]":
+			panic(fmt.Sprintf("flow output field %s is empty: %v", key, output))
+		}
+	}
 	printJSON(output)
 }

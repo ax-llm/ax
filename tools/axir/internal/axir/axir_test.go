@@ -2332,10 +2332,15 @@ func TestFlowGoldensExtractorUsesTSReference(t *testing.T) {
 		if err := json.Unmarshal(data, &fixture); err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
-		source, ok := fixture["source"].(map[string]any)
-		if !ok || source["tsDerived"] != true {
-			t.Fatalf("%s missing TS-derived source metadata", path)
+		if source, ok := fixture["source"].(map[string]any); ok && source["tsDerived"] == true {
+			continue
 		}
+		// A port-only fixture (behavior TS has no counterpart for) says so in
+		// its description.
+		if description, _ := fixture["description"].(string); strings.HasPrefix(description, "Port-only.") {
+			continue
+		}
+		t.Fatalf("%s has neither TS-derived source metadata nor a \"Port-only.\" description", path)
 	}
 }
 
