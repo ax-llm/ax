@@ -1,0 +1,78 @@
+{
+  "name": "function-call-stream-flat-shape",
+  "kind": "forward",
+  "signature": "query:string -> answer:string",
+  "input": {
+    "query": "ax docs"
+  },
+  "forward_options": {
+    "stream": true
+  },
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Docs"
+      },
+      "returns": {
+        "title": {
+          "type": "string"
+        }
+      }
+    }
+  ],
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "id": "call_1",
+                  "name": "search",
+                  "params": {
+                    "query": "ax docs"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "content": "Answer: Docs",
+              "finish_reason": "stop"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "expected_output": {
+    "answer": "Docs"
+  },
+  "expected_request_count": 2
+}
