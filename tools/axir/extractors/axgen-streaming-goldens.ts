@@ -2241,6 +2241,22 @@ const sessionCases: Record<string, Case> = {
     native_session: [[[lookupCall], [sessionAnswer('r2', 'Answer: green')]]],
     responses: [],
   },
+  // A correction's fresh session gets the whole conversation, the first
+  // session's tool call and result included.
+  'forward-native-session-tool-then-correction': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    input: { question: 'Capital of France?' },
+    control: true,
+    tools: [lookupTool],
+    assertions: [mustBeParis],
+    native_session: [
+      [[lookupCall], [sessionAnswer('r2', 'Answer: Lyon')]],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+    request_tail: 2,
+  },
   'forward-native-session-steer-each-session': {
     kind: 'forward',
     signature: 'question:string -> answer:string',
