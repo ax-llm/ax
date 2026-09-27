@@ -358,6 +358,11 @@ struct Core {
   static Value string_title_from_camel(Value value);
   static Value string_ends_with(Value value, Value suffix);
   static Value string_starts_with(Value value, Value prefix);
+  // Streamed text: appending a chunk, and dropping a trailing high surrogate
+  // (half of a pair split across stream events) from a delta. C++ joins
+  // UTF-8 bytes and holds nothing back (see the definitions).
+  static Value string_concat_stream_text(Value left, Value right);
+  static Value string_drop_trailing_high_surrogate(Value value);
   static Value string_replace(Value value, Value old_value, Value new_value);
   static Value string_slice(Value value, Value start, Value end = Value());
   static Value string_remove_suffix(Value value, Value suffix);

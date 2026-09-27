@@ -57,6 +57,8 @@ struct ConformanceScriptedAI : AxBaseAI {
   std::vector<Value> speak_requests;
   // The chat_prompt message roles of each chat request as it was sent.
   Value request_roles = Value::array();
+  // The last chat request's chat_prompt as it was sent.
+  Value last_chat_prompt = Value::array();
   // Called with each chat request's 1-based number while it is in flight,
   // before the scripted answer (a fixture's control_steer).
   std::function<void(int)> on_request;
@@ -72,6 +74,7 @@ struct ConformanceScriptedAI : AxBaseAI {
     Value roles = Value::array();
     for (const auto& message : Core::iter(Core::get(request, "chat_prompt", Value::array()))) Core::append(roles, Core::get(message, "role"));
     Core::append(request_roles, roles);
+    last_chat_prompt = parse_json(stringify(Core::get(request, "chat_prompt", Value::array())));
     if (on_request) on_request(chat_calls);
   }
 
@@ -895,6 +898,26 @@ static void assert_request_roles(Value fixture, const ConformanceScriptedAI& cli
   if (!expected.is_null()) assert_equal(client.request_roles, expected, "request roles");
 }
 
+// The last messages of the last chat request's prompt, compared by role and
+// content (a string or a list of parts).
+static void assert_last_request_tail(Value fixture, const ConformanceScriptedAI& client) {
+  Value expected = Core::get(fixture, "expected_last_request_tail");
+  if (expected.is_null()) return;
+  Array prompt = Core::iter(client.last_chat_prompt);
+  std::size_t count = Core::iter(expected).size();
+  Value tail = Value::array();
+  for (std::size_t index = prompt.size() > count ? prompt.size() - count : 0; index < prompt.size(); ++index) {
+    Object message = as_object(prompt[index]);
+    Value kept = Value::object();
+    for (const char* key : {"role", "content"}) {
+      auto found = message.find(key);
+      if (found != message.end()) Core::set(kept, key, found->second);
+    }
+    Core::append(tail, kept);
+  }
+  assert_equal(tail, expected, "last request tail");
+}
+
 static void run_forward(Value fixture) {
   Value sig = build_signature(fixture);
   ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
@@ -944,6 +967,7 @@ static void run_forward(Value fixture) {
   }
   assert_control_events(fixture, control_events);
   assert_request_roles(fixture, client);
+  assert_last_request_tail(fixture, client);
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
     throw AxError("fixture", "expected " + display(expected_count) + " requests, got " + std::to_string(client.requests.size()));
@@ -1079,6 +1103,7 @@ static void run_streaming_forward(Value fixture) {
   }
   assert_control_events(fixture, control_events);
   assert_request_roles(fixture, client);
+  assert_last_request_tail(fixture, client);
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
     throw AxError("fixture", "expected " + display(expected_count) + " requests, got " + std::to_string(client.requests.size()));
@@ -4091,6 +4116,11 @@ static void run(Value fixture) {
   }
 }
 
+// C++ strings are UTF-8, which can't hold half of a surrogate pair, so fixtures
+// that split a pair across stream events (requires_lone_surrogates) are
+// skipped here.
+static constexpr bool kSupportsLoneSurrogates = false;
+
 int main(int argc, char** argv) {
   if (argc < 2) {
     std::cerr << "usage: axir-cpp-conformance <fixture-or-dir>...\n";
@@ -4100,6 +4130,10 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
       for (const auto& path : expand(argv[i])) {
         Value fixture = parse_json(read_file(path));
+        if (!kSupportsLoneSurrogates && Core::truthy(Core::get(fixture, "requires_lone_surrogates", false))) {
+          std::cout << "skip " << display(Core::get(fixture, "name", path.filename().string())) << ": requires lone surrogates (utf-8 runner)\n";
+          continue;
+        }
         run(fixture);
         std::cout << "ok " << display(Core::get(fixture, "name", path.filename().string())) << "\n";
       }

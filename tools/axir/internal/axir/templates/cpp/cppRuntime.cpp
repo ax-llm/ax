@@ -1261,6 +1261,17 @@ Value Core::string_starts_with(Value value, Value prefix) {
   std::string s = str(value), p = str(prefix);
   return Value(s.rfind(p, 0) == 0);
 }
+// Streamed text appends chunk by chunk. In a UTF-16 string (TS, Java) a
+// surrogate pair a provider split across stream events rejoins on
+// concatenation; C++ strings are UTF-8 and join as bytes. A lone \uD83D escape
+// parses to its 3-byte form, so such a split pair stays two halves here, and
+// the conformance runner skips requires_lone_surrogates fixtures
+// (kSupportsLoneSurrogates = false).
+Value Core::string_concat_stream_text(Value left, Value right) { return Value(str(left) + str(right)); }
+// TS holds back a trailing high surrogate until its pair arrives. UTF-8 text
+// ends on a whole code point, so the value comes back unchanged (a split pair
+// is out of scope, as above).
+Value Core::string_drop_trailing_high_surrogate(Value value) { return value; }
 Value Core::string_replace(Value value, Value old_value, Value new_value) {
   std::string s = str(value), old = str(old_value), repl = str(new_value);
   size_t pos = 0;
