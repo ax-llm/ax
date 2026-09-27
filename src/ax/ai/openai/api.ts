@@ -892,7 +892,7 @@ function createMessages<TModel>(
                   const url = `data:${c.mimeType};base64,${c.image}`;
                   return {
                     type: 'image_url' as const,
-                    image_url: { url, details: c.details ?? 'auto' },
+                    image_url: { url, detail: c.details ?? 'auto' },
                   };
                 }
                 case 'audio': {
@@ -1222,7 +1222,8 @@ export class AxAIOpenAIBase<
         model,
         input: req.text,
         voice,
-        response_format: format === 'pcm' ? 'pcm16' : format,
+        // OpenAI's `pcm` is 16-bit PCM; it rejects `pcm16`.
+        response_format: format === 'pcm16' ? 'pcm' : format,
         ...(req.speed !== undefined ? { speed: req.speed } : {}),
       },
       format,

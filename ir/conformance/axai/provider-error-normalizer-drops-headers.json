@@ -1,0 +1,173 @@
+{
+  "cases": [
+    {
+      "body": {
+        "error": {
+          "code": "invalid_request",
+          "message": "scripted 400"
+        }
+      },
+      "call": {
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        },
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "method": "POST",
+        "stream": false,
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected_error_excludes": ["sk-view-secret-3e1f"],
+      "expected_error_request": {
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected_error_type": "AxAIServiceStatusError",
+      "expected_status": 400,
+      "status": 400
+    },
+    {
+      "body": {
+        "error": {
+          "code": "invalid_request",
+          "message": "scripted 401"
+        }
+      },
+      "call": {
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        },
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "method": "POST",
+        "stream": false,
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected_error_excludes": ["sk-view-secret-3e1f"],
+      "expected_error_request": {
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected_error_type": "AxAIServiceAuthenticationError",
+      "expected_status": 401,
+      "status": 401
+    },
+    {
+      "body": {
+        "error": {
+          "code": "invalid_request",
+          "message": "scripted 400"
+        }
+      },
+      "call": {
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        },
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "method": "POST",
+        "stream": false,
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected_error_excludes": [
+        "sk-view-secret-3e1f",
+        "fixture-body-marker-2c9e"
+      ],
+      "expected_error_request": {
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected_error_type": "AxAIServiceStatusError",
+      "expected_status": 400,
+      "options": {
+        "includeRequestBodyInErrors": false
+      },
+      "status": 400
+    },
+    {
+      "body": {
+        "error": {
+          "code": "invalid_request",
+          "message": "scripted 504"
+        }
+      },
+      "call": {
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        },
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "method": "POST",
+        "stream": false,
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected_error_excludes": [
+        "sk-view-secret-3e1f",
+        "fixture-body-marker-2c9e"
+      ],
+      "expected_error_request": {
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected_error_type": "AxAIServiceTimeoutError",
+      "expected_status": 504,
+      "options": {
+        "includeRequestBodyInErrors": false
+      },
+      "status": 504
+    }
+  ],
+  "kind": "ai_error_request",
+  "name": "provider-error-normalizer-drops-headers",
+  "operation": "normalize"
+}

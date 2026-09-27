@@ -43,6 +43,11 @@
   "returns": {
     "summary": "summary"
   },
+  "source": {
+    "extractor": "tools/axir/extractors/axgen-audio-goldens.ts",
+    "reference": ["src/ax/flow/flow.ts", "src/ax/dsp/generate.ts"],
+    "tsDerived": true
+  },
   "speak_responses": [
     {
       "data": "SUQzBAA=",

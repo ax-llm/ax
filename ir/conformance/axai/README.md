@@ -62,14 +62,32 @@ The `provider-error-*` fixtures pin that a provider error never carries
 credentials, and carries the request body only while
 `includeRequestBodyInErrors` allows it. The extractor derives them from
 TypeScript's `AxAIServiceError`, which keeps the URL and the body and never the
-request headers. These `ai_error` keys drive them:
+request headers. Core owns that view (`@ai_error_request`): the normalizer and
+the request-carrying `ai.error.*` intrinsics build every error from it. These
+keys drive the fixtures:
 
 - `api_key`: the API key the fixture client is built with (default `test-key`).
 - `expected_error_excludes`: strings that must appear nowhere a logger, tracer
   or JSON dump could read on the error or its causes. Every runner checks it.
-- `expected_error_request`: the request the error keeps, with exactly these
-  keys and each value subset-matched: the URL, plus the body (`json`) unless
+- `expected_error_request`: the request the error keeps: the URL, plus the body
+  (`json`, or `data` for a multipart upload) unless
   `includeRequestBodyInErrors` is false. Python (`error.request`) and Java
-  (`AxAIServiceError.request`) check it. Go, Rust and C++ errors keep no
-  request, so they have nothing to compare.
-- `options`: the call options when `service_options` configure the client.
+  (`AxAIServiceError.request`) must have exactly these keys, values
+  subset-matched. Go (`AxError.URL`, `AxError.RequestBody`) and C++
+  (`AxError::url`, `AxError::request_body`) compare the URL and the body, and
+  a missing body must be absent. Rust errors keep no request until the next
+  major, so Rust has nothing to compare.
+
+The `ai_error_request` kind calls Core directly. `operation: "view"` gives each
+case's `call` and `options` to `@ai_error_request` and compares `expected`
+exactly. `operation: "normalize"` gives `status`, `body`, the raw `call`
+(headers included) and `options` to `@openai_normalize_error` and checks the
+error with the keys above plus `expected_error_type` and `expected_status`.
+
+An `ai_realtime` fixture's `expected_ws_url` is Core's realtime WebSocket URL
+for the fixture's provider, model, `api_key` and client options.
+
+Every runner reads `options` the same way. `service_options` configure the
+client, falling back to `options`. `options` are also the call options, passed
+wherever a port's method takes call options (Rust's `embed`, `transcribe` and
+`speak` take none).

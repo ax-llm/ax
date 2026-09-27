@@ -1,0 +1,37 @@
+{
+  "expected_output": {
+    "audio": "UklGRg==",
+    "data": "UklGRg==",
+    "format": "wav",
+    "mimeType": "audio/wav",
+    "transcript": "Hello there"
+  },
+  "expected_transport_json_absent": ["voice_id", "speed", "language"],
+  "expected_transport_request": {
+    "json": {
+      "input": "Hello there",
+      "model": "gpt-4o-mini-tts",
+      "response_format": "wav",
+      "voice": "alloy"
+    },
+    "url": "https://api.openai.com/v1/audio/speech"
+  },
+  "kind": "ai_speak",
+  "name": "openai-speak-json-nested-audio-and-mime-type",
+  "provider": "openai",
+  "request": {
+    "format": "wav",
+    "text": "Hello there"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "audio": {
+          "data": "UklGRg=="
+        },
+        "mimeType": "audio/wav"
+      },
+      "status": 200
+    }
+  ]
+}

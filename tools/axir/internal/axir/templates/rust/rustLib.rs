@@ -1,7 +1,7 @@
 pub mod mcp;
 mod session;
 pub use session::{run_control, AxRunControl, AxForwardOptions, AxChatSession, AxSessionSocket, AxSessionWebSocketFactory};
-pub use mcp::{event_route, event_target, AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventCorrelationKey, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputPlan, AxEventInvocationContext, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPCatalogSnapshot, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPResourceSubscriptionPolicy, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPWebSocketTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxSystemEventClock, AxUCPBinding, AxUCPClient};
+pub use mcp::{event_route, event_target, AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventCorrelationKey, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputPlan, AxEventInvocationContext, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPCatalogSnapshot, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPResourceSubscriptionPolicy, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPWebSocketTransport, AxMCPStreamableHTTPTransport, AxMCPTaskHandling, AxMCPTokenSet, AxMCPToolCallOutcome, AxMCPTransport, AxSystemEventClock, AxUCPBinding, AxUCPClient};
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -1824,6 +1824,54 @@ pub trait AxTransport: Send {
 struct CancellableProviderIterator{inner:Box<dyn Iterator<Item=AxResult<Value>>>,token:AxCancellationToken}
 impl Iterator for CancellableProviderIterator{type Item=AxResult<Value>;fn next(&mut self)->Option<Self::Item>{if let Err(error)=self.token.throw_if_cancelled(){return Some(Err(error))}let value=self.inner.next();if self.token.is_cancelled(){return Some(Err(self.token.throw_if_cancelled().unwrap_err()))}value}}
 
+// JSON text with each \u escape of a lone surrogate replaced by the escape of
+// U+FFFD; a high surrogate escape followed by a low one stays a pair.
+fn replace_lone_surrogate_escapes(text: &str) -> String {
+    let surrogate = |escape: &str| -> Option<u32> {
+        let unit = u32::from_str_radix(escape.strip_prefix("\\u")?.get(..4)?, 16).ok()?;
+        (0xD800..=0xDFFF).contains(&unit).then_some(unit)
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('\\') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        match surrogate(rest) {
+            Some(high) if high <= 0xDBFF && surrogate(&rest[6..]).is_some_and(|low| low >= 0xDC00) => {
+                out.push_str(&rest[..12]);
+                rest = &rest[12..];
+            }
+            Some(_) => {
+                out.push_str("\\ufffd");
+                rest = &rest[6..];
+            }
+            None => {
+                // Any other escape is copied whole, so an escaped backslash
+                // can't start a \u escape.
+                let end = rest[1..].chars().next().map_or(1, |next| 1 + next.len_utf8());
+                out.push_str(&rest[..end]);
+                rest = &rest[end..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+// Parses one stream event's JSON. A provider can split a surrogate pair
+// across two events, leaving a lone surrogate escape in each, which JS's
+// JSON.parse accepts and serde_json refuses. A Rust string can't hold half a
+// pair, so each lone half reads as U+FFFD instead of failing the stream.
+fn parse_stream_event_json(payload: &str) -> AxResult<Value> {
+    serde_json::from_str(payload).or_else(|error| {
+        let replaced = replace_lone_surrogate_escapes(payload);
+        if replaced == payload {
+            return Err(AxError::from(error));
+        }
+        serde_json::from_str(&replaced).map_err(AxError::from)
+    })
+}
+
 struct SseJsonStream {
     reader: BufReader<Box<dyn Read>>,
     line: Vec<u8>,
@@ -1843,7 +1891,7 @@ impl SseJsonStream {
         let payload = self.data_lines.join("\n");
         self.data_lines.clear();
         if payload.trim() == "[DONE]" { self.done = true; return Ok(None); }
-        serde_json::from_str(&payload).map(Some).map_err(AxError::from)
+        parse_stream_event_json(&payload).map(Some)
     }
 
     fn process_line(&mut self) -> AxResult<Option<Value>> {
@@ -2432,15 +2480,6 @@ impl OpenAICompatibleClient {
         ])?).as_str().unwrap_or("/chat/completions").to_string();
         path = path.replace("{model}", &url_component_escape(model));
         let auth = descriptor.get("auth").and_then(Value::as_str).unwrap_or("bearer");
-        if auth == "api_key_query" {
-            let key_name = descriptor.get("apiKeyQuery").and_then(Value::as_str).unwrap_or("key");
-            let separator = if path.contains('?') { "&" } else { "?" };
-            path = format!(
-                "{path}{separator}{}={}",
-                url_component_escape(key_name),
-                url_component_escape(&self.api_key)
-            );
-        }
         let base = self
             .base_url_override
             .clone()
@@ -2838,13 +2877,24 @@ impl OpenAICompatibleClient {
             .send()?
             .error_for_status()?;
         // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
-        // be UTF-8 decoded or parsed as JSON; return the bytes as a base64 string
-        // so the speak normalizer can pass it through to the `audio` field.
-        let response: Value = if binary {
-            Value::String(encode_base64(&raw.bytes()?))
-        } else {
-            raw.json()?
-        };
+        // be UTF-8 decoded: the bytes go on as base64 with their Content-Type,
+        // which names their mime type. A JSON body (as TS reads one by its
+        // Content-Type) goes on parsed.
+        if binary {
+            let content_type = raw
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            let response: Value = if content_type.contains("application/json") {
+                raw.json()?
+            } else {
+                Value::String(encode_base64(&raw.bytes()?))
+            };
+            return Ok(json!({"status": 200, "json": response, "headers": {"content-type": content_type}}));
+        }
+        let response: Value = raw.json()?;
         Ok(json!({"status": 200, "json": response}))
     }
 
@@ -3062,11 +3112,25 @@ impl OpenAICompatibleClient {
             "mistral" => self.post_json("/audio/speech", body, binary, "speak")?,
             _ => self.post_json("/audio/speech", body, binary, "speak")?,
         };
-        let payload = normalize_passthrough_response(raw)?;
+        // As TS's axFetchJsonSpeech: a JSON body (by its Content-Type) is read
+        // as JSON, and a binary one as base64 with its Content-Type.
+        let content_type = transport_content_type(&raw);
+        let mut payload = normalize_passthrough_response(raw)?;
+        if content_type.contains("application/json") {
+            if let Value::String(text) = &payload {
+                payload = serde_json::from_str(text).map_err(AxError::from)?;
+            }
+        }
+        let content_type_value = if content_type.is_empty() {
+            CoreValue::Null
+        } else {
+            CoreValue::from(content_type.as_str())
+        };
         let normalized = provider_normalize_speak_response(&[
             CoreValue::from(profile.as_str()),
             core_value_from_json(&payload),
             core_value_from_json(&request),
+            content_type_value,
         ])?;
         Ok(core_value_to_json(&normalized))
     }
@@ -3958,6 +4022,20 @@ fn normalize_openai_response(profile: &str, model: &str, response: Value, contex
 
 // python: _transport_result. Raises openai_normalize_error for status >= 400
 // and unwraps {status, json|body|data} transport envelopes otherwise.
+/// The Content-Type header of a transport response, if it names one.
+fn transport_content_type(response: &Value) -> String {
+    response
+        .get("headers")
+        .and_then(Value::as_object)
+        .and_then(|headers| {
+            headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("content-type"))
+                .and_then(|(_, value)| value.as_str().map(str::to_string))
+        })
+        .unwrap_or_default()
+}
+
 fn normalize_passthrough_response(response: Value) -> AxResult<Value> {
     // Responses objects have a string status (for example "completed"). Only
     // numeric HTTP statuses identify a transport envelope.
@@ -4034,7 +4112,7 @@ pub(crate) fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
     fn flush(buffer: &mut String, events: &mut Vec<Value>) -> AxResult<()> {
         let payload = buffer.trim();
         if !payload.is_empty() && payload != "[DONE]" {
-            events.push(serde_json::from_str::<Value>(payload)?);
+            events.push(parse_stream_event_json(payload)?);
         }
         buffer.clear();
         Ok(())
@@ -5321,6 +5399,10 @@ pub trait AxExecutableProgram: AxProgram {
     fn get_chat_log(&self) -> Vec<Value> { Vec::new() }
     fn get_traces(&self) -> Vec<Value> { Vec::new() }
     fn get_usage(&self) -> Value { Value::Null }
+    /// The program's signature text, when it has one. A flow step added with
+    /// this program and no reads or writes reads its input fields and writes
+    /// its output fields; without a signature the step is a barrier.
+    fn signature_text(&self) -> Option<String> { None }
 }
 
 // This adapter is borrowed only within forward; no borrowed client crosses a thread boundary.
@@ -5362,6 +5444,7 @@ impl AxExecutableProgram for AxGen {
     fn get_chat_log(&self)->Vec<Value>{self.chat_log.clone()}
     fn get_traces(&self)->Vec<Value>{self.traces.clone()}
     fn get_usage(&self)->Value{json!(self.chat_log.iter().filter_map(|entry|entry.get("usage")).collect::<Vec<_>>())}
+    fn signature_text(&self)->Option<String>{Some(self.signature.to_string())}
 }
 
 impl AxExecutableProgram for AxFlow {
@@ -6442,29 +6525,27 @@ impl AxAgent {
     ) -> AxResult<Value> {
         let input = task.get("input").cloned().unwrap_or_else(|| task.clone());
         let forward_options = options.get("forward_options").cloned().unwrap_or_else(|| json!({}));
-        match self.forward_with_options(client, input, forward_options) {
-            Ok(output) => {
-                let trace = self.export_trace()?;
-                Ok(core_value_to_json(&_build_agent_eval_prediction(&[
-                    core_value_from_json(&output),
-                    core_value_from_json(&Value::Array(self.get_action_log())),
-                    core_value_from_json(&self.get_usage()),
-                    core_value_from_json(&trace),
-                ])?))
-            }
+        // As TS evaluates each task from a fresh state, the prediction carries
+        // only this run's share of the agent's logs.
+        let marks = _agent_eval_marks(&[self.state.clone()])?;
+        let completion = match self.forward_with_options(client, input, forward_options) {
+            Ok(output) => json!({"type": "final", "output": output}),
             Err(error) => match core_agent_clarification_detail(&error) {
-                Some(detail) => Ok(json!({
-                    "completionType": "askClarification",
+                Some(detail) => json!({
+                    "type": "askClarification",
                     "clarification": detail.get("clarification").cloned().unwrap_or(Value::Null),
-                    "actionLog": Value::Array(self.get_action_log()),
-                    "functionCalls": self.state_json("function_call_traces"),
-                    "toolErrors": [],
-                    "turnCount": 0,
-                    "usage": self.get_usage(),
-                })),
-                None => Err(error),
+                }),
+                None => return Err(error),
             },
-        }
+        };
+        let trace = self.export_trace()?;
+        Ok(core_value_to_json(&_build_agent_run_prediction(&[
+            self.state.clone(),
+            marks,
+            core_value_from_json(&completion),
+            core_value_from_json(&self.get_usage()),
+            core_value_from_json(&trace),
+        ])?))
     }
 
     pub fn execute_actor_step(
@@ -10682,6 +10763,26 @@ fn cache_expiry_millis(value: &Value) -> Option<u64> {
     raw.as_u64().or_else(|| raw.as_f64().map(|value| value as u64)).or_else(|| raw.as_str().and_then(parse_rfc3339_millis))
 }
 
+// Rust strings are UTF-8, which can't hold a lone surrogate (half of a
+// surrogate pair a provider split across stream events; a provider stream
+// reads each half as U+FFFD), so this runner skips the fixtures that require
+// one.
+const SUPPORTS_LONE_SURROGATES: bool = false;
+
+/// The conformance runner's skip for a fixture's JSON text: its name and the
+/// reason, when this runner skips it. serde_json refuses a lone surrogate
+/// escape, so a fixture that has one is read with U+FFFD in its place to
+/// find its `requires_lone_surrogates` flag.
+#[doc(hidden)]
+pub fn conformance_fixture_skip(text: &str) -> Option<(String, &'static str)> {
+    let fixture = parse_json(text).or_else(|_| parse_json(&replace_lone_surrogate_escapes(text))).ok()?;
+    if SUPPORTS_LONE_SURROGATES || fixture.get("requires_lone_surrogates").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let name = fixture.get("name").and_then(Value::as_str).unwrap_or("fixture").to_string();
+    Some((name, "requires lone surrogates (utf-8 runner)"))
+}
+
 pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
     let kind = fixture
         .get("kind")
@@ -10733,6 +10834,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
         "ai_realtime" => run_ai_realtime_fixture(&fixture)?,
         "ai_context_cache" => run_ai_context_cache_fixture(&fixture)?,
+        "ai_error_request" => run_ai_error_request_fixture(&fixture)?,
         "ai_provider_descriptor"
         | "ai_provider_features"
         | "ai_provider_registry"
@@ -11202,15 +11304,15 @@ fn run_ai_support_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 // python: _run_ai_error / _run_ai_unsupported. Dispatches the real client
 // method and matches message, error type, and status on the failure.
 fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
-    let (mut client, _requests, _credential_requests) = fixture_client(fixture)?;
+    let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let default_method = if kind == "ai_unsupported" { "transcribe" } else { "chat" };
     let method = fixture
         .get("method")
         .and_then(Value::as_str)
         .unwrap_or(default_method);
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
-    // Fixture "options" are the call options when service_options configure the client.
-    let call_options = fixture.get("service_options").and(fixture.get("options")).cloned();
+    // Fixture "options" are the call options, as for ai_chat and ai_stream.
+    let call_options = fixture.get("options").filter(|options| options.is_object()).cloned();
     let result: AxResult<Value> = match (method, call_options) {
         ("stream", Some(options)) => client.stream_with_options(request, options).map(Value::Array),
         ("stream", None) => client.stream(request).map(Value::Array),
@@ -11223,9 +11325,15 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     let Err(err) = result else {
         return Err(AxError::new("fixture", "expected AxAI call to fail"));
     };
-    // Rust AI errors keep no request (AxError has no request field), so there is
-    // no expected_error_request to compare; this text check still fails if
-    // anything the error carries holds a secret or, where excluded, the body.
+    expect_ai_error_attributes(&err, fixture)?;
+    expect_transport_request_subset(fixture, &requests, &credential_requests)
+}
+
+// An AI error's type, status, message, and the strings it must never carry.
+// Rust AI errors keep no request until the next major (AxError has no request
+// field), so expected_error_request has nothing to compare; the text check
+// still fails if anything the error carries holds a secret or an excluded body.
+fn expect_ai_error_attributes(err: &AxError, fixture: &Value) -> AxResult<()> {
     let text = format!(
         "{err}\n{err:?}\n{}",
         serde_json::to_string(&err).unwrap_or_default()
@@ -11268,6 +11376,37 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
                 "fixture",
                 format!("expected status {expected}, got {actual}"),
             ));
+        }
+    }
+    Ok(())
+}
+
+// Core's error-request view called directly ("view"), and the provider error
+// normalizer given a raw call ("normalize").
+fn run_ai_error_request_fixture(fixture: &Value) -> AxResult<()> {
+    let operation = fixture.get("operation").and_then(Value::as_str).unwrap_or("view");
+    let cases = fixture.get("cases").and_then(Value::as_array).cloned().unwrap_or_default();
+    for (index, case) in cases.iter().enumerate() {
+        let arg = |key: &str| core_value_from_json(case.get(key).unwrap_or(&Value::Null));
+        match operation {
+            "view" => {
+                let actual = core_value_to_json(&_ai_error_request(&[arg("call"), arg("options")])?);
+                expect_json_equal(
+                    &format!("error request view case {index}"),
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            "normalize" => {
+                let error = openai_normalize_error(&[arg("status"), arg("body"), arg("call"), arg("options")])?;
+                expect_ai_error_attributes(&core_as_error(&error), case)?;
+            }
+            _ => {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("unsupported error-request operation {operation}"),
+                ))
+            }
         }
     }
     Ok(())
@@ -11463,6 +11602,15 @@ fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_request_count") {
         expect_json_equal("flow request count", &json!(actual["requests"].as_array().map_or(0,Vec::len)), expected)?;
     }
+    if let Some(expected) = fixture.get("expected_request_contains").and_then(Value::as_array) {
+        let text = serde_json::to_string(&actual["requests"]).unwrap_or_default();
+        for item in expected {
+            let needle = item.as_str().map(ToString::to_string).unwrap_or_else(|| item.to_string());
+            if !text.contains(&needle) {
+                return Err(AxError::new("fixture", format!("flow request missing {needle}: {text}")));
+            }
+        }
+    }
     if let Some(expected) = fixture.get("expected_speak_requests") {
         expect_json_equal("speak requests", actual.get("speak_requests").unwrap_or(&json!([])), expected)?;
     }
@@ -11503,7 +11651,11 @@ fn run_flow_mermaid_fixture(fixture: &Value) -> AxResult<()> {
         for step in fixture.get("builder_steps").and_then(Value::as_array).into_iter().flatten() {
             let name = step.get("name").and_then(Value::as_str).unwrap_or("");
             let signature = step.get("signature").and_then(Value::as_str).unwrap_or("");
-            let options = json!({"reads": step.get("reads").cloned().unwrap_or_else(|| json!([]))});
+            // A builder step without "reads" declares none.
+            let options = match step.get("reads") {
+                Some(reads) => json!({"reads": reads}),
+                None => json!({}),
+            };
             built = built.execute_with_options(name, ax(signature)?, &options);
         }
         return expect_json_equal(
@@ -13031,7 +13183,8 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     let mut client = FixtureClient::scripted(
         responses,
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
-    );
+    )
+    .with_speak_responses(fixture);
     client.transcribe_responses = fixture
         .get("transcribe_responses")
         .and_then(Value::as_array)
@@ -13388,6 +13541,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("agent output", &output, expected)?;
     }
+    expect_fixture_speak_requests(fixture, &client.speak_requests)?;
     if let Some(expected) = fixture.get("expected_run_state_projections") {
         expect_json_equal(
             "agent run state projections",
@@ -15422,9 +15576,15 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
             }
         }
         "eval" => {
-            let prediction = conformance_optimization_prediction(fixture);
+            let prediction = conformance_agent_eval_prediction(fixture)?;
             if let Some(expected) = fixture.get("expected_prediction_subset") {
                 expect_json_subset("eval prediction", &prediction, expected)?;
+            }
+            // Fields that must match exactly: a list compares in full.
+            if let Some(fields) = fixture.get("expected_prediction_fields").and_then(Value::as_object) {
+                for (key, value) in fields {
+                    expect_json_equal(&format!("eval prediction {key}"), prediction.get(key).unwrap_or(&Value::Null), value)?;
+                }
             }
         }
         _ => return Err(AxError::new("fixture", format!("unsupported Rust optimize operation {operation}"))),
@@ -16059,12 +16219,37 @@ fn conformance_evaluation_result(fixture: &Value) -> Value {
     result
 }
 
-fn conformance_optimization_prediction(fixture: &Value) -> Value {
+// The optimize eval operation runs the agent's evaluate_optimization_task on
+// the fixture's scripted client, with its runtime_script as the agent's
+// runtime when given, as the other runners do.
+fn conformance_agent_eval_prediction(fixture: &Value) -> AxResult<Value> {
+    let signature = fixture
+        .get("signature")
+        .and_then(Value::as_str)
+        .unwrap_or("question:string -> answer:string");
+    let mut program = agent_with_options(signature, fixture.get("options").cloned().unwrap_or_else(|| json!({})))?;
+    if let Some(script) = fixture.get("runtime_script").and_then(Value::as_array) {
+        let language = fixture
+            .get("runtime_language")
+            .and_then(Value::as_str)
+            .unwrap_or("JavaScript")
+            .to_string();
+        program = program.with_runtime(Box::new(ScriptedCodeRuntime::new(script.clone(), language, String::new())))?;
+    }
+    let responses = fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut client = FixtureClient::scripted(
+        responses,
+        fixture.get("features").cloned().unwrap_or_else(router_default_features),
+    );
     let task = fixture
         .get("task")
         .cloned()
         .unwrap_or_else(|| json!({"input": fixture.get("input").cloned().unwrap_or_else(|| json!({}))}));
-    conformance_optimization_prediction_for_task(fixture, &task)
+    program.evaluate_optimization_task(
+        &mut client,
+        task,
+        fixture.get("eval_options").cloned().unwrap_or_else(|| json!({})),
+    )
 }
 
 fn conformance_optimization_prediction_for_task(fixture: &Value, task: &Value) -> Value {
@@ -17009,6 +17194,38 @@ fn expect_fixture_request_roles(fixture: &Value, client: &FixtureClient) -> AxRe
     expect_json_equal("request roles", &Value::Array(roles), expected)
 }
 
+// python: _assert_last_request_tail. expected_last_request_tail lists the
+// last messages of the last request's chat prompt, compared by role and
+// content (a string, or a list of parts).
+fn expect_fixture_last_request_tail(fixture: &Value, client: &FixtureClient) -> AxResult<()> {
+    let Some(expected) = fixture.get("expected_last_request_tail") else {
+        return Ok(());
+    };
+    let prompt = client
+        .requests
+        .last()
+        .and_then(|request| request.get("chat_prompt"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    // Python's prompt[-len(expected):], which is the whole prompt for none.
+    let count = expected.as_array().map_or(0, Vec::len);
+    let start = if count == 0 { 0 } else { prompt.len().saturating_sub(count) };
+    let tail = prompt[start..]
+        .iter()
+        .map(|message| {
+            let mut kept = serde_json::Map::new();
+            for key in ["role", "content"] {
+                if let Some(value) = message.get(key) {
+                    kept.insert(key.to_string(), value.clone());
+                }
+            }
+            Value::Object(kept)
+        })
+        .collect();
+    expect_json_equal("last request tail", &Value::Array(tail), expected)
+}
+
 // python: expected_chat_prompt. The first request's whole chat prompt.
 fn expect_fixture_chat_prompt(fixture: &Value, client: &FixtureClient) -> AxResult<()> {
     let Some(expected) = fixture.get("expected_chat_prompt") else {
@@ -17118,6 +17335,7 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
         expect_json_equal("run control events", &actual, expected)?;
     }
     expect_fixture_request_roles(fixture, &client)?;
+    expect_fixture_last_request_tail(fixture, &client)?;
     expect_fixture_chat_prompt(fixture, &client)?;
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() != expected as usize {
@@ -17502,6 +17720,7 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         expect_json_equal("run control events", &actual, expected)?;
     }
     expect_fixture_request_roles(fixture, &client)?;
+    expect_fixture_last_request_tail(fixture, &client)?;
     expect_fixture_chat_prompt(fixture, &client)?;
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() != expected as usize {
@@ -17992,6 +18211,20 @@ fn run_ai_realtime_fixture(fixture: &Value) -> AxResult<()> {
 
 fn run_ai_realtime_fixture_inner(client: &OpenAICompatibleClient, fixture: &Value) -> AxResult<()> {
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
+    if let Some(expected) = fixture.get("expected_ws_url") {
+        let provider = fixture.get("provider").and_then(Value::as_str).unwrap_or("openai");
+        let profile = provider_normalize_profile(&[CoreValue::from(provider)])?;
+        let model = fixture.get("model").or_else(|| request.get("model")).cloned().unwrap_or_else(|| json!(""));
+        let key = fixture.get("api_key").cloned().unwrap_or_else(|| json!("test-key"));
+        let options = fixture.get("service_options").or_else(|| fixture.get("options")).cloned().unwrap_or_else(|| json!({}));
+        let target = core_value_to_json(&provider_realtime_ws_url(&[
+            profile,
+            core_value_from_json(&model),
+            core_value_from_json(&key),
+            core_value_from_json(&options),
+        ])?);
+        expect_json_equal("realtime WebSocket URL", target.get("url").unwrap_or(&Value::Null), expected)?;
+    }
     if let Some(expected) = fixture.get("expected_setup") {
         expect_json_equal(
             "ai realtime setup",
@@ -18976,6 +19209,22 @@ fn core_string_utf16_units(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 
 fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Num(core_arg(args, 0).text().chars().count() as f64))
+}
+
+// Appends streamed text. A Rust string is UTF-8 and holds whole characters,
+// so no chunk ends in half of a surrogate pair, and plain concatenation keeps
+// every character whole (Python joins a pair split across two chunks).
+fn core_string_concat_stream_text(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::from_string(format!("{}{}", core_arg(args, 0).text(), core_arg(args, 1).text())))
+}
+
+// The value without a trailing high surrogate (U+D800 to U+DBFF), which TS
+// holds back until its low half streams in. A UTF-8 Rust string can't end in
+// one, since a lone surrogate isn't a char (a stream event's lone surrogate
+// escape reads as U+FFFD, see parse_stream_event_json), so the value comes
+// back unchanged.
+fn core_string_drop_trailing_high_surrogate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(core_arg(args, 0))
 }
 
 // ----- intrinsic.date.zone_offset: the platform tz database -----
@@ -20025,6 +20274,24 @@ fn core_media_valid_url_shape(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     Ok(CoreValue::Bool(ok))
 }
 
+// JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+// - _ . ! ~ * ' ( ) becomes %XX.
+fn core_url_encode_component(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = match core_arg(args, 0) {
+        CoreValue::Null => String::new(),
+        value => value.text(),
+    };
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    Ok(CoreValue::from(out.as_str()))
+}
+
 fn core_url_valid(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let ok = match core_arg(args, 0).as_str() {
         Some(text) => regex::Regex::new("^[a-zA-Z][a-zA-Z0-9+.-]*://").unwrap().is_match(text),
@@ -20605,6 +20872,8 @@ fn core_prompt_combine_consecutive_text(parts: &CoreValue, separator: &str) -> R
             _ => None,
         };
         if let Some(prev) = merge_target {
+            // TS combineConsecutiveStrings: the joined part is cached when any
+            // of its text parts is.
             let prev_text = core_get(&prev, &CoreValue::from("text"), CoreValue::from("")).text();
             let part_text = core_get(&part, &CoreValue::from("text"), CoreValue::from("")).text();
             core_set(
@@ -20612,6 +20881,9 @@ fn core_prompt_combine_consecutive_text(parts: &CoreValue, separator: &str) -> R
                 CoreValue::from("text"),
                 CoreValue::from_string(format!("{prev_text}{separator}{part_text}")),
             )?;
+            if core_truthy(&core_get(&part, &CoreValue::from("cache"), CoreValue::Null)) {
+                core_set(&prev, CoreValue::from("cache"), CoreValue::Bool(true))?;
+            }
         } else {
             core_append(&out, part)?;
         }
@@ -20619,17 +20891,169 @@ fn core_prompt_combine_consecutive_text(parts: &CoreValue, separator: &str) -> R
     Ok(out)
 }
 
+// JavaScript's !value for a JSON value: objects and arrays are truthy.
+#[allow(dead_code)]
+fn core_prompt_js_falsy(value: &CoreValue) -> bool {
+    match value {
+        CoreValue::Null => true,
+        CoreValue::Bool(b) => !*b,
+        CoreValue::Str(s) => s.is_empty(),
+        CoreValue::Num(n) => *n == 0.0 || n.is_nan(),
+        _ => false,
+    }
+}
+
+// Checks a media value as TS's validators do.
+#[allow(dead_code)]
+fn core_prompt_media_object(value: &CoreValue, label: &str, required_key: &str) -> Result<(), AxError> {
+    if core_prompt_js_falsy(value) {
+        return Err(AxError::runtime(format!("{label} field value is required.")));
+    }
+    let has_key = match value {
+        CoreValue::Map(map) => map.borrow().contains(required_key),
+        CoreValue::List(_) => false,
+        _ => return Err(AxError::runtime(format!("{label} field value must be an object."))),
+    };
+    if !has_key {
+        return Err(AxError::runtime(format!("{label} field must have {required_key}")));
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn core_prompt_has_key(value: &CoreValue, key: &str) -> bool {
+    matches!(value, CoreValue::Map(map) if map.borrow().contains(key))
+}
+
+// The optional keys a media part type declares (TS AxChatRequest) that the
+// value sets go on the part, so the provider or router that reads them gets
+// them; other keys stay behind.
+#[allow(dead_code)]
+fn core_prompt_declared_keys(part: CoreValue, value: &CoreValue, keys: &[&str]) -> Result<CoreValue, AxError> {
+    for key in keys {
+        if core_prompt_has_key(value, key) {
+            core_set(&part, CoreValue::from(*key), core_get(value, &CoreValue::from(*key), CoreValue::Null))?;
+        }
+    }
+    Ok(part)
+}
+
+// TS defaultRenderInField: an image part carries the mime type, the data as
+// `image`, and the details the provider reads (OpenAI's image detail).
+#[allow(dead_code)]
+fn core_prompt_image_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    core_prompt_media_object(value, "Image", "mimeType")?;
+    if !core_prompt_has_key(value, "data") {
+        return Err(AxError::runtime("Image field must have data"));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("image"))?;
+    core_set(&part, CoreValue::from("mimeType"), core_get(value, &CoreValue::from("mimeType"), CoreValue::Null))?;
+    core_set(&part, CoreValue::from("image"), core_get(value, &CoreValue::from("data"), CoreValue::Null))?;
+    core_prompt_declared_keys(part, value, &["details", "cache", "optimize", "altText"])
+}
+
+// TS defaultRenderInField: a file part carries the mime type and either its
+// data or its fileUri.
+#[allow(dead_code)]
+fn core_prompt_file_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    core_prompt_media_object(value, "File", "mimeType")?;
+    let has_data = core_prompt_has_key(value, "data");
+    let has_file_uri = core_prompt_has_key(value, "fileUri");
+    if !has_data && !has_file_uri {
+        return Err(AxError::runtime("File field must have either data or fileUri"));
+    }
+    if has_data && has_file_uri {
+        return Err(AxError::runtime("File field cannot have both data and fileUri"));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("file"))?;
+    core_set(&part, CoreValue::from("mimeType"), core_get(value, &CoreValue::from("mimeType"), CoreValue::Null))?;
+    let key = if has_file_uri { "fileUri" } else { "data" };
+    core_set(&part, CoreValue::from(key), core_get(value, &CoreValue::from(key), CoreValue::Null))?;
+    core_prompt_declared_keys(part, value, &["filename", "cache", "extractedText"])
+}
+
+// TS defaultRenderInField: a url part carries the url, and the title and
+// description when they are set; a plain string is the url.
+#[allow(dead_code)]
+fn core_prompt_url_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    if core_prompt_js_falsy(value) {
+        return Err(AxError::runtime("URL field value is required."));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("url"))?;
+    if matches!(value, CoreValue::Str(_)) {
+        core_set(&part, CoreValue::from("url"), value.clone())?;
+        return Ok(part);
+    }
+    if !matches!(value, CoreValue::Map(_) | CoreValue::List(_)) {
+        return Err(AxError::runtime("URL field value must be a string or object."));
+    }
+    if !core_prompt_has_key(value, "url") {
+        return Err(AxError::runtime("URL field must have url property"));
+    }
+    core_set(&part, CoreValue::from("url"), core_get(value, &CoreValue::from("url"), CoreValue::Null))?;
+    for key in ["title", "description"] {
+        let item = core_get(value, &CoreValue::from(key), CoreValue::Null);
+        if !core_prompt_js_falsy(&item) {
+            core_set(&part, CoreValue::from(key), item)?;
+        }
+    }
+    core_prompt_declared_keys(part, value, &["cachedContent", "cache"])
+}
+
+// The snake_case aliases the provider mappings read become the part type's
+// declared camelCase keys (a camelCase key wins), so inputs written with them
+// keep working.
+#[allow(dead_code)]
+fn core_prompt_media_aliases(kind: &str, value: &CoreValue) -> Result<CoreValue, AxError> {
+    let CoreValue::Map(map) = value else {
+        return Ok(value.clone());
+    };
+    let aliases: &[(&str, &str)] = match kind {
+        "image" => &[("mime_type", "mimeType")],
+        "audio" => &[("audio", "data"), ("mime_type", "mimeType"), ("sample_rate", "sampleRate")],
+        "file" => &[("mime_type", "mimeType"), ("file_uri", "fileUri"), ("extracted_text", "extractedText")],
+        _ => &[("cached_content", "cachedContent")],
+    };
+    let mut out: Option<CoreValue> = None;
+    for (alias, key) in aliases {
+        let (has_alias, has_key) = {
+            let borrowed = map.borrow();
+            (borrowed.contains(alias), borrowed.contains(key))
+        };
+        if has_alias && !has_key {
+            if out.is_none() {
+                let copy = CoreValue::new_map();
+                for (entry_key, item) in map.borrow().entries.clone() {
+                    core_set(&copy, CoreValue::from(entry_key.as_str()), item)?;
+                }
+                out = Some(copy);
+            }
+            let item = core_get(value, &CoreValue::from(*alias), CoreValue::Null);
+            core_set(out.as_ref().unwrap(), CoreValue::from(*key), item)?;
+        }
+    }
+    Ok(out.unwrap_or_else(|| value.clone()))
+}
+
+#[allow(dead_code)]
+fn core_prompt_media_part(kind: &str, value: &CoreValue) -> Result<CoreValue, AxError> {
+    let value = &core_prompt_media_aliases(kind, value)?;
+    match kind {
+        "image" => core_prompt_image_part(value),
+        "audio" => core_prompt_audio_part(value),
+        "file" => core_prompt_file_part(value),
+        _ => core_prompt_url_part(value),
+    }
+}
+
 // TS defaultRenderInField: an audio part carries only its format (wav when it
 // has none) and its data.
 #[allow(dead_code)]
 fn core_prompt_audio_part(value: &CoreValue) -> Result<CoreValue, AxError> {
-    let has_data = match value {
-        CoreValue::Map(map) => map.borrow().contains("data"),
-        _ => return Err(AxError::runtime("Audio field value must be an object.")),
-    };
-    if !has_data {
-        return Err(AxError::runtime("Audio field must have data"));
-    }
+    core_prompt_media_object(value, "Audio", "data")?;
     let format = core_get(value, &CoreValue::from("format"), CoreValue::Null);
     let part = CoreValue::new_map();
     core_set(&part, CoreValue::from("type"), CoreValue::from("audio"))?;
@@ -20643,7 +21067,11 @@ fn core_prompt_audio_part(value: &CoreValue) -> Result<CoreValue, AxError> {
         CoreValue::from("data"),
         core_get(value, &CoreValue::from("data"), CoreValue::Null),
     )?;
-    Ok(part)
+    core_prompt_declared_keys(
+        part,
+        value,
+        &["mimeType", "sampleRate", "channels", "cache", "transcription", "duration"],
+    )
 }
 
 #[allow(dead_code)]
@@ -20655,9 +21083,18 @@ fn core_prompt_default_render_in_field(field: &CoreValue, value: &CoreValue) -> 
         "string".to_string()
     };
     let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
-    if typ == "audio" && !matches!(value, CoreValue::Str(_)) {
-        // A string (a plain one, or an audio object's transcript) renders as
-        // text below, like any text field.
+    // As TS: image, file and url values, and audio that is not text (a plain
+    // string or an audio object's transcript renders as text below), go out
+    // as media parts after a text part with the title.
+    let media = matches!(typ.as_str(), "image" | "file" | "url")
+        || (typ == "audio" && !matches!(value, CoreValue::Str(_)));
+    if media {
+        let label = match typ.as_str() {
+            "image" => "Image",
+            "audio" => "Audio",
+            "file" => "File",
+            _ => "URL",
+        };
         let parts = CoreValue::new_list();
         let text_part = CoreValue::new_map();
         core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
@@ -20669,50 +21106,15 @@ fn core_prompt_default_render_in_field(field: &CoreValue, value: &CoreValue) -> 
         core_append(&parts, text_part)?;
         if core_truthy(&core_get(&field_type, &CoreValue::from("is_array"), CoreValue::Null)) {
             if !matches!(value, CoreValue::List(_)) {
-                return Err(AxError::runtime("Audio field value must be an array."));
+                return Err(AxError::runtime(format!("{label} field value must be an array.")));
             }
             for item in core_iter(value)? {
-                core_append(&parts, core_prompt_audio_part(&item)?)?;
+                core_append(&parts, core_prompt_media_part(&typ, &item)?)?;
             }
         } else {
-            core_append(&parts, core_prompt_audio_part(value)?)?;
+            core_append(&parts, core_prompt_media_part(&typ, value)?)?;
         }
         return Ok(parts);
-    }
-    if matches!(typ.as_str(), "image" | "audio" | "file" | "url") {
-        if matches!(value, CoreValue::List(_)) {
-            let parts = CoreValue::new_list();
-            let text_part = CoreValue::new_map();
-            core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
-            core_set(
-                &text_part,
-                CoreValue::from("text"),
-                CoreValue::from_string(format!("{title}: ")),
-            )?;
-            core_append(&parts, text_part)?;
-            for item in core_iter(value)? {
-                core_append(&parts, item)?;
-            }
-            return Ok(parts);
-        }
-        if let CoreValue::Map(map) = value {
-            let part = CoreValue::new_map();
-            for (key, item) in map.borrow().entries.clone() {
-                core_set(&part, CoreValue::from(key.as_str()), item)?;
-            }
-            let has_type = matches!(&part, CoreValue::Map(m) if m.borrow().contains("type"));
-            if !has_type {
-                core_set(&part, CoreValue::from("type"), CoreValue::from_string(typ.clone()))?;
-            }
-            let text_part = CoreValue::new_map();
-            core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
-            core_set(
-                &text_part,
-                CoreValue::from("text"),
-                CoreValue::from_string(format!("{title}: ")),
-            )?;
-            return Ok(CoreValue::list_from(vec![text_part, part]));
-        }
     }
     let part = CoreValue::new_map();
     core_set(&part, CoreValue::from("type"), CoreValue::from("text"))?;
@@ -21051,8 +21453,10 @@ fn core_prompt_process_value(field: &CoreValue, value: &CoreValue) -> Result<Cor
                 return Ok(value.clone());
             }
         }
-        if matches!(name.as_str(), Some("image") | Some("audio") | Some("file") | Some("url"))
-            && matches!(value, CoreValue::Map(_))
+        // As TS processValue: image, file and url objects (and arrays of
+        // them) reach the field renderer as they are.
+        if matches!(name.as_str(), Some("image") | Some("file") | Some("url"))
+            && matches!(value, CoreValue::Map(_) | CoreValue::List(_))
         {
             return Ok(value.clone());
         }
@@ -24062,6 +24466,7 @@ impl CoreHost for ExecutableProgramHost {
             "get_chat_log"=>Ok(core_value_from_json(&json!(self.program.borrow().get_chat_log()))),
             "get_traces"=>Ok(core_value_from_json(&json!(self.program.borrow().get_traces()))),
             "get_usage"=>Ok(core_value_from_json(&self.program.borrow().get_usage())),
+            "signature_text"=>Ok(self.program.borrow().signature_text().map(|text|CoreValue::from(text.as_str())).unwrap_or(CoreValue::Null)),
             other=>Err(AxError::runtime(format!("Executable program has no method '{other}'"))),
         }
     }
@@ -24118,6 +24523,7 @@ impl CoreHost for GenHost {
                 Ok(core_value_from_json(&output))
             }
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(self.gen.borrow().chat_log.clone()))),
+            "signature_text" => Ok(CoreValue::from(self.gen.borrow().signature.to_string().as_str())),
             "get_traces" => Ok(core_value_from_json(&Value::Array(self.gen.borrow().traces.clone()))),
             "get_optimizable_components" => Ok(core_value_from_json(&Value::Array(
                 self.gen.borrow().get_optimizable_components(),
@@ -24237,6 +24643,10 @@ impl CoreHost for AgentHost {
                 Ok(core_value_from_json(&output))
             }
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(self.agent.borrow().get_chat_log()))),
+            "signature_text" => {
+                let signature = core_get(&self.agent.borrow().state, &CoreValue::from("signature"), CoreValue::Null);
+                signature_to_string(&[signature])
+            }
             "get_usage" => {
                 let usage = self.agent.borrow().get_usage();
                 Ok(core_value_from_json(&usage))
@@ -24373,6 +24783,15 @@ fn core_program_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     match core_host_try(&core_arg(args, 0), "get_optimizable_components", &[]) {
         Some(result) => result,
         None => Ok(CoreValue::new_list()),
+    }
+}
+
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+fn core_program_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_host_try(&core_arg(args, 0), "signature_text", &[]) {
+        Some(result) => result,
+        None => Ok(CoreValue::Null),
     }
 }
 
@@ -25712,7 +26131,6 @@ mod request_url_security_tests {
         assert_eq!(descriptor["auth"], "bearer");
         assert_eq!(descriptor["vertex"], true);
         assert!(descriptor.get("apiKeyHeader").is_none());
-        assert!(descriptor.get("apiKeyQuery").is_none());
         Ok(())
     }
 }
@@ -26836,6 +27254,102 @@ mod axgen_program_control_tests {
         program.streaming_forward(&mut client, json!({"question": "Say hi"}), options, |_| Ok(()))?;
         assert_eq!((reads.load(Ordering::SeqCst), writes.load(Ordering::SeqCst), client.chats), (0, 0, 2));
         assert_eq!(client.spoken, [json!("Hello there")]);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod axgen_feedback_wire_tests {
+    use super::*;
+
+    // Answers "Answer: first", then "Answer: second", in the provider's
+    // response shape, keeping each request body.
+    struct Answers {
+        provider: &'static str,
+        bodies: Arc<Mutex<Vec<Value>>>,
+    }
+
+    impl AxTransport for Answers {
+        fn send(&mut self, request: Value) -> AxResult<Value> {
+            let mut bodies = self.bodies.lock().unwrap();
+            bodies.push(request["json"].clone());
+            let text = if bodies.len() == 1 { "Answer: first" } else { "Answer: second" };
+            let json = match self.provider {
+                "anthropic" => json!({"id": "msg", "type": "message", "role": "assistant", "content": [{"type": "text", "text": text}], "stop_reason": "end_turn", "usage": {"input_tokens": 1, "output_tokens": 1}}),
+                "google-gemini" => json!({"candidates": [{"content": {"role": "model", "parts": [{"text": text}]}, "finishReason": "STOP"}]}),
+                _ => json!({"id": "reply", "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}]}),
+            };
+            Ok(json!({"status": 200, "json": json}))
+        }
+    }
+
+    #[test]
+    fn processor_feedback_goes_out_as_a_text_part() -> AxResult<()> {
+        // A field processor's feedback is a user message whose content is
+        // [{type: "text", text}], which each provider sends as TS does.
+        for (provider, model, messages, feedback) in [
+            ("openai", "gpt-5.4-mini", "messages", json!({"role": "user", "content": [{"type": "text", "text": "Check it."}]})),
+            ("anthropic", "claude-sonnet-5", "messages", json!({"role": "user", "content": [{"type": "text", "text": "Check it."}]})),
+            ("google-gemini", "gemini-3.5-flash", "contents", json!({"role": "user", "parts": [{"text": "Check it."}]})),
+        ] {
+            let bodies = Arc::new(Mutex::new(Vec::new()));
+            let mut client = ai(provider, json!({"api_key": "test", "model": model}))?.with_transport(Answers { provider, bodies: bodies.clone() });
+            let mut program = ax("question:string -> answer:string")?;
+            let given = Arc::new(AtomicU64::new(0));
+            program.add_field_processor("answer", move |_, _| Ok((given.fetch_add(1, Ordering::SeqCst) == 0).then(|| json!("Check it."))))?;
+            assert_eq!(program.forward(&mut client, json!({"question": "Status?"}))?, json!({"answer": "second"}), "{provider}");
+            let bodies = bodies.lock().unwrap();
+            assert_eq!(bodies.len(), 2, "{provider}");
+            assert_eq!(bodies[1][messages].as_array().and_then(|list| list.last()), Some(&feedback), "{provider}");
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod stream_split_surrogate_tests {
+    use super::*;
+
+    // A chat completion streaming "Answer: hi \ud83d" and then "\ude00 there":
+    // one surrogate pair split between two events as JSON escapes.
+    const SPLIT_PAIR: &str = concat!(
+        "data: {\"id\":\"c\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Answer: hi \\ud83d\"}}]}\n\n",
+        "data: {\"id\":\"c\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\ude00 there\"},\"finish_reason\":\"stop\"}]}\n\n",
+        "data: [DONE]\n\n",
+    );
+
+    struct SplitPair {
+        buffered: bool,
+    }
+
+    impl AxTransport for SplitPair {
+        fn send(&mut self, _: Value) -> AxResult<Value> {
+            Err(AxError::runtime("expected streaming"))
+        }
+
+        fn stream(&mut self, _request: Value) -> AxResult<AxTransportStream> {
+            Ok(if self.buffered {
+                AxTransportStream::Buffered(json!({"status": 200, "body": SPLIT_PAIR}))
+            } else {
+                AxTransportStream::Reader { status: 200, body: Box::new(std::io::Cursor::new(SPLIT_PAIR.as_bytes().to_vec())) }
+            })
+        }
+    }
+
+    #[test]
+    fn a_split_surrogate_pair_reads_as_replacement_characters() -> AxResult<()> {
+        // TS keeps each half and joins them into the emoji. serde_json
+        // refuses a lone surrogate escape, which a Rust string can't hold, so
+        // each half reads as U+FFFD, and the stream goes on.
+        for buffered in [false, true] {
+            let mut client = ai("openai", json!({"api_key": "test", "model": "gpt-5.4-mini"}))?.with_transport(SplitPair { buffered });
+            let mut program = ax("question:string -> answer:string")?;
+            let output = program.streaming_forward(&mut client, json!({"question": "Status?"}), json!({}), |_| Ok(()))?;
+            assert_eq!(output, json!({"answer": "hi \u{fffd}\u{fffd} there"}), "buffered {buffered}");
+        }
+        // Any other bad escape still fails the event's parse.
+        assert!(parse_stream_event_json("{\"content\":\"\\u12\"}").is_err());
+        assert_eq!(parse_stream_event_json("{\"content\":\"\\ud83d\\ude00\"}")?, json!({"content": "\u{1f600}"}));
         Ok(())
     }
 }

@@ -22,8 +22,12 @@ fn openai_client() -> AxResult<OpenAICompatibleClient> {
 fn main() -> AxResult<()> {
     let mut client = openai_client()?;
     let step = ax("documentText:string -> summaryText:string")?;
-    let mut program = axllm::flow("examples.sequentialFlow").execute("step", step).returns(json!({"step": "step"}));
+    let mut program = axllm::flow("examples.sequentialFlow").execute("step", step).returns(json!({"summary": "summaryText"}));
     let output = program.forward(&mut client, json!({"documentText": "Ax gives developers signatures, provider clients, agents, flows, tracing, and optimization."}))?;
+    for key in ["summary"] {
+        let value = &output[key];
+        assert!(!value.is_null() && value != "" && *value != json!([]), "flow output field {key} is empty: {output}");
+    }
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }

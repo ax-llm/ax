@@ -207,6 +207,11 @@ class AxError : public std::runtime_error {
   std::string code;
   bool retryable;
   Value response_body;
+  // A provider error's request URL and body, as TypeScript's AxAIServiceError
+  // keeps them. The body is null when includeRequestBodyInErrors is false, and
+  // request headers are never kept.
+  std::string url;
+  Value request_body;
   AxError(std::string category, std::string message);
   AxError(std::string category, std::string message, std::string type, int status = 0,
           std::string code = "", bool retryable = false, Value response_body = Value());
@@ -358,6 +363,12 @@ struct Core {
   static Value string_title_from_camel(Value value);
   static Value string_ends_with(Value value, Value suffix);
   static Value string_starts_with(Value value, Value prefix);
+  // Streamed text: appending a chunk, which joins a surrogate pair split
+  // across stream events into one code point, and dropping a trailing high
+  // surrogate (half of such a pair) from a delta. parse_json keeps a lone
+  // surrogate escape as 3 WTF-8 bytes (see the definitions).
+  static Value string_concat_stream_text(Value left, Value right);
+  static Value string_drop_trailing_high_surrogate(Value value);
   static Value string_replace(Value value, Value old_value, Value new_value);
   static Value string_slice(Value value, Value start, Value end = Value());
   static Value string_remove_suffix(Value value, Value suffix);
@@ -419,6 +430,7 @@ struct Core {
   static Value object_call_method(Value target, Value method_name, Value arg = Value(), Value options = Value());
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
+  static Value program_signature(Value program);
   static Value ai_complete_once(Value client, Value request, Value options);
   // The run control updates a run's request boundary holds for its path:
   // take_pending hands them to the forward, which applies them when a step
@@ -436,6 +448,7 @@ struct Core {
   static Value fields_from_map(Value fields);
   static Value description_append(Value base, Value hint);
   static Value url_valid(Value value);
+  static Value url_encode_component(Value value);
   static Value valid_image(Value value);
   static Value valid_audio(Value value);
   static Value valid_file(Value value);
@@ -995,12 +1008,16 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
+  // error_options are the call's merged options; their includeRequestBodyInErrors
+  // decides whether a provider error keeps the request body.
+  Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options);
   Value build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
   std::string operation_method(const std::string& operation) const;
   std::string operation_path(const std::string& operation) const;
   std::string operation_path(const std::string& operation, Value model) const;
   Value headers() const;
-  Value transport_result(Value result, Value request);
+  Value transport_result(Value result, Value request, Value options);
+  std::string transport_content_type(Value result);
   std::vector<Value> iter_sse_json(Value raw);
 };
 
@@ -1640,6 +1657,8 @@ class AxAgent : public AxProgram {
 
  private:
   friend class AxExecutionContext;
+  // Core::program_signature reads the agent's signature from its state.
+  friend struct Core;
   std::shared_ptr<detail::AgentExecutionContext> execution_context_;
   std::vector<std::shared_ptr<AxAgent>> child_agents_;
   Value state_;

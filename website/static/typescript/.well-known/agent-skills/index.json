@@ -27,28 +27,28 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct audio code with @ax-llm/ax. Use when the user asks about ai.transcribe(), ai.speak(), signature audio inputs or outputs, agent audio behavior, .chat() conversational audio, OpenAI audio or realtime models, Gemini Live native audio, Grok Voice Agent models, voices, formats, transcripts, or how audio fits with structured outputs.",
       "url": "ax-audio/SKILL.md",
-      "digest": "sha256:8fa99e7b3ddc8e7e9acb41e2d3192b508b2c2788978ac554680f2ada9883eb0e"
+      "digest": "sha256:142bd07f7c5ef58480120a4688a6919b8e7f39ee02d08295c490c4ab141bbe79"
     },
     {
       "name": "ax-signature",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.",
       "url": "ax-signature/SKILL.md",
-      "digest": "sha256:cb2557bbe7203d5c583555bf6ed77f5db23c9baaa9963b17cc489395c64ae673"
+      "digest": "sha256:1ff0df35cade1f714b38e825084b7cf496786f0b84f4b8cccda97ff057d970d9"
     },
     {
       "name": "ax-gen",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
       "url": "ax-gen/SKILL.md",
-      "digest": "sha256:496c1b45e3c177c628756e2ef7672cdc9d2e4b26ce493f35c4a2c7d470eb01ee"
+      "digest": "sha256:23e7c3695ae0af38bb1b69ca1334c7f5020d1c89451e927b65be7343de74e077"
     },
     {
       "name": "ax-mcp",
       "type": "skill-md",
       "description": "This skill helps an LLM build correct native Model Context Protocol integrations with @ax-llm/ax. Use when the user asks about AxMCPClient, MCP transports, tools, prompts, resources, subscriptions, tasks, sampling, elicitation, roots, authentication, OAuth, MCP Apps, recording/replay, or MCP integration with AxGen, AxAgent, AxFlow, chat, optimization, and AxEventRuntime.",
       "url": "ax-mcp/SKILL.md",
-      "digest": "sha256:7b37af72c0d27cc7d0ab53201b0330c99b40cf0638968d5e53433b2a98b777cd"
+      "digest": "sha256:919b10aed5bc651b7e80ea00bd5a7425f88a4870e4d6cf343546299f5f03cc36"
     },
     {
       "name": "ax-flow",
