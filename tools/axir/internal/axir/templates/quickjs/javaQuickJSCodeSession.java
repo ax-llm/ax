@@ -79,17 +79,20 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
         else bindings.remove(name);
       }
       Object result = response.get("result");
-      if (analysis != null) {
-        // The turn's code analysis rides on its payload (a plain turn's too).
-        Map<String, Object> withAnalysis = new LinkedHashMap<>();
+      boolean hasLogs = response.get("logs") instanceof List<?> logList && !logList.isEmpty();
+      if (analysis != null || hasLogs) {
+        // The turn's console output and code analysis ride on its payload (a
+        // plain turn's too).
+        Map<String, Object> withExtras = new LinkedHashMap<>();
         if (result instanceof Map<?, ?> resultMap) {
-          for (Map.Entry<?, ?> entry : resultMap.entrySet()) withAnalysis.put(String.valueOf(entry.getKey()), entry.getValue());
+          for (Map.Entry<?, ?> entry : resultMap.entrySet()) withExtras.put(String.valueOf(entry.getKey()), entry.getValue());
         } else {
-          withAnalysis.put("kind", "result");
-          withAnalysis.put("result", result);
+          withExtras.put("kind", "result");
+          withExtras.put("result", result);
         }
-        withAnalysis.put("analysis", analysis);
-        return withAnalysis;
+        if (hasLogs) withExtras.put("logs", List.copyOf((List<?>) response.get("logs")));
+        if (analysis != null) withExtras.put("analysis", analysis);
+        return withExtras;
       }
       return result;
     } catch (Exception ex) {
@@ -315,6 +318,17 @@ async function __ax_run(payloadJson) {
     }
   }
   for (const name of __ax_bind_host_namespaces()) reserved.add(name);
+  // console: the actor inspects intermediate values with console.log. Each
+  // run's lines come back as the result's logs, which the action log shows, as
+  // the TS runtime returns console output as the execution result.
+  const logs = [];
+  function log() {
+    logs.push(Array.prototype.slice.call(arguments).map(function(value) {
+      if (typeof value === "string") return value;
+      try { return JSON.stringify(value); } catch (_) { return String(value); }
+    }).join(" "));
+  }
+  globalThis.console = {log: log, error: log, warn: log, info: log, debug: log};
   function complete(value) { globalThis.__ax_completion = value; return value; }
   globalThis.final = function() { return complete({type: "final", args: Array.from(arguments)}); };
   globalThis.respond = function() { return complete({type: "respond", args: Array.from(arguments)}); };
@@ -370,7 +384,7 @@ async function __ax_run(payloadJson) {
     if (typeof value === "function" || typeof value === "undefined") continue;
     try { JSON.stringify(value); out[key] = value; } catch (_) {}
   }
-  return JSON.stringify({ok: true, result, bindings: out, entries: snapshotEntries(), analysis});
+  return JSON.stringify({ok: true, result, bindings: out, logs, entries: snapshotEntries(), analysis});
 }
 """;
 }

@@ -155,11 +155,14 @@
       "capability": "agent.rlm.real_execution",
       "summary": "A real embedded engine executes model-authored code end-to-end through forward() and produces the completion -- NOT a ScriptedCodeRuntime returning canned payloads.",
       "ir_ops": ["@agent_forward"],
-      "fixtures": ["axagent-real/agent-runtime-real-javascript-final.json"],
+      "fixtures": [
+        "axagent-real/agent-runtime-real-javascript-final.json",
+        "axagent-real/agent-runtime-real-console-output.json"
+      ],
       "gate": "G1 real-engine antidote",
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
-      "state": "VERIFIED IN ALL FIVE LANGUAGES: go (goja), rust (quickjs feature), cpp (quickjs profile -DAX_CONFORMANCE_QUICKJS), python (in-process quickjs wheel), java (quickjs4j/chicory via reflection). Each runs the full forward() loop through a real engine executing model-authored final() code. Engines are optional deps, so agent_runtime_real runs in engine-enabled build lanes, not the default conformance suite."
+      "state": "VERIFIED IN ALL FIVE LANGUAGES: go (goja), rust (quickjs feature), cpp (quickjs profile -DAX_CONFORMANCE_QUICKJS), python (in-process quickjs wheel), java (quickjs4j/chicory via reflection). Each runs the full forward() loop through a real engine executing model-authored final() code, and an actor turn's console.log output reaches the next request's action log (agent-runtime-real-console-output). Engines are optional deps, so agent_runtime_real runs in engine-enabled build lanes, not the default conformance suite."
     },
     {
       "capability": "agent.rlm.multi_turn_convergence",
