@@ -6,7 +6,6 @@ end-to-end coverage for the SSE line-folding that src/ax/util/sse.ts performs.
 Exits non-zero on any mismatch so `axir verify` fails if it regresses."""
 
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from axllm import OpenAICompatibleClient
@@ -25,6 +24,12 @@ SSE_FIRST = (
 ).encode()
 SSE_REST = ("data: " + EVENT2).encode()
 
+# The server holds the rest of the body back until the client has taken the
+# first event, and records whether the client did: the order proves incremental
+# delivery, so a slow machine cannot fail it. The 30 s bound only runs out when
+# the client yields nothing before the body ends.
+FIRST_TAKEN = threading.Event()
+HELD = {}
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -40,7 +45,7 @@ class Handler(BaseHTTPRequestHandler):
         for byte in SSE_FIRST:
             self.wfile.write(bytes([byte]))
             self.wfile.flush()
-        time.sleep(0.3)
+        HELD["incremental"] = FIRST_TAKEN.wait(timeout=30)
         self.wfile.write(SSE_REST)
         self.wfile.flush()
 
@@ -54,13 +59,13 @@ try:
     client = OpenAICompatibleClient(
         api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-5.4-mini"
     )
-    started = time.perf_counter()
     stream = client.stream({"chat_prompt": [{"role": "user", "content": "stream"}]})
     first = next(stream)
-    ttft = time.perf_counter() - started
+    FIRST_TAKEN.set()
     events = [first, *stream]
-    completion = time.perf_counter() - started
-    assert completion - ttft >= 0.2, f"first event was not incremental: ttft={ttft} completion={completion}"
+    assert HELD.get("incremental"), (
+        "first event was not incremental: the client yielded it only after the server sent the rest of the body"
+    )
     deltas = [(event.get("results") or [{}])[0].get("content") for event in events]
     deltas = [delta for delta in deltas if delta]
     assert deltas[:1] == ["Hello 🌍 "], (
