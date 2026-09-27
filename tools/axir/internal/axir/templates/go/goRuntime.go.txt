@@ -2025,13 +2025,19 @@ func _core_string_title_from_camel(value Value) Value {
 	return strings.ToUpper(text[:1]) + text[1:]
 }
 func _core_string_format(template Value, args ...Value) Value {
+	// Each value fills the next {} after the previous one, so a value that
+	// itself contains {} is not formatted again.
 	out := display(template)
+	cursor := 0
 	for _, arg := range args {
-		idx := strings.Index(out, "{}")
+		idx := strings.Index(out[cursor:], "{}")
 		if idx < 0 {
 			break
 		}
-		out = out[:idx] + display(arg) + out[idx+2:]
+		idx += cursor
+		text := display(arg)
+		out = out[:idx] + text + out[idx+2:]
+		cursor = idx + len(text)
 	}
 	return out
 }
@@ -7648,10 +7654,9 @@ func (a *AxAgent) attachConfiguredPlaybook() {
 	if config == nil {
 		config = Object()
 	}
-	seed := coreGet(config, "seed", nil)
-	if seed == nil && (coreGet(config, "playbook", nil) != nil || coreGet(config, "artifact", nil) != nil) {
-		seed = config
-	}
+	// TS's `playbook` seed (a snapshot or a bare playbook), or the older
+	// `seed` key with a deprecation warning.
+	seed := mustCore(_agent_playbook_config_seed(config))
 	options := cloneMap(config)
 	if coreGet(options, "maxReflectorRounds", nil) == nil && coreGet(options, "max_reflector_rounds", nil) == nil {
 		coreSet(options, "maxReflectorRounds", 1)
@@ -7667,11 +7672,7 @@ func (a *AxAgent) attachConfiguredPlaybook() {
 	coreSet(options, "studentAI", student)
 	handle := a.Playbook(options)
 	if seedMap, ok := seed.(map[string]Value); ok {
-		if coreGet(seedMap, "playbook", nil) != nil {
-			handle.Load(seedMap)
-		} else {
-			handle.Load(Object("playbook", seedMap))
-		}
+		handle.Load(seedMap)
 	}
 }
 
@@ -9191,37 +9192,12 @@ func playbookRecordSignature(record Value) string {
 	if value := coreGet(record, "error", nil); value != nil {
 		return playbookErrorSignature(display(value))
 	}
-	if match := agentPlaybookActionErrorPattern.FindStringSubmatch(display(coreGet(prediction, "actionLog", ""))); len(match) > 1 {
+	// The action log as TS's prediction carries it: the executor's code steps as text.
+	actionLog := display(mustCore(_agent_playbook_action_log_text(coreGet(prediction, "actionLog", nil))))
+	if match := agentPlaybookActionErrorPattern.FindStringSubmatch(actionLog); len(match) > 1 {
 		return playbookErrorSignature(match[1])
 	}
 	return "behavioral:no_error"
-}
-
-func playbookFailureExcerpt(record Value, signature string) string {
-	if value := coreGet(record, "error", nil); value != nil {
-		return "Run threw: " + display(value)
-	}
-	actionLog := display(coreGet(coreGet(record, "prediction", Object()), "actionLog", ""))
-	if len(actionLog) <= 2000 {
-		return actionLog
-	}
-	needle := signature
-	if len(needle) > 40 {
-		needle = needle[:40]
-	}
-	hit := strings.Index(actionLog, needle)
-	if hit < 0 {
-		return actionLog[len(actionLog)-2000:]
-	}
-	start := hit - 1000
-	if start < 0 {
-		start = 0
-	}
-	end := start + 2000
-	if end > len(actionLog) {
-		end = len(actionLog)
-	}
-	return actionLog[start:end]
 }
 
 func playbookComposeInstruction(base string, rendered string) string {
@@ -9707,57 +9683,14 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 	outcomes, weaknesses := Array(), Array()
 	for index, signature := range order {
 		records := clusters[signature]
-		selected := records
-		if len(selected) > 4 {
-			selected = selected[:4]
-		}
-		bodies := []string{}
-		excerptParts, taskParts := []string{}, []string{}
-		functionCalls, toolErrors := []string{}, []string{}
-		for recordIndex, record := range selected {
-			body := playbookFailureExcerpt(record, signature)
-			bodies = append(bodies, body)
-			excerptParts = append(excerptParts, fmt.Sprintf("--- run %d ---\n%s", recordIndex+1, body))
-			task := coreGet(record, "task", Object())
-			label := display(coreGet(task, "id", fmt.Sprintf("#%d", recordIndex+1)))
-			input := stableStringify(coreGet(task, "input", nil))
-			if len(input) > 240 {
-				input = input[:240]
-			}
-			taskParts = append(taskParts, fmt.Sprintf("- %s (score %.2f): %s", label, num(coreGet(record, "score", 0)), input))
-			prediction := coreGet(record, "prediction", Object())
-			for _, call := range asSlice(coreGet(prediction, "functionCalls", Array())) {
-				if len(functionCalls) < 20 {
-					functionCalls = append(functionCalls, stableStringify(call))
-				}
-			}
-			for _, toolError := range asSlice(coreGet(prediction, "toolErrors", Array())) {
-				if len(toolErrors) < 10 {
-					toolErrors = append(toolErrors, display(toolError))
-				}
-			}
-		}
-		hasBody := false
-		for _, body := range bodies {
-			if playbookCollapse(body) != "" {
-				hasBody = true
-				break
-			}
-		}
-		if !hasBody {
+		// TS's miner inputs: task summaries, action-log excerpts, function
+		// calls and tool errors of up to four records; none without an excerpt.
+		inputs := mustCore(_agent_playbook_miner_inputs(signature, records, p.Render()))
+		if inputs == nil {
 			continue
 		}
-		excerpts := strings.Join(excerptParts, "\n\n")
-		request := Object("clusterSignature", signature, "taskSummaries", strings.Join(taskParts, "\n"), "actionLogExcerpts", excerpts)
-		if len(functionCalls) > 0 {
-			coreSet(request, "functionCallSummary", strings.Join(functionCalls, "\n"))
-		}
-		if len(toolErrors) > 0 {
-			coreSet(request, "toolErrors", strings.Join(toolErrors, "\n"))
-		}
-		if rendered := p.Render(); strings.TrimSpace(rendered) != "" {
-			coreSet(request, "currentPlaybook", rendered)
-		}
+		request := asMap(inputs)
+		excerpts := display(coreGet(request, "actionLogExcerpts", ""))
 		miner := newSignatureProgram(agentPlaybookWeaknessMinerSignature(), Object("id", "agent.playbook.weakness-miner"))
 		mined, minerErr := miner.forward(ctx, teacherAI, request, cloneMap(minerOptions))
 		if minerErr != nil {
@@ -16121,6 +16054,18 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 				}
 			}
 			assertEqual(prompts, want, label+" teacher system prompts")
+		}
+		if want, ok := testCase["expected_teacher_user_messages"]; ok {
+			// Each teacher request's user message, in call order, byte for byte.
+			messages := Array()
+			for _, request := range teacher.Requests {
+				for _, message := range asSlice(coreGet(request, "chat_prompt", Array())) {
+					if display(coreGet(message, "role", "")) == "user" {
+						messages = append(messages, coreGet(message, "content", nil))
+					}
+				}
+			}
+			assertEqual(messages, want, label+" teacher user messages")
 		}
 		if len(outcomes) == 0 {
 			if expectedOutcomeCount != nil && int(num(expectedOutcomeCount)) == 0 {

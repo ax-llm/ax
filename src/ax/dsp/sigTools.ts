@@ -1,5 +1,5 @@
 import type { AxFunction, AxFunctionJSONSchema } from '../ai/types.js';
-import { type AxField, AxSignature } from './sig.js';
+import { type AxField, AxSignature, toFieldTitle } from './sig.js';
 import type { SignatureToolRouter } from './signatureToolRouter.js';
 
 /**
@@ -47,7 +47,7 @@ export function injectToolFields<
         if (!exists) {
           newSig.addOutputField({
             name: fieldName,
-            title: formatTitle(tool.name),
+            title: toFieldTitle(tool.name),
             type: fieldType,
             description: tool.description || `Parameters for ${tool.name}`,
             isOptional: true,
@@ -91,7 +91,7 @@ export function injectToolFields<
         if (!exists) {
           newSig.addOutputField({
             name: fieldName,
-            title: formatTitle(tool.name),
+            title: toFieldTitle(tool.name),
             type: fieldType,
             description: tool.description || `Parameters for ${tool.name}`,
             isOptional: true,
@@ -209,14 +209,6 @@ function sanitizeFieldName(name: string): string {
     .toLowerCase()
     .replace(/^_|_$/g, '')
     .replace(/[^a-z0-9_]/g, '_');
-}
-
-function formatTitle(name: string): string {
-  // Convert camelCase to Title Case
-  return name
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, (str) => str.toUpperCase())
-    .trim();
 }
 
 function inferToolFieldType(parameters?: AxFunctionJSONSchema) {

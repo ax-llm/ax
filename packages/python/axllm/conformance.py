@@ -2802,6 +2802,15 @@ def _run_agent_playbook_evolve(fixture):
                 if message.get("role") == "system"
             ]
             _assert_equal(prompts, case["expected_teacher_system_prompts"], f"playbook evolve {case.get('name')} teacher system prompts")
+        if "expected_teacher_user_messages" in case:
+            # Each teacher request's user message, in call order, byte for byte.
+            messages = [
+                message.get("content")
+                for request in teacher.requests
+                for message in (request.get("chat_prompt") or [])
+                if message.get("role") == "user"
+            ]
+            _assert_equal(messages, case["expected_teacher_user_messages"], f"playbook evolve {case.get('name')} teacher user messages")
         if not outcomes:
             if expected.get("outcome_count") == 0:
                 continue

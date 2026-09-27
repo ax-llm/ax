@@ -1960,6 +1960,17 @@ static void run_agent_playbook_evolve(Value fixture) {
       }
       assert_equal(Value(prompts), expected_teacher_prompts, label + " teacher system prompts");
     }
+    Value expected_teacher_users = Core::get(test_case, "expected_teacher_user_messages");
+    if (!expected_teacher_users.is_null()) {
+      // Each teacher request's user message, in call order, byte for byte.
+      Array messages;
+      for (const auto& request : teacher.requests) {
+        for (const auto& message : Core::iter(Core::get(request, "chat_prompt", Value::array()))) {
+          if (display(Core::get(message, "role")) == "user") messages.push_back(Core::get(message, "content"));
+        }
+      }
+      assert_equal(Value(messages), expected_teacher_users, label + " teacher user messages");
+    }
     if (outcomes.empty()) {
       if (!Core::get(expected, "outcome_count").is_null() && Core::number(Core::get(expected, "outcome_count")) == 0) continue;
       throw AxError("fixture", label + " produced no outcome: " + stringify(actual));
