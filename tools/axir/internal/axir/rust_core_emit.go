@@ -125,6 +125,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.agent.stage_usage":                     "core_agent_stage_usage",
 	"intrinsic.json.stable_stringify":                 "core_json_stable_stringify",
 	"intrinsic.program.apply_components":              "core_program_apply_components",
+	"intrinsic.program.signature":                     "core_program_signature",
 	"intrinsic.program.components":                    "core_program_components",
 	"intrinsic.string.split":                          "core_string_split",
 	"intrinsic.agent.callable.invoke":                 "core_agent_callable_invoke",

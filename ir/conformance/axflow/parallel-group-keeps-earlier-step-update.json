@@ -1,0 +1,145 @@
+{
+  "expected_output": {
+    "aResult": {
+      "summary": "new"
+    },
+    "bResult": {
+      "title": "title"
+    }
+  },
+  "expected_request_count": 2,
+  "input": {
+    "aResult": {
+      "summary": "old"
+    },
+    "topic": "x"
+  },
+  "kind": "flow",
+  "name": "parallel-group-keeps-earlier-step-update",
+  "responses": [
+    {
+      "content": "{\"summary\":\"new\"}"
+    },
+    {
+      "content": "{\"title\":\"title\"}"
+    }
+  ],
+  "returns": {
+    "aResult": "aResult",
+    "bResult": "bResult"
+  },
+  "source": {
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "name": "parallel-group-keeps-earlier-step-update",
+    "observed": {
+      "output": {
+        "aResult": {
+          "summary": "new"
+        },
+        "bResult": {
+          "title": "title"
+        }
+      },
+      "plan": {
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "barrier": false,
+                "kind": "execute",
+                "name": "a",
+                "reads": ["topic"],
+                "stepIndex": 0,
+                "writes": ["aResult"]
+              },
+              {
+                "barrier": false,
+                "kind": "execute",
+                "name": "b",
+                "reads": ["topic"],
+                "stepIndex": 1,
+                "writes": ["bResult"]
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "barrier": true,
+                "kind": "returns",
+                "name": "returns",
+                "reads": [],
+                "stepIndex": 2,
+                "writes": []
+              }
+            ]
+          }
+        ],
+        "maxParallelism": 2,
+        "parallelGroups": 2,
+        "steps": [
+          {
+            "barrier": false,
+            "kind": "execute",
+            "name": "a",
+            "reads": ["topic"],
+            "stepIndex": 0,
+            "writes": ["aResult"]
+          },
+          {
+            "barrier": false,
+            "kind": "execute",
+            "name": "b",
+            "reads": ["topic"],
+            "stepIndex": 1,
+            "writes": ["bResult"]
+          },
+          {
+            "barrier": true,
+            "kind": "returns",
+            "name": "returns",
+            "reads": [],
+            "stepIndex": 2,
+            "writes": []
+          }
+        ],
+        "totalSteps": 3
+      },
+      "rule": "A later step in a parallel group keeps an earlier step update to a key the state already held."
+    },
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "tsDerived": true
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "a",
+      "options": {
+        "isBarrier": false,
+        "reads": ["topic"],
+        "writes": ["aResult"]
+      },
+      "signature": "topic:string -> summary:string"
+    },
+    {
+      "kind": "execute",
+      "name": "b",
+      "options": {
+        "isBarrier": false,
+        "reads": ["topic"],
+        "writes": ["bResult"]
+      },
+      "signature": "topic:string -> title:string"
+    }
+  ]
+}

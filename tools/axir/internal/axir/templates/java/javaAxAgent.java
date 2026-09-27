@@ -543,6 +543,11 @@ public final class AxAgent implements AxProgram {
 
   public Map<String, Object> evaluateOptimizationTask(AiClient client, Map<String, Object> task, Map<String, Object> options) {
     Map<String, Object> opts = options == null ? Map.of() : options;
+    // A runtime on the evolve or optimize call runs each task, as it runs a
+    // forward call (the agent may hold only a runtime descriptor), unless
+    // forward_options names one.
+    Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(opts.getOrDefault("forward_options", Map.of())));
+    if (opts.get("runtime") != null && forwardOptions.get("runtime") == null) forwardOptions.put("runtime", opts.get("runtime"));
     // As TS evaluates each task from a fresh state, the prediction carries
     // only this run's share of the agent's logs.
     Object marks = Core._agent_eval_marks(state);
@@ -550,7 +555,7 @@ public final class AxAgent implements AxProgram {
     // TS's evaluation path runs no playbook run-end learning.
     state.put("playbook_learning_paused", true);
     try {
-      Map<String, Object> output = forward(client, Core.asMap(task.getOrDefault("input", task)), Core.asMap(opts.getOrDefault("forward_options", Map.of())));
+      Map<String, Object> output = forward(client, Core.asMap(task.getOrDefault("input", task)), forwardOptions);
       completion.put("type", "final");
       completion.put("output", output);
     } catch (AxAgentClarificationException e) {

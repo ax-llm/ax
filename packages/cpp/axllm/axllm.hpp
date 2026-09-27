@@ -443,6 +443,7 @@ struct Core {
   static Value object_call_method(Value target, Value method_name, Value arg = Value(), Value options = Value());
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
+  static Value program_signature(Value program);
   static Value ai_complete_once(Value client, Value request, Value options);
   // The run control updates a run's request boundary holds for its path:
   // take_pending hands them to the forward, which applies them when a step
@@ -796,7 +797,7 @@ struct Core {
   static Value _gemini_build_chat_request(Value request, Value options, Value is_vertex);
   static Value _gemini_clamp_thinking_level_impl(Value model, Value level);
   static Value _gemini_apply_thinking_config_impl(Value payload, Value model, Value model_config);
-  static Value _gemini_apply_model_config_impl(Value payload, Value model, Value model_config, Value server_managed_sampling, Value strict_flash_parameters);
+  static Value _gemini_apply_model_config_impl(Value payload, Value model, Value model_config, Value server_managed_sampling, Value strict_flash_parameters, Value is_vertex, Value explicit_keys);
   static Value _gemini_message_impl(Value message, Value function_names);
   static Value _gemini_content_parts_impl(Value content);
   static Value _gemini_content_part_impl(Value part);
@@ -809,8 +810,8 @@ struct Core {
   static Value _gemini_extract_citations_impl(Value candidate);
   static Value _gemini_usage_impl(Value usage);
   static Value _gemini_normalize_embed_response(Value raw, Value ai_name, Value model);
-  static Value _anthropic_build_chat_request(Value request, Value supports_none);
-  static Value _anthropic_apply_model_config_impl(Value payload, Value model_config, Value model);
+  static Value _anthropic_build_chat_request(Value request, Value supports_none, Value is_vertex);
+  static Value _anthropic_apply_model_config_impl(Value payload, Value model_config, Value model, Value explicit_keys, Value is_vertex);
   static Value _anthropic_is_adaptive_model_impl(Value model);
   static Value _anthropic_thinking_always_on_impl(Value model);
   static Value _anthropic_thinking_on_by_default_impl(Value model);
@@ -850,8 +851,12 @@ struct Core {
   static Value _provider_apply_model_sampling_support_impl(Value profile, Value provider, Value transport, Value request, Value options);
   static Value _provider_sampling_snake_key_impl(Value key);
   static Value _provider_sampling_request_reasons_impl(Value transport, Value model, Value config, Value supported);
-  static Value _provider_warn_dropped_sampling_impl(Value model, Value key, Value without_reasoning_only);
+  static Value _provider_warn_dropped_sampling_impl(Value model, Value key, Value reason);
   static Value _openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model);
+  static Value _provider_sampling_is_one_impl(Value value);
+  static Value _anthropic_sampling_impl(Value payload, Value model_config, Value model, Value explicit_keys, Value is_vertex);
+  static Value _anthropic_deprecates_sampling_impl(Value model);
+  static Value _gemini_apply_sampling_limits_impl(Value payload, Value model, Value model_config, Value server_managed_sampling, Value strict_flash_parameters, Value is_vertex, Value explicit_keys);
   static Value _ai_error_request(Value request, Value options);
   static Value chat_session_mode_enabled(Value options);
   static Value fold_stream(Value events);
@@ -1424,6 +1429,9 @@ struct Core {
   static Value _flow_mermaid_render_flow(Value flow, Value options);
   static Value _flow_from_mermaid(Value text, Value bindings);
   static Value _flow_to_mermaid(Value flow, Value options);
+  static Value _flow_group_step_changes(Value step, Value group_start, Value result_state);
+  static Value _flow_merge_group_step(Value current, Value step, Value group_start, Value result_state);
+  static Value _flow_step_program_io(Value kind, Value name, Value program, Value options);
   static Value ucp_negotiate_profile(Value profile, Value supportedVersions, Value requestedServices);
   static Value ucp_normalize_outcome(Value operation, Value response);
   static Value event_runtime_descriptor(Value routes, Value options);
@@ -1465,7 +1473,7 @@ struct Core {
   static Value mcp_resource_subscription_selection(Value resources, Value mode, Value explicit_uris);
   static Value mcp_resource_subscription_plan(Value desired, Value current);
   static Value mcp_resource_subscription_ownership(Value owners, Value owner, Value operation);
-  static Value mcp_listen_interests(Value subscribed_uris, Value filters);
+  static Value mcp_listen_interests(Value subscribed_uris, Value filters, Value task_ids);
   static Value mcp_notification_subscription_filter(Value message, Value active_subscription_id);
   static Value mcp_oauth_parse_www_authenticate(Value www_authenticate);
   static Value mcp_oauth_discovery_endpoints(Value requested_url, Value issuer, Value resource_metadata_url);
@@ -1480,6 +1488,7 @@ struct Core {
   static Value _mcp_tool_authorization_result(Value name, Value decision);
   static Value _mcp_inheritance_plan(Value mcp, Value ucp, Value inheritance);
   static Value mcp_websocket_request_ids(Value messages, Value protocol, Value batch);
+  static Value mcp_tool_call_outcome(Value result, Value tasks_negotiated);
   // END AXIR CORE EMITTED DECLARATIONS
 
 };
@@ -2609,6 +2618,8 @@ class AxAgent : public AxProgram {
 
  private:
   friend class AxExecutionContext;
+  // Core::program_signature reads the agent's signature from its state.
+  friend struct Core;
   std::shared_ptr<detail::AgentExecutionContext> execution_context_;
   std::vector<std::shared_ptr<AxAgent>> child_agents_;
   Value state_;

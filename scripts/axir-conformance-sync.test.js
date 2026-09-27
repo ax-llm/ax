@@ -136,6 +136,7 @@ describe('axir-conformance-sync helpers', () => {
               supported: {
                 structuredOutputs: true,
                 samplingWithoutReasoning: true,
+                temperatureOne: true,
                 reasoningOffByDefault: false,
               },
             },
@@ -157,7 +158,7 @@ describe('axir-conformance-sync helpers', () => {
         {
           name: 'gpt-5.4-mini',
           aliases: ['mini'],
-          supported: { samplingWithoutReasoning: true },
+          supported: { samplingWithoutReasoning: true, temperatureOne: true },
         },
       ],
     });

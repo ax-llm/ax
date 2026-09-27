@@ -1,7 +1,7 @@
 pub mod mcp;
 mod session;
 pub use session::{run_control, AxRunControl, AxForwardOptions, AxChatSession, AxSessionSocket, AxSessionWebSocketFactory};
-pub use mcp::{event_route, event_target, AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventCorrelationKey, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputPlan, AxEventInvocationContext, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPCatalogSnapshot, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPResourceSubscriptionPolicy, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPWebSocketTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxSystemEventClock, AxUCPBinding, AxUCPClient};
+pub use mcp::{event_route, event_target, AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventCorrelationKey, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputPlan, AxEventInvocationContext, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPCatalogSnapshot, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPResourceSubscriptionPolicy, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPWebSocketTransport, AxMCPStreamableHTTPTransport, AxMCPTaskHandling, AxMCPTokenSet, AxMCPToolCallOutcome, AxMCPTransport, AxSystemEventClock, AxUCPBinding, AxUCPClient};
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -5399,6 +5399,10 @@ pub trait AxExecutableProgram: AxProgram {
     fn get_chat_log(&self) -> Vec<Value> { Vec::new() }
     fn get_traces(&self) -> Vec<Value> { Vec::new() }
     fn get_usage(&self) -> Value { Value::Null }
+    /// The program's signature text, when it has one. A flow step added with
+    /// this program and no reads or writes reads its input fields and writes
+    /// its output fields; without a signature the step is a barrier.
+    fn signature_text(&self) -> Option<String> { None }
 }
 
 // This adapter is borrowed only within forward; no borrowed client crosses a thread boundary.
@@ -5440,6 +5444,7 @@ impl AxExecutableProgram for AxGen {
     fn get_chat_log(&self)->Vec<Value>{self.chat_log.clone()}
     fn get_traces(&self)->Vec<Value>{self.traces.clone()}
     fn get_usage(&self)->Value{json!(self.chat_log.iter().filter_map(|entry|entry.get("usage")).collect::<Vec<_>>())}
+    fn signature_text(&self)->Option<String>{Some(self.signature.to_string())}
 }
 
 impl AxExecutableProgram for AxFlow {
@@ -11590,14 +11595,24 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
         let agent_options = core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
         let script = fixture.get("runtime_script").and_then(Value::as_array).cloned().unwrap_or_default();
         let language = fixture.get("runtime_language").and_then(Value::as_str).unwrap_or("Python").to_string();
-        let runtime = ScriptedCodeRuntime::new(script, language, String::new());
-        let host = core_code_runtime_host_shared(
-            Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
-            core_runtime_capabilities_full(),
-        );
-        core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        let runtime = ScriptedCodeRuntime::new(script, language.clone(), String::new());
+        // runtime_on_evolve: the other ports' examples pass the runtime on the
+        // evolve call over a runtime descriptor. Rust takes no runtime per call;
+        // its example attaches the runtime with with_runtime over the
+        // descriptor, so the runner does that.
+        let runtime_on_evolve = fixture.get("runtime_on_evolve").and_then(Value::as_bool).unwrap_or(false);
         let signature = fixture.get("signature").and_then(Value::as_str).unwrap_or("question:string -> answer:string");
-        let mut agent = agent_with_core_options(signature, agent_options)?;
+        let mut agent = if runtime_on_evolve {
+            core_set(&agent_options, CoreValue::from("runtime"), core_value_from_json(&json!({"language": language})))?;
+            agent_with_core_options(signature, agent_options)?.with_runtime(Box::new(runtime))?
+        } else {
+            let host = core_code_runtime_host_shared(
+                Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
+                core_runtime_capabilities_full(),
+            );
+            core_set(&agent_options, CoreValue::from("runtime"), host)?;
+            agent_with_core_options(signature, agent_options)?
+        };
         let mut playbook_options = json!({"target":"responder","maxEpochs":1});
         if let (Some(target), Some(extra)) = (playbook_options.as_object_mut(), test_case.get("playbook_options").and_then(Value::as_object)) {
             for (key, value) in extra { target.insert(key.clone(), value.clone()); }
@@ -11687,6 +11702,15 @@ fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_request_count") {
         expect_json_equal("flow request count", &json!(actual["requests"].as_array().map_or(0,Vec::len)), expected)?;
     }
+    if let Some(expected) = fixture.get("expected_request_contains").and_then(Value::as_array) {
+        let text = serde_json::to_string(&actual["requests"]).unwrap_or_default();
+        for item in expected {
+            let needle = item.as_str().map(ToString::to_string).unwrap_or_else(|| item.to_string());
+            if !text.contains(&needle) {
+                return Err(AxError::new("fixture", format!("flow request missing {needle}: {text}")));
+            }
+        }
+    }
     if let Some(expected) = fixture.get("expected_speak_requests") {
         expect_json_equal("speak requests", actual.get("speak_requests").unwrap_or(&json!([])), expected)?;
     }
@@ -11727,7 +11751,11 @@ fn run_flow_mermaid_fixture(fixture: &Value) -> AxResult<()> {
         for step in fixture.get("builder_steps").and_then(Value::as_array).into_iter().flatten() {
             let name = step.get("name").and_then(Value::as_str).unwrap_or("");
             let signature = step.get("signature").and_then(Value::as_str).unwrap_or("");
-            let options = json!({"reads": step.get("reads").cloned().unwrap_or_else(|| json!([]))});
+            // A builder step without "reads" declares none.
+            let options = match step.get("reads") {
+                Some(reads) => json!({"reads": reads}),
+                None => json!({}),
+            };
             built = built.execute_with_options(name, ax(signature)?, &options);
         }
         return expect_json_equal(
@@ -11864,6 +11892,14 @@ fn conformance_flow_mapper_call(spec: &Value, state: &Value) -> Value {
             let val = conformance_flow_state_value(state, from, json!(""));
             let mut out = Map::new();
             out.insert(to.to_string(), json!(val.as_str().unwrap_or("").to_uppercase()));
+            Value::Object(out)
+        }
+        // As the other runners do: the value at "from", stored under "to".
+        "copy" => {
+            let from = map.get("from").and_then(Value::as_str).unwrap_or("");
+            let to = map.get("to").and_then(Value::as_str).unwrap_or("");
+            let mut out = Map::new();
+            out.insert(to.to_string(), conformance_flow_state_value(state, from, Value::Null));
             Value::Object(out)
         }
         _ => map.get("values").cloned().unwrap_or_else(|| json!({})),
@@ -24487,6 +24523,7 @@ impl CoreHost for ExecutableProgramHost {
             "get_chat_log"=>Ok(core_value_from_json(&json!(self.program.borrow().get_chat_log()))),
             "get_traces"=>Ok(core_value_from_json(&json!(self.program.borrow().get_traces()))),
             "get_usage"=>Ok(core_value_from_json(&self.program.borrow().get_usage())),
+            "signature_text"=>Ok(self.program.borrow().signature_text().map(|text|CoreValue::from(text.as_str())).unwrap_or(CoreValue::Null)),
             other=>Err(AxError::runtime(format!("Executable program has no method '{other}'"))),
         }
     }
@@ -24543,6 +24580,7 @@ impl CoreHost for GenHost {
                 Ok(core_value_from_json(&output))
             }
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(self.gen.borrow().chat_log.clone()))),
+            "signature_text" => Ok(CoreValue::from(self.gen.borrow().signature.to_string().as_str())),
             "get_traces" => Ok(core_value_from_json(&Value::Array(self.gen.borrow().traces.clone()))),
             "get_optimizable_components" => Ok(core_value_from_json(&Value::Array(
                 self.gen.borrow().get_optimizable_components(),
@@ -24662,6 +24700,10 @@ impl CoreHost for AgentHost {
                 Ok(core_value_from_json(&output))
             }
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(self.agent.borrow().get_chat_log()))),
+            "signature_text" => {
+                let signature = core_get(&self.agent.borrow().state, &CoreValue::from("signature"), CoreValue::Null);
+                signature_to_string(&[signature])
+            }
             "get_usage" => {
                 let usage = self.agent.borrow().get_usage();
                 Ok(core_value_from_json(&usage))
@@ -24798,6 +24840,15 @@ fn core_program_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     match core_host_try(&core_arg(args, 0), "get_optimizable_components", &[]) {
         Some(result) => result,
         None => Ok(CoreValue::new_list()),
+    }
+}
+
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+fn core_program_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_host_try(&core_arg(args, 0), "signature_text", &[]) {
+        Some(result) => result,
+        None => Ok(CoreValue::Null),
     }
 }
 

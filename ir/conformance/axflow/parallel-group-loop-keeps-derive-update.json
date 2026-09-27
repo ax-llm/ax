@@ -1,0 +1,101 @@
+{
+  "expected_output": {
+    "bResult": {
+      "title": "t2"
+    },
+    "label": 1,
+    "round": 2
+  },
+  "expected_request_count": 2,
+  "input": {
+    "round": 0,
+    "topic": "x"
+  },
+  "kind": "flow",
+  "name": "parallel-group-loop-keeps-derive-update",
+  "responses": [
+    {
+      "content": "{\"title\":\"t1\"}"
+    },
+    {
+      "content": "{\"title\":\"t2\"}"
+    }
+  ],
+  "returns": {
+    "bResult": "bResult",
+    "label": "label",
+    "round": "round"
+  },
+  "source": {
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "name": "parallel-group-loop-keeps-derive-update",
+    "observed": {
+      "output": {
+        "bResult": {
+          "title": "t2"
+        },
+        "label": 1,
+        "round": 2
+      },
+      "rule": "A derive step in a loop body parallel group keeps each iteration update."
+    },
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "tsDerived": true
+  },
+  "steps": [
+    {
+      "condition": {
+        "field": "round",
+        "op": "lt",
+        "value": 2
+      },
+      "kind": "while",
+      "name": "rounds",
+      "options": {
+        "maxIterations": 5
+      },
+      "steps": [
+        {
+          "kind": "derive",
+          "mapper": {
+            "from": "__item",
+            "op": "copy",
+            "to": "__derived"
+          },
+          "name": "label",
+          "options": {
+            "isBarrier": false,
+            "reads": ["round"],
+            "writes": ["label"]
+          }
+        },
+        {
+          "kind": "execute",
+          "name": "b",
+          "options": {
+            "isBarrier": false,
+            "reads": ["topic"],
+            "writes": ["bResult"]
+          },
+          "signature": "topic:string -> title:string"
+        },
+        {
+          "kind": "map",
+          "mapper": {
+            "field": "round",
+            "op": "increment"
+          },
+          "name": "nextRound"
+        }
+      ]
+    }
+  ]
+}

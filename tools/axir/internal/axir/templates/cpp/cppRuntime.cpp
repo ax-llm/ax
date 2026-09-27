@@ -2011,6 +2011,14 @@ Value Core::program_apply_components(Value program, Value component_map) {
   if (stage_ptr) stage_ptr->apply_optimized_components(std::move(component_map));
   return Value::object();
 }
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+Value Core::program_signature(Value program) {
+  auto* stage_ptr = registered_stage(str(get_key(program, "__agent_stage_id")));
+  if (auto* gen = dynamic_cast<AxGen*>(stage_ptr)) return Core::signature_to_string(Core::get(gen->value(), "signature"));
+  if (auto* agent = dynamic_cast<AxAgent*>(stage_ptr)) return Core::signature_to_string(Core::get(agent->state_, "signature"));
+  return Value();
+}
 Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
   AIClient* registered = registered_client(id);
@@ -8581,7 +8589,12 @@ AxAgent& AxAgent::apply_optimization(Value artifact) {
 }
 Value AxAgent::evaluate_optimization_task(AIClient& client, Value task, Value options) {
   Value input = Core::get(task, "input", task);
-  Value forward_options = Core::get(options, "forward_options", Value::object());
+  // A runtime on the evolve or optimize call runs each task, as it runs a
+  // forward call (the agent may hold only a runtime descriptor), unless
+  // forward_options names one. A copy: the caller's options stay as they are.
+  Value forward_options = Core::map_merge(Value::object(), Core::get(options, "forward_options", Value::object()));
+  Value call_runtime = Core::get(options, "runtime");
+  if (!call_runtime.is_null() && Core::get(forward_options, "runtime").is_null()) Core::set(forward_options, "runtime", call_runtime);
   // As TS evaluates each task from a fresh state, the prediction carries only
   // this run's share of the agent's logs.
   Value marks = Core::_agent_eval_marks(state_);

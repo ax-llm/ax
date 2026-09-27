@@ -1987,7 +1987,12 @@ static void run_agent_playbook_evolve(Value fixture) {
         display(Core::get(fixture, "runtime_language", "Python")),
         "");
     Value agent_options = Core::get(fixture, "options", Value::object());
-    Core::set(agent_options, "runtime", Core::code_runtime_ref(runtime));
+    // runtime_on_evolve: the agent gets only a runtime descriptor and the
+    // runtime goes on the evolve call, as the examples pass it.
+    bool runtime_on_evolve = Core::truthy(Core::get(fixture, "runtime_on_evolve", false));
+    Core::set(agent_options, "runtime", runtime_on_evolve
+        ? object({{"language", display(Core::get(fixture, "runtime_language", "Python"))}})
+        : Core::code_runtime_ref(runtime));
     AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), agent_options);
     Value playbook_options = Core::map_merge(object({{"target", "responder"}, {"maxEpochs", 1}}), parse_json(stringify(Core::get(test_case, "playbook_options", Value::object()))));
     AxPlaybook& playbook = ag.playbook(client, playbook_options, &teacher);
@@ -1997,9 +2002,11 @@ static void run_agent_playbook_evolve(Value fixture) {
     // The C++ evolve runs its miner on the playbook's teacher (no evolve-level
     // teacherAI option: a Value cannot hold a client), so the teacher is only
     // passed to playbook() above.
+    Value evolve_options = parse_json(stringify(Core::get(test_case, "options", Value::object())));
+    if (runtime_on_evolve) Core::set(evolve_options, "runtime", Core::code_runtime_ref(runtime));
     Value actual = playbook.evolve(
         Core::get(fixture, "dataset", Value::object()),
-        Core::get(test_case, "options", Value::object()));
+        evolve_options);
     Array outcomes = Core::iter(Core::get(actual, "outcomes", Value::array()));
     std::string label = "playbook evolve " + display(Core::get(test_case, "name", "case"));
     Value expected = Core::get(test_case, "expected", Value::object());
@@ -4024,7 +4031,9 @@ static void run_flow_mermaid(Value fixture) {
     AxFlow built;
     std::vector<std::unique_ptr<AxGen>> programs;
     for (const auto& raw : Core::iter(Core::get(fixture, "builder_steps", Value::array()))) {
-      Value options = object({{"reads", Core::get(raw, "reads", Value::array())}});
+      // A builder step without "reads" declares none.
+      Value reads = Core::get(raw, "reads");
+      Value options = reads.is_null() ? Value::object() : object({{"reads", reads}});
       auto program = std::make_unique<AxGen>(s(display(Core::get(raw, "signature"))));
       built.execute(display(Core::get(raw, "name")), *program, options);
       programs.push_back(std::move(program));
