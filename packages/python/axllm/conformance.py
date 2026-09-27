@@ -1208,6 +1208,11 @@ def _run_forward(fixture):
     sig = _build_signature(fixture)
     tools, tool_calls = _build_tools(fixture.get("tools") or [])
     options = {"functions": tools, **(fixture.get("options") or {})}
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), speak_responses=fixture.get("speak_responses"), **_scripted_client_kwargs(fixture.get("client")))
+    control_events = []
+    if fixture.get("constructor_control"):
+        # The run control is a constructor default, not a call option.
+        control_events = _attach_fixture_control(fixture, client, options)
     gen = ax(sig, options)
     if "examples" in fixture:
         gen.set_examples(fixture.get("examples") or [])
@@ -1227,9 +1232,7 @@ def _run_forward(fixture):
                 _assert_equal(samples, fixture["expected_picker_samples"], "result picker samples")
             return fixture["result_picker_index"]
         gen.set_result_picker(pick_result)
-    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), speak_responses=fixture.get("speak_responses"), **_scripted_client_kwargs(fixture.get("client")))
     forward_options = fixture.get("forward_options")
-    control_events = []
     if fixture.get("control"):
         forward_options = dict(forward_options or {})
         control_events = _attach_fixture_control(fixture, client, forward_options)
@@ -1421,6 +1424,8 @@ def _run_cache_sequence(fixture):
     options = dict(fixture.get("options") or {})
     if cache_in == "constructor":
         options["caching_function"] = caching_function
+    if fixture.get("constructor_control"):
+        options["control"] = run_control()
     gen = ax(_build_signature(fixture), options)
     if "result_picker_index" in fixture:
         gen.set_result_picker(lambda samples: fixture["result_picker_index"])
@@ -1539,7 +1544,13 @@ def _run_flow_cache_sequence(fixture):
 def _run_streaming_forward(fixture):
     sig = _build_signature(fixture)
     tools, tool_calls = _build_tools(fixture.get("tools") or [])
-    gen = ax(sig, {"functions": tools, **(fixture.get("options") or {})})
+    options = {"functions": tools, **(fixture.get("options") or {})}
+    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"), speak_responses=fixture.get("speak_responses"))
+    control_events = []
+    if fixture.get("constructor_control"):
+        # The run control is a constructor default, not a call option.
+        control_events = _attach_fixture_control(fixture, client, options)
+    gen = ax(sig, options)
     for assertion in fixture.get("assertions") or []:
         gen.add_assert(assertion)
     for assertion in fixture.get("streaming_assertions") or []:
@@ -1554,9 +1565,7 @@ def _run_streaming_forward(fixture):
         gen.set_result_picker(lambda samples: fixture["result_picker_index"])
     if "stop_functions" in fixture:
         gen.set_stop_functions(fixture.get("stop_functions") or [])
-    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"), speak_responses=fixture.get("speak_responses"))
     run_options = dict(fixture.get("forward_options") or {})
-    control_events = []
     if fixture.get("control"):
         control_events = _attach_fixture_control(fixture, client, run_options)
     deltas = []
@@ -2796,6 +2805,15 @@ def _run_agent_playbook_evolve(fixture):
                 if message.get("role") == "system"
             ]
             _assert_equal(prompts, case["expected_teacher_system_prompts"], f"playbook evolve {case.get('name')} teacher system prompts")
+        if "expected_teacher_user_messages" in case:
+            # Each teacher request's user message, in call order, byte for byte.
+            messages = [
+                message.get("content")
+                for request in teacher.requests
+                for message in (request.get("chat_prompt") or [])
+                if message.get("role") == "user"
+            ]
+            _assert_equal(messages, case["expected_teacher_user_messages"], f"playbook evolve {case.get('name')} teacher user messages")
         if not outcomes:
             if expected.get("outcome_count") == 0:
                 continue

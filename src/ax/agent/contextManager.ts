@@ -7,7 +7,7 @@
  */
 
 import type { AxAIService } from '../ai/types.js';
-import { AxGen } from '../dsp/generate.js';
+import { AxGen, withoutRunScopedOptions } from '../dsp/generate.js';
 import { f } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
 import {
@@ -1021,12 +1021,12 @@ function buildInternalSummaryProgramOptions(
 ): InternalSummaryForwardOptions {
   const sanitized = sanitizeInternalSummaryOptions(options);
 
-  return {
+  return withoutRunScopedOptions({
     ...sanitized,
     description,
     traceLabel: sanitized.traceLabel ?? traceLabel,
     maxSteps: 1,
-  };
+  });
 }
 
 function buildInternalSummaryCallOptions(

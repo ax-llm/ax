@@ -269,18 +269,9 @@ public final class AxPlaybook {
       return line.substring(0, Math.min(100, line.length()));
     }
     if (record.get("error") != null) return extractErrorSignature(record.get("error"));
-    Matcher actionError = ACTION_ERROR_SIGNATURE.matcher(String.valueOf(prediction.getOrDefault("actionLog", "")));
+    // The action log as TS's prediction carries it: the executor's code steps as text.
+    Matcher actionError = ACTION_ERROR_SIGNATURE.matcher(String.valueOf(Core._agent_playbook_action_log_text(prediction.get("actionLog"))));
     return actionError.find() ? extractErrorSignature(actionError.group(1)) : "behavioral:no_error";
-  }
-
-  private static String failureExcerpt(Map<String, Object> record, String signature) {
-    if (record.get("error") != null) return "Run threw: " + record.get("error");
-    String actionLog = String.valueOf(Core.get(record.get("prediction"), "actionLog", ""));
-    if (actionLog.length() <= 2000) return actionLog;
-    int hit = actionLog.indexOf(signature.substring(0, Math.min(40, signature.length())));
-    if (hit < 0) return actionLog.substring(actionLog.length() - 2000);
-    int start = Math.max(0, hit - 1000);
-    return actionLog.substring(start, Math.min(actionLog.length(), start + 2000));
   }
 
   private static List<Object> coerceList(Object value) {
@@ -290,47 +281,16 @@ public final class AxPlaybook {
 
   private Map<String, Object> mineWeakness(
       String signature, List<Map<String, Object>> records, int proposalIndex, AiClient teacher, Map<String, Object> teacherOptions) {
-    List<Map<String, Object>> selected = records.subList(0, Math.min(4, records.size()));
-    List<String> bodies = new ArrayList<>();
-    StringBuilder excerpts = new StringBuilder();
-    StringBuilder taskSummaries = new StringBuilder();
-    List<String> functionCalls = new ArrayList<>();
-    List<String> toolErrors = new ArrayList<>();
-    for (int i = 0; i < selected.size(); i++) {
-      Map<String, Object> record = selected.get(i);
-      String body = failureExcerpt(record, signature);
-      bodies.add(body);
-      if (i > 0) excerpts.append("\n\n");
-      excerpts.append("--- run ").append(i + 1).append(" ---\n").append(body);
-      Map<String, Object> task = Core.asMap(record.get("task"));
-      String taskId = task.get("id") == null ? "#" + (i + 1) : String.valueOf(task.get("id"));
-      String input = Json.stringify(task.get("input"));
-      if (input.length() > 240) input = input.substring(0, 240);
-      if (i > 0) taskSummaries.append('\n');
-      taskSummaries.append("- ").append(taskId).append(" (score ")
-          .append(String.format("%.2f", ((Number) record.getOrDefault("score", 0)).doubleValue()))
-          .append("): ").append(input);
-      Map<String, Object> prediction = Core.asMap(record.get("prediction"));
-      for (Object call : Core.asList(prediction.getOrDefault("functionCalls", List.of()))) {
-        if (functionCalls.size() < 20) functionCalls.add(Json.stringify(call));
-      }
-      for (Object error : Core.asList(prediction.getOrDefault("toolErrors", List.of()))) {
-        if (toolErrors.size() < 10) toolErrors.add(String.valueOf(error));
-      }
-    }
-    if (bodies.stream().noneMatch(body -> !collapse(body).isEmpty())) return null;
-    Map<String, Object> request = new LinkedHashMap<>();
-    request.put("clusterSignature", signature);
-    request.put("taskSummaries", taskSummaries.toString());
-    request.put("actionLogExcerpts", excerpts.toString());
-    if (!functionCalls.isEmpty()) request.put("functionCallSummary", String.join("\n", functionCalls));
-    if (!toolErrors.isEmpty()) request.put("toolErrors", String.join("\n", toolErrors));
-    String currentPlaybook = render();
-    if (!currentPlaybook.isBlank()) request.put("currentPlaybook", currentPlaybook);
+    // TS's miner inputs: task summaries, action-log excerpts, function calls
+    // and tool errors of up to four records; none without an excerpt.
+    Object inputs = Core._agent_playbook_miner_inputs(signature, new ArrayList<Object>(records), render());
+    if (!(inputs instanceof Map<?, ?>)) return null;
+    Map<String, Object> request = new LinkedHashMap<>(Core.asMap(inputs));
+    String excerpts = String.valueOf(request.getOrDefault("actionLogExcerpts", ""));
 
     AxGen miner = new AxGen(weaknessMinerSignature(), Map.of("id", "agent.playbook.weakness-miner"));
     Map<String, Object> mined = miner.forward(teacher, request, new LinkedHashMap<>(teacherOptions));
-    String haystack = collapse(excerpts.toString());
+    String haystack = collapse(excerpts);
     List<Object> evidence = new ArrayList<>();
     for (Object quote : coerceList(mined.get("evidenceQuotes"))) {
       String text = String.valueOf(quote);

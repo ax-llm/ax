@@ -473,11 +473,16 @@ final class Core {
   static Object stringWords(Object value) { return Arrays.asList(String.valueOf(value).split("\\s+")); }
   static Object stringDefaultIfEmpty(Object value, Object fallback) { String text = String.valueOf(value).trim(); return text.isEmpty() ? fallback : text; }
   static Object stringFormat(Object template, Object... args) {
+    // Each value fills the next {} after the previous one, so a value that
+    // itself contains {} is not formatted again.
     String out = String.valueOf(template);
+    int cursor = 0;
     for (Object arg : args) {
-      int index = out.indexOf("{}");
+      int index = out.indexOf("{}", cursor);
       if (index < 0) break;
-      out = out.substring(0, index) + display(arg) + out.substring(index + 2);
+      String text = display(arg);
+      out = out.substring(0, index) + text + out.substring(index + 2);
+      cursor = index + text.length();
     }
     return out;
   }
@@ -9587,6 +9592,9 @@ final class Core {
       if (Core.truthy(is_meta)) {
         responses_payload = Core._meta_prepare_responses_request(responses_payload, request, options);
       }
+      if (!Core.truthy(is_meta)) {
+        responses_payload = Core._openai_responses_apply_prompt_cache_retention(responses_payload, request, options, model);
+      }
       payload = Core.openai_responses_apply_astra_caching(responses_payload, request, options);
     }
     if (!Core.truthy(is_responses)) {
@@ -15143,6 +15151,25 @@ final class Core {
     Object project = Core.get(options, "projectId", project_snake);
     Object url = Core.stringFormat("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", base_url, project, model);
     return url;
+  }
+
+  static Object _openai_responses_apply_prompt_cache_retention(Object payload, Object request, Object options, Object model) {
+    axirCoverageMark("_openai_responses_apply_prompt_cache_retention");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object model_config_snake = Core.get(request, "model_config", empty_map);
+    Object model_config = Core.get(request, "modelConfig", model_config_snake);
+    Object config_retention_snake = Core.get(model_config, "prompt_cache_retention", null);
+    Object config_retention = Core.get(model_config, "promptCacheRetention", config_retention_snake);
+    Object option_retention_snake = Core.get(options, "prompt_cache_retention", config_retention);
+    Object retention = Core.get(options, "promptCacheRetention", option_retention_snake);
+    Object has_retention = Core.truthyValue(retention);
+    Object is_astra = Core._openai_is_gpt6_astra_impl(model);
+    Object not_astra = Core.not(is_astra);
+    Object send = Core.and(has_retention, not_astra);
+    if (Core.truthy(send)) {
+      Core.set(payload, "prompt_cache_retention", retention);
+    }
+    return payload;
   }
 
   static Object _ai_error_request(Object request, Object options) {
@@ -27066,7 +27093,9 @@ final class Core {
     axirCoverageMark("_caching_function_option_impl");
     Object empty = new java.util.LinkedHashMap<String, Object>();
     Object call_options = Core.mapMerge(empty, options);
-    Object control = Core.get(call_options, "control", null);
+    Object base_options = Core.get(gen, "options", empty);
+    Object run_options = Core.mapMerge(base_options, call_options);
+    Object control = Core.get(run_options, "control", null);
     Object controlled = Core.isNotNone(control);
     if (Core.truthy(controlled)) {
       Object no_cache = Core.none();
@@ -33765,6 +33794,17 @@ final class Core {
         }
         Core.set(entry, "tags", tags);
       }
+      Object has_stage = Core.mapContains(entry, "stage");
+      if (Core.truthy(has_stage)) {
+        // empty
+      }
+      if (!Core.truthy(has_stage)) {
+        Object active_stage = Core.get(state, "active_stage", null);
+        Object stage_known = Core.isNotNone(active_stage);
+        if (Core.truthy(stage_known)) {
+          Core.set(entry, "stage", active_stage);
+        }
+      }
     }
     Core.append(log, entry);
     Core.set(state, "action_log", log);
@@ -35505,6 +35545,277 @@ final class Core {
       }
     }
     return output;
+  }
+
+  static Object _agent_playbook_config_seed(Object config) {
+    axirCoverageMark("_agent_playbook_config_seed");
+    Object none = Core.none();
+    Object value = Core.get(config, "playbook", null);
+    Object value_is_object = Core.typeIs(value, "object");
+    if (Core.truthy(value_is_object)) {
+      Object has_playbook = Core.mapContains(value, "playbook");
+      Object has_artifact = Core.mapContains(value, "artifact");
+      Object is_snapshot = Core.and(has_playbook, has_artifact);
+      if (Core.truthy(is_snapshot)) {
+        return value;
+      }
+      Object bare = new java.util.LinkedHashMap<String, Object>();
+      Core.set(bare, "playbook", value);
+      Object config_artifact = Core.get(config, "artifact", null);
+      Object has_config_artifact = Core.isNotNone(config_artifact);
+      if (Core.truthy(has_config_artifact)) {
+        Core.set(bare, "artifact", config_artifact);
+      }
+      return bare;
+    }
+    Object legacy = Core.get(config, "seed", null);
+    Object legacy_is_object = Core.typeIs(legacy, "object");
+    if (Core.truthy(legacy_is_object)) {
+      Core.axgenDeprecation("agent-playbook-seed-snapshot", "A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed.");
+      Object legacy_has_playbook = Core.mapContains(legacy, "playbook");
+      if (Core.truthy(legacy_has_playbook)) {
+        return legacy;
+      }
+      Object wrapped = new java.util.LinkedHashMap<String, Object>();
+      Core.set(wrapped, "playbook", legacy);
+      return wrapped;
+    }
+    Object artifact = Core.get(config, "artifact", null);
+    Object has_artifact_only = Core.isNotNone(artifact);
+    if (Core.truthy(has_artifact_only)) {
+      Object artifact_seed = new java.util.LinkedHashMap<String, Object>();
+      Core.set(artifact_seed, "artifact", artifact);
+      return artifact_seed;
+    }
+    return none;
+  }
+
+  static Object _agent_playbook_action_log_text(Object action_log) {
+    axirCoverageMark("_agent_playbook_action_log_text");
+    Object is_text = Core.typeIs(action_log, "string");
+    if (Core.truthy(is_text)) {
+      return action_log;
+    }
+    Object is_list = Core.typeIs(action_log, "list");
+    Object not_list = Core.not(is_list);
+    if (Core.truthy(not_list)) {
+      return "";
+    }
+    Object tagged = Boolean.FALSE;
+    for (Object probe : Core.iter(action_log)) {
+      Object probe_stage = Core.get(probe, "stage", null);
+      Object probe_has_stage = Core.isNotNone(probe_stage);
+      if (Core.truthy(probe_has_stage)) {
+        tagged = Boolean.TRUE;
+      }
+    }
+    Object parts = new java.util.ArrayList<Object>();
+    for (Object entry : Core.iter(action_log)) {
+      Object type = Core.get(entry, "type", "");
+      Object is_step = Core.eq(type, "runtime_step");
+      if (Core.truthy(is_step)) {
+        Object stage = Core.get(entry, "stage", "executor");
+        Object is_executor = Core.eq(stage, "executor");
+        Object untagged = Core.not(tagged);
+        Object keep = Core.or(is_executor, untagged);
+        if (Core.truthy(keep)) {
+          Object code = Core.get(entry, "code", "");
+          Object output = Core.get(entry, "output", "");
+          Object output_empty = Core.eq(output, "");
+          Object is_error = Core.get(entry, "is_error", Boolean.FALSE);
+          Object error = Core.get(entry, "error", "");
+          Object error_text = Core.ne(error, "");
+          Object use_error = Core.and(output_empty, is_error);
+          use_error = Core.and(use_error, error_text);
+          if (Core.truthy(use_error)) {
+            output = error;
+          }
+          Object still_empty = Core.eq(output, "");
+          if (Core.truthy(still_empty)) {
+            output = "(no output)";
+          }
+          Object part = Core.stringFormat("```javascript\n{}\n```\nResult:\n{}", code, output);
+          Core.append(parts, part);
+        }
+      }
+    }
+    Object text = Core.stringJoin("\n\n", parts);
+    return text;
+  }
+
+  static Object _agent_playbook_truncate(Object text, Object max_chars) {
+    axirCoverageMark("_agent_playbook_truncate");
+    Object length = Core.len(text);
+    Object too_long = Core.gt(length, max_chars);
+    if (Core.truthy(too_long)) {
+      Object head = Core.stringSlice(text, 0, max_chars);
+      Object cut = Core.stringFormat("{}…", head);
+      return cut;
+    }
+    return text;
+  }
+
+  static Object _agent_playbook_score_text(Object score) {
+    axirCoverageMark("_agent_playbook_score_text");
+    Object negative = Core.lt(score, 0);
+    Object magnitude = Core.mathAbs(score);
+    Object scaled = Core.mul(magnitude, 100);
+    Object shifted = Core.add(scaled, 0.5);
+    Object hundredths = Core.mathFloor(shifted);
+    Object whole_float = Core.div(hundredths, 100);
+    Object whole = Core.mathFloor(whole_float);
+    Object whole_hundredths = Core.mul(whole, -100);
+    Object fraction = Core.add(hundredths, whole_hundredths);
+    Object whole_text = Core.stringStr(whole);
+    Object fraction_text = Core.stringStr(fraction);
+    Object one_digit = Core.lt(fraction, 10);
+    if (Core.truthy(one_digit)) {
+      fraction_text = Core.stringFormat("0{}", fraction_text);
+    }
+    Object text = Core.stringFormat("{}.{}", whole_text, fraction_text);
+    Object nonzero = Core.gt(hundredths, 0);
+    Object show_sign = Core.and(negative, nonzero);
+    if (Core.truthy(show_sign)) {
+      text = Core.stringFormat("-{}", text);
+    }
+    return text;
+  }
+
+  static Object _agent_playbook_miner_inputs(Object signature, Object records, Object current_playbook) {
+    axirCoverageMark("_agent_playbook_miner_inputs");
+    Object selected = new java.util.ArrayList<Object>();
+    for (Object record : Core.iter(records)) {
+      Object count = Core.len(selected);
+      Object room = Core.lt(count, 4);
+      if (Core.truthy(room)) {
+        Core.append(selected, record);
+      }
+    }
+    Object summaries = new java.util.ArrayList<Object>();
+    Object excerpts = new java.util.ArrayList<Object>();
+    Object calls = new java.util.ArrayList<Object>();
+    Object errors = new java.util.ArrayList<Object>();
+    Object position = 0;
+    Object any_body = Boolean.FALSE;
+    Object needle = Core.stringSlice(signature, 0, 40);
+    for (Object record : Core.iter(selected)) {
+      Object number = Core.add(position, 1);
+      position = number;
+      Object empty_map = new java.util.LinkedHashMap<String, Object>();
+      Object task = Core.get(record, "task", empty_map);
+      Object number_text = Core.stringStr(number);
+      Object default_label = Core.stringFormat("#{}", number_text);
+      Object label = Core.get(task, "id", default_label);
+      Object input = Core.get(task, "input", null);
+      Object input_json = Core.jsonStringify(input);
+      Object input_text = Core._agent_playbook_truncate(input_json, 240);
+      Object score = Core.get(record, "score", 0);
+      Object score_text = Core._agent_playbook_score_text(score);
+      Object summary = Core.stringFormat("- {} (score {}): {}", label, score_text, input_text);
+      Core.append(summaries, summary);
+      Object prediction = Core.get(record, "prediction", empty_map);
+      Object error = Core.get(record, "error", null);
+      Object error_is_map = Core.typeIs(error, "object");
+      if (Core.truthy(error_is_map)) {
+        error = Core.get(error, "message", "");
+      }
+      Object has_error = Core.truthyValue(error);
+      Object body = "";
+      if (Core.truthy(has_error)) {
+        body = Core.stringFormat("Run threw: {}", error);
+      }
+      if (!Core.truthy(has_error)) {
+        Object raw_log = Core.get(prediction, "actionLog", null);
+        Object log = Core._agent_playbook_action_log_text(raw_log);
+        Object log_length = Core.len(log);
+        Object fits = Core.lte(log_length, 2000);
+        if (Core.truthy(fits)) {
+          body = log;
+        }
+        if (!Core.truthy(fits)) {
+          Object hit = Core.stringIndexOf(log, needle, 0);
+          Object missing = Core.lt(hit, 0);
+          if (Core.truthy(missing)) {
+            Object tail_start = Core.add(log_length, -2000);
+            body = Core.stringSlice(log, tail_start);
+          }
+          if (!Core.truthy(missing)) {
+            Object window_start = Core.add(hit, -1000);
+            Object before_zero = Core.lt(window_start, 0);
+            if (Core.truthy(before_zero)) {
+              window_start = 0;
+            }
+            Object window_end = Core.add(window_start, 2000);
+            body = Core.stringSlice(log, window_start, window_end);
+          }
+        }
+      }
+      Object body_trimmed = Core.stringTrim(body);
+      Object body_present = Core.ne(body_trimmed, "");
+      if (Core.truthy(body_present)) {
+        any_body = Boolean.TRUE;
+      }
+      Object excerpt = Core.stringFormat("--- run {} ---\n{}", number_text, body);
+      Core.append(excerpts, excerpt);
+      Object empty_list = new java.util.ArrayList<Object>();
+      Object record_calls = Core.get(prediction, "functionCalls", empty_list);
+      for (Object call : Core.iter(record_calls)) {
+        Object call_count = Core.len(calls);
+        Object call_room = Core.lt(call_count, 20);
+        if (Core.truthy(call_room)) {
+          Object qualified = Core.get(call, "qualifiedName", "");
+          Object arguments = Core.get(call, "arguments", null);
+          Object arguments_json = Core.jsonStringify(arguments);
+          Object arguments_text = Core._agent_playbook_truncate(arguments_json, 120);
+          Object line = Core.stringFormat("{}({})", qualified, arguments_text);
+          Object call_error = Core.get(call, "error", null);
+          Object has_call_error = Core.truthyValue(call_error);
+          if (Core.truthy(has_call_error)) {
+            Object call_error_text = Core.stringStr(call_error);
+            Object call_error_cut = Core._agent_playbook_truncate(call_error_text, 120);
+            line = Core.stringFormat("{} -> ERROR {}", line, call_error_cut);
+          }
+          Core.append(calls, line);
+        }
+      }
+      Object record_errors = Core.get(prediction, "toolErrors", empty_list);
+      for (Object tool_error : Core.iter(record_errors)) {
+        Object error_count = Core.len(errors);
+        Object error_room = Core.lt(error_count, 10);
+        if (Core.truthy(error_room)) {
+          Object tool_error_text = Core.stringStr(tool_error);
+          Core.append(errors, tool_error_text);
+        }
+      }
+    }
+    Object no_body = Core.not(any_body);
+    if (Core.truthy(no_body)) {
+      Object nothing = Core.none();
+      return nothing;
+    }
+    Object inputs = new java.util.LinkedHashMap<String, Object>();
+    Core.set(inputs, "clusterSignature", signature);
+    Object summaries_text = Core.stringJoin("\n", summaries);
+    Core.set(inputs, "taskSummaries", summaries_text);
+    Object excerpts_text = Core.stringJoin("\n\n", excerpts);
+    Core.set(inputs, "actionLogExcerpts", excerpts_text);
+    Object call_total = Core.len(calls);
+    Object has_calls = Core.gt(call_total, 0);
+    if (Core.truthy(has_calls)) {
+      Object calls_text = Core.stringJoin("\n", calls);
+      Core.set(inputs, "functionCallSummary", calls_text);
+    }
+    Object error_total = Core.len(errors);
+    Object has_errors = Core.gt(error_total, 0);
+    if (Core.truthy(has_errors)) {
+      Object errors_text = Core.stringJoin("\n", errors);
+      Core.set(inputs, "toolErrors", errors_text);
+    }
+    Object has_playbook = Core.ne(current_playbook, "");
+    if (Core.truthy(has_playbook)) {
+      Core.set(inputs, "currentPlaybook", current_playbook);
+    }
+    return inputs;
   }
 
   static Object _agent_collect_covered_failure_signatures(Object snapshot) {

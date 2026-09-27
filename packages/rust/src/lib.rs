@@ -5779,6 +5779,7 @@ pub struct AxGen {
     field_transforms: Vec<AxGenFieldTransform>,
     caching_function: Option<AxCachingFunction>,
     host_assertions: Vec<AxGenHostAssertionFn>,
+    control: Option<AxRunControl>,
 }
 
 pub fn ax(spec: &str) -> AxResult<AxGen> {
@@ -5815,6 +5816,10 @@ impl AxGen {
         let field_transforms = self.field_transforms.clone();
         let caching_function = self.caching_function.clone();
         let host_assertions = self.host_assertions.clone();
+        // The program's run control goes with it, as TS's parallel flow nodes
+        // share their program: a worker's run uses it unless a caller's
+        // control reaches the worker (see session::with_program_control).
+        let control = self.control.clone();
         Some(Box::new(move || AxGen {
             execution_context: None,
             signature,
@@ -5838,6 +5843,7 @@ impl AxGen {
             field_transforms,
             caching_function,
             host_assertions,
+            control,
         }))
     }
 
@@ -5874,6 +5880,7 @@ impl AxGen {
             field_transforms: Vec::new(),
             caching_function: None,
             host_assertions: Vec::new(),
+            control: None,
         }
     }
 
@@ -6094,10 +6101,28 @@ impl AxGen {
     /// A call's own function
     /// ([`forward_with_caching_function`](Self::forward_with_caching_function))
     /// takes precedence over this one, and this one over the process-wide
-    /// function ([`set_caching_function`]). A run under a control
-    /// ([`AxForwardOptions::with_control`]) skips the cache.
+    /// function ([`set_caching_function`]). A run under a control, the call's
+    /// ([`AxForwardOptions::with_control`]) or the program's
+    /// ([`with_control`](Self::with_control)), skips the cache.
     pub fn with_caching_function(mut self, caching_function: AxCachingFunction) -> Self {
         self.caching_function = Some(caching_function);
+        self
+    }
+
+    /// Gives this program a run control for every forward and streaming
+    /// forward, as TypeScript's constructor `control` option does: each run
+    /// reports its `started`, `completed`, `failed` or `aborted` event to it,
+    /// applies its steering at each model request, and stops when it aborts.
+    /// A call's control ([`AxForwardOptions::with_control`]) wins, and so does
+    /// the control of a run this forward is part of, such as a controlled
+    /// flow's, which TypeScript passes to the calls it makes. A run under
+    /// either control skips the cache.
+    ///
+    /// The program keeps its control on a parallel flow node's worker: a flow
+    /// without a control reports that node's events to this control, and a
+    /// controlled flow's control wins there as well.
+    pub fn with_control(mut self, control: AxRunControl) -> Self {
+        self.control = Some(control);
         self
     }
 
@@ -6179,7 +6204,8 @@ impl AxGen {
     /// for example `AxError::new("stopped", "enough output")`, and match its
     /// category.
     ///
-    /// Under a run control ([`AxForwardOptions::with_control`]) the stream
+    /// Under a run control, the call's ([`AxForwardOptions::with_control`]) or
+    /// the program's ([`with_control`](Self::with_control)), the stream
     /// works as a controlled forward does: the run reports `started`, then
     /// `completed` or `failed`, and applies steering at each model request.
     /// A stop from `on_delta` ends the run with an `aborted` event rather than
@@ -6249,7 +6275,9 @@ impl AxGen {
         // don't inherit.
         let caching_function = bound_caching_function();
         with_caching_function_binding(None, || {
-            session::with_control(options, |mut options| {
+            // The program's own control (with_control) runs a forward that has
+            // none from its call or from a controlled run around it.
+            session::with_program_control(options, self.control.clone(), |mut options| {
                 // As in TS, the cache is read before the run's span and metrics. A
                 // stored output comes back without them (to a sink as one delta),
                 // and a forward's read error ends it before them. The forward op
@@ -6264,7 +6292,8 @@ impl AxGen {
                             core_forward_options(&options, caching_function.as_ref())?;
                         // A flow worker's relay control, with no caller's control
                         // behind it, doesn't skip the cache: TS's parallel flow nodes
-                        // run without a control.
+                        // run without a control. A program's own control has taken
+                        // its place here, and skips it.
                         if session::current_control().is_some_and(|control| !control.has_caller()) {
                             core_map_delete(&[lookup_options.clone(), CoreValue::from("control")])?;
                         }
@@ -6327,10 +6356,19 @@ impl AxGen {
                             Some(state) => state.clone(),
                             None => core_gen_state(self)?,
                         };
+                        // As in TS, the constructor's options are defaults for every forward
+                        // and the call's win: the run's path, asyncMode and maxSteps come
+                        // from both.
+                        let mut run_options = if self.options.is_object() {
+                            self.options.clone()
+                        } else {
+                            json!({})
+                        };
+                        merge_object(&mut run_options, &options);
                         let mut session_run = session::SessionRun::new(
                             state.clone(),
                             self.tools.clone(),
-                            options.clone(),
+                            run_options,
                         );
                         let run_session = session::current_control().is_some()
                             || self.tools.iter().any(|tool| tool.execution == "background");
@@ -7453,24 +7491,26 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
     .to_string();
     if !playbook_config.is_null() && playbook_config.as_bool() != Some(false) {
         let config = playbook_config.as_object().cloned().unwrap_or_default();
-        let seed = config.get("seed").cloned().or_else(|| {
-            if config.contains_key("playbook") || config.contains_key("artifact") {
-                Some(playbook_config.clone())
-            } else {
-                config
-                    .get("initialPlaybook")
-                    .cloned()
-                    .or_else(|| config.get("initial_playbook").cloned())
-            }
-        });
+        // TS's `playbook` seed (a snapshot or a bare playbook), or the older
+        // `seed` key with a deprecation warning; else an initialPlaybook.
+        let seed = core_value_to_json(&_agent_playbook_config_seed(&[core_value_from_json(
+            &playbook_config,
+        )])?);
+        let seed = if seed.is_null() {
+            config
+                .get("initialPlaybook")
+                .or_else(|| config.get("initial_playbook"))
+                .cloned()
+                .map(|value| json!({"playbook": value}))
+        } else {
+            Some(seed)
+        };
         // As TS's handle.getState() after loading the seed: the engine's playbook
         // and artifact. Without a seed the playbook is empty and stamped with the
         // engine clock (the config's `now`, as the other ports read it).
         let mut engine = AxACE::new(playbook_engine_clock(&config));
-        match seed {
-            Some(value) if value.get("playbook").is_some() => engine.hydrate(&value),
-            Some(value) => engine.hydrate(&json!({"playbook": value})),
-            None => {}
+        if let Some(value) = seed {
+            engine.hydrate(&value);
         }
         playbook_snapshot =
             json!({"playbook": engine.get_playbook(), "artifact": engine.get_artifact()});
@@ -11351,15 +11391,12 @@ fn playbook_record_signature(record: &Value) -> String {
     if let Some(error) = record.get("error").and_then(Value::as_str) {
         return playbook_error_signature(error);
     }
-    let action_log = prediction
-        .get("actionLog")
-        .map(|value| {
-            value
-                .as_str()
-                .map(str::to_string)
-                .unwrap_or_else(|| value.to_string())
-        })
-        .unwrap_or_default();
+    // The action log as TS's prediction carries it: the executor's code steps as text.
+    let action_log = _agent_playbook_action_log_text(&[core_value_from_json(
+        prediction.get("actionLog").unwrap_or(&Value::Null),
+    )])
+    .map(|value| value.text())
+    .unwrap_or_default();
     let pattern = regex::Regex::new(r"(?m)^\s*(\w+Error:\s*.{0,60})").unwrap();
     if let Some(value) = pattern
         .captures(&action_log)
@@ -11368,40 +11405,6 @@ fn playbook_record_signature(record: &Value) -> String {
         return playbook_error_signature(value.as_str());
     }
     "behavioral:no_error".to_string()
-}
-
-fn playbook_failure_excerpt(record: &Value, signature: &str) -> String {
-    if let Some(error) = record.get("error").and_then(Value::as_str) {
-        return format!("Run threw: {error}");
-    }
-    let action_log = record
-        .get("prediction")
-        .and_then(|prediction| prediction.get("actionLog"))
-        .map(|value| {
-            value
-                .as_str()
-                .map(str::to_string)
-                .unwrap_or_else(|| value.to_string())
-        })
-        .unwrap_or_default();
-    if action_log.chars().count() <= 2000 {
-        return action_log;
-    }
-    let needle = signature.chars().take(40).collect::<String>();
-    let hit = action_log.find(&needle);
-    if hit.is_none() {
-        return action_log
-            .chars()
-            .rev()
-            .take(2000)
-            .collect::<String>()
-            .chars()
-            .rev()
-            .collect();
-    }
-    let hit_chars = action_log[..hit.unwrap()].chars().count();
-    let start = hit_chars.saturating_sub(1000);
-    action_log.chars().skip(start).take(2000).collect()
 }
 
 fn run_agent_playbook_batch<C: AxAIClient>(
@@ -11997,85 +12000,21 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
         let mut weaknesses = Vec::new();
         let mut outcomes = Vec::new();
         for (index, (signature, records)) in ranked.into_iter().enumerate() {
-            let selected = records.iter().take(4).collect::<Vec<_>>();
-            let bodies = selected
-                .iter()
-                .map(|record| playbook_failure_excerpt(record, &signature))
-                .collect::<Vec<_>>();
-            if bodies.iter().all(|body| playbook_collapse(body).is_empty()) {
+            // TS's miner inputs: task summaries, action-log excerpts, function
+            // calls and tool errors of up to four records; none without an excerpt.
+            let request = core_value_to_json(&_agent_playbook_miner_inputs(&[
+                CoreValue::from(signature.as_str()),
+                core_value_from_json(&Value::Array(records.clone())),
+                CoreValue::from(self.render().as_str()),
+            ])?);
+            if !request.is_object() {
                 continue;
             }
-            let excerpts = bodies
-                .iter()
-                .enumerate()
-                .map(|(record_index, body)| format!("--- run {} ---\n{}", record_index + 1, body))
-                .collect::<Vec<_>>()
-                .join("\n\n");
-            let task_summaries = selected
-                .iter()
-                .enumerate()
-                .map(|(record_index, record)| {
-                    let task = record.get("task").unwrap_or(&Value::Null);
-                    let label = task
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                        .unwrap_or_else(|| format!("#{}", record_index + 1));
-                    let mut input = task
-                        .get("input")
-                        .cloned()
-                        .unwrap_or(Value::Null)
-                        .to_string();
-                    input = input.chars().take(240).collect();
-                    format!(
-                        "- {label} (score {:.2}): {input}",
-                        record.get("score").and_then(Value::as_f64).unwrap_or(0.0)
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            let function_calls = selected
-                .iter()
-                .flat_map(|record| {
-                    record
-                        .get("prediction")
-                        .and_then(|prediction| prediction.get("functionCalls"))
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default()
-                })
-                .take(20)
-                .map(|call| call.to_string())
-                .collect::<Vec<_>>();
-            let tool_errors = selected
-                .iter()
-                .flat_map(|record| {
-                    record
-                        .get("prediction")
-                        .and_then(|prediction| prediction.get("toolErrors"))
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default()
-                })
-                .take(10)
-                .map(|error| {
-                    error
-                        .as_str()
-                        .map(str::to_string)
-                        .unwrap_or_else(|| error.to_string())
-                })
-                .collect::<Vec<_>>();
-            let mut request = json!({"clusterSignature":signature.clone(),"taskSummaries":task_summaries,"actionLogExcerpts":excerpts.clone()});
-            if !function_calls.is_empty() {
-                request["functionCallSummary"] = json!(function_calls.join("\n"));
-            }
-            if !tool_errors.is_empty() {
-                request["toolErrors"] = json!(tool_errors.join("\n"));
-            }
-            let current_playbook = self.render();
-            if !current_playbook.trim().is_empty() {
-                request["currentPlaybook"] = json!(current_playbook);
-            }
+            let excerpts = request
+                .get("actionLogExcerpts")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
             let mut miner = AxGen::with_signature(agent_playbook_weakness_miner_signature());
             miner.options = json!({"id":"agent.playbook.weakness-miner"});
             let mined = match &teacher {
@@ -16533,6 +16472,30 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
                 &format!("{label} teacher system prompts"),
                 &Value::Array(prompts),
                 expected_prompts,
+            )?;
+        }
+        if let Some(expected_messages) = test_case.get("expected_teacher_user_messages") {
+            // Each teacher request's user message, in call order, byte for byte.
+            let messages = teacher
+                .as_ref()
+                .unwrap_or(&playbook_client)
+                .borrow()
+                .requests
+                .iter()
+                .flat_map(|request| {
+                    request
+                        .get("chat_prompt")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .filter(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+                .map(|message| message.get("content").cloned().unwrap_or(Value::Null))
+                .collect::<Vec<_>>();
+            expect_json_equal(
+                &format!("{label} teacher user messages"),
+                &Value::Array(messages),
+                expected_messages,
             )?;
         }
         let Some(outcome) = outcomes.first() else {
@@ -23381,6 +23344,11 @@ fn fixture_field_processor(
     }
 }
 
+// Whether a fixture sets the boolean flag `key`.
+fn fixture_flag(fixture: &Value, key: &str) -> bool {
+    fixture.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
 // python: _attach_fixture_control. A fixture's run control, recording its
 // lifecycle events (started, completed, failed, aborted) as {path, type}.
 // With control_steer ({during_request, text}) it records every event, and
@@ -23547,14 +23515,16 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
             .unwrap_or_else(|| json!({})),
     );
     let mut control_events = Arc::new(Mutex::new(Vec::new()));
-    if fixture
-        .get("control")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
+    // constructor_control gives the program the run control, as the AxGen
+    // constructor's control option does; control gives it to the call.
+    if fixture_flag(fixture, "control") || fixture_flag(fixture, "constructor_control") {
         let (control, events) = attach_fixture_control(fixture, &mut client);
         control_events = events;
-        options = options.with_control(control);
+        if fixture_flag(fixture, "constructor_control") {
+            program = program.with_control(control);
+        } else {
+            options = options.with_control(control);
+        }
     }
     let stop_after = fixture.get("stop_after_deltas").and_then(Value::as_u64);
     let deltas = Rc::new(RefCell::new(Vec::new()));
@@ -23793,7 +23763,8 @@ fn expect_cache_sequence(
 // requests, and every cache read and write. cache_in sets the cache for each
 // call ("call", the default: the *_with_caching_function methods), on the
 // program ("constructor") or for the process ("global", restored
-// afterwards), and a call's `control` runs it under a run control.
+// afterwards). A call's `control` runs it under a run control, and
+// constructor_control gives the program one (with_control) for every call.
 // cache_read_error and cache_write_error fail every read or write with that
 // message. A forward's error is compared by its first line
 // (expected_errors); a streaming forward's error fails the fixture.
@@ -23816,6 +23787,9 @@ fn run_cache_sequence_fixture(fixture: &Value) -> AxResult<()> {
     }
     if let Some(picker_index) = fixture.get("result_picker_index").and_then(Value::as_u64) {
         program = program.with_result_picker(move |_| Ok(picker_index as usize));
+    }
+    if fixture_flag(fixture, "constructor_control") {
+        program = program.with_control(run_control());
     }
     let mut client = FixtureClient::scripted(
         fixture
@@ -24129,17 +24103,20 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
             .cloned()
             .unwrap_or(Value::Null),
     );
-    let control_events = if fixture
-        .get("control")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        let (control, events) = attach_fixture_control(fixture, &mut client);
-        options = options.with_control(control);
-        Some(events)
-    } else {
-        None
-    };
+    // constructor_control gives the program the run control, as the AxGen
+    // constructor's control option does; control gives it to the call.
+    let control_events =
+        if fixture_flag(fixture, "control") || fixture_flag(fixture, "constructor_control") {
+            let (control, events) = attach_fixture_control(fixture, &mut client);
+            if fixture_flag(fixture, "constructor_control") {
+                program = program.with_control(control);
+            } else {
+                options = options.with_control(control);
+            }
+            Some(events)
+        } else {
+            None
+        };
     let result = program.forward_with_options(&mut client, input, options);
     // expected_error_cause_contains is not checked: AxError gains its cause
     // (and source()) in the next major version.
@@ -51418,6 +51395,13 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
                 v_request.clone(),
                 v_options.clone(),
             ])?;
+        } else {
+            v_responses_payload = _openai_responses_apply_prompt_cache_retention(&[
+                v_responses_payload.clone(),
+                v_request.clone(),
+                v_options.clone(),
+                v_model.clone(),
+            ])?;
         }
         v_payload = openai_responses_apply_astra_caching(&[
             v_responses_payload.clone(),
@@ -63963,6 +63947,77 @@ fn provider_embed_url(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_model.clone(),
     ])?;
     return Ok(v_url.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_responses_apply_prompt_cache_retention(
+    args: &[CoreValue],
+) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_apply_prompt_cache_retention");
+    let mut v_payload = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_model = core_arg(args, 3);
+    let mut v_config_retention = CoreValue::Null;
+    let mut v_config_retention_snake = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_has_retention = CoreValue::Null;
+    let mut v_is_astra = CoreValue::Null;
+    let mut v_model_config = CoreValue::Null;
+    let mut v_model_config_snake = CoreValue::Null;
+    let mut v_not_astra = CoreValue::Null;
+    let mut v_option_retention_snake = CoreValue::Null;
+    let mut v_retention = CoreValue::Null;
+    let mut v_send = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_model_config_snake = core_get(
+        &v_request,
+        &CoreValue::from("model_config"),
+        v_empty_map.clone(),
+    );
+    v_model_config = core_get(
+        &v_request,
+        &CoreValue::from("modelConfig"),
+        v_model_config_snake.clone(),
+    );
+    v_config_retention_snake = core_get(
+        &v_model_config,
+        &CoreValue::from("prompt_cache_retention"),
+        CoreValue::Null,
+    );
+    v_config_retention = core_get(
+        &v_model_config,
+        &CoreValue::from("promptCacheRetention"),
+        v_config_retention_snake.clone(),
+    );
+    v_option_retention_snake = core_get(
+        &v_options,
+        &CoreValue::from("prompt_cache_retention"),
+        v_config_retention.clone(),
+    );
+    v_retention = core_get(
+        &v_options,
+        &CoreValue::from("promptCacheRetention"),
+        v_option_retention_snake.clone(),
+    );
+    v_has_retention = core_truthy_value(&[v_retention.clone()])?;
+    v_is_astra = _openai_is_gpt6_astra_impl(&[v_model.clone()])?;
+    v_not_astra = core_not(&[v_is_astra.clone()])?;
+    v_send = core_and(&[v_has_retention.clone(), v_not_astra.clone()])?;
+    if core_truthy(&v_send) {
+        core_set(
+            &v_payload,
+            CoreValue::from("prompt_cache_retention"),
+            v_retention.clone(),
+        )?;
+    }
+    return Ok(v_payload.clone());
 }
 
 #[allow(
@@ -87241,19 +87296,19 @@ fn _caching_function_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     axir_coverage_mark("_caching_function_option_impl");
     let mut v_gen = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
+    let mut v_base_options = CoreValue::Null;
     let mut v_cache_fn = CoreValue::Null;
     let mut v_call_options = CoreValue::Null;
     let mut v_control = CoreValue::Null;
     let mut v_controlled = CoreValue::Null;
     let mut v_empty = CoreValue::Null;
     let mut v_no_cache = CoreValue::Null;
+    let mut v_run_options = CoreValue::Null;
     v_empty = CoreValue::new_map();
     v_call_options = core_map_merge(&[v_empty.clone(), v_options.clone()])?;
-    v_control = core_get(
-        &v_call_options,
-        &CoreValue::from("control"),
-        CoreValue::Null,
-    );
+    v_base_options = core_get(&v_gen, &CoreValue::from("options"), v_empty.clone());
+    v_run_options = core_map_merge(&[v_base_options.clone(), v_call_options.clone()])?;
+    v_control = core_get(&v_run_options, &CoreValue::from("control"), CoreValue::Null);
     v_controlled = core_is_not_none(&[v_control.clone()])?;
     if core_truthy(&v_controlled) {
         v_no_cache = core_none(&[])?;
@@ -104197,13 +104252,16 @@ fn _agent_runtime_append_action_log(args: &[CoreValue]) -> Result<CoreValue, AxE
     axir_coverage_mark("_agent_runtime_append_action_log");
     let mut v_state = core_arg(args, 0);
     let mut v_entry = core_arg(args, 1);
+    let mut v_active_stage = CoreValue::Null;
     let mut v_count = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_entry_is_map = CoreValue::Null;
+    let mut v_has_stage = CoreValue::Null;
     let mut v_has_tags = CoreValue::Null;
     let mut v_has_turn = CoreValue::Null;
     let mut v_is_error = CoreValue::Null;
     let mut v_log = CoreValue::Null;
+    let mut v_stage_known = CoreValue::Null;
     let mut v_tags = CoreValue::Null;
     let mut v_turn = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
@@ -104234,6 +104292,15 @@ fn _agent_runtime_append_action_log(args: &[CoreValue]) -> Result<CoreValue, AxE
                 core_append(&v_tags, CoreValue::from("error"))?;
             }
             core_set(&v_entry, CoreValue::from("tags"), v_tags.clone())?;
+        }
+        v_has_stage = core_map_contains(&[v_entry.clone(), CoreValue::from("stage")])?;
+        if core_truthy(&v_has_stage) {
+        } else {
+            v_active_stage = core_get(&v_state, &CoreValue::from("active_stage"), CoreValue::Null);
+            v_stage_known = core_is_not_none(&[v_active_stage.clone()])?;
+            if core_truthy(&v_stage_known) {
+                core_set(&v_entry, CoreValue::from("stage"), v_active_stage.clone())?;
+            }
         }
     }
     core_append(&v_log, v_entry.clone())?;
@@ -108283,6 +108350,554 @@ fn _agent_finalize_citations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_playbook_config_seed(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_playbook_config_seed");
+    let mut v_config = core_arg(args, 0);
+    let mut v_artifact = CoreValue::Null;
+    let mut v_artifact_seed = CoreValue::Null;
+    let mut v_bare = CoreValue::Null;
+    let mut v_config_artifact = CoreValue::Null;
+    let mut v_has_artifact = CoreValue::Null;
+    let mut v_has_artifact_only = CoreValue::Null;
+    let mut v_has_config_artifact = CoreValue::Null;
+    let mut v_has_playbook = CoreValue::Null;
+    let mut v_is_snapshot = CoreValue::Null;
+    let mut v_legacy = CoreValue::Null;
+    let mut v_legacy_has_playbook = CoreValue::Null;
+    let mut v_legacy_is_object = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_value_is_object = CoreValue::Null;
+    let mut v_wrapped = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_value = core_get(&v_config, &CoreValue::from("playbook"), CoreValue::Null);
+    v_value_is_object = core_type_is(&v_value, CoreValue::from("object"));
+    if core_truthy(&v_value_is_object) {
+        v_has_playbook = core_map_contains(&[v_value.clone(), CoreValue::from("playbook")])?;
+        v_has_artifact = core_map_contains(&[v_value.clone(), CoreValue::from("artifact")])?;
+        v_is_snapshot = core_and(&[v_has_playbook.clone(), v_has_artifact.clone()])?;
+        if core_truthy(&v_is_snapshot) {
+            return Ok(v_value.clone());
+        }
+        v_bare = CoreValue::new_map();
+        core_set(&v_bare, CoreValue::from("playbook"), v_value.clone())?;
+        v_config_artifact = core_get(&v_config, &CoreValue::from("artifact"), CoreValue::Null);
+        v_has_config_artifact = core_is_not_none(&[v_config_artifact.clone()])?;
+        if core_truthy(&v_has_config_artifact) {
+            core_set(
+                &v_bare,
+                CoreValue::from("artifact"),
+                v_config_artifact.clone(),
+            )?;
+        }
+        return Ok(v_bare.clone());
+    }
+    v_legacy = core_get(&v_config, &CoreValue::from("seed"), CoreValue::Null);
+    v_legacy_is_object = core_type_is(&v_legacy, CoreValue::from("object"));
+    if core_truthy(&v_legacy_is_object) {
+        core_axgen_deprecation(&[CoreValue::from("agent-playbook-seed-snapshot"), CoreValue::from("A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed.")])?;
+        v_legacy_has_playbook =
+            core_map_contains(&[v_legacy.clone(), CoreValue::from("playbook")])?;
+        if core_truthy(&v_legacy_has_playbook) {
+            return Ok(v_legacy.clone());
+        }
+        v_wrapped = CoreValue::new_map();
+        core_set(&v_wrapped, CoreValue::from("playbook"), v_legacy.clone())?;
+        return Ok(v_wrapped.clone());
+    }
+    v_artifact = core_get(&v_config, &CoreValue::from("artifact"), CoreValue::Null);
+    v_has_artifact_only = core_is_not_none(&[v_artifact.clone()])?;
+    if core_truthy(&v_has_artifact_only) {
+        v_artifact_seed = CoreValue::new_map();
+        core_set(
+            &v_artifact_seed,
+            CoreValue::from("artifact"),
+            v_artifact.clone(),
+        )?;
+        return Ok(v_artifact_seed.clone());
+    }
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_playbook_action_log_text(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_playbook_action_log_text");
+    let mut v_action_log = core_arg(args, 0);
+    let mut v_code = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_error_text = CoreValue::Null;
+    let mut v_is_error = CoreValue::Null;
+    let mut v_is_executor = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_step = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
+    let mut v_not_list = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_output_empty = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_probe = CoreValue::Null;
+    let mut v_probe_has_stage = CoreValue::Null;
+    let mut v_probe_stage = CoreValue::Null;
+    let mut v_stage = CoreValue::Null;
+    let mut v_still_empty = CoreValue::Null;
+    let mut v_tagged = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_untagged = CoreValue::Null;
+    let mut v_use_error = CoreValue::Null;
+    v_is_text = core_type_is(&v_action_log, CoreValue::from("string"));
+    if core_truthy(&v_is_text) {
+        return Ok(v_action_log.clone());
+    }
+    v_is_list = core_type_is(&v_action_log, CoreValue::from("list"));
+    v_not_list = core_not(&[v_is_list.clone()])?;
+    if core_truthy(&v_not_list) {
+        return Ok(CoreValue::from(""));
+    }
+    v_tagged = CoreValue::Bool(false);
+    for v_probe in core_iter(&v_action_log)? {
+        let mut v_probe = v_probe;
+        v_probe_stage = core_get(&v_probe, &CoreValue::from("stage"), CoreValue::Null);
+        v_probe_has_stage = core_is_not_none(&[v_probe_stage.clone()])?;
+        if core_truthy(&v_probe_has_stage) {
+            v_tagged = CoreValue::Bool(true);
+        }
+    }
+    v_parts = CoreValue::new_list();
+    for v_entry in core_iter(&v_action_log)? {
+        let mut v_entry = v_entry;
+        v_type = core_get(&v_entry, &CoreValue::from("type"), CoreValue::from(""));
+        v_is_step = core_eq(&[v_type.clone(), CoreValue::from("runtime_step")])?;
+        if core_truthy(&v_is_step) {
+            v_stage = core_get(
+                &v_entry,
+                &CoreValue::from("stage"),
+                CoreValue::from("executor"),
+            );
+            v_is_executor = core_eq(&[v_stage.clone(), CoreValue::from("executor")])?;
+            v_untagged = core_not(&[v_tagged.clone()])?;
+            v_keep = core_or(&[v_is_executor.clone(), v_untagged.clone()])?;
+            if core_truthy(&v_keep) {
+                v_code = core_get(&v_entry, &CoreValue::from("code"), CoreValue::from(""));
+                v_output = core_get(&v_entry, &CoreValue::from("output"), CoreValue::from(""));
+                v_output_empty = core_eq(&[v_output.clone(), CoreValue::from("")])?;
+                v_is_error = core_get(
+                    &v_entry,
+                    &CoreValue::from("is_error"),
+                    CoreValue::Bool(false),
+                );
+                v_error = core_get(&v_entry, &CoreValue::from("error"), CoreValue::from(""));
+                v_error_text = core_ne(&[v_error.clone(), CoreValue::from("")])?;
+                v_use_error = core_and(&[v_output_empty.clone(), v_is_error.clone()])?;
+                v_use_error = core_and(&[v_use_error.clone(), v_error_text.clone()])?;
+                if core_truthy(&v_use_error) {
+                    v_output = v_error.clone();
+                }
+                v_still_empty = core_eq(&[v_output.clone(), CoreValue::from("")])?;
+                if core_truthy(&v_still_empty) {
+                    v_output = CoreValue::from("(no output)");
+                }
+                v_part = core_string_format(&[
+                    CoreValue::from("```javascript\n{}\n```\nResult:\n{}"),
+                    v_code.clone(),
+                    v_output.clone(),
+                ])?;
+                core_append(&v_parts, v_part.clone())?;
+            }
+        }
+    }
+    v_text = core_string_join_intrinsic(&[CoreValue::from("\n\n"), v_parts.clone()])?;
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_playbook_truncate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_playbook_truncate");
+    let mut v_text = core_arg(args, 0);
+    let mut v_max_chars = core_arg(args, 1);
+    let mut v_cut = CoreValue::Null;
+    let mut v_head = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_too_long = CoreValue::Null;
+    v_length = core_len(&[v_text.clone()])?;
+    v_too_long = core_gt(&[v_length.clone(), v_max_chars.clone()])?;
+    if core_truthy(&v_too_long) {
+        v_head = core_string_slice(&[v_text.clone(), CoreValue::Num(0f64), v_max_chars.clone()])?;
+        v_cut = core_string_format(&[CoreValue::from("{}…"), v_head.clone()])?;
+        return Ok(v_cut.clone());
+    }
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_playbook_score_text(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_playbook_score_text");
+    let mut v_score = core_arg(args, 0);
+    let mut v_fraction = CoreValue::Null;
+    let mut v_fraction_text = CoreValue::Null;
+    let mut v_hundredths = CoreValue::Null;
+    let mut v_magnitude = CoreValue::Null;
+    let mut v_negative = CoreValue::Null;
+    let mut v_nonzero = CoreValue::Null;
+    let mut v_one_digit = CoreValue::Null;
+    let mut v_scaled = CoreValue::Null;
+    let mut v_shifted = CoreValue::Null;
+    let mut v_show_sign = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_whole = CoreValue::Null;
+    let mut v_whole_float = CoreValue::Null;
+    let mut v_whole_hundredths = CoreValue::Null;
+    let mut v_whole_text = CoreValue::Null;
+    v_negative = core_lt(&[v_score.clone(), CoreValue::Num(0f64)])?;
+    v_magnitude = core_math_abs(&[v_score.clone()])?;
+    v_scaled = core_mul(&[v_magnitude.clone(), CoreValue::Num(100f64)])?;
+    v_shifted = core_add(&[v_scaled.clone(), CoreValue::Num(0.5f64)])?;
+    v_hundredths = core_math_floor(&[v_shifted.clone()])?;
+    v_whole_float = core_div(&[v_hundredths.clone(), CoreValue::Num(100f64)])?;
+    v_whole = core_math_floor(&[v_whole_float.clone()])?;
+    v_whole_hundredths = core_mul(&[v_whole.clone(), CoreValue::Num(-100f64)])?;
+    v_fraction = core_add(&[v_hundredths.clone(), v_whole_hundredths.clone()])?;
+    v_whole_text = core_string_str(&[v_whole.clone()])?;
+    v_fraction_text = core_string_str(&[v_fraction.clone()])?;
+    v_one_digit = core_lt(&[v_fraction.clone(), CoreValue::Num(10f64)])?;
+    if core_truthy(&v_one_digit) {
+        v_fraction_text = core_string_format(&[CoreValue::from("0{}"), v_fraction_text.clone()])?;
+    }
+    v_text = core_string_format(&[
+        CoreValue::from("{}.{}"),
+        v_whole_text.clone(),
+        v_fraction_text.clone(),
+    ])?;
+    v_nonzero = core_gt(&[v_hundredths.clone(), CoreValue::Num(0f64)])?;
+    v_show_sign = core_and(&[v_negative.clone(), v_nonzero.clone()])?;
+    if core_truthy(&v_show_sign) {
+        v_text = core_string_format(&[CoreValue::from("-{}"), v_text.clone()])?;
+    }
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_playbook_miner_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_playbook_miner_inputs");
+    let mut v_signature = core_arg(args, 0);
+    let mut v_records = core_arg(args, 1);
+    let mut v_current_playbook = core_arg(args, 2);
+    let mut v_any_body = CoreValue::Null;
+    let mut v_arguments = CoreValue::Null;
+    let mut v_arguments_json = CoreValue::Null;
+    let mut v_arguments_text = CoreValue::Null;
+    let mut v_before_zero = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
+    let mut v_body_present = CoreValue::Null;
+    let mut v_body_trimmed = CoreValue::Null;
+    let mut v_call = CoreValue::Null;
+    let mut v_call_count = CoreValue::Null;
+    let mut v_call_error = CoreValue::Null;
+    let mut v_call_error_cut = CoreValue::Null;
+    let mut v_call_error_text = CoreValue::Null;
+    let mut v_call_room = CoreValue::Null;
+    let mut v_call_total = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_calls_text = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_default_label = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_error_count = CoreValue::Null;
+    let mut v_error_is_map = CoreValue::Null;
+    let mut v_error_room = CoreValue::Null;
+    let mut v_error_total = CoreValue::Null;
+    let mut v_errors = CoreValue::Null;
+    let mut v_errors_text = CoreValue::Null;
+    let mut v_excerpt = CoreValue::Null;
+    let mut v_excerpts = CoreValue::Null;
+    let mut v_excerpts_text = CoreValue::Null;
+    let mut v_fits = CoreValue::Null;
+    let mut v_has_call_error = CoreValue::Null;
+    let mut v_has_calls = CoreValue::Null;
+    let mut v_has_error = CoreValue::Null;
+    let mut v_has_errors = CoreValue::Null;
+    let mut v_has_playbook = CoreValue::Null;
+    let mut v_hit = CoreValue::Null;
+    let mut v_input = CoreValue::Null;
+    let mut v_input_json = CoreValue::Null;
+    let mut v_input_text = CoreValue::Null;
+    let mut v_inputs = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_log = CoreValue::Null;
+    let mut v_log_length = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_needle = CoreValue::Null;
+    let mut v_no_body = CoreValue::Null;
+    let mut v_nothing = CoreValue::Null;
+    let mut v_number = CoreValue::Null;
+    let mut v_number_text = CoreValue::Null;
+    let mut v_position = CoreValue::Null;
+    let mut v_prediction = CoreValue::Null;
+    let mut v_qualified = CoreValue::Null;
+    let mut v_raw_log = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_record_calls = CoreValue::Null;
+    let mut v_record_errors = CoreValue::Null;
+    let mut v_room = CoreValue::Null;
+    let mut v_score = CoreValue::Null;
+    let mut v_score_text = CoreValue::Null;
+    let mut v_selected = CoreValue::Null;
+    let mut v_summaries = CoreValue::Null;
+    let mut v_summaries_text = CoreValue::Null;
+    let mut v_summary = CoreValue::Null;
+    let mut v_tail_start = CoreValue::Null;
+    let mut v_task = CoreValue::Null;
+    let mut v_tool_error = CoreValue::Null;
+    let mut v_tool_error_text = CoreValue::Null;
+    let mut v_window_end = CoreValue::Null;
+    let mut v_window_start = CoreValue::Null;
+    v_selected = CoreValue::new_list();
+    for v_record in core_iter(&v_records)? {
+        let mut v_record = v_record;
+        v_count = core_len(&[v_selected.clone()])?;
+        v_room = core_lt(&[v_count.clone(), CoreValue::Num(4f64)])?;
+        if core_truthy(&v_room) {
+            core_append(&v_selected, v_record.clone())?;
+        }
+    }
+    v_summaries = CoreValue::new_list();
+    v_excerpts = CoreValue::new_list();
+    v_calls = CoreValue::new_list();
+    v_errors = CoreValue::new_list();
+    v_position = CoreValue::Num(0f64);
+    v_any_body = CoreValue::Bool(false);
+    v_needle = core_string_slice(&[
+        v_signature.clone(),
+        CoreValue::Num(0f64),
+        CoreValue::Num(40f64),
+    ])?;
+    for v_record in core_iter(&v_selected)? {
+        let mut v_record = v_record;
+        v_number = core_add(&[v_position.clone(), CoreValue::Num(1f64)])?;
+        v_position = v_number.clone();
+        v_empty_map = CoreValue::new_map();
+        v_task = core_get(&v_record, &CoreValue::from("task"), v_empty_map.clone());
+        v_number_text = core_string_str(&[v_number.clone()])?;
+        v_default_label = core_string_format(&[CoreValue::from("#{}"), v_number_text.clone()])?;
+        v_label = core_get(&v_task, &CoreValue::from("id"), v_default_label.clone());
+        v_input = core_get(&v_task, &CoreValue::from("input"), CoreValue::Null);
+        v_input_json = core_json_stringify(&[v_input.clone()])?;
+        v_input_text = _agent_playbook_truncate(&[v_input_json.clone(), CoreValue::Num(240f64)])?;
+        v_score = core_get(&v_record, &CoreValue::from("score"), CoreValue::Num(0f64));
+        v_score_text = _agent_playbook_score_text(&[v_score.clone()])?;
+        v_summary = core_string_format(&[
+            CoreValue::from("- {} (score {}): {}"),
+            v_label.clone(),
+            v_score_text.clone(),
+            v_input_text.clone(),
+        ])?;
+        core_append(&v_summaries, v_summary.clone())?;
+        v_prediction = core_get(
+            &v_record,
+            &CoreValue::from("prediction"),
+            v_empty_map.clone(),
+        );
+        v_error = core_get(&v_record, &CoreValue::from("error"), CoreValue::Null);
+        v_error_is_map = core_type_is(&v_error, CoreValue::from("object"));
+        if core_truthy(&v_error_is_map) {
+            v_error = core_get(&v_error, &CoreValue::from("message"), CoreValue::from(""));
+        }
+        v_has_error = core_truthy_value(&[v_error.clone()])?;
+        v_body = CoreValue::from("");
+        if core_truthy(&v_has_error) {
+            v_body = core_string_format(&[CoreValue::from("Run threw: {}"), v_error.clone()])?;
+        } else {
+            v_raw_log = core_get(
+                &v_prediction,
+                &CoreValue::from("actionLog"),
+                CoreValue::Null,
+            );
+            v_log = _agent_playbook_action_log_text(&[v_raw_log.clone()])?;
+            v_log_length = core_len(&[v_log.clone()])?;
+            v_fits = core_lte(&[v_log_length.clone(), CoreValue::Num(2000f64)])?;
+            if core_truthy(&v_fits) {
+                v_body = v_log.clone();
+            } else {
+                v_hit =
+                    core_string_index_of(&[v_log.clone(), v_needle.clone(), CoreValue::Num(0f64)])?;
+                v_missing = core_lt(&[v_hit.clone(), CoreValue::Num(0f64)])?;
+                if core_truthy(&v_missing) {
+                    v_tail_start = core_add(&[v_log_length.clone(), CoreValue::Num(-2000f64)])?;
+                    v_body = core_string_slice(&[v_log.clone(), v_tail_start.clone()])?;
+                } else {
+                    v_window_start = core_add(&[v_hit.clone(), CoreValue::Num(-1000f64)])?;
+                    v_before_zero = core_lt(&[v_window_start.clone(), CoreValue::Num(0f64)])?;
+                    if core_truthy(&v_before_zero) {
+                        v_window_start = CoreValue::Num(0f64);
+                    }
+                    v_window_end = core_add(&[v_window_start.clone(), CoreValue::Num(2000f64)])?;
+                    v_body = core_string_slice(&[
+                        v_log.clone(),
+                        v_window_start.clone(),
+                        v_window_end.clone(),
+                    ])?;
+                }
+            }
+        }
+        v_body_trimmed = core_string_trim(&v_body);
+        v_body_present = core_ne(&[v_body_trimmed.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_body_present) {
+            v_any_body = CoreValue::Bool(true);
+        }
+        v_excerpt = core_string_format(&[
+            CoreValue::from("--- run {} ---\n{}"),
+            v_number_text.clone(),
+            v_body.clone(),
+        ])?;
+        core_append(&v_excerpts, v_excerpt.clone())?;
+        v_empty_list = CoreValue::new_list();
+        v_record_calls = core_get(
+            &v_prediction,
+            &CoreValue::from("functionCalls"),
+            v_empty_list.clone(),
+        );
+        for v_call in core_iter(&v_record_calls)? {
+            let mut v_call = v_call;
+            v_call_count = core_len(&[v_calls.clone()])?;
+            v_call_room = core_lt(&[v_call_count.clone(), CoreValue::Num(20f64)])?;
+            if core_truthy(&v_call_room) {
+                v_qualified = core_get(
+                    &v_call,
+                    &CoreValue::from("qualifiedName"),
+                    CoreValue::from(""),
+                );
+                v_arguments = core_get(&v_call, &CoreValue::from("arguments"), CoreValue::Null);
+                v_arguments_json = core_json_stringify(&[v_arguments.clone()])?;
+                v_arguments_text =
+                    _agent_playbook_truncate(&[v_arguments_json.clone(), CoreValue::Num(120f64)])?;
+                v_line = core_string_format(&[
+                    CoreValue::from("{}({})"),
+                    v_qualified.clone(),
+                    v_arguments_text.clone(),
+                ])?;
+                v_call_error = core_get(&v_call, &CoreValue::from("error"), CoreValue::Null);
+                v_has_call_error = core_truthy_value(&[v_call_error.clone()])?;
+                if core_truthy(&v_has_call_error) {
+                    v_call_error_text = core_string_str(&[v_call_error.clone()])?;
+                    v_call_error_cut = _agent_playbook_truncate(&[
+                        v_call_error_text.clone(),
+                        CoreValue::Num(120f64),
+                    ])?;
+                    v_line = core_string_format(&[
+                        CoreValue::from("{} -> ERROR {}"),
+                        v_line.clone(),
+                        v_call_error_cut.clone(),
+                    ])?;
+                }
+                core_append(&v_calls, v_line.clone())?;
+            }
+        }
+        v_record_errors = core_get(
+            &v_prediction,
+            &CoreValue::from("toolErrors"),
+            v_empty_list.clone(),
+        );
+        for v_tool_error in core_iter(&v_record_errors)? {
+            let mut v_tool_error = v_tool_error;
+            v_error_count = core_len(&[v_errors.clone()])?;
+            v_error_room = core_lt(&[v_error_count.clone(), CoreValue::Num(10f64)])?;
+            if core_truthy(&v_error_room) {
+                v_tool_error_text = core_string_str(&[v_tool_error.clone()])?;
+                core_append(&v_errors, v_tool_error_text.clone())?;
+            }
+        }
+    }
+    v_no_body = core_not(&[v_any_body.clone()])?;
+    if core_truthy(&v_no_body) {
+        v_nothing = core_none(&[])?;
+        return Ok(v_nothing.clone());
+    }
+    v_inputs = CoreValue::new_map();
+    core_set(
+        &v_inputs,
+        CoreValue::from("clusterSignature"),
+        v_signature.clone(),
+    )?;
+    v_summaries_text = core_string_join_intrinsic(&[CoreValue::from("\n"), v_summaries.clone()])?;
+    core_set(
+        &v_inputs,
+        CoreValue::from("taskSummaries"),
+        v_summaries_text.clone(),
+    )?;
+    v_excerpts_text = core_string_join_intrinsic(&[CoreValue::from("\n\n"), v_excerpts.clone()])?;
+    core_set(
+        &v_inputs,
+        CoreValue::from("actionLogExcerpts"),
+        v_excerpts_text.clone(),
+    )?;
+    v_call_total = core_len(&[v_calls.clone()])?;
+    v_has_calls = core_gt(&[v_call_total.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_calls) {
+        v_calls_text = core_string_join_intrinsic(&[CoreValue::from("\n"), v_calls.clone()])?;
+        core_set(
+            &v_inputs,
+            CoreValue::from("functionCallSummary"),
+            v_calls_text.clone(),
+        )?;
+    }
+    v_error_total = core_len(&[v_errors.clone()])?;
+    v_has_errors = core_gt(&[v_error_total.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_errors) {
+        v_errors_text = core_string_join_intrinsic(&[CoreValue::from("\n"), v_errors.clone()])?;
+        core_set(
+            &v_inputs,
+            CoreValue::from("toolErrors"),
+            v_errors_text.clone(),
+        )?;
+    }
+    v_has_playbook = core_ne(&[v_current_playbook.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_playbook) {
+        core_set(
+            &v_inputs,
+            CoreValue::from("currentPlaybook"),
+            v_current_playbook.clone(),
+        )?;
+    }
+    return Ok(v_inputs.clone());
 }
 
 #[allow(
@@ -122956,7 +123571,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (903 of 903 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (909 of 909 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
@@ -124590,6 +125205,107 @@ mod axflow_caching_function_tests {
         }
         Ok(())
     }
+
+    // Records a control's started and completed events as "type path", with
+    // the thread each one came from.
+    fn record_runs(control: &AxRunControl) -> Arc<Mutex<Vec<(String, std::thread::ThreadId)>>> {
+        let runs = Arc::new(Mutex::new(Vec::new()));
+        let recorded = runs.clone();
+        control.on_event(move |event| {
+            if matches!(event["type"].as_str(), Some("started" | "completed")) {
+                let run = format!(
+                    "{} {}",
+                    event["type"].as_str().unwrap_or_default(),
+                    event["path"].as_str().unwrap_or_default()
+                );
+                recorded
+                    .lock()
+                    .unwrap()
+                    .push((run, std::thread::current().id()));
+            }
+        });
+        runs
+    }
+
+    #[test]
+    fn a_parallel_node_keeps_its_program_control_on_a_worker() -> AxResult<()> {
+        // TS's parallel nodes share their program, and a flow without a
+        // control runs each with its program's constructor control, at the
+        // node's path. A worker's program keeps its control (with_control):
+        // the node's run reports to it from the worker, on every run of the
+        // flow, and skips the cache, which its sibling still uses.
+        let mut client = ai(
+            "openai",
+            json!({"api_key": "test", "model": "gpt-5.4-mini"}),
+        )?
+        .with_transport(Answering(Arc::new(Mutex::new(Vec::new()))));
+        let own = run_control();
+        let own_runs = record_runs(&own);
+        let mut program = flow("controlled.flow")
+            .execute(
+                "first",
+                ax("question:string -> answer:string")?.with_control(own),
+            )
+            .execute("second", ax("question:string -> reply:string")?)
+            .returns(json!({"answer": "firstResult.answer", "reply": "secondResult.reply"}));
+        let options = json!({"autoParallel": true});
+        let here = std::thread::current().id();
+        for run in 1..=2 {
+            let output = program.forward_with_options(
+                &mut client,
+                json!({"question": "Capital of France?"}),
+                options.clone(),
+            )?;
+            assert_eq!(output, json!({"answer": "Paris", "reply": "Paris"}));
+            let runs = own_runs.lock().unwrap().clone();
+            let paths: Vec<_> = runs.iter().map(|(path, _)| path.clone()).collect();
+            assert_eq!(
+                paths,
+                ["started root/first", "completed root/first"].repeat(run),
+                "run {run}"
+            );
+            assert!(
+                runs.iter().all(|(_, thread)| *thread != here),
+                "run {run}: a node ran on this thread"
+            );
+        }
+        // The flow's read and write, and the second node's: the first node's
+        // control skipped the cache.
+        let (cache, reads, writes) = counting_cache();
+        program.forward_with_caching_function(
+            &mut client,
+            json!({"question": "Capital of Italy?"}),
+            options.clone(),
+            cache,
+        )?;
+        assert_eq!(
+            (reads.load(Ordering::SeqCst), writes.load(Ordering::SeqCst)),
+            (2, 2)
+        );
+        // A flow's control wins over the program's, as TS passes the flow's
+        // control to each node's forward.
+        let before = own_runs.lock().unwrap().len();
+        let flow_control = run_control();
+        let flow_runs = record_runs(&flow_control);
+        let controlled = AxForwardOptions::from(options).with_control(flow_control);
+        program.forward_with_options(
+            &mut client,
+            json!({"question": "Capital of France?"}),
+            controlled,
+        )?;
+        assert_eq!(own_runs.lock().unwrap().len(), before);
+        let paths: BTreeSet<_> = flow_runs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect();
+        assert!(
+            paths.contains("started root/first") && paths.contains("completed root/first"),
+            "{paths:?}"
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -124633,6 +125349,150 @@ mod axgen_control_boundary_tests {
             methods,
             vec!["control_take_pending", "control_pending_count"]
         );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod axgen_program_control_tests {
+    use super::*;
+
+    // Answers every chat request, keeping each request's text.
+    struct Prompts(Vec<String>);
+
+    impl AxAIClient for Prompts {
+        fn chat(&mut self, request: Value) -> AxResult<Value> {
+            self.0.push(request.to_string());
+            Ok(
+                json!({"results": [{"index": 0, "content": "Answer: Paris", "finish_reason": "stop"}]}),
+            )
+        }
+    }
+
+    // Records a control's events as "type path".
+    fn record(control: &AxRunControl) -> Arc<Mutex<Vec<String>>> {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = events.clone();
+        control.on_event(move |event| {
+            let event = format!(
+                "{} {}",
+                event["type"].as_str().unwrap_or_default(),
+                event["path"].as_str().unwrap_or_default()
+            );
+            recorded.lock().unwrap().push(event);
+        });
+        events
+    }
+
+    #[test]
+    fn program_control_runs_each_forward_and_a_call_control_wins() -> AxResult<()> {
+        // As TS's constructor control: the program's control gets each run's
+        // events and its steering, and a call's control takes its place.
+        let own = run_control();
+        let own_events = record(&own);
+        let mut program = ax("question:string -> answer:string")?.with_control(own.clone());
+        let mut client = Prompts(Vec::new());
+        let question = json!({"question": "Capital of France?"});
+        own.steer("Answer in French.")?;
+        assert_eq!(
+            program.forward(&mut client, question.clone())?,
+            json!({"answer": "Paris"})
+        );
+        assert!(client.0[0].contains("Answer in French."), "{}", client.0[0]);
+        assert_eq!(
+            *own_events.lock().unwrap(),
+            [
+                "queued root",
+                "started root",
+                "applied root",
+                "completed root"
+            ]
+        );
+        let call = run_control();
+        let call_events = record(&call);
+        program.forward_with_options(
+            &mut client,
+            question.clone(),
+            AxForwardOptions::from(json!({})).with_control(call),
+        )?;
+        assert_eq!(
+            *call_events.lock().unwrap(),
+            ["started root", "completed root"]
+        );
+        assert_eq!(own_events.lock().unwrap().len(), 4);
+        // An aborted program control stops its forwards before a request.
+        own.abort();
+        let requests = client.0.len();
+        let error = program.forward(&mut client, question).unwrap_err();
+        assert!(error.message.contains("Run aborted"), "{}", error.message);
+        assert_eq!(client.0.len(), requests);
+        Ok(())
+    }
+
+    // Answers each chat request with a greeting, and keeps each text it speaks.
+    struct Speaking {
+        chats: usize,
+        spoken: Vec<Value>,
+    }
+
+    impl AxAIClient for Speaking {
+        fn chat(&mut self, _request: Value) -> AxResult<Value> {
+            self.chats += 1;
+            Ok(
+                json!({"results": [{"index": 0, "content": "Speech: Hello there\nSummary: A greeting", "finish_reason": "stop"}]}),
+            )
+        }
+
+        fn speak(&mut self, request: Value) -> AxResult<Value> {
+            self.spoken.push(request["text"].clone());
+            Ok(json!({"audio": "SUQzBAA=", "format": "mp3"}))
+        }
+    }
+
+    #[test]
+    fn program_control_skips_a_stored_output_with_audio() -> AxResult<()> {
+        // A stored output comes back with its audio outputs rendered through
+        // speak(). Under the program's control a forward and a streaming
+        // forward skip that read, and the store, as under a call's control.
+        let (reads, writes) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+        let (read, write) = (reads.clone(), writes.clone());
+        let stored: AxCachingFunction =
+            Arc::new(move |_key: &str, output: Option<&Value>| match output {
+                Some(_) => {
+                    write.fetch_add(1, Ordering::SeqCst);
+                    Ok(None)
+                }
+                None => {
+                    read.fetch_add(1, Ordering::SeqCst);
+                    Ok(Some(json!({"speech": "Stored hello", "summary": "Stored"})))
+                }
+            });
+        let mut program = ax("question:string -> speech:audio, summary:string")?
+            .with_caching_function(stored)
+            .with_control(run_control());
+        let mut client = Speaking {
+            chats: 0,
+            spoken: Vec::new(),
+        };
+        let options = json!({"renderAudio": true});
+        let output = program.forward_with_options(
+            &mut client,
+            json!({"question": "Say hi"}),
+            options.clone(),
+        )?;
+        assert_eq!(output["summary"], json!("A greeting"));
+        program.streaming_forward(&mut client, json!({"question": "Say hi"}), options, |_| {
+            Ok(())
+        })?;
+        assert_eq!(
+            (
+                reads.load(Ordering::SeqCst),
+                writes.load(Ordering::SeqCst),
+                client.chats
+            ),
+            (0, 0, 2)
+        );
+        assert_eq!(client.spoken, [json!("Hello there")]);
         Ok(())
     }
 }

@@ -14,7 +14,7 @@ release flow.
 - `parseDates` / `parse_dates` defaults to true in the ports (#734).
 - `renderAudio` / `render_audio` defaults to true in the ports (#736).
 - Speak results drop the older keys (`audio`, `mime_type`, `sample_rate`) in favor of TypeScript's `data`, `mimeType` and `sampleRate` (#736). The deprecated JSON `audio` key fallback in speak responses is removed (5b).
-- `playbook.seed` means TypeScript's numeric seed, and snapshot seeds go in `playbook.playbook` (#739, pending PR).
+- `playbook.seed` means TypeScript's numeric seed, and snapshot seeds go in `playbook.playbook` (#739).
 - TypeScript's deprecated, ignored `responseFormatWithFunctions` is removed (#721).
 - An agent without runtime config builds TypeScript's JavaScript actor stages by default, and the runtime-less completion mode becomes opt-in (pending PR).
 - TypeScript `AxAIProfileAuthentication.type` drops `'api-key-query'`. No profile uses it and TypeScript never implemented query-key auth (such a profile fell through to a Bearer header), so it is deprecated until then (pending PR).

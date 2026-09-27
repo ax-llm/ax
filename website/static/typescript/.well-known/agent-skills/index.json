@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:b14e9be0c562fd803b121ed93695d8d338e8e1ee23816511788c0f57a4f8e971"
+      "digest": "sha256:6db978623e380310e41db0d0df7d50a806f1f18abf7be5df80407392a1c3855a"
     },
     {
       "name": "ax-typesafe",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
       "url": "ax-gen/SKILL.md",
-      "digest": "sha256:63c5232900f54227f1017f215fe0cca87d1dceffb48f858848f02902fd5dff53"
+      "digest": "sha256:496c1b45e3c177c628756e2ef7672cdc9d2e4b26ce493f35c4a2c7d470eb01ee"
     },
     {
       "name": "ax-mcp",
@@ -62,7 +62,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:6353051b4ff6834cb2df1a0588d44e44ef21de1d27a197eafb86f4bbe2d1c7c0"
+      "digest": "sha256:e5e11ed2c8c6b30ebaac3f0e5a6b202d5a3177bc2823216b65c2941dbe505f86"
     },
     {
       "name": "ax-agent-rlm",

@@ -1300,13 +1300,13 @@ Value Core::string_words(Value value) {
 Value Core::string_default_if_empty(Value value, Value fallback) {
   return truthy(string_trim(value)) ? string_trim(value) : fallback;
 }
-Value Core::string_format(Value templ, Value a, Value b, Value c, Value d, Value e, Value f) {
+Value Core::string_format_values(Value templ, const std::vector<Value>& args) {
   // Each value fills the next {} after the previous one, so a value that
-  // itself contains {} is not formatted again.
+  // itself contains {} is not formatted again. A null value fills its {} as
+  // well (display() writes it as the empty string, as Go's does).
   std::string out = str(templ);
   size_t cursor = 0;
-  for (const auto& arg : Array{a, b, c, d, e, f}) {
-    if (arg.is_null()) continue;
+  for (const auto& arg : args) {
     size_t pos = out.find("{}", cursor);
     if (pos == std::string::npos) break;
     std::string text = display(arg);
@@ -11040,6 +11040,9 @@ Value Core::provider_build_chat_request(Value profile, Value request, Value opti
     if (Core::truthy(is_meta)) {
       responses_payload = Core::_meta_prepare_responses_request(responses_payload, request, options);
     }
+    if (!Core::truthy(is_meta)) {
+      responses_payload = Core::_openai_responses_apply_prompt_cache_retention(responses_payload, request, options, model);
+    }
     payload = Core::openai_responses_apply_astra_caching(responses_payload, request, options);
   }
   if (!Core::truthy(is_responses)) {
@@ -16600,6 +16603,25 @@ Value Core::provider_embed_url(Value profile, Value model, Value options) {
   Value project = Core::get(options, Value("projectId"), project_snake);
   Value url = Core::string_format(Value("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent"), base_url, project, model);
   return url;
+}
+
+Value Core::_openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model) {
+  axir_coverage_mark("_openai_responses_apply_prompt_cache_retention");
+  Value empty_map = Value::object();
+  Value model_config_snake = Core::get(request, Value("model_config"), empty_map);
+  Value model_config = Core::get(request, Value("modelConfig"), model_config_snake);
+  Value config_retention_snake = Core::get(model_config, Value("prompt_cache_retention"), Value());
+  Value config_retention = Core::get(model_config, Value("promptCacheRetention"), config_retention_snake);
+  Value option_retention_snake = Core::get(options, Value("prompt_cache_retention"), config_retention);
+  Value retention = Core::get(options, Value("promptCacheRetention"), option_retention_snake);
+  Value has_retention = Core::truthy_value(retention);
+  Value is_astra = Core::_openai_is_gpt6_astra_impl(model);
+  Value not_astra = Core::not_(is_astra);
+  Value send = Core::and_(has_retention, not_astra);
+  if (Core::truthy(send)) {
+    Core::set(payload, Value("prompt_cache_retention"), retention);
+  }
+  return payload;
 }
 
 Value Core::_ai_error_request(Value request, Value options) {
@@ -28542,7 +28564,9 @@ Value Core::_caching_function_option_impl(Value gen, Value options) {
   axir_coverage_mark("_caching_function_option_impl");
   Value empty = Value::object();
   Value call_options = Core::map_merge(empty, options);
-  Value control = Core::get(call_options, Value("control"), Value());
+  Value base_options = Core::get(gen, Value("options"), empty);
+  Value run_options = Core::map_merge(base_options, call_options);
+  Value control = Core::get(run_options, Value("control"), Value());
   Value controlled = Core::is_not_none(control);
   if (Core::truthy(controlled)) {
     Value no_cache = Core::none();
@@ -35235,6 +35259,17 @@ Value Core::_agent_runtime_append_action_log(Value state, Value entry) {
       }
       Core::set(entry, Value("tags"), tags);
     }
+    Value has_stage = Core::map_contains(entry, Value("stage"));
+    if (Core::truthy(has_stage)) {
+      // empty
+    }
+    if (!Core::truthy(has_stage)) {
+      Value active_stage = Core::get(state, Value("active_stage"), Value());
+      Value stage_known = Core::is_not_none(active_stage);
+      if (Core::truthy(stage_known)) {
+        Core::set(entry, Value("stage"), active_stage);
+      }
+    }
   }
   Core::append(log, entry);
   Core::set(state, Value("action_log"), log);
@@ -36976,6 +37011,277 @@ Value Core::_agent_finalize_citations(Value state, Value output) {
     }
   }
   return output;
+}
+
+Value Core::_agent_playbook_config_seed(Value config) {
+  axir_coverage_mark("_agent_playbook_config_seed");
+  Value none = Core::none();
+  Value value = Core::get(config, Value("playbook"), Value());
+  Value value_is_object = Core::type_is(value, Value("object"));
+  if (Core::truthy(value_is_object)) {
+    Value has_playbook = Core::map_contains(value, Value("playbook"));
+    Value has_artifact = Core::map_contains(value, Value("artifact"));
+    Value is_snapshot = Core::and_(has_playbook, has_artifact);
+    if (Core::truthy(is_snapshot)) {
+      return value;
+    }
+    Value bare = Value::object();
+    Core::set(bare, Value("playbook"), value);
+    Value config_artifact = Core::get(config, Value("artifact"), Value());
+    Value has_config_artifact = Core::is_not_none(config_artifact);
+    if (Core::truthy(has_config_artifact)) {
+      Core::set(bare, Value("artifact"), config_artifact);
+    }
+    return bare;
+  }
+  Value legacy = Core::get(config, Value("seed"), Value());
+  Value legacy_is_object = Core::type_is(legacy, Value("object"));
+  if (Core::truthy(legacy_is_object)) {
+    Core::axgen_deprecation(Value("agent-playbook-seed-snapshot"), Value("A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed."));
+    Value legacy_has_playbook = Core::map_contains(legacy, Value("playbook"));
+    if (Core::truthy(legacy_has_playbook)) {
+      return legacy;
+    }
+    Value wrapped = Value::object();
+    Core::set(wrapped, Value("playbook"), legacy);
+    return wrapped;
+  }
+  Value artifact = Core::get(config, Value("artifact"), Value());
+  Value has_artifact_only = Core::is_not_none(artifact);
+  if (Core::truthy(has_artifact_only)) {
+    Value artifact_seed = Value::object();
+    Core::set(artifact_seed, Value("artifact"), artifact);
+    return artifact_seed;
+  }
+  return none;
+}
+
+Value Core::_agent_playbook_action_log_text(Value action_log) {
+  axir_coverage_mark("_agent_playbook_action_log_text");
+  Value is_text = Core::type_is(action_log, Value("string"));
+  if (Core::truthy(is_text)) {
+    return action_log;
+  }
+  Value is_list = Core::type_is(action_log, Value("list"));
+  Value not_list = Core::not_(is_list);
+  if (Core::truthy(not_list)) {
+    return Value("");
+  }
+  Value tagged = Value(false);
+  for (auto probe : Core::iter(action_log)) {
+    Value probe_stage = Core::get(probe, Value("stage"), Value());
+    Value probe_has_stage = Core::is_not_none(probe_stage);
+    if (Core::truthy(probe_has_stage)) {
+      tagged = Value(true);
+    }
+  }
+  Value parts = Value::array();
+  for (auto entry : Core::iter(action_log)) {
+    Value type = Core::get(entry, Value("type"), Value(""));
+    Value is_step = Core::eq(type, Value("runtime_step"));
+    if (Core::truthy(is_step)) {
+      Value stage = Core::get(entry, Value("stage"), Value("executor"));
+      Value is_executor = Core::eq(stage, Value("executor"));
+      Value untagged = Core::not_(tagged);
+      Value keep = Core::or_(is_executor, untagged);
+      if (Core::truthy(keep)) {
+        Value code = Core::get(entry, Value("code"), Value(""));
+        Value output = Core::get(entry, Value("output"), Value(""));
+        Value output_empty = Core::eq(output, Value(""));
+        Value is_error = Core::get(entry, Value("is_error"), Value(false));
+        Value error = Core::get(entry, Value("error"), Value(""));
+        Value error_text = Core::ne(error, Value(""));
+        Value use_error = Core::and_(output_empty, is_error);
+        use_error = Core::and_(use_error, error_text);
+        if (Core::truthy(use_error)) {
+          output = error;
+        }
+        Value still_empty = Core::eq(output, Value(""));
+        if (Core::truthy(still_empty)) {
+          output = Value("(no output)");
+        }
+        Value part = Core::string_format(Value("```javascript\n{}\n```\nResult:\n{}"), code, output);
+        Core::append(parts, part);
+      }
+    }
+  }
+  Value text = Core::string_join(Value("\n\n"), parts);
+  return text;
+}
+
+Value Core::_agent_playbook_truncate(Value text, Value max_chars) {
+  axir_coverage_mark("_agent_playbook_truncate");
+  Value length = Core::len(text);
+  Value too_long = Core::gt(length, max_chars);
+  if (Core::truthy(too_long)) {
+    Value head = Core::string_slice(text, Value(0), max_chars);
+    Value cut = Core::string_format(Value("{}…"), head);
+    return cut;
+  }
+  return text;
+}
+
+Value Core::_agent_playbook_score_text(Value score) {
+  axir_coverage_mark("_agent_playbook_score_text");
+  Value negative = Core::lt(score, Value(0));
+  Value magnitude = Core::math_abs(score);
+  Value scaled = Core::mul(magnitude, Value(100));
+  Value shifted = Core::add(scaled, Value(0.5));
+  Value hundredths = Core::math_floor(shifted);
+  Value whole_float = Core::div(hundredths, Value(100));
+  Value whole = Core::math_floor(whole_float);
+  Value whole_hundredths = Core::mul(whole, Value(-100));
+  Value fraction = Core::add(hundredths, whole_hundredths);
+  Value whole_text = Core::string_str(whole);
+  Value fraction_text = Core::string_str(fraction);
+  Value one_digit = Core::lt(fraction, Value(10));
+  if (Core::truthy(one_digit)) {
+    fraction_text = Core::string_format(Value("0{}"), fraction_text);
+  }
+  Value text = Core::string_format(Value("{}.{}"), whole_text, fraction_text);
+  Value nonzero = Core::gt(hundredths, Value(0));
+  Value show_sign = Core::and_(negative, nonzero);
+  if (Core::truthy(show_sign)) {
+    text = Core::string_format(Value("-{}"), text);
+  }
+  return text;
+}
+
+Value Core::_agent_playbook_miner_inputs(Value signature, Value records, Value current_playbook) {
+  axir_coverage_mark("_agent_playbook_miner_inputs");
+  Value selected = Value::array();
+  for (auto record : Core::iter(records)) {
+    Value count = Core::len(selected);
+    Value room = Core::lt(count, Value(4));
+    if (Core::truthy(room)) {
+      Core::append(selected, record);
+    }
+  }
+  Value summaries = Value::array();
+  Value excerpts = Value::array();
+  Value calls = Value::array();
+  Value errors = Value::array();
+  Value position = Value(0);
+  Value any_body = Value(false);
+  Value needle = Core::string_slice(signature, Value(0), Value(40));
+  for (auto record : Core::iter(selected)) {
+    Value number = Core::add(position, Value(1));
+    position = number;
+    Value empty_map = Value::object();
+    Value task = Core::get(record, Value("task"), empty_map);
+    Value number_text = Core::string_str(number);
+    Value default_label = Core::string_format(Value("#{}"), number_text);
+    Value label = Core::get(task, Value("id"), default_label);
+    Value input = Core::get(task, Value("input"), Value());
+    Value input_json = Core::json_stringify(input);
+    Value input_text = Core::_agent_playbook_truncate(input_json, Value(240));
+    Value score = Core::get(record, Value("score"), Value(0));
+    Value score_text = Core::_agent_playbook_score_text(score);
+    Value summary = Core::string_format(Value("- {} (score {}): {}"), label, score_text, input_text);
+    Core::append(summaries, summary);
+    Value prediction = Core::get(record, Value("prediction"), empty_map);
+    Value error = Core::get(record, Value("error"), Value());
+    Value error_is_map = Core::type_is(error, Value("object"));
+    if (Core::truthy(error_is_map)) {
+      error = Core::get(error, Value("message"), Value(""));
+    }
+    Value has_error = Core::truthy_value(error);
+    Value body = Value("");
+    if (Core::truthy(has_error)) {
+      body = Core::string_format(Value("Run threw: {}"), error);
+    }
+    if (!Core::truthy(has_error)) {
+      Value raw_log = Core::get(prediction, Value("actionLog"), Value());
+      Value log = Core::_agent_playbook_action_log_text(raw_log);
+      Value log_length = Core::len(log);
+      Value fits = Core::lte(log_length, Value(2000));
+      if (Core::truthy(fits)) {
+        body = log;
+      }
+      if (!Core::truthy(fits)) {
+        Value hit = Core::string_index_of(log, needle, Value(0));
+        Value missing = Core::lt(hit, Value(0));
+        if (Core::truthy(missing)) {
+          Value tail_start = Core::add(log_length, Value(-2000));
+          body = Core::string_slice(log, tail_start);
+        }
+        if (!Core::truthy(missing)) {
+          Value window_start = Core::add(hit, Value(-1000));
+          Value before_zero = Core::lt(window_start, Value(0));
+          if (Core::truthy(before_zero)) {
+            window_start = Value(0);
+          }
+          Value window_end = Core::add(window_start, Value(2000));
+          body = Core::string_slice(log, window_start, window_end);
+        }
+      }
+    }
+    Value body_trimmed = Core::string_trim(body);
+    Value body_present = Core::ne(body_trimmed, Value(""));
+    if (Core::truthy(body_present)) {
+      any_body = Value(true);
+    }
+    Value excerpt = Core::string_format(Value("--- run {} ---\n{}"), number_text, body);
+    Core::append(excerpts, excerpt);
+    Value empty_list = Value::array();
+    Value record_calls = Core::get(prediction, Value("functionCalls"), empty_list);
+    for (auto call : Core::iter(record_calls)) {
+      Value call_count = Core::len(calls);
+      Value call_room = Core::lt(call_count, Value(20));
+      if (Core::truthy(call_room)) {
+        Value qualified = Core::get(call, Value("qualifiedName"), Value(""));
+        Value arguments = Core::get(call, Value("arguments"), Value());
+        Value arguments_json = Core::json_stringify(arguments);
+        Value arguments_text = Core::_agent_playbook_truncate(arguments_json, Value(120));
+        Value line = Core::string_format(Value("{}({})"), qualified, arguments_text);
+        Value call_error = Core::get(call, Value("error"), Value());
+        Value has_call_error = Core::truthy_value(call_error);
+        if (Core::truthy(has_call_error)) {
+          Value call_error_text = Core::string_str(call_error);
+          Value call_error_cut = Core::_agent_playbook_truncate(call_error_text, Value(120));
+          line = Core::string_format(Value("{} -> ERROR {}"), line, call_error_cut);
+        }
+        Core::append(calls, line);
+      }
+    }
+    Value record_errors = Core::get(prediction, Value("toolErrors"), empty_list);
+    for (auto tool_error : Core::iter(record_errors)) {
+      Value error_count = Core::len(errors);
+      Value error_room = Core::lt(error_count, Value(10));
+      if (Core::truthy(error_room)) {
+        Value tool_error_text = Core::string_str(tool_error);
+        Core::append(errors, tool_error_text);
+      }
+    }
+  }
+  Value no_body = Core::not_(any_body);
+  if (Core::truthy(no_body)) {
+    Value nothing = Core::none();
+    return nothing;
+  }
+  Value inputs = Value::object();
+  Core::set(inputs, Value("clusterSignature"), signature);
+  Value summaries_text = Core::string_join(Value("\n"), summaries);
+  Core::set(inputs, Value("taskSummaries"), summaries_text);
+  Value excerpts_text = Core::string_join(Value("\n\n"), excerpts);
+  Core::set(inputs, Value("actionLogExcerpts"), excerpts_text);
+  Value call_total = Core::len(calls);
+  Value has_calls = Core::gt(call_total, Value(0));
+  if (Core::truthy(has_calls)) {
+    Value calls_text = Core::string_join(Value("\n"), calls);
+    Core::set(inputs, Value("functionCallSummary"), calls_text);
+  }
+  Value error_total = Core::len(errors);
+  Value has_errors = Core::gt(error_total, Value(0));
+  if (Core::truthy(has_errors)) {
+    Value errors_text = Core::string_join(Value("\n"), errors);
+    Core::set(inputs, Value("toolErrors"), errors_text);
+  }
+  Value has_playbook = Core::ne(current_playbook, Value(""));
+  if (Core::truthy(has_playbook)) {
+    Core::set(inputs, Value("currentPlaybook"), current_playbook);
+  }
+  return inputs;
 }
 
 Value Core::_agent_collect_covered_failure_signatures(Value snapshot) {
@@ -47531,24 +47837,13 @@ static std::string playbook_record_signature(const Value& record) {
   }
   Value error = Core::get(record, "error");
   if (!error.is_null()) return playbook_error_signature(display(error));
-  std::string action_log = display(Core::get(prediction, "actionLog", Value("")));
+  // The action log as TS's prediction carries it: the executor's code steps as text.
+  std::string action_log = display(Core::_agent_playbook_action_log_text(Core::get(prediction, "actionLog")));
   std::smatch match;
   if (std::regex_search(action_log, match, std::regex("^\\s*(\\w+Error:\\s*.{0,60})", std::regex_constants::multiline))) {
     return playbook_error_signature(match[1].str());
   }
   return "behavioral:no_error";
-}
-
-static std::string playbook_failure_excerpt(const Value& record, const std::string& signature) {
-  Value error = Core::get(record, "error");
-  if (!error.is_null()) return "Run threw: " + display(error);
-  std::string action_log = display(Core::get(Core::get(record, "prediction", Value::object()), "actionLog", Value("")));
-  if (action_log.size() <= 2000) return action_log;
-  std::string needle = signature.substr(0, std::min<size_t>(40, signature.size()));
-  size_t hit = action_log.find(needle);
-  if (hit == std::string::npos) return action_log.substr(action_log.size() - 2000);
-  size_t start = hit > 1000 ? hit - 1000 : 0;
-  return action_log.substr(start, std::min<size_t>(2000, action_log.size() - start));
 }
 
 AxPlaybook::AxPlaybook(AxGen& program, AIClient& student, AIClient* teacher, Value options)
@@ -47819,53 +48114,11 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
   size_t index = 0;
   for (const auto& cluster : ranked) {
     ++index;
-    std::vector<Value> selected(cluster.second.begin(), cluster.second.begin() + std::min<size_t>(4, cluster.second.size()));
-    std::vector<std::string> bodies;
-    std::string excerpts;
-    std::string task_summaries;
-    std::vector<std::string> function_calls;
-    std::vector<std::string> tool_errors;
-    for (size_t record_index = 0; record_index < selected.size(); ++record_index) {
-      const Value& record = selected[record_index];
-      std::string body = playbook_failure_excerpt(record, cluster.first);
-      bodies.push_back(body);
-      if (!excerpts.empty()) excerpts += "\n\n";
-      excerpts += "--- run " + std::to_string(record_index + 1) + " ---\n" + body;
-      Value task = Core::get(record, "task", Value::object());
-      std::string label = Core::get(task, "id").is_null() ? "#" + std::to_string(record_index + 1) : display(Core::get(task, "id"));
-      std::string input = stringify(Core::get(task, "input"));
-      if (input.size() > 240) input.resize(240);
-      if (!task_summaries.empty()) task_summaries += "\n";
-      std::ostringstream score_text;
-      score_text << std::fixed << std::setprecision(2) << num(Core::get(record, "score", Value(0)));
-      task_summaries += "- " + label + " (score " + score_text.str() + "): " + input;
-      Value prediction = Core::get(record, "prediction", Value::object());
-      for (const auto& call : Core::iter(Core::get(prediction, "functionCalls", Value::array()))) {
-        if (function_calls.size() < 20) function_calls.push_back(stringify(call));
-      }
-      for (const auto& error : Core::iter(Core::get(prediction, "toolErrors", Value::array()))) {
-        if (tool_errors.size() < 10) tool_errors.push_back(display(error));
-      }
-    }
-    bool has_body = std::any_of(bodies.begin(), bodies.end(), [](const std::string& body) { return !playbook_collapse(body).empty(); });
-    if (!has_body) continue;
-    Value miner_request = object({
-        {"clusterSignature", Value(cluster.first)},
-        {"taskSummaries", Value(task_summaries)},
-        {"actionLogExcerpts", Value(excerpts)},
-    });
-    if (!function_calls.empty()) {
-      std::string joined;
-      for (const auto& call : function_calls) { if (!joined.empty()) joined += "\n"; joined += call; }
-      Core::set(miner_request, "functionCallSummary", Value(joined));
-    }
-    if (!tool_errors.empty()) {
-      std::string joined;
-      for (const auto& error : tool_errors) { if (!joined.empty()) joined += "\n"; joined += error; }
-      Core::set(miner_request, "toolErrors", Value(joined));
-    }
-    std::string current_playbook = render();
-    if (!playbook_collapse(current_playbook).empty()) Core::set(miner_request, "currentPlaybook", Value(current_playbook));
+    // TS's miner inputs: task summaries, action-log excerpts, function calls
+    // and tool errors of up to four records; none without an excerpt.
+    Value miner_request = Core::_agent_playbook_miner_inputs(Value(cluster.first), Value(Array(cluster.second.begin(), cluster.second.end())), Value(render()));
+    if (!miner_request.is_object()) continue;
+    std::string excerpts = display(Core::get(miner_request, "actionLogExcerpts", Value("")));
     Value mined;
     try {
       AxGen miner(agent_playbook_weakness_miner_signature(), object({{"id", "agent.playbook.weakness-miner"}}));
@@ -49000,13 +49253,11 @@ void AxAgent::attach_configured_playbook() {
     throw AxError("validation", "AxAgent: the `playbook` config option requires studentAI when the agent has no default ai.");
   }
   AIClient* teacher = playbook_config_client(config, {"teacherAI", "teacher_ai", "teacher"});
-  Value seed = Core::get(config, "seed", Value());
-  if (seed.is_null() && (!Core::get(config, "playbook", Value()).is_null() || !Core::get(config, "artifact", Value()).is_null())) seed = config;
+  // TS's `playbook` seed (a snapshot or a bare playbook), or the older `seed`
+  // key with a deprecation warning.
+  Value seed = Core::_agent_playbook_config_seed(config);
   AxPlaybook& handle = playbook(*student, config, teacher);
-  if (seed.is_object()) {
-    if (!Core::get(seed, "playbook", Value()).is_null()) handle.load(seed);
-    else handle.load(object({{"playbook", seed}}));
-  }
+  if (seed.is_object()) handle.load(seed);
 }
 
 void AxAgent::learn_playbook_failures(Value output) {

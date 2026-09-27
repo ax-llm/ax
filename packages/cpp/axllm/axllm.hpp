@@ -368,8 +368,12 @@ struct Core {
   static Value string_remove_suffix(Value value, Value suffix);
   static Value string_words(Value value);
   static Value string_default_if_empty(Value value, Value fallback);
-  static Value string_format(Value templ, Value a = Value(), Value b = Value(), Value c = Value(),
-                             Value d = Value(), Value e = Value(), Value f = Value());
+  // intrinsic.string.format: each {} takes the next argument, in order.
+  template <typename... Args>
+  static Value string_format(Value templ, Args&&... args) {
+    return string_format_values(std::move(templ), std::vector<Value>{Value(std::forward<Args>(args))...});
+  }
+  static Value string_format_values(Value templ, const std::vector<Value>& args);
   static Value string_split(Value value, Value sep);
   static Value string_split_once(Value value, Value sep);
   static Value string_split_trim_nonempty(Value value, Value sep);
@@ -800,6 +804,7 @@ struct Core {
   static Value provider_require_expensive_model_confirmation(Value provider, Value model, Value client_options, Value options);
   static Value _gemini_vertex_embed_content_model_impl(Value model);
   static Value provider_embed_url(Value profile, Value model, Value options);
+  static Value _openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model);
   static Value _ai_error_request(Value request, Value options);
   static Value chat_session_mode_enabled(Value options);
   static Value fold_stream(Value events);
@@ -1255,6 +1260,11 @@ struct Core {
   static Value _agent_end_citation_checks(Value state);
   static Value _agent_citation_assert(Value state, Value output);
   static Value _agent_finalize_citations(Value state, Value output);
+  static Value _agent_playbook_config_seed(Value config);
+  static Value _agent_playbook_action_log_text(Value action_log);
+  static Value _agent_playbook_truncate(Value text, Value max_chars);
+  static Value _agent_playbook_score_text(Value score);
+  static Value _agent_playbook_miner_inputs(Value signature, Value records, Value current_playbook);
   static Value _agent_collect_covered_failure_signatures(Value snapshot);
   static Value _agent_build_failure_signals(Value state);
   static Value _normalize_agent_completion_payload(Value output);

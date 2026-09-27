@@ -2,6 +2,8 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { mineWeakness } from '../../../src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.js';
+import { buildActionLog } from '../../../src/ax/agent/contextManager.js';
+import { agent } from '../../../src/ax/agent/index.js';
 import {
   adjustEvalScoreForActions,
   buildAgentJudgeCriteria,
@@ -2857,11 +2859,12 @@ await (async () => {
   }
 })();
 
-// --- agent playbook evolve: the weakness miner's system prompt -------------
-// The expected prompt is what TS's mineWeakness (weaknessMiner.ts) sends: its
-// signature and MINER_DESCRIPTION, with the inputs the scenario provides (a
-// cluster signature, task summaries, action-log excerpts and the seeded
-// playbook; no function calls or tool errors). The scenario is the ports'
+// --- agent playbook evolve: the weakness miner's prompt -------------------
+// The expected system prompt and user message are what TS's mineWeakness
+// (weaknessMiner.ts) sends: its signature and MINER_DESCRIPTION, with the
+// inputs the scenario provides (a cluster signature, task summaries, the
+// executor's action log excerpt and the seeded playbook; no function calls or
+// tool errors). The scenario is the ports'
 // agent-playbook-evolve script: its expensive teacher takes only the miner
 // call, because the playbook's own reflector and curator lack teacherOptions.
 await (async () => {
@@ -2905,12 +2908,14 @@ await (async () => {
   ].join('\n');
 
   const systemPrompts: string[] = [];
+  const userMessages: string[] = [];
   const teacherAI = new AxMockAIService<string>({
     name: 'mock',
     features: { functions: false, streaming: false },
     chatResponse: async (req) => {
       for (const message of req.chatPrompt) {
         if (message.role === 'system') systemPrompts.push(message.content);
+        if (message.role === 'user') userMessages.push(String(message.content));
       }
       return {
         results: [{ index: 0, content: minerAnswer, finishReason: 'stop' }],
@@ -2924,7 +2929,13 @@ await (async () => {
       records: [
         {
           task: { input: { question: 'Answer briefly.' } },
-          prediction: { actionLog: finalCode } as never,
+          // TS's prediction carries the executor's action log as text: the
+          // scenario's one executor step, whose final() prints nothing.
+          prediction: {
+            actionLog: buildActionLog([
+              { turn: 1, code: finalCode, output: '(no output)', tags: [] },
+            ]),
+          } as never,
           score: 0,
           passed: false,
         },
@@ -2935,7 +2946,7 @@ await (async () => {
     currentPlaybook: renderPlaybook(seedPlaybook as unknown as AxACEPlaybook),
     index: 0,
   });
-  if (!weakness || systemPrompts.length !== 1) {
+  if (!weakness || systemPrompts.length !== 1 || userMessages.length !== 1) {
     throw new Error(
       'agent-playbook-evolve-miner-system-prompt: the miner did not run'
     );
@@ -2988,6 +2999,7 @@ await (async () => {
         expected: { outcome_count: 1 },
         expected_teacher_request_count: 1,
         expected_teacher_system_prompts: systemPrompts,
+        expected_teacher_user_messages: userMessages,
       },
     ],
     teacher_responses: [{ content: minerAnswer }],
@@ -2996,4 +3008,86 @@ await (async () => {
     join(agentOutDir, 'agent-playbook-evolve-miner-system-prompt.json'),
     `${JSON.stringify(stable(fixture), null, 2)}\n`
   );
+})();
+
+// --- agent playbook config: TS's seed shapes -------------------------------
+// TS seeds a configured playbook from `playbook`: a snapshot ({playbook,
+// artifact}) is loaded, anything else is a bare playbook. The expected states
+// are TS's getState() right after construction; the forward responses are the
+// ports' agent script, and the seeded bullet must reach the actor prompt.
+await (async () => {
+  const agentOutDir = join(outRoot, 'ir/conformance/axagent');
+  mkdirSync(agentOutDir, { recursive: true });
+  const bullet = 'Check the live evidence before answering.';
+  const bare = {
+    version: 1,
+    sections: {
+      failures_to_avoid: [
+        {
+          id: 'failures-to-avoid-00001',
+          section: 'failures_to_avoid',
+          content: bullet,
+          helpfulCount: 0,
+          harmfulCount: 0,
+          createdAt: '2026-07-15T00:00:00.000Z',
+          updatedAt: '2026-07-15T00:00:00.000Z',
+        },
+      ],
+    },
+    stats: {
+      bulletCount: 1,
+      helpfulCount: 0,
+      harmfulCount: 0,
+      tokenEstimate: 10,
+    },
+    updatedAt: '2026-07-15T00:00:00.000Z',
+  };
+  const shapes = [
+    {
+      name: 'playbook-config-ts-snapshot-seed',
+      seed: { playbook: bare, artifact: { feedback: [], history: [] } },
+    },
+    { name: 'playbook-config-ts-bare-seed', seed: bare },
+  ];
+  for (const shape of shapes) {
+    const playbookConfig = { learn: false, playbook: shape.seed };
+    const tsAgent = agent('question:string -> answer:string', {
+      ai: new AxMockAIService({
+        features: { functions: false, streaming: false },
+      }),
+      contextFields: [],
+      playbook: playbookConfig,
+    } as never) as unknown as {
+      getPlaybook(): { getState(): unknown } | undefined;
+      executor: { executorDescription?: string };
+    };
+    const state = tsAgent.getPlaybook()?.getState();
+    if (!state || !tsAgent.executor.executorDescription?.includes(bullet)) {
+      throw new Error(`${shape.name}: TS did not seed the playbook`);
+    }
+    const fixture = {
+      name: shape.name,
+      kind: 'agent_forward',
+      signature: 'question:string -> answer:string',
+      options: { contextFields: [], playbook: playbookConfig },
+      input: { question: 'What should I check?' },
+      responses: [
+        { content: '{"completion":{"type":"final","args":["Answer",{}]}}' },
+        {
+          content:
+            '{"completion":{"type":"final","args":["Answer",{"answer":"the live evidence"}]}}',
+        },
+        { content: '{"answer":"the live evidence"}' },
+      ],
+      expected_output: { answer: 'the live evidence' },
+      expected_request_contains: [bullet],
+      expected_playbook_state_before_forward: state,
+      expected_playbook_state: state,
+      expected_playbook_config_unchanged: true,
+    };
+    writeFileSync(
+      join(agentOutDir, `${shape.name}.json`),
+      `${JSON.stringify(stable(fixture), null, 2)}\n`
+    );
+  }
 })();

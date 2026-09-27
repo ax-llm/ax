@@ -4454,6 +4454,8 @@ module @ax.provider version "0.1" {
         %is_meta = core.call intrinsic.eq(%provider_id, "meta")
         core.if %is_meta {
           %responses_payload = core.call @meta_prepare_responses_request(%responses_payload, %request, %options)
+        } else {
+          %responses_payload = core.call @openai_responses_apply_prompt_cache_retention(%responses_payload, %request, %options, %model)
         }
         %payload = core.call @openai_responses_apply_astra_caching(%responses_payload, %request, %options)
       } else {
@@ -10585,6 +10587,34 @@ module @ax.provider version "0.1" {
       %project = core.get %options["projectId"] default %project_snake
       %url = core.call intrinsic.string.format("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", %base_url, %project, %model)
       core.return %url
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_apply_prompt_cache_retention {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/openai/responses_api.ts"
+    type signature = "(payload:json, request:AxChatRequest, options:json, model:string) -> json"
+    body @entry(%payload: json, %request: AxChatRequest, %options: json, %model: string) {
+      // As in TS, an OpenAI Responses request sends promptCacheRetention from
+      // the call's options, else the service's, else the model config; GPT-6
+      // Astra refuses it, so it is left out there.
+      %empty_map = core.map
+      %model_config_snake = core.get %request["model_config"] default %empty_map
+      %model_config = core.get %request["modelConfig"] default %model_config_snake
+      %config_retention_snake = core.get %model_config["prompt_cache_retention"]
+      %config_retention = core.get %model_config["promptCacheRetention"] default %config_retention_snake
+      %option_retention_snake = core.get %options["prompt_cache_retention"] default %config_retention
+      %retention = core.get %options["promptCacheRetention"] default %option_retention_snake
+      %has_retention = core.call intrinsic.truthy(%retention)
+      %is_astra = core.call @openai_is_gpt6_astra_impl(%model)
+      %not_astra = core.call intrinsic.not(%is_astra)
+      %send = core.call intrinsic.and(%has_retention, %not_astra)
+      core.if %send {
+        core.set %payload["prompt_cache_retention"] = %retention
+      }
+      core.return %payload
     }
   }
 

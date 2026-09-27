@@ -135,6 +135,8 @@ type Case = {
   // Where the caching function goes: the call's options (default), the
   // constructor's, or the process-wide global (axGlobals.cachingFunction).
   cache_in?: 'call' | 'constructor' | 'global';
+  // A run control in the AxGen constructor's options.
+  constructor_control?: boolean;
   features?: JsonMap;
   result_picker_index?: number;
   // The cache throws this message on every read, or on every write.
@@ -183,6 +185,7 @@ async function record(name: string, spec: Case): Promise<void> {
     const gen = new AxGen(spec.signature, {
       ...tsOptions(spec.options),
       ...(cacheIn === 'constructor' ? { cachingFunction } : {}),
+      ...(spec.constructor_control ? { control: runControl() } : {}),
     });
 
     for (const call of spec.calls) {
@@ -250,6 +253,7 @@ async function record(name: string, spec: Case): Promise<void> {
     'result_picker_index',
     'cache_read_error',
     'cache_write_error',
+    'constructor_control',
     'speak_responses',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
@@ -415,6 +419,17 @@ const cases: Record<string, Case> = {
     calls: [
       forward({ question: 'Capital of France?' }, { control: true }),
       forward({ question: 'Capital of France?' }, { control: true }),
+    ],
+  },
+  // A run control in the constructor's options skips the cache too, as a
+  // constructor default.
+  'cache-constructor-control-skips-cache': {
+    signature: 'question:string -> answer:string',
+    constructor_control: true,
+    responses: [answer('Answer: Paris'), answer('Answer: Paris again')],
+    calls: [
+      forward({ question: 'Capital of France?' }),
+      forward({ question: 'Capital of France?' }),
     ],
   },
   // Media inputs key on their data: other image data misses, the same

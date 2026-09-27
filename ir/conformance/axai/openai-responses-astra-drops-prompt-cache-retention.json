@@ -1,0 +1,48 @@
+{
+  "expected_transport_json_absent": ["prompt_cache_retention"],
+  "kind": "ai_chat",
+  "model": "gpt-6-astra",
+  "name": "openai-responses-astra-drops-prompt-cache-retention",
+  "options": {
+    "promptCacheRetention": "24h"
+  },
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "r1",
+        "model": "gpt-6-astra",
+        "output": [
+          {
+            "content": [
+              {
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "m1",
+            "role": "assistant",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}
