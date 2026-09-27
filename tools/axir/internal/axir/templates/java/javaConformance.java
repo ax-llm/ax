@@ -1172,6 +1172,14 @@ public final class Conformance {
         if ("call".equals(cacheIn)) callOptions.put("cachingFunction", cache);
         if (Core.truthy(call.get("control"))) callOptions.put("control", new AxRunControl());
         Map<String, Object> input = new LinkedHashMap<>(Core.asMap(call.getOrDefault("input", Map.of())));
+        if (Core.truthy(call.get("reverse_input_keys"))) {
+          // Fixture JSON sorts its keys; the call asks for them reversed.
+          List<Map.Entry<String, Object>> entries = new ArrayList<>(input.entrySet());
+          Collections.reverse(entries);
+          Map<String, Object> reversed = new LinkedHashMap<>();
+          for (Map.Entry<String, Object> entry : entries) reversed.put(entry.getKey(), entry.getValue());
+          input = reversed;
+        }
         errors.add(null);
         if ("streaming_forward".equals(call.get("kind"))) {
           List<Object> deltas = new ArrayList<>();

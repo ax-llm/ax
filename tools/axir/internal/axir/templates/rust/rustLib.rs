@@ -16433,7 +16433,13 @@ fn run_cache_sequence_fixture(fixture: &Value) -> AxResult<()> {
             if call.get("control").and_then(Value::as_bool).unwrap_or(false) {
                 options = options.with_control(run_control());
             }
-            let input = call.get("input").cloned().unwrap_or_else(|| json!({}));
+            // Fixture JSON sorts its keys, so a call can ask for its input's
+            // keys in reverse order (serde_json keeps insertion order here).
+            let reverse = call.get("reverse_input_keys").and_then(Value::as_bool).unwrap_or(false);
+            let input = match call.get("input").cloned().unwrap_or_else(|| json!({})) {
+                Value::Object(fields) if reverse => Value::Object(fields.into_iter().rev().collect()),
+                input => input,
+            };
             let call_function = (cache_in == "call").then(|| caching_function.clone());
             if call.get("kind").and_then(Value::as_str) == Some("streaming_forward") {
                 let deltas = Rc::new(RefCell::new(Vec::new()));

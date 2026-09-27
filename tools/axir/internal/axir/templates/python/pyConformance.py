@@ -1311,14 +1311,17 @@ def _run_cache_sequence(fixture):
                 call_options["caching_function"] = caching_function
             if call.get("control"):
                 call_options["control"] = run_control()
+            call_input = call.get("input") or {}
+            if call.get("reverse_input_keys"):
+                call_input = dict(reversed(list(call_input.items())))
             errors.append(None)
             if call.get("kind") == "streaming_forward":
                 deltas = []
-                outputs.append(gen._streaming_forward_with(client, call.get("input") or {}, call_options, deltas.append))
+                outputs.append(gen._streaming_forward_with(client, call_input, call_options, deltas.append))
                 deltas_per_call.append(deltas)
             else:
                 try:
-                    outputs.append(gen.forward(client, call.get("input") or {}, call_options))
+                    outputs.append(gen.forward(client, call_input, call_options))
                 except Exception as exc:  # noqa: BLE001 - compared with expected_errors
                     errors[-1] = str(exc).split("\n")[0]
                     outputs.append(None)

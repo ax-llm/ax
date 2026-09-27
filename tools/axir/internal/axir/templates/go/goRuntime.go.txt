@@ -12629,6 +12629,22 @@ func assertConformanceCacheSequence(fixture map[string]Value, label string, outp
 // calls on one AxGen with one in-memory cache, set on each call, on the
 // constructor or process-wide (cache_in), and checks each call's output,
 // deltas, requests and error, and every cache read and write.
+// conformanceCallInput is a cache sequence call's input. With
+// reverse_input_keys its keys come in reverse order: the runtime keeps a
+// map's key order ("__order"), and fixture JSON sorts its keys.
+func conformanceCallInput(call map[string]Value) map[string]Value {
+	input := asMap(coreGet(call, "input", Object()))
+	if !coreTruthy(coreGet(call, "reverse_input_keys", false)) {
+		return input
+	}
+	keys := orderedKeys(input)
+	reversed := Object()
+	for i := len(keys) - 1; i >= 0; i-- {
+		coreSet(reversed, keys[i], input[keys[i]])
+	}
+	return reversed
+}
+
 func runConformanceCacheSequence(fixture map[string]Value) {
 	cache, cachingFunction := newConformanceCache(fixture)
 	cacheIn := display(coreGet(fixture, "cache_in", "call"))
@@ -12659,7 +12675,7 @@ func runConformanceCacheSequence(fixture map[string]Value) {
 		if coreTruthy(coreGet(call, "control", false)) {
 			callOptions["control"] = RunControl()
 		}
-		input := asMap(coreGet(call, "input", Object()))
+		input := conformanceCallInput(call)
 		var callError Value
 		if display(coreGet(call, "kind", "forward")) == "streaming_forward" {
 			deltas := Array()
@@ -12712,17 +12728,7 @@ func runConformanceFlowCacheSequence(fixture map[string]Value) {
 		if coreTruthy(coreGet(call, "control", false)) {
 			callOptions["control"] = RunControl()
 		}
-		input := asMap(coreGet(call, "input", Object()))
-		if coreTruthy(coreGet(call, "reverse_input_keys", false)) {
-			// The runtime keeps a map's key order ("__order"), so the flow
-			// sees the input with its keys reversed.
-			keys := orderedKeys(input)
-			reversed := Object()
-			for i := len(keys) - 1; i >= 0; i-- {
-				coreSet(reversed, keys[i], input[keys[i]])
-			}
-			input = reversed
-		}
+		input := conformanceCallInput(call)
 		var output, deltas Value
 		var err error
 		if display(coreGet(call, "kind", "forward")) == "streaming_forward" {

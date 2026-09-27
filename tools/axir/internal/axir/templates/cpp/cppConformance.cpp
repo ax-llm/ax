@@ -1045,6 +1045,18 @@ static std::string first_line(const std::exception& error) {
   return message.substr(0, message.find('\n'));
 }
 
+// A cache sequence call's input. With reverse_input_keys its keys are
+// inserted in reverse order: Values keep insertion order, and fixture JSON
+// sorts its keys.
+static Value fixture_call_input(const Value& call) {
+  Value input = Core::get(call, "input", Value::object());
+  if (!Core::truthy(Core::get(call, "reverse_input_keys", false))) return input;
+  Array keys = Core::iter(input);
+  Value reversed = Value::object();
+  for (auto key = keys.rbegin(); key != keys.rend(); ++key) Core::set(reversed, *key, Core::get(input, *key));
+  return reversed;
+}
+
 static void run_cache_sequence(Value fixture) {
   auto cache = std::make_shared<FixtureCache>();
   AxCachingFunction fn = fixture_caching_function(fixture, cache);
@@ -1070,7 +1082,7 @@ static void run_cache_sequence(Value fixture) {
       control = run_control();
       Core::set(call_options, "control", control->value());
     }
-    Value input = Core::get(call, "input", Value::object());
+    Value input = fixture_call_input(call);
     Value error;
     if (display(Core::get(call, "kind")) == "streaming_forward") {
       Value deltas = Value::array();
@@ -3419,15 +3431,7 @@ static void run_flow_cache_sequence(Value fixture) {
       control = run_control();
       Core::set(call_options, "control", control->value());
     }
-    Value input = Core::get(call, "input", Value::object());
-    // reverse_input_keys: the same input with its keys inserted in reverse
-    // order (fixture JSON sorts its keys).
-    if (Core::truthy(Core::get(call, "reverse_input_keys", false))) {
-      Array keys = Core::iter(input);
-      Value reversed = Value::object();
-      for (auto key = keys.rbegin(); key != keys.rend(); ++key) Core::set(reversed, *key, Core::get(input, *key));
-      input = reversed;
-    }
+    Value input = fixture_call_input(call);
     Value error;
     try {
       if (display(Core::get(call, "kind")) == "streaming_forward") {
