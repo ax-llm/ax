@@ -762,6 +762,78 @@ const cases: Record<string, Case> = {
     responses: [streamed(text('User: {"name":"Ada"}'), done())],
   },
 
+  // ----- retry messages on the text paths -----
+  // A retry after a failed check is one user message with a text part,
+  // `Title: description`, as TS's renderExtraFields renders the error:
+  // "Follow these instructions" for an assertion (its message ends with a
+  // period), "Invalid Field" for a validation error.
+  'forward-retry-message-assertion': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+    ],
+  },
+  'forward-retry-message-assertion-adds-period': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris',
+      },
+    ],
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+    ],
+  },
+  'forward-retry-message-missing-field': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+    ],
+  },
+  'forward-retry-message-json-object-parse': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: jsonObjectFeatures,
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Here you go' }] },
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+    ],
+  },
+  'streaming-forward-retry-message-assertion': {
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    request_tail: 2,
+    responses: [
+      streamed(text('Answer: Lyon'), done()),
+      streamed(text('Answer: Paris'), done()),
+    ],
+  },
+
   // ----- JS trim -----
   // TS trims values with String.prototype.trim: JS whitespace and line
   // terminators (U+FEFF, U+00A0, U+2028, U+3000 among them) go, while

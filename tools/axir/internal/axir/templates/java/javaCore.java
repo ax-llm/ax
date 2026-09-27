@@ -727,6 +727,15 @@ final class Core {
     return false;
   }
   // TS AxGen retries a model refusal inside its validation loop.
+  static Object exceptionIsValidation(Object error) {
+    Object current=error;
+    while(current instanceof Throwable throwable){
+      if(throwable instanceof AxValidationError)return true;
+      if(throwable.getCause()==null || throwable.getCause()==throwable)break;
+      current=throwable.getCause();
+    }
+    return false;
+  }
   static Object exceptionIsRefusal(Object error) {
     Object current=error;
     while(current instanceof Throwable throwable){

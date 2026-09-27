@@ -1877,6 +1877,10 @@ Value Core::exception_is_infrastructure(Value error) {
   return Value(type == "AxAIServiceNetworkError" || type == "AxAIServiceTimeoutError" || type == "AxAIServiceStreamTerminatedError");
 }
 // TS AxGen retries a model refusal inside its validation loop.
+Value Core::exception_is_validation(Value error) {
+  if (!error.is_object()) return Value(false);
+  return Value(str(get_key(error, "__error")) == "validation");
+}
 Value Core::exception_is_refusal(Value error) {
   if (!error.is_object()) return Value(false);
   return Value(str(get_key(error, "__type")) == "AxAIRefusalError");

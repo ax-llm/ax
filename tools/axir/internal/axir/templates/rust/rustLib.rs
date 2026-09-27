@@ -22680,6 +22680,11 @@ fn core_exception_is_infrastructure(args: &[CoreValue]) -> Result<CoreValue, AxE
 
 // TS AxGen retries a model refusal inside its validation loop.
 #[allow(dead_code)]
+fn core_exception_is_validation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let validation = matches!(core_arg(args, 0), CoreValue::Error(error) if error.category == "validation");
+    Ok(CoreValue::Bool(validation))
+}
+
 fn core_exception_is_refusal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let refusal = matches!(
         core_arg(args, 0),
