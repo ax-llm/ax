@@ -1319,6 +1319,10 @@ def _core_exception_is_refusal(error):
     return isinstance(error, AxAIRefusalError)
 
 
+def _core_exception_is_validation(error):
+    return isinstance(error, AxValidationError)
+
+
 def _core_regex_match(pattern, value):
     return isinstance(value, str) and re.search(pattern, value) is not None
 
@@ -4471,7 +4475,18 @@ def _parse_sample_outputs(gen: AxGen, output_fields: list[Any], response: Any, v
             extracted = _core_get(text_parsed, "extracted", False)
         else:
             if validate_exact_json:
-                output = _parse_output_impl(content)
+                strict_parsed = False
+                try:
+                    output = _parse_output_impl(content)
+                    strict_parsed = True
+                except Exception as strict_parse_error:
+                    pass
+                strict_failed = _core_not(strict_parsed)
+                if strict_failed:
+                    strict_error = _core_validation_error("Structured output must be one JSON object with no prose or Markdown fences.")
+                    raise strict_error
+                else:
+                    pass
             else:
                 output = _parse_output_fields_impl(content, output_fields)
         if validate_exact_json:
@@ -4808,6 +4823,22 @@ def _date_zone_resolve_impl(units: Any, start: Any, end: Any, zone: Any, probe: 
     raise missing_error
 
 
+def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
+    _core_coverage_mark("_build_optimization_eval_row")
+    out = {}
+    out["input"] = task
+    out["prediction"] = prediction
+    out["scores"] = scores
+    out["scalar"] = scalar
+    out["trace"] = trace
+    has_error = _core_is_not_none(error)
+    if has_error:
+        out["error"] = error
+    else:
+        pass
+    return out
+
+
 def _select_sample_index(samples: list[Any], options: Any) -> number:
     _core_coverage_mark("_select_sample_index")
     picker_snake = _core_get(options, "result_picker", None)
@@ -4838,22 +4869,6 @@ def _select_sample_index(samples: list[Any], options: Any) -> number:
     else:
         pass
     return selected
-
-
-def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
-    _core_coverage_mark("_build_optimization_eval_row")
-    out = {}
-    out["input"] = task
-    out["prediction"] = prediction
-    out["scores"] = scores
-    out["scalar"] = scalar
-    out["trace"] = trace
-    has_error = _core_is_not_none(error)
-    if has_error:
-        out["error"] = error
-    else:
-        pass
-    return out
 
 
 def chat_session_create_state(model: str, path: str, max_steps: Any) -> Any:
@@ -4953,6 +4968,15 @@ def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -
     out["avg"] = avg
     out["count"] = count
     return out
+
+
+def chat_session_target_matches(target: str, path: str) -> bool:
+    _core_coverage_mark("chat_session_target_matches")
+    exact = _core_eq(target, path)
+    prefix = _core_string_format("{}/", target)
+    descendant = _core_string_starts_with(path, prefix)
+    matches = _core_or(exact, descendant)
+    return matches
 
 
 def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> Any:
@@ -5279,15 +5303,6 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
             _cache_store_impl(cache_fn, cache_key, rendered_output)
             return rendered_output
     raise RuntimeError("unreachable AxGen forward loop exit")
-
-
-def chat_session_target_matches(target: str, path: str) -> bool:
-    _core_coverage_mark("chat_session_target_matches")
-    exact = _core_eq(target, path)
-    prefix = _core_string_format("{}/", target)
-    descendant = _core_string_starts_with(path, prefix)
-    matches = _core_or(exact, descendant)
-    return matches
 
 
 def chat_session_unresolved(state: Any) -> list[Any]:
@@ -7188,12 +7203,6 @@ def _date_delimiter_split_impl(text: Any) -> Any:
     return none
 
 
-def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
-    _core_coverage_mark("_set_examples")
-    gen["examples"] = examples
-    return gen
-
-
 def _ace_empty_playbook(description: Any, now: str) -> Any:
     _core_coverage_mark("_ace_empty_playbook")
     out = {}
@@ -7215,16 +7224,16 @@ def _ace_empty_playbook(description: Any, now: str) -> Any:
     return out
 
 
+def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_examples")
+    gen["examples"] = examples
+    return gen
+
+
 def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
     _core_coverage_mark("_set_demos")
     gen["demos"] = demos
     return gen
-
-
-def _render_examples(gen: AxGen) -> list[Any]:
-    _core_coverage_mark("_render_examples")
-    messages = _core_axgen_render_examples(gen)
-    return messages
 
 
 def _ace_render_playbook(playbook: Any) -> str:
@@ -7281,16 +7290,10 @@ def _ace_render_playbook(playbook: Any) -> str:
     return result
 
 
-def _render_demos(gen: AxGen) -> list[Any]:
-    _core_coverage_mark("_render_demos")
-    messages = _core_axgen_render_demos(gen)
+def _render_examples(gen: AxGen) -> list[Any]:
+    _core_coverage_mark("_render_examples")
+    messages = _core_axgen_render_examples(gen)
     return messages
-
-
-def _apply_field_processors(gen: AxGen, output: Any) -> Any:
-    _core_coverage_mark("_apply_field_processors")
-    processed = _core_axgen_apply_field_processors(gen, output)
-    return processed
 
 
 def chat_session_boundary_action(state: Any) -> Any:
@@ -7355,6 +7358,12 @@ def chat_session_boundary_action(state: Any) -> Any:
     else:
         action["type"] = "validate"
     return action
+
+
+def _render_demos(gen: AxGen) -> list[Any]:
+    _core_coverage_mark("_render_demos")
+    messages = _core_axgen_render_demos(gen)
+    return messages
 
 
 def _stream_convert_value_impl(field: Any, value: Any, required: bool) -> Any:
@@ -7465,6 +7474,12 @@ def _stream_convert_value_impl(field: Any, value: Any, required: bool) -> Any:
     else:
         pass
     return out
+
+
+def _apply_field_processors(gen: AxGen, output: Any) -> Any:
+    _core_coverage_mark("_apply_field_processors")
+    processed = _core_axgen_apply_field_processors(gen, output)
+    return processed
 
 
 def _run_assertions(gen: AxGen, output: Any) -> Any:
@@ -7592,12 +7607,6 @@ def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: st
     return playbook
 
 
-def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> list[Any]:
-    _core_coverage_mark("_append_assertion_retry_messages")
-    updated_messages = _append_validation_retry_messages_impl(messages, response, error)
-    return updated_messages
-
-
 def _regex_alternative(s: Any) -> Any:
     _core_coverage_mark("_regex_alternative")
     choices = _core_none()
@@ -7645,10 +7654,10 @@ def _regex_alternative(s: Any) -> Any:
     return t17
 
 
-def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
-    _core_coverage_mark("_record_trace")
-    _core_axgen_record_trace(gen, input, output, status)
-    return None
+def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> list[Any]:
+    _core_coverage_mark("_append_assertion_retry_messages")
+    updated_messages = _append_validation_retry_messages_impl(messages, response, error)
+    return updated_messages
 
 
 def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
@@ -7664,10 +7673,10 @@ def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
     return None
 
 
-def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
-    _core_coverage_mark("_should_continue_steps")
-    should_continue = _core_axgen_should_continue_steps(gen, calls)
-    return should_continue
+def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
+    _core_coverage_mark("_record_trace")
+    _core_axgen_record_trace(gen, input, output, status)
+    return None
 
 
 def _date_strip_code_fence_impl(value: Any) -> Any:
@@ -7735,11 +7744,10 @@ def chat_session_queue_update(state: Any, update: Any) -> bool:
     return True
 
 
-def _parse_output_impl(content: str) -> Any:
-    _core_coverage_mark("_parse_output_impl")
-    text = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-    output = _core_json_parse_strict(text)
-    return output
+def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
+    _core_coverage_mark("_should_continue_steps")
+    should_continue = _core_axgen_should_continue_steps(gen, calls)
+    return should_continue
 
 
 def _ace_dedupe_playbook(playbook: Any) -> Any:
@@ -7777,23 +7785,11 @@ def _ace_dedupe_playbook(playbook: Any) -> Any:
     return recomputed
 
 
-def _is_flexible_json_field(typ: FieldType) -> bool:
-    _core_coverage_mark("_is_flexible_json_field")
-    type_name = _core_get(typ, "name", None)
-    is_json = _core_eq(type_name, "json")
-    is_object = _core_eq(type_name, "object")
-    fields = _core_get(typ, "fields", None)
-    has_fields = _core_truthy(fields)
-    no_fields = _core_not(has_fields)
-    flexible = is_json
-    if is_object:
-        if no_fields:
-            flexible = True
-        else:
-            pass
-    else:
-        pass
-    return flexible
+def _parse_output_impl(content: str) -> Any:
+    _core_coverage_mark("_parse_output_impl")
+    text = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    output = _core_json_parse_strict(text)
+    return output
 
 
 def _regex_word(c: Any) -> Any:
@@ -8048,6 +8044,25 @@ def chat_session_record_unresolved(gen: Any, state: Any) -> None:
     return None
 
 
+def _is_flexible_json_field(typ: FieldType) -> bool:
+    _core_coverage_mark("_is_flexible_json_field")
+    type_name = _core_get(typ, "name", None)
+    is_json = _core_eq(type_name, "json")
+    is_object = _core_eq(type_name, "object")
+    fields = _core_get(typ, "fields", None)
+    has_fields = _core_truthy(fields)
+    no_fields = _core_not(has_fields)
+    flexible = is_json
+    if is_object:
+        if no_fields:
+            flexible = True
+        else:
+            pass
+    else:
+        pass
+    return flexible
+
+
 def _date_string_mode_impl() -> Any:
     _core_coverage_mark("_date_string_mode_impl")
     accented = _core_len("é")
@@ -8063,23 +8078,6 @@ def _date_string_mode_impl() -> Any:
     else:
         pass
     return "codepoint"
-
-
-def _parse_json_string_value(value: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_value")
-    is_string = _core_type_is(value, "string")
-    not_string = _core_not(is_string)
-    if not_string:
-        return value
-    else:
-        pass
-    result = value
-    try:
-        parsed = _core_json_parse(value)
-        result = parsed
-    except Exception as parse_error:
-        result = value
-    return result
 
 
 def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
@@ -8164,6 +8162,23 @@ def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
     return out
 
 
+def _parse_json_string_value(value: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_value")
+    is_string = _core_type_is(value, "string")
+    not_string = _core_not(is_string)
+    if not_string:
+        return value
+    else:
+        pass
+    result = value
+    try:
+        parsed = _core_json_parse(value)
+        result = parsed
+    except Exception as parse_error:
+        result = value
+    return result
+
+
 def chat_session_close_state(state: Any) -> list[Any]:
     _core_coverage_mark("chat_session_close_state")
     state["terminal"] = True
@@ -8222,66 +8237,6 @@ def _date_native_offset_impl(units: Any, index: Any, mode: Any) -> Any:
         offset = _core_add(offset, width)
         cursor = _core_add(cursor, step)
     return offset
-
-
-def _parse_json_string_for_field(field: Field, value: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_for_field")
-    typ = _core_get(field, "type", None)
-    value_is_none = _core_is_none(value)
-    if value_is_none:
-        return value
-    else:
-        pass
-    flexible = _is_flexible_json_field(typ)
-    is_array = _core_get(typ, "is_array", False)
-    typ_fields = _core_get(typ, "fields", None)
-    has_typ_fields = _core_truthy(typ_fields)
-    if is_array:
-        value_is_list = _core_type_is(value, "list")
-        not_list = _core_not(value_is_list)
-        if not_list:
-            return value
-        else:
-            pass
-        if flexible:
-            out = []
-            for item in value:
-                parsed_item = _parse_json_string_value(item)
-                out.append(parsed_item)
-            return out
-        else:
-            pass
-        if has_typ_fields:
-            rebuilt = []
-            for item in value:
-                item_is_map = _core_type_is(item, "object")
-                if item_is_map:
-                    parsed_obj = _parse_json_string_for_fields(typ_fields, item)
-                    rebuilt.append(parsed_obj)
-                else:
-                    rebuilt.append(item)
-            return rebuilt
-        else:
-            pass
-        return value
-    else:
-        pass
-    if flexible:
-        parsed_scalar = _parse_json_string_value(value)
-        return parsed_scalar
-    else:
-        pass
-    type_name = _core_get(typ, "name", None)
-    is_object = _core_eq(type_name, "object")
-    if is_object:
-        if has_typ_fields:
-            parsed_obj2 = _parse_json_string_for_fields(typ_fields, value)
-            return parsed_obj2
-        else:
-            pass
-    else:
-        pass
-    return value
 
 
 def chat_session_transition(state: Any, event: Any) -> Any:
@@ -8491,6 +8446,66 @@ def _regex_space(c: Any) -> Any:
     return t2
 
 
+def _parse_json_string_for_field(field: Field, value: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_for_field")
+    typ = _core_get(field, "type", None)
+    value_is_none = _core_is_none(value)
+    if value_is_none:
+        return value
+    else:
+        pass
+    flexible = _is_flexible_json_field(typ)
+    is_array = _core_get(typ, "is_array", False)
+    typ_fields = _core_get(typ, "fields", None)
+    has_typ_fields = _core_truthy(typ_fields)
+    if is_array:
+        value_is_list = _core_type_is(value, "list")
+        not_list = _core_not(value_is_list)
+        if not_list:
+            return value
+        else:
+            pass
+        if flexible:
+            out = []
+            for item in value:
+                parsed_item = _parse_json_string_value(item)
+                out.append(parsed_item)
+            return out
+        else:
+            pass
+        if has_typ_fields:
+            rebuilt = []
+            for item in value:
+                item_is_map = _core_type_is(item, "object")
+                if item_is_map:
+                    parsed_obj = _parse_json_string_for_fields(typ_fields, item)
+                    rebuilt.append(parsed_obj)
+                else:
+                    rebuilt.append(item)
+            return rebuilt
+        else:
+            pass
+        return value
+    else:
+        pass
+    if flexible:
+        parsed_scalar = _parse_json_string_value(value)
+        return parsed_scalar
+    else:
+        pass
+    type_name = _core_get(typ, "name", None)
+    is_object = _core_eq(type_name, "object")
+    if is_object:
+        if has_typ_fields:
+            parsed_obj2 = _parse_json_string_for_fields(typ_fields, value)
+            return parsed_obj2
+        else:
+            pass
+    else:
+        pass
+    return value
+
+
 def _date_js_trim_impl(text: Any) -> Any:
     _core_coverage_mark("_date_js_trim_impl")
     units = _core_string_utf16_units(text)
@@ -8503,26 +8518,6 @@ def _date_js_trim_impl(text: Any) -> Any:
     slice_to = _date_native_offset_impl(units, end, mode)
     trimmed = _core_string_slice(text, slice_from, slice_to)
     return trimmed
-
-
-def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_fields")
-    values_is_map = _core_type_is(values, "object")
-    not_map = _core_not(values_is_map)
-    if not_map:
-        return values
-    else:
-        pass
-    for field in output_fields:
-        name = _core_get(field, "name", None)
-        has_key = _core_map_contains(values, name)
-        if has_key:
-            value = _core_get(values, name, None)
-            parsed = _parse_json_string_for_field(field, value)
-            values[name] = parsed
-        else:
-            pass
-    return values
 
 
 def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, now: str) -> Any:
@@ -8730,16 +8725,15 @@ def _date_trim_bounds_impl(units: Any, start: Any, end: Any) -> Any:
     return bounds
 
 
-def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_for_fields")
+def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_fields")
     values_is_map = _core_type_is(values, "object")
     not_map = _core_not(values_is_map)
     if not_map:
         return values
     else:
         pass
-    nested_fields = _core_fields_from_map(fields_map)
-    for field in nested_fields:
+    for field in output_fields:
         name = _core_get(field, "name", None)
         has_key = _core_map_contains(values, name)
         if has_key:
@@ -8891,6 +8885,27 @@ def _regex_member(n: Any, c: Any) -> Any:
     return False
 
 
+def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_for_fields")
+    values_is_map = _core_type_is(values, "object")
+    not_map = _core_not(values_is_map)
+    if not_map:
+        return values
+    else:
+        pass
+    nested_fields = _core_fields_from_map(fields_map)
+    for field in nested_fields:
+        name = _core_get(field, "name", None)
+        has_key = _core_map_contains(values, name)
+        if has_key:
+            value = _core_get(values, name, None)
+            parsed = _parse_json_string_for_field(field, value)
+            values[name] = parsed
+        else:
+            pass
+    return values
+
+
 def _date_skip_space_impl(units: Any, start: Any, end: Any) -> Any:
     _core_coverage_mark("_date_skip_space_impl")
     cursor = start
@@ -9025,24 +9040,6 @@ def _date_is_line_terminator_impl(unit: Any) -> bool:
     return terminator
 
 
-def _tool_spec_impl(fn: Tool) -> Any:
-    _core_coverage_mark("_tool_spec_impl")
-    spec = {}
-    name = _core_get(fn, "name", None)
-    description = _core_get(fn, "description", None)
-    parameters = _core_get(fn, "parameters", None)
-    spec["name"] = name
-    spec["description"] = description
-    spec["parameters"] = parameters
-    execution = _core_get(fn, "execution", "blocking")
-    background = _core_eq(execution, "background")
-    if background:
-        spec["execution"] = execution
-    else:
-        pass
-    return spec
-
-
 def _stream_text_note_field_impl(xstate: Any, field: Any, init_streamed: bool) -> None:
     _core_coverage_mark("_stream_text_note_field_impl")
     name = _core_get(field, "name", "")
@@ -9070,6 +9067,24 @@ def _stream_text_note_field_impl(xstate: Any, field: Any, init_streamed: bool) -
     return None
 
 
+def _tool_spec_impl(fn: Tool) -> Any:
+    _core_coverage_mark("_tool_spec_impl")
+    spec = {}
+    name = _core_get(fn, "name", None)
+    description = _core_get(fn, "description", None)
+    parameters = _core_get(fn, "parameters", None)
+    spec["name"] = name
+    spec["description"] = description
+    spec["parameters"] = parameters
+    execution = _core_get(fn, "execution", "blocking")
+    background = _core_eq(execution, "background")
+    if background:
+        spec["execution"] = execution
+    else:
+        pass
+    return spec
+
+
 def _date_ascii_letter_impl(unit: Any) -> bool:
     _core_coverage_mark("_date_ascii_letter_impl")
     upper_low = _core_gte(unit, 65)
@@ -9080,28 +9095,6 @@ def _date_ascii_letter_impl(unit: Any) -> bool:
     lower = _core_and(lower_low, lower_high)
     letter = _core_or(upper, lower)
     return letter
-
-
-def _function_call_mode_impl(mode: Any) -> str:
-    _core_coverage_mark("_function_call_mode_impl")
-    missing = _core_is_none(mode)
-    if missing:
-        return "auto"
-    else:
-        pass
-    is_native = _core_eq(mode, "native")
-    is_auto = _core_eq(mode, "auto")
-    native_or_auto = _core_or(is_native, is_auto)
-    if native_or_auto:
-        return "auto"
-    else:
-        pass
-    is_prompt = _core_eq(mode, "prompt")
-    if is_prompt:
-        return "none"
-    else:
-        pass
-    return "auto"
 
 
 def _stream_text_extract_impl(xstate: Any, values: Any, content: str, fields: list[Any], options: Any) -> bool:
@@ -9282,6 +9275,28 @@ def _date_ascii_matches_impl(units: Any, at: Any, end: Any, word: Any) -> bool:
     return True
 
 
+def _function_call_mode_impl(mode: Any) -> str:
+    _core_coverage_mark("_function_call_mode_impl")
+    missing = _core_is_none(mode)
+    if missing:
+        return "auto"
+    else:
+        pass
+    is_native = _core_eq(mode, "native")
+    is_auto = _core_eq(mode, "auto")
+    native_or_auto = _core_or(is_native, is_auto)
+    if native_or_auto:
+        return "auto"
+    else:
+        pass
+    is_prompt = _core_eq(mode, "prompt")
+    if is_prompt:
+        return "none"
+    else:
+        pass
+    return "auto"
+
+
 def _regex_state(pos: Any, caps: Any) -> Any:
     _core_coverage_mark("_regex_state")
     t1 = {}
@@ -9296,45 +9311,6 @@ def _response_function_calls_impl(response: Any) -> list[Any]:
     empty = []
     calls = _core_get(response, "function_calls", empty)
     return calls
-
-
-def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> list[Any]:
-    _core_coverage_mark("_append_tool_call_messages_impl")
-    chat_calls = []
-    for call in calls:
-        chat_call = _completion_call_to_chat_impl(call)
-        chat_calls.append(chat_call)
-    content = _core_get(response, "content", "")
-    message = {}
-    message["role"] = "assistant"
-    message["content"] = content
-    message["function_calls"] = chat_calls
-    thought = _core_get(response, "thought", None)
-    has_thought = _core_is_not_none(thought)
-    if has_thought:
-        message["thought"] = thought
-    else:
-        pass
-    thought_blocks = _core_get(response, "thought_blocks", None)
-    has_thought_blocks = _core_is_not_none(thought_blocks)
-    if has_thought_blocks:
-        message["thought_blocks"] = thought_blocks
-    else:
-        pass
-    images = _core_get(response, "images", None)
-    has_images = _core_is_not_none(images)
-    if has_images:
-        message["images"] = images
-    else:
-        pass
-    phase = _core_get(response, "phase", None)
-    has_phase = _core_is_not_none(phase)
-    if has_phase:
-        message["phase"] = phase
-    else:
-        pass
-    messages.append(message)
-    return messages
 
 
 def _regex_capture_ids(n: Any) -> Any:
@@ -9548,19 +9524,43 @@ def _date_digits_impl(units: Any, at: Any, count: Any, end: Any) -> Any:
     return value
 
 
-def _completion_call_to_chat_impl(call: Any) -> Any:
-    _core_coverage_mark("_completion_call_to_chat_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    params = _core_get(call, "params", None)
-    function = {}
-    function["name"] = name
-    function["params"] = params
-    out = {}
-    out["id"] = id
-    out["type"] = "function"
-    out["function"] = function
-    return out
+def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> list[Any]:
+    _core_coverage_mark("_append_tool_call_messages_impl")
+    chat_calls = []
+    for call in calls:
+        chat_call = _completion_call_to_chat_impl(call)
+        chat_calls.append(chat_call)
+    content = _core_get(response, "content", "")
+    message = {}
+    message["role"] = "assistant"
+    message["content"] = content
+    message["function_calls"] = chat_calls
+    thought = _core_get(response, "thought", None)
+    has_thought = _core_is_not_none(thought)
+    if has_thought:
+        message["thought"] = thought
+    else:
+        pass
+    thought_blocks = _core_get(response, "thought_blocks", None)
+    has_thought_blocks = _core_is_not_none(thought_blocks)
+    if has_thought_blocks:
+        message["thought_blocks"] = thought_blocks
+    else:
+        pass
+    images = _core_get(response, "images", None)
+    has_images = _core_is_not_none(images)
+    if has_images:
+        message["images"] = images
+    else:
+        pass
+    phase = _core_get(response, "phase", None)
+    has_phase = _core_is_not_none(phase)
+    if has_phase:
+        message["phase"] = phase
+    else:
+        pass
+    messages.append(message)
+    return messages
 
 
 def _date_expect_unit_impl(units: Any, at: Any, end: Any, expected: Any) -> bool:
@@ -9583,17 +9583,19 @@ def _regex_push(stack: Any, top: Any, value: Any) -> Any:
     return t2
 
 
-def _tool_result_message_impl(call: Any, result: Any) -> Any:
-    _core_coverage_mark("_tool_result_message_impl")
+def _completion_call_to_chat_impl(call: Any) -> Any:
+    _core_coverage_mark("_completion_call_to_chat_impl")
     id = _core_get(call, "id", None)
     name = _core_get(call, "name", None)
-    result_json = _core_json_stringify(result)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["name"] = name
-    message["result"] = result_json
-    return message
+    params = _core_get(call, "params", None)
+    function = {}
+    function["name"] = name
+    function["params"] = params
+    out = {}
+    out["id"] = id
+    out["type"] = "function"
+    out["function"] = function
+    return out
 
 
 def _date_scan_date_impl(units: Any, at: Any) -> Any:
@@ -9636,29 +9638,25 @@ def _regex_task(n: Any, next: Any) -> Any:
     return t1
 
 
+def _tool_result_message_impl(call: Any, result: Any) -> Any:
+    _core_coverage_mark("_tool_result_message_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    result_json = _core_json_stringify(result)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["name"] = name
+    message["result"] = result_json
+    return message
+
+
 def _regex_frame(todo: Any, st: Any) -> Any:
     _core_coverage_mark("_regex_frame")
     t1 = {}
     t1["todo"] = todo
     t1["st"] = st
     return t1
-
-
-def _tool_error_message_impl(call: Any, error: error) -> Any:
-    _core_coverage_mark("_tool_error_message_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    error_text = _core_exception_message(error)
-    payload = {}
-    payload["error"] = error_text
-    payload_json = _core_json_stringify(payload)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["name"] = name
-    message["result"] = payload_json
-    message["is_error"] = True
-    return message
 
 
 def _regex_search(n: Any, u: Any, initial: Any, d: Any) -> Any:
@@ -10198,6 +10196,23 @@ def _regex_search(n: Any, u: Any, initial: Any, d: Any) -> Any:
     return t225
 
 
+def _tool_error_message_impl(call: Any, error: error) -> Any:
+    _core_coverage_mark("_tool_error_message_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    error_text = _core_exception_message(error)
+    payload = {}
+    payload["error"] = error_text
+    payload_json = _core_json_stringify(payload)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["name"] = name
+    message["result"] = payload_json
+    message["is_error"] = True
+    return message
+
+
 def _date_scan_datetime_impl(units: Any, start: Any, end: Any) -> Any:
     _core_coverage_mark("_date_scan_datetime_impl")
     none = _core_none()
@@ -10305,23 +10320,6 @@ def _date_scan_datetime_impl(units: Any, start: Any, end: Any) -> Any:
     return parts
 
 
-def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> list[Any]:
-    _core_coverage_mark("_append_validation_retry_messages_impl")
-    content = _core_get(response, "content", "")
-    assistant_message = {}
-    assistant_message["role"] = "assistant"
-    assistant_message["content"] = content
-    messages.append(assistant_message)
-    error_text = _core_exception_message(error)
-    prefix_message = _core_add("The previous response failed validation: ", error_text)
-    retry_content = _core_add(prefix_message, ". Return only corrected JSON.")
-    retry_message = {}
-    retry_message["role"] = "user"
-    retry_message["content"] = retry_content
-    messages.append(retry_message)
-    return messages
-
-
 def _stream_text_required_check_impl(values: Any, fields: list[Any]) -> None:
     _core_coverage_mark("_stream_text_required_check_impl")
     parts = []
@@ -10361,24 +10359,30 @@ def _stream_text_required_check_impl(values: Any, fields: list[Any]) -> None:
     raise error
 
 
-def _parse_text_field_value_impl(field: Any, text: str) -> Any:
-    _core_coverage_mark("_parse_text_field_value_impl")
-    text = str(text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-    typ = _core_get(field, "type", None)
-    name = _core_get(typ, "name", None)
-    array = _core_get(typ, "is_array", False)
-    is_boolean = _core_eq(name, "boolean")
-    numeric = _core_eq(name, "number")
-    json = _core_eq(name, "json")
-    parse = _core_or(is_boolean, numeric)
-    parse = _core_or(parse, array)
-    parse = _core_or(parse, json)
-    if parse:
-        value = _core_json_parse_strict(text)
-        return value
+def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> list[Any]:
+    _core_coverage_mark("_append_validation_retry_messages_impl")
+    content = _core_get(response, "content", "")
+    assistant_message = {}
+    assistant_message["role"] = "assistant"
+    assistant_message["content"] = content
+    messages.append(assistant_message)
+    error_text = _core_exception_message(error)
+    is_validation = _core_exception_is_validation(error)
+    retry_text = ""
+    if is_validation:
+        retry_text = _core_add("Invalid Field: ", error_text)
     else:
-        pass
-    return text
+        instruction = str(error_text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        has_period = _core_string_ends_with(instruction, ".")
+        no_period = _core_not(has_period)
+        if no_period:
+            instruction = _core_add(instruction, ".")
+        else:
+            pass
+        retry_text = _core_add("Follow these instructions: ", instruction)
+    retry_message = _feedback_message_impl(retry_text)
+    messages.append(retry_message)
+    return messages
 
 
 def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
@@ -10545,85 +10549,24 @@ def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
     return empty_list
 
 
-def _parse_text_output_fields_impl(content: str, fields: Any, is_final: bool) -> Any:
-    _core_coverage_mark("_parse_text_output_fields_impl")
-    lines = _core_string_split(content, "\n")
-    count = _core_len(lines)
-    index = 0
-    values = {}
-    current = _core_none()
-    current_name = ""
-    parts = []
-    for line in lines:
-        index = _core_add(index, 1)
-        line_trimmed = str(line).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-        matched = _core_none()
-        value = ""
-        withhold = False
-        for field in fields:
-            name = _core_get(field, "name", None)
-            title = _core_get(field, "title", name)
-            labels = []
-            labels.append(name)
-            labels.append(title)
-            for label in labels:
-                prefix = _core_string_format("{}:", label)
-                found = _core_string_starts_with(line_trimmed, prefix)
-                if found:
-                    matched = field
-                    length = _core_len(prefix)
-                    value = _core_string_slice(line_trimmed, length)
-                    break
-                else:
-                    pass
-                last = _core_eq(index, count)
-                partial = _core_not(is_final)
-                partial = _core_and(partial, last)
-                if partial:
-                    prefix_partial = _core_string_starts_with(prefix, line_trimmed)
-                    withhold = _core_or(withhold, prefix_partial)
-                else:
-                    pass
-            has_match = _core_is_not_none(matched)
-            if has_match:
-                break
-            else:
-                pass
-        has_match = _core_is_not_none(matched)
-        if has_match:
-            has_current = _core_ne(current_name, "")
-            if has_current:
-                raw = _core_string_join("\n", parts)
-                parsed = _parse_text_field_value_impl(current, raw)
-                values[current_name] = parsed
-            else:
-                pass
-            current = matched
-            current_name = _core_get(matched, "name", None)
-            parts = []
-            parts.append(value)
-        else:
-            has_current = _core_ne(current_name, "")
-            keep = _core_not(withhold)
-            keep = _core_and(keep, has_current)
-            if keep:
-                parts.append(line)
-            else:
-                pass
-    has_current = _core_ne(current_name, "")
-    if has_current:
-        raw = _core_string_join("\n", parts)
-        try:
-            parsed = _parse_text_field_value_impl(current, raw)
-            values[current_name] = parsed
-        except Exception as parse_error:
-            if is_final:
-                raise parse_error
-            else:
-                pass
+def _parse_text_field_value_impl(field: Any, text: str) -> Any:
+    _core_coverage_mark("_parse_text_field_value_impl")
+    text = str(text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    typ = _core_get(field, "type", None)
+    name = _core_get(typ, "name", None)
+    array = _core_get(typ, "is_array", False)
+    is_boolean = _core_eq(name, "boolean")
+    numeric = _core_eq(name, "number")
+    json = _core_eq(name, "json")
+    parse = _core_or(is_boolean, numeric)
+    parse = _core_or(parse, array)
+    parse = _core_or(parse, json)
+    if parse:
+        value = _core_json_parse_strict(text)
+        return value
     else:
         pass
-    return values
+    return text
 
 
 def _stream_text_missed_fields_impl(values: Any, content: str, fields: list[Any]) -> None:
@@ -10742,6 +10685,87 @@ def _stream_text_missed_fields_impl(values: Any, content: str, fields: list[Any]
     return None
 
 
+def _parse_text_output_fields_impl(content: str, fields: Any, is_final: bool) -> Any:
+    _core_coverage_mark("_parse_text_output_fields_impl")
+    lines = _core_string_split(content, "\n")
+    count = _core_len(lines)
+    index = 0
+    values = {}
+    current = _core_none()
+    current_name = ""
+    parts = []
+    for line in lines:
+        index = _core_add(index, 1)
+        line_trimmed = str(line).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        matched = _core_none()
+        value = ""
+        withhold = False
+        for field in fields:
+            name = _core_get(field, "name", None)
+            title = _core_get(field, "title", name)
+            labels = []
+            labels.append(name)
+            labels.append(title)
+            for label in labels:
+                prefix = _core_string_format("{}:", label)
+                found = _core_string_starts_with(line_trimmed, prefix)
+                if found:
+                    matched = field
+                    length = _core_len(prefix)
+                    value = _core_string_slice(line_trimmed, length)
+                    break
+                else:
+                    pass
+                last = _core_eq(index, count)
+                partial = _core_not(is_final)
+                partial = _core_and(partial, last)
+                if partial:
+                    prefix_partial = _core_string_starts_with(prefix, line_trimmed)
+                    withhold = _core_or(withhold, prefix_partial)
+                else:
+                    pass
+            has_match = _core_is_not_none(matched)
+            if has_match:
+                break
+            else:
+                pass
+        has_match = _core_is_not_none(matched)
+        if has_match:
+            has_current = _core_ne(current_name, "")
+            if has_current:
+                raw = _core_string_join("\n", parts)
+                parsed = _parse_text_field_value_impl(current, raw)
+                values[current_name] = parsed
+            else:
+                pass
+            current = matched
+            current_name = _core_get(matched, "name", None)
+            parts = []
+            parts.append(value)
+        else:
+            has_current = _core_ne(current_name, "")
+            keep = _core_not(withhold)
+            keep = _core_and(keep, has_current)
+            if keep:
+                parts.append(line)
+            else:
+                pass
+    has_current = _core_ne(current_name, "")
+    if has_current:
+        raw = _core_string_join("\n", parts)
+        try:
+            parsed = _parse_text_field_value_impl(current, raw)
+            values[current_name] = parsed
+        except Exception as parse_error:
+            if is_final:
+                raise parse_error
+            else:
+                pass
+    else:
+        pass
+    return values
+
+
 def _date_offset_zone_matches_impl(units: Any, start: Any, end: Any) -> bool:
     _core_coverage_mark("_date_offset_zone_matches_impl")
     z_units = _core_string_utf16_units("z")
@@ -10812,38 +10836,6 @@ def _parse_output_fields_impl(content: str, fields: Any) -> Any:
         pass
     output = _parse_text_output_fields_impl(text, fields, True)
     return output
-
-
-def _signature_has_complex_fields(signature: AxSignature, options: Any) -> bool:
-    _core_coverage_mark("_signature_has_complex_fields")
-    option_forced_snake = _core_get(options, "force_structured", False)
-    option_forced = _core_get(options, "forceStructured", option_forced_snake)
-    signature_forced_snake = _core_get(signature, "force_structured", False)
-    signature_forced = _core_get(signature, "forceStructured", signature_forced_snake)
-    forced = _core_or(option_forced, signature_forced)
-    if forced:
-        return True
-    else:
-        pass
-    output_fields = _core_get(signature, "output_fields", None)
-    for field in output_fields:
-        field_type = _core_get(field, "type", None)
-        type_name = _core_get(field_type, "name", None)
-        is_object = _core_eq(type_name, "object")
-        if is_object:
-            return True
-        else:
-            pass
-        is_array_snake = _core_get(field_type, "is_array", False)
-        is_array = _core_get(field_type, "isArray", is_array_snake)
-        nested_fields = _core_get(field_type, "fields", None)
-        has_nested_fields = _core_truthy(nested_fields)
-        object_array = _core_and(is_array, has_nested_fields)
-        if object_array:
-            return True
-        else:
-            pass
-    return False
 
 
 def _date_offset_minutes_impl(units: Any, start: Any, end: Any) -> Any:
@@ -11007,6 +10999,38 @@ def _stream_text_final_impl(xstate: Any, values: Any, content: str, fields: list
     return None
 
 
+def _signature_has_complex_fields(signature: AxSignature, options: Any) -> bool:
+    _core_coverage_mark("_signature_has_complex_fields")
+    option_forced_snake = _core_get(options, "force_structured", False)
+    option_forced = _core_get(options, "forceStructured", option_forced_snake)
+    signature_forced_snake = _core_get(signature, "force_structured", False)
+    signature_forced = _core_get(signature, "forceStructured", signature_forced_snake)
+    forced = _core_or(option_forced, signature_forced)
+    if forced:
+        return True
+    else:
+        pass
+    output_fields = _core_get(signature, "output_fields", None)
+    for field in output_fields:
+        field_type = _core_get(field, "type", None)
+        type_name = _core_get(field_type, "name", None)
+        is_object = _core_eq(type_name, "object")
+        if is_object:
+            return True
+        else:
+            pass
+        is_array_snake = _core_get(field_type, "is_array", False)
+        is_array = _core_get(field_type, "isArray", is_array_snake)
+        nested_fields = _core_get(field_type, "fields", None)
+        has_nested_fields = _core_truthy(nested_fields)
+        object_array = _core_and(is_array, has_nested_fields)
+        if object_array:
+            return True
+        else:
+            pass
+    return False
+
+
 def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
     _core_coverage_mark("_ace_locate_bullet_section")
     empty_map = {}
@@ -11060,17 +11084,6 @@ def _caller_function_call_impl(options: Any) -> Any:
         pass
     none = _core_none()
     return none
-
-
-def _function_call_forces_tool_impl(choice: Any) -> bool:
-    _core_coverage_mark("_function_call_forces_tool_impl")
-    is_required = _core_eq(choice, "required")
-    if is_required:
-        return True
-    else:
-        pass
-    is_named = _core_type_is(choice, "object")
-    return is_named
 
 
 def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, reflection: Any, generator_output: Any) -> list[Any]:
@@ -11218,61 +11231,15 @@ def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, refle
     return resolved
 
 
-def _function_call_names_output_impl(choice: Any) -> bool:
-    _core_coverage_mark("_function_call_names_output_impl")
+def _function_call_forces_tool_impl(choice: Any) -> bool:
+    _core_coverage_mark("_function_call_forces_tool_impl")
+    is_required = _core_eq(choice, "required")
+    if is_required:
+        return True
+    else:
+        pass
     is_named = _core_type_is(choice, "object")
-    not_named = _core_not(is_named)
-    if not_named:
-        return False
-    else:
-        pass
-    empty_function = {}
-    function = _core_get(choice, "function", empty_function)
-    name = _core_get(function, "name", "")
-    canonical = _core_eq(name, "__axOutput")
-    legacy = _core_eq(name, "__finalResult")
-    reserved = _core_or(canonical, legacy)
-    return reserved
-
-
-def _append_structured_output_retry_messages_impl(messages: list[Any], response: Any, call: Any, error: error, stage: str) -> list[Any]:
-    _core_coverage_mark("_append_structured_output_retry_messages_impl")
-    output_calls = []
-    output_calls.append(call)
-    with_call = _append_tool_call_messages_impl(messages, response, output_calls)
-    id = _core_get(call, "id", None)
-    direct_name = _core_get(call, "name", None)
-    fn = _core_get(call, "function", None)
-    name = _core_get(fn, "name", direct_name)
-    result_message = {}
-    result_message["role"] = "function"
-    result_message["function_id"] = id
-    result_message["name"] = name
-    result_message["result"] = "done"
-    with_call.append(result_message)
-    notice = {}
-    notice["role"] = "user"
-    notice["content"] = "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."
-    with_call.append(notice)
-    error_text = _core_exception_message(error)
-    error_text = str(error_text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-    correction_text = _core_string_format("Invalid Field: {}", error_text)
-    is_assertion = _core_eq(stage, "assertion")
-    if is_assertion:
-        has_period = _core_string_ends_with(error_text, ".")
-        period = "."
-        if has_period:
-            period = ""
-        else:
-            pass
-        correction_text = _core_string_format("Follow these instructions: {}{}", error_text, period)
-    else:
-        pass
-    correction = {}
-    correction["role"] = "user"
-    correction["content"] = correction_text
-    with_call.append(correction)
-    return with_call
+    return is_named
 
 
 def _date_js_json_impl(value: Any) -> Any:
@@ -11345,6 +11312,63 @@ def _stream_text_extract_values_impl(content: str, fields: list[Any], strict_mod
         else:
             pass
     return values
+
+
+def _function_call_names_output_impl(choice: Any) -> bool:
+    _core_coverage_mark("_function_call_names_output_impl")
+    is_named = _core_type_is(choice, "object")
+    not_named = _core_not(is_named)
+    if not_named:
+        return False
+    else:
+        pass
+    empty_function = {}
+    function = _core_get(choice, "function", empty_function)
+    name = _core_get(function, "name", "")
+    canonical = _core_eq(name, "__axOutput")
+    legacy = _core_eq(name, "__finalResult")
+    reserved = _core_or(canonical, legacy)
+    return reserved
+
+
+def _append_structured_output_retry_messages_impl(messages: list[Any], response: Any, call: Any, error: error, stage: str) -> list[Any]:
+    _core_coverage_mark("_append_structured_output_retry_messages_impl")
+    output_calls = []
+    output_calls.append(call)
+    with_call = _append_tool_call_messages_impl(messages, response, output_calls)
+    id = _core_get(call, "id", None)
+    direct_name = _core_get(call, "name", None)
+    fn = _core_get(call, "function", None)
+    name = _core_get(fn, "name", direct_name)
+    result_message = {}
+    result_message["role"] = "function"
+    result_message["function_id"] = id
+    result_message["name"] = name
+    result_message["result"] = "done"
+    with_call.append(result_message)
+    notice = {}
+    notice["role"] = "user"
+    notice["content"] = "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."
+    with_call.append(notice)
+    error_text = _core_exception_message(error)
+    error_text = str(error_text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    correction_text = _core_string_format("Invalid Field: {}", error_text)
+    is_assertion = _core_eq(stage, "assertion")
+    if is_assertion:
+        has_period = _core_string_ends_with(error_text, ".")
+        period = "."
+        if has_period:
+            period = ""
+        else:
+            pass
+        correction_text = _core_string_format("Follow these instructions: {}{}", error_text, period)
+    else:
+        pass
+    correction = {}
+    correction["role"] = "user"
+    correction["content"] = correction_text
+    with_call.append(correction)
+    return with_call
 
 
 def _stream_text_yield_delta_impl(content: str, field: Any, start: int, end: int, xstate: Any, held: list[Any], complete: bool) -> Any:
@@ -11433,17 +11457,6 @@ def _stream_text_yield_delta_impl(content: str, field: Any, start: int, end: int
     else:
         pass
     return none
-
-
-def _with_output_thought_impl(output: Any, field: str, prefix: str, thought: str) -> Any:
-    _core_coverage_mark("_with_output_thought_impl")
-    joined = _core_add(prefix, thought)
-    has_thought = _core_truthy(joined)
-    if has_thought:
-        output[field] = joined
-    else:
-        pass
-    return output
 
 
 def _date_js_json_string_impl(text: Any) -> Any:
@@ -11578,6 +11591,17 @@ def _date_js_json_string_impl(text: Any) -> Any:
     out = _core_add(out, rest)
     out = _core_add(out, "\"")
     return out
+
+
+def _with_output_thought_impl(output: Any, field: str, prefix: str, thought: str) -> Any:
+    _core_coverage_mark("_with_output_thought_impl")
+    joined = _core_add(prefix, thought)
+    has_thought = _core_truthy(joined)
+    if has_thought:
+        output[field] = joined
+    else:
+        pass
+    return output
 
 
 def _streaming_forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any, sink: Any) -> Any:
@@ -13619,6 +13643,18 @@ def _stream_json_parse_partial_impl(json_text: str) -> Any:
     return out
 
 
+def _regex_id_start_ranges() -> Any:
+    _core_coverage_mark("_regex_id_start_ranges")
+    t1 = _core_json_parse("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]")
+    return t1
+
+
+def _regex_id_continue_ranges() -> Any:
+    _core_coverage_mark("_regex_id_continue_ranges")
+    t1 = _core_json_parse("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]")
+    return t1
+
+
 def _parse_text_contract_output_impl(content: str, output_fields: list[Any], strict_mode: bool) -> Any:
     _core_coverage_mark("_parse_text_contract_output_impl")
     out = {}
@@ -13665,18 +13701,6 @@ def _parse_text_contract_output_impl(content: str, output_fields: list[Any], str
     out["values"] = values
     out["extracted"] = True
     return out
-
-
-def _regex_id_start_ranges() -> Any:
-    _core_coverage_mark("_regex_id_start_ranges")
-    t1 = _core_json_parse("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]")
-    return t1
-
-
-def _regex_id_continue_ranges() -> Any:
-    _core_coverage_mark("_regex_id_continue_ranges")
-    t1 = _core_json_parse("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]")
-    return t1
 
 
 def _regex_clear_capture(caps: Any, key: Any) -> Any:
@@ -13768,17 +13792,6 @@ def _generate_failed_impl(error: error) -> error:
     return wrapped
 
 
-def _unable_to_fix_impl(error: error, output: str) -> error:
-    _core_coverage_mark("_unable_to_fix_impl")
-    text = _core_exception_message(error)
-    message = _core_add("Unable to fix validation error: ", text)
-    message = _core_add(message, "\n\nLLM Output:\n")
-    message = _core_add(message, output)
-    unfixed = _core_exception_rewrap(error, message)
-    wrapped = _generate_failed_impl(unfixed)
-    return wrapped
-
-
 def _stream_json_validate_impl(fields: list[Any], values: Any, allow_missing: bool, reject_unknown: bool) -> None:
     _core_coverage_mark("_stream_json_validate_impl")
     if reject_unknown:
@@ -13828,6 +13841,17 @@ def _stream_json_validate_impl(fields: list[Any], values: Any, allow_missing: bo
     return None
 
 
+def _unable_to_fix_impl(error: error, output: str) -> error:
+    _core_coverage_mark("_unable_to_fix_impl")
+    text = _core_exception_message(error)
+    message = _core_add("Unable to fix validation error: ", text)
+    message = _core_add(message, "\n\nLLM Output:\n")
+    message = _core_add(message, output)
+    unfixed = _core_exception_rewrap(error, message)
+    wrapped = _generate_failed_impl(unfixed)
+    return wrapped
+
+
 def _attempt_output_impl(response: Any) -> str:
     _core_coverage_mark("_attempt_output_impl")
     empty_results = []
@@ -13851,32 +13875,6 @@ def _attempt_output_impl(response: Any) -> str:
         contents.append(text)
     joined = _core_string_join("\n---\n", contents)
     return joined
-
-
-def _max_tokens_error_impl(response: Any) -> Any:
-    _core_coverage_mark("_max_tokens_error_impl")
-    empty_results = []
-    completions = _core_get(response, "results", empty_results)
-    count = _core_len(completions)
-    single = _core_eq(count, 0)
-    if single:
-        completions = []
-        completions.append(response)
-    else:
-        pass
-    for completion in completions:
-        finish_snake = _core_get(completion, "finish_reason", None)
-        finish = _core_get(completion, "finishReason", finish_snake)
-        cut = _core_eq(finish, "length")
-        if cut:
-            content = _core_get(completion, "content", "")
-            message = _core_add("Max tokens reached before completion\nContent: ", content)
-            error = _core_runtime_error(message)
-            return error
-        else:
-            pass
-    none = _core_none()
-    return none
 
 
 def _stream_json_validate_value_impl(field: Any, value: Any, allow_missing: bool) -> Any:
@@ -13976,6 +13974,32 @@ def _stream_json_validate_value_impl(field: Any, value: Any, allow_missing: bool
     return value
 
 
+def _max_tokens_error_impl(response: Any) -> Any:
+    _core_coverage_mark("_max_tokens_error_impl")
+    empty_results = []
+    completions = _core_get(response, "results", empty_results)
+    count = _core_len(completions)
+    single = _core_eq(count, 0)
+    if single:
+        completions = []
+        completions.append(response)
+    else:
+        pass
+    for completion in completions:
+        finish_snake = _core_get(completion, "finish_reason", None)
+        finish = _core_get(completion, "finishReason", finish_snake)
+        cut = _core_eq(finish, "length")
+        if cut:
+            content = _core_get(completion, "content", "")
+            message = _core_add("Max tokens reached before completion\nContent: ", content)
+            error = _core_runtime_error(message)
+            return error
+        else:
+            pass
+    none = _core_none()
+    return none
+
+
 def _strict_mode_option_impl(base_options: Any, options: Any) -> bool:
     _core_coverage_mark("_strict_mode_option_impl")
     empty = {}
@@ -14017,37 +14041,6 @@ def _caching_function_option_impl(gen: AxGen, options: Any) -> Any:
         pass
     cache_fn = _core_axgen_caching_function(gen, call_options)
     return cache_fn
-
-
-def _cache_key_impl(gen: AxGen, values: Any) -> str:
-    _core_coverage_mark("_cache_key_impl")
-    signature = _core_get(gen, "signature", None)
-    description = _core_get(signature, "description", "")
-    lines = []
-    description_line = _core_string_format("description {}", description)
-    lines.append(description_line)
-    inputs = []
-    input_fields = _core_get(signature, "input_fields", None)
-    for field in input_fields:
-        input_name = _core_get(field, "name", "")
-        input_label = _stream_field_type_label_impl(field)
-        input_optional = _stream_field_flag_impl(field, "is_optional", "isOptional")
-        input_line = _core_string_format("input {} {} {}", input_name, input_label, input_optional)
-        lines.append(input_line)
-        input_value = _core_get(values, input_name, None)
-        inputs.append(input_value)
-    output_fields = _core_get(signature, "output_fields", None)
-    for field in output_fields:
-        output_name = _core_get(field, "name", "")
-        output_label = _stream_field_type_label_impl(field)
-        output_optional = _stream_field_flag_impl(field, "is_optional", "isOptional")
-        output_line = _core_string_format("output {} {} {}", output_name, output_label, output_optional)
-        lines.append(output_line)
-    inputs_json = _core_json_stable_stringify(inputs)
-    lines.append(inputs_json)
-    text = _core_string_join("\n", lines)
-    key = _core_crypto_sha256_hex(text)
-    return key
 
 
 def _stream_json_validate_nested_impl(parent: Any, object: Any, allow_missing: bool) -> None:
@@ -14109,6 +14102,37 @@ def _stream_json_validate_nested_impl(parent: Any, object: Any, allow_missing: b
     return None
 
 
+def _cache_key_impl(gen: AxGen, values: Any) -> str:
+    _core_coverage_mark("_cache_key_impl")
+    signature = _core_get(gen, "signature", None)
+    description = _core_get(signature, "description", "")
+    lines = []
+    description_line = _core_string_format("description {}", description)
+    lines.append(description_line)
+    inputs = []
+    input_fields = _core_get(signature, "input_fields", None)
+    for field in input_fields:
+        input_name = _core_get(field, "name", "")
+        input_label = _stream_field_type_label_impl(field)
+        input_optional = _stream_field_flag_impl(field, "is_optional", "isOptional")
+        input_line = _core_string_format("input {} {} {}", input_name, input_label, input_optional)
+        lines.append(input_line)
+        input_value = _core_get(values, input_name, None)
+        inputs.append(input_value)
+    output_fields = _core_get(signature, "output_fields", None)
+    for field in output_fields:
+        output_name = _core_get(field, "name", "")
+        output_label = _stream_field_type_label_impl(field)
+        output_optional = _stream_field_flag_impl(field, "is_optional", "isOptional")
+        output_line = _core_string_format("output {} {} {}", output_name, output_label, output_optional)
+        lines.append(output_line)
+    inputs_json = _core_json_stable_stringify(inputs)
+    lines.append(inputs_json)
+    text = _core_string_join("\n", lines)
+    key = _core_crypto_sha256_hex(text)
+    return key
+
+
 def _cache_store_impl(cache_fn: Any, key: str, output: Any) -> None:
     _core_coverage_mark("_cache_store_impl")
     no_cache = _core_is_none(cache_fn)
@@ -14121,6 +14145,27 @@ def _cache_store_impl(cache_fn: Any, key: str, output: Any) -> None:
     except Exception as cache_write_error:
         pass
     return None
+
+
+def _stream_json_select_fields_impl(fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_stream_json_select_fields_impl")
+    out = {}
+    keys = _core_map_keys(values)
+    for key in keys:
+        declared = False
+        for field in fields:
+            name = _core_get(field, "name", "")
+            same = _core_eq(name, key)
+            if same:
+                declared = True
+            else:
+                pass
+        if declared:
+            value = _core_get(values, key, None)
+            out[key] = value
+        else:
+            pass
+    return out
 
 
 def _cache_store_streamed_impl(cache_fn: Any, key: str, output: Any) -> None:
@@ -14164,27 +14209,6 @@ def _cache_lookup_impl(gen: AxGen, values: Any, options: Any, ignore_read_errors
     return lookup
 
 
-def _stream_json_select_fields_impl(fields: list[Any], values: Any) -> Any:
-    _core_coverage_mark("_stream_json_select_fields_impl")
-    out = {}
-    keys = _core_map_keys(values)
-    for key in keys:
-        declared = False
-        for field in fields:
-            name = _core_get(field, "name", "")
-            same = _core_eq(name, key)
-            if same:
-                declared = True
-            else:
-                pass
-        if declared:
-            value = _core_get(values, key, None)
-            out[key] = value
-        else:
-            pass
-    return out
-
-
 def _stream_json_nested_fields_impl(fields_map: Any) -> list[Any]:
     _core_coverage_mark("_stream_json_nested_fields_impl")
     out = []
@@ -14204,12 +14228,49 @@ def _stream_json_nested_fields_impl(fields_map: Any) -> list[Any]:
     return out
 
 
+def _stream_json_flexible_impl(field: Any) -> bool:
+    _core_coverage_mark("_stream_json_flexible_impl")
+    typ = _core_get(field, "type", None)
+    name = _core_get(typ, "name", "")
+    is_json = _core_eq(name, "json")
+    if is_json:
+        return True
+    else:
+        pass
+    is_object = _core_eq(name, "object")
+    nested = _core_get(typ, "fields", None)
+    has_nested = _core_truthy(nested)
+    open_object = _core_not(has_nested)
+    flexible = _core_and(is_object, open_object)
+    return flexible
+
+
 def _cache_lookup_option_impl(options: Any) -> Any:
     _core_coverage_mark("_cache_lookup_option_impl")
     empty = {}
     call_options = _core_map_merge(empty, options)
     lookup = _core_get(call_options, "_ax_cache_lookup", None)
     return lookup
+
+
+def _stream_json_string_value_impl(field: Any, value: Any) -> Any:
+    _core_coverage_mark("_stream_json_string_value_impl")
+    is_string = _core_type_is(value, "string")
+    not_string = _core_not(is_string)
+    if not_string:
+        return value
+    else:
+        pass
+    parsed = _core_none()
+    try:
+        parsed = _core_json_parse_strict(value)
+    except Exception as parse_error:
+        title = _stream_field_title_impl(field)
+        detail = _core_exception_message(parse_error)
+        message = _core_string_format("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", detail, title)
+        invalid = _core_validation_error(message)
+        raise invalid
+    return parsed
 
 
 def _apply_control_updates_impl(gen: AxGen, messages: list[Any], runtime_options: Any, updates: Any) -> list[Any]:
@@ -14235,63 +14296,6 @@ def _apply_control_updates_impl(gen: AxGen, messages: list[Any], runtime_options
     else:
         pass
     return messages
-
-
-def _stream_json_flexible_impl(field: Any) -> bool:
-    _core_coverage_mark("_stream_json_flexible_impl")
-    typ = _core_get(field, "type", None)
-    name = _core_get(typ, "name", "")
-    is_json = _core_eq(name, "json")
-    if is_json:
-        return True
-    else:
-        pass
-    is_object = _core_eq(name, "object")
-    nested = _core_get(typ, "fields", None)
-    has_nested = _core_truthy(nested)
-    open_object = _core_not(has_nested)
-    flexible = _core_and(is_object, open_object)
-    return flexible
-
-
-def _stream_json_string_value_impl(field: Any, value: Any) -> Any:
-    _core_coverage_mark("_stream_json_string_value_impl")
-    is_string = _core_type_is(value, "string")
-    not_string = _core_not(is_string)
-    if not_string:
-        return value
-    else:
-        pass
-    parsed = _core_none()
-    try:
-        parsed = _core_json_parse_strict(value)
-    except Exception as parse_error:
-        title = _stream_field_title_impl(field)
-        detail = _core_exception_message(parse_error)
-        message = _core_string_format("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", detail, title)
-        invalid = _core_validation_error(message)
-        raise invalid
-    return parsed
-
-
-def _structured_output_render_options_impl(selection: Any) -> Any:
-    _core_coverage_mark("_structured_output_render_options_impl")
-    render_options = {}
-    rung = _core_get(selection, "rung", None)
-    structured = _core_is_not_none(rung)
-    render_options["structured_output"] = structured
-    extra_functions = []
-    function_rung = _core_eq(rung, "function")
-    if function_rung:
-        render_options["structured_output_function_name"] = "__axOutput"
-        output_function = {}
-        output_function["name"] = "__axOutput"
-        output_function["description"] = "Emit the complete structured program output using the declared argument shape."
-        extra_functions.append(output_function)
-    else:
-        pass
-    render_options["extra_functions"] = extra_functions
-    return render_options
 
 
 def _stream_json_strings_for_field_impl(field: Any, value: Any) -> Any:
@@ -14350,6 +14354,26 @@ def _stream_json_strings_for_field_impl(field: Any, value: Any) -> Any:
     else:
         pass
     return value
+
+
+def _structured_output_render_options_impl(selection: Any) -> Any:
+    _core_coverage_mark("_structured_output_render_options_impl")
+    render_options = {}
+    rung = _core_get(selection, "rung", None)
+    structured = _core_is_not_none(rung)
+    render_options["structured_output"] = structured
+    extra_functions = []
+    function_rung = _core_eq(rung, "function")
+    if function_rung:
+        render_options["structured_output_function_name"] = "__axOutput"
+        output_function = {}
+        output_function["name"] = "__axOutput"
+        output_function["description"] = "Emit the complete structured program output using the declared argument shape."
+        extra_functions.append(output_function)
+    else:
+        pass
+    render_options["extra_functions"] = extra_functions
+    return render_options
 
 
 def _stream_json_strings_for_fields_impl(fields_map: Any, values: Any) -> None:
