@@ -31,9 +31,14 @@ public final class StreamHTTPRoundtripExample {
     String sseRest = "data: " + event2;
     byte[] firstBytes = sseFirst.getBytes(StandardCharsets.UTF_8);
     byte[] restBytes = sseRest.getBytes(StandardCharsets.UTF_8);
+    // Both requests hold the rest of the body back and record whether the
+    // client got there first: the order proves incremental delivery and prompt
+    // cancellation, so a slow machine cannot fail either check. The 30 s
+    // bounds only run out when the client never gets there.
     CountDownLatch releaseRest = new CountDownLatch(1);
     CountDownLatch releaseCancelledRest = new CountDownLatch(1);
-    AtomicBoolean releaseTimedOut = new AtomicBoolean(false);
+    AtomicBoolean firstHoldExpired = new AtomicBoolean(false);
+    AtomicBoolean cancelHoldExpired = new AtomicBoolean(false);
     AtomicInteger requests = new AtomicInteger();
 
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -45,12 +50,13 @@ public final class StreamHTTPRoundtripExample {
           exchange.sendResponseHeaders(200, firstBytes.length + restBytes.length);
           try (OutputStream os = exchange.getResponseBody()) {
             for (byte value : firstBytes) { os.write(value); os.flush(); }
+            boolean cancelled = requests.incrementAndGet() == 2;
+            AtomicBoolean expired = cancelled ? cancelHoldExpired : firstHoldExpired;
             try {
-              CountDownLatch release = requests.incrementAndGet() == 2 ? releaseCancelledRest : releaseRest;
-              if (!release.await(5, TimeUnit.SECONDS)) releaseTimedOut.set(true);
+              if (!(cancelled ? releaseCancelledRest : releaseRest).await(30, TimeUnit.SECONDS)) expired.set(true);
             } catch (InterruptedException error) {
               Thread.currentThread().interrupt();
-              releaseTimedOut.set(true);
+              expired.set(true);
             }
             os.write(restBytes);
             os.flush();
@@ -72,7 +78,8 @@ public final class StreamHTTPRoundtripExample {
         List<Map<String, Object>> events = new ArrayList<>();
         events.add(firstEvent);
         iterator.forEachRemaining(events::add);
-        if (releaseTimedOut.get()) throw new RuntimeException("first event was not incremental");
+        if (firstHoldExpired.get())
+          throw new RuntimeException("first event was not incremental: the client yielded it only after the server sent the rest of the body");
         for (Map<String, Object> event : events) {
         Object results = event.get("results");
         if (results instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
@@ -92,7 +99,6 @@ public final class StreamHTTPRoundtripExample {
         Iterator<Map<String, Object>> iterator = cancelled.iterator();
         if (!iterator.hasNext()) throw new RuntimeException("cancel stream ended before first event");
         iterator.next();
-        long cancelStarted = System.nanoTime();
         token.cancel("loopback stopped");
         try {
           iterator.hasNext();
@@ -101,8 +107,8 @@ public final class StreamHTTPRoundtripExample {
           if (!"loopback stopped".equals(error.reason()) || error.retryable)
             throw new RuntimeException("wrong cancellation error", error);
         }
-        if (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - cancelStarted) > 1000)
-          throw new RuntimeException("cancelled stream did not return promptly");
+        if (cancelHoldExpired.get())
+          throw new RuntimeException("cancelled stream did not return promptly: it waited for the server to end the body");
         if (token.subscriptionCount() != 0)
           throw new RuntimeException("cancelled stream retained a body-close subscription");
       } finally {
