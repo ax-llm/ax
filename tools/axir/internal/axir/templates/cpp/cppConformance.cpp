@@ -2073,6 +2073,33 @@ static Value evolve_script(Value responses) {
   return Value(script);
 }
 
+// A top-level "<key>_json" string holds <key> as JSON text, so a fixture can
+// carry an object in TS's key order (the canonical fixture sort reorders the
+// keys of the fixture's own objects).
+static void expand_ordered_json_fields(Value& fixture) {
+  std::vector<std::pair<std::string, std::string>> texts;
+  const std::string suffix = "_json";
+  for (const auto& kv : conf_entries(fixture)) {
+    const std::string& name = kv.first;
+    if (kv.second.is_string() && name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
+      texts.emplace_back(name.substr(0, name.size() - suffix.size()), display(kv.second));
+    }
+  }
+  for (const auto& [base, text] : texts) {
+    if (Core::get(fixture, base).is_null()) Core::set(fixture, base, parse_json(text));
+  }
+}
+
+// Each case's input text, parsed in key order, comes out of json.stringify as
+// TS's JSON.stringify writes it.
+static void run_json_stringify(Value fixture) {
+  int index = 0;
+  for (const auto& item : Core::iter(Core::get(fixture, "cases", Value::array()))) {
+    assert_equal(Core::json_stringify(parse_json(display(Core::get(item, "input")))), Core::get(item, "json"), "json.stringify case " + std::to_string(index));
+    index++;
+  }
+}
+
 static void run_agent_playbook_evolve(Value fixture) {
   Value source_responses = Core::get(fixture, "responses", Value::array());
   Value teacher_responses = Core::get(fixture, "teacher_responses");
@@ -4219,6 +4246,8 @@ static void run_kind(Value fixture) {
   } else if (kind == "strip_internal") {
     Value sig = build_signature(fixture);
     assert_equal(Core::strip_internal(Core::get(sig, "outputs"), Core::get(fixture, "values", Value::object())), Core::get(fixture, "expected_output"), "strip internal");
+  } else if (kind == "json_stringify") {
+    run_json_stringify(fixture);
   } else if (kind == "number_format") {
     run_number_format(fixture);
   } else if (kind == "string_format") {
@@ -4446,6 +4475,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
       for (const auto& path : expand(argv[i])) {
         Value fixture = parse_json(read_file(path));
+        expand_ordered_json_fields(fixture);
         if (!kSupportsLoneSurrogates && Core::truthy(Core::get(fixture, "requires_lone_surrogates", false))) {
           std::cout << "skip " << display(Core::get(fixture, "name", path.filename().string())) << ": requires lone surrogates (utf-8 runner)\n";
           continue;

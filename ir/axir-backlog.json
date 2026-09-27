@@ -2414,7 +2414,7 @@
     },
     {
       "id": "axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event",
-      "status": "open",
+      "status": "done",
       "title": "Keep a surrogate pair that a provider splits across stream events in Go and Rust",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2427,9 +2427,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "2535eae3a",
+      "verification": "Go and Rust run streaming-forward-split-surrogate-pair (their runners declare lone-surrogate support; tools/axir string_model_test.go expects all five to). On main, Go read each half as U+FFFD (deltas 'hi \\ufffd' and '\\ufffd there'; the new Go tests fail with 'hi \\ufffd\\ufffd there' over HTTP SSE) and Rust could not load the golden (serde_json: unexpected end of hex escape) while its SSE parsers pinned 'hi \\ufffd\\ufffd there'. Go keeps a lone surrogate escape as WTF-8 in parseJSON and the streaming SSE reader; Rust reads it as a private-use mark in stream events, parse_json and both WebSocket readers; both join split pairs in the stream-text intrinsics and write a leftover half as JS does. Go TestLoneSurrogateEscapesKeepTheirHalves and TestStreamedSplitSurrogatePairJoins, Rust a_split_surrogate_pair_joins_into_one_character (streamed and buffered SSE). verify --mode release passes for go and rust (1390 fixtures each)."
     },
     {
       "id": "axir-2026-09-27-match-typescript-ace-prompts-required-inputs-titles-and-agent-seed",
@@ -2807,6 +2807,25 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "67b2e78e8",
       "verification": "12 TS-derived axai speak goldens (TypeScript's real OpenAI, Mistral, Grok and Gemini speak() against fetch stubs, with expected_transport_json_absent for keys TS leaves out) fail on origin/main in all five ports and pass in all five; responses-speak pins the deprecated audio-key fallback."
+    },
+    {
+      "id": "axir-2026-09-27-stable-stringify-locale-order",
+      "status": "done",
+      "title": "TS stableStringify sorts keys with localeCompare while the ports sort by code point (context-cache tool-state hash)",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346",
+      "tsPaths": ["src/ax/ai/base.ts"],
+      "portableSurface": "axai",
+      "impact": "normalizeForStableStringify in src/ax/ai/base.ts orders object keys with localeCompare, which depends on the machine's locale; the ports' stable_stringify sorts by code point. For mixed-case keys the context-cache tool-state hash, and so the provider cache key, differs between TS and the ports and between TS machines. Measure where the hash is persisted before choosing code-point order in TS.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "730ca7b3f4eb0908928c248fde915dc37835fa00",
+      "verification": "Fixed on the TS side by #764: stableStringify sorts keys by code point, as the ports do; src/ax/ai/base.test.ts pins the key and its locale independence"
     },
     {
       "id": "axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths",

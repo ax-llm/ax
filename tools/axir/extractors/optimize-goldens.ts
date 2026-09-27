@@ -2872,7 +2872,16 @@ await (async () => {
 // tool errors). The scenario is the ports'
 // agent-playbook-evolve script: its expensive teacher takes only the miner
 // call, because the playbook's own reflector and curator lack teacherOptions.
-await (async () => {
+// The key-order variant gives the task input two keys out of sorted order:
+// the miner's user message holds JSON.stringify(input), so the ports must
+// keep the input's key order (the dataset goes in as dataset_json text, which
+// the canonical fixture sort cannot reorder).
+const writeMinerGolden = async (
+  name: string,
+  signature: string,
+  input: Record<string, string>,
+  datasetAsText: boolean
+) => {
   const agentOutDir = join(outRoot, 'ir/conformance/axagent');
   mkdirSync(agentOutDir, { recursive: true });
   const finalCode =
@@ -2933,7 +2942,7 @@ await (async () => {
       signature: 'behavioral:no_error',
       records: [
         {
-          task: { input: { question: 'Answer briefly.' } },
+          task: { input },
           // TS's prediction carries the executor's action log as text: the
           // scenario's one executor step, whose final() prints nothing.
           prediction: {
@@ -2952,15 +2961,14 @@ await (async () => {
     index: 0,
   });
   if (!weakness || systemPrompts.length !== 1 || userMessages.length !== 1) {
-    throw new Error(
-      'agent-playbook-evolve-miner-system-prompt: the miner did not run'
-    );
+    throw new Error(`${name}: the miner did not run`);
   }
 
+  const dataset = { train: [{ input, score: 0 }] };
   const fixture = {
-    name: 'agent-playbook-evolve-miner-system-prompt',
+    name,
     kind: 'agent_playbook_evolve',
-    signature: 'question:string -> answer:string',
+    signature,
     runtime_language: 'Python',
     options: {
       name: 'qa',
@@ -2975,9 +2983,9 @@ await (async () => {
     ],
     runtime_script: [finalStep, finalStep],
     seed: { playbook: seedPlaybook, artifact: { feedback: [], history: [] } },
-    dataset: {
-      train: [{ input: { question: 'Answer briefly.' }, score: 0 }],
-    },
+    ...(datasetAsText
+      ? { dataset_json: JSON.stringify(dataset) }
+      : { dataset }),
     teacher_client: {
       model: 'premium-model',
       options: {
@@ -3010,10 +3018,22 @@ await (async () => {
     teacher_responses: [{ content: minerAnswer }],
   };
   writeFileSync(
-    join(agentOutDir, 'agent-playbook-evolve-miner-system-prompt.json'),
+    join(agentOutDir, `${name}.json`),
     `${JSON.stringify(stable(fixture), null, 2)}\n`
   );
-})();
+};
+await writeMinerGolden(
+  'agent-playbook-evolve-miner-system-prompt',
+  'question:string -> answer:string',
+  { question: 'Answer briefly.' },
+  false
+);
+await writeMinerGolden(
+  'agent-playbook-evolve-miner-input-key-order',
+  'topic:string, question:string -> answer:string',
+  { topic: 'Ax', question: 'Answer briefly.' },
+  true
+);
 
 // --- agent playbook evolve: the runtime on the evolve call -----------------
 // TS's evolve replays run on the agent's own runtime; TS has no per-call

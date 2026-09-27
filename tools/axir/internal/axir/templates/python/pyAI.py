@@ -3279,7 +3279,8 @@ def _core_json_parse(value):
 
 
 def _core_json_stringify(value):
-    return _js_json_dumps(value or {}, sort_keys=True)
+    # TS JSON.stringify(value): keys in insertion order, null as null.
+    return _js_json_dumps(value)
 
 
 def _core_string_starts_with(value, prefix):

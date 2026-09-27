@@ -5,11 +5,11 @@
   "files": {
     "axllm/agent.py": {
       "emitted_lines": 9808,
-      "total_lines": 12644
+      "total_lines": 12645
     },
     "axllm/ai.py": {
       "emitted_lines": 12556,
-      "total_lines": 16155
+      "total_lines": 16156
     },
     "axllm/flow.py": {
       "emitted_lines": 2615,
@@ -17,7 +17,7 @@
     },
     "axllm/gen.py": {
       "emitted_lines": 13851,
-      "total_lines": 15531
+      "total_lines": 15532
     },
     "axllm/mcp.py": {
       "emitted_lines": 2386,
@@ -33,7 +33,7 @@
     },
     "axllm/signature.py": {
       "emitted_lines": 1546,
-      "total_lines": 2447
+      "total_lines": 2474
     }
   }
 }

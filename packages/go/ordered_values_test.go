@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 type orderedValuesClient struct{ responses []Value }
@@ -163,17 +166,99 @@ func TestJSONTextOmitsOrderListsAndHTMLEscapes(t *testing.T) {
 	}
 }
 
-// MCP messages go out through the same encoder as provider requests: keys sorted,
-// no "__order" lists, RFC 8259 escapes for control characters only, everything
-// else as UTF-8, and U+FFFD for invalid UTF-8.
+// MCP messages go out through the same encoder as provider requests, as TS's
+// JSON.stringify writes the message: keys in insertion order, no "__order"
+// lists, RFC 8259 escapes for control characters only, everything else as
+// UTF-8, and U+FFFD for invalid UTF-8.
 func TestMCPWireJSONOmitsOrderListsAndEscapesControlCharacters(t *testing.T) {
 	text := "tab\t cr\r ctl\x01 del\x7f <b>&   emoji\U0001F600 bad\xff"
 	got := AxMCPStdioEncode(Object("jsonrpc", "2.0", "id", 1, "method", "tools/call", "params", Object("arguments", Object("q", text))))
-	want := "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"arguments\":{\"q\":\"tab\\t cr\\r ctl\\u0001 del\x7f <b>&   emoji\U0001F600 bad�\"}}}\n"
+	want := "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"arguments\":{\"q\":\"tab\\t cr\\r ctl\\u0001 del\x7f <b>&   emoji\U0001F600 bad�\"}}}\n"
 	if got != want {
 		t.Fatalf("AxMCPStdioEncode = %q\nwant %q", got, want)
 	}
 	if !json.Valid([]byte(strings.TrimSuffix(got, "\n"))) {
 		t.Fatalf("AxMCPStdioEncode produced invalid JSON: %q", got)
+	}
+}
+
+// A provider can split a surrogate pair across stream events: "\ud83d" ends one
+// event's text and "\ude00" starts the next. JSON decoding keeps each half as
+// its WTF-8 bytes, the stream-text intrinsics join them, as JS strings do, and
+// a half left alone is written as JS writes it.
+func TestLoneSurrogateEscapesKeepTheirHalves(t *testing.T) {
+	head := display(coreGet(parseJSON(`{"content":"hi \ud83d"}`), "content", ""))
+	tail := display(coreGet(parseJSON(`{"content":"\ude00 there"}`), "content", ""))
+	if head != "hi \xed\xa0\xbd" || tail != "\xed\xb8\x80 there" {
+		t.Fatalf("halves = %q, %q, want their WTF-8 bytes", head, tail)
+	}
+	if joined := display(_core_string_concat_stream_text(head, tail)); joined != "hi \U0001F600 there" {
+		t.Fatalf("joined = %q", joined)
+	}
+	if joined := JoinStreamText(head, tail); joined != "hi \U0001F600 there" {
+		t.Fatalf("JoinStreamText = %q", joined)
+	}
+	if held := display(_core_string_drop_trailing_high_surrogate(head)); held != "hi " {
+		t.Fatalf("held back = %q", held)
+	}
+	if units, _ := _core_string_utf16_units(head).([]Value); len(units) != 4 || units[3] != 0xD83D {
+		t.Fatalf("utf-16 units = %v, want the half as one unit", units)
+	}
+	var written strings.Builder
+	writeJSONString(&written, head)
+	if written.String() != `"hi \ud83d"` {
+		t.Fatalf("written = %s", written.String())
+	}
+	if pair := display(coreGet(parseJSON(`{"content":"\ud83d\ude00"}`), "content", "")); pair != "\U0001F600" {
+		t.Fatalf("pair = %q", pair)
+	}
+	if _, err := parseJSONErr(`{"content":"\u12"}`); err == nil {
+		t.Fatal("a bad \\u escape parsed")
+	}
+}
+
+// A streamed answer whose surrogate pair a provider splits across two SSE
+// events arrives whole, and no delta holds half of it.
+func TestStreamedSplitSurrogatePairJoins(t *testing.T) {
+	events := "data: {\"id\":\"c\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Answer: hi \\ud83d\"}}]}\n\n" +
+		"data: {\"id\":\"c\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\ude00 there\"},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: [DONE]\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(events))
+	}))
+	defer server.Close()
+	client := NewAI("openai", map[string]Value{"api_key": "sk-test", "base_url": server.URL + "/v1", "model": "gpt-5.4-mini"})
+	var deltas []string
+	for delta, err := range NewAx("question:string -> answer:string", nil).StreamingForward(context.Background(), client, map[string]Value{"question": "Status?"}, nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text, ok := delta.Delta["answer"].(string); ok {
+			deltas = append(deltas, text)
+		}
+	}
+	if joined := strings.Join(deltas, ""); joined != "hi \U0001F600 there" {
+		t.Fatalf("streamed answer = %q", joined)
+	}
+	for _, delta := range deltas {
+		if !utf8.ValidString(delta) {
+			t.Fatalf("delta %q holds half a character", delta)
+		}
+	}
+	// Raw client Stream deltas carry the halves; JoinStreamText joins them
+	// into the character, as the AxGen stream does.
+	raw, err := client.Stream(context.Background(), map[string]Value{"chat_prompt": Array(Object("role", "user", "content", "Status?"))}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := ""
+	for _, delta := range raw {
+		for _, result := range asSlice(coreGet(delta, "results", Array())) {
+			text = JoinStreamText(text, display(coreGet(result, "content", "")))
+		}
+	}
+	if text != "Answer: hi \U0001F600 there" {
+		t.Fatalf("raw deltas joined = %q", text)
 	}
 }

@@ -1700,6 +1700,26 @@ impl<F: serde_json::ser::Formatter> serde_json::ser::Formatter for JsNumberForma
     ) -> std::io::Result<()> {
         writer.write_all(js_number_text(value).as_bytes())
     }
+    // A lone surrogate's mark (see LONE_SURROGATE_MARK) is written as JS's
+    // JSON.stringify writes a lone surrogate: its \u escape.
+    fn write_string_fragment<W: ?Sized + std::io::Write>(
+        &mut self,
+        writer: &mut W,
+        fragment: &str,
+    ) -> std::io::Result<()> {
+        if !fragment.chars().any(|ch| lone_surrogate_unit(ch).is_some()) {
+            return self.0.write_string_fragment(writer, fragment);
+        }
+        for ch in fragment.chars() {
+            match lone_surrogate_unit(ch) {
+                Some(unit) => writer.write_all(format!("\\u{unit:04x}").as_bytes())?,
+                None => self
+                    .0
+                    .write_string_fragment(writer, ch.encode_utf8(&mut [0u8; 4]))?,
+            }
+        }
+        Ok(())
+    }
     fn write_f32<W: ?Sized + std::io::Write>(
         &mut self,
         writer: &mut W,
@@ -1763,7 +1783,87 @@ impl<F: serde_json::ser::Formatter> serde_json::ser::Formatter for JsNumberForma
     }
 }
 
+/// The array index a JavaScript property key names: "0" to "4294967294" in
+/// canonical form (no sign, no leading zero).
+fn js_array_index(key: &str) -> Option<u64> {
+    if key.is_empty()
+        || key.len() > 10
+        || !key.bytes().all(|byte| byte.is_ascii_digit())
+        || (key.len() > 1 && key.starts_with('0'))
+    {
+        return None;
+    }
+    key.parse::<u64>()
+        .ok()
+        .filter(|index| *index <= 4_294_967_294)
+}
+
+/// Whether an object in the value has an array-index key out of JavaScript's
+/// own-property order (after another key, or after a larger index).
+fn js_needs_key_reorder(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => {
+            let mut seen_named = false;
+            let mut last_index: Option<u64> = None;
+            for (key, item) in map {
+                match js_array_index(key) {
+                    Some(index) => {
+                        if seen_named || last_index.is_some_and(|last| index < last) {
+                            return true;
+                        }
+                        last_index = Some(index);
+                    }
+                    None => seen_named = true,
+                }
+                if js_needs_key_reorder(item) {
+                    return true;
+                }
+            }
+            false
+        }
+        Value::Array(items) => items.iter().any(js_needs_key_reorder),
+        _ => false,
+    }
+}
+
+/// The value with each object's keys in JavaScript's own-property order,
+/// which JSON.stringify follows: array-index keys first in ascending numeric
+/// order, then the other keys in insertion order.
+fn js_own_key_order(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut indexed: Vec<(u64, &String, &Value)> = Vec::new();
+            let mut named: Vec<(&String, &Value)> = Vec::new();
+            for (key, item) in map {
+                match js_array_index(key) {
+                    Some(index) => indexed.push((index, key, item)),
+                    None => named.push((key, item)),
+                }
+            }
+            indexed.sort_by_key(|(index, _, _)| *index);
+            let mut out = serde_json::Map::new();
+            for (_, key, item) in indexed {
+                out.insert(key.clone(), js_own_key_order(item));
+            }
+            for (key, item) in named {
+                out.insert(key.clone(), js_own_key_order(item));
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(js_own_key_order).collect()),
+        _ => value.clone(),
+    }
+}
+
 fn js_json_write<F: serde_json::ser::Formatter>(value: &Value, formatter: F) -> Vec<u8> {
+    // JSON.stringify writes array-index keys first; reorder only when needed.
+    let reordered;
+    let value = if js_needs_key_reorder(value) {
+        reordered = js_own_key_order(value);
+        &reordered
+    } else {
+        value
+    };
     let mut out = Vec::with_capacity(128);
     let mut serializer =
         serde_json::Serializer::with_formatter(&mut out, JsNumberFormatter(formatter));
@@ -2233,9 +2333,31 @@ impl Iterator for CancellableProviderIterator {
     }
 }
 
-// JSON text with each \u escape of a lone surrogate replaced by the escape of
-// U+FFFD; a high surrogate escape followed by a low one stays a pair.
-fn replace_lone_surrogate_escapes(text: &str) -> String {
+// A provider can split a surrogate pair across stream events, leaving a lone
+// surrogate escape ("\ud83d", then "\ude00") in each event's JSON. JS's
+// JSON.parse keeps each half, and the stream-text intrinsics join them again.
+// A Rust string can't hold a lone surrogate, so each half reads as its mark:
+// the private-use code point LONE_SURROGATE_MARK plus the half's offset from
+// U+D800. core_string_concat_stream_text joins a high mark and a low mark into
+// the character they make, and the JSON writer writes a mark as JS writes the
+// lone surrogate, as its \u escape.
+const LONE_SURROGATE_MARK: u32 = 0x10F800;
+
+fn lone_surrogate_mark(unit: u32) -> char {
+    char::from_u32(LONE_SURROGATE_MARK + unit - 0xD800).unwrap_or('\u{fffd}')
+}
+
+/// The lone surrogate (U+D800 to U+DFFF) a mark stands for.
+fn lone_surrogate_unit(ch: char) -> Option<u32> {
+    let code = ch as u32;
+    (LONE_SURROGATE_MARK..=LONE_SURROGATE_MARK + 0x7FF)
+        .contains(&code)
+        .then(|| code - LONE_SURROGATE_MARK + 0xD800)
+}
+
+// JSON text with each \u escape of a lone surrogate replaced by its mark; a
+// high surrogate escape followed by a low one stays a pair.
+fn mark_lone_surrogate_escapes(text: &str) -> String {
     let surrogate = |escape: &str| -> Option<u32> {
         let unit = u32::from_str_radix(escape.strip_prefix("\\u")?.get(..4)?, 16).ok()?;
         (0xD800..=0xDFFF).contains(&unit).then_some(unit)
@@ -2252,8 +2374,8 @@ fn replace_lone_surrogate_escapes(text: &str) -> String {
                 out.push_str(&rest[..12]);
                 rest = &rest[12..];
             }
-            Some(_) => {
-                out.push_str("\\ufffd");
+            Some(unit) => {
+                out.push(lone_surrogate_mark(unit));
                 rest = &rest[6..];
             }
             None => {
@@ -2272,18 +2394,23 @@ fn replace_lone_surrogate_escapes(text: &str) -> String {
     out
 }
 
-// Parses one stream event's JSON. A provider can split a surrogate pair
-// across two events, leaving a lone surrogate escape in each, which JS's
-// JSON.parse accepts and serde_json refuses. A Rust string can't hold half a
-// pair, so each lone half reads as U+FFFD instead of failing the stream.
-fn parse_stream_event_json(payload: &str) -> AxResult<Value> {
-    serde_json::from_str(payload).or_else(|error| {
-        let replaced = replace_lone_surrogate_escapes(payload);
-        if replaced == payload {
-            return Err(AxError::from(error));
+// serde_json::from_str, except that a lone surrogate escape, which JS's
+// JSON.parse accepts and serde_json refuses, reads as its mark (see
+// LONE_SURROGATE_MARK). Other invalid JSON fails with serde_json's error.
+fn serde_json_keeping_lone_surrogates(text: &str) -> serde_json::Result<Value> {
+    serde_json::from_str(text).or_else(|error| {
+        let marked = mark_lone_surrogate_escapes(text);
+        if marked == text {
+            return Err(error);
         }
-        serde_json::from_str(&replaced).map_err(AxError::from)
+        serde_json::from_str(&marked).map_err(|_| error)
     })
+}
+
+// Parses one stream event's JSON, keeping each half of a surrogate pair a
+// provider split across two events.
+fn parse_stream_event_json(payload: &str) -> AxResult<Value> {
+    serde_json_keeping_lone_surrogates(payload).map_err(AxError::from)
 }
 
 struct SseJsonStream {
@@ -4782,14 +4909,17 @@ impl WsRealtimeTransport {
             match self.socket.read() {
                 Ok(tungstenite::Message::Text(text)) => {
                     return Ok(Some(Some(
-                        serde_json::from_str(text.as_str())
+                        serde_json_keeping_lone_surrogates(text.as_str())
                             .map_err(|e| AxError::runtime(e.to_string()))?,
                     )));
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
+                    let parsed = match std::str::from_utf8(&data) {
+                        Ok(text) => serde_json_keeping_lone_surrogates(text),
+                        Err(_) => serde_json::from_slice(&data),
+                    };
                     return Ok(Some(Some(
-                        serde_json::from_slice(&data)
-                            .map_err(|e| AxError::runtime(e.to_string()))?,
+                        parsed.map_err(|e| AxError::runtime(e.to_string()))?,
                     )));
                 }
                 Ok(tungstenite::Message::Close(frame)) => {
@@ -14856,7 +14986,7 @@ impl ProtocolChild {
 }
 
 pub fn parse_json(text: &str) -> AxResult<Value> {
-    Ok(serde_json::from_str(text)?)
+    Ok(serde_json_keeping_lone_surrogates(text)?)
 }
 
 pub fn stable_stringify(value: &Value) -> String {
@@ -14937,20 +15067,16 @@ fn cache_expiry_millis(value: &Value) -> Option<u64> {
 }
 
 // Rust strings are UTF-8, which can't hold a lone surrogate (half of a
-// surrogate pair a provider split across stream events; a provider stream
-// reads each half as U+FFFD), so this runner skips the fixtures that require
-// one.
-const SUPPORTS_LONE_SURROGATES: bool = false;
+// surrogate pair a provider split across stream events), so JSON decoding
+// reads one as its mark (see LONE_SURROGATE_MARK), which the stream-text
+// intrinsics join again; this runner runs the fixtures that split a pair.
+const SUPPORTS_LONE_SURROGATES: bool = true;
 
 /// The conformance runner's skip for a fixture's JSON text: its name and the
-/// reason, when this runner skips it. serde_json refuses a lone surrogate
-/// escape, so a fixture that has one is read with U+FFFD in its place to
-/// find its `requires_lone_surrogates` flag.
+/// reason, when this runner skips it.
 #[doc(hidden)]
 pub fn conformance_fixture_skip(text: &str) -> Option<(String, &'static str)> {
-    let fixture = parse_json(text)
-        .or_else(|_| parse_json(&replace_lone_surrogate_escapes(text)))
-        .ok()?;
+    let fixture = parse_json(text).ok()?;
     if SUPPORTS_LONE_SURROGATES
         || fixture
             .get("requires_lone_surrogates")
@@ -14968,6 +15094,28 @@ pub fn conformance_fixture_skip(text: &str) -> Option<(String, &'static str)> {
 }
 
 pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
+    // A top-level "<key>_json" string holds <key> as JSON text, so a fixture
+    // can carry an object in TS's key order (the canonical fixture sort
+    // reorders the keys of the fixture's own objects).
+    let mut fixture = fixture;
+    if let Some(map) = fixture.as_object_mut() {
+        let texts = map
+            .iter()
+            .filter_map(|(key, value)| {
+                Some((
+                    key.strip_suffix("_json")?.to_string(),
+                    value.as_str()?.to_string(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        for (base, text) in texts {
+            if !map.contains_key(&base) {
+                let parsed: Value = serde_json::from_str(&text)
+                    .map_err(|error| AxError::new("fixture", format!("{base}_json: {error}")))?;
+                map.insert(base, parsed);
+            }
+        }
+    }
     // expected_deprecations pins the one-time deprecation warnings the run
     // gives (the ones already shown are forgotten first).
     if let Some(expected) = fixture.get("expected_deprecations").cloned() {
@@ -14995,6 +15143,7 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
         "strip_internal" => run_strip_internal_fixture(&fixture)?,
         "prompt" => run_prompt_fixture(&fixture)?,
         "number_format" => run_number_format_fixture(&fixture)?,
+        "json_stringify" => run_json_stringify_fixture(&fixture)?,
         "string_format" => run_string_format_fixture(&fixture)?,
         "date_field_value" => run_date_field_value_fixture(&fixture)?,
         "date_input" => run_date_input_fixture(&fixture)?,
@@ -25805,6 +25954,31 @@ fn wire_json_equal(left: &Value, right: &Value) -> bool {
 // text). The JSON form must come out of every encoder: the wire body
 // (js_json_string), the json.stringify, json.stable_stringify and json.pretty
 // intrinsics, and AxGen's value text.
+// Each case's input text, parsed in key order, comes out of json.stringify as
+// TS's JSON.stringify writes it.
+fn run_json_stringify_fixture(fixture: &Value) -> AxResult<()> {
+    for (index, item) in fixture
+        .get("cases")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+    {
+        let text = item
+            .get("input")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let parsed: Value = serde_json::from_str(text).map_err(|error| {
+            AxError::new("fixture", format!("json.stringify case {index}: {error}"))
+        })?;
+        let actual = core_value_to_json(&core_json_stringify(&[core_value_from_json(&parsed)])?);
+        let expected = item.get("json").cloned().unwrap_or(Value::Null);
+        expect_json_equal(&format!("json.stringify case {index}"), &actual, &expected)?;
+    }
+    Ok(())
+}
+
 // string.format and string.str against JavaScript's text of each case.
 fn run_string_format_fixture(fixture: &Value) -> AxResult<()> {
     let text = |value: CoreValue| value.as_str().map(str::to_string).unwrap_or_default();
@@ -26782,11 +26956,18 @@ fn core_number_arg(args: &[CoreValue], index: usize) -> Result<f64, AxError> {
 }
 
 fn core_string_utf16_units(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    let units = core_arg(args, 0)
-        .text()
-        .encode_utf16()
-        .map(|unit| CoreValue::Num(unit as f64))
-        .collect();
+    // A lone surrogate's mark is the one UTF-16 unit it stands for.
+    let mut units = Vec::new();
+    for ch in core_arg(args, 0).text().chars() {
+        match lone_surrogate_unit(ch) {
+            Some(unit) => units.push(CoreValue::Num(unit as f64)),
+            None => units.extend(
+                ch.encode_utf16(&mut [0u16; 2])
+                    .iter()
+                    .map(|unit| CoreValue::Num(*unit as f64)),
+            ),
+        }
+    }
     Ok(CoreValue::list_from(units))
 }
 
@@ -26796,24 +26977,53 @@ fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError
     ))
 }
 
-// Appends streamed text. A Rust string is UTF-8 and holds whole characters,
-// so no chunk ends in half of a surrogate pair, and plain concatenation keeps
-// every character whole (Python joins a pair split across two chunks).
+// Appends streamed text. As in a UTF-16 string (TS, Java), a high surrogate
+// ending the text and a low one starting the chunk join into the character
+// they make; here each half is its mark (see LONE_SURROGATE_MARK).
 fn core_string_concat_stream_text(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    Ok(CoreValue::from_string(format!(
-        "{}{}",
-        core_arg(args, 0).text(),
-        core_arg(args, 1).text()
+    Ok(CoreValue::from_string(join_stream_text(
+        &core_arg(args, 0).text(),
+        &core_arg(args, 1).text(),
     )))
 }
 
+/// Appends a streamed chunk to `text`, as the AxGen stream does: half of a
+/// surrogate pair a provider split across chunks (read as its private-use
+/// mark, since a Rust `String` can't hold a lone surrogate) ending `text`, and
+/// the other half starting `chunk`, join into the character. A raw client
+/// `stream` delta can carry such a half, so join raw deltas with
+/// `join_stream_text` rather than `push_str`, which would leave the two
+/// marks instead of the character.
+pub fn join_stream_text(text: &str, chunk: &str) -> String {
+    let last = text.chars().last();
+    let first = chunk.chars().next();
+    let high = last
+        .and_then(lone_surrogate_unit)
+        .filter(|unit| *unit <= 0xDBFF);
+    let low = first
+        .and_then(lone_surrogate_unit)
+        .filter(|unit| *unit >= 0xDC00);
+    if let (Some(last), Some(first), Some(high), Some(low)) = (last, first, high, low) {
+        let joined = char::from_u32(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
+            .unwrap_or('\u{fffd}');
+        let head = &text[..text.len() - last.len_utf8()];
+        let tail = &chunk[first.len_utf8()..];
+        return format!("{head}{joined}{tail}");
+    }
+    format!("{text}{chunk}")
+}
+
 // The value without a trailing high surrogate (U+D800 to U+DBFF), which TS
-// holds back until its low half streams in. A UTF-8 Rust string can't end in
-// one, since a lone surrogate isn't a char (a stream event's lone surrogate
-// escape reads as U+FFFD, see parse_stream_event_json), so the value comes
-// back unchanged.
+// holds back until its low half streams in, so no delta ends in half a
+// character.
 fn core_string_drop_trailing_high_surrogate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    Ok(core_arg(args, 0))
+    let text = core_arg(args, 0).text();
+    match text.chars().last() {
+        Some(last) if lone_surrogate_unit(last).is_some_and(|unit| unit <= 0xDBFF) => Ok(
+            CoreValue::from_string(text[..text.len() - last.len_utf8()].to_string()),
+        ),
+        _ => Ok(core_arg(args, 0)),
+    }
 }
 
 // ----- intrinsic.date.zone_offset: the platform tz database -----
@@ -29964,15 +30174,12 @@ fn core_json_parse_strict(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 fn core_json_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    // python _core_json_stringify: json.dumps(value, sort_keys=True,
-    // separators=(",", ":")) — compact and key-sorted.
+    // TS JSON.stringify(value): compact, keys in insertion order, numbers as
+    // JavaScript writes them, null as null.
     let value = core_arg(args, 0);
-    let json = if value.is_null() {
-        json!({})
-    } else {
-        core_value_to_json(&value)
-    };
-    Ok(CoreValue::from_string(stable_stringify(&json)))
+    Ok(CoreValue::from_string(js_json_string(&core_value_to_json(
+        &value,
+    ))))
 }
 
 fn core_map_delete(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -106550,8 +106757,8 @@ fn _agent_replay_trace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     );
     v_has_expected_output = core_is_not_none(&[v_expected_output.clone()])?;
     if core_truthy(&v_has_expected_output) {
-        v_actual_output_text = core_json_stringify(&[v_output.clone()])?;
-        v_expected_output_text = core_json_stringify(&[v_expected_output.clone()])?;
+        v_actual_output_text = core_json_stable_stringify(&[v_output.clone()])?;
+        v_expected_output_text = core_json_stable_stringify(&[v_expected_output.clone()])?;
         v_output_matches =
             core_eq(&[v_actual_output_text.clone(), v_expected_output_text.clone()])?;
         v_output_mismatch = core_not(&[v_output_matches.clone()])?;
@@ -129738,10 +129945,10 @@ mod stream_split_surrogate_tests {
     }
 
     #[test]
-    fn a_split_surrogate_pair_reads_as_replacement_characters() -> AxResult<()> {
-        // TS keeps each half and joins them into the emoji. serde_json
-        // refuses a lone surrogate escape, which a Rust string can't hold, so
-        // each half reads as U+FFFD, and the stream goes on.
+    fn a_split_surrogate_pair_joins_into_one_character() -> AxResult<()> {
+        // TS keeps each half and joins them into the emoji, and no delta holds
+        // half of it. Each half reads as its mark, which the stream-text
+        // intrinsics join.
         for buffered in [false, true] {
             let mut client = ai(
                 "openai",
@@ -129749,19 +129956,68 @@ mod stream_split_surrogate_tests {
             )?
             .with_transport(SplitPair { buffered });
             let mut program = ax("question:string -> answer:string")?;
+            let collected = Arc::new(Mutex::new(Vec::<String>::new()));
+            let captured = collected.clone();
             let output = program.streaming_forward(
                 &mut client,
                 json!({"question": "Status?"}),
                 json!({}),
-                |_| Ok(()),
+                move |delta| {
+                    captured.lock().unwrap().push(
+                        delta
+                            .delta
+                            .get("answer")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                    );
+                    Ok(())
+                },
             )?;
+            let deltas = collected.lock().unwrap().clone();
             assert_eq!(
                 output,
-                json!({"answer": "hi \u{fffd}\u{fffd} there"}),
+                json!({"answer": "hi \u{1f600} there"}),
                 "buffered {buffered}"
             );
+            assert_eq!(deltas.concat(), "hi \u{1f600} there", "buffered {buffered}");
+            assert!(
+                deltas
+                    .iter()
+                    .all(|delta| !delta.chars().any(|ch| lone_surrogate_unit(ch).is_some())),
+                "a delta holds half a character: {deltas:?}"
+            );
         }
-        // Any other bad escape still fails the event's parse.
+        // Raw client stream deltas carry the halves; join_stream_text joins
+        // them into the character, as the AxGen stream does.
+        for buffered in [false, true] {
+            let mut client = ai(
+                "openai",
+                json!({"api_key": "test", "model": "gpt-5.4-mini"}),
+            )?
+            .with_transport(SplitPair { buffered });
+            let deltas =
+                client.stream(json!({"chat_prompt": [{"role": "user", "content": "Status?"}]}))?;
+            let text = deltas.iter().fold(String::new(), |text, delta| {
+                join_stream_text(
+                    &text,
+                    delta["results"][0]["content"].as_str().unwrap_or_default(),
+                )
+            });
+            assert_eq!(text, "Answer: hi \u{1f600} there", "buffered {buffered}");
+        }
+        // A lone half reads as its mark and is written back as JS writes it.
+        let half = parse_stream_event_json("{\"content\":\"hi \\ud83d\"}")?;
+        assert_eq!(
+            half["content"]
+                .as_str()
+                .and_then(|text| text.chars().last())
+                .and_then(lone_surrogate_unit),
+            Some(0xD83D)
+        );
+        assert_eq!(js_json_string(&half), "{\"content\":\"hi \\ud83d\"}");
+        // Any other bad escape still fails the event's parse, and a pair
+        // stays one character.
         assert!(parse_stream_event_json("{\"content\":\"\\u12\"}").is_err());
         assert_eq!(
             parse_stream_event_json("{\"content\":\"\\ud83d\\ude00\"}")?,

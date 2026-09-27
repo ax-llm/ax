@@ -2458,7 +2458,8 @@ def _core_list_get(values, index, default=None):
 
 
 def _core_json_stringify(value):
-    return _js_json_dumps(value, sort_keys=True)
+    # TS JSON.stringify(value): keys in insertion order, null as null.
+    return _js_json_dumps(value)
 
 
 def _core_json_stable_stringify(value):
@@ -8187,8 +8188,8 @@ def _agent_replay_trace(trace: Any, fixtures: Any) -> Any:
     expected_output = _core_get(fixtures, "expected_output", None)
     has_expected_output = _core_is_not_none(expected_output)
     if has_expected_output:
-        actual_output_text = _core_json_stringify(output)
-        expected_output_text = _core_json_stringify(expected_output)
+        actual_output_text = _core_json_stable_stringify(output)
+        expected_output_text = _core_json_stable_stringify(expected_output)
         output_matches = _core_eq(actual_output_text, expected_output_text)
         output_mismatch = _core_not(output_matches)
         if output_mismatch:

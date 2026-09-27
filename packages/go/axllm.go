@@ -1033,6 +1033,18 @@ func writeJSONString(b *strings.Builder, s string) {
 	b.WriteByte('"')
 	for i := 0; i < len(s); {
 		c := s[i]
+		if wtf8SurrogateAt(s, i, 0xA0, 0xBF) {
+			// A lone surrogate (WTF-8), which JS's JSON.stringify writes as its
+			// \u escape.
+			unit := wtf8SurrogateUnit(s, i)
+			b.WriteString(`\u`)
+			b.WriteByte(hexDigits[unit>>12&0xf])
+			b.WriteByte(hexDigits[unit>>8&0xf])
+			b.WriteByte(hexDigits[unit>>4&0xf])
+			b.WriteByte(hexDigits[unit&0xf])
+			i += 3
+			continue
+		}
 		if c >= utf8.RuneSelf {
 			r, size := utf8.DecodeRuneInString(s[i:])
 			if r == utf8.RuneError && size == 1 {
@@ -1145,6 +1157,44 @@ func plainJSONValue(value Value) Value {
 }
 
 // Prompt JSON shapes retain signature declaration order, including nested objects.
+// jsArrayIndex is the array index a JavaScript property key names: "0" to
+// "4294967294" in canonical form (no sign, no leading zero), else -1.
+func jsArrayIndex(key string) int64 {
+	if key == "" || len(key) > 10 || (len(key) > 1 && key[0] == '0') {
+		return -1
+	}
+	for i := 0; i < len(key); i++ {
+		if key[i] < '0' || key[i] > '9' {
+			return -1
+		}
+	}
+	index, err := strconv.ParseInt(key, 10, 64)
+	if err != nil || index > 4294967294 {
+		return -1
+	}
+	return index
+}
+
+// jsOwnKeyOrder puts keys in JavaScript's own-property order, which
+// JSON.stringify follows: array-index keys first in ascending numeric order,
+// then the other keys in their given order.
+func jsOwnKeyOrder(keys []string) []string {
+	var indexed []string
+	named := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if jsArrayIndex(key) >= 0 {
+			indexed = append(indexed, key)
+		} else {
+			named = append(named, key)
+		}
+	}
+	if len(indexed) == 0 {
+		return keys
+	}
+	sort.SliceStable(indexed, func(i, j int) bool { return jsArrayIndex(indexed[i]) < jsArrayIndex(indexed[j]) })
+	return append(indexed, named...)
+}
+
 func orderedStringify(value Value) string { var out strings.Builder; writeOrderedJSON(&out,value); return out.String() }
 func writeOrderedJSON(b *strings.Builder, value Value) {
 	switch v := value.(type) {
@@ -1177,7 +1227,7 @@ func writeOrderedJSON(b *strings.Builder, value Value) {
 		writeOrderedJSON(b, asSlice(v))
 	case map[string]Value:
 		b.WriteByte('{')
-		keys := orderedKeys(v)
+		keys := jsOwnKeyOrder(orderedKeys(v))
 		first := true
 		for _, key := range keys {
 			if key == "__order" {
@@ -1211,12 +1261,135 @@ func sortedMapKeys(m map[string]Value) []string {
 }
 
 func parseJSONErr(text string) (Value, error) {
-	dec := json.NewDecoder(strings.NewReader(text))
+	marked, lone := markLoneSurrogateEscapes(text)
+	dec := json.NewDecoder(strings.NewReader(marked))
 	raw, err := parseJSONValue(dec)
 	if err != nil {
 		return nil, AxError{Category: "runtime", Message: err.Error()}
 	}
+	if lone {
+		raw = restoreLoneSurrogates(raw)
+	}
 	return raw, nil
+}
+
+// A provider can split a surrogate pair across stream events, leaving a lone
+// surrogate escape ("\ud83d", then "\ude00") in each event's JSON. JS's
+// JSON.parse keeps each half, and the stream-text intrinsics join them again.
+// encoding/json reads a lone half as U+FFFD, so the decoder marks each one
+// first and restores it after as its 3-byte WTF-8 form (ED A0-BF xx), which
+// a Go string can hold. The mark is the code point loneSurrogateMark plus the
+// half's offset from U+D800, a private-use code point that only a text with a
+// lone surrogate escape is searched for.
+const loneSurrogateMark = 0x10F800
+
+// markLoneSurrogateEscapes replaces each \u escape of a lone surrogate in JSON
+// text with its mark, and reports whether it replaced any. A high surrogate
+// escape followed by a low one stays a pair.
+func markLoneSurrogateEscapes(text string) (string, bool) {
+	if !strings.Contains(text, `\u`) {
+		return text, false
+	}
+	surrogate := func(at int) (rune, bool) {
+		if at+6 > len(text) || text[at] != '\\' || text[at+1] != 'u' {
+			return 0, false
+		}
+		unit, err := strconv.ParseUint(text[at+2:at+6], 16, 32)
+		if err != nil || unit < 0xD800 || unit > 0xDFFF {
+			return 0, false
+		}
+		return rune(unit), true
+	}
+	var out strings.Builder
+	replaced := false
+	for i := 0; i < len(text); {
+		if text[i] != '\\' {
+			out.WriteByte(text[i])
+			i++
+			continue
+		}
+		unit, ok := surrogate(i)
+		switch {
+		case !ok:
+			// Any other escape is copied whole, so an escaped backslash can't
+			// start a \u escape.
+			end := i + 2
+			if end > len(text) {
+				end = len(text)
+			}
+			out.WriteString(text[i:end])
+			i = end
+		case unit <= 0xDBFF && func() bool { low, isLow := surrogate(i + 6); return isLow && low >= 0xDC00 }():
+			out.WriteString(text[i : i+12])
+			i += 12
+		default:
+			out.WriteRune(loneSurrogateMark + unit - 0xD800)
+			replaced = true
+			i += 6
+		}
+	}
+	if !replaced {
+		return text, false
+	}
+	return out.String(), true
+}
+
+// restoreLoneSurrogates turns each mark in decoded strings (values and keys)
+// back into the lone surrogate's WTF-8 bytes.
+func restoreLoneSurrogates(value Value) Value {
+	switch v := value.(type) {
+	case string:
+		return restoreLoneSurrogateString(v)
+	case map[string]Value:
+		// A copy with the same shape: an ordered map keeps its key-order list
+		// (with its keys restored too), and a plain one gets none.
+		out := make(map[string]Value, len(v))
+		for key, item := range v {
+			if key == "__order" {
+				order := []Value{}
+				for _, name := range asSlice(item) {
+					order = append(order, restoreLoneSurrogateString(display(name)))
+				}
+				out[key] = order
+				continue
+			}
+			out[restoreLoneSurrogateString(key)] = restoreLoneSurrogates(item)
+		}
+		return out
+	case []Value:
+		out := make([]Value, len(v))
+		for index, item := range v {
+			out[index] = restoreLoneSurrogates(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func restoreLoneSurrogateString(text string) string {
+	marked := false
+	for _, r := range text {
+		if r >= loneSurrogateMark && r <= loneSurrogateMark+0x7FF {
+			marked = true
+			break
+		}
+	}
+	if !marked {
+		return text
+	}
+	var out strings.Builder
+	for _, r := range text {
+		if r >= loneSurrogateMark && r <= loneSurrogateMark+0x7FF {
+			unit := r - loneSurrogateMark + 0xD800
+			out.WriteByte(0xED)
+			out.WriteByte(byte(0x80 | (unit>>6)&0x3F))
+			out.WriteByte(byte(0x80 | unit&0x3F))
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
 }
 
 func parseJSON(text string) Value { return mustCore(parseJSONErr(text)) }
@@ -1470,23 +1643,82 @@ func _core_div(left Value, right Value) Value {
 	return num(left) / d
 }
 func _core_math_abs(value Value) Value             { return math.Abs(num(value)) }
-func _core_string_utf16_units(value Value) Value { units:=utf16.Encode([]rune(display(value)));out:=[]Value{};for _,unit:=range units{out=append(out,int(unit))};return out }
-
-func _core_string_codepoint_length(value Value) Value { return len([]rune(display(value))) }
-
-// _core_string_concat_stream_text appends streamed text. Go strings hold
-// UTF-8, which has no lone surrogates (JSON decoding turns an unpaired half
-// into U+FFFD), so there is no half pair to join and plain concatenation is
-// all there is to do.
-func _core_string_concat_stream_text(left Value, right Value) Value {
-	return display(left) + display(right)
+// A lone surrogate (WTF-8, see markLoneSurrogateEscapes) is one UTF-16 unit
+// and one code point, as in a JS string.
+func _core_string_utf16_units(value Value) Value {
+	text := display(value)
+	out := []Value{}
+	for i := 0; i < len(text); {
+		if wtf8SurrogateAt(text, i, 0xA0, 0xBF) {
+			out = append(out, int(wtf8SurrogateUnit(text, i)))
+			i += 3
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(text[i:])
+		for _, unit := range utf16.Encode([]rune{r}) {
+			out = append(out, int(unit))
+		}
+		i += size
+	}
+	return out
 }
 
-// _core_string_drop_trailing_high_surrogate returns the text unchanged: a
-// UTF-8 Go string cannot end in half of a surrogate pair, so there is nothing
-// to hold back.
+func _core_string_codepoint_length(value Value) Value {
+	text := display(value)
+	count := 0
+	for i := 0; i < len(text); count++ {
+		if wtf8SurrogateAt(text, i, 0xA0, 0xBF) {
+			i += 3
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(text[i:])
+		i += size
+	}
+	return count
+}
+
+// JSON decoding keeps a lone surrogate escape (half of a pair a provider split
+// across stream events) as its 3-byte WTF-8 form: ED A0-AF xx for a high
+// surrogate and ED B0-BF xx for a low one (see markLoneSurrogateEscapes).
+func wtf8SurrogateAt(text string, at int, low, high byte) bool {
+	return at >= 0 && at+3 <= len(text) && text[at] == 0xED && text[at+1] >= low && text[at+1] <= high && text[at+2]&0xC0 == 0x80
+}
+
+func wtf8SurrogateUnit(text string, at int) rune {
+	return 0xD000 | rune(text[at+1]&0x3F)<<6 | rune(text[at+2]&0x3F)
+}
+
+// _core_string_concat_stream_text appends streamed text. As in a UTF-16
+// string (TS, Java), a high surrogate ending the text and a low one starting
+// the chunk join into the code point they make, as 4-byte UTF-8.
+func _core_string_concat_stream_text(left Value, right Value) Value {
+	text, chunk := display(left), display(right)
+	if len(text) >= 3 && wtf8SurrogateAt(text, len(text)-3, 0xA0, 0xAF) && wtf8SurrogateAt(chunk, 0, 0xB0, 0xBF) {
+		codePoint := 0x10000 + (wtf8SurrogateUnit(text, len(text)-3)-0xD800)<<10 + (wtf8SurrogateUnit(chunk, 0) - 0xDC00)
+		return text[:len(text)-3] + string(codePoint) + chunk[3:]
+	}
+	return text + chunk
+}
+
+// JoinStreamText appends a streamed chunk to text, as the AxGen stream does:
+// half of a surrogate pair a provider split across chunks (its WTF-8 bytes
+// ending text, the other half starting chunk) joins into the character. A raw
+// client Stream delta can carry such a half, so join raw deltas with
+// JoinStreamText rather than +, which would leave the two halves' WTF-8
+// bytes (not valid UTF-8) instead of the character.
+func JoinStreamText(text, chunk string) string {
+	return display(_core_string_concat_stream_text(text, chunk))
+}
+
+// _core_string_drop_trailing_high_surrogate holds back a high surrogate at the
+// end of a field's text until its pair streams in, as TS does, so no delta
+// ends in half a character.
 func _core_string_drop_trailing_high_surrogate(value Value) Value {
-	return display(value)
+	text := display(value)
+	if len(text) >= 3 && wtf8SurrogateAt(text, len(text)-3, 0xA0, 0xAF) {
+		return text[:len(text)-3]
+	}
+	return text
 }
 
 // jsDateMillis is the epoch milliseconds of a time.Time (or *time.Time), which
@@ -2025,7 +2257,8 @@ func _core_json_parse(value Value) (Value, error) {
 func _core_json_parse_strict(value Value) (Value, error) {
 	return parseJSONErr(strings.TrimSpace(display(value)))
 }
-func _core_json_stringify(value Value) Value        { return stableStringify(value) }
+// TS JSON.stringify(value): keys in insertion order, null as null.
+func _core_json_stringify(value Value) Value        { return orderedStringify(value) }
 func _core_json_stable_stringify(value Value) Value { return stableStringify(value) }
 func _core_tool_invoke(fn Value, params Value) (Value, error) {
 	if t, ok := fn.(Tool); ok {
@@ -2279,7 +2512,7 @@ func writePrettyJSON(b *strings.Builder, value Value, indent string) {
 	inner := indent + "  "
 	switch v := value.(type) {
 	case map[string]Value:
-		keys := orderedKeys(v)
+		keys := jsOwnKeyOrder(orderedKeys(v))
 		if len(keys) == 0 {
 			b.WriteString("{}")
 			return
@@ -72832,8 +73065,8 @@ func _agent_replay_trace(args ...Value) (Value, error) {
 	v_expected_output = coreGet(v_fixtures, "expected_output", nil)
 	v_has_expected_output = _core_is_not_none(v_expected_output)
 	if coreTruthy(v_has_expected_output) {
-		v_actual_output_text = _core_json_stringify(v_output)
-		v_expected_output_text = _core_json_stringify(v_expected_output)
+		v_actual_output_text = _core_json_stable_stringify(v_output)
+		v_expected_output_text = _core_json_stable_stringify(v_expected_output)
 		v_output_matches = _core_eq(v_actual_output_text, v_expected_output_text)
 		v_output_mismatch = _core_not(v_output_matches)
 		if coreTruthy(v_output_mismatch) {
@@ -93205,8 +93438,10 @@ func (f AxCredentialProviderFunc) Credentials(ctx context.Context, request AxCre
 }
 
 // wireJSONBody is the JSON the HTTP and MCP transports send for a payload.
+// wireJSONBody is TS JSON.stringify(payload): keys in insertion order, as the
+// payload was built.
 func wireJSONBody(payload Value) []byte {
-	return []byte(stableStringify(payload))
+	return []byte(orderedStringify(payload))
 }
 
 func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
@@ -94960,9 +95195,13 @@ func (s *sseJSONStream) flushEvent() (Value, bool, error) {
 		_ = s.Close()
 		return nil, true, nil
 	}
+	marked, lone := markLoneSurrogateEscapes(payload)
 	var value Value
-	if err := json.Unmarshal([]byte(payload), &value); err != nil {
+	if err := json.Unmarshal([]byte(marked), &value); err != nil {
 		return nil, false, err
+	}
+	if lone {
+		value = restoreLoneSurrogates(value)
 	}
 	return value, false, nil
 }
@@ -101758,14 +101997,15 @@ func (f *conformanceScriptedAI) Stream(ctx context.Context, request map[string]V
 	return []Value{response}, nil
 }
 
-// supportsLoneSurrogates declares the runner's string model: Go strings hold
-// UTF-8, which cannot represent half of a surrogate pair, so fixtures that
-// split a pair across stream chunks are skipped here.
-const supportsLoneSurrogates = false
+// supportsLoneSurrogates declares the runner's string model: Go strings are
+// bytes, and JSON decoding keeps half of a surrogate pair (a provider split
+// across stream chunks) as its WTF-8 form, which the stream-text intrinsics
+// join again, so this runner runs the fixtures that split a pair.
+const supportsLoneSurrogates = true
 
 // ConformanceSkipReason is why this runner skips a fixture, or "" to run it:
-// a fixture that requires lone surrogates needs a UTF-16 or code point
-// string model.
+// a fixture that requires lone surrogates needs a string model that can hold
+// one (supportsLoneSurrogates).
 func ConformanceSkipReason(fixture Value) string {
 	if !supportsLoneSurrogates && coreTruthy(coreGet(fixture, "requires_lone_surrogates", false)) {
 		return "requires lone surrogates (utf-8 runner)"
@@ -101790,6 +102030,18 @@ func RunConformanceFixture(fixture Value) error {
 }
 
 func runConformanceFixture(fixture map[string]Value) {
+	// A top-level "<key>_json" string holds <key> as JSON text, so a fixture
+	// can carry an object in TS's key order (the canonical fixture sort
+	// reorders the keys of the fixture's own objects).
+	for _, key := range orderedKeys(fixture) {
+		text, isText := fixture[key].(string)
+		if !isText || !strings.HasSuffix(key, "_json") {
+			continue
+		}
+		if base := strings.TrimSuffix(key, "_json"); coreGet(fixture, base, nil) == nil {
+			coreSet(fixture, base, parseJSON(text))
+		}
+	}
 	// expected_deprecations pins the one-time deprecation warnings the run
 	// gives (the ones already shown are forgotten first).
 	if expected, ok := fixture["expected_deprecations"]; ok {
@@ -101844,6 +102096,8 @@ func runConformanceFixtureKind(fixture map[string]Value) {
 		assertEqual(mustCore(strip_internal(sig.Outputs, coreGet(fixture, "values", Object()))), coreGet(fixture, "expected_output", nil), "strip internal")
 	case "prompt":
 		runConformancePrompt(fixture)
+	case "json_stringify":
+		runConformanceJSONStringify(fixture)
 	case "number_format":
 		runConformanceNumberFormat(fixture)
 	case "string_format":
@@ -104451,6 +104705,18 @@ func runConformanceFlow(fixture map[string]Value) {
 // streaming extractor's number text). The JSON form must come out of every
 // encoder: the wire body and json.stringify (key-sorted), the ordered prompt
 // writer and json.pretty (prompt values).
+// runConformanceJSONStringify: each case's input text, parsed in key order,
+// comes out of json.stringify as TS's JSON.stringify writes it.
+func runConformanceJSONStringify(fixture map[string]Value) {
+	for index, item := range coreIter(coreGet(fixture, "cases", Array())) {
+		expected := display(coreGet(item, "json", ""))
+		actual := display(_core_json_stringify(parseJSON(display(coreGet(item, "input", "")))))
+		if actual != expected {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("json.stringify case %d: expected %s, got %s", index, expected, actual)})
+		}
+	}
+}
+
 func runConformanceNumberFormat(fixture map[string]Value) {
 	for _, item := range coreIter(coreGet(fixture, "cases", Array())) {
 		input := display(coreGet(item, "input", ""))
