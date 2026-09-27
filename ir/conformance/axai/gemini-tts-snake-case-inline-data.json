@@ -1,0 +1,71 @@
+{
+  "expected_output": {
+    "audio": "UklGRg==",
+    "data": "UklGRg==",
+    "format": "wav",
+    "mime_type": "audio/wav",
+    "mimeType": "audio/wav",
+    "transcript": "Hello from Ax."
+  },
+  "expected_transport_json_absent": [
+    "model",
+    "voice",
+    "voice_id",
+    "speed",
+    "response_format",
+    "language"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "contents": [
+        {
+          "parts": [
+            {
+              "text": "Hello from Ax."
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "generationConfig": {
+        "responseModalities": ["AUDIO"],
+        "speechConfig": {
+          "voiceConfig": {
+            "prebuiltVoiceConfig": {
+              "voiceName": "Kore"
+            }
+          }
+        }
+      }
+    },
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-tts:generateContent"
+  },
+  "kind": "ai_speak",
+  "name": "gemini-tts-snake-case-inline-data",
+  "provider": "google-gemini",
+  "request": {
+    "text": "Hello from Ax."
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "inline_data": {
+                    "data": "UklGRg==",
+                    "mime_type": "audio/wav"
+                  }
+                }
+              ],
+              "role": "model"
+            }
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

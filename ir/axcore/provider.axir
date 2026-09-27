@@ -581,6 +581,43 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @url_part_text_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/openai/api.ts"
+    type signature = "(json) -> string"
+    body @entry(%part: json) {
+      // As TS's OpenAI, Responses and Anthropic mappings: a url part reaches
+      // the model as its cached content, or else as its title, description
+      // and url, each that is set on its own line.
+      %cached_snake = core.get %part["cached_content"]
+      %cached = core.get %part["cachedContent"] default %cached_snake
+      %has_cached = core.call intrinsic.is_not_none(%cached)
+      core.if %has_cached {
+        core.return %cached
+      }
+      %lines = core.list
+      %title = core.get %part["title"]
+      %has_title = core.call intrinsic.truthy(%title)
+      core.if %has_title {
+        core.append %lines, %title
+      }
+      %description = core.get %part["description"]
+      %has_description = core.call intrinsic.truthy(%description)
+      core.if %has_description {
+        core.append %lines, %description
+      }
+      %url = core.get %part["url"]
+      %has_url = core.call intrinsic.truthy(%url)
+      core.if %has_url {
+        core.append %lines, %url
+      }
+      %text = core.call intrinsic.string.join("\n", %lines)
+      core.return %text
+    }
+  }
+
   op ax.provider.semantic @openai_content_part_impl {
     attr core_kind = "func"
     attr emit_module = "ai"
@@ -625,7 +662,15 @@ module @ax.provider version "0.1" {
       core.if %is_audio {
         %audio_alt = core.get %part["audio"]
         %data = core.get %part["data"] default %audio_alt
+        // As TS: a part without a format takes it from its mime type.
         %format = core.get %part["format"]
+        %audio_mime_snake = core.get %part["mime_type"]
+        %audio_mime = core.get %part["mimeType"] default %audio_mime_snake
+        %has_audio_format = core.call intrinsic.is_not_none(%format)
+        core.if %has_audio_format {
+        } else {
+          %format = core.call @audio_format_from_mime_type_impl(%audio_mime)
+        }
         %is_wav = core.call intrinsic.eq(%format, "wav")
         %is_mp3 = core.call intrinsic.eq(%format, "mp3")
         %format_ok = core.call intrinsic.or(%is_wav, %is_mp3)
@@ -638,7 +683,17 @@ module @ax.provider version "0.1" {
           core.set %out["input_audio"] = %input_audio
           core.return %out
         }
-        %audio_message = core.call intrinsic.string.format("OpenAI audio chat input supports only wav and mp3 audio, received {}", %format)
+        // TS names the format, else the mime type, else "unknown format".
+        %received = core.let "unknown format"
+        %has_audio_mime = core.call intrinsic.is_not_none(%audio_mime)
+        core.if %has_audio_mime {
+          %received = core.let %audio_mime
+        }
+        %has_resolved_format = core.call intrinsic.is_not_none(%format)
+        core.if %has_resolved_format {
+          %received = core.let %format
+        }
+        %audio_message = core.call intrinsic.string.format("OpenAI audio chat input supports only wav and mp3 audio, received {}", %received)
         %audio_error = core.call intrinsic.ai.error.unsupported(%audio_message)
         core.raise %audio_error
       }
@@ -692,10 +747,7 @@ module @ax.provider version "0.1" {
       core.if %is_url {
         %out = core.map
         core.set %out["type"] = "text"
-        %cached_snake = core.get %part["cached_content"]
-        %cached = core.get %part["cachedContent"] default %cached_snake
-        %url = core.get %part["url"] default ""
-        %text = core.call intrinsic.coalesce(%cached, %url)
+        %text = core.call @url_part_text_impl(%part)
         core.set %out["text"] = %text
         core.return %out
       }
@@ -1195,8 +1247,9 @@ module @ax.provider version "0.1" {
     attr effect = "throws"
     attr emit_module = "ai"
     tag "src/ax/util/apicall.ts"
-    type signature = "(i64, json, request?:json) -> AxAIServiceError throws"
-    body @entry(%status: i64, %body: json, %request: json) {
+    type signature = "(i64, json, request?:json, options?:json) -> AxAIServiceError throws"
+    body @entry(%status: i64, %body: json, %request: json, %options: json) {
+      %error_request = core.call @ai_error_request(%request, %options)
       %message = core.let %body
       %code = core.call intrinsic.none()
       %body_is_object = core.type_is %body type "object"
@@ -1218,14 +1271,14 @@ module @ax.provider version "0.1" {
       %is_403 = core.call intrinsic.eq(%status, 403)
       %is_auth = core.call intrinsic.or(%is_401, %is_403)
       core.if %is_auth {
-        %error = core.call intrinsic.ai.error.auth(%message, %status, %code, %body, %request)
+        %error = core.call intrinsic.ai.error.auth(%message, %status, %code, %body, %error_request)
         core.return %error
       }
       %is_408 = core.call intrinsic.eq(%status, 408)
       %is_504 = core.call intrinsic.eq(%status, 504)
       %is_timeout = core.call intrinsic.or(%is_408, %is_504)
       core.if %is_timeout {
-        %error = core.call intrinsic.ai.error.timeout(%message, %status, %code, %body, %request, true)
+        %error = core.call intrinsic.ai.error.timeout(%message, %status, %code, %body, %error_request, true)
         core.return %error
       }
       %is_429 = core.call intrinsic.eq(%status, 429)
@@ -1238,7 +1291,7 @@ module @ax.provider version "0.1" {
       %retry_some = core.call intrinsic.or(%retry_left, %retry_right)
       %retry_more = core.call intrinsic.or(%retry_some, %is_504)
       %retryable = core.call intrinsic.or(%retry_more, %is_529)
-      %error = core.call intrinsic.ai.error.status(%message, %status, %code, %body, %request, %retryable)
+      %error = core.call intrinsic.ai.error.status(%message, %status, %code, %body, %error_request, %retryable)
       core.return %error
     }
   }
@@ -2930,7 +2983,6 @@ module @ax.provider version "0.1" {
           }
           core.set %descriptor["baseUrl"] = %base_url
           core.set %descriptor["auth"] = "bearer"
-          core.call intrinsic.map.delete(%descriptor, "apiKeyQuery")
           core.call intrinsic.map.delete(%descriptor, "apiKeyHeader")
           %operations = core.get %descriptor["operations"]
           %resource_parent = core.call intrinsic.string.format("projects/{}/locations/{}", %project, %region)
@@ -3078,7 +3130,9 @@ module @ax.provider version "0.1" {
       %headers = core.map
       %is_gemini = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
       core.if %is_gemini {
-        %gemini_url = core.call intrinsic.string.format("{}?key={}", %base, %api_key)
+        // TypeScript encodes the key with encodeURIComponent.
+        %encoded_key = core.call intrinsic.url.encode_component(%api_key)
+        %gemini_url = core.call intrinsic.string.format("{}?key={}", %base, %encoded_key)
         core.set %out["url"] = %gemini_url
         core.set %out["headers"] = %headers
         core.return %out
@@ -5291,6 +5345,7 @@ module @ax.provider version "0.1" {
       %dialect = core.get %operation["dialect"] default "openai-speech"
       %is_gemini = core.call intrinsic.eq(%dialect, "gemini-generate-content")
       %is_xai = core.call intrinsic.eq(%dialect, "xai-speech")
+      %is_mistral = core.call intrinsic.eq(%dialect, "mistral-speech")
       %payload = core.map
       core.if %is_gemini {
         %gemini_payload = core.call @gemini_build_speak_request(%request)
@@ -5300,8 +5355,13 @@ module @ax.provider version "0.1" {
           %xai_payload = core.call @grok_build_speak_request(%request)
           %payload = core.let %xai_payload
         } else {
-          %responses_payload = core.call @openai_responses_build_speak_request(%request)
-          %payload = core.let %responses_payload
+          core.if %is_mistral {
+            %mistral_payload = core.call @mistral_build_speak_request(%request)
+            %payload = core.let %mistral_payload
+          } else {
+            %responses_payload = core.call @openai_responses_build_speak_request(%request)
+            %payload = core.let %responses_payload
+          }
         }
       }
       core.return %payload
@@ -5630,10 +5690,14 @@ module @ax.provider version "0.1" {
 
   op ax.provider.semantic @provider_normalize_speak_response {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "ai"
     tag "provider-audio-operation"
-    type signature = "(profile:string, json, json) -> json"
-    body @entry(%profile: string, %raw: json, %request: json) {
+    type signature = "(profile:string, json, json, content_type?:json) -> json throws"
+    body @entry(%profile: string, %raw: json, %request: json, %content_type: json) {
+      // A host hands a JSON speech body on as its parsed JSON and a binary one
+      // as base64 text, with the response's Content-Type when it has one, as
+      // TS's axFetchJsonSpeech reads them.
       %provider_id = core.call @provider_normalize_profile(%profile)
       %descriptor = core.call @provider_descriptor(%provider_id)
       %operations = core.get %descriptor["operations"]
@@ -5644,13 +5708,23 @@ module @ax.provider version "0.1" {
         %gemini_out = core.call @gemini_normalize_speak_response(%raw, %request)
         core.return %gemini_out
       }
-      %data = core.get %raw["audio"] default %raw
+      %transcript = core.call @speech_request_text_impl(%request)
       %format = core.get %request["format"] default "mp3"
+      %raw_is_text = core.type_is %raw type "string"
+      %speech = core.map
+      core.if %raw_is_text {
+        %binary_speech = core.call @speech_binary_response_impl(%raw, %content_type, %format, %transcript)
+        %speech = core.let %binary_speech
+      } else {
+        %json_speech = core.call @speech_json_response_impl(%raw, %format, %transcript)
+        %speech = core.let %json_speech
+      }
+      // The older key, kept until the next major version: audio beside data.
       %out = core.map
+      %data = core.get %speech["data"]
       core.set %out["audio"] = %data
-      core.set %out["format"] = %format
-      %speech = core.call @speech_response_ts_keys_impl(%out, %raw, %request)
-      core.return %speech
+      %out = core.call intrinsic.map.merge(%out, %speech)
+      core.return %out
     }
   }
 
@@ -6150,12 +6224,17 @@ module @ax.provider version "0.1" {
       core.if %is_audio {
         %audio_alt = core.get %part["audio"]
         %data = core.get %part["data"] default %audio_alt
-        %format = core.get %part["format"] default "wav"
+        // As TS's Responses mapping: the part's format goes out as it is, and
+        // a part without one sends none.
+        %format = core.get %part["format"]
         %out = core.map
         core.set %out["type"] = "input_audio"
         %input_audio = core.map
         core.set %input_audio["data"] = %data
-        core.set %input_audio["format"] = %format
+        %has_format = core.call intrinsic.is_not_none(%format)
+        core.if %has_format {
+          core.set %input_audio["format"] = %format
+        }
         core.set %out["input_audio"] = %input_audio
         core.call @openai_responses_copy_cache_control_impl(%out, %part)
         core.return %out
@@ -6205,10 +6284,7 @@ module @ax.provider version "0.1" {
       core.if %is_url {
         %out = core.map
         core.set %out["type"] = "input_text"
-        %cached_snake = core.get %part["cached_content"]
-        %cached = core.get %part["cachedContent"] default %cached_snake
-        %url = core.get %part["url"] default ""
-        %text = core.call intrinsic.coalesce(%cached, %url)
+        %text = core.call @url_part_text_impl(%part)
         core.set %out["text"] = %text
         core.call @openai_responses_copy_cache_control_impl(%out, %part)
         core.return %out
@@ -6756,17 +6832,96 @@ module @ax.provider version "0.1" {
     tag "src/ax/ai/openai/api.ts"
     type signature = "(json) -> json"
     body @entry(%request: json) {
+      // As TS's OpenAI speak(): the model defaults to gpt-4o-mini-tts, a voice
+      // object names its voice by id, speed goes out when it is set, and
+      // pcm16 goes out as OpenAI's pcm (16-bit PCM; OpenAI rejects "pcm16").
       %payload = core.map
-      %speak_model = core.get %request["model"] default "tts-1"
+      %speak_model = core.call @speech_request_model_impl(%request, "gpt-4o-mini-tts")
       %request_input = core.get %request["input"] default ""
       %speak_input = core.get %request["text"] default %request_input
-      %voice = core.get %request["voice"] default "alloy"
+      %voice = core.call @speech_request_voice_impl(%request)
+      %has_voice = core.call intrinsic.is_not_none(%voice)
+      core.if %has_voice {
+      } else {
+        %voice = core.let "alloy"
+      }
       %response_format = core.get %request["format"] default "mp3"
+      %is_pcm16 = core.call intrinsic.eq(%response_format, "pcm16")
+      core.if %is_pcm16 {
+        %response_format = core.let "pcm"
+      }
       core.set %payload["model"] = %speak_model
       core.set %payload["input"] = %speak_input
       core.set %payload["voice"] = %voice
       core.set %payload["response_format"] = %response_format
+      %speed = core.get %request["speed"]
+      %has_speed = core.call intrinsic.is_not_none(%speed)
+      core.if %has_speed {
+        core.set %payload["speed"] = %speed
+      }
       core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @mistral_build_speak_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/provider_profiles.ts"
+    type signature = "(json) -> json"
+    body @entry(%request: json) {
+      // As TS's mistral-speech profile dialect: the model defaults to
+      // voxtral-mini-tts-2603, the format goes out as it is, and a voice goes
+      // out as voice_id only when one is given.
+      %payload = core.map
+      %speak_model = core.call @speech_request_model_impl(%request, "voxtral-mini-tts-2603")
+      %request_input = core.get %request["input"] default ""
+      %speak_input = core.get %request["text"] default %request_input
+      %response_format = core.get %request["format"] default "mp3"
+      core.set %payload["model"] = %speak_model
+      core.set %payload["input"] = %speak_input
+      core.set %payload["response_format"] = %response_format
+      %voice = core.call @speech_request_voice_impl(%request)
+      %has_voice = core.call intrinsic.truthy(%voice)
+      core.if %has_voice {
+        core.set %payload["voice_id"] = %voice
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @speech_request_model_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/openai/api.ts"
+    type signature = "(json, string) -> json"
+    body @entry(%request: json, %fallback: string) {
+      // TS: typeof req.model === 'string' ? req.model : the default model.
+      %model = core.get %request["model"]
+      %is_text = core.type_is %model type "string"
+      core.if %is_text {
+        core.return %model
+      }
+      core.return %fallback
+    }
+  }
+
+  op ax.provider.semantic @speech_request_voice_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/openai/api.ts"
+    type signature = "(json) -> json"
+    body @entry(%request: json) {
+      // TS: a voice object ({ id }) names its voice by id.
+      %voice = core.get %request["voice"]
+      %is_object = core.type_is %voice type "object"
+      core.if %is_object {
+        %voice_id = core.get %voice["id"]
+        core.return %voice_id
+      }
+      core.return %voice
     }
   }
 
@@ -6834,6 +6989,11 @@ module @ax.provider version "0.1" {
       core.set %payload["voice_id"] = %voice_id
       core.set %payload["language"] = %language
       core.set %payload["output_format"] = %output_format
+      %speed = core.get %request["speed"]
+      %has_speed = core.call intrinsic.is_not_none(%speed)
+      core.if %has_speed {
+        core.set %payload["speed"] = %speed
+      }
       core.return %payload
     }
   }
@@ -6956,106 +7116,75 @@ module @ax.provider version "0.1" {
 
   op ax.provider.semantic @gemini_normalize_speak_response {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "ai"
     attr private = true
     tag "src/ax/ai/google-gemini/api.ts"
-    type signature = "(json, json) -> json"
+    type signature = "(json, json) -> json throws"
     body @entry(%raw: json, %request: json) {
-      %audio = core.get %raw["audio"]
-      %format = core.get %request["format"] default "wav"
-      %mime_type = core.let ""
-      %empty_candidates = core.list
-      %candidates = core.get %raw["candidates"] default %empty_candidates
-      core.for %candidate in %candidates {
-        %content = core.get %candidate["content"]
-        %empty_parts = core.list
-        %parts = core.get %content["parts"] default %empty_parts
-        core.for %part in %parts {
-          %inline_data = core.get %part["inlineData"]
-          %data = core.get %inline_data["data"]
-          %has_data = core.call intrinsic.is_not_none(%data)
-          core.if %has_data {
-            %audio = core.let %data
-            %part_mime = core.get %inline_data["mimeType"] default ""
-            %mime_type = core.let %part_mime
-          }
-        }
-      }
-      %has_audio = core.call intrinsic.is_not_none(%audio)
-      core.if %has_audio {
-      } else {
-        %audio = core.let %raw
-      }
-      %mime_lower = core.call intrinsic.string.lower(%mime_type)
-      %is_pcm_mime = core.call intrinsic.contains(%mime_lower, "pcm")
-      core.if %is_pcm_mime {
-        %format = core.let "pcm"
-      }
-      %is_pcm16_mime = core.call intrinsic.contains(%mime_lower, "pcm16")
-      %is_l16_mime = core.call intrinsic.contains(%mime_lower, "l16")
-      %is_linear16 = core.call intrinsic.or(%is_pcm16_mime, %is_l16_mime)
-      core.if %is_linear16 {
-        %format = core.let "pcm16"
-      }
-      %is_wav_mime = core.call intrinsic.contains(%mime_lower, "wav")
-      core.if %is_wav_mime {
-        %format = core.let "wav"
-      }
+      // As TS's Gemini speak(): the JSON body is read with no format (Gemini
+      // takes none), so the returned mime type decides it.
+      %transcript = core.call @speech_request_text_impl(%request)
+      %none = core.call intrinsic.none()
+      %speech = core.call @speech_json_response_impl(%raw, %none, %transcript)
+      // The older keys, kept until the next major version: audio beside data,
+      // and mime_type, sample_rate and channels when the body names a mime
+      // type.
       %out = core.map
-      core.set %out["audio"] = %audio
-      core.set %out["format"] = %format
-      %has_mime = core.call intrinsic.truthy(%mime_type)
-      core.if %has_mime {
-        core.set %out["mime_type"] = %mime_type
-        %mime_params = core.call @audio_mime_params_impl(%mime_type)
+      %data = core.get %speech["data"]
+      core.set %out["audio"] = %data
+      %named_mime = core.call @speech_json_named_mime_type_impl(%raw)
+      %has_named_mime = core.call intrinsic.truthy(%named_mime)
+      core.if %has_named_mime {
+        core.set %out["mime_type"] = %named_mime
+        %mime_params = core.call @audio_mime_params_impl(%named_mime)
         %out = core.call intrinsic.map.merge(%out, %mime_params)
       }
-      %speech = core.call @speech_response_ts_keys_impl(%out, %raw, %request)
-      core.return %speech
+      %out = core.call intrinsic.map.merge(%out, %speech)
+      core.return %out
     }
   }
 
-  op ax.provider.semantic @speech_response_ts_keys_impl {
+  op ax.provider.semantic @speech_request_text_impl {
     attr core_kind = "func"
     attr emit_module = "ai"
     attr private = true
     tag "src/ax/ai/audio/api.ts"
-    type signature = "(json, json, json) -> json"
-    body @entry(%out: json, %raw: json, %request: json) {
-      // Adds TypeScript's AxSpeechResponse keys, as axFetchJsonSpeech returns
-      // them, next to the port's older keys: data beside audio, mimeType
-      // beside mime_type, sampleRate beside sample_rate, and transcript, the
-      // text that was spoken. The older keys stay until the next major
-      // version.
-      %data = core.get %out["audio"]
+    type signature = "(json) -> json"
+    body @entry(%request: json) {
+      // The text a speak request speaks: TS's transcript.
+      %request_input = core.get %request["input"]
+      %text = core.get %request["text"] default %request_input
+      core.return %text
+    }
+  }
+
+  op ax.provider.semantic @speech_response_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/audio/api.ts"
+    type signature = "(json, json, string, json) -> json"
+    body @entry(%data: json, %format: json, %mime_type: string, %transcript: json) {
+      // TS's AxSpeechResponse: data, format (else the mime type's format),
+      // mimeType, transcript, and the rate and channels the mime type names.
+      %out = core.map
       core.set %out["data"] = %data
-      %format = core.get %out["format"]
-      %mime_type = core.get %out["mime_type"] default ""
-      %has_mime = core.call intrinsic.truthy(%mime_type)
-      %raw_is_object = core.type_is %raw type "object"
-      %read_raw_mime = core.call intrinsic.not(%has_mime)
-      %read_raw_mime = core.call intrinsic.and(%read_raw_mime, %raw_is_object)
-      core.if %read_raw_mime {
-        // A JSON body may name its mime type.
-        %raw_mime_snake = core.get %raw["mime_type"]
-        %snake_is_text = core.type_is %raw_mime_snake type "string"
-        core.if %snake_is_text {
-          %mime_type = core.let %raw_mime_snake
-        }
-        %raw_mime_camel = core.get %raw["mimeType"]
-        %camel_is_text = core.type_is %raw_mime_camel type "string"
-        core.if %camel_is_text {
-          %mime_type = core.let %raw_mime_camel
-        }
-        %has_mime = core.call intrinsic.truthy(%mime_type)
-      }
-      core.if %has_mime {
+      %has_format = core.call intrinsic.is_not_none(%format)
+      core.if %has_format {
+        core.set %out["format"] = %format
       } else {
-        // A binary body reaches the ports without its Content-Type, so the
-        // format decides, as it does in TS when a response names no type.
-        %mime_type = core.call @audio_mime_type_impl(%format)
+        %mime_format = core.call @audio_format_from_mime_type_impl(%mime_type)
+        %has_mime_format = core.call intrinsic.is_not_none(%mime_format)
+        core.if %has_mime_format {
+          core.set %out["format"] = %mime_format
+        }
       }
       core.set %out["mimeType"] = %mime_type
+      %has_transcript = core.call intrinsic.is_not_none(%transcript)
+      core.if %has_transcript {
+        core.set %out["transcript"] = %transcript
+      }
       %params = core.call @audio_mime_params_impl(%mime_type)
       %sample_rate = core.get %params["sample_rate"]
       %has_sample_rate = core.call intrinsic.is_not_none(%sample_rate)
@@ -7067,13 +7196,335 @@ module @ax.provider version "0.1" {
       core.if %has_channels {
         core.set %out["channels"] = %channels
       }
-      %request_input = core.get %request["input"]
-      %text = core.get %request["text"] default %request_input
-      %has_text = core.call intrinsic.is_not_none(%text)
-      core.if %has_text {
-        core.set %out["transcript"] = %text
-      }
       core.return %out
+    }
+  }
+
+  op ax.provider.semantic @speech_binary_response_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/audio/api.ts"
+    type signature = "(json, json, json, json) -> json"
+    body @entry(%data: json, %content_type: json, %format: json, %transcript: json) {
+      // TS: a binary body's mime type is its Content-Type, or else the mime
+      // type of the requested format.
+      %mime_type = core.call @audio_mime_type_impl(%format)
+      %has_content_type = core.call intrinsic.truthy(%content_type)
+      core.if %has_content_type {
+        %mime_type = core.let %content_type
+      }
+      %speech = core.call @speech_response_impl(%data, %format, %mime_type, %transcript)
+      core.return %speech
+    }
+  }
+
+  op ax.provider.semantic @speech_json_response_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/audio/api.ts"
+    type signature = "(json, json, json) -> json throws"
+    body @entry(%json: json, %format: json, %transcript: json) {
+      // TS axFetchJsonSpeech: the audio is audio_data, audioData, data,
+      // audio.data, output.audio.data, or a Gemini candidate part's inline
+      // data. The ports' older `audio` text still works, with a deprecation
+      // warning, until the next major version; anything else is TS's error.
+      %data = core.call @speech_json_data_impl(%json)
+      %data_is_text = core.type_is %data type "string"
+      core.if %data_is_text {
+      } else {
+        %json_is_object = core.type_is %json type "object"
+        %older = core.call intrinsic.none()
+        core.if %json_is_object {
+          %older = core.get %json["audio"]
+        }
+        %older_is_text = core.type_is %older type "string"
+        core.if %older_is_text {
+          core.call intrinsic.axgen.deprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")
+          %data = core.let %older
+        } else {
+          %error = core.call intrinsic.ai.error.response("Speech response JSON did not include audio data", %json)
+          core.raise %error
+        }
+      }
+      %mime_type = core.call @speech_json_named_mime_type_impl(%json)
+      %has_mime = core.call intrinsic.truthy(%mime_type)
+      core.if %has_mime {
+      } else {
+        %mime_type = core.call @audio_mime_type_impl(%format)
+      }
+      %speech = core.call @speech_response_impl(%data, %format, %mime_type, %transcript)
+      core.return %speech
+    }
+  }
+
+  op ax.provider.semantic @speech_json_data_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/audio/api.ts"
+    type signature = "(json) -> json"
+    body @entry(%json: json) {
+      // The first of TS's audio keys that is set (null counts as unset).
+      %none = core.call intrinsic.none()
+      %json_is_object = core.type_is %json type "object"
+      core.if %json_is_object {
+      } else {
+        core.return %none
+      }
+      %audio_data = core.get %json["audio_data"]
+      %has_audio_data = core.call intrinsic.is_not_none(%audio_data)
+      core.if %has_audio_data {
+        core.return %audio_data
+      }
+      %audio_data_camel = core.get %json["audioData"]
+      %has_audio_data_camel = core.call intrinsic.is_not_none(%audio_data_camel)
+      core.if %has_audio_data_camel {
+        core.return %audio_data_camel
+      }
+      %data = core.get %json["data"]
+      %has_data = core.call intrinsic.is_not_none(%data)
+      core.if %has_data {
+        core.return %data
+      }
+      %audio = core.get %json["audio"]
+      %audio_is_object = core.type_is %audio type "object"
+      core.if %audio_is_object {
+        %audio_inner = core.get %audio["data"]
+        %has_audio_inner = core.call intrinsic.is_not_none(%audio_inner)
+        core.if %has_audio_inner {
+          core.return %audio_inner
+        }
+      }
+      %output = core.get %json["output"]
+      %output_is_object = core.type_is %output type "object"
+      core.if %output_is_object {
+        %output_audio = core.get %output["audio"]
+        %output_audio_is_object = core.type_is %output_audio type "object"
+        core.if %output_audio_is_object {
+          %output_data = core.get %output_audio["data"]
+          %has_output_data = core.call intrinsic.is_not_none(%output_data)
+          core.if %has_output_data {
+            core.return %output_data
+          }
+        }
+      }
+      // The first part of the first candidate with inline data: its camelCase
+      // data, else the first part's snake_case inline_data.
+      %parts = core.call @speech_json_candidate_parts_impl(%json)
+      core.for %part in %parts {
+        %inline = core.get %part["inlineData"]
+        %inline_data = core.call intrinsic.none()
+        %inline_is_object = core.type_is %inline type "object"
+        core.if %inline_is_object {
+          %inline_data = core.get %inline["data"]
+        }
+        %snake = core.get %part["inline_data"]
+        %snake_data = core.call intrinsic.none()
+        %snake_is_object = core.type_is %snake type "object"
+        core.if %snake_is_object {
+          %snake_data = core.get %snake["data"]
+        }
+        %has_inline_data = core.call intrinsic.truthy(%inline_data)
+        %has_snake_data = core.call intrinsic.truthy(%snake_data)
+        %has_any = core.call intrinsic.or(%has_inline_data, %has_snake_data)
+        core.if %has_any {
+          %has_camel = core.call intrinsic.is_not_none(%inline_data)
+          core.if %has_camel {
+            core.return %inline_data
+          }
+          core.break
+        }
+      }
+      core.for %part in %parts {
+        %snake = core.get %part["inline_data"]
+        %snake_is_object = core.type_is %snake type "object"
+        core.if %snake_is_object {
+          %snake_data = core.get %snake["data"]
+          %has_snake_data = core.call intrinsic.truthy(%snake_data)
+          core.if %has_snake_data {
+            core.return %snake_data
+          }
+        }
+      }
+      core.return %none
+    }
+  }
+
+  op ax.provider.semantic @speech_json_candidate_parts_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/audio/api.ts"
+    type signature = "(json) -> json"
+    body @entry(%json: json) {
+      // json.candidates[0].content.parts, or no parts.
+      %parts = core.list
+      %json_is_object = core.type_is %json type "object"
+      core.if %json_is_object {
+      } else {
+        core.return %parts
+      }
+      %candidates = core.get %json["candidates"]
+      %candidates_is_list = core.type_is %candidates type "list"
+      core.if %candidates_is_list {
+      } else {
+        core.return %parts
+      }
+      %count = core.call intrinsic.len(%candidates)
+      %has_candidate = core.call intrinsic.gt(%count, 0)
+      core.if %has_candidate {
+      } else {
+        core.return %parts
+      }
+      %no_candidate = core.call intrinsic.none()
+      %candidate = core.call intrinsic.list.get(%candidates, 0, %no_candidate)
+      %candidate_is_object = core.type_is %candidate type "object"
+      core.if %candidate_is_object {
+      } else {
+        core.return %parts
+      }
+      %content = core.get %candidate["content"]
+      %content_is_object = core.type_is %content type "object"
+      core.if %content_is_object {
+      } else {
+        core.return %parts
+      }
+      %content_parts = core.get %content["parts"]
+      %content_parts_is_list = core.type_is %content_parts type "list"
+      core.if %content_parts_is_list {
+        core.return %content_parts
+      }
+      core.return %parts
+    }
+  }
+
+  op ax.provider.semantic @speech_json_named_mime_type_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/audio/api.ts"
+    type signature = "(json) -> json"
+    body @entry(%json: json) {
+      // The mime type a JSON speech body names: mimeType, mime_type, or the
+      // first candidate part's inlineData.mimeType or inline_data.mime_type.
+      %none = core.call intrinsic.none()
+      %json_is_object = core.type_is %json type "object"
+      core.if %json_is_object {
+      } else {
+        core.return %none
+      }
+      %camel = core.get %json["mimeType"]
+      %camel_is_text = core.type_is %camel type "string"
+      core.if %camel_is_text {
+        core.return %camel
+      }
+      %snake = core.get %json["mime_type"]
+      %snake_is_text = core.type_is %snake type "string"
+      core.if %snake_is_text {
+        core.return %snake
+      }
+      %parts = core.call @speech_json_candidate_parts_impl(%json)
+      core.for %part in %parts {
+        %inline = core.get %part["inlineData"]
+        %inline_is_object = core.type_is %inline type "object"
+        core.if %inline_is_object {
+          %inline_mime = core.get %inline["mimeType"]
+          %has_inline_mime = core.call intrinsic.truthy(%inline_mime)
+          core.if %has_inline_mime {
+            core.return %inline_mime
+          }
+        }
+      }
+      core.for %part in %parts {
+        %inline_snake = core.get %part["inline_data"]
+        %inline_snake_is_object = core.type_is %inline_snake type "object"
+        core.if %inline_snake_is_object {
+          %snake_mime = core.get %inline_snake["mime_type"]
+          %has_snake_mime = core.call intrinsic.truthy(%snake_mime)
+          core.if %has_snake_mime {
+            core.return %snake_mime
+          }
+        }
+      }
+      core.return %none
+    }
+  }
+
+  op ax.provider.semantic @audio_format_from_mime_type_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/audio/util.ts"
+    type signature = "(json) -> json"
+    body @entry(%mime_type: json) {
+      // axAudioFormatFromMimeType(mimeType): the speech format a mime type
+      // names, or none.
+      %none = core.call intrinsic.none()
+      %is_text = core.type_is %mime_type type "string"
+      core.if %is_text {
+      } else {
+        core.return %none
+      }
+      %mt = core.call intrinsic.string.lower(%mime_type)
+      %has_text = core.call intrinsic.truthy(%mt)
+      core.if %has_text {
+      } else {
+        core.return %none
+      }
+      %is_wav = core.call intrinsic.contains(%mt, "wav")
+      core.if %is_wav {
+        core.return "wav"
+      }
+      %is_mpeg = core.call intrinsic.contains(%mt, "mpeg")
+      %is_mp3 = core.call intrinsic.contains(%mt, "mp3")
+      %is_mpeg_or_mp3 = core.call intrinsic.or(%is_mpeg, %is_mp3)
+      core.if %is_mpeg_or_mp3 {
+        core.return "mp3"
+      }
+      %is_flac = core.call intrinsic.contains(%mt, "flac")
+      core.if %is_flac {
+        core.return "flac"
+      }
+      %is_opus = core.call intrinsic.contains(%mt, "opus")
+      core.if %is_opus {
+        core.return "opus"
+      }
+      %is_aac = core.call intrinsic.contains(%mt, "aac")
+      core.if %is_aac {
+        core.return "aac"
+      }
+      %is_ogg = core.call intrinsic.contains(%mt, "ogg")
+      core.if %is_ogg {
+        core.return "ogg"
+      }
+      %is_mulaw = core.call intrinsic.contains(%mt, "mulaw")
+      core.if %is_mulaw {
+        core.return "mulaw"
+      }
+      %is_ulaw = core.call intrinsic.contains(%mt, "ulaw")
+      %is_basic = core.call intrinsic.contains(%mt, "basic")
+      %is_ulaw_or_basic = core.call intrinsic.or(%is_ulaw, %is_basic)
+      core.if %is_ulaw_or_basic {
+        core.return "ulaw"
+      }
+      %is_alaw = core.call intrinsic.contains(%mt, "alaw")
+      core.if %is_alaw {
+        core.return "alaw"
+      }
+      %is_pcm16 = core.call intrinsic.contains(%mt, "pcm16")
+      %is_l16 = core.call intrinsic.contains(%mt, "l16")
+      %is_linear16 = core.call intrinsic.or(%is_pcm16, %is_l16)
+      core.if %is_linear16 {
+        core.return "pcm16"
+      }
+      %is_pcm = core.call intrinsic.contains(%mt, "pcm")
+      core.if %is_pcm {
+        core.return "pcm"
+      }
+      core.return %none
     }
   }
 
@@ -9387,10 +9838,7 @@ module @ax.provider version "0.1" {
       core.if %is_url {
         %out = core.map
         core.set %out["type"] = "text"
-        %cached_snake = core.get %part["cached_content"]
-        %cached = core.get %part["cachedContent"] default %cached_snake
-        %url = core.get %part["url"] default ""
-        %text = core.call intrinsic.coalesce(%cached, %url)
+        %text = core.call @url_part_text_impl(%part)
         core.set %out["text"] = %text
         %cache = core.get %part["cache"] default false
         core.if %cache {
@@ -10950,6 +11398,51 @@ module @ax.provider version "0.1" {
         core.set %payload["prompt_cache_retention"] = %retention
       }
       core.return %payload
+    }
+  }
+
+  // The request a provider error keeps, as TypeScript's AxAIServiceError keeps
+  // it: the URL, plus the body (json, or data for a multipart upload) unless
+  // includeRequestBodyInErrors is false. Never the headers, which hold the API
+  // key or a credential provider's token. Every error that carries a request
+  // is built from this view.
+  op ax.provider.semantic @ai_error_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/util/apicall.ts"
+    type signature = "(request?:json, options?:json) -> json"
+    body @entry(%request: json, %options: json) {
+      %none = core.call intrinsic.none()
+      %is_object = core.type_is %request type "object"
+      %not_object = core.call intrinsic.not(%is_object)
+      core.if %not_object {
+        core.return %none
+      }
+      %view = core.map
+      %has_url = core.call intrinsic.map.contains(%request, "url")
+      core.if %has_url {
+        %url = core.get %request["url"]
+        core.set %view["url"] = %url
+      }
+      %flag_snake = core.get %options["include_request_body_in_errors"]
+      %flag = core.get %options["includeRequestBodyInErrors"] default %flag_snake
+      %flag_unset = core.call intrinsic.is_none(%flag)
+      %flag_true = core.call intrinsic.truthy(%flag)
+      %include_body = core.call intrinsic.or(%flag_unset, %flag_true)
+      core.if %include_body {
+        %has_json = core.call intrinsic.map.contains(%request, "json")
+        core.if %has_json {
+          %json_body = core.get %request["json"]
+          core.set %view["json"] = %json_body
+        }
+        %has_data = core.call intrinsic.map.contains(%request, "data")
+        core.if %has_data {
+          %data_body = core.get %request["data"]
+          core.set %view["data"] = %data_body
+        }
+      }
+      core.return %view
     }
   }
 }

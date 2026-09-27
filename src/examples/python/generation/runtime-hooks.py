@@ -76,8 +76,10 @@ try:
     ))
     workflow = flow({"id": "examples.runtimeHooks"}).execute(
         "outline", ax("topic:string -> outline:string")
-    ).execute("polish", ax("outline:string -> answer:string")).returns({"answer": "polish"})
-    print(workflow.forward(client, {"topic": "Ax runtime hooks"}, hooks=override_hooks))
+    ).execute("polish", ax("outline:string -> answer:string")).returns({"answer": "answer"})
+    result = workflow.forward(client, {"topic": "Ax runtime hooks"}, hooks=override_hooks)
+    assert result.get("answer"), result
+    print(result)
 finally:
     set_rate_limiter(None)
     set_tracer(None)

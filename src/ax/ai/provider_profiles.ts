@@ -128,8 +128,21 @@ export type AxAIProfileModelRule = {
   };
 };
 
+/**
+ * @deprecated Unused: no profile has it, it was never implemented (it fell
+ * through to a Bearer header), and the profile generator rejects it. It is
+ * removed from `AxAIProfileAuthentication['type']` in the next major version.
+ */
+type AxAIProfileQueryKeyAuth = 'api-key-query';
+
 export type AxAIProfileAuthentication = {
-  type: 'bearer' | 'api-key-header' | 'api-key-query' | 'x-api-key' | 'none';
+  /** How the API key is sent. `'api-key-query'` is deprecated (see above). */
+  type:
+    | 'bearer'
+    | 'api-key-header'
+    | AxAIProfileQueryKeyAuth
+    | 'x-api-key'
+    | 'none';
   header?: string;
   required: boolean;
 };
@@ -665,28 +678,6 @@ const applyProfileChatRequest = <TModel>(
 
   applyRequestRules(payload, profile.request, options);
   applyRequestRules(payload, rule?.request, options);
-  if (profile.id === 'meta-chat' && Array.isArray(payload.messages)) {
-    payload.messages = (payload.messages as Array<Record<string, unknown>>).map(
-      (message) => ({
-        ...message,
-        ...(Array.isArray(message.content)
-          ? {
-              content: (message.content as Array<Record<string, unknown>>).map(
-                (part) => {
-                  if (part.type !== 'image_url') return part;
-                  const image = part.image_url as
-                    | Record<string, unknown>
-                    | undefined;
-                  if (!image || image.details === undefined) return part;
-                  const { details, ...rest } = image;
-                  return { ...part, image_url: { ...rest, detail: details } };
-                }
-              ),
-            }
-          : {}),
-      })
-    );
-  }
   return payload as AxAIOpenAIChatRequest<TModel>;
 };
 
@@ -1016,7 +1007,8 @@ export class AxAIOpenAIProfile<TModelKey = string> extends AxAIOpenAIBase<
         model,
         input: req.text,
         voice: voice ?? 'alloy',
-        response_format: format === 'pcm' ? 'pcm16' : format,
+        // OpenAI's `pcm` is 16-bit PCM; it rejects `pcm16`.
+        response_format: format === 'pcm16' ? 'pcm' : format,
         ...(req.speed !== undefined ? { speed: req.speed } : {}),
       };
     }

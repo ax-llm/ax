@@ -7,7 +7,7 @@ import queue
 import threading
 from typing import Any, Callable, Iterator, Protocol
 
-from .ai import _emit_usage_event, _include_request_body_in_errors, _iter_sse_json
+from .ai import _emit_usage_event, _iter_sse_json
 from .gen import _StreamingConsumerStopped, _core_ai_client_features, _core_ai_complete_once, _core_ai_stream_open, _core_axgen_speak
 
 
@@ -242,7 +242,7 @@ class _ResponsesChatSession:
         try:
             raw = self.client._request_json(self.client._operation_path("stream_chat", self.model), payload,
                 stream=True, method="POST", operation="responses",
-                include_request_body_in_errors=_include_request_body_in_errors(self.options))
+                error_options=self.options)
             reader = raw
             with self._lock:
                 self._readers[id(reader)] = reader
@@ -335,6 +335,14 @@ class _ResponsesChatSession:
                     close()
                 except Exception:
                     pass
+
+
+def _steer_text(content):
+    # A steer is text: a message's string content, or the text of its text
+    # parts (a field processor's feedback is [{type: "text", text}]).
+    if isinstance(content, list):
+        return "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict) and part.get("type") == "text")
+    return str(content)
 
 
 class _SessionClient:
@@ -470,7 +478,7 @@ class _SessionClient:
         else:
             # A validation correction continues the same conversation and cache prefix.
             correction = request.get("chat_prompt", [])[-1].get("content", "")
-            self.session.steer(str(correction))
+            self.session.steer(_steer_text(correction))
             self._send_continuation([])
         while True:
             if self.control and self.control.signal.is_set():

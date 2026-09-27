@@ -1,0 +1,66 @@
+{
+  "expected_output": {
+    "speech": {
+      "data": "SUQzBAA=",
+      "format": "mp3",
+      "mimeType": "audio/mpeg",
+      "transcript": "Hello there"
+    }
+  },
+  "expected_request_count": 2,
+  "expected_speak_requests": [
+    {
+      "text": "Hello there",
+      "voice": "echo"
+    }
+  ],
+  "forward_options": {
+    "renderAudio": true,
+    "speech": {
+      "speak": {
+        "voice": "echo"
+      }
+    }
+  },
+  "input": {
+    "question": "Say hi"
+  },
+  "kind": "agent_forward",
+  "name": "agent-forward-render-audio-call",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"respond(\\\"direct\\\", {\\\"source\\\":\\\"forward-skill\\\"})\"}"
+    },
+    {
+      "content": "{\"speech\":\"Hello there\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "respond(\"direct\", {\"source\":\"forward-skill\"})",
+      "result": {
+        "args": [
+          "direct",
+          {
+            "source": "forward-skill"
+          }
+        ],
+        "type": "respond"
+      }
+    }
+  ],
+  "signature": "question:string -> speech:audio",
+  "speak_responses": [
+    {
+      "data": "SUQzBAA=",
+      "format": "mp3",
+      "mimeType": "audio/mpeg",
+      "transcript": "Hello there"
+    }
+  ]
+}

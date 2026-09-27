@@ -50,6 +50,11 @@ console.log(speech.transcript);
 
 Providers without the requested batch audio capability throw `AxMediaNotSupportedError`.
 
+OpenAI's `speak()` defaults to `gpt-4o-mini-tts` with the `alloy` voice and `mp3`.
+`format: 'pcm'` (or `'pcm16'`) asks OpenAI for its `pcm` output, 16-bit PCM at
+24 kHz. Mistral's `speak()` defaults to `voxtral-mini-tts-2603` and sends the
+voice as `voice_id`.
+
 OpenAI also offers `gpt-transcribe` (`AxAIOpenAIModel.GPTTranscribe`), billed
 per minute of audio; it accepts `responseFormat: 'json'` or `'text'` only.
 

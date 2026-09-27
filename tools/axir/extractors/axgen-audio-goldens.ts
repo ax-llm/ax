@@ -642,6 +642,11 @@ for (const [name, spec] of Object.entries({ ...cases, ...offCases })) {
   }
   writeFixture(flowDir, 'audio-output-flow-speaker-to-summarizer', {
     kind: 'flow',
+    source: {
+      tsDerived: true,
+      extractor: 'tools/axir/extractors/axgen-audio-goldens.ts',
+      reference: ['src/ax/flow/flow.ts', 'src/ax/dsp/generate.ts'],
+    },
     flow_options: { autoParallel: false },
     input,
     steps: [

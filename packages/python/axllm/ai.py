@@ -27,6 +27,18 @@ from .signature import (
     _signature_validate_value_descriptions_impl,
 )
 from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text
+import warnings
+
+_CORE_DEPRECATIONS_SHOWN: set[str] = set()
+
+
+def _core_axgen_deprecation(key, message):
+    # Deprecated port behavior warns once per process.
+    if key in _CORE_DEPRECATIONS_SHOWN:
+        return None
+    _CORE_DEPRECATIONS_SHOWN.add(key)
+    warnings.warn(str(message), DeprecationWarning, stacklevel=4)
+    return None
 
 def _core_validation_error(message):
     return ValueError(str(message))
@@ -558,27 +570,6 @@ class AxAIServiceAbortedError(AxAIServiceError):
         message = "Request aborted" + (f": {reason}" if reason and reason != "cancelled" else "")
         super().__init__(message, retryable=False)
         self.reason = reason
-
-
-def _include_request_body_in_errors(options: Any) -> bool:
-    # TypeScript's includeRequestBodyInErrors: on unless the call or client options set it false.
-    if isinstance(options, dict):
-        for key in ("includeRequestBodyInErrors", "include_request_body_in_errors"):
-            if options.get(key) is not None:
-                return bool(options[key])
-    return True
-
-
-def _error_request(call: Any, include_body: bool) -> dict[str, Any] | None:
-    # The request a provider error carries, as TypeScript's AxAIServiceError
-    # keeps it: the URL, plus the body unless includeRequestBodyInErrors is
-    # false. Never the headers, which hold the API key or credential tokens.
-    if not isinstance(call, dict):
-        return None
-    view = {"url": call["url"]} if "url" in call else {}
-    if include_body:
-        view.update({key: call[key] for key in ("json", "data") if key in call})
-    return view
 
 
 def _cancellation_token(options: dict[str, Any] | None) -> AxCancellationToken | None:
@@ -1244,7 +1235,7 @@ class ProviderOperationClient(AxBaseAI):
         raw = self._context_cache_chat(request, payload, model, endpoint, options)
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
-            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, cancellation=_cancellation_token(options), include_request_body_in_errors=_include_request_body_in_errors(options))
+            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, cancellation=_cancellation_token(options), error_options=options)
         return provider_normalize_chat_response(self.profile, raw, self.name, model, typesafe_response_context(payload, options) if self.profile == "typesafe" else payload)
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
@@ -1261,7 +1252,7 @@ class ProviderOperationClient(AxBaseAI):
         if explicit:
             cached_payload = copy.deepcopy(payload)
             cached_payload["cachedContent"] = explicit
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
 
         prompts = request.get("chat_prompt") or request.get("chatPrompt") or request.get("messages") or []
         non_system_seen = 0
@@ -1324,14 +1315,14 @@ class ProviderOperationClient(AxBaseAI):
         try:
             if plan.get("action") == "refresh":
                 ops = ai_gemini_cache_ops(cache_name, ttl_seconds, api_key, str(model), cache_body, options)
-                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation, error_options=options)
                 expires_at = expiry(refreshed)
                 if not expires_at:
                     raise AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", response_body=refreshed)
                 save({"cacheName": cache_name, "expiresAt": expires_at})
             if plan.get("action") in ("create", "refresh") and (plan.get("action") == "create" or not cache_name):
                 ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options)
                 cache_name = str((created or {}).get("name") or "")
                 expires_at = expiry(created)
                 if not cache_name or not expires_at:
@@ -1343,7 +1334,7 @@ class ProviderOperationClient(AxBaseAI):
             if plan.get("action") == "refresh":
                 try:
                     ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options)
                     cache_name = str((created or {}).get("name") or "")
                     expires_at = expiry(created)
                     if not cache_name or not expires_at:
@@ -1352,9 +1343,9 @@ class ProviderOperationClient(AxBaseAI):
                 except AxAIServiceAbortedError:
                     raise
                 except AxAIServiceError:
-                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
             else:
-                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
         if not cache_name:
             return None
         cached_payload = copy.deepcopy(payload)
@@ -1364,7 +1355,7 @@ class ProviderOperationClient(AxBaseAI):
         cached_payload.pop("toolConfig", None)
         cached_payload["cachedContent"] = cache_name
         try:
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
         except AxAIServiceError as error:
             if not ai_context_cache_rejection(error.status or 0, error.response_body):
                 raise
@@ -1375,7 +1366,7 @@ class ProviderOperationClient(AxBaseAI):
                     registry_call("set", namespace, cache_key, recovery.get("externalEntry"))
                 elif recovery.get("deleteInMemory"):
                     self._context_cache_entries.pop(cache_key, None)
-            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         request, options = self._resolve_model_key(_coerce_chat_request(request), options)
@@ -1419,7 +1410,7 @@ class ProviderOperationClient(AxBaseAI):
         # The client pops base_url out of its options; the embed route still honors an explicit one.
         route_options = {**options, "base_url": self.base_url_override} if self.base_url_override else options
         endpoint = provider_embed_url(self.profile, str(model or ""), route_options) or self._operation_path("embed", model)
-        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options), include_request_body_in_errors=_include_request_body_in_errors(options))
+        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options), error_options=options)
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
     def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1440,7 +1431,7 @@ class ProviderOperationClient(AxBaseAI):
             # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
             events = None
             try:
-                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", cancellation=cancellation, error_options=options)
                 events = _iter_sse_json(raw)
                 first = next(events, sentinel)
             except AxAIServiceError as error:
@@ -1485,7 +1476,7 @@ class ProviderOperationClient(AxBaseAI):
         if query:
             endpoint += ("&" if "?" in endpoint else "?") + urllib.parse.urlencode(query)
         event_stream = self.profile == "meta" and (request.get("partialMode") is not None or request.get("partial_mode") is not None or request.get("emitAudioProgress") is True or request.get("emit_audio_progress") is True)
-        raw = self._request_json(endpoint, payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe", accept="text/event-stream" if event_stream else None, cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(self._merged_options(options)))
+        raw = self._request_json(endpoint, payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe", accept="text/event-stream" if event_stream else None, cancellation=cancellation, error_options=self._merged_options(options))
         if event_stream and isinstance(raw, (str, bytes, bytearray)):
             raw = {"events": list(_iter_sse_json(raw))}
         return provider_normalize_transcribe_response(self.profile, raw, request)
@@ -1497,8 +1488,13 @@ class ProviderOperationClient(AxBaseAI):
         model = request.get("model") or descriptor.get("defaultModel") or self.model
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
         binary_response = descriptor.get("response") == "binary"
-        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(self._merged_options(options)))
-        return provider_normalize_speak_response(self.profile, raw, request)
+        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation, error_options=self._merged_options(options))
+        # As TS's axFetchJsonSpeech: a JSON body arrives parsed, and a binary
+        # one as base64 with its Content-Type, which names its mime type.
+        content_type = None
+        if isinstance(raw, _BinaryBody):
+            raw, content_type = raw.data, raw.content_type
+        return provider_normalize_speak_response(self.profile, raw, request, content_type)
 
     def realtime(self, events: Iterable[dict[str, Any]], model: str | None = None):
         state: dict[str, Any] = {}
@@ -1658,10 +1654,6 @@ class ProviderOperationClient(AxBaseAI):
         path = provider_chat_operation_path(self.profile, str(model or self.model), operation, str(descriptor.get("path", "/" + operation)))
         if model is not None:
             path = path.replace("{model}", urllib.parse.quote(str(model), safe=""))
-        if self.descriptor.get("auth") == "api_key_query":
-            key_name = self.descriptor.get("apiKeyQuery") or "key"
-            separator = "&" if "?" in path else "?"
-            path += separator + urllib.parse.quote(str(key_name), safe="") + "=" + urllib.parse.quote(self.api_key or "", safe="")
         if self.api_version:
             separator = "&" if "?" in path else "?"
             path += separator + "api-version=" + urllib.parse.quote(str(self.api_version), safe="")
@@ -1710,7 +1702,7 @@ class ProviderOperationClient(AxBaseAI):
             for connection in connections: connection.close()
             raise
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None, include_request_body_in_errors: bool | None = None):
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None, error_options: dict[str, Any] | None = None):
         if cancellation is not None: cancellation.throw_if_cancelled()
         method = str(method or "POST").upper()
         request_base_url = (base_url or self.base_url).rstrip("/")
@@ -1739,15 +1731,16 @@ class ProviderOperationClient(AxBaseAI):
         }
         if method in ("GET", "HEAD"):
             call.pop(body_key, None)
-        if include_request_body_in_errors is None:
-            include_request_body_in_errors = _include_request_body_in_errors(self.options)
-        error_request = _error_request(call, include_request_body_in_errors)
+        # The request this call's provider errors keep (Core owns the view).
+        error_request = _ai_error_request(call, self.options if error_options is None else error_options)
         if self.transport:
             try:
                 cancellable_name = "stream_with_cancellation" if stream else "call_with_cancellation"
                 cancellable = getattr(self.transport, cancellable_name, None)
                 result = cancellable(call, cancellation) if callable(cancellable) else self.transport(call)
                 if cancellation is not None: cancellation.throw_if_cancelled()
+                if binary_response:
+                    return _binary_transport_result(result, error_request)
                 return _transport_result(result, error_request)
             except AxAIServiceAbortedError:
                 raise
@@ -1833,8 +1826,15 @@ class ProviderOperationClient(AxBaseAI):
                 with res:
                     if binary_response:
                         # Binary operations (e.g. OpenAI /audio/speech returns raw mp3)
-                        # must not be UTF-8 decoded; return the bytes as base64.
-                        value = base64.b64encode(res.read()).decode()
+                        # must not be UTF-8 decoded: the bytes go on as base64 with
+                        # their Content-Type. A JSON body (as TS reads one by its
+                        # Content-Type) goes on parsed.
+                        content_type = res.headers.get("content-type") or ""
+                        body_bytes = res.read()
+                        if "application/json" in content_type:
+                            value = json.loads(body_bytes.decode())
+                        else:
+                            value = _BinaryBody(base64.b64encode(body_bytes).decode(), content_type)
                     else:
                         response_text = res.read().decode()
                         try:
@@ -1974,7 +1974,7 @@ class AxAITypesafeClient:
         attempt = 0
         while True:
             try:
-                return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(opts))
+                return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts)
             except AxAIServiceError as error:
                 if not _is_retryable_ai_error(error) or attempt >= int(retry["max_retries"]):
                     raise
@@ -3303,6 +3303,12 @@ def _core_string_replace(value, old, new):
     return str(value).replace(str(old), str(new))
 
 
+def _core_url_encode_component(value):
+    # JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+    # - _ . ! ~ * ' ( ) becomes %XX.
+    return urllib.parse.quote("" if value is None else str(value), safe="!~*'()")
+
+
 def _core_string_str(value):
     # String(x): a float two is "2", not "2.0".
     return _js_number_text(value) if isinstance(value, float) else str(value)
@@ -3325,15 +3331,15 @@ def _core_ai_error_unsupported(message):
 
 
 def _core_ai_error_auth(message, status=None, code=None, response_body=None, request=None):
-    return AxAIServiceAuthenticationError(str(message), status=status, code=code, response_body=response_body, request=request)
+    return AxAIServiceAuthenticationError(str(message), status=status, code=code, response_body=response_body, request=_ai_error_request(request))
 
 
 def _core_ai_error_timeout(message, status=None, code=None, response_body=None, request=None, retryable=True):
-    return AxAIServiceTimeoutError(str(message), status=status, code=code, response_body=response_body, request=request, retryable=bool(retryable))
+    return AxAIServiceTimeoutError(str(message), status=status, code=code, response_body=response_body, request=_ai_error_request(request), retryable=bool(retryable))
 
 
 def _core_ai_error_status(message, status=None, code=None, response_body=None, request=None, retryable=False):
-    return AxAIServiceStatusError(str(message), status=status, code=code, response_body=response_body, request=request, retryable=bool(retryable))
+    return AxAIServiceStatusError(str(message), status=status, code=code, response_body=response_body, request=_ai_error_request(request), retryable=bool(retryable))
 
 
 _CORE_AI_WARNINGS_SHOWN: set[str] = set()
@@ -3384,7 +3390,7 @@ def typesafe_require_string(value: Any, context: str, nonempty: bool) -> str:
     valid = _core_type_is(value, "string")
     if valid:
         if nonempty:
-            text = str(value).strip()
+            text = str(value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             valid = _core_ne(text, "")
         else:
             pass
@@ -4769,125 +4775,36 @@ def normalize_token_usage(usage: Any) -> Any:
     return out
 
 
-def _openai_content_part_impl(part: Any) -> Any:
-    _core_coverage_mark("_openai_content_part_impl")
-    type = _core_get(part, "type", None)
-    is_text = _core_eq(type, "text")
-    if is_text:
-        text = _core_get(part, "text", "")
-        out = {}
-        out["type"] = "text"
-        out["text"] = text
-        return out
+def _url_part_text_impl(part: Any) -> str:
+    _core_coverage_mark("_url_part_text_impl")
+    cached_snake = _core_get(part, "cached_content", None)
+    cached = _core_get(part, "cachedContent", cached_snake)
+    has_cached = _core_is_not_none(cached)
+    if has_cached:
+        return cached
     else:
         pass
-    is_image = _core_eq(type, "image")
-    if is_image:
-        mime_snake = _core_get(part, "mime_type", None)
-        mime_raw = _core_get(part, "mimeType", mime_snake)
-        mime = _core_coalesce(mime_raw, "image/png")
-        image_value = _core_get(part, "image", None)
-        image_raw = _core_get(part, "data", image_value)
-        image = _core_coalesce(image_raw, "")
-        is_data_url = _core_string_starts_with(image, "data:")
-        url = ""
-        if is_data_url:
-            url = image
-        else:
-            url = _core_string_format("data:{};base64,{}", mime, image)
-        details = _core_get(part, "details", "auto")
-        image_url = {}
-        image_url["url"] = url
-        image_url["detail"] = details
-        out = {}
-        out["type"] = "image_url"
-        out["image_url"] = image_url
-        return out
+    lines = []
+    title = _core_get(part, "title", None)
+    has_title = _core_truthy(title)
+    if has_title:
+        lines.append(title)
     else:
         pass
-    is_audio = _core_eq(type, "audio")
-    if is_audio:
-        audio_alt = _core_get(part, "audio", None)
-        data = _core_get(part, "data", audio_alt)
-        format = _core_get(part, "format", None)
-        is_wav = _core_eq(format, "wav")
-        is_mp3 = _core_eq(format, "mp3")
-        format_ok = _core_or(is_wav, is_mp3)
-        if format_ok:
-            out = {}
-            out["type"] = "input_audio"
-            input_audio = {}
-            input_audio["data"] = data
-            input_audio["format"] = format
-            out["input_audio"] = input_audio
-            return out
-        else:
-            pass
-        audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", format)
-        audio_error = _core_ai_error_unsupported(audio_message)
-        raise audio_error
+    description = _core_get(part, "description", None)
+    has_description = _core_truthy(description)
+    if has_description:
+        lines.append(description)
     else:
         pass
-    is_file = _core_eq(type, "file")
-    if is_file:
-        out = {}
-        mime_snake = _core_get(part, "mime_type", "application/octet-stream")
-        mime = _core_get(part, "mimeType", mime_snake)
-        uri_snake = _core_get(part, "file_uri", None)
-        uri = _core_get(part, "fileUri", uri_snake)
-        has_uri = _core_truthy(uri)
-        is_image_file = _core_string_starts_with(mime, "image/")
-        is_video_file = _core_string_starts_with(mime, "video/")
-        is_uri_video = _core_and(is_video_file, has_uri)
-        if is_image_file:
-            out["type"] = "image_url"
-            image_url = {}
-            data = _core_get(part, "data", "")
-            data_url = _core_string_format("data:{};base64,{}", mime, data)
-            resolved_uri = _core_coalesce(uri, data_url)
-            image_url["url"] = resolved_uri
-            image_url["detail"] = "auto"
-            out["image_url"] = image_url
-        else:
-            if is_uri_video:
-                out["type"] = "video_url"
-                video_url = {}
-                video_url["url"] = uri
-                out["video_url"] = video_url
-            else:
-                out["type"] = "file"
-                file = {}
-                if has_uri:
-                    file["file_url"] = uri
-                else:
-                    data = _core_get(part, "data", "")
-                    file_data = _core_string_format("data:{};base64,{}", mime, data)
-                    file["file_data"] = file_data
-                filename = _core_get(part, "filename", None)
-                has_filename = _core_is_not_none(filename)
-                if has_filename:
-                    file["filename"] = filename
-                else:
-                    pass
-                out["file"] = file
-        return out
+    url = _core_get(part, "url", None)
+    has_url = _core_truthy(url)
+    if has_url:
+        lines.append(url)
     else:
         pass
-    is_url = _core_eq(type, "url")
-    if is_url:
-        out = {}
-        out["type"] = "text"
-        cached_snake = _core_get(part, "cached_content", None)
-        cached = _core_get(part, "cachedContent", cached_snake)
-        url = _core_get(part, "url", "")
-        text = _core_coalesce(cached, url)
-        out["text"] = text
-        return out
-    else:
-        pass
-    message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
-    error = _core_ai_error_unsupported(message)
-    raise error
+    text = _core_string_join("\n", lines)
+    return text
 
 
 def typesafe_normalize_chat_response(raw: Any, context: Any) -> Any:
@@ -4955,6 +4872,142 @@ def merge_usage_context(defaults: Any, overrides: Any) -> Any:
     else:
         pass
     return merged
+
+
+def _openai_content_part_impl(part: Any) -> Any:
+    _core_coverage_mark("_openai_content_part_impl")
+    type = _core_get(part, "type", None)
+    is_text = _core_eq(type, "text")
+    if is_text:
+        text = _core_get(part, "text", "")
+        out = {}
+        out["type"] = "text"
+        out["text"] = text
+        return out
+    else:
+        pass
+    is_image = _core_eq(type, "image")
+    if is_image:
+        mime_snake = _core_get(part, "mime_type", None)
+        mime_raw = _core_get(part, "mimeType", mime_snake)
+        mime = _core_coalesce(mime_raw, "image/png")
+        image_value = _core_get(part, "image", None)
+        image_raw = _core_get(part, "data", image_value)
+        image = _core_coalesce(image_raw, "")
+        is_data_url = _core_string_starts_with(image, "data:")
+        url = ""
+        if is_data_url:
+            url = image
+        else:
+            url = _core_string_format("data:{};base64,{}", mime, image)
+        details = _core_get(part, "details", "auto")
+        image_url = {}
+        image_url["url"] = url
+        image_url["detail"] = details
+        out = {}
+        out["type"] = "image_url"
+        out["image_url"] = image_url
+        return out
+    else:
+        pass
+    is_audio = _core_eq(type, "audio")
+    if is_audio:
+        audio_alt = _core_get(part, "audio", None)
+        data = _core_get(part, "data", audio_alt)
+        format = _core_get(part, "format", None)
+        audio_mime_snake = _core_get(part, "mime_type", None)
+        audio_mime = _core_get(part, "mimeType", audio_mime_snake)
+        has_audio_format = _core_is_not_none(format)
+        if has_audio_format:
+            pass
+        else:
+            format = _audio_format_from_mime_type_impl(audio_mime)
+        is_wav = _core_eq(format, "wav")
+        is_mp3 = _core_eq(format, "mp3")
+        format_ok = _core_or(is_wav, is_mp3)
+        if format_ok:
+            out = {}
+            out["type"] = "input_audio"
+            input_audio = {}
+            input_audio["data"] = data
+            input_audio["format"] = format
+            out["input_audio"] = input_audio
+            return out
+        else:
+            pass
+        received = "unknown format"
+        has_audio_mime = _core_is_not_none(audio_mime)
+        if has_audio_mime:
+            received = audio_mime
+        else:
+            pass
+        has_resolved_format = _core_is_not_none(format)
+        if has_resolved_format:
+            received = format
+        else:
+            pass
+        audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", received)
+        audio_error = _core_ai_error_unsupported(audio_message)
+        raise audio_error
+    else:
+        pass
+    is_file = _core_eq(type, "file")
+    if is_file:
+        out = {}
+        mime_snake = _core_get(part, "mime_type", "application/octet-stream")
+        mime = _core_get(part, "mimeType", mime_snake)
+        uri_snake = _core_get(part, "file_uri", None)
+        uri = _core_get(part, "fileUri", uri_snake)
+        has_uri = _core_truthy(uri)
+        is_image_file = _core_string_starts_with(mime, "image/")
+        is_video_file = _core_string_starts_with(mime, "video/")
+        is_uri_video = _core_and(is_video_file, has_uri)
+        if is_image_file:
+            out["type"] = "image_url"
+            image_url = {}
+            data = _core_get(part, "data", "")
+            data_url = _core_string_format("data:{};base64,{}", mime, data)
+            resolved_uri = _core_coalesce(uri, data_url)
+            image_url["url"] = resolved_uri
+            image_url["detail"] = "auto"
+            out["image_url"] = image_url
+        else:
+            if is_uri_video:
+                out["type"] = "video_url"
+                video_url = {}
+                video_url["url"] = uri
+                out["video_url"] = video_url
+            else:
+                out["type"] = "file"
+                file = {}
+                if has_uri:
+                    file["file_url"] = uri
+                else:
+                    data = _core_get(part, "data", "")
+                    file_data = _core_string_format("data:{};base64,{}", mime, data)
+                    file["file_data"] = file_data
+                filename = _core_get(part, "filename", None)
+                has_filename = _core_is_not_none(filename)
+                if has_filename:
+                    file["filename"] = filename
+                else:
+                    pass
+                out["file"] = file
+        return out
+    else:
+        pass
+    is_url = _core_eq(type, "url")
+    if is_url:
+        out = {}
+        out["type"] = "text"
+        text = _url_part_text_impl(part)
+        out["text"] = text
+        return out
+    else:
+        pass
+    message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
+    error = _core_ai_error_unsupported(message)
+    raise error
 
 
 def build_usage_event(operation: str, response: Any, options: Any, streaming: bool) -> Any:
@@ -5067,28 +5120,6 @@ def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
     return out
 
 
-def _openai_tool_call_to_provider_impl(call: Any) -> Any:
-    _core_coverage_mark("_openai_tool_call_to_provider_impl")
-    fn = _core_get(call, "function", None)
-    params = _core_get(fn, "params", None)
-    params_is_string = _core_type_is(params, "string")
-    if params_is_string:
-        pass
-    else:
-        params_json = _core_json_stringify(params)
-        params = params_json
-    id = _core_get(call, "id", None)
-    name = _core_get(fn, "name", None)
-    function = {}
-    function["name"] = name
-    function["arguments"] = params
-    out = {}
-    out["id"] = id
-    out["type"] = "function"
-    out["function"] = function
-    return out
-
-
 def ai_merge_replay_metadata(previous: Any, incoming: Any) -> Any:
     _core_coverage_mark("ai_merge_replay_metadata")
     out = _core_map_merge(previous, incoming)
@@ -5168,6 +5199,28 @@ def ai_merge_replay_metadata(previous: Any, incoming: Any) -> Any:
     return out
 
 
+def _openai_tool_call_to_provider_impl(call: Any) -> Any:
+    _core_coverage_mark("_openai_tool_call_to_provider_impl")
+    fn = _core_get(call, "function", None)
+    params = _core_get(fn, "params", None)
+    params_is_string = _core_type_is(params, "string")
+    if params_is_string:
+        pass
+    else:
+        params_json = _core_json_stringify(params)
+        params = params_json
+    id = _core_get(call, "id", None)
+    name = _core_get(fn, "name", None)
+    function = {}
+    function["name"] = name
+    function["arguments"] = params
+    out = {}
+    out["id"] = id
+    out["type"] = "function"
+    out["function"] = function
+    return out
+
+
 def _openai_tool_spec_impl(fn: Any) -> Any:
     _core_coverage_mark("_openai_tool_spec_impl")
     name = _core_get(fn, "name", None)
@@ -5203,32 +5256,6 @@ def openai_build_embed_request(request: AxEmbedRequest) -> Any:
     else:
         pass
     return payload
-
-
-def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
-    _core_coverage_mark("openai_normalize_chat_response")
-    response = _openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none")
-    return response
-
-
-def _openai_usage_with_service_tier(raw: Any, usage: Any) -> Any:
-    _core_coverage_mark("_openai_usage_with_service_tier")
-    has_usage = _core_is_not_none(usage)
-    if has_usage:
-        pass
-    else:
-        return usage
-    empty = {}
-    out = _core_map_merge(empty, usage)
-    usage_tier = _core_get(usage, "service_tier", None)
-    raw_tier = _core_get(raw, "service_tier", usage_tier)
-    tier = _core_get(raw, "service_tier_used", raw_tier)
-    has_tier = _core_is_not_none(tier)
-    if has_tier:
-        out["service_tier"] = tier
-    else:
-        pass
-    return out
 
 
 def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
@@ -5288,6 +5315,32 @@ def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
     return completion
 
 
+def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
+    _core_coverage_mark("openai_normalize_chat_response")
+    response = _openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none")
+    return response
+
+
+def _openai_usage_with_service_tier(raw: Any, usage: Any) -> Any:
+    _core_coverage_mark("_openai_usage_with_service_tier")
+    has_usage = _core_is_not_none(usage)
+    if has_usage:
+        pass
+    else:
+        return usage
+    empty = {}
+    out = _core_map_merge(empty, usage)
+    usage_tier = _core_get(usage, "service_tier", None)
+    raw_tier = _core_get(raw, "service_tier", usage_tier)
+    tier = _core_get(raw, "service_tier_used", raw_tier)
+    has_tier = _core_is_not_none(tier)
+    if has_tier:
+        out["service_tier"] = tier
+    else:
+        pass
+    return out
+
+
 def _openai_normalize_chat_response_impl(raw: Any, ai_name: str, model: str, reasoning_content_mode: str, reasoning_details_mode: str) -> AxChatResponse:
     _core_coverage_mark("_openai_normalize_chat_response_impl")
     raw_is_object = _core_type_is(raw, "object")
@@ -5327,6 +5380,74 @@ def _openai_normalize_chat_response_impl(raw: Any, ai_name: str, model: str, rea
     out["results"] = results
     out["remote_id"] = remote_id
     out["model_usage"] = model_usage
+    return out
+
+
+def chat_response_to_completion(response: AxChatResponse) -> Any:
+    _core_coverage_mark("chat_response_to_completion")
+    has_routing = _core_map_contains(response, "routing")
+    has_response = _core_map_contains(response, "response")
+    router_envelope = _core_and(has_routing, has_response)
+    if router_envelope:
+        response = _core_get(response, "response", None)
+    else:
+        pass
+    empty_results = []
+    results = _core_get(response, "results", empty_results)
+    completions = []
+    position = 0
+    for result in results:
+        completion = _chat_result_to_completion(result, position)
+        completions.append(completion)
+        next_position = _core_add(position, 1)
+        position = next_position
+    empty_completion = {}
+    first = _core_list_get(completions, 0, empty_completion)
+    content = _core_get(first, "content", "")
+    calls = _core_get(first, "function_calls", empty_results)
+    model_usage = _core_get(response, "model_usage", None)
+    usage = _core_get(model_usage, "tokens", None)
+    thought = _core_get(first, "thought", None)
+    has_thought = _core_is_not_none(thought)
+    thought_blocks = _core_get(first, "thought_blocks", None)
+    has_thought_blocks = _core_is_not_none(thought_blocks)
+    out = {}
+    out["content"] = content
+    out["function_calls"] = calls
+    out["results"] = completions
+    out["usage"] = usage
+    if has_thought:
+        out["thought"] = thought
+    else:
+        pass
+    if has_thought_blocks:
+        out["thought_blocks"] = thought_blocks
+    else:
+        pass
+    session_id = _core_get(response, "__session_response_id", None)
+    has_session_id = _core_is_not_none(session_id)
+    if has_session_id:
+        out["remote_id"] = session_id
+    else:
+        pass
+    images = _core_get(first, "images", None)
+    has_images = _core_is_not_none(images)
+    if has_images:
+        out["images"] = images
+    else:
+        pass
+    phase = _core_get(first, "phase", None)
+    has_phase = _core_is_not_none(phase)
+    if has_phase:
+        out["phase"] = phase
+    else:
+        pass
+    finish = _core_get(first, "finish_reason", None)
+    has_finish = _core_is_not_none(finish)
+    if has_finish:
+        out["finish_reason"] = finish
+    else:
+        pass
     return out
 
 
@@ -5403,74 +5524,6 @@ def _openai_normalize_choice_impl(choice: Any, raw: Any, reasoning_content_mode:
     return out
 
 
-def chat_response_to_completion(response: AxChatResponse) -> Any:
-    _core_coverage_mark("chat_response_to_completion")
-    has_routing = _core_map_contains(response, "routing")
-    has_response = _core_map_contains(response, "response")
-    router_envelope = _core_and(has_routing, has_response)
-    if router_envelope:
-        response = _core_get(response, "response", None)
-    else:
-        pass
-    empty_results = []
-    results = _core_get(response, "results", empty_results)
-    completions = []
-    position = 0
-    for result in results:
-        completion = _chat_result_to_completion(result, position)
-        completions.append(completion)
-        next_position = _core_add(position, 1)
-        position = next_position
-    empty_completion = {}
-    first = _core_list_get(completions, 0, empty_completion)
-    content = _core_get(first, "content", "")
-    calls = _core_get(first, "function_calls", empty_results)
-    model_usage = _core_get(response, "model_usage", None)
-    usage = _core_get(model_usage, "tokens", None)
-    thought = _core_get(first, "thought", None)
-    has_thought = _core_is_not_none(thought)
-    thought_blocks = _core_get(first, "thought_blocks", None)
-    has_thought_blocks = _core_is_not_none(thought_blocks)
-    out = {}
-    out["content"] = content
-    out["function_calls"] = calls
-    out["results"] = completions
-    out["usage"] = usage
-    if has_thought:
-        out["thought"] = thought
-    else:
-        pass
-    if has_thought_blocks:
-        out["thought_blocks"] = thought_blocks
-    else:
-        pass
-    session_id = _core_get(response, "__session_response_id", None)
-    has_session_id = _core_is_not_none(session_id)
-    if has_session_id:
-        out["remote_id"] = session_id
-    else:
-        pass
-    images = _core_get(first, "images", None)
-    has_images = _core_is_not_none(images)
-    if has_images:
-        out["images"] = images
-    else:
-        pass
-    phase = _core_get(first, "phase", None)
-    has_phase = _core_is_not_none(phase)
-    if has_phase:
-        out["phase"] = phase
-    else:
-        pass
-    finish = _core_get(first, "finish_reason", None)
-    has_finish = _core_is_not_none(finish)
-    if has_finish:
-        out["finish_reason"] = finish
-    else:
-        pass
-    return out
-
-
 def ai_context_cache_rejection(status: number, body_json: Any) -> bool:
     _core_coverage_mark("ai_context_cache_rejection")
     status_400_min = _core_gte(status, 400)
@@ -5501,6 +5554,20 @@ def ai_context_cache_rejection(status: number, body_json: Any) -> bool:
     return out
 
 
+def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
+    _core_coverage_mark("ai_context_cache_expiry")
+    is_number = _core_type_is(provider_expire_time, "number")
+    if is_number:
+        future = _core_gt(provider_expire_time, now)
+        if future:
+            return provider_expire_time
+        else:
+            pass
+    else:
+        pass
+    return 0
+
+
 def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
     _core_coverage_mark("_openai_normalize_tool_calls_impl")
     out = []
@@ -5527,48 +5594,6 @@ def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
         normalized["function"] = function
         out.append(normalized)
     return out
-
-
-def _openai_finish_reason_impl(value: Any) -> Any:
-    _core_coverage_mark("_openai_finish_reason_impl")
-    is_stop = _core_eq(value, "stop")
-    if is_stop:
-        return "stop"
-    else:
-        pass
-    is_length = _core_eq(value, "length")
-    if is_length:
-        return "length"
-    else:
-        pass
-    is_content_filter = _core_eq(value, "content_filter")
-    if is_content_filter:
-        return "error"
-    else:
-        pass
-    is_tool_calls = _core_eq(value, "tool_calls")
-    is_function_call = _core_eq(value, "function_call")
-    is_call = _core_or(is_tool_calls, is_function_call)
-    if is_call:
-        return "function_call"
-    else:
-        pass
-    none = _core_none()
-    return none
-
-
-def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
-    _core_coverage_mark("ai_context_cache_expiry")
-    is_number = _core_type_is(provider_expire_time, "number")
-    if is_number:
-        future = _core_gt(provider_expire_time, now)
-        if future:
-            return provider_expire_time
-        else:
-            pass
-    else:
-        pass
-    return 0
 
 
 def ai_context_cache_plan(configured: bool, supported: bool, explicit_name: str, existing: Any, now: number, refresh_window_ms: number, create_eligible: bool) -> Any:
@@ -5620,31 +5645,32 @@ def ai_context_cache_plan(configured: bool, supported: bool, explicit_name: str,
     return out
 
 
-def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:
-    _core_coverage_mark("openai_normalize_embed_response")
-    embeddings = []
-    empty_data = []
-    data = _core_get(raw, "data", empty_data)
-    for item in data:
-        embedding = _core_get(item, "embedding", None)
-        embeddings.append(embedding)
-    raw_model = _core_get(raw, "model", None)
-    used_model = _core_coalesce(raw_model, model)
-    raw_usage = _core_get(raw, "usage", None)
-    usage = _openai_usage_with_service_tier(raw, raw_usage)
-    model_usage = _ai_model_usage_impl(ai_name, used_model, usage)
-    remote_id = _core_get(raw, "id", None)
-    out = {}
-    out["embeddings"] = embeddings
-    out["remote_id"] = remote_id
-    out["model_usage"] = model_usage
-    return out
-
-
-def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
-    _core_coverage_mark("openai_normalize_stream_delta")
-    response = _openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none")
-    return response
+def _openai_finish_reason_impl(value: Any) -> Any:
+    _core_coverage_mark("_openai_finish_reason_impl")
+    is_stop = _core_eq(value, "stop")
+    if is_stop:
+        return "stop"
+    else:
+        pass
+    is_length = _core_eq(value, "length")
+    if is_length:
+        return "length"
+    else:
+        pass
+    is_content_filter = _core_eq(value, "content_filter")
+    if is_content_filter:
+        return "error"
+    else:
+        pass
+    is_tool_calls = _core_eq(value, "tool_calls")
+    is_function_call = _core_eq(value, "function_call")
+    is_call = _core_or(is_tool_calls, is_function_call)
+    if is_call:
+        return "function_call"
+    else:
+        pass
+    none = _core_none()
+    return none
 
 
 def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_registry: bool) -> Any:
@@ -5672,51 +5698,22 @@ def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_regi
     return out
 
 
-def _openai_normalize_stream_delta_impl(raw: Any, state: Any, ai_name: str, model: str, reasoning_content_mode: str, reasoning_details_mode: str) -> AxChatResponse:
-    _core_coverage_mark("_openai_normalize_stream_delta_impl")
-    raw_is_object = _core_type_is(raw, "object")
-    raw_not_object = _core_not(raw_is_object)
-    if raw_not_object:
-        error = _core_ai_error_stream("provider stream event must be a JSON object", raw, True)
-        raise error
-    else:
-        pass
-    provider_error = _core_get(raw, "error", None)
-    has_provider_error = _core_truthy(provider_error)
-    if has_provider_error:
-        message = _core_get(provider_error, "message", "provider stream error")
-        error = _core_ai_error_stream(message, raw, True)
-        raise error
-    else:
-        pass
-    index_ids = _core_get(state, "index_ids", None)
-    missing_index_ids = _core_is_none(index_ids)
-    if missing_index_ids:
-        new_index_ids = {}
-        state["index_ids"] = new_index_ids
-        index_ids = new_index_ids
-    else:
-        pass
-    raw_remote_id = _core_get(raw, "id", None)
-    has_raw_remote_id = _core_truthy(raw_remote_id)
-    if has_raw_remote_id:
-        state["remote_id"] = raw_remote_id
-    else:
-        pass
-    remote_id = _core_get(state, "remote_id", raw_remote_id)
-    results = []
-    empty_choices = []
-    choices = _core_get(raw, "choices", empty_choices)
-    for choice in choices:
-        result = _openai_stream_choice_impl(choice, index_ids, reasoning_content_mode, reasoning_details_mode)
-        results.append(result)
+def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:
+    _core_coverage_mark("openai_normalize_embed_response")
+    embeddings = []
+    empty_data = []
+    data = _core_get(raw, "data", empty_data)
+    for item in data:
+        embedding = _core_get(item, "embedding", None)
+        embeddings.append(embedding)
     raw_model = _core_get(raw, "model", None)
     used_model = _core_coalesce(raw_model, model)
     raw_usage = _core_get(raw, "usage", None)
     usage = _openai_usage_with_service_tier(raw, raw_usage)
     model_usage = _ai_model_usage_impl(ai_name, used_model, usage)
+    remote_id = _core_get(raw, "id", None)
     out = {}
-    out["results"] = results
+    out["embeddings"] = embeddings
     out["remote_id"] = remote_id
     out["model_usage"] = model_usage
     return out
@@ -5787,6 +5784,116 @@ def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, mode
     out["update"] = update
     out["delete"] = delete_op
     return out
+
+
+def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
+    _core_coverage_mark("openai_normalize_stream_delta")
+    response = _openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none")
+    return response
+
+
+def _openai_normalize_stream_delta_impl(raw: Any, state: Any, ai_name: str, model: str, reasoning_content_mode: str, reasoning_details_mode: str) -> AxChatResponse:
+    _core_coverage_mark("_openai_normalize_stream_delta_impl")
+    raw_is_object = _core_type_is(raw, "object")
+    raw_not_object = _core_not(raw_is_object)
+    if raw_not_object:
+        error = _core_ai_error_stream("provider stream event must be a JSON object", raw, True)
+        raise error
+    else:
+        pass
+    provider_error = _core_get(raw, "error", None)
+    has_provider_error = _core_truthy(provider_error)
+    if has_provider_error:
+        message = _core_get(provider_error, "message", "provider stream error")
+        error = _core_ai_error_stream(message, raw, True)
+        raise error
+    else:
+        pass
+    index_ids = _core_get(state, "index_ids", None)
+    missing_index_ids = _core_is_none(index_ids)
+    if missing_index_ids:
+        new_index_ids = {}
+        state["index_ids"] = new_index_ids
+        index_ids = new_index_ids
+    else:
+        pass
+    raw_remote_id = _core_get(raw, "id", None)
+    has_raw_remote_id = _core_truthy(raw_remote_id)
+    if has_raw_remote_id:
+        state["remote_id"] = raw_remote_id
+    else:
+        pass
+    remote_id = _core_get(state, "remote_id", raw_remote_id)
+    results = []
+    empty_choices = []
+    choices = _core_get(raw, "choices", empty_choices)
+    for choice in choices:
+        result = _openai_stream_choice_impl(choice, index_ids, reasoning_content_mode, reasoning_details_mode)
+        results.append(result)
+    raw_model = _core_get(raw, "model", None)
+    used_model = _core_coalesce(raw_model, model)
+    raw_usage = _core_get(raw, "usage", None)
+    usage = _openai_usage_with_service_tier(raw, raw_usage)
+    model_usage = _ai_model_usage_impl(ai_name, used_model, usage)
+    out = {}
+    out["results"] = results
+    out["remote_id"] = remote_id
+    out["model_usage"] = model_usage
+    return out
+
+
+def fold_chat_response_stream(events: list[Any]) -> Any:
+    _core_coverage_mark("fold_chat_response_stream")
+    results = []
+    usage = _core_none()
+    for raw_event in events:
+        event = raw_event
+        has_routing = _core_map_contains(raw_event, "routing")
+        has_response = _core_map_contains(raw_event, "response")
+        router_envelope = _core_and(has_routing, has_response)
+        if router_envelope:
+            event = _core_get(raw_event, "response", None)
+        else:
+            pass
+        empty_chunks = []
+        chunks = _core_get(event, "results", empty_chunks)
+        for chunk in chunks:
+            index = _core_get(chunk, "index", 0)
+            target = _core_none()
+            for candidate in results:
+                candidate_index = _core_get(candidate, "index", None)
+                same_index = _core_eq(candidate_index, index)
+                if same_index:
+                    target = candidate
+                else:
+                    pass
+            missing_target = _core_is_none(target)
+            if missing_target:
+                new_target = {}
+                new_target["index"] = index
+                new_target["content"] = ""
+                new_calls = []
+                new_target["function_calls"] = new_calls
+                results.append(new_target)
+                target = new_target
+            else:
+                pass
+            _fold_chat_stream_chunk_impl(target, chunk)
+        usage_snake = _core_get(event, "model_usage", None)
+        event_usage = _core_get(event, "modelUsage", usage_snake)
+        has_usage = _core_is_not_none(event_usage)
+        if has_usage:
+            usage = event_usage
+        else:
+            pass
+    response = {}
+    response["results"] = results
+    found_usage = _core_is_not_none(usage)
+    if found_usage:
+        response["model_usage"] = usage
+    else:
+        pass
+    return response
 
 
 def _openai_stream_choice_impl(choice: Any, index_ids: Any, reasoning_content_mode: str, reasoning_details_mode: str) -> Any:
@@ -5871,109 +5978,6 @@ def _openai_stream_choice_impl(choice: Any, index_ids: Any, reasoning_content_mo
     out["function_calls"] = calls
     out["finish_reason"] = finish_reason
     return out
-
-
-def fold_chat_response_stream(events: list[Any]) -> Any:
-    _core_coverage_mark("fold_chat_response_stream")
-    results = []
-    usage = _core_none()
-    for raw_event in events:
-        event = raw_event
-        has_routing = _core_map_contains(raw_event, "routing")
-        has_response = _core_map_contains(raw_event, "response")
-        router_envelope = _core_and(has_routing, has_response)
-        if router_envelope:
-            event = _core_get(raw_event, "response", None)
-        else:
-            pass
-        empty_chunks = []
-        chunks = _core_get(event, "results", empty_chunks)
-        for chunk in chunks:
-            index = _core_get(chunk, "index", 0)
-            target = _core_none()
-            for candidate in results:
-                candidate_index = _core_get(candidate, "index", None)
-                same_index = _core_eq(candidate_index, index)
-                if same_index:
-                    target = candidate
-                else:
-                    pass
-            missing_target = _core_is_none(target)
-            if missing_target:
-                new_target = {}
-                new_target["index"] = index
-                new_target["content"] = ""
-                new_calls = []
-                new_target["function_calls"] = new_calls
-                results.append(new_target)
-                target = new_target
-            else:
-                pass
-            _fold_chat_stream_chunk_impl(target, chunk)
-        usage_snake = _core_get(event, "model_usage", None)
-        event_usage = _core_get(event, "modelUsage", usage_snake)
-        has_usage = _core_is_not_none(event_usage)
-        if has_usage:
-            usage = event_usage
-        else:
-            pass
-    response = {}
-    response["results"] = results
-    found_usage = _core_is_not_none(usage)
-    if found_usage:
-        response["model_usage"] = usage
-    else:
-        pass
-    return response
-
-
-def openai_normalize_error(status: int, body: Any, request: Any = None) -> AxAIServiceError:
-    _core_coverage_mark("openai_normalize_error")
-    message = body
-    code = _core_none()
-    body_is_object = _core_type_is(body, "object")
-    if body_is_object:
-        error_body = _core_get(body, "error", body)
-        error_is_object = _core_type_is(error_body, "object")
-        if error_is_object:
-            body_text = _core_string_str(body)
-            message_value = _core_get(error_body, "message", body_text)
-            code_value = _core_get(error_body, "code", None)
-            message = message_value
-            code = code_value
-        else:
-            message_value = _core_string_str(error_body)
-            message = message_value
-    else:
-        pass
-    is_401 = _core_eq(status, 401)
-    is_403 = _core_eq(status, 403)
-    is_auth = _core_or(is_401, is_403)
-    if is_auth:
-        error = _core_ai_error_auth(message, status, code, body, request)
-        return error
-    else:
-        pass
-    is_408 = _core_eq(status, 408)
-    is_504 = _core_eq(status, 504)
-    is_timeout = _core_or(is_408, is_504)
-    if is_timeout:
-        error = _core_ai_error_timeout(message, status, code, body, request, True)
-        return error
-    else:
-        pass
-    is_429 = _core_eq(status, 429)
-    is_500 = _core_eq(status, 500)
-    is_502 = _core_eq(status, 502)
-    is_503 = _core_eq(status, 503)
-    is_529 = _core_eq(status, 529)
-    retry_left = _core_or(is_429, is_500)
-    retry_right = _core_or(is_502, is_503)
-    retry_some = _core_or(retry_left, retry_right)
-    retry_more = _core_or(retry_some, is_504)
-    retryable = _core_or(retry_more, is_529)
-    error = _core_ai_error_status(message, status, code, body, request, retryable)
-    return error
 
 
 def _fold_chat_stream_chunk_impl(target: Any, chunk: Any) -> None:
@@ -6064,6 +6068,56 @@ def _fold_chat_stream_chunk_impl(target: Any, chunk: Any) -> None:
     else:
         pass
     return None
+
+
+def openai_normalize_error(status: int, body: Any, request: Any = None, options: Any = None) -> AxAIServiceError:
+    _core_coverage_mark("openai_normalize_error")
+    error_request = _ai_error_request(request, options)
+    message = body
+    code = _core_none()
+    body_is_object = _core_type_is(body, "object")
+    if body_is_object:
+        error_body = _core_get(body, "error", body)
+        error_is_object = _core_type_is(error_body, "object")
+        if error_is_object:
+            body_text = _core_string_str(body)
+            message_value = _core_get(error_body, "message", body_text)
+            code_value = _core_get(error_body, "code", None)
+            message = message_value
+            code = code_value
+        else:
+            message_value = _core_string_str(error_body)
+            message = message_value
+    else:
+        pass
+    is_401 = _core_eq(status, 401)
+    is_403 = _core_eq(status, 403)
+    is_auth = _core_or(is_401, is_403)
+    if is_auth:
+        error = _core_ai_error_auth(message, status, code, body, error_request)
+        return error
+    else:
+        pass
+    is_408 = _core_eq(status, 408)
+    is_504 = _core_eq(status, 504)
+    is_timeout = _core_or(is_408, is_504)
+    if is_timeout:
+        error = _core_ai_error_timeout(message, status, code, body, error_request, True)
+        return error
+    else:
+        pass
+    is_429 = _core_eq(status, 429)
+    is_500 = _core_eq(status, 500)
+    is_502 = _core_eq(status, 502)
+    is_503 = _core_eq(status, 503)
+    is_529 = _core_eq(status, 529)
+    retry_left = _core_or(is_429, is_500)
+    retry_right = _core_or(is_502, is_503)
+    retry_some = _core_or(retry_left, retry_right)
+    retry_more = _core_or(retry_some, is_504)
+    retryable = _core_or(retry_more, is_529)
+    error = _core_ai_error_status(message, status, code, body, error_request, retryable)
+    return error
 
 
 def provider_normalize_profile(profile: str) -> str:
@@ -7414,7 +7468,7 @@ def provider_balancer_adaptive_score(estimated_cost: number, bad_outcome_cost: n
 
 def provider_balancer_validate_route_key(route_key: str, seen_keys: Any) -> str:
     _core_coverage_mark("provider_balancer_validate_route_key")
-    key = str(route_key).strip()
+    key = str(route_key).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     empty = _core_eq(key, "")
     if empty:
         error = _core_runtime_error("Adaptive route keys must be non-empty.")
@@ -7694,7 +7748,6 @@ def provider_resolve_descriptor(profile: str, options: Any) -> Any:
                 base_url = _core_string_format("https://{}/{}", host, version)
             descriptor["baseUrl"] = base_url
             descriptor["auth"] = "bearer"
-            _core_map_delete(descriptor, "apiKeyQuery")
             _core_map_delete(descriptor, "apiKeyHeader")
             operations = _core_get(descriptor, "operations", None)
             resource_parent = _core_string_format("projects/{}/locations/{}", project, region)
@@ -7819,7 +7872,8 @@ def provider_realtime_ws_url(profile: str, model: str, api_key: str, options: An
     headers = {}
     is_gemini = _core_eq(grammar, "gemini_live_bidi")
     if is_gemini:
-        gemini_url = _core_string_format("{}?key={}", base, api_key)
+        encoded_key = _core_url_encode_component(api_key)
+        gemini_url = _core_string_format("{}?key={}", base, encoded_key)
         out["url"] = gemini_url
         out["headers"] = headers
         return out
@@ -9860,6 +9914,7 @@ def provider_build_speak_request(profile: str, request: Any) -> Any:
     dialect = _core_get(operation, "dialect", "openai-speech")
     is_gemini = _core_eq(dialect, "gemini-generate-content")
     is_xai = _core_eq(dialect, "xai-speech")
+    is_mistral = _core_eq(dialect, "mistral-speech")
     payload = {}
     if is_gemini:
         gemini_payload = _gemini_build_speak_request(request)
@@ -9869,8 +9924,12 @@ def provider_build_speak_request(profile: str, request: Any) -> Any:
             xai_payload = _grok_build_speak_request(request)
             payload = xai_payload
         else:
-            responses_payload = openai_responses_build_speak_request(request)
-            payload = responses_payload
+            if is_mistral:
+                mistral_payload = _mistral_build_speak_request(request)
+                payload = mistral_payload
+            else:
+                responses_payload = openai_responses_build_speak_request(request)
+                payload = responses_payload
     return payload
 
 
@@ -10208,7 +10267,7 @@ def _meta_normalize_transcribe_response(raw: Any, request: Any) -> Any:
     return out
 
 
-def provider_normalize_speak_response(profile: str, raw: Any, request: Any) -> Any:
+def provider_normalize_speak_response(profile: str, raw: Any, request: Any, content_type: Any) -> Any:
     _core_coverage_mark("provider_normalize_speak_response")
     provider_id = provider_normalize_profile(profile)
     descriptor = provider_descriptor(provider_id)
@@ -10221,13 +10280,21 @@ def provider_normalize_speak_response(profile: str, raw: Any, request: Any) -> A
         return gemini_out
     else:
         pass
-    data = _core_get(raw, "audio", raw)
+    transcript = _speech_request_text_impl(request)
     format = _core_get(request, "format", "mp3")
+    raw_is_text = _core_type_is(raw, "string")
+    speech = {}
+    if raw_is_text:
+        binary_speech = _speech_binary_response_impl(raw, content_type, format, transcript)
+        speech = binary_speech
+    else:
+        json_speech = _speech_json_response_impl(raw, format, transcript)
+        speech = json_speech
     out = {}
+    data = _core_get(speech, "data", None)
     out["audio"] = data
-    out["format"] = format
-    speech = _speech_response_ts_keys_impl(out, raw, request)
-    return speech
+    out = _core_map_merge(out, speech)
+    return out
 
 
 def provider_normalize_realtime_event(profile: str, event: Any, state: Any, ai_name: str, model: str) -> AxChatResponse:
@@ -10702,12 +10769,16 @@ def _openai_responses_content_part_impl(part: Any, role: str) -> Any:
     if is_audio:
         audio_alt = _core_get(part, "audio", None)
         data = _core_get(part, "data", audio_alt)
-        format = _core_get(part, "format", "wav")
+        format = _core_get(part, "format", None)
         out = {}
         out["type"] = "input_audio"
         input_audio = {}
         input_audio["data"] = data
-        input_audio["format"] = format
+        has_format = _core_is_not_none(format)
+        if has_format:
+            input_audio["format"] = format
+        else:
+            pass
         out["input_audio"] = input_audio
         _openai_responses_copy_cache_control_impl(out, part)
         return out
@@ -10757,10 +10828,7 @@ def _openai_responses_content_part_impl(part: Any, role: str) -> Any:
     if is_url:
         out = {}
         out["type"] = "input_text"
-        cached_snake = _core_get(part, "cached_content", None)
-        cached = _core_get(part, "cachedContent", cached_snake)
-        url = _core_get(part, "url", "")
-        text = _core_coalesce(cached, url)
+        text = _url_part_text_impl(part)
         out["text"] = text
         _openai_responses_copy_cache_control_impl(out, part)
         return out
@@ -11275,16 +11343,74 @@ def openai_responses_build_transcribe_request(request: Any) -> Any:
 def openai_responses_build_speak_request(request: Any) -> Any:
     _core_coverage_mark("openai_responses_build_speak_request")
     payload = {}
-    speak_model = _core_get(request, "model", "tts-1")
+    speak_model = _speech_request_model_impl(request, "gpt-4o-mini-tts")
     request_input = _core_get(request, "input", "")
     speak_input = _core_get(request, "text", request_input)
-    voice = _core_get(request, "voice", "alloy")
+    voice = _speech_request_voice_impl(request)
+    has_voice = _core_is_not_none(voice)
+    if has_voice:
+        pass
+    else:
+        voice = "alloy"
     response_format = _core_get(request, "format", "mp3")
+    is_pcm16 = _core_eq(response_format, "pcm16")
+    if is_pcm16:
+        response_format = "pcm"
+    else:
+        pass
     payload["model"] = speak_model
     payload["input"] = speak_input
     payload["voice"] = voice
     payload["response_format"] = response_format
+    speed = _core_get(request, "speed", None)
+    has_speed = _core_is_not_none(speed)
+    if has_speed:
+        payload["speed"] = speed
+    else:
+        pass
     return payload
+
+
+def _mistral_build_speak_request(request: Any) -> Any:
+    _core_coverage_mark("_mistral_build_speak_request")
+    payload = {}
+    speak_model = _speech_request_model_impl(request, "voxtral-mini-tts-2603")
+    request_input = _core_get(request, "input", "")
+    speak_input = _core_get(request, "text", request_input)
+    response_format = _core_get(request, "format", "mp3")
+    payload["model"] = speak_model
+    payload["input"] = speak_input
+    payload["response_format"] = response_format
+    voice = _speech_request_voice_impl(request)
+    has_voice = _core_truthy(voice)
+    if has_voice:
+        payload["voice_id"] = voice
+    else:
+        pass
+    return payload
+
+
+def _speech_request_model_impl(request: Any, fallback: str) -> Any:
+    _core_coverage_mark("_speech_request_model_impl")
+    model = _core_get(request, "model", None)
+    is_text = _core_type_is(model, "string")
+    if is_text:
+        return model
+    else:
+        pass
+    return fallback
+
+
+def _speech_request_voice_impl(request: Any) -> Any:
+    _core_coverage_mark("_speech_request_voice_impl")
+    voice = _core_get(request, "voice", None)
+    is_object = _core_type_is(voice, "object")
+    if is_object:
+        voice_id = _core_get(voice, "id", None)
+        return voice_id
+    else:
+        pass
+    return voice
 
 
 def _grok_build_transcribe_request(request: Any) -> Any:
@@ -11343,6 +11469,12 @@ def _grok_build_speak_request(request: Any) -> Any:
     payload["voice_id"] = voice_id
     payload["language"] = language
     payload["output_format"] = output_format
+    speed = _core_get(request, "speed", None)
+    has_speed = _core_is_not_none(speed)
+    if has_speed:
+        payload["speed"] = speed
+    else:
+        pass
     return payload
 
 
@@ -11446,93 +11578,51 @@ def _gemini_normalize_transcribe_response(raw: Any) -> Any:
 
 def _gemini_normalize_speak_response(raw: Any, request: Any) -> Any:
     _core_coverage_mark("_gemini_normalize_speak_response")
-    audio = _core_get(raw, "audio", None)
-    format = _core_get(request, "format", "wav")
-    mime_type = ""
-    empty_candidates = []
-    candidates = _core_get(raw, "candidates", empty_candidates)
-    for candidate in candidates:
-        content = _core_get(candidate, "content", None)
-        empty_parts = []
-        parts = _core_get(content, "parts", empty_parts)
-        for part in parts:
-            inline_data = _core_get(part, "inlineData", None)
-            data = _core_get(inline_data, "data", None)
-            has_data = _core_is_not_none(data)
-            if has_data:
-                audio = data
-                part_mime = _core_get(inline_data, "mimeType", "")
-                mime_type = part_mime
-            else:
-                pass
-    has_audio = _core_is_not_none(audio)
-    if has_audio:
-        pass
-    else:
-        audio = raw
-    mime_lower = _core_string_lower(mime_type)
-    is_pcm_mime = _core_contains(mime_lower, "pcm")
-    if is_pcm_mime:
-        format = "pcm"
-    else:
-        pass
-    is_pcm16_mime = _core_contains(mime_lower, "pcm16")
-    is_l16_mime = _core_contains(mime_lower, "l16")
-    is_linear16 = _core_or(is_pcm16_mime, is_l16_mime)
-    if is_linear16:
-        format = "pcm16"
-    else:
-        pass
-    is_wav_mime = _core_contains(mime_lower, "wav")
-    if is_wav_mime:
-        format = "wav"
-    else:
-        pass
+    transcript = _speech_request_text_impl(request)
+    none = _core_none()
+    speech = _speech_json_response_impl(raw, none, transcript)
     out = {}
-    out["audio"] = audio
-    out["format"] = format
-    has_mime = _core_truthy(mime_type)
-    if has_mime:
-        out["mime_type"] = mime_type
-        mime_params = _audio_mime_params_impl(mime_type)
+    data = _core_get(speech, "data", None)
+    out["audio"] = data
+    named_mime = _speech_json_named_mime_type_impl(raw)
+    has_named_mime = _core_truthy(named_mime)
+    if has_named_mime:
+        out["mime_type"] = named_mime
+        mime_params = _audio_mime_params_impl(named_mime)
         out = _core_map_merge(out, mime_params)
     else:
         pass
-    speech = _speech_response_ts_keys_impl(out, raw, request)
-    return speech
+    out = _core_map_merge(out, speech)
+    return out
 
 
-def _speech_response_ts_keys_impl(out: Any, raw: Any, request: Any) -> Any:
-    _core_coverage_mark("_speech_response_ts_keys_impl")
-    data = _core_get(out, "audio", None)
+def _speech_request_text_impl(request: Any) -> Any:
+    _core_coverage_mark("_speech_request_text_impl")
+    request_input = _core_get(request, "input", None)
+    text = _core_get(request, "text", request_input)
+    return text
+
+
+def _speech_response_impl(data: Any, format: Any, mime_type: str, transcript: Any) -> Any:
+    _core_coverage_mark("_speech_response_impl")
+    out = {}
     out["data"] = data
-    format = _core_get(out, "format", None)
-    mime_type = _core_get(out, "mime_type", "")
-    has_mime = _core_truthy(mime_type)
-    raw_is_object = _core_type_is(raw, "object")
-    read_raw_mime = _core_not(has_mime)
-    read_raw_mime = _core_and(read_raw_mime, raw_is_object)
-    if read_raw_mime:
-        raw_mime_snake = _core_get(raw, "mime_type", None)
-        snake_is_text = _core_type_is(raw_mime_snake, "string")
-        if snake_is_text:
-            mime_type = raw_mime_snake
+    has_format = _core_is_not_none(format)
+    if has_format:
+        out["format"] = format
+    else:
+        mime_format = _audio_format_from_mime_type_impl(mime_type)
+        has_mime_format = _core_is_not_none(mime_format)
+        if has_mime_format:
+            out["format"] = mime_format
         else:
             pass
-        raw_mime_camel = _core_get(raw, "mimeType", None)
-        camel_is_text = _core_type_is(raw_mime_camel, "string")
-        if camel_is_text:
-            mime_type = raw_mime_camel
-        else:
-            pass
-        has_mime = _core_truthy(mime_type)
-    else:
-        pass
-    if has_mime:
-        pass
-    else:
-        mime_type = _audio_mime_type_impl(format)
     out["mimeType"] = mime_type
+    has_transcript = _core_is_not_none(transcript)
+    if has_transcript:
+        out["transcript"] = transcript
+    else:
+        pass
     params = _audio_mime_params_impl(mime_type)
     sample_rate = _core_get(params, "sample_rate", None)
     has_sample_rate = _core_is_not_none(sample_rate)
@@ -11546,14 +11636,313 @@ def _speech_response_ts_keys_impl(out: Any, raw: Any, request: Any) -> Any:
         out["channels"] = channels
     else:
         pass
-    request_input = _core_get(request, "input", None)
-    text = _core_get(request, "text", request_input)
-    has_text = _core_is_not_none(text)
-    if has_text:
-        out["transcript"] = text
+    return out
+
+
+def _speech_binary_response_impl(data: Any, content_type: Any, format: Any, transcript: Any) -> Any:
+    _core_coverage_mark("_speech_binary_response_impl")
+    mime_type = _audio_mime_type_impl(format)
+    has_content_type = _core_truthy(content_type)
+    if has_content_type:
+        mime_type = content_type
     else:
         pass
-    return out
+    speech = _speech_response_impl(data, format, mime_type, transcript)
+    return speech
+
+
+def _speech_json_response_impl(json: Any, format: Any, transcript: Any) -> Any:
+    _core_coverage_mark("_speech_json_response_impl")
+    data = _speech_json_data_impl(json)
+    data_is_text = _core_type_is(data, "string")
+    if data_is_text:
+        pass
+    else:
+        json_is_object = _core_type_is(json, "object")
+        older = _core_none()
+        if json_is_object:
+            older = _core_get(json, "audio", None)
+        else:
+            pass
+        older_is_text = _core_type_is(older, "string")
+        if older_is_text:
+            _core_axgen_deprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")
+            data = older
+        else:
+            error = _core_ai_error_response("Speech response JSON did not include audio data", json)
+            raise error
+    mime_type = _speech_json_named_mime_type_impl(json)
+    has_mime = _core_truthy(mime_type)
+    if has_mime:
+        pass
+    else:
+        mime_type = _audio_mime_type_impl(format)
+    speech = _speech_response_impl(data, format, mime_type, transcript)
+    return speech
+
+
+def _speech_json_data_impl(json: Any) -> Any:
+    _core_coverage_mark("_speech_json_data_impl")
+    none = _core_none()
+    json_is_object = _core_type_is(json, "object")
+    if json_is_object:
+        pass
+    else:
+        return none
+    audio_data = _core_get(json, "audio_data", None)
+    has_audio_data = _core_is_not_none(audio_data)
+    if has_audio_data:
+        return audio_data
+    else:
+        pass
+    audio_data_camel = _core_get(json, "audioData", None)
+    has_audio_data_camel = _core_is_not_none(audio_data_camel)
+    if has_audio_data_camel:
+        return audio_data_camel
+    else:
+        pass
+    data = _core_get(json, "data", None)
+    has_data = _core_is_not_none(data)
+    if has_data:
+        return data
+    else:
+        pass
+    audio = _core_get(json, "audio", None)
+    audio_is_object = _core_type_is(audio, "object")
+    if audio_is_object:
+        audio_inner = _core_get(audio, "data", None)
+        has_audio_inner = _core_is_not_none(audio_inner)
+        if has_audio_inner:
+            return audio_inner
+        else:
+            pass
+    else:
+        pass
+    output = _core_get(json, "output", None)
+    output_is_object = _core_type_is(output, "object")
+    if output_is_object:
+        output_audio = _core_get(output, "audio", None)
+        output_audio_is_object = _core_type_is(output_audio, "object")
+        if output_audio_is_object:
+            output_data = _core_get(output_audio, "data", None)
+            has_output_data = _core_is_not_none(output_data)
+            if has_output_data:
+                return output_data
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
+    parts = _speech_json_candidate_parts_impl(json)
+    for part in parts:
+        inline = _core_get(part, "inlineData", None)
+        inline_data = _core_none()
+        inline_is_object = _core_type_is(inline, "object")
+        if inline_is_object:
+            inline_data = _core_get(inline, "data", None)
+        else:
+            pass
+        snake = _core_get(part, "inline_data", None)
+        snake_data = _core_none()
+        snake_is_object = _core_type_is(snake, "object")
+        if snake_is_object:
+            snake_data = _core_get(snake, "data", None)
+        else:
+            pass
+        has_inline_data = _core_truthy(inline_data)
+        has_snake_data = _core_truthy(snake_data)
+        has_any = _core_or(has_inline_data, has_snake_data)
+        if has_any:
+            has_camel = _core_is_not_none(inline_data)
+            if has_camel:
+                return inline_data
+            else:
+                pass
+            break
+        else:
+            pass
+    for part in parts:
+        snake = _core_get(part, "inline_data", None)
+        snake_is_object = _core_type_is(snake, "object")
+        if snake_is_object:
+            snake_data = _core_get(snake, "data", None)
+            has_snake_data = _core_truthy(snake_data)
+            if has_snake_data:
+                return snake_data
+            else:
+                pass
+        else:
+            pass
+    return none
+
+
+def _speech_json_candidate_parts_impl(json: Any) -> Any:
+    _core_coverage_mark("_speech_json_candidate_parts_impl")
+    parts = []
+    json_is_object = _core_type_is(json, "object")
+    if json_is_object:
+        pass
+    else:
+        return parts
+    candidates = _core_get(json, "candidates", None)
+    candidates_is_list = _core_type_is(candidates, "list")
+    if candidates_is_list:
+        pass
+    else:
+        return parts
+    count = _core_len(candidates)
+    has_candidate = _core_gt(count, 0)
+    if has_candidate:
+        pass
+    else:
+        return parts
+    no_candidate = _core_none()
+    candidate = _core_list_get(candidates, 0, no_candidate)
+    candidate_is_object = _core_type_is(candidate, "object")
+    if candidate_is_object:
+        pass
+    else:
+        return parts
+    content = _core_get(candidate, "content", None)
+    content_is_object = _core_type_is(content, "object")
+    if content_is_object:
+        pass
+    else:
+        return parts
+    content_parts = _core_get(content, "parts", None)
+    content_parts_is_list = _core_type_is(content_parts, "list")
+    if content_parts_is_list:
+        return content_parts
+    else:
+        pass
+    return parts
+
+
+def _speech_json_named_mime_type_impl(json: Any) -> Any:
+    _core_coverage_mark("_speech_json_named_mime_type_impl")
+    none = _core_none()
+    json_is_object = _core_type_is(json, "object")
+    if json_is_object:
+        pass
+    else:
+        return none
+    camel = _core_get(json, "mimeType", None)
+    camel_is_text = _core_type_is(camel, "string")
+    if camel_is_text:
+        return camel
+    else:
+        pass
+    snake = _core_get(json, "mime_type", None)
+    snake_is_text = _core_type_is(snake, "string")
+    if snake_is_text:
+        return snake
+    else:
+        pass
+    parts = _speech_json_candidate_parts_impl(json)
+    for part in parts:
+        inline = _core_get(part, "inlineData", None)
+        inline_is_object = _core_type_is(inline, "object")
+        if inline_is_object:
+            inline_mime = _core_get(inline, "mimeType", None)
+            has_inline_mime = _core_truthy(inline_mime)
+            if has_inline_mime:
+                return inline_mime
+            else:
+                pass
+        else:
+            pass
+    for part in parts:
+        inline_snake = _core_get(part, "inline_data", None)
+        inline_snake_is_object = _core_type_is(inline_snake, "object")
+        if inline_snake_is_object:
+            snake_mime = _core_get(inline_snake, "mime_type", None)
+            has_snake_mime = _core_truthy(snake_mime)
+            if has_snake_mime:
+                return snake_mime
+            else:
+                pass
+        else:
+            pass
+    return none
+
+
+def _audio_format_from_mime_type_impl(mime_type: Any) -> Any:
+    _core_coverage_mark("_audio_format_from_mime_type_impl")
+    none = _core_none()
+    is_text = _core_type_is(mime_type, "string")
+    if is_text:
+        pass
+    else:
+        return none
+    mt = _core_string_lower(mime_type)
+    has_text = _core_truthy(mt)
+    if has_text:
+        pass
+    else:
+        return none
+    is_wav = _core_contains(mt, "wav")
+    if is_wav:
+        return "wav"
+    else:
+        pass
+    is_mpeg = _core_contains(mt, "mpeg")
+    is_mp3 = _core_contains(mt, "mp3")
+    is_mpeg_or_mp3 = _core_or(is_mpeg, is_mp3)
+    if is_mpeg_or_mp3:
+        return "mp3"
+    else:
+        pass
+    is_flac = _core_contains(mt, "flac")
+    if is_flac:
+        return "flac"
+    else:
+        pass
+    is_opus = _core_contains(mt, "opus")
+    if is_opus:
+        return "opus"
+    else:
+        pass
+    is_aac = _core_contains(mt, "aac")
+    if is_aac:
+        return "aac"
+    else:
+        pass
+    is_ogg = _core_contains(mt, "ogg")
+    if is_ogg:
+        return "ogg"
+    else:
+        pass
+    is_mulaw = _core_contains(mt, "mulaw")
+    if is_mulaw:
+        return "mulaw"
+    else:
+        pass
+    is_ulaw = _core_contains(mt, "ulaw")
+    is_basic = _core_contains(mt, "basic")
+    is_ulaw_or_basic = _core_or(is_ulaw, is_basic)
+    if is_ulaw_or_basic:
+        return "ulaw"
+    else:
+        pass
+    is_alaw = _core_contains(mt, "alaw")
+    if is_alaw:
+        return "alaw"
+    else:
+        pass
+    is_pcm16 = _core_contains(mt, "pcm16")
+    is_l16 = _core_contains(mt, "l16")
+    is_linear16 = _core_or(is_pcm16, is_l16)
+    if is_linear16:
+        return "pcm16"
+    else:
+        pass
+    is_pcm = _core_contains(mt, "pcm")
+    if is_pcm:
+        return "pcm"
+    else:
+        pass
+    return none
 
 
 def _audio_mime_type_impl(format: Any) -> str:
@@ -11594,9 +11983,9 @@ def _audio_mime_params_impl(mime_type: str) -> Any:
             has_value = _core_get(pair, "found", False)
             if has_value:
                 key = _core_get(pair, "left", "")
-                key = str(key).strip()
+                key = str(key).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 value = _core_get(pair, "right", "")
-                value = str(value).strip()
+                value = str(value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 is_number = _core_regex_match("^[0-9]+(\\.[0-9]+)?$", value)
                 if is_number:
                     try:
@@ -13759,10 +14148,7 @@ def _anthropic_content_part_impl(part: Any) -> Any:
     if is_url:
         out = {}
         out["type"] = "text"
-        cached_snake = _core_get(part, "cached_content", None)
-        cached = _core_get(part, "cachedContent", cached_snake)
-        url = _core_get(part, "url", "")
-        text = _core_coalesce(cached, url)
+        text = _url_part_text_impl(part)
         out["text"] = text
         cache = _core_get(part, "cache", False)
         if cache:
@@ -15166,6 +15552,45 @@ def _openai_responses_apply_prompt_cache_retention(payload: Any, request: AxChat
         pass
     return payload
 
+
+def _ai_error_request(request: Any = None, options: Any = None) -> Any:
+    _core_coverage_mark("_ai_error_request")
+    none = _core_none()
+    is_object = _core_type_is(request, "object")
+    not_object = _core_not(is_object)
+    if not_object:
+        return none
+    else:
+        pass
+    view = {}
+    has_url = _core_map_contains(request, "url")
+    if has_url:
+        url = _core_get(request, "url", None)
+        view["url"] = url
+    else:
+        pass
+    flag_snake = _core_get(options, "include_request_body_in_errors", None)
+    flag = _core_get(options, "includeRequestBodyInErrors", flag_snake)
+    flag_unset = _core_is_none(flag)
+    flag_true = _core_truthy(flag)
+    include_body = _core_or(flag_unset, flag_true)
+    if include_body:
+        has_json = _core_map_contains(request, "json")
+        if has_json:
+            json_body = _core_get(request, "json", None)
+            view["json"] = json_body
+        else:
+            pass
+        has_data = _core_map_contains(request, "data")
+        if has_data:
+            data_body = _core_get(request, "data", None)
+            view["data"] = data_body
+        else:
+            pass
+    else:
+        pass
+    return view
+
 # END AXIR CORE EMITTED FUNCTIONS
 
 for _axir_provider_public_name in (
@@ -15236,6 +15661,36 @@ def _tools_to_functions(tools):
         fn = tool.get("function", tool)
         out.append({"name": fn.get("name"), "description": fn.get("description", ""), "parameters": fn.get("parameters")})
     return out
+
+
+class _BinaryBody:
+    """A binary response body as base64 text, with its Content-Type."""
+
+    __slots__ = ("data", "content_type")
+
+    def __init__(self, data: str, content_type: str):
+        self.data = data
+        self.content_type = content_type
+
+
+def _binary_transport_result(result: Any, request: dict[str, Any]):
+    # A transport's binary answer: `body` (base64 text or bytes) with its
+    # headers' Content-Type, or parsed `json`. A JSON Content-Type makes a text
+    # body JSON, as TS reads it.
+    headers = result.get("headers") if isinstance(result, dict) else None
+    content_type = ""
+    if isinstance(headers, dict):
+        for key, value in headers.items():
+            if str(key).lower() == "content-type":
+                content_type = str(value or "")
+    body = _transport_result(result, request)
+    if isinstance(body, (bytes, bytearray)):
+        body = base64.b64encode(bytes(body)).decode()
+    if isinstance(body, str):
+        if "application/json" in content_type:
+            return json.loads(body)
+        return _BinaryBody(body, content_type)
+    return body
 
 
 def _transport_result(result: Any, request: dict[str, Any]):

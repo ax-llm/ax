@@ -1289,9 +1289,11 @@ export type AxAIServiceOptions = {
   /**
    * Whether to include the request body in `AxAIServiceError` messages.
    *
-   * When `false`, the request body is omitted from thrown errors. Useful when
-   * requests may contain sensitive data (API keys, PII) or large base64-encoded
-   * content that would bloat error logs.
+   * When `false`, the request body is omitted from thrown errors: their
+   * message, stack, `JSON.stringify`, object spread and `Object.keys` leave it
+   * out, though `error.requestBody` still returns it. Useful when requests may
+   * contain sensitive data (API keys, PII) or large base64-encoded content that
+   * would bloat error logs. Request headers are never kept on errors.
    *
    * @default true
    */

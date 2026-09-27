@@ -1820,7 +1820,13 @@ module @ax.stream version "0.1" {
         core.return %none
       }
       %open = core.call intrinsic.not(%complete)
-      %d2 = core.call @stream_trim_end_impl(%d1)
+      // Until the field's text is final, a high surrogate at the end waits
+      // for its pair, so no delta holds half a character.
+      %whole = core.let %d1
+      core.if %open {
+        %whole = core.call intrinsic.string.drop_trailing_high_surrogate(%d1)
+      }
+      %d2 = core.call @stream_trim_end_impl(%whole)
       core.if %is_code {
         %d2 = core.call @stream_strip_trailing_fence_impl(%d2)
         core.if %open {
@@ -3598,7 +3604,7 @@ module @ax.stream version "0.1" {
         core.return %deltas
       }
       %old_content = core.get %state["content"] default ""
-      %content = core.call intrinsic.add(%old_content, %chunk_text)
+      %content = core.call intrinsic.string.concat_stream_text(%old_content, %chunk_text)
       core.set %state["content"] = %content
       %empty_fields = core.list
       %fields = core.get %config["fields"] default %empty_fields

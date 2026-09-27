@@ -326,7 +326,7 @@ public final class AstraSessionTest {
     System.out.println("java high-level async overlap and final incorporation passed");
     invalidArgumentsAndExhaustion();
     flowIsolation();
-    nativeSteering();bufferedSteeringBoundary();
+    nativeSteering();nativeSessionFeedbackSteer();bufferedSteeringBoundary();
     cancellation();
     noncooperativeCancellation();
     stalledHttpCancellation();
@@ -475,6 +475,36 @@ public final class AstraSessionTest {
     var ids=program.getChatLog().stream().map(entry->entry.get("remote_id")).toList();
     if(!ids.equals(List.of("parent","successor")))throw new AssertionError("Lost response accounting: "+ids);
     System.out.println("java native steering, successor accounting, and closure passed");
+  }
+  // A field processor's feedback continues a native session run: the open
+  // session gets it as a steer of plain text, though the feedback message's
+  // content is a list of text parts.
+  static void nativeSessionFeedbackSteer() throws Exception {
+    var steers=new CopyOnWriteArrayList<Object>();
+    class Session implements AxChatSession {
+      final BlockingQueue<Map<String,Object>> events=new LinkedBlockingQueue<>();
+      final List<String> replies=List.of("Answer: first","Answer: second");int turn;
+      Session(){reply();}
+      void reply(){if(turn<replies.size())events.add(Map.of("type","response.completed","response_id","turn-"+turn,"response",Map.of("results",List.of(Map.of("index",0,"content",replies.get(turn))))));turn++;}
+      public Map<String,Object> next() throws Exception{return events.take();}
+      public void submit(List<Object> results){reply();}
+      public String update(Map<String,Object> update){steers.add(update.get("text"));return "queued";}
+      public void close(){}
+    }
+    class SessionAI extends AxBaseAI implements AxChatSession.Provider {
+      final Session session=new Session();
+      SessionAI(){super("scripted","scripted-chat","scripted-embed",Map.of(),Map.of());}
+      @Override public Map<String,Object> getFeatures(String model){var features=new LinkedHashMap<>(super.getFeatures(model));features.put("asyncTools",true);return features;}
+      protected Map<String,Object> doChat(Map<String,Object> request,Map<String,Object> options){throw new AssertionError("The run did not use its native session");}
+      protected Map<String,Object> doEmbed(Map<String,Object> request,Map<String,Object> options){throw new AssertionError("Unexpected embedding");}
+      public Map<String,Object> transcribe(Map<String,Object> request){throw new AssertionError("Unexpected transcription");}
+      public Map<String,Object> speak(Map<String,Object> request){throw new AssertionError("Unexpected speech");}
+      public AxChatSession openChatSession(Map<String,Object> request,Map<String,Object> options){return session;}
+    }
+    var program=Ax.ax("question -> answer").addFieldProcessor("answer",(value,context)->"first".equals(value)?"Check it.":null,AxFieldProcessorMode.FEEDBACK);
+    var result=program.forward(new SessionAI(),Map.of("question","Status?"),Map.of("control",Ax.runControl()));
+    if(!"second".equals(result.get("answer")) || !List.of("Check it.").equals(steers))throw new AssertionError("Feedback did not steer the native session with its text: "+steers+" "+result);
+    System.out.println("java native session feedback steers with plain text passed");
   }
   @SuppressWarnings("unchecked") static void flowIsolation() throws Exception {
     AtomicInteger requests=new AtomicInteger(),calls=new AtomicInteger();
