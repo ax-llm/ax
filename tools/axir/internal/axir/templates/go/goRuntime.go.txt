@@ -371,6 +371,12 @@ func recordRuntimeMetric(meter AxMeter, kind, name string, value float64, attrib
 }
 
 func beginRuntimeScope(ctx context.Context, callHooks, programHooks AxRuntimeHooks, spanName, metricPrefix string, attributes map[string]Value) (context.Context, AxRuntimeHooks, func(error)) {
+	return beginLabeledRuntimeScope(ctx, callHooks, programHooks, spanName, metricPrefix, attributes, nil)
+}
+
+// beginLabeledRuntimeScope is beginRuntimeScope whose metrics also carry
+// metricLabels (TS's custom labels), which the span does not.
+func beginLabeledRuntimeScope(ctx context.Context, callHooks, programHooks AxRuntimeHooks, spanName, metricPrefix string, attributes, metricLabels map[string]Value) (context.Context, AxRuntimeHooks, func(error)) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -391,12 +397,19 @@ func beginRuntimeScope(ctx context.Context, callHooks, programHooks AxRuntimeHoo
 	}
 	ctx = context.WithValue(ctx, runtimeHookContextKey{}, &runtimeHookFrame{hooks: hooks, globals: globals, span: span})
 	started := time.Now()
-	recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_requests_total", 1, attributes)
+	metricAttributes := attributes
+	if len(metricLabels) > 0 {
+		metricAttributes = cloneMap(attributes)
+		for _, key := range orderedKeys(metricLabels) {
+			metricAttributes[key] = metricLabels[key]
+		}
+	}
+	recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_requests_total", 1, metricAttributes)
 	return ctx, effective, func(err error) {
 		if err != nil {
-			recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_errors_total", 1, attributes)
+			recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_errors_total", 1, metricAttributes)
 		}
-		recordRuntimeMetric(effective.Meter, "histogram", metricPrefix+"_duration_ms", float64(time.Since(started).Microseconds())/1000, attributes)
+		recordRuntimeMetric(effective.Meter, "histogram", metricPrefix+"_duration_ms", float64(time.Since(started).Microseconds())/1000, metricAttributes)
 		if span != parentSpan {
 			finishRuntimeSpan(span, err)
 		}
@@ -4200,15 +4213,53 @@ func invokeRuntimeLimiter(limiter AxRateLimiter, next AxRequestExecutor, info Ax
 	return limiter.Run(next, info)
 }
 
-func beginAIOperation(ctx context.Context, hooks AxRuntimeHooks, operation, ai, model string, streaming bool) (map[string]Value, AxSpan, time.Time) {
+// beginAIOperation starts an AI operation's span and counts the request.
+// The metrics carry TS's custom labels, the service's then the call's
+// (ai_custom_labels): whole on the request counter, cut to 100 characters on
+// the duration and errors, which use the attributes it returns.
+func beginAIOperation(ctx context.Context, hooks AxRuntimeHooks, operation, ai, model string, streaming bool, serviceOptions, callOptions map[string]Value) (map[string]Value, AxSpan, time.Time) {
 	attributes := Object("ax.operation", operation, "ax.ai", ai, "ax.model", model, "ax.streaming", streaming)
 	var parent AxSpan
 	if frame := runtimeFrameFromContext(ctx); frame != nil {
 		parent = frame.span
 	}
 	span := startRuntimeSpan(hooks, parent, "ax_llm_"+operation, "client", attributes)
-	recordRuntimeMetric(hooks.Meter, "counter", "ax_llm_requests_total", 1, attributes)
-	return attributes, span, time.Now()
+	recordRuntimeMetric(hooks.Meter, "counter", "ax_llm_requests_total", 1, withCustomLabels(attributes, serviceOptions, callOptions, false))
+	return withCustomLabels(attributes, serviceOptions, callOptions, true), span, time.Now()
+}
+
+// withCustomLabels returns a copy of attributes with TS's custom labels for
+// a metric: the service's customLabels, then the call's, cut to 100
+// characters when sanitize is set.
+func withCustomLabels(attributes, serviceOptions, callOptions map[string]Value, sanitize bool) map[string]Value {
+	labels, err := ai_custom_labels(Value(serviceOptions), Value(callOptions), sanitize)
+	out := cloneMap(attributes)
+	if err != nil {
+		return out
+	}
+	for _, key := range orderedKeys(asMap(labels)) {
+		out[key] = asMap(labels)[key]
+	}
+	return out
+}
+
+// genMetricLabels are an AxGen run's custom labels, as TS's
+// getMergedCustomLabels: the AI service's, then the AxGen constructor's with
+// the call's over them, each value cut to 100 characters.
+func genMetricLabels(client AIClient, genOptions, callOptions map[string]Value) map[string]Value {
+	runLabels, err := ai_custom_labels(Value(genOptions), Value(callOptions), false)
+	if err != nil {
+		return Object()
+	}
+	var serviceOptions map[string]Value
+	if service, ok := client.(interface{ optionsSnapshot() map[string]Value }); ok {
+		serviceOptions = service.optionsSnapshot()
+	}
+	labels, err := ai_custom_labels(Value(serviceOptions), Value(Object("customLabels", runLabels)), true)
+	if err != nil {
+		return Object()
+	}
+	return asMap(labels)
 }
 
 func finishAIOperation(hooks AxRuntimeHooks, attributes map[string]Value, span AxSpan, started time.Time, err error) {
@@ -4246,7 +4297,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		return nil, err
 	}
 	streaming := coreTruthy(coreGet(coreGet(request, "model_config", Object()), "stream", coreGet(mergedOptions, "stream", false)))
-	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, streaming)
+	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, streaming, clientOptions, options)
 	next := func() (Value, error) {
 		return safeValue(func() Value {
 			req := c.prepareChatRequest(request, mergedOptions)
@@ -4511,7 +4562,7 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
 	modelName := display(coreGet(request, "embed_model", coreGet(request, "embedModel", coreGet(c.optionsSnapshot(), "embed_model", ""))))
-	attributes, span, started := beginAIOperation(ctx, hooks, "embed", c.Name, modelName, false)
+	attributes, span, started := beginAIOperation(ctx, hooks, "embed", c.Name, modelName, false, c.optionsSnapshot(), options)
 	next := func() (Value, error) {
 		return safeValue(func() Value {
 			req := cloneMap(request)
@@ -4664,7 +4715,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
 	modelName := display(coreGet(request, "model", coreGet(c.optionsSnapshot(), "model", "")))
-	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, true)
+	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, true, c.optionsSnapshot(), options)
 	open := func() (Value, error) {
 		return safeValue(func() Value {
 			req := c.prepareChatRequest(request, Object("stream", true))
@@ -7266,7 +7317,7 @@ func (g *AxGen) forwardWithHooks(ctx context.Context, client AIClient, values ma
 		return g.renderCachedAudio(ctx, client, cached, options)
 	}
 	attributes := Object("ax.program.id", g.ProgramID, "ax.program.type", "AxGen")
-	ctx, _, finish := beginRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes)
+	ctx, _, finish := beginLabeledRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes, genMetricLabels(client, g.Options, options))
 	defer func() { finish(err) }()
 	if g.ExecutionContextError != nil {
 		return nil, g.ExecutionContextError
@@ -7595,7 +7646,7 @@ func (g *AxGen) streamingForwardWith(ctx context.Context, client AIClient, value
 		}
 	}
 	attributes := Object("ax.program.id", g.ProgramID, "ax.program.type", "AxGen", "ax.streaming", true)
-	ctx, _, finish := beginRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes)
+	ctx, _, finish := beginLabeledRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes, genMetricLabels(client, g.Options, options))
 	defer func() { finish(err) }()
 	if g.ExecutionContextError != nil {
 		return nil, g.ExecutionContextError
@@ -12811,6 +12862,8 @@ func runConformanceFixtureKind(fixture map[string]Value) {
 		runConformanceAIUsageObserver(fixture)
 	case "ai_runtime_hooks":
 		runConformanceAIRuntimeHooks(fixture)
+	case "ai_custom_labels":
+		runConformanceAICustomLabels(fixture)
 	case "ai_credential_wrapper":
 		runConformanceAICredentialWrapper(fixture)
 	case "ai_provider_descriptor":
@@ -14826,6 +14879,94 @@ func (conformanceFailingMeter) CreateHistogram(string, AxMetricInstrumentOptions
 }
 func (conformanceFailingMeter) CreateGauge(string, AxMetricInstrumentOptions) AxGauge {
 	panic("meter failure")
+}
+
+// labelRecordingMeter records each metric's name and attributes.
+type labelRecordingMeter struct {
+	mu      sync.Mutex
+	records []struct {
+		name       string
+		attributes map[string]Value
+	}
+}
+
+type labelRecordingInstrument struct {
+	meter *labelRecordingMeter
+	name  string
+}
+
+func (i labelRecordingInstrument) Add(_ float64, attributes map[string]Value) {
+	i.meter.mu.Lock()
+	defer i.meter.mu.Unlock()
+	i.meter.records = append(i.meter.records, struct {
+		name       string
+		attributes map[string]Value
+	}{i.name, cloneMap(attributes)})
+}
+func (i labelRecordingInstrument) Record(value float64, attributes map[string]Value) { i.Add(value, attributes) }
+
+func (m *labelRecordingMeter) CreateCounter(name string, _ AxMetricInstrumentOptions) AxCounter {
+	return labelRecordingInstrument{m, name}
+}
+func (m *labelRecordingMeter) CreateHistogram(name string, _ AxMetricInstrumentOptions) AxHistogram {
+	return labelRecordingInstrument{m, name}
+}
+func (m *labelRecordingMeter) CreateGauge(name string, _ AxMetricInstrumentOptions) AxGauge {
+	return labelRecordingInstrument{m, name}
+}
+
+// customPart is the first record of name without the runtime's own "ax.*"
+// attributes: the custom labels.
+func (m *labelRecordingMeter) customPart(name string) Value {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, record := range m.records {
+		if record.name != name {
+			continue
+		}
+		out := Object()
+		for _, key := range orderedKeys(record.attributes) {
+			if !strings.HasPrefix(key, "ax.") {
+				out[key] = record.attributes[key]
+			}
+		}
+		return out
+	}
+	names := []string{}
+	for _, record := range m.records {
+		names = append(names, record.name)
+	}
+	panic(AxError{Category: "fixture", Message: "no " + name + " metric was recorded: " + strings.Join(names, ", ")})
+}
+
+// runConformanceAICustomLabels: a recording meter sees a chat (the service's
+// and the call's custom labels) and an AxGen forward on the same client (its
+// constructor's labels with the call's over them).
+func runConformanceAICustomLabels(fixture map[string]Value) {
+	client, _ := conformanceAIClient(fixture)
+	meter := &labelRecordingMeter{}
+	SetMeter(meter)
+	defer SetMeter(nil)
+	chat := asMap(coreGet(fixture, "chat", Object()))
+	if _, err := client.Chat(context.Background(), asMap(coreGet(chat, "request", Object())), Object("customLabels", coreGet(chat, "custom_labels", Object()))); err != nil {
+		panic(err)
+	}
+	expectedChat := asMap(coreGet(fixture, "expected_chat_custom_labels", Object()))
+	for _, name := range orderedKeys(expectedChat) {
+		assertEqual(meter.customPart(name), expectedChat[name], "chat "+name+" custom labels")
+	}
+	meter.mu.Lock()
+	meter.records = nil
+	meter.mu.Unlock()
+	spec := asMap(coreGet(fixture, "forward", Object()))
+	gen := NewAx(display(coreGet(spec, "signature", "question:string -> answer:string")), Object("customLabels", coreGet(spec, "constructor_custom_labels", Object())))
+	if _, err := gen.Forward(context.Background(), client, asMap(coreGet(spec, "input", Object())), Object("stream", false, "customLabels", coreGet(spec, "call_custom_labels", Object()))); err != nil {
+		panic(err)
+	}
+	expectedForward := asMap(coreGet(fixture, "expected_forward_custom_labels", Object()))
+	for _, name := range orderedKeys(expectedForward) {
+		assertEqual(meter.customPart(name), expectedForward[name], "forward "+name+" custom labels")
+	}
 }
 
 func runConformanceAIRuntimeHooks(fixture map[string]Value) {

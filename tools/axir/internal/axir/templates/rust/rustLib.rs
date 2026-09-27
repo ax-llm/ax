@@ -336,22 +336,71 @@ fn with_runtime_scope<T>(
     attributes: BTreeMap<String, Value>,
     operation: impl FnOnce() -> AxResult<T>,
 ) -> AxResult<T> {
+    with_labeled_runtime_scope(explicit, defaults, name, kind, attributes, &Value::Null, &Value::Null, operation)
+}
+
+// with_runtime_scope whose metrics also carry TS's custom labels, which the
+// span does not: `start_labels` on the request count, `finish_labels` on the
+// duration and errors.
+#[allow(clippy::too_many_arguments)]
+fn with_labeled_runtime_scope<T>(
+    explicit: Option<&AxRuntimeHooks>,
+    defaults: Option<&AxRuntimeHooks>,
+    name: &str,
+    kind: &str,
+    attributes: BTreeMap<String, Value>,
+    start_labels: &Value,
+    finish_labels: &Value,
+    operation: impl FnOnce() -> AxResult<T>,
+) -> AxResult<T> {
     let hooks = merge_runtime_hooks(explicit, None, defaults);
     let span = start_runtime_span(&hooks, name, kind, &attributes);
     let started = Instant::now();
-    record_runtime_metrics(&hooks, kind, &attributes, None, None);
+    record_runtime_metrics(&hooks, kind, &labeled_attributes(&attributes, start_labels), None, None);
     let mut scope = RuntimeHookScope::enter(hooks, span);
     let result = operation();
     let active_hooks = current_runtime_hooks().unwrap_or_default();
     record_runtime_metrics(
         &active_hooks,
         kind,
-        &attributes,
+        &labeled_attributes(&attributes, finish_labels),
         Some(started.elapsed().as_secs_f64() * 1000.0),
         result.as_ref().err(),
     );
     scope.finish(&result);
     result
+}
+
+// A metric's attributes with custom labels (a JSON object) added.
+fn labeled_attributes(attributes: &BTreeMap<String, Value>, labels: &Value) -> BTreeMap<String, Value> {
+    let mut out = attributes.clone();
+    if let Some(labels) = labels.as_object() {
+        for (key, value) in labels {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    out
+}
+
+// TS's custom labels for a metric (ai_custom_labels): the service's
+// customLabels, then the call's, cut to 100 characters when `sanitize` is set
+// (TS cuts them for the request duration and errors, not the request count).
+fn custom_labels(service_options: &Value, call_options: &Value, sanitize: bool) -> Value {
+    ai_custom_labels(&[
+        core_value_from_json(service_options),
+        core_value_from_json(call_options),
+        CoreValue::Bool(sanitize),
+    ])
+    .map(|labels| core_value_to_json(&labels))
+    .unwrap_or_else(|_| json!({}))
+}
+
+// An AxGen run's custom labels, as TS's getMergedCustomLabels: the AI
+// service's, then the AxGen constructor's with the call's over them, each
+// value cut to 100 characters.
+fn gen_metric_labels(service_options: &Value, gen_options: &Value, call_options: &Value) -> Value {
+    let run_labels = custom_labels(gen_options, call_options, false);
+    custom_labels(service_options, &json!({"customLabels": run_labels}), true)
 }
 
 fn with_runtime_binding<T>(
@@ -572,9 +621,12 @@ fn response_model_usage(response: &Value) -> Option<Value> {
         })
 }
 
+// `labels` are the call's service and call options, for TS's custom labels
+// on the operation's metrics.
 fn run_ai_runtime_operation(
     hooks: AxRuntimeHooks,
     info: &AxRateLimitInfo,
+    labels: (&Value, &Value),
     next: &mut dyn FnMut() -> AxResult<Value>,
 ) -> AxResult<Value> {
     let mut attributes = BTreeMap::new();
@@ -583,12 +635,14 @@ fn run_ai_runtime_operation(
     attributes.insert("ax.model".to_string(), json!(info.model));
     attributes.insert("ax.streaming".to_string(), json!(info.streaming));
     let limiter = hooks.rate_limiter.clone();
-    with_runtime_scope(
+    with_labeled_runtime_scope(
         Some(&hooks),
         None,
         &format!("ax_llm_{}", info.operation),
         "client",
         attributes,
+        &custom_labels(labels.0, labels.1, false),
+        &custom_labels(labels.0, labels.1, true),
         || match limiter {
             Some(limiter) => limiter.run(next, info),
             None => next(),
@@ -2231,6 +2285,15 @@ impl OpenAICompatibleClient {
     /// Reject a model marked expensive unless this call confirms it. Only the
     /// per-call options or the matching model-key entry can set
     /// `useExpensiveModel: "yes"`; the client's own options do not count.
+    /// The service options and this call's options, for TS's custom labels
+    /// on the call's metrics.
+    fn label_options(&self) -> (Value, Value) {
+        match &self.chat_option_scope {
+            Some((client_options, call_options)) => (client_options.clone(), call_options.clone()),
+            None => (self.options.clone(), json!({})),
+        }
+    }
+
     fn require_expensive_model_confirmation(&self, request: &Value) -> AxResult<()> {
         let no_call_options = json!({});
         let (client_options, call_options) = match &self.chat_option_scope {
@@ -2344,6 +2407,8 @@ impl OpenAICompatibleClient {
             streaming: false,
             previous_model_usage: self.last_model_usage.clone(),
         };
+        // For TS's custom labels on this call's metrics.
+        let (label_service, label_call) = self.label_options();
         let mut next = || -> AxResult<Value> {
         let req = self.prepare_chat_request(&request)?;
         // python: AxBaseAI.chat validates the coerced request up front.
@@ -2401,7 +2466,7 @@ impl OpenAICompatibleClient {
         }
         response
         };
-        let result = run_ai_runtime_operation(hooks, &info, &mut next);
+        let result = run_ai_runtime_operation(hooks, &info, (&label_service, &label_call), &mut next);
         if let Ok(response) = &result {
             self.last_model_usage = response_model_usage(response);
         }
@@ -2430,7 +2495,11 @@ impl OpenAICompatibleClient {
         attributes.insert("ax.streaming".to_string(), json!(true));
         let span = start_runtime_span(&hooks, "ax_llm_chat", "client", &attributes);
         let started = Instant::now();
-        record_runtime_metrics(&hooks, "client", &attributes, None, None);
+        // The request count carries TS's custom labels whole; the duration
+        // and errors, which read the attributes afterwards, cut them.
+        let (label_service, label_call) = self.label_options();
+        record_runtime_metrics(&hooks, "client", &labeled_attributes(&attributes, &custom_labels(&label_service, &label_call, false)), None, None);
+        let attributes = labeled_attributes(&attributes, &custom_labels(&label_service, &label_call, true));
         if let Some(limiter) = hooks.rate_limiter.clone() {
             let mut next = || Ok(Value::Null);
             if let Err(error) = limiter.run(&mut next, &info) {
@@ -3090,6 +3159,8 @@ impl OpenAICompatibleClient {
             streaming: false,
             previous_model_usage: self.last_model_usage.clone(),
         };
+        // For TS's custom labels on this call's metrics.
+        let (label_service, label_call) = self.label_options();
         let mut next = || -> AxResult<Value> {
         // python: AxBaseAI.embed validation + ProviderOperationClient._embed
         // (provider_build_embed_request -> transport -> provider_normalize_embed_response)
@@ -3158,7 +3229,7 @@ impl OpenAICompatibleClient {
         emit_usage_event("embed", &response, &self.options, false);
         Ok(response)
         };
-        let result = run_ai_runtime_operation(hooks, &info, &mut next);
+        let result = run_ai_runtime_operation(hooks, &info, (&label_service, &label_call), &mut next);
         if let Ok(response) = &result {
             self.last_model_usage = response_model_usage(response);
         }
@@ -5020,7 +5091,8 @@ impl AxGen {
         if sink.is_some() {
             attributes.insert("ax.streaming".to_string(), json!(true));
         }
-        with_runtime_scope(None, Some(&defaults), "ax_gen_forward", "gen", attributes, || {
+        let run_labels = gen_metric_labels(&client.get_options(), &self.options, &options);
+        with_labeled_runtime_scope(None, Some(&defaults), "ax_gen_forward", "gen", attributes, &run_labels, &run_labels, || {
         let state = match &prepared {
             Some(state) => state.clone(),
             None => core_gen_state(self)?,
@@ -11031,6 +11103,7 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
         "ai_embed" => run_ai_embed_fixture(&fixture)?,
         "ai_usage_observer" => run_ai_usage_observer_fixture(&fixture)?,
         "ai_runtime_hooks" => run_ai_runtime_hooks_fixture(&fixture)?,
+        "ai_custom_labels" => run_ai_custom_labels_fixture(&fixture)?,
         "ai_credential_wrapper" => run_ai_credential_wrapper_fixture(&fixture)?,
         "ai_transcribe" => run_ai_transcribe_fixture(&fixture)?,
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
@@ -18481,6 +18554,105 @@ impl AxMeter for ConformanceFailingMeter {
     fn create_counter(&self, _name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxCounter>> { panic!("meter failure") }
     fn create_histogram(&self, _name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxHistogram>> { panic!("meter failure") }
     fn create_gauge(&self, _name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxGauge>> { panic!("meter failure") }
+}
+
+// A meter that records each metric's name and attributes.
+#[derive(Default)]
+struct LabelRecordingMeter {
+    records: Arc<Mutex<Vec<(String, BTreeMap<String, Value>)>>>,
+}
+struct LabelRecordingInstrument {
+    name: String,
+    records: Arc<Mutex<Vec<(String, BTreeMap<String, Value>)>>>,
+}
+impl AxCounter for LabelRecordingInstrument {
+    fn add(&self, _value: f64, attributes: &BTreeMap<String, Value>) {
+        self.records.lock().unwrap().push((self.name.clone(), attributes.clone()));
+    }
+}
+impl AxHistogram for LabelRecordingInstrument {
+    fn record(&self, _value: f64, attributes: &BTreeMap<String, Value>) {
+        self.records.lock().unwrap().push((self.name.clone(), attributes.clone()));
+    }
+}
+impl AxGauge for LabelRecordingInstrument {
+    fn record(&self, _value: f64, attributes: &BTreeMap<String, Value>) {
+        self.records.lock().unwrap().push((self.name.clone(), attributes.clone()));
+    }
+}
+impl AxMeter for LabelRecordingMeter {
+    fn create_counter(&self, name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxCounter>> {
+        Some(Arc::new(LabelRecordingInstrument { name: name.to_string(), records: self.records.clone() }))
+    }
+    fn create_histogram(&self, name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxHistogram>> {
+        Some(Arc::new(LabelRecordingInstrument { name: name.to_string(), records: self.records.clone() }))
+    }
+    fn create_gauge(&self, name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxGauge>> {
+        Some(Arc::new(LabelRecordingInstrument { name: name.to_string(), records: self.records.clone() }))
+    }
+}
+
+// A recording meter sees a chat (the service's and the call's custom labels)
+// and an AxGen forward on the same client (its constructor's labels with the
+// call's over them). Each expected metric's first record must carry the
+// expected labels besides the runtime's own "ax.*" attributes. Rust names the
+// metrics ax_llm_requests, ax_llm_duration_ms, ax_gen_requests and
+// ax_gen_duration_ms; the fixture uses TS's names.
+fn run_ai_custom_labels_fixture(fixture: &Value) -> AxResult<()> {
+    let rust_name = |name: &str| -> String {
+        match name {
+            "ax_llm_requests_total" => "ax_llm_requests",
+            "ax_llm_request_duration_ms" => "ax_llm_duration_ms",
+            "ax_gen_generation_requests_total" => "ax_gen_requests",
+            "ax_gen_generation_duration_ms" => "ax_gen_duration_ms",
+            other => other,
+        }
+        .to_string()
+    };
+    let (mut client, _requests, _credential_requests) = fixture_client(fixture)?;
+    let meter = Arc::new(LabelRecordingMeter::default());
+    let records = meter.records.clone();
+    let custom_part = |name: &str| -> AxResult<Value> {
+        let wanted = rust_name(name);
+        let records = records.lock().unwrap();
+        let Some((_, attributes)) = records.iter().find(|(recorded, _)| *recorded == wanted) else {
+            let names = records.iter().map(|(recorded, _)| recorded.clone()).collect::<Vec<_>>();
+            return Err(AxError::new("fixture", format!("no {wanted} metric was recorded: {names:?}")));
+        };
+        Ok(Value::Object(
+            attributes.iter().filter(|(key, _)| !key.starts_with("ax.")).map(|(key, value)| (key.clone(), value.clone())).collect(),
+        ))
+    };
+    set_meter(Some(meter.clone()));
+    let result = (|| -> AxResult<()> {
+        let chat = fixture.get("chat").cloned().unwrap_or_else(|| json!({}));
+        client.chat_with_options(
+            chat.get("request").cloned().unwrap_or_else(|| json!({})),
+            json!({"customLabels": chat.get("custom_labels").cloned().unwrap_or_else(|| json!({}))}),
+        )?;
+        if let Some(expected) = fixture.get("expected_chat_custom_labels").and_then(Value::as_object) {
+            for (name, labels) in expected {
+                expect_json_equal(&format!("chat {name} custom labels"), &custom_part(name)?, labels)?;
+            }
+        }
+        records.lock().unwrap().clear();
+        let spec = fixture.get("forward").cloned().unwrap_or_else(|| json!({}));
+        let mut program = ax(spec.get("signature").and_then(Value::as_str).unwrap_or("question:string -> answer:string"))?;
+        program.options = json!({"customLabels": spec.get("constructor_custom_labels").cloned().unwrap_or_else(|| json!({}))});
+        program.forward_with_options(
+            &mut client,
+            spec.get("input").cloned().unwrap_or_else(|| json!({})),
+            json!({"stream": false, "customLabels": spec.get("call_custom_labels").cloned().unwrap_or_else(|| json!({}))}),
+        )?;
+        if let Some(expected) = fixture.get("expected_forward_custom_labels").and_then(Value::as_object) {
+            for (name, labels) in expected {
+                expect_json_equal(&format!("forward {name} custom labels"), &custom_part(name)?, labels)?;
+            }
+        }
+        Ok(())
+    })();
+    set_meter(None);
+    result
 }
 
 fn run_ai_runtime_hooks_fixture(fixture: &Value) -> AxResult<()> {

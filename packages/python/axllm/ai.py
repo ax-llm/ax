@@ -417,7 +417,9 @@ def _runtime_hook_scope(
     span_kind: str = "internal",
     attributes: dict[str, Any] | None = None,
     metric_prefix: str = "ax_gen_generation",
+    metric_labels: dict[str, Any] | None = None,
 ):
+    # metric_labels (TS's custom labels) go on the metrics, not the span.
     parent = _runtime_frame.get()
     hooks = _merge_runtime_hooks(
         _coerce_runtime_hooks(call_hooks),
@@ -428,18 +430,19 @@ def _runtime_hook_scope(
     effective = _merge_runtime_hooks(hooks, globals_snapshot)
     attrs = dict(attributes or {})
     span = _start_runtime_span(effective, span_name, span_kind, attrs)
+    metric_attrs = {**attrs, **(metric_labels or {})}
     token = _runtime_frame.set(_AxRuntimeFrame(hooks, globals_snapshot, span or (parent.span if parent else None)))
     started = time.perf_counter()
     error = None
-    _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_requests_total", 1, attrs)
+    _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_requests_total", 1, metric_attrs)
     try:
         yield effective
     except BaseException as exc:
         error = exc
-        _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_errors_total", 1, attrs)
+        _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_errors_total", 1, metric_attrs)
         raise
     finally:
-        _record_runtime_metric(effective.meter, "histogram", f"{metric_prefix}_duration_ms", (time.perf_counter() - started) * 1000, attrs)
+        _record_runtime_metric(effective.meter, "histogram", f"{metric_prefix}_duration_ms", (time.perf_counter() - started) * 1000, metric_attrs)
         _finish_runtime_span(span, error)
         _runtime_frame.reset(token)
 
@@ -507,6 +510,23 @@ def _invoke_rate_limiter(limiter: AxRateLimiter | None, next_request: Callable[[
     if callable(run):
         return run(next_request, info)
     return limiter(next_request, info)
+
+
+def _labeled(attributes: dict[str, Any], service_options: Any, call_options: Any, sanitize: bool) -> dict[str, Any]:
+    # A metric's attributes with TS's custom labels: the service's, then the
+    # call's (ai_custom_labels). TS cuts their values for the request
+    # duration and errors (sanitize) but not for the request counter.
+    labels = ai_custom_labels(service_options or {}, call_options or {}, sanitize)
+    return {**attributes, **labels} if labels else attributes
+
+
+def _gen_metric_labels(client: Any, gen_options: Any, call_options: Any) -> dict[str, Any]:
+    # An AxGen run's custom labels, as TS's getMergedCustomLabels: the AI
+    # service's, then the AxGen constructor's with the call's over them, each
+    # value cut to 100 characters.
+    run_labels = ai_custom_labels(gen_options or {}, call_options or {}, False)
+    service_options = getattr(client, "options", None)
+    return ai_custom_labels(service_options if isinstance(service_options, dict) else {}, {"customLabels": run_labels}, True)
 
 
 def _runtime_observed_stream(
@@ -1085,13 +1105,13 @@ class AxBaseAI(AIClient):
             streaming = bool(model_config.get("stream"))
             attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(model), "ax.streaming": streaming}
             span = _start_runtime_span(hooks, "ax_llm_chat", "client", attributes)
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, _labeled(attributes, self.options, options, False))
             info = AxRateLimitInfo("chat", self.name, str(model), streaming, copy.deepcopy(self.last_model_usage))
             response = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._chat(req, merged_options), info)
             if isinstance(response, dict):
                 self.last_model_usage = copy.deepcopy(response.get("model_usage") or response.get("modelUsage"))
                 _emit_usage_event("chat", response, merged_options, False)
-                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
                 _finish_runtime_span(span)
                 return response
             stream_returned = True
@@ -1100,8 +1120,8 @@ class AxBaseAI(AIClient):
             is_error = True
             if span is not None:
                 attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(self.last_used_chat_model or self.model), "ax.streaming": bool((options or {}).get("stream"))}
-                _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
-                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+                _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, _labeled(attributes, self.options, options, True))
+                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
                 _finish_runtime_span(span, exc)
             raise
         finally:
@@ -1126,19 +1146,19 @@ class AxBaseAI(AIClient):
             merged_options = self._merged_options(options)
             attributes = {"ax.operation": "embed", "ax.ai": self.name, "ax.model": str(embed_model), "ax.streaming": False}
             span = _start_runtime_span(hooks, "ax_llm_embed", "client", attributes)
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, _labeled(attributes, self.options, options, False))
             info = AxRateLimitInfo("embed", self.name, str(embed_model), False, copy.deepcopy(self.last_model_usage))
             response = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._embed(req, merged_options), info)
             self.last_model_usage = copy.deepcopy(response.get("model_usage") or response.get("modelUsage")) if isinstance(response, dict) else None
             _emit_usage_event("embed", response, merged_options, False)
-            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
             _finish_runtime_span(span)
             return response
         except Exception as exc:
             is_error = True
             attributes = {"ax.operation": "embed", "ax.ai": self.name, "ax.model": str(self.last_used_embed_model or self.embed_model or ""), "ax.streaming": False}
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
-            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, _labeled(attributes, self.options, options, True))
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
             _finish_runtime_span(span, exc)
             raise
         finally:
@@ -1468,17 +1488,17 @@ class ProviderOperationClient(AxBaseAI):
         hooks = _effective_runtime_hooks(options, self.runtime_hooks)
         attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(model), "ax.streaming": True}
         span = _start_runtime_span(hooks, "ax_llm_chat", "client", attributes)
-        _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+        _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, _labeled(attributes, self.options, options, False))
         started = time.perf_counter()
         info = AxRateLimitInfo("chat", self.name, str(model), True, copy.deepcopy(self.last_model_usage))
         try:
             result = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._stream_chat(payload, req, merged_options), info)
         except BaseException as exc:
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
-            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, _labeled(attributes, self.options, options, True))
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
             _finish_runtime_span(span, exc)
             raise
-        yield from _runtime_observed_stream(result, merged_options, span, hooks.meter, attributes, started)
+        yield from _runtime_observed_stream(result, merged_options, span, hooks.meter, _labeled(attributes, self.options, options, True), started)
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
         payload = provider_build_embed_request(self.profile, request, options)
@@ -6396,6 +6416,48 @@ def provider_model_catalog(options: Any) -> Any:
     else:
         pass
     return selected
+
+
+def ai_custom_labels(service_options: Any, call_options: Any, sanitize: bool) -> Any:
+    _core_coverage_mark("ai_custom_labels")
+    empty = {}
+    labels = {}
+    sources = []
+    sources.append(service_options)
+    sources.append(call_options)
+    for source in sources:
+        source_map = _core_type_is(source, "object")
+        if source_map:
+            snake = _core_get(source, "custom_labels", empty)
+            camel = _core_get(source, "customLabels", snake)
+            camel_map = _core_type_is(camel, "object")
+            if camel_map:
+                labels = _core_map_merge(labels, camel)
+            else:
+                pass
+        else:
+            pass
+    if sanitize:
+        pass
+    else:
+        return labels
+    sanitized = {}
+    keys = _core_map_keys(labels)
+    for key in keys:
+        value = _core_get(labels, key, None)
+        missing = _core_is_none(value)
+        if missing:
+            pass
+        else:
+            text = _core_string_str(value)
+            length = _core_len(text)
+            over_limit = _core_gt(length, 100)
+            if over_limit:
+                text = _core_string_slice(text, 0, 100)
+            else:
+                pass
+            sanitized[key] = text
+    return sanitized
 
 
 def provider_estimate_cost(model_usage: Any, model_info_overrides: Any) -> number:

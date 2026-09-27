@@ -65,12 +65,51 @@ public final class AxGlobals {
         frame == null ? snapshot() : frame.globals);
   }
 
+  // A metric's attributes with TypeScript's custom labels: the service's
+  // customLabels, then the call's (ai_custom_labels), cut to 100 characters
+  // when sanitize is set (TS cuts them for the request duration and errors,
+  // not for the request counter).
+  static Map<String, Object> labeled(Map<String, Object> attributes, Object serviceOptions, Object callOptions, boolean sanitize) {
+    Map<String, Object> out = new LinkedHashMap<>(attributes);
+    try {
+      out.putAll(Core.asMap(Core.ai_custom_labels(serviceOptions == null ? Map.of() : serviceOptions, callOptions == null ? Map.of() : callOptions, sanitize)));
+    } catch (RuntimeException ignored) {
+      // Labels never fail a request.
+    }
+    return out;
+  }
+
+  // An AxGen run's custom labels, as TypeScript's getMergedCustomLabels: the
+  // AI service's, then the AxGen constructor's with the call's over them,
+  // each value cut to 100 characters.
+  static Map<String, Object> genMetricLabels(Object client, Map<String, Object> genOptions, Map<String, Object> callOptions) {
+    try {
+      Object runLabels = Core.ai_custom_labels(genOptions == null ? Map.of() : genOptions, callOptions == null ? Map.of() : callOptions, false);
+      Object serviceOptions = client instanceof AxBaseAI base ? base.getOptions() : Map.of();
+      return Core.asMap(Core.ai_custom_labels(serviceOptions, Map.of("customLabels", runLabels), true));
+    } catch (RuntimeException ignored) {
+      return Map.of();
+    }
+  }
+
   static Scope openScope(
       AxRuntimeHooks callHooks,
       AxRuntimeHooks programHooks,
       String spanName,
       String metricPrefix,
       Map<String, Object> attributes) {
+    return openScope(callHooks, programHooks, spanName, metricPrefix, attributes, Map.of());
+  }
+
+  // openScope whose metrics also carry metricLabels (TS's custom labels),
+  // which the span does not.
+  static Scope openScope(
+      AxRuntimeHooks callHooks,
+      AxRuntimeHooks programHooks,
+      String spanName,
+      String metricPrefix,
+      Map<String, Object> attributes,
+      Map<String, Object> metricLabels) {
     Frame parent = FRAME.get();
     AxRuntimeHooks hooks = AxRuntimeHooks.merge(
         callHooks,
@@ -82,8 +121,10 @@ public final class AxGlobals {
     AxSpan span = ownSpan == null && parent != null ? parent.span : ownSpan;
     Frame frame = new Frame(hooks, globals, span, parent);
     FRAME.set(frame);
-    recordMetric(effective.meter(), "counter", metricPrefix + "_requests_total", 1, attributes);
-    return new Scope(frame, effective, ownSpan, metricPrefix, attributes);
+    Map<String, Object> metricAttributes = new LinkedHashMap<>(attributes);
+    if (metricLabels != null) metricAttributes.putAll(metricLabels);
+    recordMetric(effective.meter(), "counter", metricPrefix + "_requests_total", 1, metricAttributes);
+    return new Scope(frame, effective, ownSpan, metricPrefix, metricAttributes);
   }
 
   static AxSpan currentSpan() {

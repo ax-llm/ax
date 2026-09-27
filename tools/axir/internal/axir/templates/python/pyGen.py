@@ -29,6 +29,7 @@ from .ai import (
     _coerce_runtime_hooks,
     _merge_runtime_hooks,
     _runtime_hook_scope,
+    _gen_metric_labels,
     _runtime_hooks_from_options,
     _strip_runtime_hooks,
     _snapshot_global_caching_function,
@@ -571,6 +572,7 @@ class AxGen:
             self.runtime_hooks,
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen"},
+            metric_labels=_gen_metric_labels(client, self.options, run_options),
         ):
             return self._forward_unscoped(client, values, {**run_options, "_ax_cache_lookup": lookup})
 
@@ -662,6 +664,7 @@ class AxGen:
             self.runtime_hooks,
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen", "ax.streaming": True},
+            metric_labels=_gen_metric_labels(client, self.options, options),
         ):
             yield from self._streaming_forward_unscoped(client, values, _strip_runtime_hooks(options))
 
@@ -728,6 +731,7 @@ class AxGen:
             self.runtime_hooks,
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen", "ax.streaming": True},
+            metric_labels=_gen_metric_labels(client, self.options, run_options),
         ):
             return self._streaming_forward_unscoped_with(client, values, {**run_options, "_ax_cache_lookup": lookup}, sink)
 

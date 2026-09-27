@@ -1382,4 +1382,55 @@ module @ax.ai version "0.1" {
       core.return
     }
   }
+
+  op ax.ai.semantic @ai_custom_labels {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/ai/metrics.ts#mergeCustomLabels"
+    type signature = "(service_options:json, call_options:json, sanitize:bool) -> json"
+    body @entry(%service_options: json, %call_options: json, %sanitize: bool) {
+      // TS's custom labels for a metric: the service's customLabels, then
+      // the call's, key by key (mergeCustomLabels). With sanitize, as TS's
+      // sanitizeLabels does for the request duration and errors and the
+      // AxGen metrics, a null value is dropped and each value is a string cut
+      // to 100 characters; TS's AI request counter takes them as they are.
+      %empty = core.map
+      %labels = core.map
+      %sources = core.list
+      core.append %sources, %service_options
+      core.append %sources, %call_options
+      core.for %source in %sources {
+        %source_map = core.type_is %source type "object"
+        core.if %source_map {
+          %snake = core.get %source["custom_labels"] default %empty
+          %camel = core.get %source["customLabels"] default %snake
+          %camel_map = core.type_is %camel type "object"
+          core.if %camel_map {
+            %labels = core.call intrinsic.map.merge(%labels, %camel)
+          }
+        }
+      }
+      core.if %sanitize {
+      } else {
+        core.return %labels
+      }
+      %sanitized = core.map
+      %keys = core.call intrinsic.map.keys(%labels)
+      core.for %key in %keys {
+        %value = core.get %labels[%key] default null
+        %missing = core.call intrinsic.is_none(%value)
+        core.if %missing {
+        } else {
+          %text = core.call intrinsic.string.str(%value)
+          %length = core.call intrinsic.len(%text)
+          %over_limit = core.call intrinsic.gt(%length, 100)
+          core.if %over_limit {
+            %text = core.call intrinsic.string.slice(%text, 0, 100)
+          }
+          core.set %sanitized[%key] = %text
+        }
+      }
+      core.return %sanitized
+    }
+  }
 }

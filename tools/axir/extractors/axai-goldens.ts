@@ -36,6 +36,7 @@ import {
   axAIGrokDefaultConfig,
   axAIGrokVoiceDefaultConfig,
 } from '../../../src/ax/ai/x-grok/api.js';
+import { AxGen } from '../../../src/ax/dsp/generate.js';
 import { axValidateToolArguments } from '../../../src/ax/dsp/toolArguments.js';
 import {
   AxAIServiceAuthenticationError,
@@ -14569,3 +14570,147 @@ writeFixture('gemini-live-ws-url-encodes-key', {
   api_key: liveKey,
   expected_ws_url: `${liveDescriptor.url}?key=${encodeURIComponent(liveKey)}`,
 });
+
+// customLabels: TS puts one set of custom labels on every AI and AxGen
+// metric, merged key by key from the service's options, then the call's; an
+// AxGen passes its constructor's labels with the call's over them. Some
+// metrics cut each value to 100 characters (sanitizeLabels: the request
+// duration and errors, and the AxGen metrics), the AI request counter keeps
+// it whole. The fixture pins the custom part (the labels a run without
+// custom labels doesn't have) of the request counters and durations.
+{
+  type LabelRecord = { name: string; labels: Record<string, string> };
+  const runLabels = async (withLabels: boolean) => {
+    const records: LabelRecord[] = [];
+    const instrument = (name: string) => ({
+      add: (_value: number, labels: Record<string, string>) =>
+        records.push({ name, labels: { ...labels } }),
+      record: (_value: number, labels: Record<string, string>) =>
+        records.push({ name, labels: { ...labels } }),
+    });
+    const meter = {
+      createCounter: instrument,
+      createHistogram: instrument,
+      createGauge: instrument,
+      createUpDownCounter: instrument,
+      createObservableGauge: instrument,
+    } as never;
+    const replies = [...labelReplies];
+    const service = ai({
+      name: 'openai',
+      apiKey: 'test-key',
+      config: { model: 'gpt-5.4-mini' as never },
+      options: {
+        meter,
+        ...(withLabels ? { customLabels: labelService } : {}),
+        fetch: (async () =>
+          Response.json(replies.shift() ?? {}, { status: 200 })) as never,
+      },
+    });
+    await service.chat(labelChatRequest as never, {
+      ...(withLabels ? { customLabels: labelChatCall } : {}),
+    });
+    const chat = [...records];
+    records.length = 0;
+    const gen = new AxGen(labelSignature, {
+      ...(withLabels ? { customLabels: labelConstructor } : {}),
+    });
+    await gen.forward(service, labelInput, {
+      stream: false,
+      ...(withLabels ? { customLabels: labelForwardCall } : {}),
+    });
+    return { chat, forward: [...records] };
+  };
+  const labelService = { team: 'service', region: 'eu', note: 'n'.repeat(120) };
+  const labelChatCall = { tier: 'call', team: 'call-team' };
+  const labelConstructor = { team: 'constructor', tier: 'constructor' };
+  const labelForwardCall = { tier: 'call' };
+  const labelSignature = 'question:string -> answer:string';
+  const labelInput = { question: 'Status?' };
+  const labelChatRequest = {
+    chatPrompt: [{ role: 'user', content: 'hi' }],
+    modelConfig: { stream: false },
+  };
+  const completion = (content: string) => ({
+    id: 'chatcmpl-labels',
+    object: 'chat.completion',
+    model: 'gpt-5.4-mini',
+    choices: [
+      {
+        index: 0,
+        finish_reason: 'stop',
+        message: { role: 'assistant', content },
+      },
+    ],
+    usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+  });
+  const labelReplies = [completion('Hello'), completion('Answer: ok')];
+  const labeled = await runLabels(true);
+  const plain = await runLabels(false);
+  const customPart = (
+    records: LabelRecord[],
+    baseline: LabelRecord[],
+    name: string
+  ) => {
+    const record = records.find((item) => item.name === name);
+    const base = baseline.find((item) => item.name === name);
+    if (!record || !base) throw new Error(`customLabels: no ${name} record`);
+    return Object.fromEntries(
+      Object.entries(record.labels).filter(([key]) => !(key in base.labels))
+    );
+  };
+  writeFixture('ai-custom-labels-merge', {
+    kind: 'ai_custom_labels',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    service_options: { customLabels: labelService },
+    transport_responses: labelReplies.map((json) => ({ status: 200, json })),
+    chat: {
+      request: {
+        chat_prompt: labelChatRequest.chatPrompt,
+        model_config: { stream: false },
+      },
+      custom_labels: labelChatCall,
+    },
+    forward: {
+      signature: labelSignature,
+      input: labelInput,
+      constructor_custom_labels: labelConstructor,
+      call_custom_labels: labelForwardCall,
+    },
+    expected_chat_custom_labels: {
+      ax_llm_requests_total: customPart(
+        labeled.chat,
+        plain.chat,
+        'ax_llm_requests_total'
+      ),
+      ax_llm_request_duration_ms: customPart(
+        labeled.chat,
+        plain.chat,
+        'ax_llm_request_duration_ms'
+      ),
+    },
+    expected_forward_custom_labels: {
+      ax_llm_requests_total: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_llm_requests_total'
+      ),
+      ax_llm_request_duration_ms: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_llm_request_duration_ms'
+      ),
+      ax_gen_generation_requests_total: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_gen_generation_requests_total'
+      ),
+      ax_gen_generation_duration_ms: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_gen_generation_duration_ms'
+      ),
+    },
+  });
+}
