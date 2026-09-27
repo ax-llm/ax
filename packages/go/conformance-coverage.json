@@ -467,6 +467,13 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "tool_task_handling",
+        "runner": "go:axmcp.tool_task_handling",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "mrtr_violations",
         "runner": "go:axmcp.mrtr_violations",
         "category": "semantic"
@@ -476,6 +483,13 @@
         "kind": "mcp",
         "operation": "subscriptions_listen",
         "runner": "go:axmcp.subscriptions_listen",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "task_listen_restart",
+        "runner": "go:axmcp.task_listen_restart",
         "category": "transport-boundary"
       },
       {

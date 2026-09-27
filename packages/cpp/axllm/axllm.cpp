@@ -43604,7 +43604,9 @@ Value Core::event_normalize_mcp(Value namespace_, Value method, Value params) {
   Value resources = Core::eq(method, Value("notifications/resources/list_changed"));
   Value progress = Core::eq(method, Value("notifications/progress"));
   Value logging = Core::eq(method, Value("notifications/message"));
-  Value task = Core::eq(method, Value("notifications/tasks/status"));
+  Value legacy_task = Core::eq(method, Value("notifications/tasks/status"));
+  Value modern_task = Core::eq(method, Value("notifications/tasks"));
+  Value task = Core::or_(legacy_task, modern_task);
   if (Core::truthy(resource)) {
     Core::set(out, Value("type"), Value("mcp.resource.updated"));
   }
@@ -44322,12 +44324,36 @@ Value Core::mcp_resource_subscription_ownership(Value owners, Value owner, Value
   return out;
 }
 
-Value Core::mcp_listen_interests(Value subscribed_uris, Value filters) {
+Value Core::mcp_listen_interests(Value subscribed_uris, Value filters, Value task_ids) {
   axir_coverage_mark("mcp_listen_interests");
   Value out = Value::object();
   Value filters_object = Core::type_is(filters, Value("object"));
   if (Core::truthy(filters_object)) {
     out = Core::map_merge(out, filters);
+  }
+  Value tasks = Value::array();
+  Value task_ids_list = Core::type_is(task_ids, Value("list"));
+  if (Core::truthy(task_ids_list)) {
+    for (auto task_id : Core::iter(task_ids)) {
+      Value task_id_string = Core::type_is(task_id, Value("string"));
+      if (Core::truthy(task_id_string)) {
+        Value task_id_empty = Core::eq(task_id, Value(""));
+        Value task_id_duplicate = Core::contains(tasks, task_id);
+        Value task_id_skip = Core::or_(task_id_empty, task_id_duplicate);
+        if (Core::truthy(task_id_skip)) {
+          // empty
+        }
+        if (!Core::truthy(task_id_skip)) {
+          Core::append(tasks, task_id);
+        }
+      }
+    }
+  }
+  Value task_count = Core::len(tasks);
+  Value has_tasks = Core::gt(task_count, Value(0));
+  if (Core::truthy(has_tasks)) {
+    Value sorted_tasks = Core::sorted_strings(tasks);
+    Core::set(out, Value("taskIds"), sorted_tasks);
   }
   Value subscriptions = Value::array();
   for (auto uri : Core::iter(subscribed_uris)) {
@@ -45124,6 +45150,35 @@ Value Core::mcp_websocket_request_ids(Value messages, Value protocol, Value batc
     Core::append(ids, key);
   }
   return ids;
+}
+
+Value Core::mcp_tool_call_outcome(Value result, Value tasks_negotiated) {
+  axir_coverage_mark("mcp_tool_call_outcome");
+  Value out = Value::object();
+  Value result_type = Core::get(result, Value("resultType"), Value());
+  Value is_task = Core::eq(result_type, Value("task"));
+  Value not_task = Core::not_(is_task);
+  if (Core::truthy(not_task)) {
+    Core::set(out, Value("kind"), Value("complete"));
+    Core::set(out, Value("result"), result);
+    return out;
+  }
+  Value no_tasks = Core::not_(tasks_negotiated);
+  if (Core::truthy(no_tasks)) {
+    Core::set(out, Value("kind"), Value("violation"));
+    Core::set(out, Value("message"), Value("MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"));
+    return out;
+  }
+  Value valid = Core::mcp_validate_modern_task(result);
+  Value invalid = Core::not_(valid);
+  if (Core::truthy(invalid)) {
+    Core::set(out, Value("kind"), Value("violation"));
+    Core::set(out, Value("message"), Value("MCP protocol violation: invalid CreateTaskResult"));
+    return out;
+  }
+  Core::set(out, Value("kind"), Value("task"));
+  Core::set(out, Value("task"), result);
+  return out;
 }
 
 // END AXIR CORE EMITTED FUNCTIONS

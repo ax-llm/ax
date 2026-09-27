@@ -2433,6 +2433,25 @@
       "verification": "Five TS goldens (forward-feedback-request-shape, streaming-forward-mid-stream-feedback-continues, streaming-forward-mid-stream-and-final-feedback-order, streaming-forward-processor-null-no-feedback, streaming-forward-split-surrogate-pair) with the runner key expected_last_request_tail and a declared string model per runner (TestLoneSurrogateFixturesHaveARunner). On main the three feedback goldens fail in every port on the feedback's string content and the split-pair golden fails in Java. Python, Java and C++ (WTF-8 join) run the split-pair golden; Go and Rust skip it (open entry for keeping the pair). Host tests pin the native-session steer text in all five ports; Rust's SSE parsers no longer fail a stream on a lone surrogate escape. TS fieldProcessor.test.ts and generate.streamParity.test.ts fail before the fixes; npm run test --workspace=@ax-llm/ax passes 3598 tests. verify --mode dev: 1345 fixtures in python, java and cpp, 1344 plus one skip in go and rust (Rust cargo test 70/70); Python response-perturbation gate 335 mutations across 134 fixtures."
     },
     {
+      "id": "axir-2026-09-27-mcp-tool-task-handling-in-the-ports",
+      "status": "done",
+      "title": "Give the ports TypeScript's MCP callToolOutcome and expose task handling, with task-ID listen filters",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "439191e63628f5cd82001ffbdb8f2f89cab10023",
+      "tsPaths": ["src/ax/mcp/client.ts"],
+      "portableSurface": "axmcp",
+      "impact": "TypeScript's AxMCPClient returns a modern server's task through callToolOutcome or callTool taskHandling expose, records it, and asks its modern listener for the task's notifications (taskIds). The Python, Go, Java, C++ and Rust clients only auto-awaited a task, never sent taskIds, and Core normalized only the legacy notifications/tasks/status. The five task-resume examples read a legacy task shape and failed against the modern demo server (KeyError, nil map, NPE, unwrap None, timeout).",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "439191e63",
+      "verification": "axmcp/tool-task-handling.json (TS-derived from AxMCPClient via tools/axir/extractors/mcp-task-handling-goldens.ts: callTool await, expose and callToolOutcome over modern task, modern complete, missing tasks extension, invalid task, legacy task-shaped and legacy complete results) passes in python, go, java, cpp and rust; port-only axmcp/task-listen-restart.json pins the recorded task restarting the listener with taskIds and its notifications/tasks reaching listeners; axevent/mcp-normalization-modern-task.json pins modern notifications/tasks as mcp.task.status; axmcp and axevent suites pass in all five ports. The five task-resume examples fail on main against the dual-era demo server and pass here against it (modern) and against AX_MCP_DEMO_ERA=legacy; the TS example and npm run test:mcp-events:generated pass."
+    },
+    {
       "id": "axir-2026-09-27-media-input-parts-carry-declared-keys",
       "status": "done",
       "title": "Media inputs become TypeScript's parts, with their declared keys, in the ports",

@@ -1453,7 +1453,7 @@ struct Core {
   static Value mcp_resource_subscription_selection(Value resources, Value mode, Value explicit_uris);
   static Value mcp_resource_subscription_plan(Value desired, Value current);
   static Value mcp_resource_subscription_ownership(Value owners, Value owner, Value operation);
-  static Value mcp_listen_interests(Value subscribed_uris, Value filters);
+  static Value mcp_listen_interests(Value subscribed_uris, Value filters, Value task_ids);
   static Value mcp_notification_subscription_filter(Value message, Value active_subscription_id);
   static Value mcp_oauth_parse_www_authenticate(Value www_authenticate);
   static Value mcp_oauth_discovery_endpoints(Value requested_url, Value issuer, Value resource_metadata_url);
@@ -1468,6 +1468,7 @@ struct Core {
   static Value _mcp_tool_authorization_result(Value name, Value decision);
   static Value _mcp_inheritance_plan(Value mcp, Value ucp, Value inheritance);
   static Value mcp_websocket_request_ids(Value messages, Value protocol, Value batch);
+  static Value mcp_tool_call_outcome(Value result, Value tasks_negotiated);
   // END AXIR CORE EMITTED DECLARATIONS
 
 };

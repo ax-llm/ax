@@ -92,7 +92,12 @@ runtime = AxEventRuntime(
     {"targets": [target], "sources": [started, mcp]},
 )
 runtime.start()
-task_id = client.call_tool("start_reindex", {"scope": "all"})["task"]["taskId"]
+# A modern server answers with a task; a legacy server returns it inside a
+# complete result.
+outcome = client.call_tool_outcome("start_reindex", {"scope": "all"})
+task = outcome["task"] if outcome["kind"] == "task" else outcome["result"].get("task")
+assert task is not None, "start_reindex did not start an MCP task"
+task_id = task["taskId"]
 target.waitFor[0]["metadata"] = {"taskId": task_id}
 started.publish(
     AxEventEnvelope(

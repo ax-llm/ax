@@ -1083,6 +1083,27 @@ func ValidateAPIReferenceManifest(manifest APIReferenceManifest) error {
 	return nil
 }
 
+// mcpTaskHandlingDescription names a target's MCP task-handling calls, as
+// TypeScript's callTool taskHandling and callToolOutcome.
+func mcpTaskHandlingDescription(target string) string {
+	var calls string
+	switch target {
+	case "python":
+		calls = "`call_tool` waits for a modern server's task; `call_tool(..., task_handling=\"expose\")` returns it as its CreateTaskResult, and `call_tool_outcome` returns `{\"kind\": \"complete\", \"result\": ...}` or `{\"kind\": \"task\", \"task\": ...}`"
+	case "go":
+		calls = "`CallTool` waits for a modern server's task; `CallToolWithOptions(ctx, name, args, AxMCPToolCallOptions{TaskHandling: \"expose\"})` returns it as its CreateTaskResult, and `CallToolOutcome` returns an `AxMCPToolCallOutcome` with Kind \"complete\" (Result) or \"task\" (Task)"
+	case "java":
+		calls = "`callTool` waits for a modern server's task; `callTool(name, args, Map.of(\"taskHandling\", \"expose\"))` returns it as its CreateTaskResult, and `callToolOutcome` returns `{kind: complete, result}` or `{kind: task, task}`"
+	case "cpp":
+		calls = "`call_tool` waits for a modern server's task; `call_tool(name, args, {\"taskHandling\": \"expose\"})` returns it as its CreateTaskResult, and `call_tool_outcome` returns `{kind: complete, result}` or `{kind: task, task}`"
+	case "rust":
+		calls = "`call_tool` waits for a modern server's task; `call_tool_with_task_handling(name, args, AxMCPTaskHandling::Expose)` returns it as its CreateTaskResult, and `call_tool_outcome` returns `AxMCPToolCallOutcome::Complete` or `AxMCPToolCallOutcome::Task`"
+	default:
+		calls = "A tool call waits for a modern server's task by default, can expose it as its CreateTaskResult, or can return the call's outcome"
+	}
+	return calls + ", as TypeScript's callTool taskHandling and callToolOutcome. A legacy server's task-shaped result is a complete result."
+}
+
 func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 	sym := func(canonical, kind, description string, options []string, returns string) APIReferenceSymbol {
 		publicName := apiReferencePublicName(target, canonical)
@@ -1201,7 +1222,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Title:   "MCP",
 			Summary: "Use MCP clients and transports while keeping JSON-RPC lifecycle, tools, prompts, resources, OAuth, cancellation, and SSRF checks aligned.",
 			Symbols: []APIReferenceSymbol{
-				sym("AxMCPClient", "type", "MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions.", []string{"transport", "client info", "roots", "tool overrides", "host tool authorization"}, "MCP client"),
+				sym("AxMCPClient", "type", "MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions. "+mcpTaskHandlingDescription(target), []string{"transport", "client info", "roots", "tool overrides", "host tool authorization", "task handling (await or expose)", "tool call outcome"}, "MCP client"),
 				sym("AxMCPStreamableHTTPTransport", "type", "Streamable HTTP transport with session headers, OAuth options, and SSRF protection.", []string{"endpoint", "headers", "OAuth", "SSRF protection"}, "MCP transport"),
 				sym("AxMCPWebSocketTransport", "type", "WebSocket transport with request-local pending ownership, send failure cleanup, cancellation, and close settlement. Batching requires MCP 2025-03-26.", []string{"URL", "socket factory", "protocol version"}, "MCP transport"),
 				sym("AxMCPStdioTransport", "type", "Stdio transport with JSON-RPC framing for local MCP servers.", []string{"command", "args", "env"}, "MCP transport"),
@@ -2014,8 +2035,10 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axmcp", "mcp", "mrtr_roots", "transport-boundary"},
 		{"axmcp", "mcp", "mrtr_elicitation", "transport-boundary"},
 		{"axmcp", "mcp", "tool_authorization", "transport-boundary"},
+		{"axmcp", "mcp", "tool_task_handling", "transport-boundary"},
 		{"axmcp", "mcp", "mrtr_violations", "semantic"},
 		{"axmcp", "mcp", "subscriptions_listen", "transport-boundary"},
+		{"axmcp", "mcp", "task_listen_restart", "transport-boundary"},
 		{"axmcp", "mcp", "ping", "transport-boundary"},
 		{"axmcp", "mcp", "tools", "semantic"},
 		{"axmcp", "mcp", "prompts_resources", "semantic"},

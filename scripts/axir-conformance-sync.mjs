@@ -520,6 +520,12 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(
       repoRoot,
       tempRoot,
+      'mcp-task-handling-goldens.ts',
+      'AxMCP'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
       'optimize-goldens.ts',
       'AxOptimize'
     );
