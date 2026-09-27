@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { AxAIOpenAIModel } from '../ai/openai/chat_types.js';
+import { AxAIOpenAIResponsesModel } from '../ai/openai/responses_types.js';
 import { ai } from '../ai/wrap.js';
 import { AxGen } from './generate.js';
 
@@ -52,7 +54,7 @@ describe('AxGen service options reach the provider request', () => {
     const service = ai({
       name: 'openai-responses',
       apiKey: 'test',
-      config: { model: 'gpt-5.4-mini' },
+      config: { model: AxAIOpenAIResponsesModel.GPT54Mini },
       options: { fetch: fetchFn },
     });
     const gen = new AxGen('question:string -> answer:string', {
@@ -75,7 +77,7 @@ describe('AxGen service options reach the provider request', () => {
     const service = ai({
       name: 'openai',
       apiKey: 'test',
-      config: { model: 'gpt-5.4-mini' },
+      config: { model: AxAIOpenAIModel.GPT54Mini },
       options: { fetch: fetchFn, corsProxy: 'https://service.proxy/p' },
     });
     const request = { chatPrompt: [{ role: 'user' as const, content: 'hi' }] };
@@ -96,7 +98,7 @@ describe('AxGen service options reach the provider request', () => {
     const provider = ai({
       name: 'openai',
       apiKey: 'test',
-      config: { model: 'gpt-5.4-mini' },
+      config: { model: AxAIOpenAIModel.GPT54Mini },
       options: { fetch: service.fetchFn },
     });
     const request = { chatPrompt: [{ role: 'user' as const, content: 'hi' }] };
@@ -116,7 +118,7 @@ describe('AxGen service options reach the provider request', () => {
     const provider = ai({
       name: 'openai',
       apiKey: 'test',
-      config: { model: 'gpt-5.4-mini' },
+      config: { model: AxAIOpenAIModel.GPT54Mini },
       options: { fetch: hanging },
     });
     await expect(
@@ -132,7 +134,7 @@ describe('AxGen service options reach the provider request', () => {
     const service = ai({
       name: 'openai',
       apiKey: 'test',
-      config: { model: 'gpt-5.4-mini' },
+      config: { model: AxAIOpenAIModel.GPT54Mini },
       options: { fetch: fetchFn },
     });
     const gen = new AxGen('question:string -> answer:string', {

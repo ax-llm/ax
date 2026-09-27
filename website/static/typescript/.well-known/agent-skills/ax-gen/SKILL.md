@@ -303,9 +303,18 @@ Rules:
   `sampleCount`, `showThoughts`, `thinkingTokenBudget`, `stepHooks`,
   `onFunctionCall`, `disableMemoryCleanup`, `selfTuning`, `asyncMode`,
   `resultPicker` and `strictMode`, as well as the options that always had a
-  fallback, such as `maxRetries` and `maxSteps`. `modelConfig` merges key by
-  key: the constructor's `{ temperature: 0.2 }` with the call's
-  `{ maxTokens: 500 }` sends both.
+  fallback, such as `maxRetries` and `maxSteps`. It also covers:
+  - the run options `control`, `stream`, `sessionId`, `abortSignal`,
+    `timeout`, `fetch`, `webSocket`, `traceContext`, `executionPath`,
+    `eventContext` and `speech`;
+  - the service options `serviceTier`, `verbose`, `beta`, `corsProxy`,
+    `includeRequestBodyInErrors`, `promptCacheRetention` and
+    `excludeContentFromTrace`, which reach the provider's chat call.
+
+  `modelConfig` and `customLabels` merge key by key: the constructor's
+  `{ temperature: 0.2 }` with the call's `{ maxTokens: 500 }` sends both.
+- A run `control` given to the constructor applies to every forward of that
+  `AxGen` and, like a call's control, skips the cache.
 
 ## Sampling And Result Picker
 

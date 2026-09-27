@@ -545,7 +545,11 @@ describe('AxAgentContextMap update options', () => {
         calls.push('chat');
         return {
           results: [
-            { index: 0, content: 'Diagnosis: ok', finishReason: 'stop' },
+            {
+              index: 0,
+              content: 'Diagnosis: ok',
+              finishReason: 'stop' as const,
+            },
           ],
         };
       },
