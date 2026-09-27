@@ -2498,6 +2498,30 @@
       "verification": "Seven TS-derived axai fixtures (provider-error-*; new runner keys api_key, expected_error_excludes and expected_error_request in all five runners) fail on main in Python and Java (7/7 each: the error carried the fixture's API key) and pass in all five ports; canary fixtures prove the key check bites in every runner. TS src/ax/util/apicall.test.ts pins that request headers never reach status, auth, retried or network errors. Go TestRealtimeDialErrorOmitsURLQuery and Rust realtime_connect_errors_mask_the_url_query pin the masked ?key= query. npm run axir:conformance:check and per-target verify --mode release."
     },
     {
+      "id": "axir-2026-09-27-provider-errors-part-2",
+      "status": "done",
+      "title": "Build every provider error request from one Core view; TS body non-enumerable; Go and C++ keep url and body",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "e6b1100e2",
+      "tsPaths": [
+        "src/ax/util/apicall.ts",
+        "src/ax/util/apicall.test.ts",
+        "src/ax/ai/types.ts",
+        "src/ax/ai/provider_profiles.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TS kept requestBody enumerable with includeRequestBodyInErrors false (JSON.stringify showed it); the ports built error requests in each template and the normalizer stored whatever call it was given (headers included); Go and C++ errors kept no url or body; the ports carried an unused api_key_query auth that would put keys in URLs; the Gemini Live key was not URL-encoded; Go stream 4xx errors carried the raw JSON body as their message; the Go and Rust ai_error runners ignored transport expectations.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "e6b1100e2",
+      "verification": "TS: apicall.test.ts pins requestBody non-enumerable (out of JSON.stringify, spread, Object.keys, toString, stack) when includeRequestBodyInErrors is false and serialized by default. AxIR: @ai_error_request builds every error request (the normalizer and the ai.error auth/timeout/status intrinsics use it); axai/provider-error-request-view (9 view cases) and provider-error-normalizer-drops-headers (normalizer given a raw call with Authorization, x-api-key and x-goog-api-key) pass in all five ports; Go and C++ AxError keep url and body (the part-1 provider-error fixtures now check them there); intrinsic.url.encode_component encodes the Gemini Live key (axai/gemini-live-ws-url-encodes-key); the ports and IR drop api_key_query and the profile generator rejects api-key-query; Go stream 4xx errors carry the provider message (TestStreamHTTPErrorCarriesProviderMessage); the Go and Rust ai_error runners enforce transport expectations (perturbed fixtures fail) and every runner passes fixture options as call options. axai 435/435 in each port; verify --mode release."
+    },
+    {
       "id": "axir-2026-09-27-render-axgen-audio-output-fields-through-speak-in-the-ports",
       "status": "done",
       "title": "Render AxGen audio output fields through speak() in the ports",

@@ -3127,18 +3127,6 @@ impl OpenAICompatibleClient {
             .get("auth")
             .and_then(Value::as_str)
             .unwrap_or("bearer");
-        if auth == "api_key_query" {
-            let key_name = descriptor
-                .get("apiKeyQuery")
-                .and_then(Value::as_str)
-                .unwrap_or("key");
-            let separator = if path.contains('?') { "&" } else { "?" };
-            path = format!(
-                "{path}{separator}{}={}",
-                url_component_escape(key_name),
-                url_component_escape(&self.api_key)
-            );
-        }
         let base = self.base_url_override.clone().unwrap_or_else(|| {
             descriptor
                 .get("baseUrl")
@@ -14957,6 +14945,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
         "ai_realtime" => run_ai_realtime_fixture(&fixture)?,
         "ai_context_cache" => run_ai_context_cache_fixture(&fixture)?,
+        "ai_error_request" => run_ai_error_request_fixture(&fixture)?,
         "ai_provider_descriptor"
         | "ai_provider_features"
         | "ai_provider_registry"
@@ -16362,7 +16351,7 @@ fn run_ai_support_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 // python: _run_ai_error / _run_ai_unsupported. Dispatches the real client
 // method and matches message, error type, and status on the failure.
 fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
-    let (mut client, _requests, _credential_requests) = fixture_client(fixture)?;
+    let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let default_method = if kind == "ai_unsupported" {
         "transcribe"
     } else {
@@ -16373,10 +16362,10 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
         .and_then(Value::as_str)
         .unwrap_or(default_method);
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
-    // Fixture "options" are the call options when service_options configure the client.
+    // Fixture "options" are the call options, as for ai_chat and ai_stream.
     let call_options = fixture
-        .get("service_options")
-        .and(fixture.get("options"))
+        .get("options")
+        .filter(|options| options.is_object())
         .cloned();
     let result: AxResult<Value> = match (method, call_options) {
         ("stream", Some(options)) => client
@@ -16392,9 +16381,15 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     let Err(err) = result else {
         return Err(AxError::new("fixture", "expected AxAI call to fail"));
     };
-    // Rust AI errors keep no request (AxError has no request field), so there is
-    // no expected_error_request to compare; this text check still fails if
-    // anything the error carries holds a secret or, where excluded, the body.
+    expect_ai_error_attributes(&err, fixture)?;
+    expect_transport_request_subset(fixture, &requests, &credential_requests)
+}
+
+// An AI error's type, status, message, and the strings it must never carry.
+// Rust AI errors keep no request until the next major (AxError has no request
+// field), so expected_error_request has nothing to compare; the text check
+// still fails if anything the error carries holds a secret or an excluded body.
+fn expect_ai_error_attributes(err: &AxError, fixture: &Value) -> AxResult<()> {
     let text = format!(
         "{err}\n{err:?}\n{}",
         serde_json::to_string(&err).unwrap_or_default()
@@ -16446,6 +16441,50 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
                 "fixture",
                 format!("expected status {expected}, got {actual}"),
             ));
+        }
+    }
+    Ok(())
+}
+
+// Core's error-request view called directly ("view"), and the provider error
+// normalizer given a raw call ("normalize").
+fn run_ai_error_request_fixture(fixture: &Value) -> AxResult<()> {
+    let operation = fixture
+        .get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or("view");
+    let cases = fixture
+        .get("cases")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for (index, case) in cases.iter().enumerate() {
+        let arg = |key: &str| core_value_from_json(case.get(key).unwrap_or(&Value::Null));
+        match operation {
+            "view" => {
+                let actual =
+                    core_value_to_json(&_ai_error_request(&[arg("call"), arg("options")])?);
+                expect_json_equal(
+                    &format!("error request view case {index}"),
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            "normalize" => {
+                let error = openai_normalize_error(&[
+                    arg("status"),
+                    arg("body"),
+                    arg("call"),
+                    arg("options"),
+                ])?;
+                expect_ai_error_attributes(&core_as_error(&error), case)?;
+            }
+            _ => {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("unsupported error-request operation {operation}"),
+                ))
+            }
         }
     }
     Ok(())
@@ -25193,6 +25232,38 @@ fn run_ai_realtime_fixture(fixture: &Value) -> AxResult<()> {
 
 fn run_ai_realtime_fixture_inner(client: &OpenAICompatibleClient, fixture: &Value) -> AxResult<()> {
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
+    if let Some(expected) = fixture.get("expected_ws_url") {
+        let provider = fixture
+            .get("provider")
+            .and_then(Value::as_str)
+            .unwrap_or("openai");
+        let profile = provider_normalize_profile(&[CoreValue::from(provider)])?;
+        let model = fixture
+            .get("model")
+            .or_else(|| request.get("model"))
+            .cloned()
+            .unwrap_or_else(|| json!(""));
+        let key = fixture
+            .get("api_key")
+            .cloned()
+            .unwrap_or_else(|| json!("test-key"));
+        let options = fixture
+            .get("service_options")
+            .or_else(|| fixture.get("options"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let target = core_value_to_json(&provider_realtime_ws_url(&[
+            profile,
+            core_value_from_json(&model),
+            core_value_from_json(&key),
+            core_value_from_json(&options),
+        ])?);
+        expect_json_equal(
+            "realtime WebSocket URL",
+            target.get("url").unwrap_or(&Value::Null),
+            expected,
+        )?;
+    }
     if let Some(expected) = fixture.get("expected_setup") {
         expect_json_equal(
             "ai realtime setup",
@@ -27725,6 +27796,24 @@ fn core_media_valid_url_shape(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let v = core_arg(args, 0);
     let ok = v.as_str().is_some() || matches!(&v, CoreValue::Map(m) if m.borrow().contains("url"));
     Ok(CoreValue::Bool(ok))
+}
+
+// JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+// - _ . ! ~ * ' ( ) becomes %XX.
+fn core_url_encode_component(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = match core_arg(args, 0) {
+        CoreValue::Null => String::new(),
+        value => value.text(),
+    };
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    Ok(CoreValue::from(out.as_str()))
 }
 
 fn core_url_valid(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -34474,7 +34563,6 @@ mod request_url_security_tests {
         assert_eq!(descriptor["auth"], "bearer");
         assert_eq!(descriptor["vertex"], true);
         assert!(descriptor.get("apiKeyHeader").is_none());
-        assert!(descriptor.get("apiKeyQuery").is_none());
         Ok(())
     }
 }
@@ -45065,6 +45153,7 @@ fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_status = core_arg(args, 0);
     let mut v_body = core_arg(args, 1);
     let mut v_request = core_arg(args, 2);
+    let mut v_options = core_arg(args, 3);
     let mut v_body_is_object = CoreValue::Null;
     let mut v_body_text = CoreValue::Null;
     let mut v_code = CoreValue::Null;
@@ -45072,6 +45161,7 @@ fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_error = CoreValue::Null;
     let mut v_error_body = CoreValue::Null;
     let mut v_error_is_object = CoreValue::Null;
+    let mut v_error_request = CoreValue::Null;
     let mut v_is_401 = CoreValue::Null;
     let mut v_is_403 = CoreValue::Null;
     let mut v_is_408 = CoreValue::Null;
@@ -45090,6 +45180,7 @@ fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_retry_right = CoreValue::Null;
     let mut v_retry_some = CoreValue::Null;
     let mut v_retryable = CoreValue::Null;
+    v_error_request = _ai_error_request(&[v_request.clone(), v_options.clone()])?;
     v_message = v_body.clone();
     v_code = core_none(&[])?;
     v_body_is_object = core_type_is(&v_body, CoreValue::from("object"));
@@ -45120,7 +45211,7 @@ fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_status.clone(),
             v_code.clone(),
             v_body.clone(),
-            v_request.clone(),
+            v_error_request.clone(),
         ])?;
         return Ok(v_error.clone());
     }
@@ -45133,7 +45224,7 @@ fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_status.clone(),
             v_code.clone(),
             v_body.clone(),
-            v_request.clone(),
+            v_error_request.clone(),
             CoreValue::Bool(true),
         ])?;
         return Ok(v_error.clone());
@@ -45153,7 +45244,7 @@ fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_status.clone(),
         v_code.clone(),
         v_body.clone(),
-        v_request.clone(),
+        v_error_request.clone(),
         v_retryable.clone(),
     ])?;
     return Ok(v_error.clone());
@@ -48879,7 +48970,6 @@ fn provider_resolve_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError>
                 CoreValue::from("auth"),
                 CoreValue::from("bearer"),
             )?;
-            core_map_delete(&[v_descriptor.clone(), CoreValue::from("apiKeyQuery")])?;
             core_map_delete(&[v_descriptor.clone(), CoreValue::from("apiKeyHeader")])?;
             v_operations = core_get(
                 &v_descriptor,
@@ -49174,6 +49264,7 @@ fn provider_realtime_ws_url(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_base_length = CoreValue::Null;
     let mut v_base_override = CoreValue::Null;
     let mut v_descriptor = CoreValue::Null;
+    let mut v_encoded_key = CoreValue::Null;
     let mut v_gemini_url = CoreValue::Null;
     let mut v_grammar = CoreValue::Null;
     let mut v_has_override = CoreValue::Null;
@@ -49198,10 +49289,11 @@ fn provider_realtime_ws_url(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_headers = CoreValue::new_map();
     v_is_gemini = core_eq(&[v_grammar.clone(), CoreValue::from("gemini_live_bidi")])?;
     if core_truthy(&v_is_gemini) {
+        v_encoded_key = core_url_encode_component(&[v_api_key.clone()])?;
         v_gemini_url = core_string_format(&[
             CoreValue::from("{}?key={}"),
             v_base.clone(),
-            v_api_key.clone(),
+            v_encoded_key.clone(),
         ])?;
         core_set(&v_out, CoreValue::from("url"), v_gemini_url.clone())?;
         core_set(&v_out, CoreValue::from("headers"), v_headers.clone())?;
@@ -65956,6 +66048,72 @@ fn _openai_responses_apply_prompt_cache_retention(
         )?;
     }
     return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ai_error_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ai_error_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_data_body = CoreValue::Null;
+    let mut v_flag = CoreValue::Null;
+    let mut v_flag_snake = CoreValue::Null;
+    let mut v_flag_true = CoreValue::Null;
+    let mut v_flag_unset = CoreValue::Null;
+    let mut v_has_data = CoreValue::Null;
+    let mut v_has_json = CoreValue::Null;
+    let mut v_has_url = CoreValue::Null;
+    let mut v_include_body = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_json_body = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_object = CoreValue::Null;
+    let mut v_url = CoreValue::Null;
+    let mut v_view = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_is_object = core_type_is(&v_request, CoreValue::from("object"));
+    v_not_object = core_not(&[v_is_object.clone()])?;
+    if core_truthy(&v_not_object) {
+        return Ok(v_none.clone());
+    }
+    v_view = CoreValue::new_map();
+    v_has_url = core_map_contains(&[v_request.clone(), CoreValue::from("url")])?;
+    if core_truthy(&v_has_url) {
+        v_url = core_get(&v_request, &CoreValue::from("url"), CoreValue::Null);
+        core_set(&v_view, CoreValue::from("url"), v_url.clone())?;
+    }
+    v_flag_snake = core_get(
+        &v_options,
+        &CoreValue::from("include_request_body_in_errors"),
+        CoreValue::Null,
+    );
+    v_flag = core_get(
+        &v_options,
+        &CoreValue::from("includeRequestBodyInErrors"),
+        v_flag_snake.clone(),
+    );
+    v_flag_unset = core_is_none(&[v_flag.clone()])?;
+    v_flag_true = core_truthy_value(&[v_flag.clone()])?;
+    v_include_body = core_or(&[v_flag_unset.clone(), v_flag_true.clone()])?;
+    if core_truthy(&v_include_body) {
+        v_has_json = core_map_contains(&[v_request.clone(), CoreValue::from("json")])?;
+        if core_truthy(&v_has_json) {
+            v_json_body = core_get(&v_request, &CoreValue::from("json"), CoreValue::Null);
+            core_set(&v_view, CoreValue::from("json"), v_json_body.clone())?;
+        }
+        v_has_data = core_map_contains(&[v_request.clone(), CoreValue::from("data")])?;
+        if core_truthy(&v_has_data) {
+            v_data_body = core_get(&v_request, &CoreValue::from("data"), CoreValue::Null);
+            core_set(&v_view, CoreValue::from("data"), v_data_body.clone())?;
+        }
+    }
+    return Ok(v_view.clone());
 }
 
 #[allow(
@@ -125686,7 +125844,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (931 of 931 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (932 of 932 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

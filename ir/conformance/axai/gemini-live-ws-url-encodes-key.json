@@ -1,0 +1,8 @@
+{
+  "api_key": "key with/special&chars=é",
+  "expected_ws_url": "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=key%20with%2Fspecial%26chars%3D%C3%A9",
+  "kind": "ai_realtime",
+  "model": "gemini-3.8-live",
+  "name": "gemini-live-ws-url-encodes-key",
+  "provider": "google-gemini"
+}

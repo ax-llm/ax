@@ -72,6 +72,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.media.valid_file":                      "core_media_valid_file",
 	"intrinsic.media.valid_url_shape":                 "core_media_valid_url_shape",
 	"intrinsic.url.valid":                             "core_url_valid",
+	"intrinsic.url.encode_component":                  "core_url_encode_component",
 	"intrinsic.template.parse":                        "core_template_parse",
 	"intrinsic.template.render_tree":                  "core_template_render_tree",
 	"intrinsic.template.collect_vars":                 "core_template_collect_vars",

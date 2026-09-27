@@ -731,9 +731,9 @@ final class Core {
   static Object aiErrorRefusal(Object message, Object responseBody) { return new AxAIRefusalError(String.valueOf(message), responseBody); }
   static Object aiErrorStream(Object message, Object responseBody, Object retryable) { return new AxAIServiceStreamTerminatedError(String.valueOf(message), responseBody, truthy(retryable)); }
   static Object aiErrorUnsupported(Object message) { return new AxUnsupportedCapabilityError(String.valueOf(message)); }
-  static Object aiErrorAuth(Object message, Object status, Object code, Object responseBody, Object request) { return new AxAIServiceAuthenticationError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request); }
-  static Object aiErrorTimeout(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceTimeoutError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request, truthy(retryable)); }
-  static Object aiErrorStatus(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceStatusError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request, truthy(retryable)); }
+  static Object aiErrorAuth(Object message, Object status, Object code, Object responseBody, Object request) { return new AxAIServiceAuthenticationError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null)); }
+  static Object aiErrorTimeout(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceTimeoutError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null), truthy(retryable)); }
+  static Object aiErrorStatus(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceStatusError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null), truthy(retryable)); }
 
   static Object recordNew(Object name, Object values) {
     Map<String, Object> v = asMap(values);
@@ -835,6 +835,19 @@ final class Core {
     String text = String.valueOf(base).trim();
     if (!text.endsWith(".")) text += ".";
     return text + " " + hint;
+  }
+  // JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+  // - _ . ! ~ * ' ( ) becomes %XX.
+  static Object urlEncodeComponent(Object value) {
+    String text = value == null ? "" : String.valueOf(value);
+    StringBuilder out = new StringBuilder();
+    for (byte raw : text.getBytes(java.nio.charset.StandardCharsets.UTF_8)) {
+      int c = raw & 0xff;
+      boolean alnum = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+      if (alnum || "-_.!~*'()".indexOf(c) >= 0) out.append((char) c);
+      else out.append('%').append("0123456789ABCDEF".charAt(c >> 4)).append("0123456789ABCDEF".charAt(c & 15));
+    }
+    return out.toString();
   }
   static Object urlValid(Object value) { return value instanceof String s && Pattern.compile("^[a-zA-Z][a-zA-Z0-9+.-]*://").matcher(s).find(); }
   static Object validImage(Object value) { return value instanceof Map<?, ?> map && map.containsKey("mimeType") && map.containsKey("data"); }
@@ -6666,8 +6679,9 @@ final class Core {
     return response;
   }
 
-  static Object openai_normalize_error(Object status, Object body, Object request) {
+  static Object openai_normalize_error(Object status, Object body, Object request, Object options) {
     axirCoverageMark("openai_normalize_error");
+    Object error_request = Core._ai_error_request(request, options);
     Object message = body;
     Object code = Core.none();
     Object body_is_object = Core.typeIs(body, "object");
@@ -6690,14 +6704,14 @@ final class Core {
     Object is_403 = Core.eq(status, 403);
     Object is_auth = Core.or(is_401, is_403);
     if (Core.truthy(is_auth)) {
-      Object error = Core.aiErrorAuth(message, status, code, body, request);
+      Object error = Core.aiErrorAuth(message, status, code, body, error_request);
       return error;
     }
     Object is_408 = Core.eq(status, 408);
     Object is_504 = Core.eq(status, 504);
     Object is_timeout = Core.or(is_408, is_504);
     if (Core.truthy(is_timeout)) {
-      Object error = Core.aiErrorTimeout(message, status, code, body, request, Boolean.TRUE);
+      Object error = Core.aiErrorTimeout(message, status, code, body, error_request, Boolean.TRUE);
       return error;
     }
     Object is_429 = Core.eq(status, 429);
@@ -6710,7 +6724,7 @@ final class Core {
     Object retry_some = Core.or(retry_left, retry_right);
     Object retry_more = Core.or(retry_some, is_504);
     Object retryable = Core.or(retry_more, is_529);
-    Object error = Core.aiErrorStatus(message, status, code, body, request, retryable);
+    Object error = Core.aiErrorStatus(message, status, code, body, error_request, retryable);
     return error;
   }
 
@@ -8370,7 +8384,6 @@ final class Core {
         }
         Core.set(descriptor, "baseUrl", base_url);
         Core.set(descriptor, "auth", "bearer");
-        Core.mapDelete(descriptor, "apiKeyQuery");
         Core.mapDelete(descriptor, "apiKeyHeader");
         Object operations = Core.get(descriptor, "operations", null);
         Object resource_parent = Core.stringFormat("projects/{}/locations/{}", project, region);
@@ -8489,7 +8502,8 @@ final class Core {
     Object headers = new java.util.LinkedHashMap<String, Object>();
     Object is_gemini = Core.eq(grammar, "gemini_live_bidi");
     if (Core.truthy(is_gemini)) {
-      Object gemini_url = Core.stringFormat("{}?key={}", base, api_key);
+      Object encoded_key = Core.urlEncodeComponent(api_key);
+      Object gemini_url = Core.stringFormat("{}?key={}", base, encoded_key);
       Core.set(out, "url", gemini_url);
       Core.set(out, "headers", headers);
       return out;
@@ -15916,6 +15930,40 @@ final class Core {
       Core.set(payload, "prompt_cache_retention", retention);
     }
     return payload;
+  }
+
+  static Object _ai_error_request(Object request, Object options) {
+    axirCoverageMark("_ai_error_request");
+    Object none = Core.none();
+    Object is_object = Core.typeIs(request, "object");
+    Object not_object = Core.not(is_object);
+    if (Core.truthy(not_object)) {
+      return none;
+    }
+    Object view = new java.util.LinkedHashMap<String, Object>();
+    Object has_url = Core.mapContains(request, "url");
+    if (Core.truthy(has_url)) {
+      Object url = Core.get(request, "url", null);
+      Core.set(view, "url", url);
+    }
+    Object flag_snake = Core.get(options, "include_request_body_in_errors", null);
+    Object flag = Core.get(options, "includeRequestBodyInErrors", flag_snake);
+    Object flag_unset = Core.isNone(flag);
+    Object flag_true = Core.truthyValue(flag);
+    Object include_body = Core.or(flag_unset, flag_true);
+    if (Core.truthy(include_body)) {
+      Object has_json = Core.mapContains(request, "json");
+      if (Core.truthy(has_json)) {
+        Object json_body = Core.get(request, "json", null);
+        Core.set(view, "json", json_body);
+      }
+      Object has_data = Core.mapContains(request, "data");
+      if (Core.truthy(has_data)) {
+        Object data_body = Core.get(request, "data", null);
+        Core.set(view, "data", data_body);
+      }
+    }
+    return view;
   }
 
   static Object chat_session_mode_enabled(Object options) {

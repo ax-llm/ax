@@ -44,6 +44,7 @@ import {
   AxAIServiceResponseError,
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
+  apiCall,
 } from '../../../src/ax/util/apicall.js';
 import {
   goldenValue,
@@ -13885,3 +13886,175 @@ for (const [name, chatPrompt] of [
     expected_error_contains: await tsChatPromptError([...chatPrompt]),
   });
 }
+
+// Core owns the request a provider error keeps (@ai_error_request), and the
+// normalizer and the request-carrying ai.error intrinsics build every error
+// from it, so no call site can hand a raw transport call (headers included) to
+// an error. "view" calls the op directly; "normalize" gives the normalizer the
+// raw call. The URL and body come from TypeScript's AxAIServiceError for the
+// same request (apiCall with a rejecting fetch); the snake_case flag, the
+// multipart `data` body, the body-less GET and a non-object call are the ports'
+// own request shapes, which TypeScript's apiCall has no counterpart for.
+const viewSecret = 'sk-view-secret-3e1f';
+const viewHeaders = {
+  Authorization: `Bearer ${viewSecret}`,
+  'x-api-key': viewSecret,
+  'x-goog-api-key': viewSecret,
+};
+const viewUrl = 'https://api.openai.com/v1/chat/completions';
+const viewBody = {
+  model: AxAIOpenAIModel.GPT54Mini,
+  messages: [{ role: 'user', content: errorBodyMarker }],
+};
+async function tsApiCallError(
+  status: number,
+  includeRequestBodyInErrors?: boolean
+) {
+  const error = await apiCall(
+    {
+      url: viewUrl,
+      headers: viewHeaders,
+      fetch: (async () =>
+        Response.json(errorResponse(status).json, {
+          status,
+        })) as typeof globalThis.fetch,
+      retry: { maxRetries: 0 },
+      ...(includeRequestBodyInErrors === undefined
+        ? {}
+        : { includeRequestBodyInErrors }),
+    },
+    viewBody
+  ).catch((e: unknown) => e);
+  if (!(error instanceof AxAIServiceError)) {
+    throw new Error('TS apiCall did not fail with an AxAIServiceError');
+  }
+  const printed = `${String(error)}\n${JSON.stringify(error)}`;
+  if (printed.includes(viewSecret)) {
+    throw new Error('the TS error carries a request header');
+  }
+  // The view is what TypeScript's error keeps where it can be read or logged:
+  // the URL, and the body when includeRequestBodyInErrors lets it show.
+  const view: Record<string, Json> = { url: error.url };
+  if (printed.includes(errorBodyMarker)) {
+    view.json = error.requestBody as Json;
+  }
+  return { error, view };
+}
+const viewCall = (extra: Record<string, Json> = {}) => ({
+  method: 'POST',
+  url: viewUrl,
+  headers: viewHeaders,
+  json: viewBody,
+  stream: false,
+  ...extra,
+});
+const tsDefaultView = (await tsApiCallError(400)).view;
+const tsNoBodyView = (await tsApiCallError(400, false)).view;
+if (!('json' in tsDefaultView) || 'json' in tsNoBodyView) {
+  throw new Error('TS error body does not follow includeRequestBodyInErrors');
+}
+writeFixture('provider-error-request-view', {
+  kind: 'ai_error_request',
+  operation: 'view',
+  cases: [
+    { call: viewCall(), expected: tsDefaultView },
+    {
+      call: viewCall(),
+      options: { includeRequestBodyInErrors: true },
+      expected: tsDefaultView,
+    },
+    {
+      call: viewCall(),
+      options: { includeRequestBodyInErrors: false },
+      expected: tsNoBodyView,
+    },
+    {
+      call: viewCall(),
+      options: { include_request_body_in_errors: false },
+      expected: tsNoBodyView,
+    },
+    {
+      call: viewCall(),
+      options: {
+        includeRequestBodyInErrors: true,
+        include_request_body_in_errors: false,
+      },
+      expected: tsDefaultView,
+    },
+    {
+      call: {
+        method: 'POST',
+        url: 'https://api.openai.com/v1/audio/transcriptions',
+        headers: viewHeaders,
+        data: { model: 'whisper-1', file: errorBodyMarker },
+      },
+      expected: {
+        url: 'https://api.openai.com/v1/audio/transcriptions',
+        data: { model: 'whisper-1', file: errorBodyMarker },
+      },
+    },
+    {
+      call: {
+        method: 'GET',
+        url: 'https://api.typesafe.ai/v1/models',
+        headers: viewHeaders,
+      },
+      expected: { url: 'https://api.typesafe.ai/v1/models' },
+    },
+    { call: { headers: viewHeaders }, expected: {} },
+    { call: null, expected: null },
+  ],
+});
+
+const normalizeCase = (
+  status: number,
+  tsResult: Awaited<ReturnType<typeof tsApiCallError>>,
+  options?: Record<string, Json>,
+  errorType?: string
+) => ({
+  status,
+  body: errorResponse(status).json,
+  call: viewCall(),
+  ...(options ? { options } : {}),
+  expected_error_type: errorType ?? tsResult.error.name,
+  expected_status: status,
+  expected_error_excludes:
+    'json' in tsResult.view ? [viewSecret] : [viewSecret, errorBodyMarker],
+  expected_error_request: tsResult.view,
+});
+writeFixture('provider-error-normalizer-drops-headers', {
+  kind: 'ai_error_request',
+  operation: 'normalize',
+  cases: [
+    normalizeCase(400, await tsApiCallError(400)),
+    normalizeCase(401, await tsApiCallError(401)),
+    normalizeCase(400, await tsApiCallError(400, false), {
+      includeRequestBodyInErrors: false,
+    }),
+    // The ports map 408 and 504 to AxAIServiceTimeoutError (TypeScript keeps a
+    // status error), which pins the timeout intrinsic with a raw call too.
+    normalizeCase(
+      504,
+      await tsApiCallError(504, false),
+      { includeRequestBodyInErrors: false },
+      'AxAIServiceTimeoutError'
+    ),
+  ],
+});
+
+// Gemini Live takes the API key in its WebSocket URL, and TypeScript encodes it
+// with encodeURIComponent (src/ax/ai/google-gemini/live_audio.ts).
+const liveKey = 'key with/special&chars=é';
+const liveDescriptor = JSON.parse(
+  readFileSync(
+    join(process.cwd(), 'ir/axcore/data/provider-descriptors.json'),
+    'utf8'
+  )
+)['google-gemini'].operations.realtime as { url: string };
+writeFixture('gemini-live-ws-url-encodes-key', {
+  kind: 'ai_realtime',
+  provider: 'google-gemini',
+  model: 'gemini-3.8-live',
+  api_key: liveKey,
+  expected_ws_url: `${liveDescriptor.url}?key=${encodeURIComponent(liveKey)}`,
+});

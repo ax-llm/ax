@@ -17,6 +17,7 @@ from .ai import AnthropicClient, AxAIRefusalError, AxAIServiceAbortedError, AxAI
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import openai_responses_transport_cursor, openai_responses_session_event, _wire_json_body
 from .ai import _snapshot_global_caching_function, set_caching_function
+from .ai import _ai_error_request, openai_normalize_error, provider_realtime_ws_url
 from .ai import _core_ai_capture_warnings
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
@@ -660,6 +661,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_realtime(fixture)
         elif kind == "ai_context_cache":
             _run_ai_context_cache(fixture)
+        elif kind == "ai_error_request":
+            _run_ai_error_request(fixture)
         elif kind == "agent_forward":
             _run_agent_forward(fixture)
         elif kind == "agent_streaming_forward":
@@ -3506,6 +3509,25 @@ def _assert_error_attributes(exc, fixture):
         _assert_subset(request, expected, "error request")
 
 
+def _run_ai_error_request(fixture):
+    # Core's error-request view called directly ("view"), and the provider
+    # error normalizer given a raw call ("normalize").
+    operation = fixture.get("operation", "view")
+    for index, case in enumerate(fixture.get("cases") or []):
+        if operation == "view":
+            _assert_equal(_ai_error_request(case.get("call"), case.get("options")), case.get("expected"), f"error request view case {index}")
+        elif operation == "normalize":
+            error = openai_normalize_error(case["status"], case.get("body"), case.get("call"), case.get("options"))
+            expected_type = case.get("expected_error_type")
+            if expected_type and type(error).__name__ != expected_type:
+                raise FixtureError(f"case {index}: expected error type {expected_type}, got {type(error).__name__}")
+            if "expected_status" in case and getattr(error, "status", None) != case["expected_status"]:
+                raise FixtureError(f"case {index}: expected status {case['expected_status']}, got {getattr(error, 'status', None)}")
+            _assert_error_attributes(error, case)
+        else:
+            raise FixtureError(f"unsupported error-request operation {operation!r}")
+
+
 def _run_ai_unsupported(fixture):
     client, _ = _openai_fixture_client(fixture)
     method = getattr(client, fixture.get("method", "transcribe"))
@@ -3773,6 +3795,10 @@ def _run_ai_realtime(fixture):
     client, _ = _openai_fixture_client(fixture)
     try:
         request = fixture.get("request") or {}
+        if "expected_ws_url" in fixture:
+            # Core's realtime WebSocket URL for the fixture's key (Gemini Live puts it in ?key=).
+            target = provider_realtime_ws_url(provider_normalize_profile(str(fixture.get("provider", "openai"))), str(fixture.get("model") or request.get("model") or ""), fixture.get("api_key", "test-key"), fixture.get("service_options") or fixture.get("options") or {})
+            _assert_equal(target.get("url"), fixture["expected_ws_url"], "realtime WebSocket URL")
         if "expected_setup" in fixture:
             _assert_equal(client.realtime_audio_setup(request), fixture["expected_setup"], "ai realtime setup")
         if "expected_input" in fixture:

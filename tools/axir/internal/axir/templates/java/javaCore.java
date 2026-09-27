@@ -731,9 +731,9 @@ final class Core {
   static Object aiErrorRefusal(Object message, Object responseBody) { return new AxAIRefusalError(String.valueOf(message), responseBody); }
   static Object aiErrorStream(Object message, Object responseBody, Object retryable) { return new AxAIServiceStreamTerminatedError(String.valueOf(message), responseBody, truthy(retryable)); }
   static Object aiErrorUnsupported(Object message) { return new AxUnsupportedCapabilityError(String.valueOf(message)); }
-  static Object aiErrorAuth(Object message, Object status, Object code, Object responseBody, Object request) { return new AxAIServiceAuthenticationError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request); }
-  static Object aiErrorTimeout(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceTimeoutError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request, truthy(retryable)); }
-  static Object aiErrorStatus(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceStatusError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request, truthy(retryable)); }
+  static Object aiErrorAuth(Object message, Object status, Object code, Object responseBody, Object request) { return new AxAIServiceAuthenticationError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null)); }
+  static Object aiErrorTimeout(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceTimeoutError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null), truthy(retryable)); }
+  static Object aiErrorStatus(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceStatusError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null), truthy(retryable)); }
 
   static Object recordNew(Object name, Object values) {
     Map<String, Object> v = asMap(values);
@@ -835,6 +835,19 @@ final class Core {
     String text = String.valueOf(base).trim();
     if (!text.endsWith(".")) text += ".";
     return text + " " + hint;
+  }
+  // JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+  // - _ . ! ~ * ' ( ) becomes %XX.
+  static Object urlEncodeComponent(Object value) {
+    String text = value == null ? "" : String.valueOf(value);
+    StringBuilder out = new StringBuilder();
+    for (byte raw : text.getBytes(java.nio.charset.StandardCharsets.UTF_8)) {
+      int c = raw & 0xff;
+      boolean alnum = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+      if (alnum || "-_.!~*'()".indexOf(c) >= 0) out.append((char) c);
+      else out.append('%').append("0123456789ABCDEF".charAt(c >> 4)).append("0123456789ABCDEF".charAt(c & 15));
+    }
+    return out.toString();
   }
   static Object urlValid(Object value) { return value instanceof String s && Pattern.compile("^[a-zA-Z][a-zA-Z0-9+.-]*://").matcher(s).find(); }
   static Object validImage(Object value) { return value instanceof Map<?, ?> map && map.containsKey("mimeType") && map.containsKey("data"); }
