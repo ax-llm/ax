@@ -380,6 +380,8 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicStringExtractSuf:          "Core.stringExtractQuotedSuffix",
 	IntrinsicStringSplit:               "Core.stringSplit",
 	IntrinsicStringStartsWith:          "Core.stringStartsWith",
+	IntrinsicStringDropHighSurrogate:   "Core.stringDropTrailingHighSurrogate",
+	IntrinsicStringConcatStreamText:    "Core.stringConcatStreamText",
 	IntrinsicStringStr:                 "Core.stringStr",
 	IntrinsicRegexReplace:              "Core.regexReplace",
 	IntrinsicSortedStrings:             "Core.sortedStrings",

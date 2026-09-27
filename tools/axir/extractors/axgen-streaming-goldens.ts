@@ -300,6 +300,9 @@ type Case = {
   full_error?: boolean;
   // Pin this many messages at the end of the last request's prompt.
   request_tail?: number;
+  // The chunks split a surrogate pair, which only runners whose strings can
+  // hold a lone surrogate (UTF-16 or code points) can represent.
+  requires_lone_surrogates?: boolean;
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -402,6 +405,7 @@ async function record(name: string, spec: Case): Promise<void> {
     'streaming_processors',
     'result_picker_index',
     'stop_functions',
+    'requires_lone_surrogates',
     'control',
     'stop_after_deltas',
   ] as const) {
@@ -949,6 +953,14 @@ const cases: Record<string, Case> = {
       streamed(text('Answer: dra'), done('ft')),
       streamed(text('Answer: final'), done()),
     ],
+  },
+
+  // A provider can split a surrogate pair across stream events: no delta
+  // holds half of the character, and the answer joins it back.
+  'streaming-forward-split-surrogate-pair': {
+    signature: 'question:string -> answer:string',
+    requires_lone_surrogates: true,
+    responses: [streamed(text('Answer: hi \uD83D'), done('\uDE00 there'))],
   },
 
   // Feedback a streaming processor returns mid-stream waits for the end of

@@ -531,9 +531,16 @@ def run_fixture_path(path):
     return run_fixture(data, source=str(path))
 
 
+# Python strings hold code points, so a lone surrogate (half of a pair a
+# provider split across stream events) is representable here.
+SUPPORTS_LONE_SURROGATES = True
+
+
 def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
     name = fixture.get("name") or source or "<fixture>"
     kind = fixture.get("kind", "forward")
+    if fixture.get("requires_lone_surrogates") and not SUPPORTS_LONE_SURROGATES:
+        return {"name": name, "ok": True, "skipped": "requires lone surrogates (utf-8 runner)"}
     try:
         if kind == "signature_error":
             _run_signature_error(fixture)
@@ -3665,7 +3672,10 @@ def main(argv=None):
     if not argv:
         raise SystemExit("usage: python -m axllm.conformance <fixture-or-dir>...")
     for result in run_fixtures(argv):
-        print("ok", result["name"])
+        if result.get("skipped"):
+            print(f"skip {result['name']}: {result['skipped']}")
+        else:
+            print("ok", result["name"])
 
 
 

@@ -829,6 +829,25 @@ def _core_string_utf16_units(value):
 
 def _core_string_codepoint_length(value): return len(value)
 
+
+def _core_string_concat_stream_text(left, right):
+    # Streamed text appends chunk by chunk; a surrogate pair split across two
+    # chunks joins back into one character, as it does in a UTF-16 string.
+    left, right = str(left), str(right)
+    if left and right and "\ud800" <= left[-1] <= "\udbff" and "\udc00" <= right[0] <= "\udfff":
+        joined = chr(0x10000 + ((ord(left[-1]) - 0xD800) << 10) + (ord(right[0]) - 0xDC00))
+        return left[:-1] + joined + right[1:]
+    return left + right
+
+
+def _core_string_drop_trailing_high_surrogate(value):
+    # A str can end in half of a surrogate pair when a provider split the
+    # pair across stream events.
+    text = str(value)
+    if text and "\ud800" <= text[-1] <= "\udbff":
+        return text[:-1]
+    return text
+
 def _core_math_is_finite(value): return math.isfinite(value)
 
 def _core_len(value): return len(value)
