@@ -1,0 +1,47 @@
+{
+  "cache_in": "constructor",
+  "calls": [
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "forward"
+    },
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "forward"
+    }
+  ],
+  "expected_cache_gets": 2,
+  "expected_cache_sets": [
+    {
+      "answer": "Paris"
+    }
+  ],
+  "expected_deltas": [null, null],
+  "expected_outputs": [
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "Paris"
+    }
+  ],
+  "expected_request_count": 1,
+  "expected_requests": [1, 0],
+  "kind": "cache_sequence",
+  "name": "cache-constructor-option",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: Paris",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -1,0 +1,81 @@
+{
+  "calls": [
+    {
+      "forward_options": {
+        "sample_count": 2
+      },
+      "input": {
+        "question": "Pick one"
+      },
+      "kind": "streaming_forward"
+    },
+    {
+      "input": {
+        "question": "Pick one"
+      },
+      "kind": "forward"
+    }
+  ],
+  "expected_cache_gets": 2,
+  "expected_cache_sets": [
+    {
+      "answer": "second"
+    }
+  ],
+  "expected_deltas": [
+    [
+      {
+        "delta": {
+          "answer": "second"
+        },
+        "index": 1,
+        "version": 0
+      }
+    ],
+    null
+  ],
+  "expected_outputs": [
+    {
+      "answer": "second"
+    },
+    {
+      "answer": "second"
+    }
+  ],
+  "expected_request_count": 1,
+  "expected_requests": [1, 0],
+  "kind": "cache_sequence",
+  "name": "cache-streaming-store-with-picker",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: first",
+              "index": 0
+            },
+            {
+              "content": "Answer: second",
+              "index": 1
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            },
+            {
+              "finish_reason": "stop",
+              "index": 1
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "result_picker_index": 1,
+  "signature": "question:string -> answer:string"
+}
