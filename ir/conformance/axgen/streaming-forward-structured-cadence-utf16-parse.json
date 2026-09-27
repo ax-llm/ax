@@ -1,0 +1,68 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "user": {
+          "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "user": {
+          "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "user": {
+      "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    }
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-structured-cadence-utf16-parse",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "{\"user\":{\"name\":\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "😀😀😀😀😀😀😀😀😀😀\"}}",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string}"
+}

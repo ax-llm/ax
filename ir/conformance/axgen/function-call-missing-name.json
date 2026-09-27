@@ -1,59 +1,55 @@
 {
-  "name": "function-call-missing-name",
-  "kind": "forward",
-  "signature": "query:string -> answer:string",
-  "input": {
-    "query": "ax docs"
+  "expected_error_cause_contains": "Function call at index 0 in result 0 must have a non-empty function name, received: undefined",
+  "expected_error_contains": "Generate failed: Function call at index 0 in result 0 must have a non-empty function name, received: undefined",
+  "expected_request_count": 1,
+  "expected_tool_calls": [],
+  "forward_options": {
+    "function_call_validation": "fail"
   },
-  "tools": [
-    {
-      "args": {
-        "query": {
-          "type": "string"
-        }
-      },
-      "description": "Search docs",
-      "name": "search",
-      "result": {
-        "title": "Docs"
-      },
-      "returns": {
-        "title": {
-          "type": "string"
-        }
-      }
-    }
-  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "function-call-missing-name",
   "responses": [
     {
       "results": [
         {
-          "index": 0,
           "content": "",
+          "finish_reason": "function_call",
           "function_calls": [
             {
-              "id": "call_1",
-              "type": "function",
               "function": {
-                "params": {
-                  "query": "ax docs"
-                }
-              }
+                "params": "{\"key\":\"a\"}"
+              },
+              "id": "call_1",
+              "type": "function"
             }
-          ]
+          ],
+          "index": 0
         }
       ]
     },
     {
-      "content": "{\"answer\":\"Docs\"}"
+      "results": [
+        {
+          "content": "Answer: done",
+          "index": 0
+        }
+      ]
     }
   ],
-  "expected_tool_calls": [],
-  "expected_request_contains": [
-    "Available functions: search. Call one of these exact function names."
-  ],
-  "expected_output": {
-    "answer": "Docs"
-  },
-  "expected_request_count": 2
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
 }

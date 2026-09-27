@@ -1,7 +1,7 @@
 pub mod mcp;
 mod session;
 pub use session::{run_control, AxRunControl, AxForwardOptions, AxChatSession, AxSessionSocket, AxSessionWebSocketFactory};
-pub use mcp::{event_route, event_target, AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventCorrelationKey, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputPlan, AxEventInvocationContext, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPCatalogSnapshot, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPResourceSubscriptionPolicy, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPWebSocketTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxSystemEventClock, AxUCPBinding, AxUCPClient};
+pub use mcp::{event_route, event_target, AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventCorrelationKey, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputPlan, AxEventInvocationContext, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPCatalogSnapshot, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPResourceSubscriptionPolicy, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPWebSocketTransport, AxMCPStreamableHTTPTransport, AxMCPTaskHandling, AxMCPTokenSet, AxMCPToolCallOutcome, AxMCPTransport, AxSystemEventClock, AxUCPBinding, AxUCPClient};
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -5473,6 +5473,10 @@ pub trait AxExecutableProgram: AxProgram {
     fn get_chat_log(&self) -> Vec<Value> { Vec::new() }
     fn get_traces(&self) -> Vec<Value> { Vec::new() }
     fn get_usage(&self) -> Value { Value::Null }
+    /// The program's signature text, when it has one. A flow step added with
+    /// this program and no reads or writes reads its input fields and writes
+    /// its output fields; without a signature the step is a barrier.
+    fn signature_text(&self) -> Option<String> { None }
 }
 
 // This adapter is borrowed only within forward; no borrowed client crosses a thread boundary.
@@ -5514,6 +5518,7 @@ impl AxExecutableProgram for AxGen {
     fn get_chat_log(&self)->Vec<Value>{self.chat_log.clone()}
     fn get_traces(&self)->Vec<Value>{self.traces.clone()}
     fn get_usage(&self)->Value{json!(self.chat_log.iter().filter_map(|entry|entry.get("usage")).collect::<Vec<_>>())}
+    fn signature_text(&self)->Option<String>{Some(self.signature.to_string())}
 }
 
 impl AxExecutableProgram for AxFlow {
@@ -10870,6 +10875,20 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
             }
         }
     }
+    // expected_deprecations pins the one-time deprecation warnings the run
+    // gives (the ones already shown are forgotten first).
+    if let Some(expected) = fixture.get("expected_deprecations").cloned() {
+        core_axgen_capture_deprecations(true);
+        let result = run_conformance_fixture_kind(fixture);
+        let captured = core_axgen_capture_deprecations(false);
+        result?;
+        let actual = Value::Array(captured.into_iter().map(Value::String).collect());
+        return expect_json_equal("deprecation warnings", &actual, &expected);
+    }
+    run_conformance_fixture_kind(fixture)
+}
+
+fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
     let kind = fixture
         .get("kind")
         .and_then(Value::as_str)
@@ -10884,6 +10903,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "prompt" => run_prompt_fixture(&fixture)?,
         "number_format" => run_number_format_fixture(&fixture)?,
         "json_stringify" => run_json_stringify_fixture(&fixture)?,
+        "string_format" => run_string_format_fixture(&fixture)?,
         "date_field_value" => run_date_field_value_fixture(&fixture)?,
         "date_input" => run_date_input_fixture(&fixture)?,
         "template" => run_template_fixture(&fixture)?,
@@ -11592,14 +11612,24 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
         let agent_options = core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
         let script = fixture.get("runtime_script").and_then(Value::as_array).cloned().unwrap_or_default();
         let language = fixture.get("runtime_language").and_then(Value::as_str).unwrap_or("Python").to_string();
-        let runtime = ScriptedCodeRuntime::new(script, language, String::new());
-        let host = core_code_runtime_host_shared(
-            Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
-            core_runtime_capabilities_full(),
-        );
-        core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        let runtime = ScriptedCodeRuntime::new(script, language.clone(), String::new());
+        // runtime_on_evolve: the other ports' examples pass the runtime on the
+        // evolve call over a runtime descriptor. Rust takes no runtime per call;
+        // its example attaches the runtime with with_runtime over the
+        // descriptor, so the runner does that.
+        let runtime_on_evolve = fixture.get("runtime_on_evolve").and_then(Value::as_bool).unwrap_or(false);
         let signature = fixture.get("signature").and_then(Value::as_str).unwrap_or("question:string -> answer:string");
-        let mut agent = agent_with_core_options(signature, agent_options)?;
+        let mut agent = if runtime_on_evolve {
+            core_set(&agent_options, CoreValue::from("runtime"), core_value_from_json(&json!({"language": language})))?;
+            agent_with_core_options(signature, agent_options)?.with_runtime(Box::new(runtime))?
+        } else {
+            let host = core_code_runtime_host_shared(
+                Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
+                core_runtime_capabilities_full(),
+            );
+            core_set(&agent_options, CoreValue::from("runtime"), host)?;
+            agent_with_core_options(signature, agent_options)?
+        };
         let mut playbook_options = json!({"target":"responder","maxEpochs":1});
         if let (Some(target), Some(extra)) = (playbook_options.as_object_mut(), test_case.get("playbook_options").and_then(Value::as_object)) {
             for (key, value) in extra { target.insert(key.clone(), value.clone()); }
@@ -11689,6 +11719,15 @@ fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_request_count") {
         expect_json_equal("flow request count", &json!(actual["requests"].as_array().map_or(0,Vec::len)), expected)?;
     }
+    if let Some(expected) = fixture.get("expected_request_contains").and_then(Value::as_array) {
+        let text = serde_json::to_string(&actual["requests"]).unwrap_or_default();
+        for item in expected {
+            let needle = item.as_str().map(ToString::to_string).unwrap_or_else(|| item.to_string());
+            if !text.contains(&needle) {
+                return Err(AxError::new("fixture", format!("flow request missing {needle}: {text}")));
+            }
+        }
+    }
     if let Some(expected) = fixture.get("expected_speak_requests") {
         expect_json_equal("speak requests", actual.get("speak_requests").unwrap_or(&json!([])), expected)?;
     }
@@ -11729,7 +11768,11 @@ fn run_flow_mermaid_fixture(fixture: &Value) -> AxResult<()> {
         for step in fixture.get("builder_steps").and_then(Value::as_array).into_iter().flatten() {
             let name = step.get("name").and_then(Value::as_str).unwrap_or("");
             let signature = step.get("signature").and_then(Value::as_str).unwrap_or("");
-            let options = json!({"reads": step.get("reads").cloned().unwrap_or_else(|| json!([]))});
+            // A builder step without "reads" declares none.
+            let options = match step.get("reads") {
+                Some(reads) => json!({"reads": reads}),
+                None => json!({}),
+            };
             built = built.execute_with_options(name, ax(signature)?, &options);
         }
         return expect_json_equal(
@@ -11866,6 +11909,14 @@ fn conformance_flow_mapper_call(spec: &Value, state: &Value) -> Value {
             let val = conformance_flow_state_value(state, from, json!(""));
             let mut out = Map::new();
             out.insert(to.to_string(), json!(val.as_str().unwrap_or("").to_uppercase()));
+            Value::Object(out)
+        }
+        // As the other runners do: the value at "from", stored under "to".
+        "copy" => {
+            let from = map.get("from").and_then(Value::as_str).unwrap_or("");
+            let to = map.get("to").and_then(Value::as_str).unwrap_or("");
+            let mut out = Map::new();
+            out.insert(to.to_string(), conformance_flow_state_value(state, from, Value::Null));
             Value::Object(out)
         }
         _ => map.get("values").cloned().unwrap_or_else(|| json!({})),
@@ -18521,6 +18572,32 @@ fn run_json_stringify_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+// string.format and string.str against JavaScript's text of each case.
+fn run_string_format_fixture(fixture: &Value) -> AxResult<()> {
+    let text = |value: CoreValue| value.as_str().map(str::to_string).unwrap_or_default();
+    for case in fixture.get("format_cases").and_then(Value::as_array).into_iter().flatten() {
+        let template = case.get("template").and_then(Value::as_str).unwrap_or_default();
+        let mut args = vec![CoreValue::from(template)];
+        for arg in case.get("input").and_then(Value::as_array).into_iter().flatten() {
+            args.push(core_value_from_json(arg));
+        }
+        let actual = text(core_string_format(&args)?);
+        let expected = case.get("expected").and_then(Value::as_str).unwrap_or_default();
+        if actual != expected {
+            return Err(AxError::new("fixture", format!("string.format of {template:?}: expected {expected:?}, got {actual:?}")));
+        }
+    }
+    for case in fixture.get("str_cases").and_then(Value::as_array).into_iter().flatten() {
+        let input = case.get("input").cloned().unwrap_or(Value::Null);
+        let actual = text(core_string_str(&[core_value_from_json(&input)])?);
+        let expected = case.get("expected").and_then(Value::as_str).unwrap_or_default();
+        if actual != expected {
+            return Err(AxError::new("fixture", format!("string.str of {input}: expected {expected:?}, got {actual:?}")));
+        }
+    }
+    Ok(())
+}
+
 fn run_number_format_fixture(fixture: &Value) -> AxResult<()> {
     for case in fixture.get("cases").and_then(Value::as_array).into_iter().flatten() {
         let input = case.get("input").and_then(Value::as_str).unwrap_or_default();
@@ -19177,8 +19254,14 @@ fn core_iter(value: &CoreValue) -> Result<Vec<CoreValue>, AxError> {
     }
 }
 
+// As JavaScript's String.prototype.trim: white space and line terminators,
+// not U+0085 or other control characters.
+fn is_js_whitespace(c: char) -> bool {
+    matches!(c, '\t' | '\n' | '\u{000b}' | '\u{000c}' | '\r' | ' ' | '\u{00a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
 fn core_string_trim(value: &CoreValue) -> CoreValue {
-    CoreValue::from_string(value.text().trim().to_string())
+    CoreValue::from_string(value.text().trim_matches(is_js_whitespace).to_string())
 }
 
 fn core_string_join(sep: &CoreValue, values: &CoreValue) -> Result<CoreValue, AxError> {
@@ -19913,18 +19996,54 @@ fn core_validation_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Error(Rc::new(AxError::validation(core_arg(args, 0).text()))))
 }
 
+// A value's text in string.format and string.str, as every port writes it: a
+// string as is, null as "null", a boolean as "true" or "false", a number as
+// JavaScript's String(x), and a list or map as compact JSON with its keys in
+// insertion order (JSON.stringify).
+fn core_js_text(value: &CoreValue) -> String {
+    match value {
+        CoreValue::Null => "null".to_string(),
+        CoreValue::Bool(flag) => if *flag { "true" } else { "false" }.to_string(),
+        CoreValue::List(_) | CoreValue::Map(_) => js_json_string(&core_value_to_json(value)),
+        other => other.text(),
+    }
+}
+
+// Each {} takes the next argument's core_js_text, from left to right and
+// inserted as is (never read as a template); {{ and }} write one brace, any
+// other brace is kept, and a {} past the last argument stays {}.
 fn core_string_format(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let template = core_arg(args, 0).text();
+    let bytes = template.as_bytes();
     let mut out = String::new();
-    let mut rest = template.as_str();
-    let mut index = 1;
-    while let Some(pos) = rest.find("{}") {
-        out.push_str(&rest[..pos]);
-        out.push_str(&core_arg(args, index).text());
-        index += 1;
-        rest = &rest[pos + 2..];
+    let mut next = 1;
+    let mut literal_start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() {
+            let pair = (bytes[i], bytes[i + 1]);
+            let replacement = match pair {
+                (b'{', b'{') => Some("{".to_string()),
+                (b'}', b'}') => Some("}".to_string()),
+                (b'{', b'}') => Some(if next < args.len() {
+                    next += 1;
+                    core_js_text(&args[next - 1])
+                } else {
+                    "{}".to_string()
+                }),
+                _ => None,
+            };
+            if let Some(text) = replacement {
+                out.push_str(&template[literal_start..i]);
+                out.push_str(&text);
+                i += 2;
+                literal_start = i;
+                continue;
+            }
+        }
+        i += 1;
     }
-    out.push_str(rest);
+    out.push_str(&template[literal_start..]);
     Ok(CoreValue::from_string(out))
 }
 
@@ -21960,7 +22079,7 @@ fn core_string_index_of(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 fn core_string_str(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    Ok(CoreValue::from_string(core_arg(args, 0).text()))
+    Ok(CoreValue::from_string(core_js_text(&core_arg(args, 0))))
 }
 
 fn core_string_join_intrinsic(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -22807,6 +22926,11 @@ fn core_exception_is_infrastructure(args: &[CoreValue]) -> Result<CoreValue, AxE
 
 // TS AxGen retries a model refusal inside its validation loop.
 #[allow(dead_code)]
+fn core_exception_is_validation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let validation = matches!(core_arg(args, 0), CoreValue::Error(error) if error.category == "validation");
+    Ok(CoreValue::Bool(validation))
+}
+
 fn core_exception_is_refusal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let refusal = matches!(
         core_arg(args, 0),
@@ -23744,19 +23868,41 @@ fn ai_capture_warnings(capture: bool) -> Vec<String> {
     collected
 }
 
+static AXGEN_DEPRECATIONS_SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+static AXGEN_DEPRECATION_CAPTURE: Mutex<Option<Vec<String>>> = Mutex::new(None);
+
 // python: _core_axgen_deprecation(key, message). Deprecated port behavior
 // warns once per key per process.
 #[allow(dead_code)]
 fn core_axgen_deprecation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    static SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
-    let first = SHOWN
+    let first = AXGEN_DEPRECATIONS_SHOWN
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(core_arg(args, 0).text());
     if first {
-        eprintln!("axllm: deprecated: {}", core_arg(args, 1).text());
+        let message = core_arg(args, 1).text();
+        let mut capture = AXGEN_DEPRECATION_CAPTURE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match capture.as_mut() {
+            Some(captured) => captured.push(message),
+            None => eprintln!("axllm: deprecated: {message}"),
+        }
     }
     Ok(CoreValue::Null)
+}
+
+// Conformance hook: turning capture on forgets the deprecations already shown
+// and keeps new ones; each call returns what the last capture kept (off
+// prints them again).
+fn core_axgen_capture_deprecations(on: bool) -> Vec<String> {
+    if on {
+        AXGEN_DEPRECATIONS_SHOWN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
+    }
+    let mut capture = AXGEN_DEPRECATION_CAPTURE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let captured = capture.take().unwrap_or_default();
+    if on {
+        *capture = Some(Vec::new());
+    }
+    captured
 }
 
 // python: _core_crypto_sha256_hex(text). The lowercase hex SHA-256 of the
@@ -24552,6 +24698,7 @@ impl CoreHost for ExecutableProgramHost {
             "get_chat_log"=>Ok(core_value_from_json(&json!(self.program.borrow().get_chat_log()))),
             "get_traces"=>Ok(core_value_from_json(&json!(self.program.borrow().get_traces()))),
             "get_usage"=>Ok(core_value_from_json(&self.program.borrow().get_usage())),
+            "signature_text"=>Ok(self.program.borrow().signature_text().map(|text|CoreValue::from(text.as_str())).unwrap_or(CoreValue::Null)),
             other=>Err(AxError::runtime(format!("Executable program has no method '{other}'"))),
         }
     }
@@ -24608,6 +24755,7 @@ impl CoreHost for GenHost {
                 Ok(core_value_from_json(&output))
             }
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(self.gen.borrow().chat_log.clone()))),
+            "signature_text" => Ok(CoreValue::from(self.gen.borrow().signature.to_string().as_str())),
             "get_traces" => Ok(core_value_from_json(&Value::Array(self.gen.borrow().traces.clone()))),
             "get_optimizable_components" => Ok(core_value_from_json(&Value::Array(
                 self.gen.borrow().get_optimizable_components(),
@@ -24727,6 +24875,10 @@ impl CoreHost for AgentHost {
                 Ok(core_value_from_json(&output))
             }
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(self.agent.borrow().get_chat_log()))),
+            "signature_text" => {
+                let signature = core_get(&self.agent.borrow().state, &CoreValue::from("signature"), CoreValue::Null);
+                signature_to_string(&[signature])
+            }
             "get_usage" => {
                 let usage = self.agent.borrow().get_usage();
                 Ok(core_value_from_json(&usage))
@@ -24863,6 +25015,15 @@ fn core_program_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     match core_host_try(&core_arg(args, 0), "get_optimizable_components", &[]) {
         Some(result) => result,
         None => Ok(CoreValue::new_list()),
+    }
+}
+
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+fn core_program_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_host_try(&core_arg(args, 0), "signature_text", &[]) {
+        Some(result) => result,
+        None => Ok(CoreValue::Null),
     }
 }
 

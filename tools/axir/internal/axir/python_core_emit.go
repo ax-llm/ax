@@ -8,6 +8,11 @@ import (
 	"strings"
 )
 
+// pythonJSTrimChars is a Python literal of the characters JavaScript's
+// String.prototype.trim removes: white space and line terminators. Python's
+// own strip() also removes U+001C-U+001F and U+0085 and keeps U+FEFF.
+const pythonJSTrimChars = `"\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"`
+
 // pythonEmitState carries the registry context for one python module
 // emission: the global symbol->name map, each symbol's host module, the
 // module being emitted, and the cross-module names referenced so far (which
@@ -383,7 +388,7 @@ func emitPythonCoreStmt(st *pythonEmitState, stmt CoreStmt) ([]string, error) {
 	case "string_join":
 		return emitPythonStringJoin(st, stmt)
 	case "string_trim":
-		return []string{fmt.Sprintf("%s = str(%s).strip()", pyName(stmt.Result), pythonLiteral(stmt.Value))}, nil
+		return []string{fmt.Sprintf("%s = str(%s).strip(%s)", pyName(stmt.Result), pythonLiteral(stmt.Value), pythonJSTrimChars)}, nil
 	case "type_is":
 		return []string{fmt.Sprintf("%s = _core_type_is(%s, %s)", pyName(stmt.Result), pythonLiteral(stmt.Value), pythonAttrValue(stmt.Op, "type"))}, nil
 	case "set":
@@ -660,6 +665,10 @@ func pythonType(typ Type) string {
 
 func pythonArgDefault(funcName, argName string) string {
 	switch funcName {
+	case "mcp_listen_interests":
+		if argName == "task_ids" {
+			return "None"
+		}
 	case "to_json_schema":
 		if argName == "schema_title" {
 			return strconv.Quote("Schema")

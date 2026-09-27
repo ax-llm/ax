@@ -34,7 +34,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
       showThoughts: true,
       structuredOutputs: true,
     },
-    notSupported: { temperature: true, topP: true },
+    notSupported: { temperature: true, topP: true, topK: true },
   },
   {
     name: AxAIGoogleGeminiModel.Gemini37Flash,
@@ -51,7 +51,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
       showThoughts: true,
       structuredOutputs: true,
     },
-    notSupported: { temperature: true, topP: true },
+    notSupported: { temperature: true, topP: true, topK: true },
   },
   {
     name: AxAIGoogleGeminiModel.Gemini36Flash,
@@ -68,7 +68,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
       showThoughts: true,
       structuredOutputs: true,
     },
-    notSupported: { temperature: true, topP: true },
+    notSupported: { temperature: true, topP: true, topK: true },
   },
   {
     name: AxAIGoogleGeminiModel.Gemini35Flash,
@@ -101,7 +101,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
       showThoughts: true,
       structuredOutputs: true,
     },
-    notSupported: { temperature: true, topP: true },
+    notSupported: { temperature: true, topP: true, topK: true },
   },
   {
     name: AxAIGoogleGeminiModel.Gemini3Pro,

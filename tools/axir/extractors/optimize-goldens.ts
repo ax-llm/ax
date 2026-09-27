@@ -3035,6 +3035,208 @@ await writeMinerGolden(
   true
 );
 
+// --- agent playbook evolve: the runtime on the evolve call -----------------
+// TS's evolve replays run on the agent's own runtime; TS has no per-call
+// runtime. The ports' examples build the agent with a runtime descriptor
+// ({language}) and pass the runtime on forward and on evolve, so the ports'
+// replays must take the evolve call's runtime. The fixture's
+// runtime_on_evolve key has the runners do that; the expected outcome is
+// TS's, run here with the scripted runtime on the agent. The scenario is the
+// ports' agent-playbook-evolve script (accept at a flat held-in score).
+await (async () => {
+  const agentOutDir = join(outRoot, 'ir/conformance/axagent');
+  mkdirSync(agentOutDir, { recursive: true });
+  const finalCode =
+    "final('Answer', {'answer': 'Ax composes typed LLM programs.'})";
+  const codeResponse = {
+    content: JSON.stringify({ pythonCode: finalCode }),
+  };
+  const finalStep = {
+    expected_code: finalCode,
+    result: {
+      type: 'final',
+      args: ['Answer', { answer: 'Ax composes typed LLM programs.' }],
+    },
+  };
+  const reflection = [
+    'Reasoning: The playbook lacked a verification rule.',
+    'Error Identification: The final step was not checked.',
+    'Root Cause Analysis: No verification guidance.',
+    'Correct Approach: Add a verification guideline.',
+    'Key Insight: Verify before finishing.',
+    'Bullet Tags: []',
+  ].join('\n');
+  const responses = [
+    codeResponse,
+    codeResponse,
+    { content: 'Answer: Ax composes typed LLM programs.' },
+    {
+      content: [
+        'Weakness Description: The agent does not verify its final step.',
+        'Root Cause: The final step is accepted without a check.',
+        'Proposed Guidance: Verify the final step before completing the task.',
+        'Evidence Quotes: ["Answer"]',
+        'Config Recommendations: []',
+      ].join('\n'),
+    },
+    { content: reflection },
+    { content: reflection },
+    {
+      content: [
+        'Reasoning: The playbook lacked a verification rule.',
+        'Operations: [{"type":"ADD","section":"Guidelines","content":"Verify the final step before completing the task."}]',
+      ].join('\n'),
+    },
+    codeResponse,
+  ];
+  const seed = {
+    playbook: {
+      version: 1,
+      sections: {
+        failures_to_avoid: [
+          {
+            id: 'failures-to-avoid-00001',
+            section: 'failures_to_avoid',
+            content: 'Check the evidence before answering.',
+            helpfulCount: 0,
+            harmfulCount: 0,
+            createdAt: '2026-07-15T00:00:00.000Z',
+            updatedAt: '2026-07-15T00:00:00.000Z',
+          },
+        ],
+      },
+      updatedAt: '2026-07-15T00:00:00.000Z',
+    },
+    artifact: { feedback: [], history: [] },
+  };
+  const dataset = {
+    train: [{ input: { question: 'Answer briefly.' }, score: 0 }],
+  };
+  const agentOptions = {
+    name: 'qa',
+    description: 'Answer the question.',
+    contextFields: [],
+  };
+  const caseOptions = {
+    verify: true,
+    minHeldInGain: 0,
+    maxProposals: 1,
+    maxMetricCalls: 2,
+  };
+
+  // The ports' scripted client: responses in order, then an error.
+  let calls = 0;
+  const ai = new AxMockAIService<string>({
+    name: 'mock',
+    features: { functions: false, streaming: false },
+    chatResponse: async () => {
+      const next = responses[calls++];
+      if (!next) throw new Error('scripted AI exhausted');
+      return {
+        results: [{ index: 0, content: next.content, finishReason: 'stop' }],
+      };
+    },
+  });
+  // The ports' scripted runtime: each step checks the code and completes.
+  const steps = [finalStep, finalStep].map((step) => structuredClone(step));
+  let executed = 0;
+  const runtime = {
+    language: 'Python',
+    getUsageInstructions: () => '',
+    createSession(globals?: Record<string, unknown>) {
+      return {
+        async execute(code: string) {
+          if (code.startsWith('/* ax:host-snippet */')) return 'host-snippet';
+          const step = steps.shift();
+          if (!step) throw new Error('scripted runtime exhausted');
+          if (step.expected_code !== code) {
+            throw new Error(
+              `expected code ${JSON.stringify(step.expected_code)}, got ${JSON.stringify(code)}`
+            );
+          }
+          executed++;
+          const complete = globals?.[step.result.type] as (
+            ...args: unknown[]
+          ) => unknown;
+          await complete(...structuredClone(step.result.args));
+          return 'done';
+        },
+        async patchGlobals(patch: Record<string, unknown>) {
+          Object.assign(globals ?? {}, patch);
+        },
+        inspectGlobals() {
+          return JSON.stringify({ entries: [] });
+        },
+        snapshotGlobals() {
+          return { version: 1, entries: [], bindings: {} };
+        },
+        close() {},
+      };
+    },
+  };
+  const ag = agent('question:string -> answer:string', {
+    ...agentOptions,
+    runtime,
+  } as never);
+  const handle = ag.playbook({
+    target: 'responder',
+    studentAI: ai,
+    teacherAI: ai,
+    maxEpochs: 1,
+  } as never);
+  handle.load(seed as never);
+  // TS's evolve needs its student on the call (the ports also take the
+  // playbook's), and scores with the metric; the ports' default metric reads
+  // the task's score of 0.
+  const result = await handle.evolve(
+    dataset as never,
+    {
+      ...caseOptions,
+      studentAI: ai,
+      teacherAI: ai,
+      metric: () => 0,
+    } as never
+  );
+  const outcome = result.outcomes[0];
+  if (!outcome || executed !== 2) {
+    throw new Error(
+      `agent-playbook-evolve-runtime-on-evolve: TS did not run the scenario (outcomes ${result.outcomes.length}, runtime steps ${executed})`
+    );
+  }
+
+  const fixture = {
+    name: 'agent-playbook-evolve-runtime-on-evolve',
+    kind: 'agent_playbook_evolve',
+    description:
+      "The ports' examples build the agent with a runtime descriptor and pass the runtime on the evolve call (runtime_on_evolve); the replays must run on it. The expected outcome is TS's, with the runtime on the agent.",
+    signature: 'question:string -> answer:string',
+    runtime_language: 'Python',
+    runtime_on_evolve: true,
+    options: agentOptions,
+    responses,
+    runtime_script: [finalStep, finalStep],
+    seed,
+    dataset,
+    cases: [
+      {
+        name: 'replays-run-on-the-evolve-runtime',
+        options: caseOptions,
+        expected: {
+          outcome_count: result.outcomes.length,
+          accepted: outcome.accepted,
+          metricCallsUsed: result.metricCallsUsed,
+          heldIn: outcome.heldIn,
+          reason_contains: outcome.reason,
+        },
+      },
+    ],
+  };
+  writeFileSync(
+    join(agentOutDir, 'agent-playbook-evolve-runtime-on-evolve.json'),
+    `${JSON.stringify(stable(fixture), null, 2)}\n`
+  );
+})();
+
 // --- agent playbook config: TS's seed shapes -------------------------------
 // TS seeds a configured playbook from `playbook`: a snapshot ({playbook,
 // artifact}) is loaded, anything else is a bare playbook. The expected states

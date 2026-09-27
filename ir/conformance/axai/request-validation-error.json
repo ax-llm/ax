@@ -10,5 +10,5 @@
     ]
   },
   "expected_error_type": "AxAIServiceResponseError",
-  "expected_error_contains": "Invalid chat message role"
+  "expected_error_contains": "Unsupported message role: \"narrator\""
 }

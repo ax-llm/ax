@@ -570,9 +570,62 @@ def _core_regex_match(pattern, value):
     return isinstance(value, str) and re.search(pattern, value) is not None
 
 
+def _js_text(value) -> str:
+    """A value's text in string.format and string.str, as every port writes
+    it: a string as is, None as "null", a bool as "true" or "false", a number
+    as JavaScript's String(x) (an int keeps its exact digits), and a list or
+    dict as compact JSON (JSON.stringify(x), keys in insertion order)."""
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return int.__repr__(value)
+    if isinstance(value, float):
+        return _js_number_text(value)
+    if isinstance(value, (list, tuple, dict)):
+        try:
+            return _js_json_dumps(value)
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)
+
+
+def _js_format(template, args) -> str:
+    """string.format as every port runs it: each {} takes the next argument's
+    _js_text, from left to right and inserted as is (never read as a
+    template); {{ and }} write one brace, any other brace is kept, and a {}
+    past the last argument stays {}."""
+    text = str(template)
+    out: list[str] = []
+    index = 0
+    next_arg = 0
+    length = len(text)
+    while index < length:
+        pair = text[index:index + 2]
+        if pair == "{{":
+            out.append("{")
+            index += 2
+        elif pair == "}}":
+            out.append("}")
+            index += 2
+        elif pair == "{}":
+            if next_arg < len(args):
+                out.append(_js_text(args[next_arg]))
+                next_arg += 1
+            else:
+                out.append("{}")
+            index += 2
+        else:
+            out.append(text[index])
+            index += 1
+    return "".join(out)
+
+
 def _core_string_format(template, *args):
-    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
-    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
+    return _js_format(template, args)
 
 
 def _core_string_join(sep, values):
@@ -930,7 +983,7 @@ def _signature_validate_value_descriptions_impl(typ: FieldType, field_name: str)
         string = _core_type_is(value, "string")
         invalid = _core_not(string)
         if string:
-            trimmed = str(value).strip()
+            trimmed = str(value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             invalid = _core_eq(trimmed, "")
         else:
             pass
@@ -998,12 +1051,12 @@ def _signature_parse_value_description_impl(raw: str, field_name: str, key: str)
     quoted = _core_string_consume_optional_quoted_prefix(raw)
     found = _core_get(quoted, "found", False)
     description = _core_get(quoted, "value", "")
-    trimmed = str(description).strip()
+    trimmed = str(description).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     empty = _core_eq(trimmed, "")
     missing = _core_not(found)
     invalid = _core_or(empty, missing)
     rest = _core_get(quoted, "rest", "")
-    rest = str(rest).strip()
+    rest = str(rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     extra = _core_ne(rest, "")
     invalid = _core_or(invalid, extra)
     if invalid:
@@ -1017,7 +1070,7 @@ def _signature_parse_value_description_impl(raw: str, field_name: str, key: str)
 
 def _signature_parse_impl(signature: str) -> AxSignature:
     _core_coverage_mark("_signature_parse_impl")
-    text = str(signature).strip()
+    text = str(signature).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     text_len = _core_len(text)
     is_empty = _core_eq(text_len, 0)
     if is_empty:
@@ -1028,7 +1081,7 @@ def _signature_parse_impl(signature: str) -> AxSignature:
     prefix = _core_string_consume_optional_quoted_prefix(text)
     description = _core_get(prefix, "value", None)
     rest = _core_get(prefix, "rest", None)
-    body = str(rest).strip()
+    body = str(rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     arrow = _core_string_find_outside_quotes(body, "->")
     missing_arrow = _core_lt(arrow, 0)
     if missing_arrow:
@@ -1045,10 +1098,10 @@ def _signature_parse_impl(signature: str) -> AxSignature:
     else:
         pass
     left_raw = _core_string_slice(body, 0, arrow)
-    left = str(left_raw).strip()
+    left = str(left_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     right_start = _core_add(arrow, 2)
     right_raw = _core_string_slice(body, right_start)
-    right = str(right_raw).strip()
+    right = str(right_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     left_len = _core_len(left)
     left_empty = _core_eq(left_len, 0)
     if left_empty:
@@ -1075,7 +1128,7 @@ def _signature_parse_impl(signature: str) -> AxSignature:
 
 def _signature_parse_class_descriptions_impl(raw: str, field_name: str) -> Any:
     _core_coverage_mark("_signature_parse_class_descriptions_impl")
-    text = str(raw).strip()
+    text = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     empty = _core_eq(text, "")
     if empty:
         message = _core_string_format("Field \"{}\": empty value description list", field_name)
@@ -1086,7 +1139,7 @@ def _signature_parse_class_descriptions_impl(raw: str, field_name: str) -> Any:
     parts = _core_string_split_top_level(text, ",")
     descriptions = {}
     for part in parts:
-        entry = str(part).strip()
+        entry = str(part).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         empty = _core_eq(entry, "")
         if empty:
             message = _core_string_format("Field \"{}\": trailing comma in value descriptions", field_name)
@@ -1099,13 +1152,13 @@ def _signature_parse_class_descriptions_impl(raw: str, field_name: str) -> Any:
         key = _core_get(quoted, "value", "")
         rest = _core_get(quoted, "rest", "")
         if found:
-            rest = str(rest).strip()
+            rest = str(rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         else:
             words = _core_string_words(entry)
             key = _core_list_get(words, 0, "")
             length = _core_len(key)
             rest = _core_string_slice(entry, length)
-            rest = str(rest).strip()
+            rest = str(rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             valid = _core_regex_match("^[A-Za-z_][A-Za-z0-9_.-]*$", key)
             invalid = _core_not(valid)
             if invalid:
@@ -1131,7 +1184,7 @@ def _signature_parse_fields_impl(text: str, output: bool) -> list[Any]:
     parts = _core_string_split_top_level(text, ",")
     fields = []
     for part in parts:
-        trimmed = str(part).strip()
+        trimmed = str(part).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         empty = _core_eq(trimmed, "")
         if empty:
             error = _core_signature_error("Unexpected content after signature")
@@ -1209,7 +1262,7 @@ def _signature_describe_field_values_impl(field: Field) -> Any:
 
 def _signature_parse_field_common_impl(raw: str, output: bool, nested: bool, parent: str) -> Field:
     _core_coverage_mark("_signature_parse_field_common_impl")
-    text = str(raw).strip()
+    text = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     head_parts = _core_string_split_once(text, ":")
     has_type = _core_get(head_parts, "found", False)
     name_part_raw = _core_get(head_parts, "left", None)
@@ -1236,7 +1289,7 @@ def _signature_parse_field_common_impl(raw: str, output: bool, nested: bool, par
         else:
             pass
         section = _core_get(section_state, "value", None)
-        name_for_error = str(name_part_raw).strip()
+        name_for_error = str(name_part_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         if nested:
             name_for_error = _core_string_format("{}.{}", parent, name_for_error)
         else:
@@ -1254,7 +1307,7 @@ def _signature_parse_field_common_impl(raw: str, output: bool, nested: bool, par
         quoted_info = _core_string_extract_quoted_suffix(name_part_raw)
         quoted = _core_get(quoted_info, "value", None)
         rest_after_quote_raw = _core_get(quoted_info, "rest", None)
-        rest_after_quote = str(rest_after_quote_raw).strip()
+        rest_after_quote = str(rest_after_quote_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         has_extra = _core_truthy(rest_after_quote)
         if has_extra:
             error = _core_signature_error("Unexpected content after signature")
@@ -1265,12 +1318,12 @@ def _signature_parse_field_common_impl(raw: str, output: bool, nested: bool, par
         state["name_part"] = quoted_head
         state["description"] = quoted
     name_part_value = _core_get(state, "name_part", None)
-    name_part = str(name_part_value).strip()
+    name_part = str(name_part_value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     is_optional = _core_contains(name_part, "?")
     is_internal = _core_contains(name_part, "!")
     name_without_optional = _core_string_replace(name_part, "?", "")
     name_without_markers = _core_string_replace(name_without_optional, "!", "")
-    name = str(name_without_markers).strip()
+    name = str(name_without_markers).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     nested_internal = _core_and(nested, is_internal)
     if nested_internal:
         qualified = _core_string_format("{}.{}", parent, name)
@@ -1382,7 +1435,7 @@ def _signature_output_value_descriptions_impl(fields: list[Any]) -> Any:
 
 def _signature_parse_description_impl(raw: str, fallback: Any) -> Any:
     _core_coverage_mark("_signature_parse_description_impl")
-    text = str(raw).strip()
+    text = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     empty = _core_eq(text, "")
     if empty:
         return fallback
@@ -1397,7 +1450,7 @@ def _signature_parse_description_impl(raw: str, fallback: Any) -> Any:
     else:
         pass
     rest_raw = _core_get(quoted, "rest", None)
-    rest = str(rest_raw).strip()
+    rest = str(rest_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     has_extra = _core_truthy(rest)
     if has_extra:
         error = _core_signature_error("Unexpected content after signature")
@@ -1405,13 +1458,13 @@ def _signature_parse_description_impl(raw: str, fallback: Any) -> Any:
     else:
         pass
     value_raw = _core_get(quoted, "value", None)
-    value = str(value_raw).strip()
+    value = str(value_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     return value
 
 
 def _signature_parse_base_type_impl(raw: str) -> Any:
     _core_coverage_mark("_signature_parse_base_type_impl")
-    text = str(raw).strip()
+    text = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     types = []
     types.append("datetimeRange")
     types.append("dateRange")
@@ -1480,7 +1533,7 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
     base = _signature_parse_base_type_impl(raw)
     type_name = _core_get(base, "name", None)
     base_rest = _core_get(base, "rest", None)
-    rest = str(base_rest).strip()
+    rest = str(base_rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     nested = _core_eq(section, "nested")
     media = []
     media.append("image")
@@ -1512,7 +1565,7 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
         is_array = _core_string_starts_with(rest, "[]")
         if is_array:
             rest_after_array = _core_string_slice(rest, 2)
-            rest = str(rest_after_array).strip()
+            rest = str(rest_after_array).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         else:
             pass
         bag_after = _core_string_starts_with(rest, "(")
@@ -1540,7 +1593,7 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
             attrs["is_array"] = is_array
             attrs["options"] = options
             quoted_rest = _core_get(quoted, "rest", None)
-            quoted_rest = str(quoted_rest).strip()
+            quoted_rest = str(quoted_rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             has_descriptions = _core_string_starts_with(quoted_rest, "(")
             if has_descriptions:
                 group = _core_string_extract_leading_group(quoted_rest, "(", ")")
@@ -1586,11 +1639,11 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
         group_text = _core_get(group, "group", None)
         fields = _signature_parse_object_fields_impl(group_text, section, field_name)
         group_rest = _core_get(group, "rest", None)
-        after = str(group_rest).strip()
+        after = str(group_rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         is_array = _core_string_starts_with(after, "[]")
         if is_array:
             after_array = _core_string_slice(after, 2)
-            after = str(after_array).strip()
+            after = str(after_array).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         else:
             pass
         attrs = {}
@@ -1634,13 +1687,13 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
         modifier_state["is_cached"] = parsed_cached
         modifier_state["item_description"] = parsed_item
         group_rest = _core_get(group, "rest", None)
-        rest = str(group_rest).strip()
+        rest = str(group_rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     else:
         pass
     is_array = _core_string_starts_with(rest, "[]")
     if is_array:
         rest_after_array = _core_string_slice(rest, 2)
-        rest = str(rest_after_array).strip()
+        rest = str(rest_after_array).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     else:
         pass
     type_attrs = _core_get(modifier_state, "attrs", None)
@@ -1670,7 +1723,7 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
 
 def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name: str, raw: str) -> Any:
     _core_coverage_mark("_signature_parse_modifier_bag_impl")
-    text = str(raw).strip()
+    text = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     empty = _core_eq(text, "")
     if empty:
         message = _core_string_format("Field \"{}\": empty modifier list \"()\"", field_name)
@@ -1686,7 +1739,7 @@ def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name:
     none = _core_none()
     state["item_description"] = none
     for part in parts:
-        entry = str(part).strip()
+        entry = str(part).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         entry_empty = _core_eq(entry, "")
         if entry_empty:
             message = _core_string_format("Field \"{}\": trailing comma in modifier list", field_name)
@@ -1698,7 +1751,7 @@ def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name:
         token = _core_list_get(words, 0, "")
         token_len = _core_len(token)
         arg_raw = _core_string_slice(entry, token_len)
-        arg = str(arg_raw).strip()
+        arg = str(arg_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         handled = {}
         handled["value"] = False
         is_true = _core_eq(token, "true")
@@ -1838,7 +1891,7 @@ def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name:
             pattern_value = _core_get(quoted, "value", None)
             attrs["pattern"] = pattern_value
             pattern_rest_raw = _core_get(quoted, "rest", None)
-            pattern_rest = str(pattern_rest_raw).strip()
+            pattern_rest = str(pattern_rest_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             has_pattern_rest = _core_truthy(pattern_rest)
             if has_pattern_rest:
                 desc = _core_string_consume_optional_quoted_prefix(pattern_rest)
@@ -1851,7 +1904,7 @@ def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name:
                 else:
                     pass
                 desc_rest_raw = _core_get(desc, "rest", None)
-                desc_rest = str(desc_rest_raw).strip()
+                desc_rest = str(desc_rest_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 desc_extra = _core_truthy(desc_rest)
                 if desc_extra:
                     message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", field_name)
@@ -1922,7 +1975,7 @@ def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name:
             else:
                 pass
             remaining_raw = _core_get(quoted, "rest", None)
-            remaining = str(remaining_raw).strip()
+            remaining = str(remaining_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             extra = _core_truthy(remaining)
             if extra:
                 message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", field_name)
@@ -1973,7 +2026,7 @@ def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name:
 
 def _signature_parse_object_fields_impl(raw: str, section: str, parent: str) -> Any:
     _core_coverage_mark("_signature_parse_object_fields_impl")
-    text = str(raw).strip()
+    text = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     empty = _core_eq(text, "")
     if empty:
         message = _core_string_format("Field \"{}\": object type requires at least one field", parent)
@@ -1985,7 +2038,7 @@ def _signature_parse_object_fields_impl(raw: str, section: str, parent: str) -> 
     fields = {}
     output = _core_eq(section, "output")
     for part in parts:
-        entry = str(part).strip()
+        entry = str(part).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         entry_empty = _core_eq(entry, "")
         if entry_empty:
             message = _core_string_format("Field \"{}\": trailing comma in object type", parent)

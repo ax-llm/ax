@@ -72,7 +72,20 @@ public final class AgentPlaybookEvolveExample {
           dataset,
           Map.of("verify", true, "maxProposals", 1, "runtime", runtime));
 
+      // Each train task replays on the runtime. A replay that fails scores 0
+      // and would be mined as the weakness, so stop instead.
+      List<Object> replays = new java.util.ArrayList<>();
+      for (Object raw : (List<?>) evolution.get("records")) {
+        Map<?, ?> record = (Map<?, ?>) raw;
+        Map<?, ?> prediction = record.get("prediction") instanceof Map<?, ?> found ? found : Map.of();
+        if (record.get("error") != null || "error".equals(prediction.get("completionType"))) {
+          throw new IllegalStateException("evolve replay failed: " + (record.get("error") != null ? record.get("error") : prediction.get("error")));
+        }
+        replays.add(prediction.get("completionType"));
+      }
+
       System.out.println(Json.pretty(answer));
+      System.out.println("replays: " + replays);
       System.out.println("citations: " + (observedCitations.isEmpty() ? List.of() : observedCitations.get(observedCitations.size() - 1)));
       System.out.println("run-end updates: " + playbookUpdates.size());
       System.out.println("outcomes: " + evolution.get("outcomes"));

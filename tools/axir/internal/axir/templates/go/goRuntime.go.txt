@@ -1427,7 +1427,17 @@ func coreRegexMatch(pattern Value, value Value) Value {
 	return regexp.MustCompile(display(pattern)).FindStringIndex(display(value)) != nil
 }
 
-func coreStringTrim(value Value) Value { return strings.TrimSpace(display(value)) }
+// coreStringTrim trims as JavaScript's String.prototype.trim does: white
+// space and line terminators, not U+0085 or other control characters.
+func coreStringTrim(value Value) Value { return strings.TrimFunc(display(value), isJSWhitespace) }
+
+func isJSWhitespace(r rune) bool {
+	switch r {
+	case '\t', '\n', '\v', '\f', '\r', ' ', '\u00a0', '\u1680', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff':
+		return true
+	}
+	return r >= '\u2000' && r <= '\u200a'
+}
 
 func coreTypeIs(value Value, typeName Value) Value {
 	switch display(typeName) {
@@ -1789,6 +1799,19 @@ func _core_program_apply_components(program Value, componentMap Value) Value {
 	}
 	return Object()
 }
+
+// _core_program_signature is an AxGen's or AxAgent's signature text. Any other
+// program (a nested flow, a custom program) has none, and its undeclared step
+// is a barrier.
+func _core_program_signature(program Value) Value {
+	switch p := program.(type) {
+	case *AxGen:
+		return p.Signature.String()
+	case *AxAgent:
+		return p.Signature.String()
+	}
+	return nil
+}
 func _core_ai_complete_once(client Value, request Value, options Value) (Value, error) {
 	if c, ok := client.(AIClient); ok {
 		// As in TS, a streamed forward folds the stream's chunks into one response.
@@ -2019,6 +2042,9 @@ func _core_exception_is_infrastructure(err Value) Value {
 func _core_exception_is_refusal(err Value) Value {
 	return asAxError(err).Type == "AxAIRefusalError"
 }
+func _core_exception_is_validation(err Value) Value {
+	return asAxError(err).Category == "validation"
+}
 func _core_runtime_error(message Value) Value {
 	return Object("__error", "runtime", "message", display(message))
 }
@@ -2105,22 +2131,54 @@ func _core_string_title_from_camel(value Value) Value {
 	}
 	return strings.ToUpper(text[:1]) + text[1:]
 }
-func _core_string_format(template Value, args ...Value) Value {
-	// Each value fills the next {} after the previous one, so a value that
-	// itself contains {} is not formatted again.
-	out := display(template)
-	cursor := 0
-	for _, arg := range args {
-		idx := strings.Index(out[cursor:], "{}")
-		if idx < 0 {
-			break
-		}
-		idx += cursor
-		text := display(arg)
-		out = out[:idx] + text + out[idx+2:]
-		cursor = idx + len(text)
+// jsText is a value's text in string.format and string.str, as every port
+// writes it: a string as is, nil as "null", a bool as "true" or "false", a
+// number as JavaScript's String(x), and a list or map as compact JSON with its
+// keys in insertion order (JSON.stringify).
+func jsText(value Value) string {
+	switch v := value.(type) {
+	case nil:
+		return "null"
+	case []Value, *AxArray, map[string]Value:
+		return orderedStringify(v)
+	default:
+		return display(v)
 	}
-	return out
+}
+
+// _core_string_format fills each {} with the next argument's jsText, from left
+// to right and inserted as is (never read as a template); {{ and }} write one
+// brace, any other brace is kept, and a {} past the last argument stays {}.
+func _core_string_format(template Value, args ...Value) Value {
+	text := display(template)
+	var out strings.Builder
+	next := 0
+	for i := 0; i < len(text); {
+		if i+1 < len(text) {
+			switch text[i : i+2] {
+			case "{{":
+				out.WriteByte('{')
+				i += 2
+				continue
+			case "}}":
+				out.WriteByte('}')
+				i += 2
+				continue
+			case "{}":
+				if next < len(args) {
+					out.WriteString(jsText(args[next]))
+					next++
+				} else {
+					out.WriteString("{}")
+				}
+				i += 2
+				continue
+			}
+		}
+		out.WriteByte(text[i])
+		i++
+	}
+	return out.String()
 }
 func _core_string_slice(value Value, start Value, rest ...Value) Value {
 	s := display(value)
@@ -2227,7 +2285,7 @@ func _core_string_split(value Value, sep Value) Value {
 func _core_string_starts_with(value Value, prefix Value) Value {
 	return strings.HasPrefix(display(value), display(prefix))
 }
-func _core_string_str(value Value) Value { return display(value) }
+func _core_string_str(value Value) Value { return jsText(value) }
 func _core_regex_replace(pattern Value, repl Value, value Value) Value {
 	return regexp.MustCompile(display(pattern)).ReplaceAllString(display(value), display(repl))
 }
@@ -7809,10 +7867,20 @@ func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Valu
 	if !coreTruthy(input) {
 		input = task
 	}
+	// A runtime on the evolve or optimize call runs each task, as it runs a
+	// forward call (the agent may hold only a runtime descriptor), unless
+	// forward_options names one.
+	forwardOptions := Object()
+	for key, value := range asMap(coreGet(opts, "forward_options", Object())) {
+		forwardOptions[key] = value
+	}
+	if runtime := coreGet(opts, "runtime", nil); runtime != nil && coreGet(forwardOptions, "runtime", nil) == nil {
+		coreSet(forwardOptions, "runtime", runtime)
+	}
 	// As TS evaluates each task from a fresh state, the prediction carries
 	// only this run's share of the agent's logs.
 	marks := mustCore(_agent_eval_marks(a.State))
-	output, err := a.forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
+	output, err := a.forward(context.Background(), client, asMap(input), forwardOptions)
 	completion := Object("type", "final", "output", output)
 	if err != nil {
 		if clarification, ok := agentClarificationFromError(err); ok {
@@ -10827,12 +10895,36 @@ func coreAICaptureWarnings(sink func(string)) {
 	coreAIWarningSink = sink
 }
 
+var (
+	coreDeprecationSinkMu sync.Mutex
+	coreDeprecationSink   func(string)
+)
+
 // _core_axgen_deprecation logs a deprecated behavior once per key per process.
 func _core_axgen_deprecation(key Value, message Value) Value {
 	if _, shown := coreDeprecationsShown.LoadOrStore(display(key), true); !shown {
-		log.Printf("ax: deprecated: %s", display(message))
+		coreDeprecationSinkMu.Lock()
+		sink := coreDeprecationSink
+		coreDeprecationSinkMu.Unlock()
+		if sink != nil {
+			sink(display(message))
+		} else {
+			log.Printf("ax: deprecated: %s", display(message))
+		}
 	}
 	return nil
+}
+
+// coreAxGenCaptureDeprecations forgets the deprecations already shown and
+// sends new ones to sink (nil logs them again). Conformance fixtures use it.
+func coreAxGenCaptureDeprecations(sink func(string)) {
+	coreDeprecationSinkMu.Lock()
+	defer coreDeprecationSinkMu.Unlock()
+	coreDeprecationsShown.Range(func(key, _ any) bool {
+		coreDeprecationsShown.Delete(key)
+		return true
+	})
+	coreDeprecationSink = sink
 }
 
 // _core_axgen_caching_function returns the forward call's caching function,
@@ -11979,6 +12071,27 @@ func runConformanceFixture(fixture map[string]Value) {
 			coreSet(fixture, base, parseJSON(text))
 		}
 	}
+	// expected_deprecations pins the one-time deprecation warnings the run
+	// gives (the ones already shown are forgotten first).
+	if expected, ok := fixture["expected_deprecations"]; ok {
+		var mu sync.Mutex
+		captured := []Value{}
+		coreAxGenCaptureDeprecations(func(message string) {
+			mu.Lock()
+			defer mu.Unlock()
+			captured = append(captured, message)
+		})
+		defer coreAxGenCaptureDeprecations(nil)
+		runConformanceFixtureKind(fixture)
+		mu.Lock()
+		defer mu.Unlock()
+		assertEqual(captured, expected, "deprecation warnings")
+		return
+	}
+	runConformanceFixtureKind(fixture)
+}
+
+func runConformanceFixtureKind(fixture map[string]Value) {
 	kind := display(coreGet(fixture, "kind", "forward"))
 	switch kind {
 	case "signature_error":
@@ -12016,6 +12129,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceJSONStringify(fixture)
 	case "number_format":
 		runConformanceNumberFormat(fixture)
+	case "string_format":
+		runConformanceStringFormat(fixture)
 	case "date_field_value":
 		runConformanceDateFieldValue(fixture)
 	case "date_input":
@@ -14654,6 +14769,26 @@ func runConformanceNumberFormat(fixture map[string]Value) {
 	}
 }
 
+// runConformanceStringFormat checks string.format and string.str against
+// JavaScript's text of each case.
+func runConformanceStringFormat(fixture map[string]Value) {
+	for _, item := range coreIter(coreGet(fixture, "format_cases", Array())) {
+		template := display(coreGet(item, "template", ""))
+		args := asSlice(coreGet(item, "input", Array()))
+		actual := display(_core_string_format(template, args...))
+		if expected := display(coreGet(item, "expected", "")); actual != expected {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("string.format of %q: expected %q, got %q", template, expected, actual)})
+		}
+	}
+	for _, item := range coreIter(coreGet(fixture, "str_cases", Array())) {
+		input := coreGet(item, "input", nil)
+		actual := display(_core_string_str(input))
+		if expected := display(coreGet(item, "expected", "")); actual != expected {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("string.str of %s: expected %q, got %q", stableStringify(input), expected, actual)})
+		}
+	}
+}
+
 // runConformanceDateFieldValue runs TS's validateAndParseFieldValue cases on
 // date-typed fields with parse_dates on: each case's {has, value}, or its
 // exact error message.
@@ -14754,7 +14889,12 @@ func runConformanceFlowMermaid(fixture map[string]Value) {
 		built := NewFlow(Object())
 		for _, raw := range asSlice(coreGet(fixture, "builder_steps", Array())) {
 			step := asMap(raw)
-			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), Object("reads", coreGet(step, "reads", Array())))
+			// A builder step without "reads" declares none.
+			options := Object()
+			if reads, ok := step["reads"]; ok {
+				options["reads"] = reads
+			}
+			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), options)
 		}
 		assertEqual(built.String(), coreGet(fixture, "expected_rendered", ""), "flow mermaid builder render")
 		return
@@ -16615,7 +16755,14 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 		runtime := newConformanceScriptedCodeRuntime(coreGet(fixture, "runtime_script", Array()), Object())
 		runtime.LanguageName = display(coreGet(fixture, "runtime_language", "Python"))
 		agentOptions := cloneMap(asMap(coreGet(fixture, "options", Object())))
-		coreSet(agentOptions, "runtime", runtime)
+		// runtime_on_evolve: the agent gets only a runtime descriptor and the
+		// runtime goes on the evolve call, as the examples pass it.
+		runtimeOnEvolve := coreTruthy(coreGet(fixture, "runtime_on_evolve", false))
+		if runtimeOnEvolve {
+			coreSet(agentOptions, "runtime", Object("language", runtime.LanguageName))
+		} else {
+			coreSet(agentOptions, "runtime", runtime)
+		}
 		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), agentOptions)
 		playbookOptions := Object("target", "responder", "studentAI", client, "teacherAI", teacher, "maxEpochs", 1)
 		extraPlaybookOptions := asMap(coreGet(testCase, "playbook_options", Object()))
@@ -16630,6 +16777,9 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 		evolveOptions := cloneMap(asMap(coreGet(testCase, "options", Object())))
 		if teacherSpec != nil {
 			coreSet(evolveOptions, "teacherAI", teacher)
+		}
+		if runtimeOnEvolve {
+			coreSet(evolveOptions, "runtime", runtime)
 		}
 		actual, err := playbook.EvolveAgent(context.Background(), coreGet(fixture, "dataset", Object()), evolveOptions)
 		if err != nil {

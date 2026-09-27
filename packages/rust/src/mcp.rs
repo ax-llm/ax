@@ -2,7 +2,7 @@ use crate::{
     js_json_string, tool, AxCancellationToken, AxError, AxResult, AxToolContext, JsJsonBody, Tool,
 };
 use serde_json::{json, Map, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -163,6 +163,26 @@ pub struct AxMCPCatalogSnapshot {
     pub subscriptions: Vec<String>,
 }
 
+/// How `call_tool_with_task_handling` treats a modern server's task, as
+/// TypeScript's callTool `taskHandling`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AxMCPTaskHandling {
+    /// Wait for the task and return its result (the default).
+    #[default]
+    Await,
+    /// Return the task as its flattened CreateTaskResult, with its top-level taskId.
+    Expose,
+}
+
+/// What `call_tool_outcome` returns, as TypeScript's AxMCPToolCallOutcome.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AxMCPToolCallOutcome {
+    /// The tool's result. A legacy server's task-shaped result is a complete result.
+    Complete(Value),
+    /// A modern server's CreateTaskResult, with its top-level taskId.
+    Task(Value),
+}
+
 #[derive(Clone)]
 pub struct AxMCPClient {
     invocation_context: AxToolContext,
@@ -193,6 +213,8 @@ pub struct AxMCPClient {
     elicitation_handler: Option<AxMCPElicitationHandler>,
     tool_authorizer: Option<AxMCPToolAuthorizer>,
     initialized: bool,
+    // Latest snapshot of each task this client has seen, by task id.
+    tasks: Arc<Mutex<BTreeMap<String, Value>>>,
 }
 
 impl AxMCPClient {
@@ -233,6 +255,7 @@ impl AxMCPClient {
             elicitation_handler: None,
             tool_authorizer: None,
             initialized: false,
+            tasks: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
@@ -693,6 +716,36 @@ impl AxMCPClient {
         result
     }
     pub fn call_tool(&mut self, name: &str, arguments: Value) -> AxResult<Value> {
+        self.call_tool_with_task_handling(name, arguments, AxMCPTaskHandling::Await)
+    }
+    /// Calls a tool, as TypeScript's callTool with `taskHandling`: a modern
+    /// server's task is awaited, or returned as its flattened CreateTaskResult
+    /// (with its top-level taskId) with `AxMCPTaskHandling::Expose`.
+    pub fn call_tool_with_task_handling(
+        &mut self,
+        name: &str,
+        arguments: Value,
+        task_handling: AxMCPTaskHandling,
+    ) -> AxResult<Value> {
+        match self.call_tool_outcome(name, arguments)? {
+            AxMCPToolCallOutcome::Complete(result) => Ok(result),
+            AxMCPToolCallOutcome::Task(task) => match task_handling {
+                AxMCPTaskHandling::Expose => Ok(task),
+                AxMCPTaskHandling::Await => self.await_modern_task(
+                    task.get("taskId")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                ),
+            },
+        }
+    }
+    /// Calls a tool without waiting on a task, as TypeScript's callToolOutcome.
+    /// A legacy server's task-shaped result is a complete result.
+    pub fn call_tool_outcome(
+        &mut self,
+        name: &str,
+        arguments: Value,
+    ) -> AxResult<AxMCPToolCallOutcome> {
         if let Some(authorize) = &self.tool_authorizer {
             let context = core_mcp(
                 &crate::_mcp_tool_authorization_context,
@@ -744,24 +797,58 @@ impl AxMCPClient {
             }
             Err(error) => return Err(error),
         };
-        if result.get("resultType").and_then(Value::as_str) != Some("task") {
-            return Ok(result);
-        }
-        if !self.has_tasks_capability() {
-            return Err(AxError::new("mcp","MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"));
-        }
-        if core_mcp(&crate::mcp_validate_modern_task, &[result.clone()])?.as_bool() != Some(true) {
-            return Err(AxError::new(
+        let outcome = core_mcp(
+            &crate::mcp_tool_call_outcome,
+            &[result.clone(), json!(self.has_tasks_capability())],
+        )?;
+        match outcome
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
+            "violation" => Err(AxError::new(
                 "mcp",
-                "MCP protocol violation: invalid CreateTaskResult",
-            ));
+                outcome
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            )),
+            "task" => {
+                self.record_task(&result);
+                Ok(AxMCPToolCallOutcome::Task(result))
+            }
+            _ => Ok(AxMCPToolCallOutcome::Complete(result)),
         }
-        self.await_modern_task(
-            result
-                .get("taskId")
-                .and_then(Value::as_str)
-                .unwrap_or_default(),
-        )
+    }
+    // As TypeScript's recordTask: keeps a task's latest snapshot and asks a
+    // running modern listener for a new task's updates.
+    fn record_task(&mut self, task: &Value) {
+        if self.store_task(task)
+            && self.era.as_deref() == Some("modern")
+            && self.active_subscription_id.is_some()
+        {
+            let _ = self.restart_modern_listener();
+        }
+    }
+    // Stores a task snapshot; true when the task is new to this client.
+    fn store_task(&self, task: &Value) -> bool {
+        match task.get("taskId").and_then(Value::as_str) {
+            Some(id) if !id.is_empty() => self
+                .tasks
+                .lock()
+                .unwrap()
+                .insert(id.to_string(), task.clone())
+                .is_none(),
+            _ => false,
+        }
+    }
+    // The recorded tasks a modern listener asks updates for, as TypeScript's
+    // listener does when something listens for them.
+    fn listen_task_ids(&self) -> Vec<String> {
+        if self.notification_listeners.lock().unwrap().is_empty() || !self.has_tasks_capability() {
+            return Vec::new();
+        }
+        self.tasks.lock().unwrap().keys().cloned().collect()
     }
     fn await_modern_task(&mut self, task_id: &str) -> AxResult<Value> {
         let max = self
@@ -1091,6 +1178,7 @@ impl AxMCPClient {
                     .get("subscriptionFilters")
                     .cloned()
                     .unwrap_or_else(|| json!({})),
+                json!(self.listen_task_ids()),
             ],
         )?;
         let version = self
@@ -1179,6 +1267,7 @@ impl AxMCPClient {
                 "MCP protocol violation: invalid tasks/get result",
             ));
         }
+        self.record_task(&result);
         Ok(result)
     }
     pub fn cancel_task(&mut self, task_id: &str) -> AxResult<Value> {
@@ -1327,6 +1416,7 @@ impl AxMCPClient {
         for state in states {
             self.emit_lifecycle(&state)
         }
+        let mut new_task = false;
         for message in messages {
             let message = if self.era.as_deref() == Some("modern") {
                 let filtered = core_mcp(
@@ -1345,9 +1435,25 @@ impl AxMCPClient {
                 message
             };
             self.apply_cache_notification(&message);
+            if matches!(
+                message.get("method").and_then(Value::as_str),
+                Some("notifications/tasks" | "notifications/tasks/status")
+            ) {
+                let params = message.get("params").cloned().unwrap_or(Value::Null);
+                let task = params
+                    .get("task")
+                    .filter(|value| value.is_object())
+                    .cloned()
+                    .unwrap_or(params);
+                new_task |= self.store_task(&task);
+            }
             self.emit_notification(message)
         }
-        if restart {
+        if restart
+            || (new_task
+                && self.era.as_deref() == Some("modern")
+                && self.active_subscription_id.is_some())
+        {
             let _ = self.restart_modern_listener();
         }
         count
@@ -5507,6 +5613,92 @@ pub fn run_mcp_conformance_fixture(fixture: &Value) -> AxResult<()> {
         }
         return Ok(());
     }
+    if operation == "tool_task_handling" {
+        let tool = fixture["tool"].as_str().unwrap_or_default();
+        let args = fixture
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        for case in fixture["cases"].as_array().unwrap() {
+            let label = case["name"].as_str().unwrap_or_default();
+            let transport = Arc::new(Mutex::new(Box::new(AxMCPScriptedTransport::new(
+                case["responses"].as_array().unwrap().clone(),
+            )) as Box<dyn AxMCPTransport>));
+            let mut options = fixture["client_options"].clone();
+            options["era"] = case["era"].clone();
+            let mut client = AxMCPClient::from_shared_transport(transport.clone(), options);
+            client.init()?;
+            let before = transport.lock().unwrap().sent_requests().len();
+            let result = match case["api"].as_str().unwrap_or_default() {
+                "call_tool" => client.call_tool(tool, args.clone()),
+                "call_tool_expose" => client.call_tool_with_task_handling(
+                    tool,
+                    args.clone(),
+                    AxMCPTaskHandling::Expose,
+                ),
+                "call_tool_outcome" => {
+                    client
+                        .call_tool_outcome(tool, args.clone())
+                        .map(|outcome| match outcome {
+                            AxMCPToolCallOutcome::Complete(result) => {
+                                json!({"kind":"complete","result":result})
+                            }
+                            AxMCPToolCallOutcome::Task(task) => json!({"kind":"task","task":task}),
+                        })
+                }
+                other => {
+                    return Err(AxError::new(
+                        "fixture",
+                        format!("unknown task-handling api {other}"),
+                    ))
+                }
+            };
+            match (result, case.get("expected_error").and_then(Value::as_str)) {
+                (Err(error), Some(expected)) => {
+                    if error.message != expected {
+                        return Err(AxError::new(
+                            "fixture",
+                            format!("{label}: task-handling error mismatch: {}", error.message),
+                        ));
+                    }
+                }
+                (Ok(value), None) => {
+                    if value != case["expected"] {
+                        return Err(AxError::new(
+                            "fixture",
+                            format!("{label}: task-handling result mismatch: {value}"),
+                        ));
+                    }
+                }
+                (Err(error), None) => {
+                    return Err(AxError::new(
+                        "fixture",
+                        format!("{label}: unexpected task-handling error: {}", error.message),
+                    ))
+                }
+                (Ok(value), Some(expected)) => {
+                    return Err(AxError::new(
+                        "fixture",
+                        format!("{label}: expected error {expected}, got {value}"),
+                    ))
+                }
+            }
+            let methods = transport.lock().unwrap().sent_requests()[before..]
+                .iter()
+                .map(|request| request["method"].clone())
+                .collect::<Vec<_>>();
+            if json!(methods) != case["expected_methods"] {
+                return Err(AxError::new(
+                    "fixture",
+                    format!(
+                        "{label}: task-handling methods mismatch: {}",
+                        json!(methods)
+                    ),
+                ));
+            }
+        }
+        return Ok(());
+    }
     if operation == "tool_authorization" {
         for case in fixture["cases"].as_array().unwrap() {
             let transport = Arc::new(Mutex::new(Box::new(AxMCPScriptedTransport::new(
@@ -7231,6 +7423,7 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                                     .cloned()
                                     .unwrap_or_else(|| json!([])),
                                 item.get("filters").cloned().unwrap_or_else(|| json!({})),
+                                item.get("task_ids").cloned().unwrap_or(Value::Null),
                             ],
                         )?;
                         if actual != item.get("expected").cloned().unwrap_or_else(|| json!({})) {
@@ -7366,6 +7559,100 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                                 "modern subscription emitted legacy method",
                             ));
                         }
+                    }
+                    Ok(())
+                }
+                "task_listen_restart" => {
+                    let delivered = Arc::new(Mutex::new(Vec::<Value>::new()));
+                    let captured = delivered.clone();
+                    client.add_notification_listener(move |message| {
+                        captured.lock().unwrap().push(message)
+                    });
+                    client.start_listening()?;
+                    let streams = client.transport.lock().unwrap().sent_request_streams();
+                    if streams.len() != 1 {
+                        return Err(AxError::new(
+                            "fixture",
+                            "initial subscriptions/listen stream missing",
+                        ));
+                    }
+                    if streams[0]
+                        .get("params")
+                        .and_then(|params| params.get("notifications"))
+                        .and_then(|value| value.get("taskIds"))
+                        .is_some()
+                    {
+                        return Err(AxError::new(
+                            "fixture",
+                            "listener asked for tasks before any were recorded",
+                        ));
+                    }
+                    let outcome = client.call_tool_outcome(
+                        fixture
+                            .get("tool")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                        fixture
+                            .get("arguments")
+                            .cloned()
+                            .unwrap_or_else(|| json!({})),
+                    )?;
+                    if !matches!(outcome, AxMCPToolCallOutcome::Task(_)) {
+                        return Err(AxError::new("fixture", "expected a task outcome"));
+                    }
+                    let streams = client.transport.lock().unwrap().sent_request_streams();
+                    if streams.len() != 2 {
+                        return Err(AxError::new(
+                            "fixture",
+                            "a recorded task did not restart the listener",
+                        ));
+                    }
+                    let second = streams.last().cloned().unwrap_or(Value::Null);
+                    expect_subset(
+                        "task listen interests",
+                        second
+                            .get("params")
+                            .and_then(|params| params.get("notifications"))
+                            .unwrap_or(&Value::Null),
+                        fixture
+                            .get("expected_second_notifications")
+                            .unwrap_or(&Value::Null),
+                    )?;
+                    let mut notification = fixture
+                        .get("task_notification")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    notification["params"]["_meta"] = json!({"io.modelcontextprotocol/subscriptionId":second.get("id").cloned().unwrap_or(Value::Null)});
+                    client.inbound_messages.lock().unwrap().push(notification);
+                    client.drain_inbound();
+                    if delivered
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .filter(|item| {
+                            item.get("method").and_then(Value::as_str)
+                                == Some("notifications/tasks")
+                        })
+                        .count()
+                        != 1
+                    {
+                        return Err(AxError::new(
+                            "fixture",
+                            "task notification was not delivered",
+                        ));
+                    }
+                    if client
+                        .transport
+                        .lock()
+                        .unwrap()
+                        .sent_request_streams()
+                        .len()
+                        != 2
+                    {
+                        return Err(AxError::new(
+                            "fixture",
+                            "a known task restarted the listener",
+                        ));
                     }
                     Ok(())
                 }

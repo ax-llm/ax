@@ -90,6 +90,13 @@ const result = await support.playbook().evolve(
   { metric, maxProposals: 2, runsPerTask: 2, verbose: true }
 );
 
+// Each train task replays on the agent. A replay that fails scores 0 and
+// would be mined as the weakness, so stop instead.
+const failedReplay = result.records.find((record) => record.error);
+if (failedReplay) {
+  throw new Error(`evolve replay failed: ${failedReplay.error}`);
+}
+
 console.log(
   `\nbaseline held-in ${result.baseline.heldIn.toFixed(2)} / held-out ${result.baseline.heldOut?.toFixed(2)}`
 );

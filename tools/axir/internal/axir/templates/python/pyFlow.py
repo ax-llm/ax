@@ -63,6 +63,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .signature import (
+    _js_text,
     _core_string_extract_leading_group,
     _core_string_find_outside_quotes,
     _core_string_split_once,
@@ -71,6 +72,7 @@ from .signature import (
     _js_number_text,
 )
 from .agent import (
+    AxAgent,
     OptimizerEngine,
     OptimizerEvaluator,
     _build_agent_eval_prediction,
@@ -566,8 +568,7 @@ def _core_string_split_trim_nonempty(value, sep):
 
 
 def _core_string_str(value):
-    # String(x): a float two is "2", not "2.0".
-    return _js_number_text(value) if isinstance(value, float) else str(value)
+    return _js_text(value)
 
 
 def _core_string_starts_with(value, prefix):
@@ -599,6 +600,14 @@ def _core_program_apply_components(program, component_map):
     if hasattr(program, "apply_optimized_components"):
         program.apply_optimized_components(component_map or {})
     return {}
+
+
+def _core_program_signature(program):
+    # An AxGen's or AxAgent's signature text. Any other program (a nested
+    # flow, a custom program) has none, and its undeclared step is a barrier.
+    if isinstance(program, (AxGen, AxAgent)):
+        return str(program.signature)
+    return None
 
 
 # AXIR_CORE_FLOW_FUNCTIONS

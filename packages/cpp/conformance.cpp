@@ -1998,7 +1998,12 @@ static void run_agent_playbook_evolve(Value fixture) {
         display(Core::get(fixture, "runtime_language", "Python")),
         "");
     Value agent_options = Core::get(fixture, "options", Value::object());
-    Core::set(agent_options, "runtime", Core::code_runtime_ref(runtime));
+    // runtime_on_evolve: the agent gets only a runtime descriptor and the
+    // runtime goes on the evolve call, as the examples pass it.
+    bool runtime_on_evolve = Core::truthy(Core::get(fixture, "runtime_on_evolve", false));
+    Core::set(agent_options, "runtime", runtime_on_evolve
+        ? object({{"language", display(Core::get(fixture, "runtime_language", "Python"))}})
+        : Core::code_runtime_ref(runtime));
     AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), agent_options);
     Value playbook_options = Core::map_merge(object({{"target", "responder"}, {"maxEpochs", 1}}), parse_json(stringify(Core::get(test_case, "playbook_options", Value::object()))));
     AxPlaybook& playbook = ag.playbook(client, playbook_options, &teacher);
@@ -2008,9 +2013,11 @@ static void run_agent_playbook_evolve(Value fixture) {
     // The C++ evolve runs its miner on the playbook's teacher (no evolve-level
     // teacherAI option: a Value cannot hold a client), so the teacher is only
     // passed to playbook() above.
+    Value evolve_options = parse_json(stringify(Core::get(test_case, "options", Value::object())));
+    if (runtime_on_evolve) Core::set(evolve_options, "runtime", Core::code_runtime_ref(runtime));
     Value actual = playbook.evolve(
         Core::get(fixture, "dataset", Value::object()),
-        Core::get(test_case, "options", Value::object()));
+        evolve_options);
     Array outcomes = Core::iter(Core::get(actual, "outcomes", Value::array()));
     std::string label = "playbook evolve " + display(Core::get(test_case, "name", "case"));
     Value expected = Core::get(test_case, "expected", Value::object());
@@ -3990,6 +3997,24 @@ static void run_date_input(Value fixture) {
   }
 }
 
+// string.format and string.str against JavaScript's text of each case.
+static void run_string_format(Value fixture) {
+  for (const auto& item : Core::iter(Core::get(fixture, "format_cases", Value::array()))) {
+    Value templ = Core::get(item, "template", Value(""));
+    std::vector<Value> args;
+    for (const auto& arg : Core::iter(Core::get(item, "input", Value::array()))) args.push_back(arg);
+    std::string actual = display(Core::string_format_values(templ, args));
+    std::string expected = display(Core::get(item, "expected", Value("")));
+    if (actual != expected) throw AxError("fixture", "string.format of " + stringify(templ) + ": expected " + stringify(Value(expected)) + ", got " + stringify(Value(actual)));
+  }
+  for (const auto& item : Core::iter(Core::get(fixture, "str_cases", Value::array()))) {
+    Value input = Core::get(item, "input");
+    std::string actual = display(Core::string_str(input));
+    std::string expected = display(Core::get(item, "expected", Value("")));
+    if (actual != expected) throw AxError("fixture", "string.str of " + stringify(input) + ": expected " + stringify(Value(expected)) + ", got " + stringify(Value(actual)));
+  }
+}
+
 static void run_number_format(Value fixture) {
   for (const auto& item : Core::iter(Core::get(fixture, "cases", Value::array()))) {
     std::string input = display(Core::get(item, "input"));
@@ -4030,7 +4055,9 @@ static void run_flow_mermaid(Value fixture) {
     AxFlow built;
     std::vector<std::unique_ptr<AxGen>> programs;
     for (const auto& raw : Core::iter(Core::get(fixture, "builder_steps", Value::array()))) {
-      Value options = object({{"reads", Core::get(raw, "reads", Value::array())}});
+      // A builder step without "reads" declares none.
+      Value reads = Core::get(raw, "reads");
+      Value options = reads.is_null() ? Value::object() : object({{"reads", reads}});
       auto program = std::make_unique<AxGen>(s(display(Core::get(raw, "signature"))));
       built.execute(display(Core::get(raw, "name")), *program, options);
       programs.push_back(std::move(program));
@@ -4045,7 +4072,34 @@ static void run_flow_mermaid(Value fixture) {
   assert_equal(second.str(), expected, "flow mermaid canonical roundtrip");
 }
 
+static void run_kind(Value fixture);
+
+// expected_deprecations pins the one-time deprecation warnings the run gives
+// (the ones already shown are forgotten first).
 static void run(Value fixture) {
+  Value expected = Core::get(fixture, "expected_deprecations");
+  if (expected.is_null()) {
+    run_kind(fixture);
+    return;
+  }
+  auto captured = std::make_shared<Value>(Value::array());
+  auto captured_mutex = std::make_shared<std::mutex>();
+  Core::axgen_capture_deprecations([captured, captured_mutex](const std::string& message) {
+    std::lock_guard<std::mutex> lock(*captured_mutex);
+    Core::append(*captured, Value(message));
+  });
+  try {
+    run_kind(fixture);
+  } catch (...) {
+    Core::axgen_capture_deprecations({});
+    throw;
+  }
+  Core::axgen_capture_deprecations({});
+  std::lock_guard<std::mutex> lock(*captured_mutex);
+  assert_equal(*captured, expected, "deprecation warnings");
+}
+
+static void run_kind(Value fixture) {
   std::string kind = display(Core::get(fixture, "kind", "forward"));
   if (kind == "signature_error") {
     expect_maybe_error([&] { return build_signature(fixture); }, fixture);
@@ -4077,6 +4131,8 @@ static void run(Value fixture) {
     run_json_stringify(fixture);
   } else if (kind == "number_format") {
     run_number_format(fixture);
+  } else if (kind == "string_format") {
+    run_string_format(fixture);
   } else if (kind == "date_field_value") {
     run_date_field_value(fixture);
   } else if (kind == "date_input") {

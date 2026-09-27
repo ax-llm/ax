@@ -1,0 +1,76 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "done"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_deprecations": [
+    "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version."
+  ],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_contains": [
+    "Function not found: null. Available functions: lookup. Call one of these exact function names."
+  ],
+  "expected_request_count": 2,
+  "expected_tool_calls": [],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-function-call-missing-name-corrected",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "",
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "params": "{\"key\":\"a\"}"
+                  },
+                  "id": "call_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: done",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

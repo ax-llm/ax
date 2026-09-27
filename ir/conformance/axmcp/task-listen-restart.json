@@ -1,0 +1,75 @@
+{
+  "name": "task-listen-restart",
+  "description": "Port-only. As TypeScript's recordTask (src/ax/mcp/client.ts), a task that callToolOutcome returns while a modern listener runs is recorded, and the listener restarts asking for it in notifications.taskIds, so the server's notifications/tasks for it reach the client's notification listeners. The first listener asks for no tasks.",
+  "kind": "mcp",
+  "operation": "task_listen_restart",
+  "client_options": {
+    "era": "modern",
+    "namespace": "inventory"
+  },
+  "responses": [
+    {
+      "method": "server/discover",
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "ttlMs": 60000,
+        "cacheScope": "private",
+        "capabilities": {
+          "tools": {},
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        }
+      }
+    },
+    {
+      "method": "tools/list",
+      "result": {
+        "tools": [
+          {
+            "name": "start_reindex",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "task",
+        "taskId": "task-7",
+        "status": "working",
+        "createdAt": "2026-07-28T00:00:00Z",
+        "lastUpdatedAt": "2026-07-28T00:00:01Z",
+        "ttlMs": 60000,
+        "pollIntervalMs": 0
+      }
+    }
+  ],
+  "tool": "start_reindex",
+  "arguments": {
+    "scope": "all"
+  },
+  "expected_second_notifications": {
+    "taskIds": ["task-7"]
+  },
+  "task_notification": {
+    "jsonrpc": "2.0",
+    "method": "notifications/tasks",
+    "params": {
+      "taskId": "task-7",
+      "status": "completed",
+      "createdAt": "2026-07-28T00:00:00Z",
+      "lastUpdatedAt": "2026-07-28T00:00:02Z",
+      "ttlMs": 60000
+    }
+  }
+}

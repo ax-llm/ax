@@ -1,0 +1,119 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "accepted": true,
+        "heldIn": {
+          "after": 0,
+          "before": 0
+        },
+        "metricCallsUsed": 2,
+        "outcome_count": 1,
+        "reason_contains": "held-in improved (no held-out set provided — consider one)"
+      },
+      "name": "replays-run-on-the-evolve-runtime",
+      "options": {
+        "maxMetricCalls": 2,
+        "maxProposals": 1,
+        "minHeldInGain": 0,
+        "verify": true
+      }
+    }
+  ],
+  "dataset": {
+    "train": [
+      {
+        "input": {
+          "question": "Answer briefly."
+        },
+        "score": 0
+      }
+    ]
+  },
+  "description": "The ports' examples build the agent with a runtime descriptor and pass the runtime on the evolve call (runtime_on_evolve); the replays must run on it. The expected outcome is TS's, with the runtime on the agent.",
+  "kind": "agent_playbook_evolve",
+  "name": "agent-playbook-evolve-runtime-on-evolve",
+  "options": {
+    "contextFields": [],
+    "description": "Answer the question.",
+    "name": "qa"
+  },
+  "responses": [
+    {
+      "content": "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\"}"
+    },
+    {
+      "content": "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\"}"
+    },
+    {
+      "content": "Answer: Ax composes typed LLM programs."
+    },
+    {
+      "content": "Weakness Description: The agent does not verify its final step.\nRoot Cause: The final step is accepted without a check.\nProposed Guidance: Verify the final step before completing the task.\nEvidence Quotes: [\"Answer\"]\nConfig Recommendations: []"
+    },
+    {
+      "content": "Reasoning: The playbook lacked a verification rule.\nError Identification: The final step was not checked.\nRoot Cause Analysis: No verification guidance.\nCorrect Approach: Add a verification guideline.\nKey Insight: Verify before finishing.\nBullet Tags: []"
+    },
+    {
+      "content": "Reasoning: The playbook lacked a verification rule.\nError Identification: The final step was not checked.\nRoot Cause Analysis: No verification guidance.\nCorrect Approach: Add a verification guideline.\nKey Insight: Verify before finishing.\nBullet Tags: []"
+    },
+    {
+      "content": "Reasoning: The playbook lacked a verification rule.\nOperations: [{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Verify the final step before completing the task.\"}]"
+    },
+    {
+      "content": "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\"}"
+    }
+  ],
+  "runtime_language": "Python",
+  "runtime_on_evolve": true,
+  "runtime_script": [
+    {
+      "expected_code": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Ax composes typed LLM programs."
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Ax composes typed LLM programs."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "seed": {
+    "artifact": {
+      "feedback": [],
+      "history": []
+    },
+    "playbook": {
+      "sections": {
+        "failures_to_avoid": [
+          {
+            "content": "Check the evidence before answering.",
+            "createdAt": "2026-07-15T00:00:00.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 0,
+            "id": "failures-to-avoid-00001",
+            "section": "failures_to_avoid",
+            "updatedAt": "2026-07-15T00:00:00.000Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-07-15T00:00:00.000Z",
+      "version": 1
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

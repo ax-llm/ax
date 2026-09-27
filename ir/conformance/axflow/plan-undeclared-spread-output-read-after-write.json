@@ -1,0 +1,127 @@
+{
+  "kind": "flow",
+  "name": "plan-undeclared-spread-output-read-after-write",
+  "operation": "plan",
+  "description": "Port-only. research and audience read only the input and share a group; join reads the facts and angle they spread, and the declared review step reads the answer join spreads, so each of those runs in a later group.",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "research",
+      "signature": "topic:string -> facts:string"
+    },
+    {
+      "kind": "execute",
+      "name": "audience",
+      "signature": "topic:string -> angle:string"
+    },
+    {
+      "kind": "execute",
+      "name": "join",
+      "signature": "facts:string, angle:string -> answer:string"
+    },
+    {
+      "kind": "execute",
+      "name": "review",
+      "signature": "answer:string -> verdict:string",
+      "options": {
+        "reads": ["answer"],
+        "writes": ["reviewResult"],
+        "isBarrier": false
+      }
+    }
+  ],
+  "expected_plan": {
+    "totalSteps": 4,
+    "parallelGroups": 3,
+    "maxParallelism": 2,
+    "steps": [
+      {
+        "name": "research",
+        "kind": "execute",
+        "reads": ["topic"],
+        "writes": ["researchResult", "facts"],
+        "outputs": ["facts"],
+        "barrier": false,
+        "stepIndex": 0
+      },
+      {
+        "name": "audience",
+        "kind": "execute",
+        "reads": ["topic"],
+        "writes": ["audienceResult", "angle"],
+        "outputs": ["angle"],
+        "barrier": false,
+        "stepIndex": 1
+      },
+      {
+        "name": "join",
+        "kind": "execute",
+        "reads": ["facts", "angle"],
+        "writes": ["joinResult", "answer"],
+        "outputs": ["answer"],
+        "barrier": false,
+        "stepIndex": 2
+      },
+      {
+        "name": "review",
+        "kind": "execute",
+        "reads": ["answer"],
+        "writes": ["reviewResult"],
+        "barrier": false,
+        "stepIndex": 3
+      }
+    ],
+    "groups": [
+      {
+        "level": 0,
+        "steps": [
+          {
+            "name": "research",
+            "kind": "execute",
+            "reads": ["topic"],
+            "writes": ["researchResult", "facts"],
+            "outputs": ["facts"],
+            "barrier": false,
+            "stepIndex": 0
+          },
+          {
+            "name": "audience",
+            "kind": "execute",
+            "reads": ["topic"],
+            "writes": ["audienceResult", "angle"],
+            "outputs": ["angle"],
+            "barrier": false,
+            "stepIndex": 1
+          }
+        ]
+      },
+      {
+        "level": 1,
+        "steps": [
+          {
+            "name": "join",
+            "kind": "execute",
+            "reads": ["facts", "angle"],
+            "writes": ["joinResult", "answer"],
+            "outputs": ["answer"],
+            "barrier": false,
+            "stepIndex": 2
+          }
+        ]
+      },
+      {
+        "level": 2,
+        "steps": [
+          {
+            "name": "review",
+            "kind": "execute",
+            "reads": ["answer"],
+            "writes": ["reviewResult"],
+            "barrier": false,
+            "stepIndex": 3
+          }
+        ]
+      }
+    ]
+  }
+}

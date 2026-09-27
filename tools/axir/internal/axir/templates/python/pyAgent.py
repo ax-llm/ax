@@ -61,7 +61,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .mcp import resolve_execution_context
-from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature, f as _signature_builder
+from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature, f as _signature_builder, _js_format
 # AXIR_CORE_IMPORTS
 
 
@@ -2160,11 +2160,17 @@ class AxAgent:
 
     def evaluate_optimization_task(self, client, task: dict[str, Any], options: dict[str, Any] | None = None):
         opts = options or {}
+        # A runtime on the evolve or optimize call runs each task, as it runs a
+        # forward call (the agent may hold only a runtime descriptor), unless
+        # forward_options names one.
+        forward_options = dict(opts.get("forward_options") or {})
+        if opts.get("runtime") is not None and forward_options.get("runtime") is None:
+            forward_options["runtime"] = opts["runtime"]
         # As TS evaluates each task from a fresh state, the prediction carries
         # only this run's share of the agent's logs.
         marks = _agent_eval_marks(self.state)
         try:
-            output = self.forward(client, task.get("input") or task, opts.get("forward_options") or {})
+            output = self.forward(client, task.get("input") or task, forward_options)
             completion = {"type": "final", "output": output}
         except AxAgentClarificationError as exc:
             completion = {"type": "askClarification", "clarification": exc.clarification}
@@ -2457,8 +2463,7 @@ def _core_json_parse(value):
 
 
 def _core_string_format(template, *args):
-    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
-    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
+    return _js_format(template, args)
 
 
 def _core_string_slice(value, start, end=None):

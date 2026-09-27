@@ -84,6 +84,19 @@ module @ax.flow version "0.1" {
       core.if %may_parallel {
         %default_barrier = core.let false
       }
+      %io = core.call @flow_step_program_io(%kind, %trimmed, %program, %opts)
+      %infers_io = core.get %io["infer"] default false
+      core.if %infers_io {
+        %io_has_signature = core.get %io["hasSignature"] default false
+        core.if %io_has_signature {
+          %reads = core.get %io["reads"]
+          %writes = core.get %io["writes"]
+          %io_outputs = core.get %io["outputs"]
+          core.set %step["outputs"] = %io_outputs
+        } else {
+          %default_barrier = core.let true
+        }
+      }
       %barrier_from_snake = core.get %opts["is_barrier"] default %default_barrier
       %barrier_from_camel = core.get %opts["isBarrier"] default %barrier_from_snake
       %barrier = core.get %opts["barrier"] default %barrier_from_camel
@@ -153,6 +166,13 @@ module @ax.flow version "0.1" {
       core.set %entry["kind"] = %kind
       core.set %entry["reads"] = %reads
       core.set %entry["writes"] = %writes
+      // Port-only: a step whose reads and writes come from its program's
+      // signature lists the output fields it spreads into the flow state.
+      %has_outputs = core.call intrinsic.map.contains(%step, "outputs")
+      core.if %has_outputs {
+        %outputs = core.get %step["outputs"]
+        core.set %entry["outputs"] = %outputs
+      }
       core.set %entry["barrier"] = %barrier
       core.set %entry["stepIndex"] = %step_index
       core.return %entry
@@ -169,6 +189,11 @@ module @ax.flow version "0.1" {
       %candidate_barrier = core.get %candidate["barrier"] default true
       %candidate_writes = core.get %candidate["writes"] default %empty_list
       %candidate_reads = core.get %candidate["reads"] default %empty_list
+      // Output fields a program step spreads into the state order later
+      // readers only. A group runs from one snapshot and merges its results
+      // in step order, so a field two steps write, or one an earlier step
+      // reads, ends as it would running one after another.
+      %candidate_outputs = core.get %candidate["outputs"] default %empty_list
       %write_count = core.call intrinsic.len(%candidate_writes)
       %no_writes = core.call intrinsic.eq(%write_count, 0)
       %can_share = core.let true
@@ -185,6 +210,7 @@ module @ax.flow version "0.1" {
         }
         %existing_writes = core.get %existing["writes"] default %empty_list
         %existing_reads = core.get %existing["reads"] default %empty_list
+        %existing_outputs = core.get %existing["outputs"] default %empty_list
         core.for %read in %candidate_reads {
           %read_conflict = core.call intrinsic.contains(%existing_writes, %read)
           core.if %read_conflict {
@@ -193,13 +219,21 @@ module @ax.flow version "0.1" {
         }
         core.for %existing_read in %existing_reads {
           %reverse_read_conflict = core.call intrinsic.contains(%candidate_writes, %existing_read)
-          core.if %reverse_read_conflict {
+          %reverse_read_output = core.call intrinsic.contains(%candidate_outputs, %existing_read)
+          %reverse_read_ordered = core.call intrinsic.not(%reverse_read_output)
+          %reverse_read_blocks = core.call intrinsic.and(%reverse_read_conflict, %reverse_read_ordered)
+          core.if %reverse_read_blocks {
             %can_share = core.let false
           }
         }
         core.for %write in %candidate_writes {
           %write_conflict = core.call intrinsic.contains(%existing_writes, %write)
-          core.if %write_conflict {
+          %candidate_write_output = core.call intrinsic.contains(%candidate_outputs, %write)
+          %existing_write_output = core.call intrinsic.contains(%existing_outputs, %write)
+          %write_output = core.call intrinsic.or(%candidate_write_output, %existing_write_output)
+          %write_ordered = core.call intrinsic.not(%write_output)
+          %write_blocks = core.call intrinsic.and(%write_conflict, %write_ordered)
+          core.if %write_blocks {
             %can_share = core.let false
           }
         }
@@ -978,7 +1012,7 @@ module @ax.flow version "0.1" {
               %index = core.get %plan_step["stepIndex"] default 0
               %step = core.call intrinsic.list.get(%steps, %index, null)
               %result_state = core.call @flow_execute_step(%flow, %step, %plan_step, %client, %group_start, %options)
-              %current = core.call @flow_merge_parallel_results(%current, %result_state)
+              %current = core.call @flow_merge_group_step(%current, %step, %group_start, %result_state)
             }
           } else {
             %report_count = core.call intrinsic.len(%reports)
@@ -989,6 +1023,7 @@ module @ax.flow version "0.1" {
               core.raise %error
             }
             %failures = core.list
+            %report_position = core.let 0
             core.for %report in %reports {
               %worker_traces = core.get %report["traces"] default %empty_list
               %traces = core.get %flow["traces"] default %empty_list
@@ -1010,8 +1045,12 @@ module @ax.flow version "0.1" {
                 core.append %failures, %failure
               } else {
                 %result_state = core.get %report["state"]
-                %current = core.call @flow_merge_parallel_results(%current, %result_state)
+                %report_plan_step = core.call intrinsic.list.get(%group_steps, %report_position, null)
+                %report_step_index = core.get %report_plan_step["stepIndex"] default 0
+                %report_step = core.call intrinsic.list.get(%steps, %report_step_index, null)
+                %current = core.call @flow_merge_group_step(%current, %report_step, %group_start, %result_state)
               }
+              %report_position = core.call intrinsic.add(%report_position, 1)
             }
             %failure_count = core.call intrinsic.len(%failures)
             %failed = core.call intrinsic.gt(%failure_count, 0)
@@ -2499,6 +2538,12 @@ module @ax.flow version "0.1" {
             %step_options = core.get %step["options"] default %empty_map
             %empty_reads = core.list
             %step_reads = core.get %step["reads"] default %empty_reads
+            // Edges come from declared reads; reads taken from a program's
+            // signature draw none.
+            %inferred_reads = core.call intrinsic.map.contains(%step, "outputs")
+            core.if %inferred_reads {
+              %step_reads = core.let %empty_reads
+            }
             %reads = core.get %step_options["reads"] default %step_reads
             core.for %read in %reads {
               %is_result = core.call intrinsic.string.ends_with(%read, "Result")
@@ -2553,6 +2598,188 @@ module @ax.flow version "0.1" {
       }
       %rendered = core.call @flow_mermaid_render_flow(%flow, %options)
       core.return %rendered
+    }
+  }
+
+  op ax.flow.semantic @flow_group_step_changes {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(step:json, group_start:json, result_state:json) -> list<json> throws"
+    body @entry(%step: json, %group_start: json, %result_state: json) {
+      // The keys a parallel group's step changed. Every step in a group runs
+      // from the group's starting state, so a step's returned state still
+      // holds the starting value of each key another step changed. A program
+      // node writes {name}Result and spreads its result's fields (all of them,
+      // so a later step that writes a field's starting value back still wins,
+      // as it would running after the others); a derive step writes its output
+      // field; a map step writes {name}Result and the keys whose value it
+      // changed; any other step, the keys whose value differs from the start.
+      // A step its guard skipped changed nothing.
+      %empty_map = core.map
+      %empty_list = core.list
+      %changes = core.list
+      %missing_step = core.call intrinsic.is_none(%step)
+      core.if %missing_step {
+        core.return %changes
+      }
+      %kind = core.get %step["kind"] default "execute"
+      %name = core.get %step["name"] default ""
+      %step_options = core.get %step["options"] default %empty_map
+      %guard = core.get %step_options["guard"] default null
+      %has_guard = core.call intrinsic.is_not_none(%guard)
+      core.if %has_guard {
+        %guard_matches = core.call @flow_evaluate_data_predicate(%guard, %group_start, false)
+        %guard_skipped = core.call intrinsic.not(%guard_matches)
+        core.if %guard_skipped {
+          core.return %changes
+        }
+      }
+      %result_key = core.call intrinsic.string.format("{}Result", %name)
+      %is_derive = core.call intrinsic.eq(%kind, "derive")
+      core.if %is_derive {
+        %writes = core.get %step["writes"] default %empty_list
+        %output_field = core.call intrinsic.list.get(%writes, 0, %name)
+        core.append %changes, %output_field
+        core.return %changes
+      }
+      %is_map = core.call intrinsic.eq(%kind, "map")
+      %is_branch = core.call intrinsic.eq(%kind, "branch")
+      %is_while = core.call intrinsic.eq(%kind, "while")
+      %is_feedback = core.call intrinsic.eq(%kind, "feedback")
+      %is_parallel = core.call intrinsic.eq(%kind, "parallel")
+      %is_parallel_merge = core.call intrinsic.eq(%kind, "parallelMerge")
+      %is_loop = core.call intrinsic.or(%is_while, %is_feedback)
+      %is_control = core.call intrinsic.or(%is_branch, %is_loop)
+      %is_explicit_parallel = core.call intrinsic.or(%is_parallel, %is_parallel_merge)
+      %compares_values = core.call intrinsic.or(%is_control, %is_explicit_parallel)
+      %not_program = core.call intrinsic.or(%is_map, %compares_values)
+      %is_program = core.call intrinsic.not(%not_program)
+      core.if %is_program {
+        core.append %changes, %result_key
+        %result = core.get %result_state[%result_key] default null
+        %result_is_map = core.type_is %result type "object"
+        core.if %result_is_map {
+          %result_fields = core.call intrinsic.map.keys(%result)
+          core.for %result_field in %result_fields {
+            %field_listed = core.call intrinsic.contains(%changes, %result_field)
+            core.if %field_listed {
+            } else {
+              core.append %changes, %result_field
+            }
+          }
+        }
+        core.return %changes
+      }
+      core.if %is_map {
+        core.append %changes, %result_key
+      }
+      %state_keys = core.call intrinsic.map.keys(%result_state)
+      core.for %state_key in %state_keys {
+        %key_listed = core.call intrinsic.contains(%changes, %state_key)
+        core.if %key_listed {
+        } else {
+          %in_start = core.call intrinsic.map.contains(%group_start, %state_key)
+          core.if %in_start {
+            %before = core.get %group_start[%state_key] default null
+            %after = core.get %result_state[%state_key] default null
+            %unchanged = core.call intrinsic.eq(%before, %after)
+            core.if %unchanged {
+            } else {
+              core.append %changes, %state_key
+            }
+          } else {
+            core.append %changes, %state_key
+          }
+        }
+      }
+      core.return %changes
+    }
+  }
+
+  op ax.flow.semantic @flow_merge_group_step {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(current:json, step:json, group_start:json, result_state:json) -> json throws"
+    body @entry(%current: json, %step: json, %group_start: json, %result_state: json) {
+      // A parallel group merges each step's changes, in step order, into the
+      // state so far: a later step can't undo an earlier one's update, and a
+      // key two steps write ends with the later step's value, as running them
+      // one after another would leave it.
+      %empty_map = core.map
+      %out = core.call intrinsic.map.merge(%current, %empty_map)
+      %changes = core.call @flow_group_step_changes(%step, %group_start, %result_state)
+      core.for %change in %changes {
+        %present = core.call intrinsic.map.contains(%result_state, %change)
+        core.if %present {
+          %value = core.get %result_state[%change] default null
+          core.set %out[%change] = %value
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.flow.semantic @flow_step_program_io {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(kind:string, name:string, program:json, options:json) -> json throws"
+    body @entry(%kind: string, %name: string, %program: json, %options: json) {
+      // Port-only: TS reads a step's dependencies from its mapping function;
+      // the ports' execute(name, program) has none. A program node takes its
+      // inputs from the flow state and spreads its outputs into it, so a step
+      // that declares no reads or writes reads its program's input fields and
+      // writes {name}Result plus its output fields, listed as "outputs". A
+      // program without a signature (a nested flow, a custom program) is a
+      // barrier, as TS treats an unknown dependency.
+      %io = core.map
+      core.set %io["infer"] = false
+      %is_execute = core.call intrinsic.eq(%kind, "execute")
+      %not_execute = core.call intrinsic.not(%is_execute)
+      core.if %not_execute {
+        core.return %io
+      }
+      %declares_reads = core.call intrinsic.map.contains(%options, "reads")
+      %declares_writes = core.call intrinsic.map.contains(%options, "writes")
+      %declares = core.call intrinsic.or(%declares_reads, %declares_writes)
+      core.if %declares {
+        core.return %io
+      }
+      core.set %io["infer"] = true
+      %signature_text = core.call intrinsic.program.signature(%program)
+      %has_signature = core.call intrinsic.truthy(%signature_text)
+      core.set %io["hasSignature"] = %has_signature
+      %no_signature = core.call intrinsic.not(%has_signature)
+      core.if %no_signature {
+        core.return %io
+      }
+      %signature = core.call @parse_signature(%signature_text)
+      %reads = core.list
+      %input_fields = core.get %signature["input_fields"]
+      core.for %input_field in %input_fields {
+        %input_name = core.get %input_field["name"] default ""
+        core.append %reads, %input_name
+      }
+      %writes = core.list
+      %result_key = core.call intrinsic.string.format("{}Result", %name)
+      core.append %writes, %result_key
+      %outputs = core.list
+      %output_fields = core.get %signature["output_fields"]
+      core.for %output_field in %output_fields {
+        %output_name = core.get %output_field["name"] default ""
+        %is_result_key = core.call intrinsic.eq(%output_name, %result_key)
+        core.if %is_result_key {
+        } else {
+          core.append %outputs, %output_name
+          core.append %writes, %output_name
+        }
+      }
+      core.set %io["reads"] = %reads
+      core.set %io["writes"] = %writes
+      core.set %io["outputs"] = %outputs
+      core.return %io
     }
   }
 }

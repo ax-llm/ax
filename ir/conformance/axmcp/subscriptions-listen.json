@@ -16,8 +16,13 @@
         "resultType": "complete",
         "supportedVersions": ["2026-07-28"],
         "capabilities": {
-          "tools": { "listChanged": true },
-          "resources": { "listChanged": true, "subscribe": true }
+          "tools": {
+            "listChanged": true
+          },
+          "resources": {
+            "listChanged": true,
+            "subscribe": true
+          }
         },
         "ttlMs": 60000,
         "cacheScope": "private"
@@ -25,11 +30,19 @@
     },
     {
       "method": "tools/list",
-      "result": { "tools": [], "ttlMs": 60000, "cacheScope": "private" }
+      "result": {
+        "tools": [],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
     },
     {
       "method": "resources/list",
-      "result": { "resources": [], "ttlMs": 60000, "cacheScope": "private" }
+      "result": {
+        "resources": [],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
     },
     {
       "method": "resources/templates/list",
@@ -51,6 +64,25 @@
         "toolsListChanged": true,
         "resourceSubscriptions": ["demo://b", "demo://a"]
       }
+    },
+    {
+      "subscribed_uris": [],
+      "filters": {
+        "toolsListChanged": true
+      },
+      "task_ids": ["task-b", "task-a", "task-b", ""],
+      "expected": {
+        "toolsListChanged": true,
+        "taskIds": ["task-a", "task-b"]
+      }
+    },
+    {
+      "subscribed_uris": ["demo://a"],
+      "filters": {},
+      "task_ids": [],
+      "expected": {
+        "resourceSubscriptions": ["demo://a"]
+      }
     }
   ],
   "uri": "demo://resource",
@@ -67,7 +99,9 @@
   "delivered_notification": {
     "jsonrpc": "2.0",
     "method": "notifications/resources/updated",
-    "params": { "uri": "demo://resource" }
+    "params": {
+      "uri": "demo://resource"
+    }
   },
   "expected_forbidden_methods": ["resources/subscribe", "resources/unsubscribe"]
 }

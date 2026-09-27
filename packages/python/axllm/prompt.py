@@ -4,7 +4,7 @@ import os
 import json
 import re
 from typing import Any
-from .signature import _js_date_prompt_text, _js_json_dumps, _js_number_text, _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl
+from .signature import _js_date_prompt_text, _js_json_dumps, _js_number_text, _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl, _js_format
 
 
 PROMPT_FEATURES = {
@@ -93,8 +93,7 @@ def _core_get(target, key, default=None):
 
 
 def _core_string_format(template, *args):
-    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
-    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
+    return _js_format(template, args)
 
 
 def _core_string_join(sep, values):
