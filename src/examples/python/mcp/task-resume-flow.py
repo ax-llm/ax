@@ -60,6 +60,7 @@ calls = 0
 def invoke(input, _context):
     global calls
     output = program.forward(llm, input)
+    assert output.get("status"), output
     calls += 1
     print(output)
     if calls >= 2:
