@@ -50,7 +50,6 @@ from .gen import (
 from .flow import (
     _FlowCallable,
     _flow_add_step,
-    _flow_cache_key,
     _flow_condition_from_spec,
     _flow_merge_parallel_results,
     _flow_mapper_from_spec,
@@ -582,6 +581,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_streaming_forward(fixture)
         elif kind == "cache_sequence":
             _run_cache_sequence(fixture)
+        elif kind == "flow_cache_sequence":
+            _run_flow_cache_sequence(fixture)
         elif kind == "ai_session_state":
             _run_ai_session_state(fixture)
         elif kind == "ai_session_events":
@@ -1413,14 +1414,17 @@ def _run_cache_sequence(fixture):
                 call_options["caching_function"] = caching_function
             if call.get("control"):
                 call_options["control"] = run_control()
+            call_input = call.get("input") or {}
+            if call.get("reverse_input_keys"):
+                call_input = dict(reversed(list(call_input.items())))
             errors.append(None)
             if call.get("kind") == "streaming_forward":
                 deltas = []
-                outputs.append(gen._streaming_forward_with(client, call.get("input") or {}, call_options, deltas.append))
+                outputs.append(gen._streaming_forward_with(client, call_input, call_options, deltas.append))
                 deltas_per_call.append(deltas)
             else:
                 try:
-                    outputs.append(gen.forward(client, call.get("input") or {}, call_options))
+                    outputs.append(gen.forward(client, call_input, call_options))
                 except Exception as exc:  # noqa: BLE001 - compared with expected_errors
                     errors[-1] = str(exc).split("\n")[0]
                     outputs.append(None)
@@ -1438,6 +1442,74 @@ def _run_cache_sequence(fixture):
     if len(reads) != fixture.get("expected_cache_gets"):
         raise FixtureError(f"expected {fixture.get('expected_cache_gets')} cache reads, got {len(reads)}")
     _assert_equal(writes, fixture.get("expected_cache_sets"), "cache writes")
+
+
+def _run_flow_cache_sequence(fixture):
+    # Several forward / streaming_forward calls on one AxFlow with one
+    # in-memory cache: each call's output, delta and requests, and every read
+    # and write of the cache, the flow's own entry and its AxGen nodes'.
+    from .session import run_control
+    store = {}
+    reads = []
+    writes = []
+
+    def caching_function(key, value=None):
+        if value is not None:
+            if fixture.get("cache_write_error"):
+                raise RuntimeError(fixture["cache_write_error"])
+            writes.append(copy.deepcopy(value))
+            store[key] = copy.deepcopy(value)
+            return None
+        reads.append(key)
+        if fixture.get("cache_read_error"):
+            raise RuntimeError(fixture["cache_read_error"])
+        hit = store.get(key)
+        return copy.deepcopy(hit) if hit is not None else None
+
+    cache_in = fixture.get("cache_in", "call")
+    fl = _build_flow(fixture)
+    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [])
+    previous_global = _snapshot_global_caching_function()
+    if cache_in == "global":
+        set_caching_function(caching_function)
+    outputs, deltas_per_call, requests, errors = [], [], [], []
+    try:
+        for call in fixture.get("calls") or []:
+            before = len(client.requests)
+            call_options = {}
+            if cache_in == "call":
+                call_options["caching_function"] = caching_function
+            if call.get("control"):
+                call_options["control"] = run_control()
+            call_input = call.get("input") or {}
+            if call.get("reverse_input_keys"):
+                call_input = dict(reversed(list(call_input.items())))
+            errors.append(None)
+            try:
+                if call.get("kind") == "streaming_forward":
+                    deltas = list(fl.streaming_forward(client, call_input, call_options))
+                    outputs.append(deltas[-1]["delta"] if deltas else None)
+                    deltas_per_call.append(deltas)
+                else:
+                    outputs.append(fl.forward(client, call_input, call_options))
+                    deltas_per_call.append(None)
+            except Exception as exc:  # noqa: BLE001 - compared with expected_errors
+                errors[-1] = str(exc).split("\n")[0]
+                outputs.append(None)
+                deltas_per_call.append(None)
+            requests.append(len(client.requests) - before)
+    finally:
+        set_caching_function(previous_global)
+    if any(error is not None for error in errors) or "expected_errors" in fixture:
+        _assert_equal(errors, fixture.get("expected_errors"), "flow cache sequence errors")
+    _assert_equal(outputs, fixture.get("expected_outputs"), "flow cache sequence outputs")
+    _assert_equal(deltas_per_call, fixture.get("expected_deltas"), "flow cache sequence deltas")
+    _assert_equal(requests, fixture.get("expected_requests"), "flow cache sequence requests per call")
+    if len(client.requests) != fixture.get("expected_request_count"):
+        raise FixtureError(f"expected {fixture.get('expected_request_count')} requests, got {len(client.requests)}")
+    if len(reads) != fixture.get("expected_cache_gets"):
+        raise FixtureError(f"expected {fixture.get('expected_cache_gets')} cache reads, got {len(reads)}")
+    _assert_equal(writes, fixture.get("expected_cache_sets"), "flow cache writes")
 
 
 def _run_streaming_forward(fixture):
@@ -1574,13 +1646,6 @@ def _run_program_contract(fixture):
 def _run_flow(fixture):
     try:
         fl = _build_flow(fixture)
-        if fixture.get("operation") == "cache_key":
-            keys = [_flow_cache_key(item) for item in fixture.get("cache_key_inputs") or []]
-            if fixture.get("expected_cache_keys_equal") and len(set(keys)) != 1:
-                raise FixtureError(f"expected equal flow cache keys, got {keys}")
-            if fixture.get("expected_cache_keys_distinct") and len(set(keys)) != len(keys):
-                raise FixtureError(f"expected distinct flow cache keys, got {keys}")
-            return
         if "expected_plan" in fixture:
             _assert_equal(fl.get_plan(), fixture["expected_plan"], "flow plan")
         if "expected_plan_subset" in fixture:
@@ -1589,9 +1654,6 @@ def _run_flow(fixture):
             return
         client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
         forward_options = copy.deepcopy(fixture.get("forward_options") or {})
-        if "cache_seed_value" in fixture:
-            cache_store = forward_options.setdefault("cache_store", {})
-            cache_store[_flow_cache_key(fixture.get("input") or {})] = copy.deepcopy(fixture.get("cache_seed_value"))
         if fixture.get("operation") == "streaming":
             output = list(fl.streaming_forward(client, fixture.get("input") or {}, forward_options))
         else:
@@ -1622,12 +1684,6 @@ def _run_flow(fixture):
         _assert_list_subset(fl.get_traces(), fixture["expected_trace_subset"], "flow traces")
     if "expected_usage_subset" in fixture:
         _assert_subset(fl.get_usage(), fixture["expected_usage_subset"], "flow usage")
-    if "expected_cache_store_subset" in fixture:
-        cache_store = forward_options.get("cache_store") or forward_options.get("cacheStore") or {}
-        _assert_subset(cache_store, fixture["expected_cache_store_subset"], "flow cache store")
-    if "expected_cache_value_for_input" in fixture:
-        cache_store = forward_options.get("cache_store") or forward_options.get("cacheStore") or {}
-        _assert_equal(cache_store.get(_flow_cache_key(fixture.get("input") or {})), fixture["expected_cache_value_for_input"], "flow cache value")
     if "expected_components_subset" in fixture:
         _assert_list_subset(fl.get_optimizable_components(), fixture["expected_components_subset"], "flow components")
 

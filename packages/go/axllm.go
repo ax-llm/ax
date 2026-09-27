@@ -153,6 +153,13 @@ func snapshotGlobalRuntimeHooks() AxRuntimeHooks {
 // run "control" option bypasses the cache. Forward returns an error from a
 // read and StreamingForward ignores it; an error from a store is ignored. It
 // may be called from several goroutines at once.
+//
+// AxFlow caches its returned output the same way, keyed by its steps and
+// input values, with the forward call's "cachingFunction" or the
+// process-wide one (NewFlow takes none); it ignores errors from its own reads
+// and writes, and a hit runs no node and records no ax_gen_flow_forward span
+// or ax_gen_flow metric. The call's function also reaches the flow's AxGen
+// nodes, which cache their own outputs.
 type AxCachingFunction func(key string, value map[string]Value) (map[string]Value, error)
 
 var cachingFunctionState struct {
@@ -78352,78 +78359,73 @@ func _flow_plan(args ...Value) (Value, error) {
 
 func _flow_cache_key(args ...Value) (Value, error) {
 	axirCoverageMark("_flow_cache_key")
+	var v_flow Value
 	var v_values Value
 	var v_key Value
-	if len(args) > 0 { v_values = args[0] }
+	var v_parts Value
+	var v_plan Value
+	var v_plan_text Value
+	var v_text Value
+	var v_values_text Value
+	if len(args) > 0 { v_flow = args[0] }
+	_ = v_flow
+	if len(args) > 1 { v_values = args[1] }
 	_ = v_values
 	_ = v_key
-	v_key = _core_json_stable_stringify(v_values)
+	_ = v_parts
+	_ = v_plan
+	_ = v_plan_text
+	_ = v_text
+	_ = v_values_text
+	{ v, err := _flow_plan(v_flow); if err != nil { return nil, err }; v_plan = v }
+	v_plan_text = _core_json_stable_stringify(v_plan)
+	v_values_text = _core_json_stable_stringify(v_values)
+	v_parts = MutableArray()
+	v_parts = coreAppend(v_parts, "axflow")
+	v_parts = coreAppend(v_parts, v_plan_text)
+	v_parts = coreAppend(v_parts, v_values_text)
+	v_text = _core_string_join("\n", v_parts)
+	v_key = _core_crypto_sha256_hex(v_text)
 	return v_key, nil
 }
 
-func _flow_cache_read_write(args ...Value) (Value, error) {
-	axirCoverageMark("_flow_cache_read_write")
+func _flow_cache_lookup_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_cache_lookup_impl")
 	var v_flow Value
 	var v_values Value
 	var v_options Value
-	var v_mode Value
-	var v_cached_value Value
+	var v_cache_fn Value
 	var v_cached Value
-	var v_can_read_store Value
-	var v_can_write_store Value
 	var v_controlled Value
 	var v_controller Value
 	var v_empty_map Value
-	var v_has_store Value
 	var v_hit Value
-	var v_is_read Value
-	var v_is_write Value
 	var v_key Value
+	var v_lookup Value
+	var v_no_cache Value
 	var v_none Value
 	var v_opts Value
 	var v_opts_missing Value
 	var v_read_error Value
-	var v_read_error_snake Value
-	var v_result Value
-	var v_skip_read Value
-	var v_skip_write Value
-	var v_store Value
-	var v_store_snake Value
-	var v_write_error Value
-	var v_write_error_snake Value
 	if len(args) > 0 { v_flow = args[0] }
 	_ = v_flow
 	if len(args) > 1 { v_values = args[1] }
 	_ = v_values
 	if len(args) > 2 { v_options = args[2] }
 	_ = v_options
-	if len(args) > 3 { v_mode = args[3] }
-	_ = v_mode
-	if len(args) > 4 { v_cached_value = args[4] }
-	_ = v_cached_value
+	_ = v_cache_fn
 	_ = v_cached
-	_ = v_can_read_store
-	_ = v_can_write_store
 	_ = v_controlled
 	_ = v_controller
 	_ = v_empty_map
-	_ = v_has_store
 	_ = v_hit
-	_ = v_is_read
-	_ = v_is_write
 	_ = v_key
+	_ = v_lookup
+	_ = v_no_cache
 	_ = v_none
 	_ = v_opts
 	_ = v_opts_missing
 	_ = v_read_error
-	_ = v_read_error_snake
-	_ = v_result
-	_ = v_skip_read
-	_ = v_skip_write
-	_ = v_store
-	_ = v_store_snake
-	_ = v_write_error
-	_ = v_write_error_snake
 	v_empty_map = Object()
 	v_opts_missing = _core_is_none(v_options)
 	v_opts = v_options
@@ -78432,67 +78434,83 @@ func _flow_cache_read_write(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	{ v, err := _flow_cache_key(v_values); if err != nil { return nil, err }; v_key = v }
-	v_store_snake = coreGet(v_opts, "cache_store", nil)
-	v_store = coreGet(v_opts, "cacheStore", v_store_snake)
-	v_has_store = _core_is_not_none(v_store)
-	v_read_error_snake = coreGet(v_opts, "cache_read_error", false)
-	v_read_error = coreGet(v_opts, "cacheReadError", v_read_error_snake)
-	v_write_error_snake = coreGet(v_opts, "cache_write_error", false)
-	v_write_error = coreGet(v_opts, "cacheWriteError", v_write_error_snake)
-	v_is_read = _core_eq(v_mode, "read")
-	v_is_write = _core_eq(v_mode, "write")
 	v_none = _core_none()
-	v_result = Object()
-	if err := coreSet(v_result, "key", v_key); err != nil { return nil, err }
-	if err := coreSet(v_result, "hit", false); err != nil { return nil, err }
-	if err := coreSet(v_result, "value", v_none); err != nil { return nil, err }
+	v_lookup = Object()
+	if err := coreSet(v_lookup, "fn", v_none); err != nil { return nil, err }
+	if err := coreSet(v_lookup, "key", ""); err != nil { return nil, err }
+	if err := coreSet(v_lookup, "hit", false); err != nil { return nil, err }
 	v_controller = coreGet(v_opts, "control", nil)
 	v_controlled = _core_is_not_none(v_controller)
 	if coreTruthy(v_controlled) {
-		return v_result, nil
+		return v_lookup, nil
 	} else {
 	// empty
 	}
-	if coreTruthy(v_is_read) {
-		v_can_read_store = _core_and(v_has_store, v_read_error)
-		v_skip_read = _core_truthy(v_can_read_store)
-		if coreTruthy(v_skip_read) {
+	v_cache_fn = _core_flow_caching_function(v_opts)
+	v_no_cache = _core_is_none(v_cache_fn)
+	if coreTruthy(v_no_cache) {
+		return v_lookup, nil
+	} else {
+	// empty
+	}
+	{ v, err := _flow_cache_key(v_flow, v_values); if err != nil { return nil, err }; v_key = v }
+	if err := coreSet(v_lookup, "fn", v_cache_fn); err != nil { return nil, err }
+	if err := coreSet(v_lookup, "key", v_key); err != nil { return nil, err }
+	v_cached = _core_none()
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _core_axgen_cache_read(v_cache_fn, v_key); if err != nil { return coreFlow{}, err }; v_cached = v }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_read_error = errorValue(__err)
 		// empty
-		} else {
-			if coreTruthy(v_has_store) {
-				v_cached = coreGet(v_store, v_key, nil)
-				v_hit = _core_is_not_none(v_cached)
-				if coreTruthy(v_hit) {
-					if err := coreSet(v_result, "hit", true); err != nil { return nil, err }
-					if err := coreSet(v_result, "value", v_cached); err != nil { return nil, err }
-				} else {
-				// empty
-				}
-			} else {
-			// empty
-			}
 		}
+	}
+	v_hit = _core_is_not_none(v_cached)
+	if coreTruthy(v_hit) {
+		if err := coreSet(v_lookup, "hit", true); err != nil { return nil, err }
+		if err := coreSet(v_lookup, "value", v_cached); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	if coreTruthy(v_is_write) {
-		v_can_write_store = _core_and(v_has_store, v_write_error)
-		v_skip_write = _core_truthy(v_can_write_store)
-		if coreTruthy(v_skip_write) {
+	return v_lookup, nil
+}
+
+func _flow_cache_store_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_cache_store_impl")
+	var v_cache_fn Value
+	var v_key Value
+	var v_output Value
+	var v_no_cache Value
+	var v_write_error Value
+	if len(args) > 0 { v_cache_fn = args[0] }
+	_ = v_cache_fn
+	if len(args) > 1 { v_key = args[1] }
+	_ = v_key
+	if len(args) > 2 { v_output = args[2] }
+	_ = v_output
+	_ = v_no_cache
+	_ = v_write_error
+	v_no_cache = _core_is_none(v_cache_fn)
+	if coreTruthy(v_no_cache) {
+		return nil, nil
+	} else {
+	// empty
+	}
+	{
+		__flow, __err := func() (coreFlow, error) {
+			if _, err := _core_axgen_cache_write(v_cache_fn, v_key, v_output); err != nil { return coreFlow{}, err }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_write_error = errorValue(__err)
 		// empty
-		} else {
-			if coreTruthy(v_has_store) {
-				if err := coreSet(v_store, v_key, v_cached_value); err != nil { return nil, err }
-				if err := coreSet(v_result, "value", v_cached_value); err != nil { return nil, err }
-			} else {
-			// empty
-			}
 		}
-	} else {
-	// empty
 	}
-	return v_result, nil
+	return nil, nil
 }
 
 func _flow_check_abort(args ...Value) (Value, error) {
@@ -79751,6 +79769,7 @@ func _flow_forward(args ...Value) (Value, error) {
 	var v_values Value
 	var v_options Value
 	var v_begin Value
+	var v_cache_fn Value
 	var v_cache_hit Value
 	var v_cache_key Value
 	var v_cache_read Value
@@ -79758,9 +79777,12 @@ func _flow_forward(args ...Value) (Value, error) {
 	var v_done Value
 	var v_done_payload Value
 	var v_empty_map Value
+	var v_flow_cache_key Value
 	var v_fresh_chat_log Value
 	var v_fresh_traces Value
 	var v_fresh_usage Value
+	var v_host_lookup Value
+	var v_looked_up Value
 	var v_opts Value
 	var v_opts_missing Value
 	var v_output Value
@@ -79777,6 +79799,7 @@ func _flow_forward(args ...Value) (Value, error) {
 	if len(args) > 3 { v_options = args[3] }
 	_ = v_options
 	_ = v_begin
+	_ = v_cache_fn
 	_ = v_cache_hit
 	_ = v_cache_key
 	_ = v_cache_read
@@ -79784,9 +79807,12 @@ func _flow_forward(args ...Value) (Value, error) {
 	_ = v_done
 	_ = v_done_payload
 	_ = v_empty_map
+	_ = v_flow_cache_key
 	_ = v_fresh_chat_log
 	_ = v_fresh_traces
 	_ = v_fresh_usage
+	_ = v_host_lookup
+	_ = v_looked_up
 	_ = v_opts
 	_ = v_opts_missing
 	_ = v_output
@@ -79802,14 +79828,27 @@ func _flow_forward(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	{ v, err := _flow_cache_read_write(v_flow, v_values, v_opts, "read", nil); if err != nil { return nil, err }; v_cache_read = v }
-	v_cache_hit = coreGet(v_cache_read, "hit", false)
-	if coreTruthy(v_cache_hit) {
-		v_cached_value = coreGet(v_cache_read, "value", nil)
-		return v_cached_value, nil
+	v_opts = _core_map_merge(v_empty_map, v_opts)
+	v_cache_fn = _core_none()
+	v_flow_cache_key = ""
+	v_host_lookup = coreGet(v_opts, "_ax_flow_cache_lookup", nil)
+	v_looked_up = _core_is_not_none(v_host_lookup)
+	if coreTruthy(v_looked_up) {
+		v_cache_fn = coreGet(v_host_lookup, "fn", nil)
+		v_flow_cache_key = coreGet(v_host_lookup, "key", "")
 	} else {
-	// empty
+		{ v, err := _flow_cache_lookup_impl(v_flow, v_values, v_opts); if err != nil { return nil, err }; v_cache_read = v }
+		v_cache_hit = coreGet(v_cache_read, "hit", false)
+		if coreTruthy(v_cache_hit) {
+			v_cached_value = coreGet(v_cache_read, "value", nil)
+			return v_cached_value, nil
+		} else {
+		// empty
+		}
+		v_cache_fn = coreGet(v_cache_read, "fn", nil)
+		v_flow_cache_key = coreGet(v_cache_read, "key", "")
 	}
+	_core_map_delete(v_opts, "_ax_flow_cache_lookup")
 	v_fresh_traces = MutableArray()
 	v_fresh_chat_log = MutableArray()
 	v_fresh_usage = Object()
@@ -79819,13 +79858,13 @@ func _flow_forward(args ...Value) (Value, error) {
 	v_state = _core_map_merge(v_empty_map, v_values)
 	v_traces = coreGet(v_flow, "traces", nil)
 	v_program_id = coreGet(v_flow, "program_id", "root.flow")
-	{ v, err := _flow_cache_key(v_values); if err != nil { return nil, err }; v_cache_key = v }
+	{ v, err := _flow_cache_key(v_flow, v_values); if err != nil { return nil, err }; v_cache_key = v }
 	{ v, err := _program_trace_event(v_program_id, "flow_start", v_state); if err != nil { return nil, err }; v_begin = v }
 	v_traces = coreAppend(v_traces, v_begin)
 	{ v, err := _flow_execute_steps(v_flow, v_client, v_state, v_opts); if err != nil { return nil, err }; v_state = v }
 	v_returns = coreGet(v_flow, "returns", v_empty_map)
 	{ v, err := _flow_project_returns(v_state, v_returns); if err != nil { return nil, err }; v_output = v }
-	if _, err := _flow_cache_read_write(v_flow, v_values, v_opts, "write", v_output); err != nil { return nil, err }
+	if _, err := _flow_cache_store_impl(v_cache_fn, v_flow_cache_key, v_output); err != nil { return nil, err }
 	v_done_payload = Object()
 	if err := coreSet(v_done_payload, "cache_key", v_cache_key); err != nil { return nil, err }
 	if err := coreSet(v_done_payload, "output", v_output); err != nil { return nil, err }
@@ -92442,7 +92481,9 @@ func (f *AxFlow) StreamingForward(ctx context.Context, client AIClient, values m
 			yield(AxGenDelta{}, err)
 			return
 		}
-		yield(AxGenDelta{Version: 1, Index: 0, Delta: asMap(output)}, nil)
+		// A plain map, as Forward returns: asMap would add an "__order" list.
+		delta, _ := publicValue(asMap(output)).(map[string]Value)
+		yield(AxGenDelta{Version: 1, Index: 0, Delta: delta}, nil)
 	}
 }
 
@@ -92459,10 +92500,26 @@ func (f *AxFlow) forward(ctx context.Context, client AIClient, values map[string
 	return f.forwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
 }
 func (f *AxFlow) forwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
+	options = stripRuntimeHooks(options)
+	// As in TypeScript, the flow reads its cache before its span and metrics,
+	// so a hit runs no node and records neither (@flow_cache_lookup_impl). On
+	// a miss the lookup goes to the forward as _ax_flow_cache_lookup, which
+	// then only stores.
+	if _, looked := options["_ax_flow_cache_lookup"]; !looked {
+		lookup, lookupErr := safeValue(func() Value {
+			return mustCore(_flow_cache_lookup_impl(f.State, values, options))
+		})
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+		if coreTruthy(coreGet(lookup, "hit", false)) {
+			return coreGet(lookup, "value", nil), nil
+		}
+		options["_ax_flow_cache_lookup"] = lookup
+	}
 	attributes := Object("ax.program.id", display(coreGet(f.State, "program_id", "root.flow")), "ax.program.type", "AxFlow")
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, f.RuntimeHooks, "ax_gen_flow_forward", "ax_gen_flow", attributes)
 	defer func() { finish(err) }()
-	options = stripRuntimeHooks(options)
 	if f.ExecutionContextError != nil {
 		return nil, f.ExecutionContextError
 	}
@@ -95021,6 +95078,20 @@ func _core_axgen_caching_function(gen Value, options Value) Value {
 	return nil
 }
 
+// _core_flow_caching_function is TypeScript AxFlow's cachingFunction: the
+// forward call's, else the process-wide one (SetCachingFunction), or nil. The
+// flow's constructor takes none; the call's options also reach its AxGen
+// nodes, which cache through the same function.
+func _core_flow_caching_function(options Value) Value {
+	if fn := axCachingFunctionOption(options); fn != nil {
+		return fn
+	}
+	if fn := snapshotGlobalCachingFunction(); fn != nil {
+		return fn
+	}
+	return nil
+}
+
 // axCachingFunctionOption returns the caching function set under
 // "cachingFunction" or "caching_function" in options, or nil. A value that is
 // not an AxCachingFunction comes back as is, so using it fails, as calling a
@@ -96054,6 +96125,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceStreamingForward(fixture)
 	case "cache_sequence":
 		runConformanceCacheSequence(fixture)
+	case "flow_cache_sequence":
+		runConformanceFlowCacheSequence(fixture)
 	case "ai_session_state":
         for _, item := range coreIter(coreGet(fixture,"validation_cases",Array())) {
             _, err := chat_session_validate_required_arguments(coreGet(item,"schema",nil),coreGet(item,"arguments",nil),"arguments")
@@ -97543,34 +97616,82 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	}
 }
 
-// runConformanceCacheSequence runs several forward and streaming_forward
-// calls on one AxGen with one in-memory cache, set on each call, on the
-// constructor or process-wide (cache_in), and checks each call's output,
-// deltas, requests and error, and every cache read and write.
-func runConformanceCacheSequence(fixture map[string]Value) {
-	store := map[string]map[string]Value{}
-	reads := 0
-	writes := Array()
+// conformanceCache is a cache sequence fixture's in-memory cache: it counts
+// the reads and records the values written, in order.
+type conformanceCache struct {
+	store  map[string]map[string]Value
+	reads  int
+	writes []Value
+}
+
+// newConformanceCache returns the fixture's in-memory cache and its caching
+// function, which fails reads and writes with cache_read_error and
+// cache_write_error (a failed write is not recorded).
+func newConformanceCache(fixture map[string]Value) (*conformanceCache, AxCachingFunction) {
+	cache := &conformanceCache{store: map[string]map[string]Value{}, writes: Array()}
 	readError := display(coreGet(fixture, "cache_read_error", ""))
 	writeError := display(coreGet(fixture, "cache_write_error", ""))
-	cachingFunction := AxCachingFunction(func(key string, value map[string]Value) (map[string]Value, error) {
+	return cache, func(key string, value map[string]Value) (map[string]Value, error) {
 		if value != nil {
 			if writeError != "" {
 				return nil, errors.New(writeError)
 			}
-			writes = append(writes, publicValue(value))
-			store[key] = publicValue(value).(map[string]Value)
+			cache.writes = append(cache.writes, publicValue(value))
+			cache.store[key] = publicValue(value).(map[string]Value)
 			return nil, nil
 		}
-		reads++
+		cache.reads++
 		if readError != "" {
 			return nil, errors.New(readError)
 		}
-		if hit, ok := store[key]; ok {
+		if hit, ok := cache.store[key]; ok {
 			return publicValue(hit).(map[string]Value), nil
 		}
 		return nil, nil
-	})
+	}
+}
+
+// assertConformanceCacheSequence compares what a cache sequence recorded per
+// call (outputs, deltas, requests, errors) and in total with the fixture;
+// label names the sequence in failures.
+func assertConformanceCacheSequence(fixture map[string]Value, label string, outputs, deltas, requests, callErrors []Value, requestCount int, cache *conformanceCache) {
+	failed := false
+	for _, callError := range callErrors {
+		failed = failed || callError != nil
+	}
+	if _, expected := fixture["expected_errors"]; failed || expected {
+		assertEqual(callErrors, coreGet(fixture, "expected_errors", nil), label+" errors")
+	}
+	assertEqual(outputs, coreGet(fixture, "expected_outputs", nil), label+" outputs")
+	assertEqual(deltas, coreGet(fixture, "expected_deltas", nil), label+" deltas")
+	assertEqual(requests, coreGet(fixture, "expected_requests", nil), label+" requests per call")
+	assertEqual(requestCount, coreGet(fixture, "expected_request_count", nil), label+" request count")
+	assertEqual(cache.reads, coreGet(fixture, "expected_cache_gets", nil), label+" cache reads")
+	assertEqual(cache.writes, coreGet(fixture, "expected_cache_sets", nil), label+" cache writes")
+}
+
+// runConformanceCacheSequence runs several forward and streaming_forward
+// calls on one AxGen with one in-memory cache, set on each call, on the
+// constructor or process-wide (cache_in), and checks each call's output,
+// deltas, requests and error, and every cache read and write.
+// conformanceCallInput is a cache sequence call's input. With
+// reverse_input_keys its keys come in reverse order: the runtime keeps a
+// map's key order ("__order"), and fixture JSON sorts its keys.
+func conformanceCallInput(call map[string]Value) map[string]Value {
+	input := asMap(coreGet(call, "input", Object()))
+	if !coreTruthy(coreGet(call, "reverse_input_keys", false)) {
+		return input
+	}
+	keys := orderedKeys(input)
+	reversed := Object()
+	for i := len(keys) - 1; i >= 0; i-- {
+		coreSet(reversed, keys[i], input[keys[i]])
+	}
+	return reversed
+}
+
+func runConformanceCacheSequence(fixture map[string]Value) {
+	cache, cachingFunction := newConformanceCache(fixture)
 	cacheIn := display(coreGet(fixture, "cache_in", "call"))
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	if cacheIn == "constructor" {
@@ -97589,7 +97710,6 @@ func runConformanceCacheSequence(fixture map[string]Value) {
 		SetCachingFunction(cachingFunction)
 	}
 	outputs, deltasPerCall, requests, callErrors := Array(), Array(), Array(), Array()
-	failed := false
 	for _, raw := range asSlice(coreGet(fixture, "calls", Array())) {
 		call := asMap(raw)
 		before := len(client.Requests)
@@ -97600,7 +97720,7 @@ func runConformanceCacheSequence(fixture map[string]Value) {
 		if coreTruthy(coreGet(call, "control", false)) {
 			callOptions["control"] = RunControl()
 		}
-		input := asMap(coreGet(call, "input", Object()))
+		input := conformanceCallInput(call)
 		var callError Value
 		if display(coreGet(call, "kind", "forward")) == "streaming_forward" {
 			deltas := Array()
@@ -97617,7 +97737,7 @@ func runConformanceCacheSequence(fixture map[string]Value) {
 		} else {
 			output, err := gen.Forward(context.Background(), client, input, callOptions)
 			if err != nil {
-				callError, output, failed = strings.SplitN(err.Error(), "\n", 2)[0], nil, true
+				callError, output = strings.SplitN(err.Error(), "\n", 2)[0], nil
 			}
 			outputs = append(outputs, output)
 			deltasPerCall = append(deltasPerCall, nil)
@@ -97625,15 +97745,63 @@ func runConformanceCacheSequence(fixture map[string]Value) {
 		callErrors = append(callErrors, callError)
 		requests = append(requests, len(client.Requests)-before)
 	}
-	if _, expected := fixture["expected_errors"]; failed || expected {
-		assertEqual(callErrors, coreGet(fixture, "expected_errors", nil), "cache sequence errors")
+	assertConformanceCacheSequence(fixture, "cache sequence", outputs, deltasPerCall, requests, callErrors, len(client.Requests), cache)
+}
+
+// runConformanceFlowCacheSequence runs several forward and streaming_forward
+// calls on one AxFlow (steps and returns) with one in-memory cache, set on
+// each call or process-wide (cache_in), and checks each call's output,
+// deltas, requests and error, and every cache read and write: the flow's own
+// entry and its AxGen nodes'. A streaming call's output is its last delta.
+func runConformanceFlowCacheSequence(fixture map[string]Value) {
+	cache, cachingFunction := newConformanceCache(fixture)
+	cacheIn := display(coreGet(fixture, "cache_in", "call"))
+	flow := conformanceBuildFlow(fixture)
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array()))}
+	defer SetCachingFunction(snapshotGlobalCachingFunction())
+	if cacheIn == "global" {
+		SetCachingFunction(cachingFunction)
 	}
-	assertEqual(outputs, coreGet(fixture, "expected_outputs", nil), "cache sequence outputs")
-	assertEqual(deltasPerCall, coreGet(fixture, "expected_deltas", nil), "cache sequence deltas")
-	assertEqual(requests, coreGet(fixture, "expected_requests", nil), "cache sequence requests per call")
-	assertEqual(len(client.Requests), coreGet(fixture, "expected_request_count", nil), "cache sequence request count")
-	assertEqual(reads, coreGet(fixture, "expected_cache_gets", nil), "cache reads")
-	assertEqual(writes, coreGet(fixture, "expected_cache_sets", nil), "cache writes")
+	outputs, deltasPerCall, requests, callErrors := Array(), Array(), Array(), Array()
+	for _, raw := range asSlice(coreGet(fixture, "calls", Array())) {
+		call := asMap(raw)
+		before := len(client.Requests)
+		callOptions := Object()
+		if cacheIn == "call" {
+			callOptions["cachingFunction"] = cachingFunction
+		}
+		if coreTruthy(coreGet(call, "control", false)) {
+			callOptions["control"] = RunControl()
+		}
+		input := conformanceCallInput(call)
+		var output, deltas Value
+		var err error
+		if display(coreGet(call, "kind", "forward")) == "streaming_forward" {
+			envelopes := Array()
+			for delta, deltaErr := range flow.StreamingForward(context.Background(), client, input, callOptions) {
+				if deltaErr != nil {
+					err = deltaErr
+					break
+				}
+				envelopes = append(envelopes, Object("version", delta.Version, "index", delta.Index, "delta", publicValue(delta.Delta)))
+			}
+			if len(envelopes) > 0 {
+				output = coreGet(envelopes[len(envelopes)-1], "delta", nil)
+			}
+			deltas = envelopes
+		} else {
+			output, err = flow.Forward(context.Background(), client, input, callOptions)
+		}
+		var callError Value
+		if err != nil {
+			callError, output, deltas = strings.SplitN(err.Error(), "\n", 2)[0], nil, nil
+		}
+		outputs = append(outputs, output)
+		deltasPerCall = append(deltasPerCall, deltas)
+		callErrors = append(callErrors, callError)
+		requests = append(requests, len(client.Requests)-before)
+	}
+	assertConformanceCacheSequence(fixture, "flow cache sequence", outputs, deltasPerCall, requests, callErrors, len(client.Requests), cache)
 }
 
 func runConformanceStream(fixture map[string]Value) {
@@ -98262,29 +98430,6 @@ func runConformanceFlow(fixture map[string]Value) {
 		return
 	}
 	flow := conformanceBuildFlow(fixture)
-	if display(coreGet(fixture, "operation", "")) == "cache_key" {
-		keys := []string{}
-		for _, raw := range asSlice(coreGet(fixture, "cache_key_inputs", Array())) {
-			keys = append(keys, display(mustCore(_flow_cache_key(raw))))
-		}
-		if coreTruthy(coreGet(fixture, "expected_cache_keys_equal", false)) {
-			for _, key := range keys {
-				if len(keys) > 0 && key != keys[0] {
-					panic(AxError{Category: "fixture", Message: "expected equal flow cache keys, got " + strings.Join(keys, ",")})
-				}
-			}
-		}
-		if coreTruthy(coreGet(fixture, "expected_cache_keys_distinct", false)) {
-			seen := map[string]bool{}
-			for _, key := range keys {
-				if seen[key] {
-					panic(AxError{Category: "fixture", Message: "expected distinct flow cache keys, got " + strings.Join(keys, ",")})
-				}
-				seen[key] = true
-			}
-		}
-		return
-	}
 	if expected := coreGet(fixture, "expected_plan", nil); expected != nil {
 		assertEqual(mustCore(_flow_plan(flow.State)), expected, "flow plan")
 	}
@@ -98296,11 +98441,6 @@ func runConformanceFlow(fixture map[string]Value) {
 	}
 	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
 	forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
-	if seed := coreGet(fixture, "cache_seed_value", nil); seed != nil {
-		cacheStore := asMap(coreGet(forwardOptions, "cache_store", coreGet(forwardOptions, "cacheStore", Object())))
-		coreSet(cacheStore, mustCore(_flow_cache_key(coreGet(fixture, "input", Object()))), cloneValue(seed))
-		coreSet(forwardOptions, "cache_store", cacheStore)
-	}
 	var output Value
 	if display(coreGet(fixture, "operation", "")) == "streaming" {
 		streamed := expectMaybeFixtureError(func() Value {
@@ -98360,14 +98500,6 @@ func runConformanceFlow(fixture map[string]Value) {
 	}
 	if expected := coreGet(fixture, "expected_usage_subset", nil); expected != nil {
 		assertSubset(coreGet(flow.State, "usage", Object()), expected, "flow usage")
-	}
-	if expected := coreGet(fixture, "expected_cache_store_subset", nil); expected != nil {
-		cacheStore := coreGet(forwardOptions, "cache_store", coreGet(forwardOptions, "cacheStore", Object()))
-		assertSubset(cacheStore, expected, "flow cache store")
-	}
-	if expected := coreGet(fixture, "expected_cache_value_for_input", nil); expected != nil {
-		cacheStore := coreGet(forwardOptions, "cache_store", coreGet(forwardOptions, "cacheStore", Object()))
-		assertEqual(coreGet(cacheStore, mustCore(_flow_cache_key(coreGet(fixture, "input", Object()))), nil), expected, "flow cache value")
 	}
 	if expected := coreGet(fixture, "expected_components_subset", nil); expected != nil {
 		assertListSubset(flow.GetOptimizableComponents(), expected, "flow components")

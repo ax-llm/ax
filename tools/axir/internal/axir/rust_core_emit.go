@@ -112,6 +112,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.agent.stage_chat_log":                  "core_agent_stage_chat_log",
 	"intrinsic.run_control.aborted":                   "core_run_control_aborted",
 	"intrinsic.flow.dispatch_group":                   "core_flow_dispatch_group",
+	"intrinsic.flow.caching_function":                 "core_flow_caching_function",
 	"intrinsic.agent.stage_forward":                   "core_agent_stage_forward",
 	"intrinsic.agent.native_stage_forward":            "core_agent_native_stage_forward",
 	"intrinsic.agent.stage_traces":                    "core_agent_stage_traces",

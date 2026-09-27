@@ -111,6 +111,18 @@ for delta, err := range parallelFlow.StreamingForward(
 }
 ```
 
+### Cache a flow
+
+An `ax.AxCachingFunction` under `"cachingFunction"` (or `"caching_function"`) in the `Forward` or `StreamingForward` options, or `ax.SetCachingFunction(fn)` for the process, caches the flow's output as TypeScript does: a hit runs no node and records no span or metric, and a run `control` skips it. `ax.NewFlow` takes none; the function also reaches the flow's AxGen nodes, which cache their own outputs.
+
+```go
+output, err := parallelFlow.Forward(
+  ctx, client,
+  map[string]ax.Value{"topicText": "Typed LLM workflows"},
+  map[string]ax.Value{"cachingFunction": cache},
+)
+```
+
 Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/go/subsystems/flow/.
 
 ## Astra Session Work

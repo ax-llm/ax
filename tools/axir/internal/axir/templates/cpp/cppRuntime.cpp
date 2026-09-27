@@ -4046,6 +4046,16 @@ Value Core::axgen_caching_function(Value gen, Value options) {
   return global ? global->value() : Value();
 }
 
+// TS AxFlow: options.cachingFunction ?? axGlobals.cachingFunction. A flow's
+// constructor takes none; its AxGen nodes get the call's options, so they
+// cache through the same function.
+Value Core::flow_caching_function(Value options) {
+  Value marker = get_key(options, "caching_function", get_key(options, "cachingFunction"));
+  if (!marker.is_null()) return marker;
+  auto global = global_caching_function();
+  return global ? global->value() : Value();
+}
+
 // fn(key) returns the stored output, or nothing for a miss. A copy comes back,
 // so the caller's output does not share state with the cache.
 Value Core::axgen_cache_read(Value fn, Value key) {
@@ -7721,6 +7731,13 @@ Value AxFlow::forward(AIClient& client, Value values, Value options, const AxCan
 }
 
 Value AxFlow::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  // As in TS, the flow reads its cache before its span and metrics, so a hit
+  // records neither (and streaming_forward sends it as its one delta). A miss
+  // hands the lookup to the run, which then only stores.
+  Value lookup = Core::_flow_cache_lookup_impl(state_, values, options);
+  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::get(lookup, "value");
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_ax_flow_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
                          object({{"ax.program.id", Core::get(state_, "program_id", "root.flow")}, {"ax.program.type", "AxFlow"}}));

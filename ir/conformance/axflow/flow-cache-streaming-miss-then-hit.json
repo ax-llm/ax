@@ -1,0 +1,77 @@
+{
+  "calls": [
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "streaming_forward"
+    },
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "streaming_forward"
+    }
+  ],
+  "expected_cache_gets": 3,
+  "expected_cache_sets": [
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "Paris"
+    }
+  ],
+  "expected_deltas": [
+    [
+      {
+        "delta": {
+          "answer": "Paris"
+        },
+        "index": 0,
+        "version": 1
+      }
+    ],
+    [
+      {
+        "delta": {
+          "answer": "Paris"
+        },
+        "index": 0,
+        "version": 1
+      }
+    ]
+  ],
+  "expected_outputs": [
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "Paris"
+    }
+  ],
+  "expected_request_count": 1,
+  "expected_requests": [1, 0],
+  "kind": "flow_cache_sequence",
+  "name": "flow-cache-streaming-miss-then-hit",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: Paris",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "signature": "question:string -> answer:string"
+    }
+  ]
+}
