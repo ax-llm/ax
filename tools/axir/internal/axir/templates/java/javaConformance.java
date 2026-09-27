@@ -2066,6 +2066,16 @@ public final class Conformance {
       if (testCase.containsKey("expected_teacher_request_count") && teacher.requests.size() != Core.asInt(testCase.get("expected_teacher_request_count"))) {
         throw new FixtureError(label + " expected " + testCase.get("expected_teacher_request_count") + " teacher requests, got " + teacher.requests.size());
       }
+      if (testCase.containsKey("expected_teacher_system_prompts")) {
+        // Each teacher request's system prompt, in call order, byte for byte.
+        List<Object> prompts = new ArrayList<>();
+        for (Map<String, Object> request : teacher.requests) {
+          for (Object message : Core.asList(request.get("chat_prompt"))) {
+            if (message instanceof Map<?, ?> map && "system".equals(map.get("role"))) prompts.add(map.get("content"));
+          }
+        }
+        assertEqual(prompts, testCase.get("expected_teacher_system_prompts"), label + " teacher system prompts");
+      }
       if (outcomes.isEmpty()) {
         if (expected.containsKey("outcome_count") && Core.asInt(expected.get("outcome_count")) == 0) continue;
         throw new FixtureError("playbook evolve " + testCase.get("name") + " produced no outcome: " + Json.stringify(actual));
@@ -2164,10 +2174,12 @@ public final class Conformance {
       });
       agentOptions.put("citations", citations);
     }
+    Map<String, Object> playbookConfig = null;
     if (agentOptions.get("playbook") instanceof Map<?, ?> rawPlaybook) {
       Map<String, Object> playbook = new LinkedHashMap<>(Core.asMap(rawPlaybook));
       playbook.putIfAbsent("studentAI", client);
       agentOptions.put("playbook", playbook);
+      playbookConfig = playbook;
     }
     ScriptedCodeRuntime runtime = null;
     if (fixture.containsKey("runtime_script")) {
@@ -2196,8 +2208,13 @@ public final class Conformance {
     List<Object> runStateProjections = new ArrayList<>();
     Map<String, Object> savedRuntimeState = null;
     Map<String, Object> stateRoundtripProjection = new LinkedHashMap<>();
+    java.time.Instant wallClockStart = java.time.Instant.now();
+    Object playbookStateBeforeForward = null;
     try {
       agent = Ax.agent(String.valueOf(fixture.get("signature")), agentOptions);
+      if (fixture.containsKey("expected_playbook_state_before_forward") && agent.getPlaybook() != null) {
+        playbookStateBeforeForward = Core.ownedCopy(agent.getPlaybook().getState());
+      }
       for (Object rawChild : Core.asList(fixture.getOrDefault("child_agents", List.of()))) {
         Map<String, Object> child = Core.asMap(rawChild);
         Map<String, Object> childOptions = new LinkedHashMap<>(Core.asMap(child.getOrDefault("options", Map.of())));
@@ -2370,6 +2387,24 @@ public final class Conformance {
     if (fixture.containsKey("expected_playbook_state")) {
       AxPlaybook handle = agent.getPlaybook();
       assertEqual(handle == null ? null : handle.getState(), fixture.get("expected_playbook_state"), "agent playbook state");
+    }
+    if (fixture.containsKey("expected_playbook_state_before_forward")) {
+      assertEqual(playbookStateBeforeForward, fixture.get("expected_playbook_state_before_forward"), "agent playbook state before the first forward");
+    }
+    if (Boolean.TRUE.equals(fixture.get("expected_playbook_wall_clock"))) {
+      AxPlaybook handle = agent.getPlaybook();
+      Map<String, Object> state = handle == null ? Map.of() : handle.getState();
+      Map<String, Object> artifact = Core.asMap(state.get("artifact"));
+      assertWallClockTimestamps(
+          java.util.Arrays.asList(Core.asMap(state.get("playbook")).get("updatedAt"), Core.asMap(artifact.get("playbook")).get("updatedAt")),
+          wallClockStart, java.time.Instant.now(), "agent playbook updatedAt");
+    }
+    if (Boolean.TRUE.equals(fixture.get("expected_playbook_config_unchanged"))) {
+      // The caller's playbook config, less the student client the runner
+      // added, is what the fixture passed.
+      Map<String, Object> actual = new LinkedHashMap<>();
+      if (playbookConfig != null) for (Map.Entry<String, Object> entry : playbookConfig.entrySet()) if (!"studentAI".equals(entry.getKey())) actual.put(entry.getKey(), entry.getValue());
+      assertEqual(actual, Core.asMap(fixture.getOrDefault("options", Map.of())).get("playbook"), "caller's playbook config");
     }
     Map<String, Object> exported = agent.exportRuntimeState();
     if (fixture.containsKey("expected_runtime_contract_subset")) assertSubset(agent.getRuntimeContract(), fixture.get("expected_runtime_contract_subset"), "runtime contract");
@@ -3398,6 +3433,23 @@ public final class Conformance {
       return;
     }
     if (!canonical(actual).equals(canonical(expected))) throw new FixtureError(label + " mismatch\nactual: " + Json.stringify(actual) + "\nexpected: " + Json.stringify(expected));
+  }
+
+  private static final java.util.regex.Pattern ISO_MILLIS_UTC = java.util.regex.Pattern.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$");
+
+  // Each value is a UTC timestamp as JavaScript's toISOString writes it, taken
+  // during the run: between start and end, with a second of slack for
+  // millisecond rounding.
+  static void assertWallClockTimestamps(List<Object> values, java.time.Instant start, java.time.Instant end, String label) {
+    for (Object value : values) {
+      if (!(value instanceof String text) || !ISO_MILLIS_UTC.matcher(text).matches()) {
+        throw new FixtureError(label + " is not an ISO-8601 UTC millisecond timestamp: " + Json.stringify(value));
+      }
+      java.time.Instant stamp = java.time.Instant.parse(text);
+      if (stamp.isBefore(start.minusSeconds(1)) || stamp.isAfter(end.plusSeconds(1))) {
+        throw new FixtureError(label + " " + text + " is not the wall clock during the run");
+      }
+    }
   }
 	  static void assertSubset(Object actual, Object expected, String label) {
 	    if (expected instanceof Map<?, ?> exp) {

@@ -5162,8 +5162,10 @@ def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
     for call in function_calls:
         fn = _core_get(call, "function", None)
         id = _core_get(call, "id", None)
-        name = _core_get(fn, "name", None)
-        params = _core_get(fn, "params", None)
+        flat_name = _core_get(call, "name", None)
+        name = _core_get(fn, "name", flat_name)
+        flat_params = _core_get(call, "params", None)
+        params = _core_get(fn, "params", flat_params)
         compat_call = {}
         compat_call["id"] = id
         compat_call["name"] = name
@@ -5449,20 +5451,6 @@ def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
     return out
 
 
-def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
-    _core_coverage_mark("ai_context_cache_expiry")
-    is_number = _core_type_is(provider_expire_time, "number")
-    if is_number:
-        future = _core_gt(provider_expire_time, now)
-        if future:
-            return provider_expire_time
-        else:
-            pass
-    else:
-        pass
-    return 0
-
-
 def _openai_finish_reason_impl(value: Any) -> Any:
     _core_coverage_mark("_openai_finish_reason_impl")
     is_stop = _core_eq(value, "stop")
@@ -5489,6 +5477,20 @@ def _openai_finish_reason_impl(value: Any) -> Any:
         pass
     none = _core_none()
     return none
+
+
+def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
+    _core_coverage_mark("ai_context_cache_expiry")
+    is_number = _core_type_is(provider_expire_time, "number")
+    if is_number:
+        future = _core_gt(provider_expire_time, now)
+        if future:
+            return provider_expire_time
+        else:
+            pass
+    else:
+        pass
+    return 0
 
 
 def ai_context_cache_plan(configured: bool, supported: bool, explicit_name: str, existing: Any, now: number, refresh_window_ms: number, create_eligible: bool) -> Any:

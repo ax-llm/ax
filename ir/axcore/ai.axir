@@ -826,10 +826,14 @@ module @ax.ai version "0.1" {
       %empty_calls = core.list
       %function_calls = core.get %result["function_calls"] default %empty_calls
       core.for %call in %function_calls {
+        // A call is TS's nested {id, type, function: {name, params}} or the
+        // flat {id, name, params} that completion responses carry.
         %fn = core.get %call["function"]
         %id = core.get %call["id"]
-        %name = core.get %fn["name"]
-        %params = core.get %fn["params"]
+        %flat_name = core.get %call["name"]
+        %name = core.get %fn["name"] default %flat_name
+        %flat_params = core.get %call["params"]
+        %params = core.get %fn["params"] default %flat_params
         %compat_call = core.map
         core.set %compat_call["id"] = %id
         core.set %compat_call["name"] = %name
