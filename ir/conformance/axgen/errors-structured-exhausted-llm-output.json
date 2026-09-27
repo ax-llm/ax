@@ -1,0 +1,28 @@
+{
+  "expected_error_cause_contains": "Unable to fix validation error: Field 'n' has an invalid value 'x': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'n' has an invalid value 'x': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.\n\nLLM Output:\n{\"detail\":{\"n\":\"x\"}}",
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "forward_options": {
+    "max_retries": 0
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "errors-structured-exhausted-llm-output",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"detail\":{\"n\":\"x\"}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> detail:object{ n:number }"
+}

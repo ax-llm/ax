@@ -1,0 +1,31 @@
+{
+  "expected_output": {
+    "count": 7,
+    "detail": {
+      "open": false,
+      "size": 12
+    },
+    "done": true
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "structured-coerce-number-and-boolean",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"count\":\" 7 \",\"done\":\"TRUE\",\"detail\":{\"size\":\"12\",\"open\":\"false\"}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> count:number, done:boolean, detail:object{ size:number, open:boolean }"
+}

@@ -1,0 +1,46 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "x"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_error_cause_contains": "Unable to fix validation error: Field 'Score' has an invalid value 'nope': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Score' has an invalid value 'nope': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.\n\nLLM Output:\nAnswer: x\nScore: nope",
+  "expected_request_count": 1,
+  "forward_options": {
+    "max_retries": 0
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "errors-streaming-exhausted-llm-output",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: x\n",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Score: nope",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, score:number"
+}

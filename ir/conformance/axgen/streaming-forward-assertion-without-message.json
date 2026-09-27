@@ -14,7 +14,8 @@
       "version": 0
     }
   ],
-  "expected_error_contains": "Assertion failed without message",
+  "expected_error_cause_contains": "Assertion failed without message",
+  "expected_error_contains": "Generate failed: Assertion failed without message",
   "expected_request_count": 1,
   "input": {
     "question": "Status?"

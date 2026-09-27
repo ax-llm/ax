@@ -1,0 +1,39 @@
+{
+  "assertions": [
+    {
+      "contains": "Paris",
+      "field": "answer",
+      "message": "Mention Paris"
+    }
+  ],
+  "expected_error_cause_contains": "Unable to fix validation error: Mention Paris",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Mention Paris",
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "errors-assertion-exhausted",
+  "options": {
+    "max_retries": 1
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: Lyon",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: Nice",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

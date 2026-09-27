@@ -1,0 +1,33 @@
+{
+  "expected_error_cause_contains": "Unable to fix validation error: Expected (Required) field not found: 'Answer'. Begin a new section with \"Answer:\" and then provide a valid number value directly after.",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Expected (Required) field not found: 'Answer'. Begin a new section with \"Answer:\" and then provide a valid number value directly after.",
+  "expected_request_count": 2,
+  "forward_options": {
+    "max_retries": 1,
+    "strict_mode": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "strict-mode-first-required-exhausted",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "ok",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "fine",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> note?:string, answer:number"
+}

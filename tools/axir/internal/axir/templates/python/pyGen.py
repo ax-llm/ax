@@ -34,7 +34,7 @@ from .ai import (
     fold_chat_response_stream,
 )
 from .prompt import AxPromptTemplate, _core_string_split
-from .schema import AxValidationError, _core_url_valid, strip_internal, validate_fields, validate_output
+from .schema import AxValidationError, _core_field_item, _core_url_valid, strip_internal, validate_fields, validate_output
 from .signature import AxSignature, _core_string_replace, _js_json_dumps, _js_number_text
 from .mcp import resolve_execution_context
 # AXIR_CORE_IMPORTS
@@ -1159,6 +1159,19 @@ def _core_retry_sleep(attempt, _client=None, options=None):
 
 def _core_exception_message(error):
     return str(error)
+
+
+# The same error with a new message and the original as its cause. It keeps
+# its class, so existing handlers still catch it (TS wraps it in
+# AxGenerateError, which the ports adopt at the next major).
+def _core_exception_rewrap(error, message):
+    try:
+        wrapped = copy.copy(error)
+        wrapped.args = (message,)
+    except Exception:
+        wrapped = RuntimeError(message)
+    wrapped.__cause__ = error
+    return wrapped
 
 
 def _core_exception_is_aborted(error):

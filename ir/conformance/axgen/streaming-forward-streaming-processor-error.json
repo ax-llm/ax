@@ -1,6 +1,7 @@
 {
   "expected_deltas": [],
-  "expected_error_contains": "processor exploded",
+  "expected_error_cause_contains": "processor exploded",
+  "expected_error_contains": "Generate failed: processor exploded",
   "expected_processor_calls": [
     {
       "done": false,

@@ -134,6 +134,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.string.title_from_camel":               "core_string_title_from_camel",
 	"intrinsic.div":                                   "core_div",
 	"intrinsic.exception.message":                     "core_exception_message",
+	"intrinsic.exception.rewrap":                      "core_exception_rewrap",
 	"intrinsic.exception.is_aborted":                  "core_exception_is_aborted",
 	"intrinsic.exception.is_infrastructure":           "core_exception_is_infrastructure",
 	"intrinsic.exception.is_refusal":                  "core_exception_is_refusal",

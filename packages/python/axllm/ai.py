@@ -5178,6 +5178,13 @@ def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
         completion["phase"] = phase
     else:
         pass
+    finish_snake = _core_get(result, "finish_reason", None)
+    finish = _core_get(result, "finishReason", finish_snake)
+    has_finish = _core_is_not_none(finish)
+    if has_finish:
+        completion["finish_reason"] = finish
+    else:
+        pass
     return completion
 
 
@@ -5220,68 +5227,6 @@ def _openai_normalize_chat_response_impl(raw: Any, ai_name: str, model: str, rea
     out["results"] = results
     out["remote_id"] = remote_id
     out["model_usage"] = model_usage
-    return out
-
-
-def chat_response_to_completion(response: AxChatResponse) -> Any:
-    _core_coverage_mark("chat_response_to_completion")
-    has_routing = _core_map_contains(response, "routing")
-    has_response = _core_map_contains(response, "response")
-    router_envelope = _core_and(has_routing, has_response)
-    if router_envelope:
-        response = _core_get(response, "response", None)
-    else:
-        pass
-    empty_results = []
-    results = _core_get(response, "results", empty_results)
-    completions = []
-    position = 0
-    for result in results:
-        completion = _chat_result_to_completion(result, position)
-        completions.append(completion)
-        next_position = _core_add(position, 1)
-        position = next_position
-    empty_completion = {}
-    first = _core_list_get(completions, 0, empty_completion)
-    content = _core_get(first, "content", "")
-    calls = _core_get(first, "function_calls", empty_results)
-    model_usage = _core_get(response, "model_usage", None)
-    usage = _core_get(model_usage, "tokens", None)
-    thought = _core_get(first, "thought", None)
-    has_thought = _core_is_not_none(thought)
-    thought_blocks = _core_get(first, "thought_blocks", None)
-    has_thought_blocks = _core_is_not_none(thought_blocks)
-    out = {}
-    out["content"] = content
-    out["function_calls"] = calls
-    out["results"] = completions
-    out["usage"] = usage
-    if has_thought:
-        out["thought"] = thought
-    else:
-        pass
-    if has_thought_blocks:
-        out["thought_blocks"] = thought_blocks
-    else:
-        pass
-    session_id = _core_get(response, "__session_response_id", None)
-    has_session_id = _core_is_not_none(session_id)
-    if has_session_id:
-        out["remote_id"] = session_id
-    else:
-        pass
-    images = _core_get(first, "images", None)
-    has_images = _core_is_not_none(images)
-    if has_images:
-        out["images"] = images
-    else:
-        pass
-    phase = _core_get(first, "phase", None)
-    has_phase = _core_is_not_none(phase)
-    if has_phase:
-        out["phase"] = phase
-    else:
-        pass
     return out
 
 
@@ -5355,6 +5300,74 @@ def _openai_normalize_choice_impl(choice: Any, raw: Any, reasoning_content_mode:
         pass
     out["function_calls"] = function_calls
     out["finish_reason"] = finish_reason
+    return out
+
+
+def chat_response_to_completion(response: AxChatResponse) -> Any:
+    _core_coverage_mark("chat_response_to_completion")
+    has_routing = _core_map_contains(response, "routing")
+    has_response = _core_map_contains(response, "response")
+    router_envelope = _core_and(has_routing, has_response)
+    if router_envelope:
+        response = _core_get(response, "response", None)
+    else:
+        pass
+    empty_results = []
+    results = _core_get(response, "results", empty_results)
+    completions = []
+    position = 0
+    for result in results:
+        completion = _chat_result_to_completion(result, position)
+        completions.append(completion)
+        next_position = _core_add(position, 1)
+        position = next_position
+    empty_completion = {}
+    first = _core_list_get(completions, 0, empty_completion)
+    content = _core_get(first, "content", "")
+    calls = _core_get(first, "function_calls", empty_results)
+    model_usage = _core_get(response, "model_usage", None)
+    usage = _core_get(model_usage, "tokens", None)
+    thought = _core_get(first, "thought", None)
+    has_thought = _core_is_not_none(thought)
+    thought_blocks = _core_get(first, "thought_blocks", None)
+    has_thought_blocks = _core_is_not_none(thought_blocks)
+    out = {}
+    out["content"] = content
+    out["function_calls"] = calls
+    out["results"] = completions
+    out["usage"] = usage
+    if has_thought:
+        out["thought"] = thought
+    else:
+        pass
+    if has_thought_blocks:
+        out["thought_blocks"] = thought_blocks
+    else:
+        pass
+    session_id = _core_get(response, "__session_response_id", None)
+    has_session_id = _core_is_not_none(session_id)
+    if has_session_id:
+        out["remote_id"] = session_id
+    else:
+        pass
+    images = _core_get(first, "images", None)
+    has_images = _core_is_not_none(images)
+    if has_images:
+        out["images"] = images
+    else:
+        pass
+    phase = _core_get(first, "phase", None)
+    has_phase = _core_is_not_none(phase)
+    if has_phase:
+        out["phase"] = phase
+    else:
+        pass
+    finish = _core_get(first, "finish_reason", None)
+    has_finish = _core_is_not_none(finish)
+    if has_finish:
+        out["finish_reason"] = finish
+    else:
+        pass
     return out
 
 
@@ -5528,6 +5541,12 @@ def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: st
     return out
 
 
+def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
+    _core_coverage_mark("openai_normalize_stream_delta")
+    response = _openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none")
+    return response
+
+
 def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_registry: bool) -> Any:
     _core_coverage_mark("ai_context_cache_recovery")
     out = {}
@@ -5551,12 +5570,6 @@ def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_regi
     else:
         pass
     return out
-
-
-def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
-    _core_coverage_mark("openai_normalize_stream_delta")
-    response = _openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none")
-    return response
 
 
 def _openai_normalize_stream_delta_impl(raw: Any, state: Any, ai_name: str, model: str, reasoning_content_mode: str, reasoning_details_mode: str) -> AxChatResponse:

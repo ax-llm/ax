@@ -1,0 +1,61 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "detail": {
+          "sizes": [1, 2],
+          "tags": ["a", "b"]
+        }
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "detail": {
+      "sizes": [1, 2],
+      "tags": ["a", "b"]
+    }
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-structured-nested-array-coerce",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "{\"detail\":{\"tags\":[\"a\",\"b\"],",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "\"sizes\":[\"1\",2]}}",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> detail:object{ tags:string[], sizes:number[] }"
+}

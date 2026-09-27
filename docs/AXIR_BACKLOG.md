@@ -836,6 +836,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-26
   - Completed by: `a38b9a54e6d28874b5e6225a68fdfedc929f8f69`
   - Verification: `@streaming_forward follows TypeScript #720: a step after emitted output fields starts a new version, resets the committed values and re-sends the thought so far; validation and refusal retries start a new version and infrastructure retries resume the last yielded one, so versions never decrease. @forward's feedback step replaces the earlier step's fields and keeps the joined thought. TS-golden streaming-forward-* (step reset, infra retry mid-stream and after a validation retry, replayed prefix) and forward-feedback-processor* fixtures deep-equal the delta sequence and output in all five ports. npm run test:axir (verify release python/java/cpp/go/rust 1039/1039); live TS/Python/Go on gemini-3.5-flash-lite, gemini-3.8-flash and gpt-5.4-mini.`
+- `axir-2026-09-26-raise-typescript-s-axgen-failure-messages-in-the-ports` [axgen] Raise TypeScript's AxGen failure messages in the ports
+  - Status: done
+  - Source commit: `399276d1fb57ae334b0e498b3f3f8361d26c71e7`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/response/nonStreaming.ts`, `src/ax/dsp/response/streaming.ts`
+  - Impact: TypeScript wraps an AxGen failure by its error type as AxGenerateError('Generate failed: ...') with the original error as its cause, reports exhausted retries as 'Unable to fix validation error: ...' ending with the last attempt's output, and raises 'Max tokens reached before completion' when a response stops at its token limit. The ports raised bare or differently worded messages, kept no cause, and returned the partial answer at the token limit.
+  - Suggested AxIR work: Wrap failures as Generate failed with the original as the cause through a rewrap intrinsic; Raise the max-tokens error on finish_reason length in forward and streaming_forward; Pin the messages and causes with TS goldens
+  - Completed at: 2026-09-26
+  - Completed by: `399276d1f`
+  - Verification: `@generate_failed_impl and @unable_to_fix_impl rewrap failures as TS does (Generate failed -> Unable to fix validation error -> last error) through intrinsic.exception.rewrap, keeping each port's error class and category; Python __cause__, Java getCause(), Go errors.Unwrap and C++ cause() chain the cause (Rust changes the message only until the next major); finish_reason length raises Max tokens reached before completion in forward and streaming_forward; the LLM Output section carries the last answer. TS goldens (errors-*, 4 full-message goldens, expected_error_cause_contains in 25) pass; verify --mode dev 1082/1082 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes.`
 - `axir-2026-09-26-return-an-empty-axgen-output-on-a-user-stop-function` [axgen] Return an empty AxGen output on a user stop function
   - Status: done
   - Source commit: `aaf45800d6ea5337041ab120e1947fde480fccb0`
@@ -854,3 +863,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-26
   - Completed by: `aaf45800d6ea5337041ab120e1947fde480fccb0`
   - Verification: `@forward joins each tool step's thought, starts it over on a validation or refusal retry, and @with_output_thought_impl sets the non-empty thought under the constructor thought field on the text and structured-output paths; the thought-output-* fixtures cover each rung, the renamed field, the tool-step join, the retry reset and multi-sample. Python and Go conformance 966/966; npm run test --workspace=@ax-llm/ax, npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass; mutation checks fail each rule; live on gemini-3.5-flash-lite and gemini-3.8-flash in TypeScript, Python and Go.`
+- `axir-2026-09-26-validate-axgen-output-as-typescript-does-in-the-ports` [axgen] Validate AxGen output as TypeScript does in the ports
+  - Status: done
+  - Source commit: `399276d1fb57ae334b0e498b3f3f8361d26c71e7`
+  - TS paths: `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/extract/streamingText.ts`, `src/ax/dsp/errors.ts`, `src/ax/dsp/response/streaming.ts`
+  - Impact: TypeScript validates structured output values with its own wording and JavaScript Number() coercion, including array items inside object fields, honors strictMode from the forward or the constructor (the answer must open with its first required field's label), and with functionCot and functions leaves unlabeled text before a tool call unparsed. The ports used their own wording, did not coerce nested items, ignored strictMode and treated leading tool-call reasoning as the answer.
+  - Suggested AxIR work: Port the structured validation and coercion to the IR; Read strictMode and the functionCot feature in the text extractor; Pin each case with TS goldens
+  - Completed at: 2026-09-26
+  - Completed by: `399276d1f`
+  - Verification: `@stream_json_validate_output_impl validates structured values with TS messages and Number() coercion, including array items of nested object fields (field.item accepts map-shaped fields), in forward and streaming_forward; @strict_mode_option_impl reads strictMode from the call, then the constructor; the text extractor requires the first required label in strict mode and skips early fail with functionCot and functions. TS goldens (structured-*, strict-mode-*, streaming-forward-function-cot-leading-text) pass and mutation checks fail them; verify --mode dev 1082/1082 in all five ports.`
