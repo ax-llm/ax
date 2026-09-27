@@ -20,10 +20,23 @@ public final class Tool {
   public final Handler handler;
   public final String execution;
   private Map<String,Object> parameters;
+  private String namespace;
 
   public Tool parameters(Map<String,Object> schema) {
     Tool copy = new Tool(name,description,args,returns,handler,execution,contextHandler);
     copy.parameters = Core.asMap(Json.parse(Json.stringify(schema)));
+    copy.namespace = namespace;
+    return copy;
+  }
+
+  /** The namespace an agent lists and calls this flat function under (TS fn().namespace()), or null. */
+  public String namespace() { return namespace; }
+
+  /** A copy filed under the namespace, as TS fn().namespace() does. */
+  public Tool namespace(String value) {
+    Tool copy = new Tool(name,description,args,returns,handler,execution,contextHandler);
+    copy.parameters = parameters;
+    copy.namespace = value;
     return copy;
   }
 
@@ -72,7 +85,10 @@ public final class Tool {
     private ContextHandler contextHandler;
     private String execution = "blocking";
     private Map<String,Object> parameters;
+    private String namespace;
     public Builder parameters(Map<String,Object> schema) { parameters = schema; return this; }
+    /** Files a flat agent function under the namespace, as TS fn().namespace() does. */
+    public Builder namespace(String text) { namespace = text; return this; }
 
     public Builder(String name) { this.name = name; }
     public Builder execution(String mode) {
@@ -89,7 +105,8 @@ public final class Tool {
       if (description == null || description.isBlank()) throw new IllegalArgumentException("Function '" + name + "' must define a description");
       if (handler == null && contextHandler==null) throw new IllegalArgumentException("Function '" + name + "' must define a handler");
       Tool tool = new Tool(name, description, args, returns, handler, execution,contextHandler);
-      return parameters == null ? tool : tool.parameters(parameters);
+      tool = parameters == null ? tool : tool.parameters(parameters);
+      return namespace == null ? tool : tool.namespace(namespace);
     }
   }
 }

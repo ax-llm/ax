@@ -69,6 +69,12 @@ Give the agent a code runtime on the constructor (`"runtime"`: a `CodeRuntime`, 
 - A run without one runs the ports' runtime-less stages, which answer with a completion payload instead of code; TypeScript has no such mode.
 - Each run picks its stages from its own runtime, so one agent can alternate. Both stage sets are kept, and each keeps the standing instruction, actor addenda and optimized components; `set_signature` rebuilds them.
 
+## Flat Function Namespaces
+
+- A flat function (one in the agent's `functions` outside a module) is called `tools.<name>` by default, even when it names its own namespace. TypeScript's agent calls it `<namespace>.<name>` (and `utils.<name>` when it names none).
+- `flatFunctionNamespace` / `flat_function_namespace` on the agent: `'own'` calls each flat function by its own namespace now, as TypeScript does (one without a namespace stays `tools.<name>`), and a namespace that shadows a runtime global such as `inputs` or `final` raises TypeScript's error; `'tools'` keeps `tools.<name>`. Left unset, a flat function that names another namespace warns once. `'own'` becomes the default in the next major version.
+- A function names its namespace with `ax.Fn(name).WithNamespace("crm")`, or a function spec with a `"namespace"` key.
+
 ## Streaming An Agent Run
 
 `(*AxAgent).StreamingForward(ctx, client, values, options)` runs the agent and returns an `iter.Seq2[AxGenDelta, error]` of the responder's deltas, as TypeScript's `streamingForward` does. The run works in its own goroutine; stopping the iteration cancels it, and an error ends the sequence as a final `(AxGenDelta{}, err)` pair.

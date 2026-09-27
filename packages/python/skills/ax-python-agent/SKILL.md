@@ -71,6 +71,12 @@ Give the agent a code runtime on the constructor (`runtime`: a runtime object, o
 - A run without one runs the ports' runtime-less stages, which answer with a completion payload instead of code; TypeScript has no such mode.
 - Each run picks its stages from its own runtime, so one agent can alternate. Both stage sets are kept, and each keeps the standing instruction, actor addenda and optimized components; `set_signature` rebuilds them.
 
+## Flat Function Namespaces
+
+- A flat function (one in the agent's `functions` outside a module) is called `tools.<name>` by default, even when it names its own namespace. TypeScript's agent calls it `<namespace>.<name>` (and `utils.<name>` when it names none).
+- `flatFunctionNamespace` / `flat_function_namespace` on the agent: `'own'` calls each flat function by its own namespace now, as TypeScript does (one without a namespace stays `tools.<name>`), and a namespace that shadows a runtime global such as `inputs` or `final` raises TypeScript's error; `'tools'` keeps `tools.<name>`. Left unset, a flat function that names another namespace warns once. `'own'` becomes the default in the next major version.
+- A function names its namespace with `fn(name).namespace("crm")`, or a function spec with a `"namespace"` key.
+
 ## Streaming An Agent Run
 
 `agent.streaming_forward(client, values, options)` runs the agent and yields the responder's `{"version", "index", "delta"}` deltas as TypeScript's `streamingForward` does. The run works on a worker thread that waits while you handle each delta; closing the generator stops the run.

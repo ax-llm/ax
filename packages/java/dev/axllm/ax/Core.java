@@ -378,6 +378,7 @@ final class Core {
     if (target instanceof Tool t) {
       return switch (k) {
         case "name" -> t.name;
+        case "namespace" -> t.namespace() == null ? defaultValue : t.namespace();
         case "execution" -> t.execution;
         case "description" -> t.description;
         case "parameters" -> t.schema();
@@ -33349,7 +33350,9 @@ final class Core {
     Object empty_list = new java.util.ArrayList<Object>();
     Object functions = Core.get(options, "functions", empty_list);
     Object groups = new java.util.ArrayList<Object>();
-    Object flat_callables = new java.util.ArrayList<Object>();
+    Object flat_mode = Core._agent_flat_function_namespace_mode(options);
+    Object flat_namespaces = new java.util.ArrayList<Object>();
+    Object flat_by_namespace = new java.util.LinkedHashMap<String, Object>();
     Object has_flat = Boolean.FALSE;
     Object has_group = Boolean.FALSE;
     for (Object item : Core.iter(functions)) {
@@ -33370,16 +33373,33 @@ final class Core {
           Object error = Core.runtimeError("agent functions cannot mix grouped modules and flat functions");
           throw Core.asRuntime(error);
         }
-        Object callable = Core._normalize_agent_callable(item, "tools");
-        Core.append(flat_callables, callable);
+        Object flat_namespace = Core._agent_flat_function_namespace(item, options);
+        Core._agent_check_flat_function_namespace(item, flat_mode, flat_namespace);
+        Object callable = Core._normalize_agent_callable(item, flat_namespace);
+        Object seen_namespace = Core.contains(flat_namespaces, flat_namespace);
+        if (Core.truthy(seen_namespace)) {
+          // empty
+        }
+        if (!Core.truthy(seen_namespace)) {
+          Core.append(flat_namespaces, flat_namespace);
+          Object fresh_bucket = new java.util.ArrayList<Object>();
+          Core.set(flat_by_namespace, flat_namespace, fresh_bucket);
+        }
+        Object bucket = Core.get(flat_by_namespace, flat_namespace, null);
+        Core.append(bucket, callable);
+        Core.set(flat_by_namespace, flat_namespace, bucket);
       }
     }
-    Object flat_count = Core.len(flat_callables);
-    Object has_any_flat = Core.gt(flat_count, 0);
-    if (Core.truthy(has_any_flat)) {
+    for (Object flat_namespace : Core.iter(flat_namespaces)) {
+      Object flat_callables = Core.get(flat_by_namespace, flat_namespace, null);
+      Object flat_title = flat_namespace;
+      Object is_tools = Core.eq(flat_namespace, "tools");
+      if (Core.truthy(is_tools)) {
+        flat_title = "Tools";
+      }
       Object flat_group = new java.util.LinkedHashMap<String, Object>();
-      Core.set(flat_group, "namespace", "tools");
-      Core.set(flat_group, "title", "Tools");
+      Core.set(flat_group, "namespace", flat_namespace);
+      Core.set(flat_group, "title", flat_title);
       Core.set(flat_group, "description", "");
       Core.set(flat_group, "selection_criteria", "");
       Core.set(flat_group, "always_include", Boolean.TRUE);
@@ -34360,6 +34380,7 @@ final class Core {
         candidates = group_functions;
       }
       if (!Core.truthy(group)) {
+        namespace = Core._agent_flat_function_namespace(item, options);
         Core.append(candidates, item);
       }
       for (Object candidate : Core.iter(candidates)) {
@@ -38442,14 +38463,35 @@ final class Core {
         Core.append(flat, item);
       }
     }
-    Object count = Core.len(flat);
-    Object has_flat = Core.gt(count, 0);
-    if (Core.truthy(has_flat)) {
+    Object flat_namespaces = new java.util.ArrayList<Object>();
+    Object flat_by_namespace = new java.util.LinkedHashMap<String, Object>();
+    for (Object flat_item : Core.iter(flat)) {
+      Object flat_namespace = Core._agent_flat_function_namespace(flat_item, options);
+      Object seen_namespace = Core.contains(flat_namespaces, flat_namespace);
+      if (Core.truthy(seen_namespace)) {
+        // empty
+      }
+      if (!Core.truthy(seen_namespace)) {
+        Core.append(flat_namespaces, flat_namespace);
+        Object fresh_bucket = new java.util.ArrayList<Object>();
+        Core.set(flat_by_namespace, flat_namespace, fresh_bucket);
+      }
+      Object bucket = Core.get(flat_by_namespace, flat_namespace, null);
+      Core.append(bucket, flat_item);
+      Core.set(flat_by_namespace, flat_namespace, bucket);
+    }
+    for (Object flat_namespace : Core.iter(flat_namespaces)) {
       Object module = new java.util.LinkedHashMap<String, Object>();
-      Core.set(module, "namespace", "tools");
-      Core.set(module, "title", "Tools");
+      Object module_title = flat_namespace;
+      Object is_tools = Core.eq(flat_namespace, "tools");
+      if (Core.truthy(is_tools)) {
+        module_title = "Tools";
+      }
+      Core.set(module, "namespace", flat_namespace);
+      Core.set(module, "title", module_title);
       Core.set(module, "alwaysInclude", Boolean.TRUE);
-      Core.set(module, "functions", flat);
+      Object module_functions = Core.get(flat_by_namespace, flat_namespace, null);
+      Core.set(module, "functions", module_functions);
       Core.append(modules, module);
     }
     for (Object module : Core.iter(additional)) {
@@ -40026,6 +40068,82 @@ final class Core {
       return "number";
     }
     return "object";
+  }
+
+  static Object _agent_flat_function_namespace(Object item, Object options) {
+    axirCoverageMark("_agent_flat_function_namespace");
+    Object mode_snake = Core.get(options, "flat_function_namespace", null);
+    Object mode = Core.get(options, "flatFunctionNamespace", mode_snake);
+    Object use_own = Core.eq(mode, "own");
+    if (Core.truthy(use_own)) {
+      Object own = Core._agent_flat_function_own_namespace(item);
+      Object has_own = Core.ne(own, "");
+      if (Core.truthy(has_own)) {
+        return own;
+      }
+    }
+    return "tools";
+  }
+
+  static Object _agent_flat_function_own_namespace(Object item) {
+    axirCoverageMark("_agent_flat_function_own_namespace");
+    Object own = Core.get(item, "namespace", null);
+    Object is_text = Core.typeIs(own, "string");
+    if (Core.truthy(is_text)) {
+      Object trimmed = Core.stringTrim(own);
+      return trimmed;
+    }
+    return "";
+  }
+
+  static Object _agent_flat_function_namespace_mode(Object options) {
+    axirCoverageMark("_agent_flat_function_namespace_mode");
+    Object mode_snake = Core.get(options, "flat_function_namespace", null);
+    Object mode = Core.get(options, "flatFunctionNamespace", mode_snake);
+    Object mode_set = Core.isNotNone(mode);
+    if (Core.truthy(mode_set)) {
+      Object is_own = Core.eq(mode, "own");
+      Object is_tools = Core.eq(mode, "tools");
+      Object known = Core.or(is_own, is_tools);
+      Object unknown = Core.not(known);
+      if (Core.truthy(unknown)) {
+        Object mode_json = Core.jsonPretty(mode);
+        Object mode_message = Core.stringFormat("flatFunctionNamespace must be 'tools' or 'own', received: {}", mode_json);
+        Object mode_error = Core.validationError(mode_message);
+        throw Core.asRuntime(mode_error);
+      }
+      if (Core.truthy(is_own)) {
+        return "own";
+      }
+      return "tools";
+    }
+    return "default";
+  }
+
+  static Object _agent_check_flat_function_namespace(Object item, Object mode, Object namespace) {
+    axirCoverageMark("_agent_check_flat_function_namespace");
+    Object is_own = Core.eq(mode, "own");
+    if (Core.truthy(is_own)) {
+      Object reserved_names = Core._agent_reserved_runtime_names();
+      Object shadows = Core.contains(reserved_names, namespace);
+      if (Core.truthy(shadows)) {
+        Object shadow_message = Core.stringFormat("Agent function namespace \"{}\" conflicts with an AxAgent runtime global and is reserved", namespace);
+        Object shadow_error = Core.runtimeError(shadow_message);
+        throw Core.asRuntime(shadow_error);
+      }
+      return null;
+    }
+    Object is_default = Core.eq(mode, "default");
+    if (Core.truthy(is_default)) {
+      Object own = Core._agent_flat_function_own_namespace(item);
+      Object named = Core.ne(own, "");
+      Object elsewhere = Core.ne(own, namespace);
+      Object ignored = Core.and(named, elsewhere);
+      if (Core.truthy(ignored)) {
+        Core.axgenDeprecation("agent-flat-function-namespace", "An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version.");
+      }
+    }
+    return null;
   }
 
   static Object _flow_factory(Object options) {

@@ -41,6 +41,7 @@ from .gen import (
     _core_string_str,
     _core_string_utf16_units,
     _core_tool_invoke,
+    _core_validation_error,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
     _ace_empty_playbook,
@@ -6780,7 +6781,9 @@ def _normalize_agent_callable_inventory(options: Any) -> Any:
     empty_list = []
     functions = _core_get(options, "functions", empty_list)
     groups = []
-    flat_callables = []
+    flat_mode = _agent_flat_function_namespace_mode(options)
+    flat_namespaces = []
+    flat_by_namespace = {}
     has_flat = False
     has_group = False
     for item in functions:
@@ -6802,21 +6805,35 @@ def _normalize_agent_callable_inventory(options: Any) -> Any:
                 raise error
             else:
                 pass
-            callable = _normalize_agent_callable(item, "tools")
-            flat_callables.append(callable)
-    flat_count = _core_len(flat_callables)
-    has_any_flat = _core_gt(flat_count, 0)
-    if has_any_flat:
+            flat_namespace = _agent_flat_function_namespace(item, options)
+            _agent_check_flat_function_namespace(item, flat_mode, flat_namespace)
+            callable = _normalize_agent_callable(item, flat_namespace)
+            seen_namespace = _core_contains(flat_namespaces, flat_namespace)
+            if seen_namespace:
+                pass
+            else:
+                flat_namespaces.append(flat_namespace)
+                fresh_bucket = []
+                flat_by_namespace[flat_namespace] = fresh_bucket
+            bucket = _core_get(flat_by_namespace, flat_namespace, None)
+            bucket.append(callable)
+            flat_by_namespace[flat_namespace] = bucket
+    for flat_namespace in flat_namespaces:
+        flat_callables = _core_get(flat_by_namespace, flat_namespace, None)
+        flat_title = flat_namespace
+        is_tools = _core_eq(flat_namespace, "tools")
+        if is_tools:
+            flat_title = "Tools"
+        else:
+            pass
         flat_group = {}
-        flat_group["namespace"] = "tools"
-        flat_group["title"] = "Tools"
+        flat_group["namespace"] = flat_namespace
+        flat_group["title"] = flat_title
         flat_group["description"] = ""
         flat_group["selection_criteria"] = ""
         flat_group["always_include"] = True
         flat_group["callables"] = flat_callables
         groups.append(flat_group)
-    else:
-        pass
     return groups
 
 
@@ -7773,6 +7790,7 @@ def _agent_callable_implementation(state: Any, qualified: str) -> Any:
             namespace = _core_get(item, "namespace", group_name)
             candidates = group_functions
         else:
+            namespace = _agent_flat_function_namespace(item, options)
             candidates.append(item)
         for candidate in candidates:
             name = _core_get(candidate, "name", "")
@@ -11893,17 +11911,34 @@ def _agent_append_runtime_modules(options: Any, additional: Any) -> Any:
             modules.append(item)
         else:
             flat.append(item)
-    count = _core_len(flat)
-    has_flat = _core_gt(count, 0)
-    if has_flat:
+    flat_namespaces = []
+    flat_by_namespace = {}
+    for flat_item in flat:
+        flat_namespace = _agent_flat_function_namespace(flat_item, options)
+        seen_namespace = _core_contains(flat_namespaces, flat_namespace)
+        if seen_namespace:
+            pass
+        else:
+            flat_namespaces.append(flat_namespace)
+            fresh_bucket = []
+            flat_by_namespace[flat_namespace] = fresh_bucket
+        bucket = _core_get(flat_by_namespace, flat_namespace, None)
+        bucket.append(flat_item)
+        flat_by_namespace[flat_namespace] = bucket
+    for flat_namespace in flat_namespaces:
         module = {}
-        module["namespace"] = "tools"
-        module["title"] = "Tools"
+        module_title = flat_namespace
+        is_tools = _core_eq(flat_namespace, "tools")
+        if is_tools:
+            module_title = "Tools"
+        else:
+            pass
+        module["namespace"] = flat_namespace
+        module["title"] = module_title
         module["alwaysInclude"] = True
-        module["functions"] = flat
+        module_functions = _core_get(flat_by_namespace, flat_namespace, None)
+        module["functions"] = module_functions
         modules.append(module)
-    else:
-        pass
     for module in additional:
         modules.append(module)
     out["functions"] = modules
@@ -13500,5 +13535,91 @@ def _agent_js_value_type(value: Any) -> str:
     else:
         pass
     return "object"
+
+
+def _agent_flat_function_namespace(item: Any, options: Any) -> str:
+    _core_coverage_mark("_agent_flat_function_namespace")
+    mode_snake = _core_get(options, "flat_function_namespace", None)
+    mode = _core_get(options, "flatFunctionNamespace", mode_snake)
+    use_own = _core_eq(mode, "own")
+    if use_own:
+        own = _agent_flat_function_own_namespace(item)
+        has_own = _core_ne(own, "")
+        if has_own:
+            return own
+        else:
+            pass
+    else:
+        pass
+    return "tools"
+
+
+def _agent_flat_function_own_namespace(item: Any) -> str:
+    _core_coverage_mark("_agent_flat_function_own_namespace")
+    own = _core_get(item, "namespace", None)
+    is_text = _core_type_is(own, "string")
+    if is_text:
+        trimmed = str(own).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        return trimmed
+    else:
+        pass
+    return ""
+
+
+def _agent_flat_function_namespace_mode(options: Any) -> str:
+    _core_coverage_mark("_agent_flat_function_namespace_mode")
+    mode_snake = _core_get(options, "flat_function_namespace", None)
+    mode = _core_get(options, "flatFunctionNamespace", mode_snake)
+    mode_set = _core_is_not_none(mode)
+    if mode_set:
+        is_own = _core_eq(mode, "own")
+        is_tools = _core_eq(mode, "tools")
+        known = _core_or(is_own, is_tools)
+        unknown = _core_not(known)
+        if unknown:
+            mode_json = _core_json_pretty(mode)
+            mode_message = _core_string_format("flatFunctionNamespace must be 'tools' or 'own', received: {}", mode_json)
+            mode_error = _core_validation_error(mode_message)
+            raise mode_error
+        else:
+            pass
+        if is_own:
+            return "own"
+        else:
+            pass
+        return "tools"
+    else:
+        pass
+    return "default"
+
+
+def _agent_check_flat_function_namespace(item: Any, mode: str, namespace: str) -> None:
+    _core_coverage_mark("_agent_check_flat_function_namespace")
+    is_own = _core_eq(mode, "own")
+    if is_own:
+        reserved_names = _agent_reserved_runtime_names()
+        shadows = _core_contains(reserved_names, namespace)
+        if shadows:
+            shadow_message = _core_string_format("Agent function namespace \"{}\" conflicts with an AxAgent runtime global and is reserved", namespace)
+            shadow_error = _core_runtime_error(shadow_message)
+            raise shadow_error
+        else:
+            pass
+        return None
+    else:
+        pass
+    is_default = _core_eq(mode, "default")
+    if is_default:
+        own = _agent_flat_function_own_namespace(item)
+        named = _core_ne(own, "")
+        elsewhere = _core_ne(own, namespace)
+        ignored = _core_and(named, elsewhere)
+        if ignored:
+            _core_axgen_deprecation("agent-flat-function-namespace", "An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version.")
+        else:
+            pass
+    else:
+        pass
+    return None
 
 # END AXIR CORE EMITTED FUNCTIONS

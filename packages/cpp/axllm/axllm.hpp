@@ -1387,6 +1387,10 @@ struct Core {
   static Value _agent_context_input_fields(Value state);
   static Value _agent_prompt_field_type(Value typ);
   static Value _agent_js_value_type(Value value);
+  static Value _agent_flat_function_namespace(Value item, Value options);
+  static Value _agent_flat_function_own_namespace(Value item);
+  static Value _agent_flat_function_namespace_mode(Value options);
+  static Value _agent_check_flat_function_namespace(Value item, Value mode, Value namespace_);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);

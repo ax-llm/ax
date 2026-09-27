@@ -3488,37 +3488,59 @@ func TestResponsePerturbationGate(t *testing.T) {
 // the real runtime loop while its sibling is left as a one-shot that demands a
 // structured completion. Scripted fixtures hide it by hand-feeding the one-shot
 // stage a completion; a live model returns RLM code and the stage throws
-// "Required field is missing: Completion". Every actor stage must (a) switch to a
-// code-output signature under runtime and (b) drive the engine via
-// @agent_runtime_execute_step in an actor loop. This is exactly the distiller bug
+// "Required field is missing: Completion". Under a runtime every actor stage must
+// (a) take a code-output signature and (b) drive the engine via
+// @agent_runtime_execute_step in its actor loop. This is exactly the distiller bug
 // a real-model run surfaced that all scripted conformance + the G1 antidote missed.
+// The stage signatures come from @agent_actor_stage_signatures, which the factory
+// and a forward-call runtime both call; with a runtime it returns TS's actor
+// signatures from @agent_rlm_actor_signatures.
 func TestRLMStagesSymmetric(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(repoRootPath(), "ir", "axcore", "agent.axir"))
-	if err != nil {
-		t.Fatal(err)
+	text := readRepoFile(t, repoRootPath(), "ir", "axcore", "agent.axir")
+	opBody := func(name string) string {
+		t.Helper()
+		body, ok := extractBracedFunctionBody(text, " @"+name+" {")
+		if !ok {
+			t.Fatalf("agent.axir has no op @%s", name)
+		}
+		return body
 	}
-	text := string(data)
+	const oneShot = "a one-shot stage will throw 'Required field is missing: Completion' on a live model"
+	// (a) Both builders of the stage signatures (the factory and a forward-call
+	// runtime) take them from @agent_actor_stage_signatures, which under a
+	// runtime returns the RLM signatures for both stages.
+	if n := strings.Count(text, "@agent_actor_stage_signatures("); n < 2 {
+		t.Fatalf("expected the factory and the forward-call runtime to take the actor stage signatures from @agent_actor_stage_signatures, found %d call sites", n)
+	}
+	runtimeBranch, ok := extractBracedFunctionBody(opBody("agent_actor_stage_signatures"), "core.if %runtime_enabled")
+	if !ok || !strings.Contains(runtimeBranch, "@agent_rlm_actor_signatures(") || !strings.Contains(runtimeBranch, "core.return") {
+		t.Fatalf("under a runtime, @agent_actor_stage_signatures does not return @agent_rlm_actor_signatures for both stages; %s", oneShot)
+	}
+	rlm := opBody("agent_rlm_actor_signatures")
+	if !strings.Contains(rlm, `%output = core.call intrinsic.string.format("{}:code `) {
+		t.Fatalf("@agent_rlm_actor_signatures builds no code output field; %s", oneShot)
+	}
+	if strings.Contains(rlm, "-> completion") {
+		t.Fatalf("@agent_rlm_actor_signatures gives a stage a completion output; %s", oneShot)
+	}
 	for _, stage := range []string{"distiller", "executor"} {
-		sigVar := "%runtime_" + stage + "_signature"
-		if !strings.Contains(text, sigVar+" = core.call intrinsic.string.format(") {
-			t.Fatalf("RLM stage %q has no runtime code signature %s; a one-shot stage will throw 'Required field is missing: Completion' on a live model", stage, sigVar)
-		}
-		if !strings.Contains(text, "%"+stage+"_signature = core.let "+sigVar) {
-			t.Fatalf("RLM stage %q does not switch to its code signature under runtime", stage)
+		signature := "%" + stage + "_signature"
+		built := signature + ` = core.call intrinsic.string.format("{} -> {}", %` + stage + `_inputs, %output)`
+		returned := `core.set %out["` + stage + `"] = ` + signature
+		if !strings.Contains(rlm, built) || !strings.Contains(rlm, returned) {
+			t.Fatalf("RLM stage %q does not take the code-output signature under a runtime; %s", stage, oneShot)
 		}
 	}
-	// Both stages must build a code-output runtime signature and run the engine.
-	if c := strings.Count(text, "-> {}:code"); c < 2 {
-		t.Fatalf("expected distiller AND executor code-output runtime signatures (-> {}:code), found %d", c)
-	}
-	if !strings.Contains(text, "agent distiller loop exceeded max steps") {
+	// (b) Each stage's actor loop runs model-authored code through the engine.
+	loops := opBody("agent_run_actor_stages")
+	if !strings.Contains(loops, "agent distiller loop exceeded max steps") {
 		t.Fatal("distiller has no runtime actor loop (missing its loop guard); it cannot execute model-authored code through the engine")
 	}
-	if !strings.Contains(text, "agent actor loop exceeded max steps") {
+	if !strings.Contains(loops, "agent actor loop exceeded max steps") {
 		t.Fatal("executor has no runtime actor loop guard")
 	}
-	if n := strings.Count(text, "@agent_runtime_execute_step("); n < 2 {
-		t.Fatalf("expected >= 2 @agent_runtime_execute_step call sites (distiller + executor actor loops), found %d", n)
+	if n := strings.Count(loops, "@agent_runtime_execute_step("); n < 2 {
+		t.Fatalf("expected >= 2 @agent_runtime_execute_step call sites in @agent_run_actor_stages (distiller + executor actor loops), found %d", n)
 	}
 }
 

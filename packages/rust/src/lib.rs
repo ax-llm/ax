@@ -103678,21 +103678,28 @@ fn _normalize_agent_group(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 fn _normalize_agent_callable_inventory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_normalize_agent_callable_inventory");
     let mut v_options = core_arg(args, 0);
+    let mut v_bucket = CoreValue::Null;
     let mut v_callable = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_error = CoreValue::Null;
+    let mut v_flat_by_namespace = CoreValue::Null;
     let mut v_flat_callables = CoreValue::Null;
-    let mut v_flat_count = CoreValue::Null;
     let mut v_flat_group = CoreValue::Null;
+    let mut v_flat_mode = CoreValue::Null;
+    let mut v_flat_namespace = CoreValue::Null;
+    let mut v_flat_namespaces = CoreValue::Null;
+    let mut v_flat_title = CoreValue::Null;
+    let mut v_fresh_bucket = CoreValue::Null;
     let mut v_functions = CoreValue::Null;
     let mut v_group = CoreValue::Null;
     let mut v_group_functions = CoreValue::Null;
     let mut v_groups = CoreValue::Null;
-    let mut v_has_any_flat = CoreValue::Null;
     let mut v_has_flat = CoreValue::Null;
     let mut v_has_group = CoreValue::Null;
     let mut v_is_group = CoreValue::Null;
+    let mut v_is_tools = CoreValue::Null;
     let mut v_item = CoreValue::Null;
+    let mut v_seen_namespace = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
     v_functions = core_get(
         &v_options,
@@ -103700,7 +103707,9 @@ fn _normalize_agent_callable_inventory(args: &[CoreValue]) -> Result<CoreValue, 
         v_empty_list.clone(),
     );
     v_groups = CoreValue::new_list();
-    v_flat_callables = CoreValue::new_list();
+    v_flat_mode = _agent_flat_function_namespace_mode(&[v_options.clone()])?;
+    v_flat_namespaces = CoreValue::new_list();
+    v_flat_by_namespace = CoreValue::new_map();
     v_has_flat = CoreValue::Bool(false);
     v_has_group = CoreValue::Bool(false);
     for v_item in core_iter(&v_functions)? {
@@ -103725,23 +103734,61 @@ fn _normalize_agent_callable_inventory(args: &[CoreValue]) -> Result<CoreValue, 
                 )])?;
                 return Err(core_as_error(&v_error));
             }
-            v_callable = _normalize_agent_callable(&[v_item.clone(), CoreValue::from("tools")])?;
-            core_append(&v_flat_callables, v_callable.clone())?;
+            v_flat_namespace =
+                _agent_flat_function_namespace(&[v_item.clone(), v_options.clone()])?;
+            _agent_check_flat_function_namespace(&[
+                v_item.clone(),
+                v_flat_mode.clone(),
+                v_flat_namespace.clone(),
+            ])?;
+            v_callable = _normalize_agent_callable(&[v_item.clone(), v_flat_namespace.clone()])?;
+            v_seen_namespace =
+                core_contains(&[v_flat_namespaces.clone(), v_flat_namespace.clone()])?;
+            if core_truthy(&v_seen_namespace) {
+            } else {
+                core_append(&v_flat_namespaces, v_flat_namespace.clone())?;
+                v_fresh_bucket = CoreValue::new_list();
+                core_set(
+                    &v_flat_by_namespace,
+                    v_flat_namespace.clone(),
+                    v_fresh_bucket.clone(),
+                )?;
+            }
+            v_bucket = core_get(
+                &v_flat_by_namespace,
+                &v_flat_namespace.clone(),
+                CoreValue::Null,
+            );
+            core_append(&v_bucket, v_callable.clone())?;
+            core_set(
+                &v_flat_by_namespace,
+                v_flat_namespace.clone(),
+                v_bucket.clone(),
+            )?;
         }
     }
-    v_flat_count = core_len(&[v_flat_callables.clone()])?;
-    v_has_any_flat = core_gt(&[v_flat_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_has_any_flat) {
+    for v_flat_namespace in core_iter(&v_flat_namespaces)? {
+        let mut v_flat_namespace = v_flat_namespace;
+        v_flat_callables = core_get(
+            &v_flat_by_namespace,
+            &v_flat_namespace.clone(),
+            CoreValue::Null,
+        );
+        v_flat_title = v_flat_namespace.clone();
+        v_is_tools = core_eq(&[v_flat_namespace.clone(), CoreValue::from("tools")])?;
+        if core_truthy(&v_is_tools) {
+            v_flat_title = CoreValue::from("Tools");
+        }
         v_flat_group = CoreValue::new_map();
         core_set(
             &v_flat_group,
             CoreValue::from("namespace"),
-            CoreValue::from("tools"),
+            v_flat_namespace.clone(),
         )?;
         core_set(
             &v_flat_group,
             CoreValue::from("title"),
-            CoreValue::from("Tools"),
+            v_flat_title.clone(),
         )?;
         core_set(
             &v_flat_group,
@@ -105927,6 +105974,7 @@ fn _agent_callable_implementation(args: &[CoreValue]) -> Result<CoreValue, AxErr
             v_namespace = core_get(&v_item, &CoreValue::from("namespace"), v_group_name.clone());
             v_candidates = v_group_functions.clone();
         } else {
+            v_namespace = _agent_flat_function_namespace(&[v_item.clone(), v_options.clone()])?;
             core_append(&v_candidates, v_item.clone())?;
         }
         for v_candidate in core_iter(&v_candidates)? {
@@ -115657,18 +115705,26 @@ fn _agent_append_runtime_modules(args: &[CoreValue]) -> Result<CoreValue, AxErro
     axir_coverage_mark("_agent_append_runtime_modules");
     let mut v_options = core_arg(args, 0);
     let mut v_additional = core_arg(args, 1);
-    let mut v_count = CoreValue::Null;
+    let mut v_bucket = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_flat = CoreValue::Null;
+    let mut v_flat_by_namespace = CoreValue::Null;
+    let mut v_flat_item = CoreValue::Null;
+    let mut v_flat_namespace = CoreValue::Null;
+    let mut v_flat_namespaces = CoreValue::Null;
+    let mut v_fresh_bucket = CoreValue::Null;
     let mut v_functions = CoreValue::Null;
     let mut v_group = CoreValue::Null;
-    let mut v_has_flat = CoreValue::Null;
+    let mut v_is_tools = CoreValue::Null;
     let mut v_item = CoreValue::Null;
     let mut v_members = CoreValue::Null;
     let mut v_module = CoreValue::Null;
+    let mut v_module_functions = CoreValue::Null;
+    let mut v_module_title = CoreValue::Null;
     let mut v_modules = CoreValue::Null;
     let mut v_out = CoreValue::Null;
+    let mut v_seen_namespace = CoreValue::Null;
     v_empty_map = CoreValue::new_map();
     v_empty_list = CoreValue::new_list();
     v_out = core_map_merge(&[v_empty_map.clone(), v_options.clone()])?;
@@ -115689,26 +115745,64 @@ fn _agent_append_runtime_modules(args: &[CoreValue]) -> Result<CoreValue, AxErro
             core_append(&v_flat, v_item.clone())?;
         }
     }
-    v_count = core_len(&[v_flat.clone()])?;
-    v_has_flat = core_gt(&[v_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_has_flat) {
+    v_flat_namespaces = CoreValue::new_list();
+    v_flat_by_namespace = CoreValue::new_map();
+    for v_flat_item in core_iter(&v_flat)? {
+        let mut v_flat_item = v_flat_item;
+        v_flat_namespace =
+            _agent_flat_function_namespace(&[v_flat_item.clone(), v_options.clone()])?;
+        v_seen_namespace = core_contains(&[v_flat_namespaces.clone(), v_flat_namespace.clone()])?;
+        if core_truthy(&v_seen_namespace) {
+        } else {
+            core_append(&v_flat_namespaces, v_flat_namespace.clone())?;
+            v_fresh_bucket = CoreValue::new_list();
+            core_set(
+                &v_flat_by_namespace,
+                v_flat_namespace.clone(),
+                v_fresh_bucket.clone(),
+            )?;
+        }
+        v_bucket = core_get(
+            &v_flat_by_namespace,
+            &v_flat_namespace.clone(),
+            CoreValue::Null,
+        );
+        core_append(&v_bucket, v_flat_item.clone())?;
+        core_set(
+            &v_flat_by_namespace,
+            v_flat_namespace.clone(),
+            v_bucket.clone(),
+        )?;
+    }
+    for v_flat_namespace in core_iter(&v_flat_namespaces)? {
+        let mut v_flat_namespace = v_flat_namespace;
         v_module = CoreValue::new_map();
+        v_module_title = v_flat_namespace.clone();
+        v_is_tools = core_eq(&[v_flat_namespace.clone(), CoreValue::from("tools")])?;
+        if core_truthy(&v_is_tools) {
+            v_module_title = CoreValue::from("Tools");
+        }
         core_set(
             &v_module,
             CoreValue::from("namespace"),
-            CoreValue::from("tools"),
+            v_flat_namespace.clone(),
         )?;
-        core_set(
-            &v_module,
-            CoreValue::from("title"),
-            CoreValue::from("Tools"),
-        )?;
+        core_set(&v_module, CoreValue::from("title"), v_module_title.clone())?;
         core_set(
             &v_module,
             CoreValue::from("alwaysInclude"),
             CoreValue::Bool(true),
         )?;
-        core_set(&v_module, CoreValue::from("functions"), v_flat.clone())?;
+        v_module_functions = core_get(
+            &v_flat_by_namespace,
+            &v_flat_namespace.clone(),
+            CoreValue::Null,
+        );
+        core_set(
+            &v_module,
+            CoreValue::from("functions"),
+            v_module_functions.clone(),
+        )?;
         core_append(&v_modules, v_module.clone())?;
     }
     for v_module in core_iter(&v_additional)? {
@@ -119730,6 +119824,164 @@ fn _agent_js_value_type(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         return Ok(CoreValue::from("number"));
     }
     return Ok(CoreValue::from("object"));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_flat_function_namespace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_flat_function_namespace");
+    let mut v_item = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_has_own = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_mode_snake = CoreValue::Null;
+    let mut v_own = CoreValue::Null;
+    let mut v_use_own = CoreValue::Null;
+    v_mode_snake = core_get(
+        &v_options,
+        &CoreValue::from("flat_function_namespace"),
+        CoreValue::Null,
+    );
+    v_mode = core_get(
+        &v_options,
+        &CoreValue::from("flatFunctionNamespace"),
+        v_mode_snake.clone(),
+    );
+    v_use_own = core_eq(&[v_mode.clone(), CoreValue::from("own")])?;
+    if core_truthy(&v_use_own) {
+        v_own = _agent_flat_function_own_namespace(&[v_item.clone()])?;
+        v_has_own = core_ne(&[v_own.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_own) {
+            return Ok(v_own.clone());
+        }
+    }
+    return Ok(CoreValue::from("tools"));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_flat_function_own_namespace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_flat_function_own_namespace");
+    let mut v_item = core_arg(args, 0);
+    let mut v_is_text = CoreValue::Null;
+    let mut v_own = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    v_own = core_get(&v_item, &CoreValue::from("namespace"), CoreValue::Null);
+    v_is_text = core_type_is(&v_own, CoreValue::from("string"));
+    if core_truthy(&v_is_text) {
+        v_trimmed = core_string_trim(&v_own);
+        return Ok(v_trimmed.clone());
+    }
+    return Ok(CoreValue::from(""));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_flat_function_namespace_mode(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_flat_function_namespace_mode");
+    let mut v_options = core_arg(args, 0);
+    let mut v_is_own = CoreValue::Null;
+    let mut v_is_tools = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_mode_error = CoreValue::Null;
+    let mut v_mode_json = CoreValue::Null;
+    let mut v_mode_message = CoreValue::Null;
+    let mut v_mode_set = CoreValue::Null;
+    let mut v_mode_snake = CoreValue::Null;
+    let mut v_unknown = CoreValue::Null;
+    v_mode_snake = core_get(
+        &v_options,
+        &CoreValue::from("flat_function_namespace"),
+        CoreValue::Null,
+    );
+    v_mode = core_get(
+        &v_options,
+        &CoreValue::from("flatFunctionNamespace"),
+        v_mode_snake.clone(),
+    );
+    v_mode_set = core_is_not_none(&[v_mode.clone()])?;
+    if core_truthy(&v_mode_set) {
+        v_is_own = core_eq(&[v_mode.clone(), CoreValue::from("own")])?;
+        v_is_tools = core_eq(&[v_mode.clone(), CoreValue::from("tools")])?;
+        v_known = core_or(&[v_is_own.clone(), v_is_tools.clone()])?;
+        v_unknown = core_not(&[v_known.clone()])?;
+        if core_truthy(&v_unknown) {
+            v_mode_json = core_json_pretty(&[v_mode.clone()])?;
+            v_mode_message = core_string_format(&[
+                CoreValue::from("flatFunctionNamespace must be 'tools' or 'own', received: {}"),
+                v_mode_json.clone(),
+            ])?;
+            v_mode_error = core_validation_error(&[v_mode_message.clone()])?;
+            return Err(core_as_error(&v_mode_error));
+        }
+        if core_truthy(&v_is_own) {
+            return Ok(CoreValue::from("own"));
+        }
+        return Ok(CoreValue::from("tools"));
+    }
+    return Ok(CoreValue::from("default"));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_check_flat_function_namespace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_check_flat_function_namespace");
+    let mut v_item = core_arg(args, 0);
+    let mut v_mode = core_arg(args, 1);
+    let mut v_namespace = core_arg(args, 2);
+    let mut v_elsewhere = CoreValue::Null;
+    let mut v_ignored = CoreValue::Null;
+    let mut v_is_default = CoreValue::Null;
+    let mut v_is_own = CoreValue::Null;
+    let mut v_named = CoreValue::Null;
+    let mut v_own = CoreValue::Null;
+    let mut v_reserved_names = CoreValue::Null;
+    let mut v_shadow_error = CoreValue::Null;
+    let mut v_shadow_message = CoreValue::Null;
+    let mut v_shadows = CoreValue::Null;
+    v_is_own = core_eq(&[v_mode.clone(), CoreValue::from("own")])?;
+    if core_truthy(&v_is_own) {
+        v_reserved_names = _agent_reserved_runtime_names(&[])?;
+        v_shadows = core_contains(&[v_reserved_names.clone(), v_namespace.clone()])?;
+        if core_truthy(&v_shadows) {
+            v_shadow_message = core_string_format(&[CoreValue::from("Agent function namespace \"{}\" conflicts with an AxAgent runtime global and is reserved"), v_namespace.clone()])?;
+            v_shadow_error = core_runtime_error(&[v_shadow_message.clone()])?;
+            return Err(core_as_error(&v_shadow_error));
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_is_default = core_eq(&[v_mode.clone(), CoreValue::from("default")])?;
+    if core_truthy(&v_is_default) {
+        v_own = _agent_flat_function_own_namespace(&[v_item.clone()])?;
+        v_named = core_ne(&[v_own.clone(), CoreValue::from("")])?;
+        v_elsewhere = core_ne(&[v_own.clone(), v_namespace.clone()])?;
+        v_ignored = core_and(&[v_named.clone(), v_elsewhere.clone()])?;
+        if core_truthy(&v_ignored) {
+            core_axgen_deprecation(&[CoreValue::from("agent-flat-function-namespace"), CoreValue::from("An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version.")])?;
+        }
+    }
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -129976,7 +130228,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (966 of 966 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (970 of 970 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

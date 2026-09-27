@@ -406,6 +406,12 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"- A run without one runs the ports' runtime-less stages, which answer with a completion payload instead of code; TypeScript has no such mode.",
 			"- Each run picks its stages from its own runtime, so one agent can alternate. Both stage sets are kept, and each keeps the standing instruction, actor addenda and optimized components; `set_signature` rebuilds them.",
 			"",
+			"## Flat Function Namespaces",
+			"",
+			"- A flat function (one in the agent's `functions` outside a module) is called `tools.<name>` by default, even when it names its own namespace. TypeScript's agent calls it `<namespace>.<name>` (and `utils.<name>` when it names none).",
+			"- `flatFunctionNamespace` / `flat_function_namespace` on the agent: `'own'` calls each flat function by its own namespace now, as TypeScript does (one without a namespace stays `tools.<name>`), and a namespace that shadows a runtime global such as `inputs` or `final` raises TypeScript's error; `'tools'` keeps `tools.<name>`. Left unset, a flat function that names another namespace warns once. `'own'` becomes the default in the next major version.",
+			"- "+skillAgentFlatNamespaceText(target),
+			"",
 			"## Streaming An Agent Run",
 			"",
 			skillAgentStreamingText(target),
@@ -548,6 +554,23 @@ func skillAgentRuntimeText(target string) string {
 		return "Attach the code runtime to the agent with `with_runtime(Box::new(runtime))`; Rust takes no runtime on the forward call."
 	default:
 		return "Give the agent a code runtime on the constructor or on a forward call."
+	}
+}
+
+func skillAgentFlatNamespaceText(target string) string {
+	switch target {
+	case "python":
+		return "A function names its namespace with `fn(name).namespace(\"crm\")`, or a function spec with a `\"namespace\"` key."
+	case "go":
+		return "A function names its namespace with `ax.Fn(name).WithNamespace(\"crm\")`, or a function spec with a `\"namespace\"` key."
+	case "java":
+		return "A function names its namespace with `Ax.fn(name).namespace(\"crm\")` (or `tool.namespace(\"crm\")` on a built `Tool`), or a function spec with a `\"namespace\"` key."
+	case "rust":
+		return "Host `Tool`s go under a namespace with `with_tool_module(\"crm\", tools)`, which needs no option; `'own'` reads a function spec's `\"namespace\"` key."
+	case "cpp":
+		return "Host `Tool`s go under a namespace with `add_tool_module(\"crm\", tools)`, which needs no option; `'own'` reads a function spec's `\"namespace\"` key."
+	default:
+		return "A function spec names its namespace with a `\"namespace\"` key."
 	}
 }
 

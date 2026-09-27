@@ -1,0 +1,76 @@
+{
+  "name": "agent-flat-function-namespace-default-reserved",
+  "description": "Port-only: without flatFunctionNamespace a flat function namespaced with a reserved runtime name (inputs) is filed under tools as before, with the warning; 'own' raises TypeScript's error for it (agent-flat-function-namespace-own-reserved).",
+  "kind": "agent_forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "options": {
+    "directResponse": "off",
+    "functions": [
+      {
+        "name": "lookup",
+        "namespace": "inputs",
+        "description": "Look up a customer by id",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["id"]
+        }
+      }
+    ],
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: Refunds take 30 days."
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "expected_request_count": 3,
+  "expected_output": {
+    "answer": "Refunds take 30 days."
+  },
+  "expected_request_contains": ["`tools.lookup(args: { id: string })`"],
+  "expected_deprecations": [
+    "An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version."
+  ]
+}

@@ -70275,42 +70275,58 @@ func _normalize_agent_group(args ...Value) (Value, error) {
 func _normalize_agent_callable_inventory(args ...Value) (Value, error) {
 	axirCoverageMark("_normalize_agent_callable_inventory")
 	var v_options Value
+	var v_bucket Value
 	var v_callable Value
 	var v_empty_list Value
 	var v_error Value
+	var v_flat_by_namespace Value
 	var v_flat_callables Value
-	var v_flat_count Value
 	var v_flat_group Value
+	var v_flat_mode Value
+	var v_flat_namespace Value
+	var v_flat_namespaces Value
+	var v_flat_title Value
+	var v_fresh_bucket Value
 	var v_functions Value
 	var v_group Value
 	var v_group_functions Value
 	var v_groups Value
-	var v_has_any_flat Value
 	var v_has_flat Value
 	var v_has_group Value
 	var v_is_group Value
+	var v_is_tools Value
 	var v_item Value
+	var v_seen_namespace Value
 	if len(args) > 0 { v_options = args[0] }
 	_ = v_options
+	_ = v_bucket
 	_ = v_callable
 	_ = v_empty_list
 	_ = v_error
+	_ = v_flat_by_namespace
 	_ = v_flat_callables
-	_ = v_flat_count
 	_ = v_flat_group
+	_ = v_flat_mode
+	_ = v_flat_namespace
+	_ = v_flat_namespaces
+	_ = v_flat_title
+	_ = v_fresh_bucket
 	_ = v_functions
 	_ = v_group
 	_ = v_group_functions
 	_ = v_groups
-	_ = v_has_any_flat
 	_ = v_has_flat
 	_ = v_has_group
 	_ = v_is_group
+	_ = v_is_tools
 	_ = v_item
+	_ = v_seen_namespace
 	v_empty_list = MutableArray()
 	v_functions = coreGet(v_options, "functions", v_empty_list)
 	v_groups = MutableArray()
-	v_flat_callables = MutableArray()
+	{ v, err := _agent_flat_function_namespace_mode(v_options); if err != nil { return nil, err }; v_flat_mode = v }
+	v_flat_namespaces = MutableArray()
+	v_flat_by_namespace = Object()
 	v_has_flat = false
 	v_has_group = false
 	for _, v_item = range coreIter(v_functions) {
@@ -70334,23 +70350,39 @@ func _normalize_agent_callable_inventory(args ...Value) (Value, error) {
 			} else {
 			// empty
 			}
-			{ v, err := _normalize_agent_callable(v_item, "tools"); if err != nil { return nil, err }; v_callable = v }
-			v_flat_callables = coreAppend(v_flat_callables, v_callable)
+			{ v, err := _agent_flat_function_namespace(v_item, v_options); if err != nil { return nil, err }; v_flat_namespace = v }
+			if _, err := _agent_check_flat_function_namespace(v_item, v_flat_mode, v_flat_namespace); err != nil { return nil, err }
+			{ v, err := _normalize_agent_callable(v_item, v_flat_namespace); if err != nil { return nil, err }; v_callable = v }
+			v_seen_namespace = _core_contains(v_flat_namespaces, v_flat_namespace)
+			if coreTruthy(v_seen_namespace) {
+			// empty
+			} else {
+				v_flat_namespaces = coreAppend(v_flat_namespaces, v_flat_namespace)
+				v_fresh_bucket = MutableArray()
+				if err := coreSet(v_flat_by_namespace, v_flat_namespace, v_fresh_bucket); err != nil { return nil, err }
+			}
+			v_bucket = coreGet(v_flat_by_namespace, v_flat_namespace, nil)
+			v_bucket = coreAppend(v_bucket, v_callable)
+			if err := coreSet(v_flat_by_namespace, v_flat_namespace, v_bucket); err != nil { return nil, err }
 		}
 	}
-	v_flat_count = _core_len(v_flat_callables)
-	v_has_any_flat = _core_gt(v_flat_count, 0)
-	if coreTruthy(v_has_any_flat) {
+	for _, v_flat_namespace = range coreIter(v_flat_namespaces) {
+		v_flat_callables = coreGet(v_flat_by_namespace, v_flat_namespace, nil)
+		v_flat_title = v_flat_namespace
+		v_is_tools = _core_eq(v_flat_namespace, "tools")
+		if coreTruthy(v_is_tools) {
+			v_flat_title = "Tools"
+		} else {
+		// empty
+		}
 		v_flat_group = Object()
-		if err := coreSet(v_flat_group, "namespace", "tools"); err != nil { return nil, err }
-		if err := coreSet(v_flat_group, "title", "Tools"); err != nil { return nil, err }
+		if err := coreSet(v_flat_group, "namespace", v_flat_namespace); err != nil { return nil, err }
+		if err := coreSet(v_flat_group, "title", v_flat_title); err != nil { return nil, err }
 		if err := coreSet(v_flat_group, "description", ""); err != nil { return nil, err }
 		if err := coreSet(v_flat_group, "selection_criteria", ""); err != nil { return nil, err }
 		if err := coreSet(v_flat_group, "always_include", true); err != nil { return nil, err }
 		if err := coreSet(v_flat_group, "callables", v_flat_callables); err != nil { return nil, err }
 		v_groups = coreAppend(v_groups, v_flat_group)
-	} else {
-	// empty
 	}
 	return v_groups, nil
 }
@@ -72363,6 +72395,7 @@ func _agent_callable_implementation(args ...Value) (Value, error) {
 			v_namespace = coreGet(v_item, "namespace", v_group_name)
 			v_candidates = v_group_functions
 		} else {
+			{ v, err := _agent_flat_function_namespace(v_item, v_options); if err != nil { return nil, err }; v_namespace = v }
 			v_candidates = coreAppend(v_candidates, v_item)
 		}
 		for _, v_candidate = range coreIter(v_candidates) {
@@ -80994,34 +81027,50 @@ func _agent_append_runtime_modules(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_append_runtime_modules")
 	var v_options Value
 	var v_additional Value
-	var v_count Value
+	var v_bucket Value
 	var v_empty_list Value
 	var v_empty_map Value
 	var v_flat Value
+	var v_flat_by_namespace Value
+	var v_flat_item Value
+	var v_flat_namespace Value
+	var v_flat_namespaces Value
+	var v_fresh_bucket Value
 	var v_functions Value
 	var v_group Value
-	var v_has_flat Value
+	var v_is_tools Value
 	var v_item Value
 	var v_members Value
 	var v_module Value
+	var v_module_functions Value
+	var v_module_title Value
 	var v_modules Value
 	var v_out Value
+	var v_seen_namespace Value
 	if len(args) > 0 { v_options = args[0] }
 	_ = v_options
 	if len(args) > 1 { v_additional = args[1] }
 	_ = v_additional
-	_ = v_count
+	_ = v_bucket
 	_ = v_empty_list
 	_ = v_empty_map
 	_ = v_flat
+	_ = v_flat_by_namespace
+	_ = v_flat_item
+	_ = v_flat_namespace
+	_ = v_flat_namespaces
+	_ = v_fresh_bucket
 	_ = v_functions
 	_ = v_group
-	_ = v_has_flat
+	_ = v_is_tools
 	_ = v_item
 	_ = v_members
 	_ = v_module
+	_ = v_module_functions
+	_ = v_module_title
 	_ = v_modules
 	_ = v_out
+	_ = v_seen_namespace
 	v_empty_map = Object()
 	v_empty_list = MutableArray()
 	v_out = _core_map_merge(v_empty_map, v_options)
@@ -81037,17 +81086,37 @@ func _agent_append_runtime_modules(args ...Value) (Value, error) {
 			v_flat = coreAppend(v_flat, v_item)
 		}
 	}
-	v_count = _core_len(v_flat)
-	v_has_flat = _core_gt(v_count, 0)
-	if coreTruthy(v_has_flat) {
+	v_flat_namespaces = MutableArray()
+	v_flat_by_namespace = Object()
+	for _, v_flat_item = range coreIter(v_flat) {
+		{ v, err := _agent_flat_function_namespace(v_flat_item, v_options); if err != nil { return nil, err }; v_flat_namespace = v }
+		v_seen_namespace = _core_contains(v_flat_namespaces, v_flat_namespace)
+		if coreTruthy(v_seen_namespace) {
+		// empty
+		} else {
+			v_flat_namespaces = coreAppend(v_flat_namespaces, v_flat_namespace)
+			v_fresh_bucket = MutableArray()
+			if err := coreSet(v_flat_by_namespace, v_flat_namespace, v_fresh_bucket); err != nil { return nil, err }
+		}
+		v_bucket = coreGet(v_flat_by_namespace, v_flat_namespace, nil)
+		v_bucket = coreAppend(v_bucket, v_flat_item)
+		if err := coreSet(v_flat_by_namespace, v_flat_namespace, v_bucket); err != nil { return nil, err }
+	}
+	for _, v_flat_namespace = range coreIter(v_flat_namespaces) {
 		v_module = Object()
-		if err := coreSet(v_module, "namespace", "tools"); err != nil { return nil, err }
-		if err := coreSet(v_module, "title", "Tools"); err != nil { return nil, err }
+		v_module_title = v_flat_namespace
+		v_is_tools = _core_eq(v_flat_namespace, "tools")
+		if coreTruthy(v_is_tools) {
+			v_module_title = "Tools"
+		} else {
+		// empty
+		}
+		if err := coreSet(v_module, "namespace", v_flat_namespace); err != nil { return nil, err }
+		if err := coreSet(v_module, "title", v_module_title); err != nil { return nil, err }
 		if err := coreSet(v_module, "alwaysInclude", true); err != nil { return nil, err }
-		if err := coreSet(v_module, "functions", v_flat); err != nil { return nil, err }
+		v_module_functions = coreGet(v_flat_by_namespace, v_flat_namespace, nil)
+		if err := coreSet(v_module, "functions", v_module_functions); err != nil { return nil, err }
 		v_modules = coreAppend(v_modules, v_module)
-	} else {
-	// empty
 	}
 	for _, v_module = range coreIter(v_additional) {
 		v_modules = coreAppend(v_modules, v_module)
@@ -84406,6 +84475,179 @@ func _agent_js_value_type(args ...Value) (Value, error) {
 	// empty
 	}
 	return "object", nil
+}
+
+func _agent_flat_function_namespace(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_flat_function_namespace")
+	var v_item Value
+	var v_options Value
+	var v_has_own Value
+	var v_mode Value
+	var v_mode_snake Value
+	var v_own Value
+	var v_use_own Value
+	if len(args) > 0 { v_item = args[0] }
+	_ = v_item
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_has_own
+	_ = v_mode
+	_ = v_mode_snake
+	_ = v_own
+	_ = v_use_own
+	v_mode_snake = coreGet(v_options, "flat_function_namespace", nil)
+	v_mode = coreGet(v_options, "flatFunctionNamespace", v_mode_snake)
+	v_use_own = _core_eq(v_mode, "own")
+	if coreTruthy(v_use_own) {
+		{ v, err := _agent_flat_function_own_namespace(v_item); if err != nil { return nil, err }; v_own = v }
+		v_has_own = _core_ne(v_own, "")
+		if coreTruthy(v_has_own) {
+			return v_own, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return "tools", nil
+}
+
+func _agent_flat_function_own_namespace(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_flat_function_own_namespace")
+	var v_item Value
+	var v_is_text Value
+	var v_own Value
+	var v_trimmed Value
+	if len(args) > 0 { v_item = args[0] }
+	_ = v_item
+	_ = v_is_text
+	_ = v_own
+	_ = v_trimmed
+	v_own = coreGet(v_item, "namespace", nil)
+	v_is_text = coreTypeIs(v_own, "string")
+	if coreTruthy(v_is_text) {
+		v_trimmed = coreStringTrim(v_own)
+		return v_trimmed, nil
+	} else {
+	// empty
+	}
+	return "", nil
+}
+
+func _agent_flat_function_namespace_mode(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_flat_function_namespace_mode")
+	var v_options Value
+	var v_is_own Value
+	var v_is_tools Value
+	var v_known Value
+	var v_mode Value
+	var v_mode_error Value
+	var v_mode_json Value
+	var v_mode_message Value
+	var v_mode_set Value
+	var v_mode_snake Value
+	var v_unknown Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	_ = v_is_own
+	_ = v_is_tools
+	_ = v_known
+	_ = v_mode
+	_ = v_mode_error
+	_ = v_mode_json
+	_ = v_mode_message
+	_ = v_mode_set
+	_ = v_mode_snake
+	_ = v_unknown
+	v_mode_snake = coreGet(v_options, "flat_function_namespace", nil)
+	v_mode = coreGet(v_options, "flatFunctionNamespace", v_mode_snake)
+	v_mode_set = _core_is_not_none(v_mode)
+	if coreTruthy(v_mode_set) {
+		v_is_own = _core_eq(v_mode, "own")
+		v_is_tools = _core_eq(v_mode, "tools")
+		v_known = _core_or(v_is_own, v_is_tools)
+		v_unknown = _core_not(v_known)
+		if coreTruthy(v_unknown) {
+			v_mode_json = _core_json_pretty(v_mode)
+			v_mode_message = _core_string_format("flatFunctionNamespace must be 'tools' or 'own', received: {}", v_mode_json)
+			v_mode_error = _core_validation_error(v_mode_message)
+			return nil, asError(v_mode_error)
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_own) {
+			return "own", nil
+		} else {
+		// empty
+		}
+		return "tools", nil
+	} else {
+	// empty
+	}
+	return "default", nil
+}
+
+func _agent_check_flat_function_namespace(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_check_flat_function_namespace")
+	var v_item Value
+	var v_mode Value
+	var v_namespace Value
+	var v_elsewhere Value
+	var v_ignored Value
+	var v_is_default Value
+	var v_is_own Value
+	var v_named Value
+	var v_own Value
+	var v_reserved_names Value
+	var v_shadow_error Value
+	var v_shadow_message Value
+	var v_shadows Value
+	if len(args) > 0 { v_item = args[0] }
+	_ = v_item
+	if len(args) > 1 { v_mode = args[1] }
+	_ = v_mode
+	if len(args) > 2 { v_namespace = args[2] }
+	_ = v_namespace
+	_ = v_elsewhere
+	_ = v_ignored
+	_ = v_is_default
+	_ = v_is_own
+	_ = v_named
+	_ = v_own
+	_ = v_reserved_names
+	_ = v_shadow_error
+	_ = v_shadow_message
+	_ = v_shadows
+	v_is_own = _core_eq(v_mode, "own")
+	if coreTruthy(v_is_own) {
+		{ v, err := _agent_reserved_runtime_names(); if err != nil { return nil, err }; v_reserved_names = v }
+		v_shadows = _core_contains(v_reserved_names, v_namespace)
+		if coreTruthy(v_shadows) {
+			v_shadow_message = _core_string_format("Agent function namespace \"{}\" conflicts with an AxAgent runtime global and is reserved", v_namespace)
+			v_shadow_error = _core_runtime_error(v_shadow_message)
+			return nil, asError(v_shadow_error)
+		} else {
+		// empty
+		}
+		return nil, nil
+	} else {
+	// empty
+	}
+	v_is_default = _core_eq(v_mode, "default")
+	if coreTruthy(v_is_default) {
+		{ v, err := _agent_flat_function_own_namespace(v_item); if err != nil { return nil, err }; v_own = v }
+		v_named = _core_ne(v_own, "")
+		v_elsewhere = _core_ne(v_own, v_namespace)
+		v_ignored = _core_and(v_named, v_elsewhere)
+		if coreTruthy(v_ignored) {
+			_core_axgen_deprecation("agent-flat-function-namespace", "An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version.")
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return nil, nil
 }
 
 func _flow_factory(args ...Value) (Value, error) {
@@ -94916,6 +95158,9 @@ type Tool struct {
     Parameters Value
     ExecutionMode string
 	Name        string
+	// Namespace files a flat agent function under it (TS fn().namespace());
+	// empty means the agent's default "tools".
+	Namespace   string
 	Description string
 	Args        map[string]Field
 	Returns     map[string]Field
@@ -94930,6 +95175,12 @@ func (t Tool) Execution(mode string) Tool {
     if mode != "blocking" && mode != "background" { panic("Tool execution must be blocking or background") }
     t.ExecutionMode = mode
     return t
+}
+// WithNamespace sets the namespace an agent lists and calls a flat function
+// under, as TS fn().namespace() does.
+func (t Tool) WithNamespace(namespace string) Tool {
+	t.Namespace = namespace
+	return t
 }
 func (t Tool) WithHandler(handler func(map[string]Value) (Value, error)) Tool {
 	t.Handler = handler
@@ -95011,6 +95262,11 @@ func (t Tool) get(key string, fallback Value) Value {
         if t.ExecutionMode == "" { return "blocking" }; return t.ExecutionMode
 	case "name":
 		return t.Name
+	case "namespace":
+		if t.Namespace == "" {
+			return fallback
+		}
+		return t.Namespace
 	case "description":
 		return t.Description
 	case "args":

@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-python-agent/SKILL.md",
-      "digest": "sha256:ce4b71865f5b8ef77ff5dc90da3291ccab332d3a5466ed9b6f837fdc89fd62cf"
+      "digest": "sha256:93e04f9c914940cfc6c2e06abb90fd522c521435d091b7979fb7bbf29637a7c2"
     },
     {
       "name": "ax-python-agent-rlm",
