@@ -177,6 +177,24 @@ function isManagedContextCacheRejection(
   return namesCachedContent || describesInvalidCache;
 }
 
+// Orders strings by Unicode code point, as the generated ports sort keys, so
+// the result doesn't depend on the host's locale the way localeCompare does
+// (which orders ID/id, userName/username or ä by the default collation).
+function compareCodePoints(a: string, b: string): number {
+  const length = Math.min(a.length, b.length);
+  for (let i = 0; i < length; i++) {
+    const left = a.codePointAt(i) ?? 0;
+    const right = b.codePointAt(i) ?? 0;
+    if (left !== right) {
+      return left - right;
+    }
+    if (left > 0xffff) {
+      i++;
+    }
+  }
+  return a.length - b.length;
+}
+
 function normalizeForStableStringify(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => normalizeForStableStringify(item));
@@ -185,7 +203,7 @@ function normalizeForStableStringify(value: unknown): unknown {
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
-        .sort(([a], [b]) => a.localeCompare(b))
+        .sort(([a], [b]) => compareCodePoints(a, b))
         .map(([key, nestedValue]) => [
           key,
           normalizeForStableStringify(nestedValue),
@@ -607,33 +625,37 @@ export const axBaseAIDefaultConfig = (): AxModelConfig =>
 const axSamplingKeys = [
   'temperature',
   'topP',
+  'topK',
   'presencePenalty',
   'frequencyPenalty',
 ] as const;
 
-const droppedSamplingWarnings = new Set<string>();
+const samplingWarnings = new Set<string>();
 
-/** Warns once per model and setting that an explicit value was not sent. */
-const warnDroppedSampling = (
-  model: unknown,
-  key: string,
-  withoutReasoningOnly: boolean
-): void => {
-  const id = `${String(model)}\u0000${key}`;
-  if (droppedSamplingWarnings.has(id)) return;
-  droppedSamplingWarnings.add(id);
-  console.warn(
-    `Ax dropped ${key} for ${String(model)}: ${
-      withoutReasoningOnly
-        ? 'the model accepts it only with reasoning effort none'
-        : 'the model does not accept it'
-    }.`
-  );
+/**
+ * console.warn once per process for each id: a setting Ax changed or did not
+ * send, so it is never dropped silently.
+ */
+export const warnSamplingOnce = (id: string, message: string): void => {
+  if (samplingWarnings.has(id)) return;
+  samplingWarnings.add(id);
+  console.warn(message);
 };
 
-/** Test hook: shows every dropped-sampling warning again. */
+/** Warns once per model and setting that an explicit value was not sent. */
+export const warnDroppedSampling = (
+  model: unknown,
+  key: string,
+  reason: string
+): void =>
+  warnSamplingOnce(
+    `${String(model)}\u0000${key}`,
+    `Ax dropped ${key} for ${String(model)}: ${reason}.`
+  );
+
+/** Test hook: shows every one-time sampling warning again. */
 export const resetDroppedSamplingWarnings = (): void => {
-  droppedSamplingWarnings.clear();
+  samplingWarnings.clear();
 };
 
 export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
@@ -1869,7 +1891,7 @@ export class AxBaseAI<
       model: model as string,
       modelInfo: this.modelInfo,
     });
-    this.applySamplingSupport(
+    const explicitSamplingKeys = this.applySamplingSupport(
       modelConfig,
       model,
       selectedModelInfo ?? this.aiImpl.samplingModelInfo?.(model) ?? null,
@@ -1887,16 +1909,18 @@ export class AxBaseAI<
       modelConfig.stream = false;
     }
 
-    return { model, modelConfig, selectedModelInfo };
+    return { model, modelConfig, selectedModelInfo, explicitSamplingKeys };
   }
 
   /**
    * Removes the sampling parameters the selected model rejects on this
-   * request. A default value (the provider's own config) is always removed
-   * for such a parameter. An explicit value, from the AI's config, the model
-   * key's config or the request, is kept when the model accepts it while it
-   * does not reason and this request does not reason; otherwise it is removed
-   * with a one-time warning.
+   * request and returns the sampling keys the caller set that remain, so a
+   * provider can tell them from its defaults. A default value (the provider's
+   * own config) is always removed for such a parameter. An explicit value,
+   * from the AI's config, the model key's config or the request, is kept when
+   * the model accepts it: while it does not reason and this request does not
+   * reason, or as temperature 1 where the model takes its default; otherwise
+   * it is removed with a one-time warning.
    */
   private applySamplingSupport(
     modelConfig: AxModelConfig,
@@ -1904,40 +1928,56 @@ export class AxBaseAI<
     info: Readonly<AxModelInfo> | null,
     explicitConfigs: readonly (Readonly<AxModelConfig> | undefined)[],
     options?: Readonly<AxAIServiceOptions>
-  ): void {
-    const notSupported = info?.notSupported;
-    if (!notSupported) return;
+  ): readonly string[] {
     const config = modelConfig as Record<string, unknown>;
-    let reasons: boolean | undefined;
-    for (const key of axSamplingKeys) {
-      if (!notSupported[key] || config[key] === undefined) continue;
-      const explicit =
-        this.explicitModelConfigKeys.has(key) ||
-        explicitConfigs.some(
-          (source) => (source as Record<string, unknown>)?.[key] !== undefined
-        );
-      if (explicit && info.supported?.samplingWithoutReasoning) {
-        if (reasons === undefined) {
-          const effort = this.aiImpl.resolveReasoningEffort?.(
-            model,
-            options ?? {}
-          );
-          reasons =
-            effort !== undefined
-              ? effort !== 'none'
-              : !info.supported.reasoningOffByDefault;
+    const isExplicit = (key: string) =>
+      this.explicitModelConfigKeys.has(key) ||
+      explicitConfigs.some(
+        (source) => (source as Record<string, unknown>)?.[key] !== undefined
+      );
+    const notSupported = info?.notSupported;
+    if (notSupported) {
+      let reasons: boolean | undefined;
+      for (const key of axSamplingKeys) {
+        if (!notSupported[key] || config[key] === undefined) continue;
+        const explicit = isExplicit(key);
+        const withoutReasoning =
+          info.supported?.samplingWithoutReasoning === true;
+        const temperatureOne =
+          key === 'temperature' && info.supported?.temperatureOne === true;
+        if (explicit && temperatureOne && config[key] === 1) continue;
+        if (explicit && withoutReasoning) {
+          if (reasons === undefined) {
+            const effort = this.aiImpl.resolveReasoningEffort?.(
+              model,
+              options ?? {}
+            );
+            reasons =
+              effort !== undefined
+                ? effort !== 'none'
+                : !info.supported?.reasoningOffByDefault;
+          }
+          if (!reasons) continue;
         }
-        if (!reasons) continue;
-      }
-      delete config[key];
-      if (explicit) {
-        warnDroppedSampling(
-          model,
-          key,
-          info.supported?.samplingWithoutReasoning === true
-        );
+        delete config[key];
+        if (explicit) {
+          warnDroppedSampling(
+            model,
+            key,
+            withoutReasoning && temperatureOne
+              ? 'the model accepts it only as 1 or with reasoning effort none'
+              : withoutReasoning
+                ? 'the model accepts it only with reasoning effort none'
+                : temperatureOne
+                  ? 'the model accepts it only as 1'
+                  : 'the model does not accept it'
+          );
+        }
       }
     }
+    return axSamplingKeys.filter(
+      (key) => config[key] !== undefined && isExplicit(key)
+    );
   }
 
   validateChatRequest(
@@ -1953,7 +1993,7 @@ export class AxBaseAI<
     req: Readonly<AxChatRequest<TModel | TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    const { model, modelConfig, selectedModelInfo } =
+    const { model, modelConfig, selectedModelInfo, explicitSamplingKeys } =
       this.resolveChatModelConfig(req, options);
     // Validate chat prompt messages
     if (Array.isArray(req.chatPrompt)) {
@@ -2006,11 +2046,22 @@ export class AxBaseAI<
         },
         options?.traceContext ?? context.active(),
         async (span) => {
-          return await this._chat2(model, modelConfig, req, options, span);
+          return await this._chat2(
+            model,
+            modelConfig,
+            { ...req, explicitSamplingKeys },
+            options,
+            span
+          );
         }
       );
     }
-    return await this._chat2(model, modelConfig, req, options);
+    return await this._chat2(
+      model,
+      modelConfig,
+      { ...req, explicitSamplingKeys },
+      options
+    );
   }
 
   private cleanupFunctionSchema(
@@ -2135,7 +2186,11 @@ export class AxBaseAI<
   private async _chat2(
     model: TModel,
     modelConfig: Readonly<AxModelConfig>,
-    chatReq: Readonly<Omit<AxChatRequest<TModel | TModelKey>, 'modelConfig'>>,
+    chatReq: Readonly<
+      Omit<AxChatRequest<TModel | TModelKey>, 'modelConfig'> & {
+        explicitSamplingKeys?: readonly string[];
+      }
+    >,
     options?: Readonly<AxAIServiceOptions>,
     span?: Span
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {

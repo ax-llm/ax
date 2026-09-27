@@ -1,0 +1,92 @@
+{
+  "assertions": [
+    {
+      "contains": "Paris",
+      "field": "answer",
+      "message": "The answer must be Paris."
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "Lyon"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "Paris"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_last_request_tail": [
+    {
+      "content": "Answer: Lyon",
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "text": "Follow these instructions: The answer must be Paris.",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-retry-message-assertion",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Lyon",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Paris",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

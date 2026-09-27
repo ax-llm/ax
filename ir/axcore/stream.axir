@@ -943,7 +943,10 @@ module @ax.stream version "0.1" {
       core.if %not_string {
         core.return
       }
-      %length = core.call intrinsic.len(%value)
+      // As in TS (String.prototype.length), a string's length counts UTF-16
+      // code units: an emoji counts two.
+      %units = core.call intrinsic.string.utf16_units(%value)
+      %length = core.call intrinsic.len(%units)
       %min_snake = core.get %typ["min_length"]
       %min_length = core.get %typ["minLength"] default %min_snake
       %has_min = core.call intrinsic.is_not_none(%min_length)
@@ -2464,8 +2467,10 @@ module @ax.stream version "0.1" {
     type signature = "(json, string) -> bool"
     body @entry(%state: json, %content: string) {
       // StructuredStreamAccumulator.shouldParse: reparse after 160 new
-      // characters, or after 80 when the text ends at `}`, `]` or `,`.
-      %length = core.call intrinsic.len(%content)
+      // characters, or after 80 when the text ends at `}`, `]` or `,`. As in
+      // TS (String.prototype.length), characters are UTF-16 code units.
+      %units = core.call intrinsic.string.utf16_units(%content)
+      %length = core.call intrinsic.len(%units)
       %last = core.get %state["last_parse_length"] default 0
       %negative_last = core.call intrinsic.mul(%last, -1)
       %fresh = core.call intrinsic.add(%length, %negative_last)
@@ -2482,7 +2487,9 @@ module @ax.stream version "0.1" {
       core.if %too_few {
         core.return false
       }
-      %cursor = core.let %length
+      // The last non-whitespace character, found with the host's own string
+      // indices; whitespace and `}`, `]`, `,` are one unit everywhere.
+      %cursor = core.call intrinsic.len(%content)
       %last_ch = core.let ""
       core.loop {
         %at_start = core.call intrinsic.lte(%cursor, 0)

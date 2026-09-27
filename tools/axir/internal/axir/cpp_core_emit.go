@@ -493,6 +493,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicExceptionIsAborted:        "Core::exception_is_aborted",
 	IntrinsicExceptionIsInfrastructure: "Core::exception_is_infrastructure",
 	IntrinsicExceptionIsRefusal:        "Core::exception_is_refusal",
+	IntrinsicExceptionIsValidation:     "Core::exception_is_validation",
 }
 
 func cppAttrValue(op Operation, name string) string {
@@ -531,7 +532,7 @@ func cppLiteral(value interface{}) string {
 func cppName(value string) string {
 	name := strings.TrimPrefix(value, "%")
 	switch name {
-	case "template", "class", "typename", "namespace", "operator", "return", "for", "if", "else", "inline":
+	case "template", "class", "typename", "namespace", "operator", "return", "for", "if", "else", "inline", "explicit":
 		return name + "_"
 	default:
 		return name

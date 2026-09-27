@@ -415,6 +415,25 @@ module @ax.ai version "0.1" {
       }
       core.for %message in %prompt {
         %role = core.get %message["role"]
+        // As TS's axValidateChatRequestMessage: a role that is not a
+        // non-empty string is missing (a non-string one reads as undefined),
+        // and an unknown one is unsupported; each shows JSON.stringify(role,
+        // null, 2).
+        %role_is_text = core.type_is %role type "string"
+        %role_given = core.let false
+        core.if %role_is_text {
+          %role_given = core.call intrinsic.ne(%role, "")
+        }
+        %role_missing = core.call intrinsic.not(%role_given)
+        core.if %role_missing {
+          %received_role = core.let "undefined"
+          core.if %role_is_text {
+            %received_role = core.call intrinsic.json.pretty(%role)
+          }
+          %missing_role_text = core.call intrinsic.string.format("Chat request message must have a role, received: {}", %received_role)
+          %missing_role_error = core.call intrinsic.ai.error.response(%missing_role_text)
+          core.raise %missing_role_error
+        }
         %is_system = core.call intrinsic.eq(%role, "system")
         %is_user = core.call intrinsic.eq(%role, "user")
         %is_assistant = core.call intrinsic.eq(%role, "assistant")
@@ -424,11 +443,53 @@ module @ax.ai version "0.1" {
         %valid_role = core.call intrinsic.or(%valid_left, %valid_right)
         %invalid_role = core.call intrinsic.not(%valid_role)
         core.if %invalid_role {
-          %message_text = core.call intrinsic.string.format("Invalid chat message role: {}", %role)
+          %role_json = core.call intrinsic.json.pretty(%role)
+          %message_text = core.call intrinsic.string.format("Unsupported message role: {}", %role_json)
           %error = core.call intrinsic.ai.error.response(%message_text)
           core.raise %error
         }
         %content = core.get %message["content"]
+        // A user message's content items: each must be an object with a type,
+        // as TS checks them (a type that is not a non-empty string reads as
+        // undefined, as the role does). The ports keep the unsupported-content
+        // error class they raised before; it becomes the response error at
+        // the next major.
+        %content_is_list = core.type_is %content type "list"
+        %user_items = core.call intrinsic.and(%is_user, %content_is_list)
+        core.if %user_items {
+          %item_index = core.let 0
+          core.for %item in %content {
+            // An array passes, as JavaScript's typeof calls it an object.
+            %item_is_map = core.type_is %item type "object"
+            %item_is_list = core.type_is %item type "list"
+            %item_is_object = core.call intrinsic.or(%item_is_map, %item_is_list)
+            %item_not_map = core.call intrinsic.not(%item_is_object)
+            core.if %item_not_map {
+              %item_json = core.call intrinsic.json.pretty(%item)
+              %item_text = core.call intrinsic.string.format("User message content item at index {} must be an object, received: {}", %item_index, %item_json)
+              %item_error = core.call intrinsic.ai.error.unsupported(%item_text)
+              core.raise %item_error
+            }
+            %item_type = core.get %item["type"]
+            %item_type_is_text = core.type_is %item_type type "string"
+            %item_type_given = core.let false
+            core.if %item_type_is_text {
+              %item_type_given = core.call intrinsic.ne(%item_type, "")
+            }
+            %item_type_missing = core.call intrinsic.not(%item_type_given)
+            core.if %item_type_missing {
+              %received_type = core.let "undefined"
+              core.if %item_type_is_text {
+                %received_type = core.call intrinsic.json.pretty(%item_type)
+              }
+              %type_text = core.call intrinsic.string.format("User message content item at index {} must have a type, received: {}", %item_index, %received_type)
+              %type_error = core.call intrinsic.ai.error.unsupported(%type_text)
+              core.raise %type_error
+            }
+            %next_item_index = core.call intrinsic.add(%item_index, 1)
+            %item_index = core.let %next_item_index
+          }
+        }
         %empty_function_calls = core.list
         %function_calls_snake = core.get %message["function_calls"] default %empty_function_calls
         %function_calls = core.get %message["functionCalls"] default %function_calls_snake
@@ -834,9 +895,20 @@ module @ax.ai version "0.1" {
         %name = core.get %fn["name"] default %flat_name
         %flat_params = core.get %call["params"]
         %params = core.get %fn["params"] default %flat_params
+        // A call that has no name keeps it absent, so the response check can
+        // tell a missing name from a null one, as TS does.
+        %fn_is_map = core.type_is %fn type "object"
+        %fn_has_name = core.let false
+        core.if %fn_is_map {
+          %fn_has_name = core.call intrinsic.map.contains(%fn, "name")
+        }
+        %flat_has_name = core.call intrinsic.map.contains(%call, "name")
+        %has_name = core.call intrinsic.or(%fn_has_name, %flat_has_name)
         %compat_call = core.map
         core.set %compat_call["id"] = %id
-        core.set %compat_call["name"] = %name
+        core.if %has_name {
+          core.set %compat_call["name"] = %name
+        }
         core.set %compat_call["params"] = %params
         core.append %calls, %compat_call
       }

@@ -68,13 +68,22 @@ function flagValue(flags, key, fallback = undefined) {
 // stay stable regardless of producer key order.
 const STABLE_ORDER_PRESERVING_KEYS = new Set(['sections']);
 
+// Keys whose whole subtree keeps its key order: validator cases compare
+// schemas and arguments as written, and string-format cases write objects as
+// JSON in their key order.
+const ORDER_PRESERVING_SUBTREES = new Set([
+  'validation_cases',
+  'format_cases',
+  'str_cases',
+]);
+
 function stable(
   value,
   parentKey = '',
   preserveOrder = false,
   inSignature = false
 ) {
-  const keepOrder = preserveOrder || parentKey === 'validation_cases';
+  const keepOrder = preserveOrder || ORDER_PRESERVING_SUBTREES.has(parentKey);
   const signature = inSignature || parentKey === 'signature_spec';
   const fieldOrder =
     signature && ['inputs', 'outputs', 'fields'].includes(parentKey);
@@ -125,12 +134,13 @@ const providerDataFiles = {
 const samplingSupportFlags = [
   'samplingWithoutReasoning',
   'reasoningOffByDefault',
+  'temperatureOne',
 ];
 
 // The per-provider model names, aliases, isExpensive flags, notSupported
-// sampling parameters and the two supported flags that qualify them
-// (samplingWithoutReasoning, reasoningOffByDefault) from the catalog, in
-// catalog order. The chat path reads this small index on every request (the
+// sampling parameters and the supported flags that qualify them
+// (samplingWithoutReasoning, reasoningOffByDefault, temperatureOne) from the
+// catalog, in catalog order. The chat path reads this small index on every request (the
 // expensive-model gate and the sampling filter), so it doesn't parse the full
 // catalog.
 export function buildProviderModelIndex(catalog) {

@@ -1,0 +1,52 @@
+{
+  "expected_last_request_tail": [
+    {
+      "content": "Here you go",
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "text": "Invalid Field: Structured output must be one JSON object with no prose or Markdown fences.",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "expected_output": {
+    "user": {
+      "name": "Ada"
+    }
+  },
+  "expected_request_count": 2,
+  "features": {
+    "functions": true,
+    "structured_output_modes": ["json_object"],
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-retry-message-json-object-parse",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Here you go",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"user\":{\"name\":\"Ada\"}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string}"
+}

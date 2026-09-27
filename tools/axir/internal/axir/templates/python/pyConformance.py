@@ -18,7 +18,7 @@ from .ai import build_chat_request, build_embed_request, normalize_chat_response
 from .ai import openai_responses_transport_cursor, openai_responses_session_event, _wire_json_body
 from .ai import _snapshot_global_caching_function, set_caching_function
 from .ai import _ai_error_request, openai_normalize_error, provider_realtime_ws_url
-from .ai import _core_ai_capture_warnings
+from .ai import _core_ai_capture_warnings, _core_axgen_capture_deprecations
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
@@ -648,6 +648,21 @@ SUPPORTS_LONE_SURROGATES = True
 
 
 def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
+    # expected_deprecations pins the one-time deprecation warnings the run
+    # gives (the ones already shown are forgotten first).
+    if "expected_deprecations" in fixture:
+        captured = []
+        _core_axgen_capture_deprecations(captured.append)
+        try:
+            result = _run_fixture_kind(fixture, source=source)
+        finally:
+            _core_axgen_capture_deprecations(None)
+        _assert_equal(captured, fixture["expected_deprecations"], "deprecation warnings")
+        return result
+    return _run_fixture_kind(fixture, source=source)
+
+
+def _run_fixture_kind(fixture: dict[str, Any], *, source: str | None = None):
     name = fixture.get("name") or source or "<fixture>"
     kind = fixture.get("kind", "forward")
     if fixture.get("requires_lone_surrogates") and not SUPPORTS_LONE_SURROGATES:
@@ -677,6 +692,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_strip_internal(fixture)
         elif kind == "number_format":
             _run_number_format(fixture)
+        elif kind == "string_format":
+            _run_string_format(fixture)
         elif kind == "date_field_value":
             _run_date_field_value(fixture)
         elif kind == "date_input":
@@ -1285,6 +1302,22 @@ def _run_number_format(fixture):
         for label, actual, expected in checks:
             if actual != expected:
                 raise FixtureError(f"{label} of {case['input']}: expected {expected!r}, got {actual!r}")
+
+
+def _run_string_format(fixture):
+    """string.format and string.str as JavaScript writes the text, in every
+    module that has them."""
+    modules = {name: importlib.import_module(f".{name}", __package__) for name in ("agent", "ai", "flow", "gen", "mcp", "prompt", "schema", "signature")}
+    for case in fixture.get("format_cases") or []:
+        for name in ("agent", "ai", "gen", "mcp", "prompt", "schema", "signature"):
+            actual = modules[name]._core_string_format(case["template"], *case["input"])
+            if actual != case["expected"]:
+                raise FixtureError(f"{name} string.format of {case['template']!r}: expected {case['expected']!r}, got {actual!r}")
+    for case in fixture.get("str_cases") or []:
+        for name in ("ai", "flow", "gen"):
+            actual = modules[name]._core_string_str(case["input"])
+            if actual != case["expected"]:
+                raise FixtureError(f"{name} string.str of {case['input']!r}: expected {case['expected']!r}, got {actual!r}")
 
 
 def _run_strip_internal(fixture):
@@ -2911,7 +2944,10 @@ def _run_agent_playbook_evolve(fixture):
             language=fixture.get("runtime_language", "Python"),
         )
         agent_options = copy.deepcopy(fixture.get("options") or {})
-        agent_options["runtime"] = runtime
+        # runtime_on_evolve: the agent gets only a runtime descriptor and the
+        # runtime goes on the evolve call, as the examples pass it.
+        runtime_on_evolve = bool(fixture.get("runtime_on_evolve"))
+        agent_options["runtime"] = {"language": fixture.get("runtime_language", "Python")} if runtime_on_evolve else runtime
         ag = agent(fixture.get("signature", "question:string -> answer:string"), agent_options)
         playbook = ag.playbook({
             "target": "responder",
@@ -2927,6 +2963,8 @@ def _run_agent_playbook_evolve(fixture):
         evolve_options = copy.deepcopy(case.get("options") or {})
         if teacher_spec is not None:
             evolve_options["teacherAI"] = teacher
+        if runtime_on_evolve:
+            evolve_options["runtime"] = runtime
         actual = playbook.evolve(copy.deepcopy(fixture.get("dataset") or {}), evolve_options)
         outcomes = actual.get("outcomes") or []
         expected = case.get("expected") or {}

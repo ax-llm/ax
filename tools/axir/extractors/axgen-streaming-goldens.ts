@@ -437,6 +437,9 @@ type Case = {
   // SessionScript); each opened session is one request. The fixture pins
   // the session log and each request's message roles.
   native_session?: SessionScript;
+  // Port-only forward options, added to the fixture's forward_options but
+  // not passed to TS: a port's opt-in to what TS always does.
+  port_forward_options?: JsonMap;
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -568,6 +571,12 @@ async function record(name: string, spec: Case): Promise<void> {
     fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
       prompt.map((message) => message.role as Json)
     );
+  }
+  if (spec.port_forward_options) {
+    fixture.forward_options = {
+      ...(spec.forward_options ?? {}),
+      ...spec.port_forward_options,
+    };
   }
   if (control) fixture.expected_control_events = controlEvents;
   if (steer) {
@@ -863,6 +872,130 @@ const cases: Record<string, Case> = {
     signature: 'question:string -> user:object{name:string}',
     features: nativeFeatures,
     responses: [streamed(text('User: {"name":"Ada"}'), done())],
+  },
+
+  // ----- retry messages on the text paths -----
+  // A retry after a failed check is one user message with a text part,
+  // `Title: description`, as TS's renderExtraFields renders the error:
+  // "Follow these instructions" for an assertion (its message ends with a
+  // period), "Invalid Field" for a validation error.
+  'forward-retry-message-assertion': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+    ],
+  },
+  'forward-retry-message-assertion-adds-period': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris',
+      },
+    ],
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+    ],
+  },
+  'forward-retry-message-missing-field': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+    ],
+  },
+  'forward-retry-message-json-object-parse': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: jsonObjectFeatures,
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Here you go' }] },
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+    ],
+  },
+  'streaming-forward-retry-message-assertion': {
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    request_tail: 2,
+    responses: [
+      streamed(text('Answer: Lyon'), done()),
+      streamed(text('Answer: Paris'), done()),
+    ],
+  },
+
+  // ----- JS trim -----
+  // TS trims values with String.prototype.trim: JS whitespace and line
+  // terminators (U+FEFF, U+00A0, U+2028, U+3000 among them) go, while
+  // control characters such as U+001C and U+0085 stay.
+  'forward-text-trim-js-whitespace': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [
+      {
+        results: [
+          { index: 0, content: 'Answer: \ufeff\u00a0Paris\u2028\u3000' },
+        ],
+      },
+    ],
+  },
+  'forward-text-trim-keeps-control-chars': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [
+      { results: [{ index: 0, content: 'Answer: \u001cParis\u0085' }] },
+    ],
+  },
+
+  // ----- re-parse cadence in UTF-16 units -----
+  // TS re-parses streamed structured output after 160 new characters of
+  // String.prototype.length (UTF-16 code units): 90 emoji reach it (197
+  // units) in the first chunk, so a partial delta streams before the end.
+  'streaming-forward-structured-cadence-utf16-parse': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(`{"user":{"name":"${'\u{1F600}'.repeat(90)}`),
+        text(`${'\u{1F600}'.repeat(10)}"}}`),
+        done()
+      ),
+    ],
+  },
+  // 60 emoji are 137 units (257 UTF-8 bytes): below the threshold, and the
+  // text doesn't end at a structural boundary, so TS waits for the end.
+  'streaming-forward-structured-cadence-utf16-wait': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(`{"user":{"name":"${'\u{1F600}'.repeat(60)}`),
+        text(`${'\u{1F600}'.repeat(10)}"}}`),
+        done()
+      ),
+    ],
   },
 
   // ----- function rung -----
@@ -1312,6 +1445,8 @@ const cases: Record<string, Case> = {
       streamed(text('Answer: this is '), text('forbidden text'), done()),
       streamed(text('Answer: this is fine'), done()),
     ],
+    // The correction reads like an assertion's, closing period added.
+    request_tail: 2,
   },
 
   // ----- field processors (TypeScript feedback semantics) -----
@@ -2531,3 +2666,127 @@ const sessionCases: Record<string, Case> = {
 for (const [name, spec] of Object.entries(sessionCases)) {
   await record(name, spec);
 }
+
+// TS checks a response's function calls before any function runs: a
+// forward's in AxMemory.addResponse, a stream's merged calls once the stream
+// ends. A call whose name is missing, null, empty or blank fails the run at
+// once ("Function call at index 0 in result 0 must have a non-empty function
+// name, received: ..."), with no retry and no second request. The ports do
+// the same with functionCallValidation: 'fail'; their default still corrects
+// the call this release (the port-only fixtures after this loop).
+for (const [label, name] of [
+  ['missing', undefined],
+  ['null', null],
+  ['empty', ''],
+  ['blank', '  '],
+] as const) {
+  const fnPart: JsonMap = { params: '{"key":"a"}' };
+  if (name !== undefined) fnPart.name = name;
+  const unnamed: JsonMap = { id: 'call_1', type: 'function', function: fnPart };
+  await record(`function-call-${label}-name`, {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    port_forward_options: { function_call_validation: 'fail' },
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            content: '',
+            function_calls: [unnamed],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      { results: [{ index: 0, content: 'Answer: done' }] },
+    ],
+  });
+  await record(`streaming-forward-function-call-${label}-name`, {
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    port_forward_options: { function_call_validation: 'fail' },
+    responses: [
+      streamed(
+        chunk({ function_calls: [unnamed], finish_reason: 'function_call' })
+      ),
+      streamed(text('Answer: done'), done()),
+    ],
+  });
+}
+
+// Port-only: without functionCallValidation, the ports keep this release's
+// correction for a call without a name. It runs as an unknown function, so
+// the model gets the "Function not found" correction and another request, and
+// a one-time deprecation warning names the option. An explicit 'correct'
+// keeps the correction without the warning, and any other value fails. TS has
+// no such path: it fails at once, as above.
+const namelessCall: JsonMap = {
+  id: 'call_1',
+  type: 'function',
+  function: { params: '{"key":"a"}' },
+};
+const namelessResponses: ResponseSpec[] = [
+  {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: [namelessCall],
+        finish_reason: 'function_call',
+      },
+    ],
+  },
+  { results: [{ index: 0, content: 'Answer: done' }] },
+];
+const namelessCorrection =
+  'Function not found: null. Available functions: lookup. Call one of these exact function names.';
+const namelessWarning =
+  "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.";
+const correctedFixture = {
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  tools: [lookupTool],
+  expected_output: { answer: 'done' },
+  expected_tool_calls: [],
+  expected_request_count: 2,
+  expected_request_contains: [namelessCorrection],
+};
+writeFixture('function-call-missing-name-corrected', {
+  kind: 'forward',
+  ...correctedFixture,
+  responses: namelessResponses,
+  expected_deprecations: [namelessWarning],
+});
+writeFixture('streaming-forward-function-call-missing-name-corrected', {
+  kind: 'streaming_forward',
+  ...correctedFixture,
+  responses: namelessResponses.map((response) => ({
+    stream: [
+      ...(response as { results: JsonMap[] }).results.map((result) => ({
+        results: [result],
+      })),
+    ],
+  })),
+  expected_deltas: [{ version: 0, index: 0, delta: { answer: 'done' } }],
+  expected_deprecations: [namelessWarning],
+});
+writeFixture('function-call-missing-name-correct-explicit', {
+  kind: 'forward',
+  ...correctedFixture,
+  forward_options: { function_call_validation: 'correct' },
+  responses: namelessResponses,
+  expected_deprecations: [],
+});
+writeFixture('function-call-validation-unknown-value', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  tools: [lookupTool],
+  forward_options: { function_call_validation: 'strict' },
+  responses: namelessResponses,
+  expected_error_contains:
+    "functionCallValidation must be 'correct' or 'fail', received: \"strict\"",
+  expected_tool_calls: [],
+  expected_request_count: 1,
+});

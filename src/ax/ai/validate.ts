@@ -746,67 +746,7 @@ export function axValidateChatResponseResult(
 
     // Validate functionCalls if present
     if (result.functionCalls !== undefined) {
-      if (!Array.isArray(result.functionCalls)) {
-        throw new Error(
-          `Chat response result functionCalls at index ${arrayIndex} must be an array, received: ${value(result.functionCalls)}`
-        );
-      }
-
-      for (
-        let callIndex = 0;
-        callIndex < result.functionCalls.length;
-        callIndex++
-      ) {
-        const functionCall = result.functionCalls[callIndex];
-        if (!functionCall) {
-          throw new Error(
-            `Function call at index ${callIndex} in result ${arrayIndex} cannot be null or undefined, received: ${value(functionCall)}`
-          );
-        }
-
-        if (
-          !functionCall.id ||
-          typeof functionCall.id !== 'string' ||
-          functionCall.id.trim() === ''
-        ) {
-          throw new Error(
-            `Function call at index ${callIndex} in result ${arrayIndex} must have a non-empty string id, received: ${value(functionCall.id)}`
-          );
-        }
-
-        if (functionCall.type !== 'function') {
-          throw new Error(
-            `Function call at index ${callIndex} in result ${arrayIndex} must have type 'function', received: ${value(functionCall.type)}`
-          );
-        }
-
-        if (!functionCall.function) {
-          throw new Error(
-            `Function call at index ${callIndex} in result ${arrayIndex} must have a function object, received: ${value(functionCall.function)}`
-          );
-        }
-
-        if (
-          !functionCall.function.name ||
-          typeof functionCall.function.name !== 'string' ||
-          functionCall.function.name.trim() === ''
-        ) {
-          throw new Error(
-            `Function call at index ${callIndex} in result ${arrayIndex} must have a non-empty function name, received: ${value(functionCall.function.name)}`
-          );
-        }
-
-        if (functionCall.function.params !== undefined) {
-          if (
-            typeof functionCall.function.params !== 'string' &&
-            typeof functionCall.function.params !== 'object'
-          ) {
-            throw new Error(
-              `Function call params at index ${callIndex} in result ${arrayIndex} must be a string or object, received: ${value(functionCall.function.params)}`
-            );
-          }
-        }
-      }
+      validateChatResponseFunctionCalls(result.functionCalls, arrayIndex);
     }
 
     // Validate finishReason if present
@@ -821,6 +761,80 @@ export function axValidateChatResponseResult(
       if (!validFinishReasons.includes(result.finishReason)) {
         throw new Error(
           `Chat response result finishReason at index ${arrayIndex} must be one of: ${validFinishReasons.join(', ')}, received: ${value(result.finishReason)}`
+        );
+      }
+    }
+  }
+}
+
+/**
+ * The function-call checks of `axValidateChatResponseResult` for one result:
+ * each call needs a non-empty string id, type 'function', a function object
+ * with a non-empty name, and string or object params. A streamed result's
+ * merged calls go through the same checks before any function runs.
+ *
+ * @param functionCalls - The result's function calls
+ * @param arrayIndex - The result's position, for the error messages
+ * @throws {Error} When a call fails a check
+ */
+export function validateChatResponseFunctionCalls(
+  functionCalls: unknown,
+  arrayIndex: number
+): void {
+  const value = (v: unknown) => JSON.stringify(v, null, 2);
+  if (!Array.isArray(functionCalls)) {
+    throw new Error(
+      `Chat response result functionCalls at index ${arrayIndex} must be an array, received: ${value(functionCalls)}`
+    );
+  }
+
+  for (let callIndex = 0; callIndex < functionCalls.length; callIndex++) {
+    const functionCall = functionCalls[callIndex];
+    if (!functionCall) {
+      throw new Error(
+        `Function call at index ${callIndex} in result ${arrayIndex} cannot be null or undefined, received: ${value(functionCall)}`
+      );
+    }
+
+    if (
+      !functionCall.id ||
+      typeof functionCall.id !== 'string' ||
+      functionCall.id.trim() === ''
+    ) {
+      throw new Error(
+        `Function call at index ${callIndex} in result ${arrayIndex} must have a non-empty string id, received: ${value(functionCall.id)}`
+      );
+    }
+
+    if (functionCall.type !== 'function') {
+      throw new Error(
+        `Function call at index ${callIndex} in result ${arrayIndex} must have type 'function', received: ${value(functionCall.type)}`
+      );
+    }
+
+    if (!functionCall.function) {
+      throw new Error(
+        `Function call at index ${callIndex} in result ${arrayIndex} must have a function object, received: ${value(functionCall.function)}`
+      );
+    }
+
+    if (
+      !functionCall.function.name ||
+      typeof functionCall.function.name !== 'string' ||
+      functionCall.function.name.trim() === ''
+    ) {
+      throw new Error(
+        `Function call at index ${callIndex} in result ${arrayIndex} must have a non-empty function name, received: ${value(functionCall.function.name)}`
+      );
+    }
+
+    if (functionCall.function.params !== undefined) {
+      if (
+        typeof functionCall.function.params !== 'string' &&
+        typeof functionCall.function.params !== 'object'
+      ) {
+        throw new Error(
+          `Function call params at index ${callIndex} in result ${arrayIndex} must be a string or object, received: ${value(functionCall.function.params)}`
         );
       }
     }

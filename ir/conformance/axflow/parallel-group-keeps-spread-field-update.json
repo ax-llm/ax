@@ -1,0 +1,48 @@
+{
+  "kind": "flow",
+  "name": "parallel-group-keeps-spread-field-update",
+  "description": "Port-only. A program node also spreads its output fields into the flow state. Steps a and b share a parallel group and the input already holds summary; a writes a new summary, b doesn't touch it. The group merges each step's changes, so a's summary survives b, as running them one after another would leave it. Merging whole states put back the input's summary.",
+  "input": {
+    "topic": "x",
+    "summary": "old summary"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "a",
+      "signature": "topic:string -> summary:string",
+      "options": {
+        "reads": ["topic"],
+        "writes": ["aResult", "summary"],
+        "isBarrier": false
+      }
+    },
+    {
+      "kind": "execute",
+      "name": "b",
+      "signature": "topic:string -> title:string",
+      "options": {
+        "reads": ["topic"],
+        "writes": ["bResult", "title"],
+        "isBarrier": false
+      }
+    }
+  ],
+  "returns": {
+    "summary": "summary",
+    "title": "title"
+  },
+  "responses": [
+    {
+      "content": "{\"summary\":\"new summary\"}"
+    },
+    {
+      "content": "{\"title\":\"title\"}"
+    }
+  ],
+  "expected_output": {
+    "summary": "new summary",
+    "title": "title"
+  },
+  "expected_request_count": 2
+}

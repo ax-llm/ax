@@ -435,6 +435,13 @@ errorCase(
   'profileInfo:object{ id:string',
   'unbalanced "{" in object type'
 );
+// A field's unbalanced object type names the field; the message has a lone
+// brace, which string.format keeps.
+errorCase(
+  'error-object-unbalanced-field',
+  'userQuestion:string -> profileInfo:object{ name:string',
+  'Field "profileInfo": unbalanced "{" in object type'
+);
 errorCase(
   'error-object-empty',
   'profileInfo:object{} -> replyText:string',

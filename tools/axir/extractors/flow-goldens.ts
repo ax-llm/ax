@@ -1376,9 +1376,261 @@ const writeOwnedWorkerFallbackFixture = async () => {
   });
 };
 
+// A ScriptedProgram that returns its scripted outputs in call order.
+class QueuedProgram extends ScriptedProgram {
+  private next = 0;
+
+  constructor(
+    signature: string,
+    private readonly outputs: Record<string, unknown>[]
+  ) {
+    super(signature, outputs[0] ?? {});
+  }
+
+  override async forward(
+    ai: Readonly<AxAIService>,
+    values: Record<string, unknown>,
+    options?: Record<string, unknown>
+  ) {
+    await super.forward(ai, values, options);
+    const output = this.outputs[Math.min(this.next, this.outputs.length - 1)];
+    this.next++;
+    return output;
+  }
+}
+
+// The reads, writes and barrier TS's planner gives each step of a step list,
+// by node name (derive steps by their output field).
+const planOptions = (steps: readonly unknown[]) => {
+  const plan = new AxFlowExecutionPlanner(steps as any).getExecutionPlan();
+  const byName = new Map<string, Record<string, unknown>>();
+  for (const step of plan.steps ?? []) {
+    byName.set(step.nodeName ?? step.produces[0] ?? step.type, {
+      reads: [...step.dependencies],
+      writes: [...step.produces],
+      isBarrier: step.isBarrier,
+    });
+  }
+  const groups = plan.groups.map((group) =>
+    group.steps.map((step) => step.nodeName ?? step.produces[0] ?? step.type)
+  );
+  return { byName, groups };
+};
+
+const expectGroups = (label: string, actual: unknown, expected: unknown) => {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(
+      `${label}: TS planned ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`
+    );
+  }
+};
+
+// A parallel group merges each step's changes: a later step in the group must
+// not undo an earlier step's update to a key the state already held.
+const writeParallelMergeFixtures = async () => {
+  const ai = { name: 'mock' } as unknown as AxAIService;
+
+  {
+    const name = 'parallel-group-keeps-earlier-step-update';
+    const a = new ScriptedProgram('topic:string -> summary:string', {
+      summary: 'new',
+    });
+    const b = new ScriptedProgram('topic:string -> title:string', {
+      title: 'title',
+    });
+    const wf = flow<{ topic: string; aResult?: unknown }>({
+      autoParallel: true,
+    })
+      .node('a', a)
+      .node('b', b)
+      .execute('a', (state) => ({ topic: state.topic }))
+      .execute('b', (state) => ({ topic: state.topic }))
+      .returns((state) => ({
+        aResult: (state as any).aResult,
+        bResult: (state as any).bResult,
+      }));
+    const { byName, groups } = planOptions((wf as any).steps);
+    expectGroups(name, groups, [['a', 'b'], ['returns']]);
+    const input = { topic: 'x', aResult: { summary: 'old' } };
+    const output = await wf.forward(ai, input);
+    writeFixture(flowDir, `${name}.json`, {
+      kind: 'flow',
+      name,
+      source: source(name, {
+        output,
+        plan: normalizePlan(wf.getExecutionPlan()),
+        rule: 'A later step in a parallel group keeps an earlier step update to a key the state already held.',
+      }),
+      input,
+      steps: [
+        {
+          kind: 'execute',
+          name: 'a',
+          signature: 'topic:string -> summary:string',
+          options: byName.get('a'),
+        },
+        {
+          kind: 'execute',
+          name: 'b',
+          signature: 'topic:string -> title:string',
+          options: byName.get('b'),
+        },
+      ],
+      returns: { aResult: 'aResult', bResult: 'bResult' },
+      responses: [
+        { content: '{"summary":"new"}' },
+        { content: '{"title":"title"}' },
+      ],
+      expected_output: output,
+      expected_request_count: 2,
+    });
+  }
+
+  {
+    const name = 'parallel-group-loop-keeps-each-iteration';
+    const a = new QueuedProgram('topic:string -> summary:string', [
+      { summary: 's1' },
+      { summary: 's2' },
+    ]);
+    const b = new QueuedProgram('topic:string -> title:string', [
+      { title: 't1' },
+      { title: 't2' },
+    ]);
+    const wf = flow<{ topic: string; round: number }>({ autoParallel: true })
+      .node('a', a)
+      .node('b', b)
+      .while((state) => state.round < 2)
+      .execute('a', (state) => ({ topic: state.topic }))
+      .execute('b', (state) => ({ topic: state.topic }))
+      .map((state) => ({ ...state, round: state.round + 1 }))
+      .endWhile()
+      .returns((state) => ({
+        aResult: (state as any).aResult,
+        bResult: (state as any).bResult,
+        round: state.round,
+      }));
+    const whileStep = (wf as any).steps[0];
+    const { byName, groups } = planOptions(whileStep.meta.bodySteps);
+    expectGroups(name, groups, [['a', 'b'], ['map']]);
+    const input = { topic: 'x', round: 0 };
+    const output = await wf.forward(ai, input);
+    writeFixture(flowDir, `${name}.json`, {
+      kind: 'flow',
+      name,
+      source: source(name, {
+        output,
+        rule: 'Each iteration of a while loop whose body runs a parallel group keeps its updates.',
+      }),
+      input,
+      steps: [
+        {
+          kind: 'while',
+          name: 'rounds',
+          condition: { op: 'lt', field: 'round', value: 2 },
+          options: { maxIterations: 5 },
+          steps: [
+            {
+              kind: 'execute',
+              name: 'a',
+              signature: 'topic:string -> summary:string',
+              options: byName.get('a'),
+            },
+            {
+              kind: 'execute',
+              name: 'b',
+              signature: 'topic:string -> title:string',
+              options: byName.get('b'),
+            },
+            {
+              kind: 'map',
+              name: 'nextRound',
+              mapper: { op: 'increment', field: 'round' },
+            },
+          ],
+        },
+      ],
+      returns: { aResult: 'aResult', bResult: 'bResult', round: 'round' },
+      responses: [
+        { content: '{"summary":"s1"}' },
+        { content: '{"title":"t1"}' },
+        { content: '{"summary":"s2"}' },
+        { content: '{"title":"t2"}' },
+      ],
+      expected_output: output,
+      expected_request_count: 4,
+    });
+  }
+
+  {
+    const name = 'parallel-group-loop-keeps-derive-update';
+    const b = new QueuedProgram('topic:string -> title:string', [
+      { title: 't1' },
+      { title: 't2' },
+    ]);
+    const wf = flow<{ topic: string; round: number }>({ autoParallel: true })
+      .node('b', b)
+      .while((state) => state.round < 2)
+      .derive('label', 'round', (value: number) => value)
+      .execute('b', (state) => ({ topic: state.topic }))
+      .map((state) => ({ ...state, round: state.round + 1 }))
+      .endWhile()
+      .returns((state) => ({
+        label: (state as any).label,
+        bResult: (state as any).bResult,
+        round: state.round,
+      }));
+    const whileStep = (wf as any).steps[0];
+    const { byName, groups } = planOptions(whileStep.meta.bodySteps);
+    expectGroups(name, groups, [['label', 'b'], ['map']]);
+    const input = { topic: 'x', round: 0 };
+    const output = await wf.forward(ai, input);
+    writeFixture(flowDir, `${name}.json`, {
+      kind: 'flow',
+      name,
+      source: source(name, {
+        output,
+        rule: 'A derive step in a loop body parallel group keeps each iteration update.',
+      }),
+      input,
+      steps: [
+        {
+          kind: 'while',
+          name: 'rounds',
+          condition: { op: 'lt', field: 'round', value: 2 },
+          options: { maxIterations: 5 },
+          steps: [
+            {
+              kind: 'derive',
+              name: 'label',
+              mapper: { op: 'copy', from: '__item', to: '__derived' },
+              options: byName.get('label'),
+            },
+            {
+              kind: 'execute',
+              name: 'b',
+              signature: 'topic:string -> title:string',
+              options: byName.get('b'),
+            },
+            {
+              kind: 'map',
+              name: 'nextRound',
+              mapper: { op: 'increment', field: 'round' },
+            },
+          ],
+        },
+      ],
+      returns: { label: 'label', bResult: 'bResult', round: 'round' },
+      responses: [{ content: '{"title":"t1"}' }, { content: '{"title":"t2"}' }],
+      expected_output: output,
+      expected_request_count: 2,
+    });
+  }
+};
+
 writeProgramFixtures();
 writePlanFixtures();
 await runSimpleForward();
+await writeParallelMergeFixtures();
 await writeOwnedWorkerFallbackFixture();
 await writeExecutionRuntimeFixtures();
 await writeMapAndCacheFixtures();
