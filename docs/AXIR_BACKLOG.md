@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-27-continue-the-axgen-step-loop-while-a-run-control-update-is-pendi` [axgen] Continue the AxGen step loop while a run control update is pending in the ports
+  - Status: open
+  - Source commit: `54f626c2a0bff242fea15d356b7f9b325d6befae`
+  - TS paths: `src/ax/dsp/generate.ts`
+  - Impact: TypeScript applies a run control's pending updates when each step starts (a steer is a user message that stays in memory, a thinking level sets the budget, each starts a new streaming version) and takes another step after a final answer while an update is pending. The ports returned the first answer: a steer queued while the request was in flight was never applied and no applied event was emitted.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
