@@ -2801,7 +2801,6 @@ end-to-end coverage for the SSE line-folding that src/ax/util/sse.ts performs.
 Exits non-zero on any mismatch so ` + "`axir verify`" + ` fails if it regresses."""
 
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from axllm import OpenAICompatibleClient
@@ -2820,6 +2819,12 @@ SSE_FIRST = (
 ).encode()
 SSE_REST = ("data: " + EVENT2).encode()
 
+# The server holds the rest of the body back until the client has taken the
+# first event, and records whether the client did: the order proves incremental
+# delivery, so a slow machine cannot fail it. The 30 s bound only runs out when
+# the client yields nothing before the body ends.
+FIRST_TAKEN = threading.Event()
+HELD = {}
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -2835,7 +2840,7 @@ class Handler(BaseHTTPRequestHandler):
         for byte in SSE_FIRST:
             self.wfile.write(bytes([byte]))
             self.wfile.flush()
-        time.sleep(0.3)
+        HELD["incremental"] = FIRST_TAKEN.wait(timeout=30)
         self.wfile.write(SSE_REST)
         self.wfile.flush()
 
@@ -2849,13 +2854,13 @@ try:
     client = OpenAICompatibleClient(
         api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-5.4-mini"
     )
-    started = time.perf_counter()
     stream = client.stream({"chat_prompt": [{"role": "user", "content": "stream"}]})
     first = next(stream)
-    ttft = time.perf_counter() - started
+    FIRST_TAKEN.set()
     events = [first, *stream]
-    completion = time.perf_counter() - started
-    assert completion - ttft >= 0.2, f"first event was not incremental: ttft={ttft} completion={completion}"
+    assert HELD.get("incremental"), (
+        "first event was not incremental: the client yielded it only after the server sent the rest of the body"
+    )
     deltas = [(event.get("results") or [{}])[0].get("content") for event in events]
     deltas = [delta for delta in deltas if delta]
     assert deltas[:1] == ["Hello 🌍 "], (
@@ -3625,9 +3630,14 @@ public final class StreamHTTPRoundtripExample {
     String sseRest = "data: " + event2;
     byte[] firstBytes = sseFirst.getBytes(StandardCharsets.UTF_8);
     byte[] restBytes = sseRest.getBytes(StandardCharsets.UTF_8);
+    // Both requests hold the rest of the body back and record whether the
+    // client got there first: the order proves incremental delivery and prompt
+    // cancellation, so a slow machine cannot fail either check. The 30 s
+    // bounds only run out when the client never gets there.
     CountDownLatch releaseRest = new CountDownLatch(1);
     CountDownLatch releaseCancelledRest = new CountDownLatch(1);
-    AtomicBoolean releaseTimedOut = new AtomicBoolean(false);
+    AtomicBoolean firstHoldExpired = new AtomicBoolean(false);
+    AtomicBoolean cancelHoldExpired = new AtomicBoolean(false);
     AtomicInteger requests = new AtomicInteger();
 
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -3639,12 +3649,13 @@ public final class StreamHTTPRoundtripExample {
           exchange.sendResponseHeaders(200, firstBytes.length + restBytes.length);
           try (OutputStream os = exchange.getResponseBody()) {
             for (byte value : firstBytes) { os.write(value); os.flush(); }
+            boolean cancelled = requests.incrementAndGet() == 2;
+            AtomicBoolean expired = cancelled ? cancelHoldExpired : firstHoldExpired;
             try {
-              CountDownLatch release = requests.incrementAndGet() == 2 ? releaseCancelledRest : releaseRest;
-              if (!release.await(5, TimeUnit.SECONDS)) releaseTimedOut.set(true);
+              if (!(cancelled ? releaseCancelledRest : releaseRest).await(30, TimeUnit.SECONDS)) expired.set(true);
             } catch (InterruptedException error) {
               Thread.currentThread().interrupt();
-              releaseTimedOut.set(true);
+              expired.set(true);
             }
             os.write(restBytes);
             os.flush();
@@ -3666,7 +3677,8 @@ public final class StreamHTTPRoundtripExample {
         List<Map<String, Object>> events = new ArrayList<>();
         events.add(firstEvent);
         iterator.forEachRemaining(events::add);
-        if (releaseTimedOut.get()) throw new RuntimeException("first event was not incremental");
+        if (firstHoldExpired.get())
+          throw new RuntimeException("first event was not incremental: the client yielded it only after the server sent the rest of the body");
         for (Map<String, Object> event : events) {
         Object results = event.get("results");
         if (results instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
@@ -3686,7 +3698,6 @@ public final class StreamHTTPRoundtripExample {
         Iterator<Map<String, Object>> iterator = cancelled.iterator();
         if (!iterator.hasNext()) throw new RuntimeException("cancel stream ended before first event");
         iterator.next();
-        long cancelStarted = System.nanoTime();
         token.cancel("loopback stopped");
         try {
           iterator.hasNext();
@@ -3695,8 +3706,8 @@ public final class StreamHTTPRoundtripExample {
           if (!"loopback stopped".equals(error.reason()) || error.retryable)
             throw new RuntimeException("wrong cancellation error", error);
         }
-        if (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - cancelStarted) > 1000)
-          throw new RuntimeException("cancelled stream did not return promptly");
+        if (cancelHoldExpired.get())
+          throw new RuntimeException("cancelled stream did not return promptly: it waited for the server to end the body");
         if (token.subscriptionCount() != 0)
           throw new RuntimeException("cancelled stream retained a body-close subscription");
       } finally {
@@ -4728,6 +4739,9 @@ void write_response(int fd, const std::string& content_type, const std::string& 
 }
 
 
+// The server waits for the client to close the connection once the run is
+// aborted. The 30 s receive timeout only runs out when the client keeps the
+// connection; it is generous so that a slow machine cannot trip it.
 void stalled_http_cancellation() {
   using namespace axllm;
   int listener=socket(AF_INET,SOCK_STREAM,0);
@@ -4738,7 +4752,7 @@ void stalled_http_cancellation() {
   std::atomic<bool> closed{false};
   std::thread server([&]{
     int connection=accept(listener,nullptr,nullptr);if(connection<0)return;
-    drain_request(connection);timeval timeout{3,0};setsockopt(connection,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
+    drain_request(connection);timeval timeout{30,0};setsockopt(connection,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
     const std::string event="data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"item\",\"call_id\":\"http-pending\",\"name\":\"lookup\",\"arguments\":\"{}\"}}\n\n";
     const std::string response="HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 100000\r\n\r\n"+event;
     size_t offset=0;while(offset<response.size()){auto written=send(connection,response.data()+offset,response.size()-offset,0);if(written<=0)break;offset+=written;}
@@ -4791,10 +4805,16 @@ int main() {
   getsockname(server_fd, reinterpret_cast<sockaddr*>(&addr), &alen);
   int port = ntohs(addr.sin_port);
 
+  // Both requests hold the rest of the body back and record whether the
+  // client got there first: the order proves incremental delivery and prompt
+  // cancellation, so a slow machine cannot fail either check. The 30 s bounds
+  // only run out when the client never gets there.
   std::mutex release_mutex;
   std::condition_variable release_rest;
   bool first_received = false;
+  bool cancel_returned = false;
   std::atomic<bool> release_timed_out{false};
+  std::atomic<bool> cancel_hold_expired{false};
   std::thread server([&]() {
     for (int request = 0; request < 2; ++request) {
       int fd = accept(server_fd, nullptr, nullptr);
@@ -4804,11 +4824,16 @@ int main() {
         write_response(fd, "text/event-stream", sse_first, sse_rest,
                        std::chrono::milliseconds(0), [&] {
           std::unique_lock<std::mutex> lock(release_mutex);
-          if (!release_rest.wait_for(lock, std::chrono::seconds(5), [&] { return first_received; }))
+          if (!release_rest.wait_for(lock, std::chrono::seconds(30), [&] { return first_received; }))
             release_timed_out.store(true);
         });
       } else {
-        write_response(fd, "text/event-stream", sse_first, sse_rest, std::chrono::milliseconds(1500));
+        write_response(fd, "text/event-stream", sse_first, sse_rest,
+                       std::chrono::milliseconds(0), [&] {
+          std::unique_lock<std::mutex> lock(release_mutex);
+          if (!release_rest.wait_for(lock, std::chrono::seconds(30), [&] { return cancel_returned; }))
+            cancel_hold_expired.store(true);
+        });
       }
       close(fd);
     }
@@ -4847,13 +4872,13 @@ int main() {
 
   axllm::AxCancellationToken token;
   bool aborted = false;
-  std::chrono::steady_clock::time_point cancel_started;
+  bool cancelled = false;
   try {
     client.stream_each(
         axllm::object({{"chat_prompt", axllm::array({axllm::object({
             {"role", "user"}, {"content", "cancel stream"}})})}}),
         [&](const axllm::Value&) {
-          cancel_started = std::chrono::steady_clock::now();
+          cancelled = true;
           token.cancel("loopback stopped");
           return true;
         },
@@ -4865,10 +4890,15 @@ int main() {
       return 1;
     }
   }
-  auto cancel_completed = std::chrono::steady_clock::now();
-  if (!aborted || cancel_started.time_since_epoch().count() == 0 ||
-      cancel_completed - cancel_started > std::chrono::milliseconds(750)) {
+  bool held = !cancel_hold_expired.load();
+  {
+    std::lock_guard<std::mutex> lock(release_mutex);
+    cancel_returned = true;
+  }
+  release_rest.notify_one();
+  if (!aborted || !cancelled || !held) {
     std::cerr << "real HTTP stream cancellation was not prompt\n";
+    server.join();
     return 1;
   }
 

@@ -7233,6 +7233,9 @@ pub struct AxAgent {
     playbook_instruction_base: String,
     citations_observer: Option<Box<dyn FnMut(Value)>>,
     playbook_observer: Option<Box<dyn FnMut(Value)>>,
+    // The client named with with_playbook_student, for the playbook config's
+    // run-end learning; None uses the forward's client.
+    playbook_student: Option<Rc<RefCell<dyn AxAIClient>>>,
     runtime_hooks: AxRuntimeHooks,
 }
 
@@ -7586,6 +7589,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         playbook_instruction_base,
         citations_observer: None,
         playbook_observer: None,
+        playbook_student: None,
         runtime_hooks: AxRuntimeHooks::default(),
     })
 }
@@ -7618,6 +7622,7 @@ impl AxAgent {
         rebuilt.execution_context = self.execution_context;
         rebuilt.citations_observer = self.citations_observer;
         rebuilt.playbook_observer = self.playbook_observer;
+        rebuilt.playbook_student = self.playbook_student;
         rebuilt.playbook_config = self.playbook_config;
         rebuilt.playbook_snapshot = self.playbook_snapshot;
         rebuilt.refresh_playbook_prompt();
@@ -7650,6 +7655,7 @@ impl AxAgent {
         rebuilt.execution_context = self.execution_context;
         rebuilt.citations_observer = self.citations_observer;
         rebuilt.playbook_observer = self.playbook_observer;
+        rebuilt.playbook_student = self.playbook_student;
         rebuilt.playbook_config = self.playbook_config;
         rebuilt.playbook_snapshot = self.playbook_snapshot;
         rebuilt.refresh_playbook_prompt();
@@ -7660,8 +7666,28 @@ impl AxAgent {
         let hooks = self.runtime_hooks.clone();
         let mut rebuilt = agent_with_core_options(spec, options)?;
         rebuilt.runtime_hooks = hooks;
+        rebuilt.playbook_student = self.playbook_student.take();
         *self = rebuilt;
         Ok(self)
+    }
+
+    /// Name the client that runs the `playbook` config's run-end learning (the
+    /// reflector and curator calls), as TypeScript's `playbook.studentAI`
+    /// does. Rust agent options are JSON, which cannot hold a client, and a
+    /// Rust agent has no default `ai`, so without a student the learning runs
+    /// on the client passed to `forward`. A student that is already borrowed
+    /// when the run ends (for example because it is also the forward's client)
+    /// is not borrowed again, and the learning runs on the forward's client.
+    /// Without a `playbook` config the student is unused. An `Rc<RefCell<_>>`
+    /// is not `Send`, so the student stays with this agent: should `AxAgent`
+    /// get a worker factory, an agent that a worker rebuilds learns on the
+    /// forward's client.
+    pub fn with_playbook_student<C: AxAIClient + 'static>(
+        mut self,
+        student: Rc<RefCell<C>>,
+    ) -> Self {
+        self.playbook_student = Some(student);
+        self
     }
 
     pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
@@ -8094,7 +8120,20 @@ impl AxAgent {
         self
     }
 
+    // The run-end learning runs on the named playbook student, or on the
+    // forward's client without one or while the student is borrowed.
     fn learn_playbook_failures<C: AxAIClient>(&mut self, client: &mut C, output: &Value) {
+        let student = self.playbook_student.clone();
+        let mut borrowed = student
+            .as_ref()
+            .and_then(|student| student.try_borrow_mut().ok());
+        match borrowed.as_deref_mut() {
+            Some(student) => self.learn_playbook_failures_with(&mut ProgramClient(student), output),
+            None => self.learn_playbook_failures_with(client, output),
+        }
+    }
+
+    fn learn_playbook_failures_with<C: AxAIClient>(&mut self, client: &mut C, output: &Value) {
         if self.playbook_config.is_null() || self.playbook_config.as_bool() == Some(false) {
             return;
         }
@@ -8638,6 +8677,7 @@ impl AxAgent {
         rebuilt.execution_context = self.execution_context;
         rebuilt.citations_observer = self.citations_observer;
         rebuilt.playbook_observer = self.playbook_observer;
+        rebuilt.playbook_student = self.playbook_student;
         rebuilt.playbook_config = self.playbook_config;
         rebuilt.playbook_snapshot = self.playbook_snapshot;
         rebuilt.refresh_playbook_prompt();
@@ -126040,6 +126080,167 @@ mod axgen_program_control_tests {
             (0, 0, 2)
         );
         assert_eq!(client.spoken, [json!("Hello there")]);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod agent_playbook_student_tests {
+    use super::*;
+
+    const RULE: &str = "Stop retrying a call that keeps failing the same way.";
+
+    // An actor that fails the same way twice before it responds: two failure
+    // signals, so the playbook config's run-end learning runs.
+    fn failing_run_script() -> Vec<Value> {
+        let error = json!({"error": "boom", "error_category": "runtime_error", "is_error": true, "kind": "error"});
+        vec![
+            json!({"expected_code": "raise Error('boom')", "result": error.clone()}),
+            json!({"expected_code": "raise Error('boom')", "result": error}),
+            json!({"expected_code": "respond('Ready', {})", "result": {"args": ["Ready", {}], "type": "respond"}}),
+        ]
+    }
+
+    fn playbook_agent() -> AxResult<AxAgent> {
+        agent_with_options(
+            "question:string -> answer:string",
+            json!({"playbook": {"now": "2026-09-26T00:00:00.000Z"}}),
+        )
+    }
+
+    fn scripted_runtime() -> Box<dyn AxCodeRuntime> {
+        Box::new(ScriptedCodeRuntime::new(
+            failing_run_script(),
+            "JavaScript".into(),
+            String::new(),
+        ))
+    }
+
+    fn run_responses() -> Vec<Value> {
+        vec![
+            json!({"content": "{\"javascriptCode\":\"raise Error('boom')\"}"}),
+            json!({"content": "{\"javascriptCode\":\"raise Error('boom')\"}"}),
+            json!({"content": "{\"javascriptCode\":\"respond('Ready', {})\"}"}),
+            json!({"content": "Answer: recovered"}),
+        ]
+    }
+
+    // The reflector's and the curator's answers.
+    fn learning_responses() -> Vec<Value> {
+        let reflection = [
+            "Reasoning: The actor retried a failing call.",
+            "Error Identification: The same runtime error repeated.",
+            "Root Cause Analysis: Nothing stopped the retry.",
+            "Correct Approach: Change the call after the first failure.",
+            "Key Insight: Do not repeat a failing call.",
+            "Bullet Tags: []",
+        ]
+        .join("\n");
+        let curation = format!(
+            "Reasoning: Add an avoidance rule.\nOperations: [{{\"type\":\"ADD\",\"section\":\"failures_to_avoid\",\"content\":\"{RULE}\"}}]"
+        );
+        vec![json!({"content": reflection}), json!({"content": curation})]
+    }
+
+    fn learned_rules(agent: &AxAgent) -> Vec<Value> {
+        let state = agent.get_playbook_state().unwrap_or(Value::Null);
+        state["playbook"]["sections"]["failures_to_avoid"]
+            .as_array()
+            .map(|bullets| {
+                bullets
+                    .iter()
+                    .map(|bullet| bullet["content"].clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn question() -> Value {
+        json!({"question": "Recover from a repeated runtime error"})
+    }
+
+    // A named student runs the reflector and the curator; the forward's
+    // client serves only the run.
+    #[test]
+    fn named_student_runs_the_run_end_learning() -> AxResult<()> {
+        let student = Rc::new(RefCell::new(FixtureClient::scripted(
+            learning_responses(),
+            json!({}),
+        )));
+        let mut agent = playbook_agent()?
+            .with_runtime(scripted_runtime())?
+            .with_playbook_student(student.clone());
+        let mut client = FixtureClient::scripted(run_responses(), router_default_features());
+        assert_eq!(
+            agent.forward(&mut client, question())?,
+            json!({"answer": "recovered"})
+        );
+        assert_eq!(
+            (client.requests.len(), student.borrow().requests.len()),
+            (4, 2)
+        );
+        assert_eq!(learned_rules(&agent), vec![json!(RULE)]);
+        Ok(())
+    }
+
+    // The builders that rebuild the agent keep the student.
+    #[test]
+    fn named_student_survives_rebuilds() -> AxResult<()> {
+        let student = Rc::new(RefCell::new(FixtureClient::scripted(
+            learning_responses(),
+            json!({}),
+        )));
+        let mut agent = playbook_agent()?
+            .with_playbook_student(student.clone())
+            .with_tool_module("notes", Vec::new())?
+            .with_runtime(scripted_runtime())?;
+        let mut client = FixtureClient::scripted(run_responses(), router_default_features());
+        assert_eq!(
+            agent.forward(&mut client, question())?,
+            json!({"answer": "recovered"})
+        );
+        assert_eq!(
+            (client.requests.len(), student.borrow().requests.len()),
+            (4, 2)
+        );
+        assert_eq!(learned_rules(&agent), vec![json!(RULE)]);
+        Ok(())
+    }
+
+    // Without a student, the learning runs on the forward's client.
+    #[test]
+    fn without_a_student_the_forward_client_learns() -> AxResult<()> {
+        let mut agent = playbook_agent()?.with_runtime(scripted_runtime())?;
+        let mut responses = run_responses();
+        responses.extend(learning_responses());
+        let mut client = FixtureClient::scripted(responses, router_default_features());
+        assert_eq!(
+            agent.forward(&mut client, question())?,
+            json!({"answer": "recovered"})
+        );
+        assert_eq!(client.requests.len(), 6);
+        assert_eq!(learned_rules(&agent), vec![json!(RULE)]);
+        Ok(())
+    }
+
+    // A student that is also the forward's client is borrowed by the forward,
+    // so the learning runs on the forward's client (the same client) instead
+    // of borrowing it twice.
+    #[test]
+    fn student_that_is_the_forward_client_is_not_borrowed_twice() -> AxResult<()> {
+        let mut responses = run_responses();
+        responses.extend(learning_responses());
+        let shared = Rc::new(RefCell::new(FixtureClient::scripted(
+            responses,
+            router_default_features(),
+        )));
+        let mut agent = playbook_agent()?
+            .with_runtime(scripted_runtime())?
+            .with_playbook_student(shared.clone());
+        let output = agent.forward(&mut *shared.borrow_mut(), question())?;
+        assert_eq!(output, json!({"answer": "recovered"}));
+        assert_eq!(shared.borrow().requests.len(), 6);
+        assert_eq!(learned_rules(&agent), vec![json!(RULE)]);
         Ok(())
     }
 }

@@ -18,12 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-27-sampling-support-and-credential-routing` [axai] Match TypeScript's sampling support (explicit values the model accepts, one-time warnings) and keep credentials with their provider in the ports
-  - Status: open
-  - Source commit: `b253360603e59ab4fd0e550710d47ffae92faf05`
-  - TS paths: `src/ax/ai/base.ts`, `src/ax/ai/types.ts`, `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/info.ts`, `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/anthropic/api.ts`, `src/ax/ai/google-gemini/api.ts`
-  - Impact: The ports sent a default temperature 0 to models that reject it (GPT-5.6 Luna returned 400), ignored explicit sampling values' reasoning context, dropped the o-series token limit and n, and sent provider keys to the wrong host: OPENAI_API_KEY to other providers, other providers' keys to OPENAI_BASE_URL, and a requiresApiURL profile's key to api.openai.com. TS now tracks explicit sampling values, sends them when the request's reasoning effort allows, and warns once when it drops one.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -974,6 +969,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `582e5e59643b774b012629d80ca2c69d78e77ec5`
   - Verification: `One IR op resolves a playbook config's seed as TS does (playbook.playbook: a snapshot or a bare playbook; the older playbook.seed snapshot loads with a deprecation warning); TS goldens axagent/playbook-config-ts-snapshot-seed and -ts-bare-seed pin TS's state and prompt. Two IR ops build the weakness miner's inputs as TS's mineWeakness does from the executor's action log text (entries now record their stage); the TS golden agent-playbook-evolve-miner-system-prompt pins the user message (expected_teacher_user_messages). TS tool fields use toFieldTitle (sigTools.test.ts fails on main). C++ string_format fills a null's {}, and Go and Java fill from after the previous argument (axgen/function-call-missing-name, function-call-name-with-braces). Each new fixture fails on main in the ports named in the PR; 11 mutated copies fail in all five. Full suites 1150/1150 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes; Python and Go perturbation gates pass.`
+- `axir-2026-09-27-name-the-rust-agent-playbook-student` [axagent] Name the Rust agent playbook config's student, as TypeScript's studentAI does
+  - Status: done
+  - Source commit: `b21806afa9e437e15569f3432ddc43ce5b699da5`
+  - TS paths: `src/ax/agent/playbookConfig.ts`, `src/ax/agent/agentInternal/coordinator.ts`
+  - Impact: TypeScript's playbook config takes studentAI (by default the agent's ai) to run the run-end reflector and curator calls. Rust agent options are JSON, which cannot hold a client, and a Rust agent has no default ai, so a Rust user could not name the student: the learning always ran on the client passed to forward.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `bfc9b32190d0a2e479e1d03f6d45cb61ff6e229d`
+  - Verification: `AxAgent::with_playbook_student(Rc<RefCell<C>>) names the client that runs the run-end reflector and curator calls; without one they run on the forward's client, and a student that is already borrowed (for example because it is also the forward's client) is not borrowed again. Four Rust tests (agent_playbook_student_tests) run a failing agent run end to end: the named student gets the 2 learning requests and the forward client only the 4 run requests, the student survives with_tool_module and with_runtime, the forward client learns without a student, and a student that is the forward client does not panic. A mutant that ignores the student fails 2 of them, one that borrows the student while the forward holds it fails 1. Rust lib tests 62/62 and the Rust conformance suites (1215 fixtures) pass.`
 - `axir-2026-09-27-port-speak-results-carry-typescript-speech-response-keys` [axai] Port speak() results carry TypeScript's AxSpeechResponse keys
   - Status: done
   - Source commit: `de478da3e9660d6cf727dc38ab6b43b6a0b88c4c`
@@ -1001,6 +1005,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `94cd7049eb4ab244410f175fc0779cf1e275ec39`
   - Verification: `renderAudio (or render_audio) true renders through @render_audio_outputs_impl in ir/axcore/audio_output.axir at every @forward exit, on forward and streaming cache hits and on the streamingForward result-picker delta; unset keeps the text and warns once per process, and false keeps it silently. The 16 TS-derived axgen audio-output-* goldens and axflow/audio-output-flow-speaker-to-summarizer check speak requests and outputs; the 10 goldens that render fail on origin/main in all five ports. verify --mode release passes 1138 fixtures in python, java, cpp and rust; the Go conformance passes the whole tree after the load-flaky axai/portable-cancellation fixture passed 5/5 alone.`
+- `axir-2026-09-27-sampling-support-and-credential-routing` [axai] Match TypeScript's sampling support (explicit values the model accepts, one-time warnings) and keep credentials with their provider in the ports
+  - Status: done
+  - Source commit: `b253360603e59ab4fd0e550710d47ffae92faf05`
+  - TS paths: `src/ax/ai/base.ts`, `src/ax/ai/types.ts`, `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/info.ts`, `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/anthropic/api.ts`, `src/ax/ai/google-gemini/api.ts`
+  - Impact: The ports sent a default temperature 0 to models that reject it (GPT-5.6 Luna returned 400), ignored explicit sampling values' reasoning context, dropped the o-series token limit and n, and sent provider keys to the wrong host: OPENAI_API_KEY to other providers, other providers' keys to OPENAI_BASE_URL, and a requiresApiURL profile's key to api.openai.com. TS now tracks explicit sampling values, sends them when the request's reasoning effort allows, and warns once when it drops one.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `1dfe3333ae9912d8f3dce404679aa064d59bbc2f`
+  - Verification: `TS sampling.test.ts (9 tests; 8 fail on main on behavior) and npx vitest run src/ax/ai src/ax/dsp pass. axai-goldens.ts records 95 sampling fixtures from the real TS clients with their console.warn output (expected_warnings), 3 requires-api-url fixtures with TS's own error, and 7 port-only credential-env fixtures (TS reads no environment); 55 of them fail on main's Python package. axai passes 539/539 in Python, Go, Java, C++ and Rust on main 36219ec0e; verify --mode release passes in python, go, java, rust and cpp (1326 fixtures each) on main 98e57186a; npm run axir:conformance:check and axir:check-packages. Live: TS and Python send the same sampling fields and warning for gpt-5.6-luna (dropped with a warning; sent with thinkingTokenBudget none) and gpt-5.4-mini (sent); o3-mini gets max_completion_tokens; examples run in all five languages.`
 - `axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths` [axagent] Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths
   - Status: done
   - Source commit: `c3662628d8916a174fc1ef3bd0484f7b3ffd989c`
