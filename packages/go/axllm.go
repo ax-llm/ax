@@ -10029,7 +10029,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 				if coreTruthy(v_item_not_map) {
 					v_item_json = _core_json_pretty(v_item)
 					v_item_text = _core_string_format("User message content item at index {} must be an object, received: {}", v_item_index, v_item_json)
-					v_item_error = _core_ai_error_response(v_item_text)
+					v_item_error = _core_ai_error_unsupported(v_item_text)
 					return nil, asError(v_item_error)
 				} else {
 				// empty
@@ -10051,7 +10051,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 					// empty
 					}
 					v_type_text = _core_string_format("User message content item at index {} must have a type, received: {}", v_item_index, v_received_type)
-					v_type_error = _core_ai_error_response(v_type_text)
+					v_type_error = _core_ai_error_unsupported(v_type_text)
 					return nil, asError(v_type_error)
 				} else {
 				// empty
@@ -39842,7 +39842,7 @@ func _forward_impl(args ...Value) (Value, error) {
 		}
 		{
 			__flow, __err := func() (coreFlow, error) {
-				if _, err := _validate_completion_function_call_names(v_response); err != nil { return coreFlow{}, err }
+				if _, err := _check_completion_function_call_names(v_response, v_runtime_options); err != nil { return coreFlow{}, err }
 				return coreFlow{}, nil
 			}()
 			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
@@ -44743,23 +44743,6 @@ func _ace_update_bullet_feedback(args ...Value) (Value, error) {
 	return v_playbook, nil
 }
 
-func _append_assertion_retry_messages(args ...Value) (Value, error) {
-	axirCoverageMark("_append_assertion_retry_messages")
-	var v_messages Value
-	var v_response Value
-	var v_error Value
-	var v_updated_messages Value
-	if len(args) > 0 { v_messages = args[0] }
-	_ = v_messages
-	if len(args) > 1 { v_response = args[1] }
-	_ = v_response
-	if len(args) > 2 { v_error = args[2] }
-	_ = v_error
-	_ = v_updated_messages
-	{ v, err := _append_validation_retry_messages_impl(v_messages, v_response, v_error); if err != nil { return nil, err }; v_updated_messages = v }
-	return v_updated_messages, nil
-}
-
 func _regex_alternative(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_alternative")
 	var v_s Value
@@ -44850,6 +44833,23 @@ func _regex_alternative(args ...Value) (Value, error) {
 	if err := coreSet(v_t17, "k", "alt"); err != nil { return nil, err }
 	if err := coreSet(v_t17, "terms", v_choices); err != nil { return nil, err }
 	return v_t17, nil
+}
+
+func _append_assertion_retry_messages(args ...Value) (Value, error) {
+	axirCoverageMark("_append_assertion_retry_messages")
+	var v_messages Value
+	var v_response Value
+	var v_error Value
+	var v_updated_messages Value
+	if len(args) > 0 { v_messages = args[0] }
+	_ = v_messages
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_error = args[2] }
+	_ = v_error
+	_ = v_updated_messages
+	{ v, err := _append_validation_retry_messages_impl(v_messages, v_response, v_error); if err != nil { return nil, err }; v_updated_messages = v }
+	return v_updated_messages, nil
 }
 
 func chat_session_mark_submitted(args ...Value) (Value, error) {
@@ -46935,49 +46935,6 @@ func _ace_apply_curator_operations(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _parse_json_string_fields(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_json_string_fields")
-	var v_output_fields Value
-	var v_values Value
-	var v_field Value
-	var v_has_key Value
-	var v_name Value
-	var v_not_map Value
-	var v_parsed Value
-	var v_value Value
-	var v_values_is_map Value
-	if len(args) > 0 { v_output_fields = args[0] }
-	_ = v_output_fields
-	if len(args) > 1 { v_values = args[1] }
-	_ = v_values
-	_ = v_field
-	_ = v_has_key
-	_ = v_name
-	_ = v_not_map
-	_ = v_parsed
-	_ = v_value
-	_ = v_values_is_map
-	v_values_is_map = coreTypeIs(v_values, "object")
-	v_not_map = _core_not(v_values_is_map)
-	if coreTruthy(v_not_map) {
-		return v_values, nil
-	} else {
-	// empty
-	}
-	for _, v_field = range coreIter(v_output_fields) {
-		v_name = coreGet(v_field, "name", nil)
-		v_has_key = _core_map_contains(v_values, v_name)
-		if coreTruthy(v_has_key) {
-			v_value = coreGet(v_values, v_name, nil)
-			{ v, err := _parse_json_string_for_field(v_field, v_value); if err != nil { return nil, err }; v_parsed = v }
-			if err := coreSet(v_values, v_name, v_parsed); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-	}
-	return v_values, nil
-}
-
 func _date_trim_bounds_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_trim_bounds_impl")
 	var v_units Value
@@ -47029,6 +46986,49 @@ func _date_trim_bounds_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_bounds, "start", v_first); err != nil { return nil, err }
 	if err := coreSet(v_bounds, "end", v_last); err != nil { return nil, err }
 	return v_bounds, nil
+}
+
+func _parse_json_string_fields(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_json_string_fields")
+	var v_output_fields Value
+	var v_values Value
+	var v_field Value
+	var v_has_key Value
+	var v_name Value
+	var v_not_map Value
+	var v_parsed Value
+	var v_value Value
+	var v_values_is_map Value
+	if len(args) > 0 { v_output_fields = args[0] }
+	_ = v_output_fields
+	if len(args) > 1 { v_values = args[1] }
+	_ = v_values
+	_ = v_field
+	_ = v_has_key
+	_ = v_name
+	_ = v_not_map
+	_ = v_parsed
+	_ = v_value
+	_ = v_values_is_map
+	v_values_is_map = coreTypeIs(v_values, "object")
+	v_not_map = _core_not(v_values_is_map)
+	if coreTruthy(v_not_map) {
+		return v_values, nil
+	} else {
+	// empty
+	}
+	for _, v_field = range coreIter(v_output_fields) {
+		v_name = coreGet(v_field, "name", nil)
+		v_has_key = _core_map_contains(v_values, v_name)
+		if coreTruthy(v_has_key) {
+			v_value = coreGet(v_values, v_name, nil)
+			{ v, err := _parse_json_string_for_field(v_field, v_value); if err != nil { return nil, err }; v_parsed = v }
+			if err := coreSet(v_values, v_name, v_parsed); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	return v_values, nil
 }
 
 func _regex_member(args ...Value) (Value, error) {
@@ -48040,44 +48040,6 @@ func _stream_text_extract_impl(args ...Value) (Value, error) {
 	return false, nil
 }
 
-func _function_call_mode_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_function_call_mode_impl")
-	var v_mode Value
-	var v_is_auto Value
-	var v_is_native Value
-	var v_is_prompt Value
-	var v_missing Value
-	var v_native_or_auto Value
-	if len(args) > 0 { v_mode = args[0] }
-	_ = v_mode
-	_ = v_is_auto
-	_ = v_is_native
-	_ = v_is_prompt
-	_ = v_missing
-	_ = v_native_or_auto
-	v_missing = _core_is_none(v_mode)
-	if coreTruthy(v_missing) {
-		return "auto", nil
-	} else {
-	// empty
-	}
-	v_is_native = _core_eq(v_mode, "native")
-	v_is_auto = _core_eq(v_mode, "auto")
-	v_native_or_auto = _core_or(v_is_native, v_is_auto)
-	if coreTruthy(v_native_or_auto) {
-		return "auto", nil
-	} else {
-	// empty
-	}
-	v_is_prompt = _core_eq(v_mode, "prompt")
-	if coreTruthy(v_is_prompt) {
-		return "none", nil
-	} else {
-	// empty
-	}
-	return "auto", nil
-}
-
 func _date_ascii_matches_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_ascii_matches_impl")
 	var v_units Value
@@ -48155,6 +48117,44 @@ func _date_ascii_matches_impl(args ...Value) (Value, error) {
 		v_index = _core_add(v_index, 1)
 	}
 	return true, nil
+}
+
+func _function_call_mode_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_function_call_mode_impl")
+	var v_mode Value
+	var v_is_auto Value
+	var v_is_native Value
+	var v_is_prompt Value
+	var v_missing Value
+	var v_native_or_auto Value
+	if len(args) > 0 { v_mode = args[0] }
+	_ = v_mode
+	_ = v_is_auto
+	_ = v_is_native
+	_ = v_is_prompt
+	_ = v_missing
+	_ = v_native_or_auto
+	v_missing = _core_is_none(v_mode)
+	if coreTruthy(v_missing) {
+		return "auto", nil
+	} else {
+	// empty
+	}
+	v_is_native = _core_eq(v_mode, "native")
+	v_is_auto = _core_eq(v_mode, "auto")
+	v_native_or_auto = _core_or(v_is_native, v_is_auto)
+	if coreTruthy(v_native_or_auto) {
+		return "auto", nil
+	} else {
+	// empty
+	}
+	v_is_prompt = _core_eq(v_mode, "prompt")
+	if coreTruthy(v_is_prompt) {
+		return "none", nil
+	} else {
+	// empty
+	}
+	return "auto", nil
 }
 
 func _regex_state(args ...Value) (Value, error) {
@@ -48867,41 +48867,6 @@ func _regex_frame(args ...Value) (Value, error) {
 	if err := coreSet(v_t1, "todo", v_todo); err != nil { return nil, err }
 	if err := coreSet(v_t1, "st", v_st); err != nil { return nil, err }
 	return v_t1, nil
-}
-
-func _tool_error_message_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_tool_error_message_impl")
-	var v_call Value
-	var v_error Value
-	var v_error_text Value
-	var v_id Value
-	var v_message Value
-	var v_name Value
-	var v_payload Value
-	var v_payload_json Value
-	if len(args) > 0 { v_call = args[0] }
-	_ = v_call
-	if len(args) > 1 { v_error = args[1] }
-	_ = v_error
-	_ = v_error_text
-	_ = v_id
-	_ = v_message
-	_ = v_name
-	_ = v_payload
-	_ = v_payload_json
-	v_id = coreGet(v_call, "id", nil)
-	v_name = coreGet(v_call, "name", nil)
-	v_error_text = _core_exception_message(v_error)
-	v_payload = Object()
-	if err := coreSet(v_payload, "error", v_error_text); err != nil { return nil, err }
-	v_payload_json = _core_json_stringify(v_payload)
-	v_message = Object()
-	if err := coreSet(v_message, "role", "function"); err != nil { return nil, err }
-	if err := coreSet(v_message, "function_id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_message, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_message, "result", v_payload_json); err != nil { return nil, err }
-	if err := coreSet(v_message, "is_error", true); err != nil { return nil, err }
-	return v_message, nil
 }
 
 func _regex_search(args ...Value) (Value, error) {
@@ -50024,6 +49989,41 @@ func _regex_search(args ...Value) (Value, error) {
 	}
 	v_t225 = _core_none()
 	return v_t225, nil
+}
+
+func _tool_error_message_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_tool_error_message_impl")
+	var v_call Value
+	var v_error Value
+	var v_error_text Value
+	var v_id Value
+	var v_message Value
+	var v_name Value
+	var v_payload Value
+	var v_payload_json Value
+	if len(args) > 0 { v_call = args[0] }
+	_ = v_call
+	if len(args) > 1 { v_error = args[1] }
+	_ = v_error
+	_ = v_error_text
+	_ = v_id
+	_ = v_message
+	_ = v_name
+	_ = v_payload
+	_ = v_payload_json
+	v_id = coreGet(v_call, "id", nil)
+	v_name = coreGet(v_call, "name", nil)
+	v_error_text = _core_exception_message(v_error)
+	v_payload = Object()
+	if err := coreSet(v_payload, "error", v_error_text); err != nil { return nil, err }
+	v_payload_json = _core_json_stringify(v_payload)
+	v_message = Object()
+	if err := coreSet(v_message, "role", "function"); err != nil { return nil, err }
+	if err := coreSet(v_message, "function_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_message, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_message, "result", v_payload_json); err != nil { return nil, err }
+	if err := coreSet(v_message, "is_error", true); err != nil { return nil, err }
+	return v_message, nil
 }
 
 func _date_scan_datetime_impl(args ...Value) (Value, error) {
@@ -53809,7 +53809,7 @@ func _streaming_forward_impl(args ...Value) (Value, error) {
 						{ v, err := fold_chat_response_stream(v_events); if err != nil { return coreFlow{}, err }; v_folded = v }
 						{ v, err := chat_response_to_completion(v_folded); if err != nil { return coreFlow{}, err }; v_response = v }
 						v_stage = "fatal"
-						if _, err := _validate_completion_function_call_names(v_response); err != nil { return coreFlow{}, err }
+						if _, err := _check_completion_function_call_names(v_response, v_runtime_options); err != nil { return coreFlow{}, err }
 						v_stage = "validation"
 						_core_axgen_memory_add_response(v_gen, v_request, v_response)
 						_core_axgen_record_chat_log(v_gen, v_request, v_response)
@@ -58866,6 +58866,83 @@ func _stream_json_strings_impl(args ...Value) (Value, error) {
 				_core_map_delete(v_values, v_name)
 			}
 		}
+	}
+	return nil, nil
+}
+
+func _check_completion_function_call_names(args ...Value) (Value, error) {
+	axirCoverageMark("_check_completion_function_call_names")
+	var v_response Value
+	var v_options Value
+	var v_is_correct Value
+	var v_is_fail Value
+	var v_known Value
+	var v_mode Value
+	var v_mode_error Value
+	var v_mode_json Value
+	var v_mode_message Value
+	var v_mode_set Value
+	var v_mode_snake Value
+	var v_unknown Value
+	var v_unnamed Value
+	var v_unnamed_error Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_is_correct
+	_ = v_is_fail
+	_ = v_known
+	_ = v_mode
+	_ = v_mode_error
+	_ = v_mode_json
+	_ = v_mode_message
+	_ = v_mode_set
+	_ = v_mode_snake
+	_ = v_unknown
+	_ = v_unnamed
+	_ = v_unnamed_error
+	v_mode_snake = coreGet(v_options, "function_call_validation", nil)
+	v_mode = coreGet(v_options, "functionCallValidation", v_mode_snake)
+	v_mode_set = _core_is_not_none(v_mode)
+	if coreTruthy(v_mode_set) {
+		v_is_fail = _core_eq(v_mode, "fail")
+		v_is_correct = _core_eq(v_mode, "correct")
+		v_known = _core_or(v_is_fail, v_is_correct)
+		v_unknown = _core_not(v_known)
+		if coreTruthy(v_unknown) {
+			v_mode_json = _core_json_pretty(v_mode)
+			v_mode_message = _core_string_format("functionCallValidation must be 'correct' or 'fail', received: {}", v_mode_json)
+			v_mode_error = _core_validation_error(v_mode_message)
+			return nil, asError(v_mode_error)
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_fail) {
+			if _, err := _validate_completion_function_call_names(v_response); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		return nil, nil
+	} else {
+	// empty
+	}
+	v_unnamed = false
+	{
+		__flow, __err := func() (coreFlow, error) {
+			if _, err := _validate_completion_function_call_names(v_response); err != nil { return coreFlow{}, err }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_unnamed_error = errorValue(__err)
+			v_unnamed = true
+		}
+	}
+	if coreTruthy(v_unnamed) {
+		_core_axgen_deprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")
+	} else {
+	// empty
 	}
 	return nil, nil
 }
@@ -98885,12 +98962,36 @@ func coreAICaptureWarnings(sink func(string)) {
 	coreAIWarningSink = sink
 }
 
+var (
+	coreDeprecationSinkMu sync.Mutex
+	coreDeprecationSink   func(string)
+)
+
 // _core_axgen_deprecation logs a deprecated behavior once per key per process.
 func _core_axgen_deprecation(key Value, message Value) Value {
 	if _, shown := coreDeprecationsShown.LoadOrStore(display(key), true); !shown {
-		log.Printf("ax: deprecated: %s", display(message))
+		coreDeprecationSinkMu.Lock()
+		sink := coreDeprecationSink
+		coreDeprecationSinkMu.Unlock()
+		if sink != nil {
+			sink(display(message))
+		} else {
+			log.Printf("ax: deprecated: %s", display(message))
+		}
 	}
 	return nil
+}
+
+// coreAxGenCaptureDeprecations forgets the deprecations already shown and
+// sends new ones to sink (nil logs them again). Conformance fixtures use it.
+func coreAxGenCaptureDeprecations(sink func(string)) {
+	coreDeprecationSinkMu.Lock()
+	defer coreDeprecationSinkMu.Unlock()
+	coreDeprecationsShown.Range(func(key, _ any) bool {
+		coreDeprecationsShown.Delete(key)
+		return true
+	})
+	coreDeprecationSink = sink
 }
 
 // _core_axgen_caching_function returns the forward call's caching function,
@@ -100005,6 +100106,27 @@ func RunConformanceFixture(fixture Value) error {
 }
 
 func runConformanceFixture(fixture map[string]Value) {
+	// expected_deprecations pins the one-time deprecation warnings the run
+	// gives (the ones already shown are forgotten first).
+	if expected, ok := fixture["expected_deprecations"]; ok {
+		var mu sync.Mutex
+		captured := []Value{}
+		coreAxGenCaptureDeprecations(func(message string) {
+			mu.Lock()
+			defer mu.Unlock()
+			captured = append(captured, message)
+		})
+		defer coreAxGenCaptureDeprecations(nil)
+		runConformanceFixtureKind(fixture)
+		mu.Lock()
+		defer mu.Unlock()
+		assertEqual(captured, expected, "deprecation warnings")
+		return
+	}
+	runConformanceFixtureKind(fixture)
+}
+
+func runConformanceFixtureKind(fixture map[string]Value) {
 	kind := display(coreGet(fixture, "kind", "forward"))
 	switch kind {
 	case "signature_error":

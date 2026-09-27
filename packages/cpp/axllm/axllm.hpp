@@ -511,6 +511,9 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  // Conformance hook: forgets the deprecations already shown and sends new
+  // ones to sink (an empty sink prints them to stderr again).
+  static void axgen_capture_deprecations(std::function<void(const std::string&)> sink);
   static Value ai_warn_once(Value key, Value message);
   // Conformance hook: forgets the one-time warnings already shown and sends
   // new ones to sink (an empty sink prints them to stderr again).
@@ -960,8 +963,8 @@ struct Core {
   static Value _run_assertions(Value gen, Value output);
   static Value _date_range_keyword_impl(Value units, Value at, Value end);
   static Value _ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now);
-  static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
   static Value _regex_alternative(Value s);
+  static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
   static Value chat_session_mark_submitted(Value state, Value ids);
   static Value _record_trace(Value gen, Value input, Value output, Value status);
   static Value _date_strip_code_fence_impl(Value value);
@@ -983,8 +986,8 @@ struct Core {
   static Value _parse_json_string_for_field(Value field, Value value);
   static Value _date_js_trim_impl(Value text);
   static Value _ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now);
-  static Value _parse_json_string_fields(Value output_fields, Value values);
   static Value _date_trim_bounds_impl(Value units, Value start, Value end);
+  static Value _parse_json_string_fields(Value output_fields, Value values);
   static Value _regex_member(Value n, Value c);
   static Value _parse_json_string_for_fields(Value fields_map, Value values);
   static Value _date_skip_space_impl(Value units, Value start, Value end);
@@ -996,8 +999,8 @@ struct Core {
   static Value _tool_spec_impl(Value fn);
   static Value _date_ascii_letter_impl(Value unit);
   static Value _stream_text_extract_impl(Value xstate, Value values, Value content, Value fields, Value options);
-  static Value _function_call_mode_impl(Value mode);
   static Value _date_ascii_matches_impl(Value units, Value at, Value end, Value word);
+  static Value _function_call_mode_impl(Value mode);
   static Value _regex_state(Value pos, Value caps);
   static Value _response_function_calls_impl(Value response);
   static Value _regex_capture_ids(Value n);
@@ -1011,8 +1014,8 @@ struct Core {
   static Value _regex_task(Value n, Value next);
   static Value _tool_result_message_impl(Value call, Value result);
   static Value _regex_frame(Value todo, Value st);
-  static Value _tool_error_message_impl(Value call, Value error);
   static Value _regex_search(Value n, Value u, Value initial, Value d);
+  static Value _tool_error_message_impl(Value call, Value error);
   static Value _date_scan_datetime_impl(Value units, Value start, Value end);
   static Value _stream_text_required_check_impl(Value values, Value fields);
   static Value _append_validation_retry_messages_impl(Value messages, Value response, Value error);
@@ -1090,6 +1093,7 @@ struct Core {
   static Value _validate_completion_function_call_names(Value response);
   static Value _stream_json_strings_for_fields_impl(Value fields_map, Value values);
   static Value _stream_json_strings_impl(Value fields, Value values, Value partial);
+  static Value _check_completion_function_call_names(Value response, Value options);
   static Value _stream_state_impl(Value index);
   static Value _stream_merge_value_impl(Value base, Value has_base, Value delta);
   static Value _stream_commit_delta_impl(Value committed, Value current, Value delta);

@@ -1,5 +1,6 @@
 {
   "expected_error_contains": "User message content item at index 0 must be an object, received: null",
+  "expected_error_type": "AxUnsupportedCapabilityError",
   "kind": "ai_error",
   "name": "chat-message-content-item-null",
   "request": {

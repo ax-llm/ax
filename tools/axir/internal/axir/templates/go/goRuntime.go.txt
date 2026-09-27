@@ -10798,12 +10798,36 @@ func coreAICaptureWarnings(sink func(string)) {
 	coreAIWarningSink = sink
 }
 
+var (
+	coreDeprecationSinkMu sync.Mutex
+	coreDeprecationSink   func(string)
+)
+
 // _core_axgen_deprecation logs a deprecated behavior once per key per process.
 func _core_axgen_deprecation(key Value, message Value) Value {
 	if _, shown := coreDeprecationsShown.LoadOrStore(display(key), true); !shown {
-		log.Printf("ax: deprecated: %s", display(message))
+		coreDeprecationSinkMu.Lock()
+		sink := coreDeprecationSink
+		coreDeprecationSinkMu.Unlock()
+		if sink != nil {
+			sink(display(message))
+		} else {
+			log.Printf("ax: deprecated: %s", display(message))
+		}
 	}
 	return nil
+}
+
+// coreAxGenCaptureDeprecations forgets the deprecations already shown and
+// sends new ones to sink (nil logs them again). Conformance fixtures use it.
+func coreAxGenCaptureDeprecations(sink func(string)) {
+	coreDeprecationSinkMu.Lock()
+	defer coreDeprecationSinkMu.Unlock()
+	coreDeprecationsShown.Range(func(key, _ any) bool {
+		coreDeprecationsShown.Delete(key)
+		return true
+	})
+	coreDeprecationSink = sink
 }
 
 // _core_axgen_caching_function returns the forward call's caching function,
@@ -11918,6 +11942,27 @@ func RunConformanceFixture(fixture Value) error {
 }
 
 func runConformanceFixture(fixture map[string]Value) {
+	// expected_deprecations pins the one-time deprecation warnings the run
+	// gives (the ones already shown are forgotten first).
+	if expected, ok := fixture["expected_deprecations"]; ok {
+		var mu sync.Mutex
+		captured := []Value{}
+		coreAxGenCaptureDeprecations(func(message string) {
+			mu.Lock()
+			defer mu.Unlock()
+			captured = append(captured, message)
+		})
+		defer coreAxGenCaptureDeprecations(nil)
+		runConformanceFixtureKind(fixture)
+		mu.Lock()
+		defer mu.Unlock()
+		assertEqual(captured, expected, "deprecation warnings")
+		return
+	}
+	runConformanceFixtureKind(fixture)
+}
+
+func runConformanceFixtureKind(fixture map[string]Value) {
 	kind := display(coreGet(fixture, "kind", "forward"))
 	switch kind {
 	case "signature_error":

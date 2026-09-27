@@ -10713,6 +10713,20 @@ fn cache_expiry_millis(value: &Value) -> Option<u64> {
 }
 
 pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
+    // expected_deprecations pins the one-time deprecation warnings the run
+    // gives (the ones already shown are forgotten first).
+    if let Some(expected) = fixture.get("expected_deprecations").cloned() {
+        core_axgen_capture_deprecations(true);
+        let result = run_conformance_fixture_kind(fixture);
+        let captured = core_axgen_capture_deprecations(false);
+        result?;
+        let actual = Value::Array(captured.into_iter().map(Value::String).collect());
+        return expect_json_equal("deprecation warnings", &actual, &expected);
+    }
+    run_conformance_fixture_kind(fixture)
+}
+
+fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
     let kind = fixture
         .get("kind")
         .and_then(Value::as_str)
@@ -23556,19 +23570,41 @@ fn ai_capture_warnings(capture: bool) -> Vec<String> {
     collected
 }
 
+static AXGEN_DEPRECATIONS_SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+static AXGEN_DEPRECATION_CAPTURE: Mutex<Option<Vec<String>>> = Mutex::new(None);
+
 // python: _core_axgen_deprecation(key, message). Deprecated port behavior
 // warns once per key per process.
 #[allow(dead_code)]
 fn core_axgen_deprecation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    static SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
-    let first = SHOWN
+    let first = AXGEN_DEPRECATIONS_SHOWN
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(core_arg(args, 0).text());
     if first {
-        eprintln!("axllm: deprecated: {}", core_arg(args, 1).text());
+        let message = core_arg(args, 1).text();
+        let mut capture = AXGEN_DEPRECATION_CAPTURE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match capture.as_mut() {
+            Some(captured) => captured.push(message),
+            None => eprintln!("axllm: deprecated: {message}"),
+        }
     }
     Ok(CoreValue::Null)
+}
+
+// Conformance hook: turning capture on forgets the deprecations already shown
+// and keeps new ones; each call returns what the last capture kept (off
+// prints them again).
+fn core_axgen_capture_deprecations(on: bool) -> Vec<String> {
+    if on {
+        AXGEN_DEPRECATIONS_SHOWN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
+    }
+    let mut capture = AXGEN_DEPRECATION_CAPTURE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let captured = capture.take().unwrap_or_default();
+    if on {
+        *capture = Some(Vec::new());
+    }
+    captured
 }
 
 // python: _core_crypto_sha256_hex(text). The lowercase hex SHA-256 of the

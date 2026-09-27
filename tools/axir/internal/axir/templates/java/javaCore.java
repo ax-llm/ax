@@ -1034,15 +1034,27 @@ final class Core {
     aiWarningSink = sink;
   }
   private static final Set<String> AXGEN_DEPRECATIONS_SHOWN = java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private static volatile java.util.function.Consumer<String> axgenDeprecationSink;
   // Deprecated port behavior warns once per key per process.
   static Object axgenDeprecation(Object key, Object message) {
     if (!AXGEN_DEPRECATIONS_SHOWN.add(String.valueOf(key))) return null;
+    java.util.function.Consumer<String> sink = axgenDeprecationSink;
+    if (sink != null) {
+      sink.accept(String.valueOf(message));
+      return null;
+    }
     try {
       System.getLogger("dev.axllm.ax").log(System.Logger.Level.WARNING, String.valueOf(message));
     } catch (RuntimeException ignored) {
       // a failing logger must not fail the forward
     }
     return null;
+  }
+  // Conformance hook: forgets the deprecations already shown and sends new
+  // ones to sink (null logs them again).
+  static void axgenCaptureDeprecations(java.util.function.Consumer<String> sink) {
+    AXGEN_DEPRECATIONS_SHOWN.clear();
+    axgenDeprecationSink = sink;
   }
   // The lowercase hex SHA-256 of the text's UTF-8 bytes (AxGen cache keys).
   static Object cryptoSha256Hex(Object text) {

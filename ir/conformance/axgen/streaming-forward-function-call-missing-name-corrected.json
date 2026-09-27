@@ -1,28 +1,40 @@
 {
-  "expected_deltas": [],
-  "expected_error_cause_contains": "Function call at index 0 in result 0 must have a non-empty function name, received: null",
-  "expected_error_contains": "Generate failed: Function call at index 0 in result 0 must have a non-empty function name, received: null",
-  "expected_request_count": 1,
-  "expected_tool_calls": [],
-  "forward_options": {
-    "function_call_validation": "fail"
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "done"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_deprecations": [
+    "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version."
+  ],
+  "expected_output": {
+    "answer": "done"
   },
+  "expected_request_contains": [
+    "Function not found: null. Available functions: lookup. Call one of these exact function names."
+  ],
+  "expected_request_count": 2,
+  "expected_tool_calls": [],
   "input": {
     "question": "Status?"
   },
   "kind": "streaming_forward",
-  "name": "streaming-forward-function-call-null-name",
+  "name": "streaming-forward-function-call-missing-name-corrected",
   "responses": [
     {
       "stream": [
         {
           "results": [
             {
+              "content": "",
               "finish_reason": "function_call",
               "function_calls": [
                 {
                   "function": {
-                    "name": null,
                     "params": "{\"key\":\"a\"}"
                   },
                   "id": "call_1",
@@ -41,14 +53,6 @@
           "results": [
             {
               "content": "Answer: done",
-              "index": 0
-            }
-          ]
-        },
-        {
-          "results": [
-            {
-              "finish_reason": "stop",
               "index": 0
             }
           ]

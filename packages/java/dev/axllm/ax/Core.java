@@ -1034,15 +1034,27 @@ final class Core {
     aiWarningSink = sink;
   }
   private static final Set<String> AXGEN_DEPRECATIONS_SHOWN = java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private static volatile java.util.function.Consumer<String> axgenDeprecationSink;
   // Deprecated port behavior warns once per key per process.
   static Object axgenDeprecation(Object key, Object message) {
     if (!AXGEN_DEPRECATIONS_SHOWN.add(String.valueOf(key))) return null;
+    java.util.function.Consumer<String> sink = axgenDeprecationSink;
+    if (sink != null) {
+      sink.accept(String.valueOf(message));
+      return null;
+    }
     try {
       System.getLogger("dev.axllm.ax").log(System.Logger.Level.WARNING, String.valueOf(message));
     } catch (RuntimeException ignored) {
       // a failing logger must not fail the forward
     }
     return null;
+  }
+  // Conformance hook: forgets the deprecations already shown and sends new
+  // ones to sink (null logs them again).
+  static void axgenCaptureDeprecations(java.util.function.Consumer<String> sink) {
+    AXGEN_DEPRECATIONS_SHOWN.clear();
+    axgenDeprecationSink = sink;
   }
   // The lowercase hex SHA-256 of the text's UTF-8 bytes (AxGen cache keys).
   static Object cryptoSha256Hex(Object text) {
@@ -5196,7 +5208,7 @@ final class Core {
           if (Core.truthy(item_not_map)) {
             Object item_json = Core.jsonPretty(item);
             Object item_text = Core.stringFormat("User message content item at index {} must be an object, received: {}", item_index, item_json);
-            Object item_error = Core.aiErrorResponse(item_text);
+            Object item_error = Core.aiErrorUnsupported(item_text);
             throw Core.asRuntime(item_error);
           }
           Object item_type = Core.get(item, "type", null);
@@ -5212,7 +5224,7 @@ final class Core {
               received_type = Core.jsonPretty(item_type);
             }
             Object type_text = Core.stringFormat("User message content item at index {} must have a type, received: {}", item_index, received_type);
-            Object type_error = Core.aiErrorResponse(type_text);
+            Object type_error = Core.aiErrorUnsupported(type_text);
             throw Core.asRuntime(type_error);
           }
           Object next_item_index = Core.add(item_index, 1);
@@ -19215,7 +19227,7 @@ final class Core {
         continue;
       }
       try {
-        Core._validate_completion_function_call_names(response);
+        Core._check_completion_function_call_names(response, runtime_options);
       } catch (RuntimeException unnamed_call_error) {
         Object unnamed_call_failure = Core._generate_failed_impl(unnamed_call_error);
         throw Core.asRuntime(unnamed_call_failure);
@@ -21566,12 +21578,6 @@ final class Core {
     return playbook;
   }
 
-  static Object _append_assertion_retry_messages(Object messages, Object response, Object error) {
-    axirCoverageMark("_append_assertion_retry_messages");
-    Object updated_messages = Core._append_validation_retry_messages_impl(messages, response, error);
-    return updated_messages;
-  }
-
   static Object _regex_alternative(Object s) {
     axirCoverageMark("_regex_alternative");
     Object choices = Core.none();
@@ -21618,6 +21624,12 @@ final class Core {
     Core.set(t17, "k", "alt");
     Core.set(t17, "terms", choices);
     return t17;
+  }
+
+  static Object _append_assertion_retry_messages(Object messages, Object response, Object error) {
+    axirCoverageMark("_append_assertion_retry_messages");
+    Object updated_messages = Core._append_validation_retry_messages_impl(messages, response, error);
+    return updated_messages;
   }
 
   static Object chat_session_mark_submitted(Object state, Object ids) {
@@ -22621,25 +22633,6 @@ final class Core {
     return out;
   }
 
-  static Object _parse_json_string_fields(Object output_fields, Object values) {
-    axirCoverageMark("_parse_json_string_fields");
-    Object values_is_map = Core.typeIs(values, "object");
-    Object not_map = Core.not(values_is_map);
-    if (Core.truthy(not_map)) {
-      return values;
-    }
-    for (Object field : Core.iter(output_fields)) {
-      Object name = Core.get(field, "name", null);
-      Object has_key = Core.mapContains(values, name);
-      if (Core.truthy(has_key)) {
-        Object value = Core.get(values, name, null);
-        Object parsed = Core._parse_json_string_for_field(field, value);
-        Core.set(values, name, parsed);
-      }
-    }
-    return values;
-  }
-
   static Object _date_trim_bounds_impl(Object units, Object start, Object end) {
     axirCoverageMark("_date_trim_bounds_impl");
     Object first = Core._date_skip_space_impl(units, start, end);
@@ -22662,6 +22655,25 @@ final class Core {
     Core.set(bounds, "start", first);
     Core.set(bounds, "end", last);
     return bounds;
+  }
+
+  static Object _parse_json_string_fields(Object output_fields, Object values) {
+    axirCoverageMark("_parse_json_string_fields");
+    Object values_is_map = Core.typeIs(values, "object");
+    Object not_map = Core.not(values_is_map);
+    if (Core.truthy(not_map)) {
+      return values;
+    }
+    for (Object field : Core.iter(output_fields)) {
+      Object name = Core.get(field, "name", null);
+      Object has_key = Core.mapContains(values, name);
+      if (Core.truthy(has_key)) {
+        Object value = Core.get(values, name, null);
+        Object parsed = Core._parse_json_string_for_field(field, value);
+        Core.set(values, name, parsed);
+      }
+    }
+    return values;
   }
 
   static Object _regex_member(Object n, Object c) {
@@ -23122,25 +23134,6 @@ final class Core {
     return Boolean.FALSE;
   }
 
-  static Object _function_call_mode_impl(Object mode) {
-    axirCoverageMark("_function_call_mode_impl");
-    Object missing = Core.isNone(mode);
-    if (Core.truthy(missing)) {
-      return "auto";
-    }
-    Object is_native = Core.eq(mode, "native");
-    Object is_auto = Core.eq(mode, "auto");
-    Object native_or_auto = Core.or(is_native, is_auto);
-    if (Core.truthy(native_or_auto)) {
-      return "auto";
-    }
-    Object is_prompt = Core.eq(mode, "prompt");
-    if (Core.truthy(is_prompt)) {
-      return "none";
-    }
-    return "auto";
-  }
-
   static Object _date_ascii_matches_impl(Object units, Object at, Object end, Object word) {
     axirCoverageMark("_date_ascii_matches_impl");
     Object length = Core.len(word);
@@ -23172,6 +23165,25 @@ final class Core {
       index = Core.add(index, 1);
     }
     return Boolean.TRUE;
+  }
+
+  static Object _function_call_mode_impl(Object mode) {
+    axirCoverageMark("_function_call_mode_impl");
+    Object missing = Core.isNone(mode);
+    if (Core.truthy(missing)) {
+      return "auto";
+    }
+    Object is_native = Core.eq(mode, "native");
+    Object is_auto = Core.eq(mode, "auto");
+    Object native_or_auto = Core.or(is_native, is_auto);
+    if (Core.truthy(native_or_auto)) {
+      return "auto";
+    }
+    Object is_prompt = Core.eq(mode, "prompt");
+    if (Core.truthy(is_prompt)) {
+      return "none";
+    }
+    return "auto";
   }
 
   static Object _regex_state(Object pos, Object caps) {
@@ -23522,23 +23534,6 @@ final class Core {
     Core.set(t1, "todo", todo);
     Core.set(t1, "st", st);
     return t1;
-  }
-
-  static Object _tool_error_message_impl(Object call, Object error) {
-    axirCoverageMark("_tool_error_message_impl");
-    Object id = Core.get(call, "id", null);
-    Object name = Core.get(call, "name", null);
-    Object error_text = Core.exceptionMessage(error);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Core.set(payload, "error", error_text);
-    Object payload_json = Core.jsonStringify(payload);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "name", name);
-    Core.set(message, "result", payload_json);
-    Core.set(message, "is_error", Boolean.TRUE);
-    return message;
   }
 
   static Object _regex_search(Object n, Object u, Object initial, Object d) {
@@ -24037,6 +24032,23 @@ final class Core {
     }
     Object t225 = Core.none();
     return t225;
+  }
+
+  static Object _tool_error_message_impl(Object call, Object error) {
+    axirCoverageMark("_tool_error_message_impl");
+    Object id = Core.get(call, "id", null);
+    Object name = Core.get(call, "name", null);
+    Object error_text = Core.exceptionMessage(error);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "error", error_text);
+    Object payload_json = Core.jsonStringify(payload);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "name", name);
+    Core.set(message, "result", payload_json);
+    Core.set(message, "is_error", Boolean.TRUE);
+    return message;
   }
 
   static Object _date_scan_datetime_impl(Object units, Object start, Object end) {
@@ -25623,7 +25635,7 @@ final class Core {
             Object folded = Core.fold_chat_response_stream(events);
             response = Core.chat_response_to_completion(folded);
             stage = "fatal";
-            Core._validate_completion_function_call_names(response);
+            Core._check_completion_function_call_names(response, runtime_options);
             stage = "validation";
             Core.axgenMemoryAddResponse(gen, request, response);
             Core.axgenRecordChatLog(gen, request, response);
@@ -28042,6 +28054,39 @@ final class Core {
         }
         Core.mapDelete(values, name);
       }
+    }
+    return null;
+  }
+
+  static Object _check_completion_function_call_names(Object response, Object options) {
+    axirCoverageMark("_check_completion_function_call_names");
+    Object mode_snake = Core.get(options, "function_call_validation", null);
+    Object mode = Core.get(options, "functionCallValidation", mode_snake);
+    Object mode_set = Core.isNotNone(mode);
+    if (Core.truthy(mode_set)) {
+      Object is_fail = Core.eq(mode, "fail");
+      Object is_correct = Core.eq(mode, "correct");
+      Object known = Core.or(is_fail, is_correct);
+      Object unknown = Core.not(known);
+      if (Core.truthy(unknown)) {
+        Object mode_json = Core.jsonPretty(mode);
+        Object mode_message = Core.stringFormat("functionCallValidation must be 'correct' or 'fail', received: {}", mode_json);
+        Object mode_error = Core.validationError(mode_message);
+        throw Core.asRuntime(mode_error);
+      }
+      if (Core.truthy(is_fail)) {
+        Core._validate_completion_function_call_names(response);
+      }
+      return null;
+    }
+    Object unnamed = Boolean.FALSE;
+    try {
+      Core._validate_completion_function_call_names(response);
+    } catch (RuntimeException unnamed_error) {
+      unnamed = Boolean.TRUE;
+    }
+    if (Core.truthy(unnamed)) {
+      Core.axgenDeprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.");
     }
     return null;
   }

@@ -635,7 +635,24 @@ public final class Conformance {
     }
   }
 
+  // expected_deprecations pins the one-time deprecation warnings the run
+  // gives (the ones already shown are forgotten first).
   static void run(Map<String, Object> fixture) {
+    if (!fixture.containsKey("expected_deprecations")) {
+      runKind(fixture);
+      return;
+    }
+    List<Object> captured = java.util.Collections.synchronizedList(new ArrayList<>());
+    Core.axgenCaptureDeprecations(captured::add);
+    try {
+      runKind(fixture);
+    } finally {
+      Core.axgenCaptureDeprecations(null);
+    }
+    assertEqual(new ArrayList<>(captured), fixture.get("expected_deprecations"), "deprecation warnings");
+  }
+
+  static void runKind(Map<String, Object> fixture) {
     String kind = String.valueOf(fixture.getOrDefault("kind", "forward"));
     switch (kind) {
       case "signature_error" -> runSignatureError(fixture);

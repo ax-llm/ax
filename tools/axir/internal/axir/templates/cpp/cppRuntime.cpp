@@ -4223,19 +4223,44 @@ void Core::ai_capture_warnings(std::function<void(const std::string&)> sink) {
   ai_warning_sink() = std::move(sink);
 }
 
+static std::mutex& axgen_deprecations_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+static std::set<std::string>& axgen_deprecations_shown() {
+  static std::set<std::string> shown;
+  return shown;
+}
+
+static std::function<void(const std::string&)>& axgen_deprecation_sink() {
+  static std::function<void(const std::string&)> sink;
+  return sink;
+}
+
 // Deprecated port behavior warns once per key per process.
 Value Core::axgen_deprecation(Value key, Value message) {
-  static std::mutex shown_mutex;
-  static std::set<std::string> shown;
   try {
+    std::function<void(const std::string&)> sink;
     {
-      std::lock_guard<std::mutex> lock(shown_mutex);
-      if (!shown.insert(str(key)).second) return Value();
+      std::lock_guard<std::mutex> lock(axgen_deprecations_mutex());
+      if (!axgen_deprecations_shown().insert(str(key)).second) return Value();
+      sink = axgen_deprecation_sink();
+    }
+    if (sink) {
+      sink(str(message));
+      return Value();
     }
     std::cerr << "axllm deprecation: " << str(message) << std::endl;
   } catch (...) {
   }
   return Value();
+}
+
+void Core::axgen_capture_deprecations(std::function<void(const std::string&)> sink) {
+  std::lock_guard<std::mutex> lock(axgen_deprecations_mutex());
+  axgen_deprecations_shown().clear();
+  axgen_deprecation_sink() = std::move(sink);
 }
 
 // Caching functions the AxGen IR reaches through {"__caching_function_id"}

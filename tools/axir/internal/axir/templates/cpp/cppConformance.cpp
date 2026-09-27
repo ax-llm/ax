@@ -3997,7 +3997,34 @@ static void run_flow_mermaid(Value fixture) {
   assert_equal(second.str(), expected, "flow mermaid canonical roundtrip");
 }
 
+static void run_kind(Value fixture);
+
+// expected_deprecations pins the one-time deprecation warnings the run gives
+// (the ones already shown are forgotten first).
 static void run(Value fixture) {
+  Value expected = Core::get(fixture, "expected_deprecations");
+  if (expected.is_null()) {
+    run_kind(fixture);
+    return;
+  }
+  auto captured = std::make_shared<Value>(Value::array());
+  auto captured_mutex = std::make_shared<std::mutex>();
+  Core::axgen_capture_deprecations([captured, captured_mutex](const std::string& message) {
+    std::lock_guard<std::mutex> lock(*captured_mutex);
+    Core::append(*captured, Value(message));
+  });
+  try {
+    run_kind(fixture);
+  } catch (...) {
+    Core::axgen_capture_deprecations({});
+    throw;
+  }
+  Core::axgen_capture_deprecations({});
+  std::lock_guard<std::mutex> lock(*captured_mutex);
+  assert_equal(*captured, expected, "deprecation warnings");
+}
+
+static void run_kind(Value fixture) {
   std::string kind = display(Core::get(fixture, "kind", "forward"));
   if (kind == "signature_error") {
     expect_maybe_error([&] { return build_signature(fixture); }, fixture);

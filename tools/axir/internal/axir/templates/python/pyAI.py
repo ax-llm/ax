@@ -28,6 +28,7 @@ from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_
 import warnings
 
 _CORE_DEPRECATIONS_SHOWN: set[str] = set()
+_CORE_DEPRECATION_SINK = None
 
 
 def _core_axgen_deprecation(key, message):
@@ -35,8 +36,19 @@ def _core_axgen_deprecation(key, message):
     if key in _CORE_DEPRECATIONS_SHOWN:
         return None
     _CORE_DEPRECATIONS_SHOWN.add(key)
+    if _CORE_DEPRECATION_SINK is not None:
+        _CORE_DEPRECATION_SINK(str(message))
+        return None
     warnings.warn(str(message), DeprecationWarning, stacklevel=4)
     return None
+
+
+def _core_axgen_capture_deprecations(sink):
+    # Conformance hook: forgets the deprecations already shown and sends new
+    # ones to sink (None warns again).
+    global _CORE_DEPRECATION_SINK
+    _CORE_DEPRECATIONS_SHOWN.clear()
+    _CORE_DEPRECATION_SINK = sink
 
 def _core_validation_error(message):
     return ValueError(str(message))

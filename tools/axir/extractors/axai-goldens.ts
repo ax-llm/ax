@@ -13843,6 +13843,10 @@ providerErrorFixture(
 // unknown role, and a user content item that is not an object or has no type
 // fail with messages that show the value as JSON.stringify(value, null, 2)
 // writes it, undefined when it is missing. The expected messages are TS's own.
+// TS throws a plain Error; the ports keep their classes: a role error is an
+// AxAIServiceResponseError, and a content-item error stays the
+// AxUnsupportedCapabilityError they raised before (it becomes the response
+// error at the next major).
 async function tsChatPromptError(chatPrompt: unknown[]): Promise<string> {
   const llm = ai({ name: 'openai', apiKey: 'test-key' });
   llm.setOptions({
@@ -13884,6 +13888,9 @@ for (const [name, chatPrompt] of [
     kind: 'ai_error',
     request: { chat_prompt: chatPrompt },
     expected_error_contains: await tsChatPromptError([...chatPrompt]),
+    expected_error_type: name.startsWith('chat-message-content-item')
+      ? 'AxUnsupportedCapabilityError'
+      : 'AxAIServiceResponseError',
   });
 }
 

@@ -18,7 +18,7 @@ from .ai import build_chat_request, build_embed_request, normalize_chat_response
 from .ai import openai_responses_transport_cursor, openai_responses_session_event, _wire_json_body
 from .ai import _snapshot_global_caching_function, set_caching_function
 from .ai import _ai_error_request, openai_normalize_error, provider_realtime_ws_url
-from .ai import _core_ai_capture_warnings
+from .ai import _core_ai_capture_warnings, _core_axgen_capture_deprecations
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
@@ -562,6 +562,21 @@ def run_fixture_path(path):
 
 
 def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
+    # expected_deprecations pins the one-time deprecation warnings the run
+    # gives (the ones already shown are forgotten first).
+    if "expected_deprecations" in fixture:
+        captured = []
+        _core_axgen_capture_deprecations(captured.append)
+        try:
+            result = _run_fixture_kind(fixture, source=source)
+        finally:
+            _core_axgen_capture_deprecations(None)
+        _assert_equal(captured, fixture["expected_deprecations"], "deprecation warnings")
+        return result
+    return _run_fixture_kind(fixture, source=source)
+
+
+def _run_fixture_kind(fixture: dict[str, Any], *, source: str | None = None):
     name = fixture.get("name") or source or "<fixture>"
     kind = fixture.get("kind", "forward")
     try:

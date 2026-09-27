@@ -1,5 +1,6 @@
 {
   "expected_error_contains": "Unsupported message role: \"  \"",
+  "expected_error_type": "AxAIServiceResponseError",
   "kind": "ai_error",
   "name": "chat-message-blank-role",
   "request": {

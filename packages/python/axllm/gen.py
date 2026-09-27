@@ -5078,7 +5078,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                 thought_prefix = ""
             continue
         try:
-            _validate_completion_function_call_names(response)
+            _check_completion_function_call_names(response, runtime_options)
         except Exception as unnamed_call_error:
             unnamed_call_failure = _generate_failed_impl(unnamed_call_error)
             raise unnamed_call_failure
@@ -7576,12 +7576,6 @@ def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: st
     return playbook
 
 
-def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> list[Any]:
-    _core_coverage_mark("_append_assertion_retry_messages")
-    updated_messages = _append_validation_retry_messages_impl(messages, response, error)
-    return updated_messages
-
-
 def _regex_alternative(s: Any) -> Any:
     _core_coverage_mark("_regex_alternative")
     choices = _core_none()
@@ -7627,6 +7621,12 @@ def _regex_alternative(s: Any) -> Any:
     t17["k"] = "alt"
     t17["terms"] = choices
     return t17
+
+
+def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> list[Any]:
+    _core_coverage_mark("_append_assertion_retry_messages")
+    updated_messages = _append_validation_retry_messages_impl(messages, response, error)
+    return updated_messages
 
 
 def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
@@ -8669,26 +8669,6 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
     return out
 
 
-def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_fields")
-    values_is_map = _core_type_is(values, "object")
-    not_map = _core_not(values_is_map)
-    if not_map:
-        return values
-    else:
-        pass
-    for field in output_fields:
-        name = _core_get(field, "name", None)
-        has_key = _core_map_contains(values, name)
-        if has_key:
-            value = _core_get(values, name, None)
-            parsed = _parse_json_string_for_field(field, value)
-            values[name] = parsed
-        else:
-            pass
-    return values
-
-
 def _date_trim_bounds_impl(units: Any, start: Any, end: Any) -> Any:
     _core_coverage_mark("_date_trim_bounds_impl")
     first = _date_skip_space_impl(units, start, end)
@@ -8712,6 +8692,26 @@ def _date_trim_bounds_impl(units: Any, start: Any, end: Any) -> Any:
     bounds["start"] = first
     bounds["end"] = last
     return bounds
+
+
+def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_fields")
+    values_is_map = _core_type_is(values, "object")
+    not_map = _core_not(values_is_map)
+    if not_map:
+        return values
+    else:
+        pass
+    for field in output_fields:
+        name = _core_get(field, "name", None)
+        has_key = _core_map_contains(values, name)
+        if has_key:
+            value = _core_get(values, name, None)
+            parsed = _parse_json_string_for_field(field, value)
+            values[name] = parsed
+        else:
+            pass
+    return values
 
 
 def _regex_member(n: Any, c: Any) -> Any:
@@ -9208,28 +9208,6 @@ def _stream_text_extract_impl(xstate: Any, values: Any, content: str, fields: li
     return False
 
 
-def _function_call_mode_impl(mode: Any) -> str:
-    _core_coverage_mark("_function_call_mode_impl")
-    missing = _core_is_none(mode)
-    if missing:
-        return "auto"
-    else:
-        pass
-    is_native = _core_eq(mode, "native")
-    is_auto = _core_eq(mode, "auto")
-    native_or_auto = _core_or(is_native, is_auto)
-    if native_or_auto:
-        return "auto"
-    else:
-        pass
-    is_prompt = _core_eq(mode, "prompt")
-    if is_prompt:
-        return "none"
-    else:
-        pass
-    return "auto"
-
-
 def _date_ascii_matches_impl(units: Any, at: Any, end: Any, word: Any) -> bool:
     _core_coverage_mark("_date_ascii_matches_impl")
     length = _core_len(word)
@@ -9264,6 +9242,28 @@ def _date_ascii_matches_impl(units: Any, at: Any, end: Any, word: Any) -> bool:
             pass
         index = _core_add(index, 1)
     return True
+
+
+def _function_call_mode_impl(mode: Any) -> str:
+    _core_coverage_mark("_function_call_mode_impl")
+    missing = _core_is_none(mode)
+    if missing:
+        return "auto"
+    else:
+        pass
+    is_native = _core_eq(mode, "native")
+    is_auto = _core_eq(mode, "auto")
+    native_or_auto = _core_or(is_native, is_auto)
+    if native_or_auto:
+        return "auto"
+    else:
+        pass
+    is_prompt = _core_eq(mode, "prompt")
+    if is_prompt:
+        return "none"
+    else:
+        pass
+    return "auto"
 
 
 def _regex_state(pos: Any, caps: Any) -> Any:
@@ -9626,23 +9626,6 @@ def _regex_frame(todo: Any, st: Any) -> Any:
     t1["todo"] = todo
     t1["st"] = st
     return t1
-
-
-def _tool_error_message_impl(call: Any, error: error) -> Any:
-    _core_coverage_mark("_tool_error_message_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    error_text = _core_exception_message(error)
-    payload = {}
-    payload["error"] = error_text
-    payload_json = _core_json_stringify(payload)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["name"] = name
-    message["result"] = payload_json
-    message["is_error"] = True
-    return message
 
 
 def _regex_search(n: Any, u: Any, initial: Any, d: Any) -> Any:
@@ -10180,6 +10163,23 @@ def _regex_search(n: Any, u: Any, initial: Any, d: Any) -> Any:
             pass
     t225 = _core_none()
     return t225
+
+
+def _tool_error_message_impl(call: Any, error: error) -> Any:
+    _core_coverage_mark("_tool_error_message_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    error_text = _core_exception_message(error)
+    payload = {}
+    payload["error"] = error_text
+    payload_json = _core_json_stringify(payload)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["name"] = name
+    message["result"] = payload_json
+    message["is_error"] = True
+    return message
 
 
 def _date_scan_datetime_impl(units: Any, start: Any, end: Any) -> Any:
@@ -11892,7 +11892,7 @@ def _streaming_forward_impl(gen: AxGen, client: AIClient, values: Any, options: 
                     folded = fold_chat_response_stream(events)
                     response = chat_response_to_completion(folded)
                     stage = "fatal"
-                    _validate_completion_function_call_names(response)
+                    _check_completion_function_call_names(response, runtime_options)
                     stage = "validation"
                     _core_axgen_memory_add_response(gen, request, response)
                     _core_axgen_record_chat_log(gen, request, response)
@@ -14416,6 +14416,42 @@ def _stream_json_strings_impl(fields: list[Any], values: Any, partial: bool) -> 
             else:
                 pass
             _core_map_delete(values, name)
+    return None
+
+
+def _check_completion_function_call_names(response: Any, options: Any) -> None:
+    _core_coverage_mark("_check_completion_function_call_names")
+    mode_snake = _core_get(options, "function_call_validation", None)
+    mode = _core_get(options, "functionCallValidation", mode_snake)
+    mode_set = _core_is_not_none(mode)
+    if mode_set:
+        is_fail = _core_eq(mode, "fail")
+        is_correct = _core_eq(mode, "correct")
+        known = _core_or(is_fail, is_correct)
+        unknown = _core_not(known)
+        if unknown:
+            mode_json = _core_json_pretty(mode)
+            mode_message = _core_string_format("functionCallValidation must be 'correct' or 'fail', received: {}", mode_json)
+            mode_error = _core_validation_error(mode_message)
+            raise mode_error
+        else:
+            pass
+        if is_fail:
+            _validate_completion_function_call_names(response)
+        else:
+            pass
+        return None
+    else:
+        pass
+    unnamed = False
+    try:
+        _validate_completion_function_call_names(response)
+    except Exception as unnamed_error:
+        unnamed = True
+    if unnamed:
+        _core_axgen_deprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")
+    else:
+        pass
     return None
 
 

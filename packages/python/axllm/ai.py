@@ -30,6 +30,7 @@ from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_
 import warnings
 
 _CORE_DEPRECATIONS_SHOWN: set[str] = set()
+_CORE_DEPRECATION_SINK = None
 
 
 def _core_axgen_deprecation(key, message):
@@ -37,8 +38,19 @@ def _core_axgen_deprecation(key, message):
     if key in _CORE_DEPRECATIONS_SHOWN:
         return None
     _CORE_DEPRECATIONS_SHOWN.add(key)
+    if _CORE_DEPRECATION_SINK is not None:
+        _CORE_DEPRECATION_SINK(str(message))
+        return None
     warnings.warn(str(message), DeprecationWarning, stacklevel=4)
     return None
+
+
+def _core_axgen_capture_deprecations(sink):
+    # Conformance hook: forgets the deprecations already shown and sends new
+    # ones to sink (None warns again).
+    global _CORE_DEPRECATION_SINK
+    _CORE_DEPRECATIONS_SHOWN.clear()
+    _CORE_DEPRECATION_SINK = sink
 
 def _core_validation_error(message):
     return ValueError(str(message))
@@ -4512,7 +4524,7 @@ def validate_chat_request(request: AxChatRequest) -> None:
                 if item_not_map:
                     item_json = _core_json_pretty(item)
                     item_text = _core_string_format("User message content item at index {} must be an object, received: {}", item_index, item_json)
-                    item_error = _core_ai_error_response(item_text)
+                    item_error = _core_ai_error_unsupported(item_text)
                     raise item_error
                 else:
                     pass
@@ -4531,7 +4543,7 @@ def validate_chat_request(request: AxChatRequest) -> None:
                     else:
                         pass
                     type_text = _core_string_format("User message content item at index {} must have a type, received: {}", item_index, received_type)
-                    type_error = _core_ai_error_response(type_text)
+                    type_error = _core_ai_error_unsupported(type_text)
                     raise type_error
                 else:
                     pass
