@@ -1,0 +1,97 @@
+{
+  "assertions": [
+    {
+      "contains": "Paris",
+      "field": "answer",
+      "message": "The answer must be Paris."
+    }
+  ],
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "Lyon"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "Paris"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_count": 2,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "user"]
+  ],
+  "expected_session_log": [
+    {
+      "op": "open"
+    },
+    {
+      "op": "close"
+    },
+    {
+      "op": "open"
+    },
+    {
+      "op": "close"
+    }
+  ],
+  "input": {
+    "question": "Capital of France?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-native-session-completed-only-correction",
+  "native_session": [
+    [
+      [
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "Answer: Lyon",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ],
+    [
+      [
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "content": "Answer: Paris",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ]
+  ],
+  "responses": [],
+  "signature": "question:string -> answer:string"
+}

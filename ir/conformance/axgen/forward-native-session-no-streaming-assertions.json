@@ -1,0 +1,77 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_output": {
+    "answer": "BAD"
+  },
+  "expected_request_count": 1,
+  "expected_request_roles": [["system", "user"]],
+  "expected_session_log": [
+    {
+      "op": "open"
+    },
+    {
+      "op": "close"
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-native-session-no-streaming-assertions",
+  "native_session": [
+    [
+      [
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "Answer: BA",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "D",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "Answer: BAD",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ]
+  ],
+  "responses": [],
+  "signature": "question:string -> answer:string",
+  "streaming_assertions": [
+    {
+      "field": "answer",
+      "message": "No BAD.",
+      "not_contains": "BAD"
+    }
+  ]
+}
