@@ -2477,7 +2477,7 @@
     },
     {
       "id": "axir-2026-09-27-match-ts-s-auto-promoted-context-value-previews-in-the-ports-age",
-      "status": "open",
+      "status": "done",
       "title": "Match TS's auto-promoted context value previews in the ports' agent prompts",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2493,9 +2493,9 @@
         "Render TS's truncated preview in the actor and responder prompts",
         "Replace the port-only promotion fixture with TS-derived goldens"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "1c20db2fa68af33ebeebcf55b8d533947fa5db7c",
+      "verification": "TS's decideAutoPromotion and truncated preview in all five ports (preview, stringifiedPreview and omit modes, UTF-16 sizes), the Context Metadata mode, and the responder's preview (finalizeResponderNonContextValues). TS goldens axagent/agent-first-requests-auto-promotion and -auto-promotion-modes pin every stage's first request; the port-only auto-upgrade-discovery-and-context-promotion now pins TS's preview. Both goldens fail on the base Python (the modes golden with 'input.<field> must be an array': the old preview turned an optional array into a string)."
     },
     {
       "id": "axir-2026-09-27-match-typescript-ace-prompts-required-inputs-titles-and-agent-seed",
@@ -2895,7 +2895,7 @@
     },
     {
       "id": "axir-2026-09-27-restore-each-agent-stage-s-own-action-log-and-ts-s-runtime-resto",
-      "status": "open",
+      "status": "done",
       "title": "Restore each agent stage's own action log and TS's Runtime Restore notice on a later forward in the ports",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2911,9 +2911,9 @@
         "Render TS's Runtime Restore notice on a later forward and keep it over the shared-session notice",
         "Pin a two-forward TS golden with each stage's first request of the second run"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "1c20db2fa68af33ebeebcf55b8d533947fa5db7c",
+      "verification": "Each stage keeps its own action log across forwards and opens with TS's Runtime Restore notice on its first turn (its own notice wins over the shared-session one); a finished final() turn renders as its code and '(no output)'; evaluation runs start without the stages' earlier actions (TS forwardPipelineForEvaluation). The two-forward TS golden axagent/agent-first-requests-second-forward pins each run's first request of each stage and fails on the base Python."
     },
     {
       "id": "axir-2026-09-27-return-console-output-from-the-java-quickjs-code-runtime",
