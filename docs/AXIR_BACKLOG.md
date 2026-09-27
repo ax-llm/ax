@@ -18,6 +18,30 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-27-match-typescript-s-structured-output-validation-messages-for-str` [axgen] Match TypeScript's structured-output validation messages for string and number constraints in the ports
+  - Status: open
+  - Source commit: `7a45c6024cb4b7a32526b81b86e447a57ea49ed1`
+  - TS paths: `src/ax/dsp/errors.ts`, `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/validators.ts`
+  - Impact: TypeScript's validateStructuredOutputValues reports a constraint failure as "Field '<title>' failed validation: String must be at most 20 characters long. You provided: \"<value>\" (22 characters).", where a nested field's title is its key (structuredJson.ts nestedFieldFromType title: name). The ports' validate path (validate.axir @validate_string_constraints_impl and @validate_number_constraints_impl) drops the 'You provided' suffix and titles nested fields ('Username' for username); the streaming path (stream.axir) already has the suffix. The message reaches the model in a validation retry (Invalid Field: ...). Pinned so far only by substring in validation/output-string-*; add full-message goldens and fix.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-27-open-a-fresh-native-chat-session-for-each-axgen-request-in-the-p` [axgen] Open a fresh native chat session for each AxGen request in the ports, as TypeScript does, instead of steering the open session with a correction
+  - Status: open
+  - Source commit: `d691dd63fb7f6ec665309a3c354322e6320f229d`
+  - TS paths: `src/ax/dsp/chatSession.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TypeScript's axRunChatSession opens a native chat session for each AxGen request and closes it when the request's response completes; a validation or assertion correction (and a processor-feedback continuation) is a new request, so it opens a fresh session whose prompt ends with the correction message. The ports keep one session for the whole run and steer it with the correction text, then continue it: reproduced in Python with a scripted session (TS: open, close, open with the correction [{type: 'text', text: 'Follow these instructions: The answer must be Paris.'}], close; Python: open, steer 'The previous response failed validation: The answer must be Paris.. Return only corrected JSON.', continue, close). The request sequence on the wire differs for session-capable providers (for example GPT-6 Astra WebSocket sessions).
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-27-stream-axgen-deltas-under-native-chat-sessions-in-the-ports-as-t` [axgen] Stream AxGen deltas under native chat sessions in the ports as TypeScript does: each session response through the plain-stream extraction, with a new version per response
+  - Status: open
+  - Source commit: `c14f3d834656e966a2cc100e8ae9be53ebfa3ec0`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/response/streaming.ts`, `src/ax/dsp/chatSession.test.ts`
+  - Impact: TypeScript streamingForward under a native chat session (a session-capable provider with a run control or background tools) now streams each session response through the same extraction as a plain stream, on that response's own state. Before, a partial event that split a field label corrupted the merged output: chunks 'Answer: Pa', 'ris' + newline + 'Rea', 'son: capi', 'tal' merged to answer 'Paris' + newline + 'ReaParis' and reason 'capitalcapital', and forward with stream: true returned the same. A later response or a correction starts a new version, the final pass sends only what the partial events did not (the thought included), and a streaming assertion that fails on a partial keeps the partial answer in the retry prompt, as in a plain stream. The ports have no session deltas yet: Python and Java raise NotImplementedError / UnsupportedOperationException for streaming_forward deltas under a run session, and per their session clients (StreamEvents, stream_open, stream_service) Go, Rust and C++ answer a session's stream with its completed response as one chunk.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-27-transport-error-classification` [axai] Real HTTP transport timeouts and connection failures raise TypeScript's typed, retryable errors in every port
+  - Status: open
+  - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
+  - TS paths: `src/ax/util/apicall.ts`
+  - Impact: TypeScript's apiCall raises AxAIServiceTimeoutError for a timeout and AxAIServiceNetworkError for a failed connection, and AxGen retries both as infrastructure errors (the #703/#707 classification). Rust's reqwest transport maps them to an untyped, non-retryable AxError (category ai_service), as a per-call timeout in seconds shows on origin/main ('error sending request for url', no error type). The other ports' real HTTP clients (urllib, net/http, HttpClient, libcurl) are not yet audited against TypeScript for these two cases.
+  - Suggested AxIR work: Audit the five ports' real HTTP clients for transport-level timeouts and connection failures against TypeScript; Type and mark retryable what TypeScript types and retries
 - `axir-2026-09-27-drop-a-failed-non-streaming-axgen-attempt-and-its-correction-whe` [axgen] Drop a failed non-streaming AxGen attempt and its correction when the next answer arrives in the ports
   - Status: open
   - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
@@ -36,18 +60,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/agent/agentInternal/runtimeInputState.ts`, `src/ax/agent/runtime.ts`
   - Impact: autoUpgrade.contextFields with promoteAboveChars 20 and previewChars 8 and a 52-char document: TS's actor field reads 'Document: ABCDEFGH...[truncated 44 chars]' and the responder gets the same preview; the ports' actor field reads '[runtime-only context: 54 chars available as inputs.document; preview]' then 'ABCDEFGH' (54 is the JSON length with quotes), and the ports' responder gets the full value. The Context Metadata line already matches TS after 3a2 PR A. The port-only fixture auto-upgrade-discovery-and-context-promotion pins the ports' current preview.
   - Suggested AxIR work: Port TS's promotion decision (string length for strings and the preview and omit modes); Render TS's truncated preview in the actor and responder prompts; Replace the port-only promotion fixture with TS-derived goldens
-- `axir-2026-09-27-match-typescript-s-structured-output-validation-messages-for-str` [axgen] Match TypeScript's structured-output validation messages for string and number constraints in the ports
-  - Status: open
-  - Source commit: `7a45c6024cb4b7a32526b81b86e447a57ea49ed1`
-  - TS paths: `src/ax/dsp/errors.ts`, `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/validators.ts`
-  - Impact: TypeScript's validateStructuredOutputValues reports a constraint failure as "Field '<title>' failed validation: String must be at most 20 characters long. You provided: \"<value>\" (22 characters).", where a nested field's title is its key (structuredJson.ts nestedFieldFromType title: name). The ports' validate path (validate.axir @validate_string_constraints_impl and @validate_number_constraints_impl) drops the 'You provided' suffix and titles nested fields ('Username' for username); the streaming path (stream.axir) already has the suffix. The message reaches the model in a validation retry (Invalid Field: ...). Pinned so far only by substring in validation/output-string-*; add full-message goldens and fix.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-09-27-open-a-fresh-native-chat-session-for-each-axgen-request-in-the-p` [axgen] Open a fresh native chat session for each AxGen request in the ports, as TypeScript does, instead of steering the open session with a correction
-  - Status: open
-  - Source commit: `d691dd63fb7f6ec665309a3c354322e6320f229d`
-  - TS paths: `src/ax/dsp/chatSession.ts`, `src/ax/dsp/generate.ts`
-  - Impact: TypeScript's axRunChatSession opens a native chat session for each AxGen request and closes it when the request's response completes; a validation or assertion correction (and a processor-feedback continuation) is a new request, so it opens a fresh session whose prompt ends with the correction message. The ports keep one session for the whole run and steer it with the correction text, then continue it: reproduced in Python with a scripted session (TS: open, close, open with the correction [{type: 'text', text: 'Follow these instructions: The answer must be Paris.'}], close; Python: open, steer 'The previous response failed validation: The answer must be Paris.. Return only corrected JSON.', continue, close). The request sequence on the wire differs for session-capable providers (for example GPT-6 Astra WebSocket sessions).
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-09-27-restore-each-agent-stage-s-own-action-log-and-ts-s-runtime-resto` [axagent] Restore each agent stage's own action log and TS's Runtime Restore notice on a later forward in the ports
   - Status: open
   - Source commit: `5c9264235f25a2dad916f35e0d6271308de1f19a`
@@ -66,12 +78,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
   - Impact: TS's actor marks the stage's own inputs and the stable loop inputs cached (buildSplitPrograms), and under contextCache TS's prompt renderer sends the cached fields as a user message of their own with cache: true, then the other fields in a second user message (prompt.ts). The ports' renderer instead turns a cached field's user content into a list of parts with a cache flag, so the ports' actor signatures leave the cache markers out (3a2 PR A) and the ports' actor requests under contextCache carry no cached user message. Without contextCache both send the same single user message.
   - Suggested AxIR work: Port TS's contextCache user-message split to the ports' prompt renderer; Mark the actor signatures' cached inputs as TS does once the split lands; Pin a contextCache agent golden with TS's cached and uncached user messages
-- `axir-2026-09-27-stream-axgen-deltas-under-native-chat-sessions-in-the-ports-as-t` [axgen] Stream AxGen deltas under native chat sessions in the ports as TypeScript does: each session response through the plain-stream extraction, with a new version per response
-  - Status: open
-  - Source commit: `c14f3d834656e966a2cc100e8ae9be53ebfa3ec0`
-  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/response/streaming.ts`, `src/ax/dsp/chatSession.test.ts`
-  - Impact: TypeScript streamingForward under a native chat session (a session-capable provider with a run control or background tools) now streams each session response through the same extraction as a plain stream, on that response's own state. Before, a partial event that split a field label corrupted the merged output: chunks 'Answer: Pa', 'ris' + newline + 'Rea', 'son: capi', 'tal' merged to answer 'Paris' + newline + 'ReaParis' and reason 'capitalcapital', and forward with stream: true returned the same. A later response or a correction starts a new version, the final pass sends only what the partial events did not (the thought included), and a streaming assertion that fails on a partial keeps the partial answer in the retry prompt, as in a plain stream. The ports have no session deltas yet: Python and Java raise NotImplementedError / UnsupportedOperationException for streaming_forward deltas under a run session, and per their session clients (StreamEvents, stream_open, stream_service) Go, Rust and C++ answer a session's stream with its completed response as one chunk.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -1121,6 +1127,24 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `67b2e78e8`
   - Verification: `Live: detail vs details prompt tokens on gpt-4.1 and gpt-4o-mini, pcm16 HTTP 400, input_audio mimeType and sampleRate HTTP 400, no Responses model takes audio input. TS: api.test.ts detail, pcm and pcm16, and input_audio tests fail on d023f6756 and pass. Ports: axai openai-audio-part-format-from-mime-type, openai-audio-part-unknown-format and responses-audio-part-without-format fail on origin/main in all five ports and pass in all five.`
+- `axir-2026-09-27-per-call-timeout-ms` [axai] A call's timeoutMs bounds the wait for the response headers in the ports
+  - Status: done
+  - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
+  - TS paths: `src/ax/util/apicall.ts`, `src/ax/ai/base.ts`, `src/ax/ai/call_options.test.ts`
+  - Impact: TypeScript reads a per-call timeout in milliseconds (base.ts: options.timeout ?? this.timeout) and apiCall ends a request whose response headers have not arrived by then with AxAIServiceTimeoutError, without a request-layer retry; the timer stops once the headers arrive. On origin/main Python, Go, Java and C++ ignored a per-call timeout, timeoutMs and timeout_ms (a loopback server that never answers kept every call waiting), Rust ignored timeoutMs and read a per-call timeout in seconds for non-streaming requests only, and Rust streams used a fixed 60 s.
+  - Suggested AxIR work: Take TypeScript's per-call timeout as timeoutMs in the ports until the next major version; with the header-wait semantics; and warn once on a per-call timeout; Let Rust streams use the effective timeout
+  - Completed at: 2026-09-27
+  - Completed by: `46b4182cc`
+  - Verification: `TS: src/ax/ai/call_options.test.ts pins the per-call timeout (AxAIServiceTimeoutError 'Request timed out after 50ms', one fetch, a started stream running past it). Ports: axai call-timeout-* (timeout_ms on the transport call for chat, stream and embed, and the one-time warning), axgen call-timeout-ms-* and axagent agent-forward-call-timeout-ms-reaches-each-stage pass in python, go, java, cpp and rust; the timeout_http_roundtrip example (a server that never answers, and a stream whose second event comes after the timeoutMs) passes in all five. Live via the Python port: gemini-3.5-flash and claude-haiku-4-5 complete a chat and a stream with timeoutMs 30000 and time out at timeoutMs 1.`
+- `axir-2026-09-27-per-call-vertex-beta` [axai] A call's beta selects Vertex v1beta1 in Python, Java and C++
+  - Status: done
+  - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
+  - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/call_options.test.ts`
+  - Impact: TypeScript resolves the Vertex API version for each call (getVertexApiURL(model, options.beta)), so a call's beta routes onto v1beta1 and a call's beta: false wins over the service's. Go and Rust merged it per call; Python, Java and C++ fixed the base URL at client construction.
+  - Suggested AxIR work: Resolve the Vertex base URL from each call's merged options unless an explicit base URL is set
+  - Completed at: 2026-09-27
+  - Completed by: `46b4182cc`
+  - Verification: `axai vertex-gemini-per-call-beta, -over-service and -stream fail on origin/main in python, java and cpp (they pass in go and rust) and pass in all five; src/ax/ai/call_options.test.ts pins TypeScript's per-call beta.`
 - `axir-2026-09-27-port-speak-results-carry-typescript-speech-response-keys` [axai] Port speak() results carry TypeScript's AxSpeechResponse keys
   - Status: done
   - Source commit: `de478da3e9660d6cf727dc38ab6b43b6a0b88c4c`
@@ -1166,6 +1190,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `f95ab33cf`
   - Verification: `Ten TS goldens (axgen-streaming-goldens.ts pin_request_layout: forward-request-layout-* for the text contract, native, json_object, function and three requires-structured-output cases, and streaming-forward-request-layout-native/-json-object/-function) pin the first request's whole chat prompt, every request's roles and a forward's response format. On main they fail in all five ports (an extra user instruction turn; the function rung's JSON rule and missing __axOutput listing; no exact JSON shape for a requires-structured simple signature; json_schema for json_object- or function-only providers). Three hand-written fixtures now pin TS's JSON rule and fail on main (the forced-structured prompt carried the text-contract rule while demanding JSON; the axagent-real deepseek fixture passes 10/10 here). Per-port mutations: ignoring structured_output or extra_functions fails its goldens. verify --mode dev: 1235 fixtures in python, go, java, cpp and rust (Rust cargo test 67/67); Python response-perturbation gate 335 mutations across 134 fixtures.`
+- `axir-2026-09-27-responses-prompt-cache-key-every-request` [axai] Every OpenAI Responses request sends prompt_cache_key in the ports
+  - Status: done
+  - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/caching.ts`, `src/ax/ai/call_options.test.ts`
+  - Impact: TypeScript's Responses request builder sends prompt_cache_key on every request: axResolveOpenAIPromptCacheKey gives the call's promptCacheKey, the service's, the call's sessionId, then the service's. The IR sent it only for GPT-6 with prompt caching requested. TypeScript's GPT-6 caching path also dropped a service-level key; it now resolves the key the same way.
+  - Suggested AxIR work: Set prompt_cache_key on the non-Meta Responses request in provider.axir; Resolve the key on TypeScript's GPT-6 caching path with axResolveOpenAIPromptCacheKey
+  - Completed at: 2026-09-27
+  - Completed by: `46b4182cc`
+  - Verification: `Seven axai openai-responses-prompt-cache-key-* fixtures (six send a key, one pins its absence) fail on origin/main in all five ports where a key is expected and pass in all five; openai-responses-prompt-cache-disabled now expects the key. src/ax/ai/call_options.test.ts pins TypeScript, including the GPT-6 cache path test that fails before the TypeScript fix. Live: the Responses API accepts prompt_cache_key on gpt-5.4-mini, gpt-6-luna and gpt-6-astra (HTTP 200, key echoed).`
 - `axir-2026-09-27-sampling-support-and-credential-routing` [axai] Match TypeScript's sampling support (explicit values the model accepts, one-time warnings) and keep credentials with their provider in the ports
   - Status: done
   - Source commit: `b253360603e59ab4fd0e550710d47ffae92faf05`

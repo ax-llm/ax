@@ -2367,28 +2367,6 @@
       "verification": "npm run axir:conformance:check (25 date fixtures: 305 parser cases, 16 input cases, forward and streamingForward with and without parseDates); node scripts/run-axir.mjs verify --mode release per target (python, go, java, cpp: 1137 fixtures; rust conformance suites); npm run test --workspace=@ax-llm/ax"
     },
     {
-      "id": "axir-2026-09-27-drop-a-failed-non-streaming-axgen-attempt-and-its-correction-whe",
-      "status": "open",
-      "title": "Drop a failed non-streaming AxGen attempt and its correction when the next answer arrives in the ports",
-      "createdAt": "2026-09-27",
-      "sourcePR": null,
-      "sourceCommit": "0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346",
-      "tsPaths": [
-        "src/ax/dsp/response/nonStreaming.ts",
-        "src/ax/dsp/generate.ts"
-      ],
-      "portableSurface": "axgen",
-      "impact": "TS forward removes the memory tagged correction and error when a new answer arrives (response/nonStreaming.ts, unless disableMemoryCleanup), and generate.ts tags the failed answer error, so every validation retry sends one failed attempt and its correction. The ports keep them all. Plain ax('question:string -> answer:string') with an assert that always fails and maxRetries 3, request roles: TS [[system,user],[system,user,assistant,user],[system,user,assistant,user],[system,user,assistant,user]]; Python port [[system,user],[system,user,assistant,user],[system,user,assistant,user,assistant,user],[system,user,assistant,user,assistant,user,assistant,user]]. TS streamingForward keeps them all, as the ports do. The agent goldens agent-forward-citations-exhausted and agent-forward-control-failed leave expected_request_roles out until this lands.",
-      "suggestedAxirWork": [
-        "Port TS's non-streaming memory cleanup of correction and error tagged messages",
-        "Add an AxGen forward golden with two or more validation retries that pins the request roles",
-        "Re-add expected_request_roles to agent-forward-citations-exhausted and agent-forward-control-failed"
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
-    },
-    {
       "id": "axir-2026-09-27-evaluated-agent-predictions-carry-the-runs-calls-errors-and-turns",
       "status": "done",
       "title": "Evaluated agent predictions carry the run's function calls, tool errors and turn count, as TypeScript's do",
@@ -2410,28 +2388,6 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "fcb1c34d80cea7dec27380f48d4228a9f361a857",
       "verification": "@agent_eval_marks and @build_agent_run_prediction build every port's evaluated prediction (final, askClarification and the ports' error prediction) from the run's own share of the logs, with TS-shaped functionCalls, toolErrors, failure signals and turn count; @agent_playbook_action_log_text renders the distiller's steps when the executor did not run. TS goldens axoptimize/eval-prediction-function-calls and -clarification-function-calls (TS's forwardPipelineForEvaluation through a scripted tool runtime; new runner keys runtime_script for optimize eval and expected_prediction_fields for exact fields, in all five runners) and axagent/agent-playbook-evolve-miner-function-calls (two tasks) and -miner-direct-respond (TS's mineWeakness over TS's evaluated predictions) fail on main in all five ports and pass in all five; 10 negative copies fail in all five (50 of 50). The Rust runner's eval operation now runs the agent. Full suites 1229/1229 in python, go, java, cpp and rust."
-    },
-    {
-      "id": "axir-2026-09-27-honor-a-flat-function-s-own-namespace-in-the-ports-agents",
-      "status": "open",
-      "title": "Honor a flat function's own namespace in the ports' agents",
-      "createdAt": "2026-09-27",
-      "sourcePR": null,
-      "sourceCommit": "0b6a079a75591e15c7be5cabd3e12d2ca23146b7",
-      "tsPaths": [
-        "src/ax/agent/agentInternal/runtimeGlobals.ts",
-        "src/ax/agent/agentInternal/runtimeExecution.ts"
-      ],
-      "portableSurface": "axagent",
-      "impact": "TS lists and runs fn('query').namespace('warehouse') passed flat in an agent's functions as warehouse.query (probe on this worktree: the executor lists warehouse.query(args: { region?: string }), the runtime has warehouse.query and no tools.query, and the call reaches the handler). The Python port lists and runs the same tool as tools.query (@agent_callable_implementation files every flat item under 'tools'; seen in the executor prompt and live runs). Go's and Java's Tool have no namespace field. Rust and C++ namespace tools only through with_tool_module and add_tool_module.",
-      "suggestedAxirWork": [
-        "Keep a flat tool's namespace in the callable inventory and in @agent_callable_implementation",
-        "Add the fn namespace API where a port's Tool lacks it",
-        "Pin a TS golden with a flat namespaced tool listed and called under its namespace"
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
     },
     {
       "id": "axir-2026-09-27-js-text-for-string-format-chat-message-and-nameless-call-checks",
@@ -2474,28 +2430,6 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "2535eae3a",
       "verification": "Go and Rust run streaming-forward-split-surrogate-pair (their runners declare lone-surrogate support; tools/axir string_model_test.go expects all five to). On main, Go read each half as U+FFFD (deltas 'hi \\ufffd' and '\\ufffd there'; the new Go tests fail with 'hi \\ufffd\\ufffd there' over HTTP SSE) and Rust could not load the golden (serde_json: unexpected end of hex escape) while its SSE parsers pinned 'hi \\ufffd\\ufffd there'. Go keeps a lone surrogate escape as WTF-8 in parseJSON and the streaming SSE reader; Rust reads it as a private-use mark in stream events, parse_json and both WebSocket readers; both join split pairs in the stream-text intrinsics and write a leftover half as JS does. Go TestLoneSurrogateEscapesKeepTheirHalves and TestStreamedSplitSurrogatePairJoins, Rust a_split_surrogate_pair_joins_into_one_character (streamed and buffered SSE). verify --mode release passes for go and rust (1390 fixtures each)."
-    },
-    {
-      "id": "axir-2026-09-27-match-ts-s-auto-promoted-context-value-previews-in-the-ports-age",
-      "status": "open",
-      "title": "Match TS's auto-promoted context value previews in the ports' agent prompts",
-      "createdAt": "2026-09-27",
-      "sourcePR": null,
-      "sourceCommit": "0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346",
-      "tsPaths": [
-        "src/ax/agent/agentInternal/runtimeInputState.ts",
-        "src/ax/agent/runtime.ts"
-      ],
-      "portableSurface": "axagent",
-      "impact": "autoUpgrade.contextFields with promoteAboveChars 20 and previewChars 8 and a 52-char document: TS's actor field reads 'Document: ABCDEFGH...[truncated 44 chars]' and the responder gets the same preview; the ports' actor field reads '[runtime-only context: 54 chars available as inputs.document; preview]' then 'ABCDEFGH' (54 is the JSON length with quotes), and the ports' responder gets the full value. The Context Metadata line already matches TS after 3a2 PR A. The port-only fixture auto-upgrade-discovery-and-context-promotion pins the ports' current preview.",
-      "suggestedAxirWork": [
-        "Port TS's promotion decision (string length for strings and the preview and omit modes)",
-        "Render TS's truncated preview in the actor and responder prompts",
-        "Replace the port-only promotion fixture with TS-derived goldens"
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
     },
     {
       "id": "axir-2026-09-27-match-typescript-ace-prompts-required-inputs-titles-and-agent-seed",
@@ -2730,6 +2664,50 @@
       "verification": "Live: detail vs details prompt tokens on gpt-4.1 and gpt-4o-mini, pcm16 HTTP 400, input_audio mimeType and sampleRate HTTP 400, no Responses model takes audio input. TS: api.test.ts detail, pcm and pcm16, and input_audio tests fail on d023f6756 and pass. Ports: axai openai-audio-part-format-from-mime-type, openai-audio-part-unknown-format and responses-audio-part-without-format fail on origin/main in all five ports and pass in all five."
     },
     {
+      "id": "axir-2026-09-27-per-call-timeout-ms",
+      "status": "done",
+      "title": "A call's timeoutMs bounds the wait for the response headers in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68",
+      "tsPaths": [
+        "src/ax/util/apicall.ts",
+        "src/ax/ai/base.ts",
+        "src/ax/ai/call_options.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript reads a per-call timeout in milliseconds (base.ts: options.timeout ?? this.timeout) and apiCall ends a request whose response headers have not arrived by then with AxAIServiceTimeoutError, without a request-layer retry; the timer stops once the headers arrive. On origin/main Python, Go, Java and C++ ignored a per-call timeout, timeoutMs and timeout_ms (a loopback server that never answers kept every call waiting), Rust ignored timeoutMs and read a per-call timeout in seconds for non-streaming requests only, and Rust streams used a fixed 60 s.",
+      "suggestedAxirWork": [
+        "Take TypeScript's per-call timeout as timeoutMs in the ports until the next major version",
+        "with the header-wait semantics",
+        "and warn once on a per-call timeout",
+        "Let Rust streams use the effective timeout"
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "46b4182cc",
+      "verification": "TS: src/ax/ai/call_options.test.ts pins the per-call timeout (AxAIServiceTimeoutError 'Request timed out after 50ms', one fetch, a started stream running past it). Ports: axai call-timeout-* (timeout_ms on the transport call for chat, stream and embed, and the one-time warning), axgen call-timeout-ms-* and axagent agent-forward-call-timeout-ms-reaches-each-stage pass in python, go, java, cpp and rust; the timeout_http_roundtrip example (a server that never answers, and a stream whose second event comes after the timeoutMs) passes in all five. Live via the Python port: gemini-3.5-flash and claude-haiku-4-5 complete a chat and a stream with timeoutMs 30000 and time out at timeoutMs 1."
+    },
+    {
+      "id": "axir-2026-09-27-per-call-vertex-beta",
+      "status": "done",
+      "title": "A call's beta selects Vertex v1beta1 in Python, Java and C++",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68",
+      "tsPaths": [
+        "src/ax/ai/google-gemini/api.ts",
+        "src/ax/ai/call_options.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript resolves the Vertex API version for each call (getVertexApiURL(model, options.beta)), so a call's beta routes onto v1beta1 and a call's beta: false wins over the service's. Go and Rust merged it per call; Python, Java and C++ fixed the base URL at client construction.",
+      "suggestedAxirWork": [
+        "Resolve the Vertex base URL from each call's merged options unless an explicit base URL is set"
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "46b4182cc",
+      "verification": "axai vertex-gemini-per-call-beta, -over-service and -stream fail on origin/main in python, java and cpp (they pass in go and rust) and pass in all five; src/ax/ai/call_options.test.ts pins TypeScript's per-call beta."
+    },
+    {
       "id": "axir-2026-09-27-port-speak-results-carry-typescript-speech-response-keys",
       "status": "done",
       "title": "Port speak() results carry TypeScript's AxSpeechResponse keys",
@@ -2828,44 +2806,26 @@
       "verification": "Ten TS goldens (axgen-streaming-goldens.ts pin_request_layout: forward-request-layout-* for the text contract, native, json_object, function and three requires-structured-output cases, and streaming-forward-request-layout-native/-json-object/-function) pin the first request's whole chat prompt, every request's roles and a forward's response format. On main they fail in all five ports (an extra user instruction turn; the function rung's JSON rule and missing __axOutput listing; no exact JSON shape for a requires-structured simple signature; json_schema for json_object- or function-only providers). Three hand-written fixtures now pin TS's JSON rule and fail on main (the forced-structured prompt carried the text-contract rule while demanding JSON; the axagent-real deepseek fixture passes 10/10 here). Per-port mutations: ignoring structured_output or extra_functions fails its goldens. verify --mode dev: 1235 fixtures in python, go, java, cpp and rust (Rust cargo test 67/67); Python response-perturbation gate 335 mutations across 134 fixtures."
     },
     {
-      "id": "axir-2026-09-27-restore-each-agent-stage-s-own-action-log-and-ts-s-runtime-resto",
-      "status": "open",
-      "title": "Restore each agent stage's own action log and TS's Runtime Restore notice on a later forward in the ports",
+      "id": "axir-2026-09-27-responses-prompt-cache-key-every-request",
+      "status": "done",
+      "title": "Every OpenAI Responses request sends prompt_cache_key in the ports",
       "createdAt": "2026-09-27",
       "sourcePR": null,
-      "sourceCommit": "5c9264235f25a2dad916f35e0d6271308de1f19a",
+      "sourceCommit": "46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68",
       "tsPaths": [
-        "src/ax/agent/agentInternal/actorLoop.ts",
-        "src/ax/agent/state.ts"
+        "src/ax/ai/openai/responses_api.ts",
+        "src/ax/ai/openai/caching.ts",
+        "src/ax/ai/call_options.test.ts"
       ],
-      "portableSurface": "axagent",
-      "impact": "TS keeps each actor stage's state across forward calls (actorLoop.ts restores s.state): on a second forward of the same agent the distiller's first request shows 'Summarized Actor Log: Runtime Restore:' (state.ts buildRuntimeRestoreNotice), its own earlier actions (a finished final() turn renders as the code and 'Result: (no output)') and the live runtime state, and the executor shows the same notice (not the shared-session one) with its own earlier actions. Main's ports showed both stages' earlier actions plus the runtime-session records; after 3a2 PR A the ports show none ('(no actions yet)') and no restore notice. Reproduced with two forwards on one agent (scripted model and runtime) in TS and the Python port.",
+      "portableSurface": "axai",
+      "impact": "TypeScript's Responses request builder sends prompt_cache_key on every request: axResolveOpenAIPromptCacheKey gives the call's promptCacheKey, the service's, the call's sessionId, then the service's. The IR sent it only for GPT-6 with prompt caching requested. TypeScript's GPT-6 caching path also dropped a service-level key; it now resolves the key the same way.",
       "suggestedAxirWork": [
-        "Keep each stage's action log across forwards and render finished turns as TS does",
-        "Render TS's Runtime Restore notice on a later forward and keep it over the shared-session notice",
-        "Pin a two-forward TS golden with each stage's first request of the second run"
+        "Set prompt_cache_key on the non-Meta Responses request in provider.axir",
+        "Resolve the key on TypeScript's GPT-6 caching path with axResolveOpenAIPromptCacheKey"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
-    },
-    {
-      "id": "axir-2026-09-27-return-console-output-from-the-java-quickjs-code-runtime",
-      "status": "open",
-      "title": "Return console output from the Java QuickJS code runtime",
-      "createdAt": "2026-09-27",
-      "sourcePR": null,
-      "sourceCommit": "0b6a079a75591e15c7be5cabd3e12d2ca23146b7",
-      "tsPaths": ["src/ax/funcs/jsRuntime.ts"],
-      "portableSurface": "runtime",
-      "impact": "TS's AxJSRuntime captures console.log output as the execution result (stdout mode) and the actor sees it in its action log. The Java AxQuickJsCodeRuntime (AxQuickJsCodeSession.__ax_run) returns only the completion and the bindings, so console.log output never reaches the actor: live (gemini-3.5-flash, Java data-analyst example on 3b03f7c10, before and after #765) the distiller logged inputs.schema about 40 times, each with an empty Result, and failed with 'agent distiller loop exceeded max steps'. After #765 the same example answered correctly in Python, Go, Rust and C++; checking their console capture is part of the fix.",
-      "suggestedAxirWork": [
-        "Capture console output in the Java QuickJS bootstrap and return it as the step's output",
-        "Pin a runtime-protocol fixture with console output reaching the action log in every port"
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "46b4182cc",
+      "verification": "Seven axai openai-responses-prompt-cache-key-* fixtures (six send a key, one pins its absence) fail on origin/main in all five ports where a key is expected and pass in all five; openai-responses-prompt-cache-disabled now expects the key. src/ax/ai/call_options.test.ts pins TypeScript, including the GPT-6 cache path test that fails before the TypeScript fix. Live: the Responses API accepts prompt_cache_key on gpt-5.4-mini, gpt-6-luna and gpt-6-astra (HTTP 200, key echoed)."
     },
     {
       "id": "axir-2026-09-27-sampling-support-and-credential-routing",
@@ -2913,28 +2873,6 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "67b2e78e8",
       "verification": "12 TS-derived axai speak goldens (TypeScript's real OpenAI, Mistral, Grok and Gemini speak() against fetch stubs, with expected_transport_json_absent for keys TS leaves out) fail on origin/main in all five ports and pass in all five; responses-speak pins the deprecated audio-key fallback."
-    },
-    {
-      "id": "axir-2026-09-27-split-the-actor-prompt-into-cached-and-uncached-user-messages-un",
-      "status": "open",
-      "title": "Split the actor prompt into cached and uncached user messages under contextCache in the ports",
-      "createdAt": "2026-09-27",
-      "sourcePR": null,
-      "sourceCommit": "0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346",
-      "tsPaths": [
-        "src/ax/dsp/prompt.ts",
-        "src/ax/agent/agentInternal/signatureBuilders.ts"
-      ],
-      "portableSurface": "prompt",
-      "impact": "TS's actor marks the stage's own inputs and the stable loop inputs cached (buildSplitPrograms), and under contextCache TS's prompt renderer sends the cached fields as a user message of their own with cache: true, then the other fields in a second user message (prompt.ts). The ports' renderer instead turns a cached field's user content into a list of parts with a cache flag, so the ports' actor signatures leave the cache markers out (3a2 PR A) and the ports' actor requests under contextCache carry no cached user message. Without contextCache both send the same single user message.",
-      "suggestedAxirWork": [
-        "Port TS's contextCache user-message split to the ports' prompt renderer",
-        "Mark the actor signatures' cached inputs as TS does once the split lands",
-        "Pin a contextCache agent golden with TS's cached and uncached user messages"
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
     },
     {
       "id": "axir-2026-09-27-stable-stringify-locale-order",
@@ -2992,6 +2930,152 @@
         "Add or update the TS-derived conformance fixture.",
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-27-transport-error-classification",
+      "status": "open",
+      "title": "Real HTTP transport timeouts and connection failures raise TypeScript's typed, retryable errors in every port",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68",
+      "tsPaths": ["src/ax/util/apicall.ts"],
+      "portableSurface": "axai",
+      "impact": "TypeScript's apiCall raises AxAIServiceTimeoutError for a timeout and AxAIServiceNetworkError for a failed connection, and AxGen retries both as infrastructure errors (the #703/#707 classification). Rust's reqwest transport maps them to an untyped, non-retryable AxError (category ai_service), as a per-call timeout in seconds shows on origin/main ('error sending request for url', no error type). The other ports' real HTTP clients (urllib, net/http, HttpClient, libcurl) are not yet audited against TypeScript for these two cases.",
+      "suggestedAxirWork": [
+        "Audit the five ports' real HTTP clients for transport-level timeouts and connection failures against TypeScript",
+        "Type and mark retryable what TypeScript types and retries"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-27-drop-a-failed-non-streaming-axgen-attempt-and-its-correction-whe",
+      "status": "open",
+      "title": "Drop a failed non-streaming AxGen attempt and its correction when the next answer arrives in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346",
+      "tsPaths": [
+        "src/ax/dsp/response/nonStreaming.ts",
+        "src/ax/dsp/generate.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TS forward removes the memory tagged correction and error when a new answer arrives (response/nonStreaming.ts, unless disableMemoryCleanup), and generate.ts tags the failed answer error, so every validation retry sends one failed attempt and its correction. The ports keep them all. Plain ax('question:string -> answer:string') with an assert that always fails and maxRetries 3, request roles: TS [[system,user],[system,user,assistant,user],[system,user,assistant,user],[system,user,assistant,user]]; Python port [[system,user],[system,user,assistant,user],[system,user,assistant,user,assistant,user],[system,user,assistant,user,assistant,user,assistant,user]]. TS streamingForward keeps them all, as the ports do. The agent goldens agent-forward-citations-exhausted and agent-forward-control-failed leave expected_request_roles out until this lands.",
+      "suggestedAxirWork": [
+        "Port TS's non-streaming memory cleanup of correction and error tagged messages",
+        "Add an AxGen forward golden with two or more validation retries that pins the request roles",
+        "Re-add expected_request_roles to agent-forward-citations-exhausted and agent-forward-control-failed"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-27-honor-a-flat-function-s-own-namespace-in-the-ports-agents",
+      "status": "open",
+      "title": "Honor a flat function's own namespace in the ports' agents",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "0b6a079a75591e15c7be5cabd3e12d2ca23146b7",
+      "tsPaths": [
+        "src/ax/agent/agentInternal/runtimeGlobals.ts",
+        "src/ax/agent/agentInternal/runtimeExecution.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "TS lists and runs fn('query').namespace('warehouse') passed flat in an agent's functions as warehouse.query (probe on this worktree: the executor lists warehouse.query(args: { region?: string }), the runtime has warehouse.query and no tools.query, and the call reaches the handler). The Python port lists and runs the same tool as tools.query (@agent_callable_implementation files every flat item under 'tools'; seen in the executor prompt and live runs). Go's and Java's Tool have no namespace field. Rust and C++ namespace tools only through with_tool_module and add_tool_module.",
+      "suggestedAxirWork": [
+        "Keep a flat tool's namespace in the callable inventory and in @agent_callable_implementation",
+        "Add the fn namespace API where a port's Tool lacks it",
+        "Pin a TS golden with a flat namespaced tool listed and called under its namespace"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-27-match-ts-s-auto-promoted-context-value-previews-in-the-ports-age",
+      "status": "open",
+      "title": "Match TS's auto-promoted context value previews in the ports' agent prompts",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346",
+      "tsPaths": [
+        "src/ax/agent/agentInternal/runtimeInputState.ts",
+        "src/ax/agent/runtime.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "autoUpgrade.contextFields with promoteAboveChars 20 and previewChars 8 and a 52-char document: TS's actor field reads 'Document: ABCDEFGH...[truncated 44 chars]' and the responder gets the same preview; the ports' actor field reads '[runtime-only context: 54 chars available as inputs.document; preview]' then 'ABCDEFGH' (54 is the JSON length with quotes), and the ports' responder gets the full value. The Context Metadata line already matches TS after 3a2 PR A. The port-only fixture auto-upgrade-discovery-and-context-promotion pins the ports' current preview.",
+      "suggestedAxirWork": [
+        "Port TS's promotion decision (string length for strings and the preview and omit modes)",
+        "Render TS's truncated preview in the actor and responder prompts",
+        "Replace the port-only promotion fixture with TS-derived goldens"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-27-restore-each-agent-stage-s-own-action-log-and-ts-s-runtime-resto",
+      "status": "open",
+      "title": "Restore each agent stage's own action log and TS's Runtime Restore notice on a later forward in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "5c9264235f25a2dad916f35e0d6271308de1f19a",
+      "tsPaths": [
+        "src/ax/agent/agentInternal/actorLoop.ts",
+        "src/ax/agent/state.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "TS keeps each actor stage's state across forward calls (actorLoop.ts restores s.state): on a second forward of the same agent the distiller's first request shows 'Summarized Actor Log: Runtime Restore:' (state.ts buildRuntimeRestoreNotice), its own earlier actions (a finished final() turn renders as the code and 'Result: (no output)') and the live runtime state, and the executor shows the same notice (not the shared-session one) with its own earlier actions. Main's ports showed both stages' earlier actions plus the runtime-session records; after 3a2 PR A the ports show none ('(no actions yet)') and no restore notice. Reproduced with two forwards on one agent (scripted model and runtime) in TS and the Python port.",
+      "suggestedAxirWork": [
+        "Keep each stage's action log across forwards and render finished turns as TS does",
+        "Render TS's Runtime Restore notice on a later forward and keep it over the shared-session notice",
+        "Pin a two-forward TS golden with each stage's first request of the second run"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-27-return-console-output-from-the-java-quickjs-code-runtime",
+      "status": "open",
+      "title": "Return console output from the Java QuickJS code runtime",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "0b6a079a75591e15c7be5cabd3e12d2ca23146b7",
+      "tsPaths": ["src/ax/funcs/jsRuntime.ts"],
+      "portableSurface": "runtime",
+      "impact": "TS's AxJSRuntime captures console.log output as the execution result (stdout mode) and the actor sees it in its action log. The Java AxQuickJsCodeRuntime (AxQuickJsCodeSession.__ax_run) returns only the completion and the bindings, so console.log output never reaches the actor: live (gemini-3.5-flash, Java data-analyst example on 3b03f7c10, before and after #765) the distiller logged inputs.schema about 40 times, each with an empty Result, and failed with 'agent distiller loop exceeded max steps'. After #765 the same example answered correctly in Python, Go, Rust and C++; checking their console capture is part of the fix.",
+      "suggestedAxirWork": [
+        "Capture console output in the Java QuickJS bootstrap and return it as the step's output",
+        "Pin a runtime-protocol fixture with console output reaching the action log in every port"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-27-split-the-actor-prompt-into-cached-and-uncached-user-messages-un",
+      "status": "open",
+      "title": "Split the actor prompt into cached and uncached user messages under contextCache in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346",
+      "tsPaths": [
+        "src/ax/dsp/prompt.ts",
+        "src/ax/agent/agentInternal/signatureBuilders.ts"
+      ],
+      "portableSurface": "prompt",
+      "impact": "TS's actor marks the stage's own inputs and the stable loop inputs cached (buildSplitPrograms), and under contextCache TS's prompt renderer sends the cached fields as a user message of their own with cache: true, then the other fields in a second user message (prompt.ts). The ports' renderer instead turns a cached field's user content into a list of parts with a cache flag, so the ports' actor signatures leave the cache markers out (3a2 PR A) and the ports' actor requests under contextCache carry no cached user message. Without contextCache both send the same single user message.",
+      "suggestedAxirWork": [
+        "Port TS's contextCache user-message split to the ports' prompt renderer",
+        "Mark the actor signatures' cached inputs as TS does once the split lands",
+        "Pin a contextCache agent golden with TS's cached and uncached user messages"
       ],
       "completedAt": null,
       "completedByCommit": null,

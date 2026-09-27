@@ -2686,6 +2686,11 @@ public final class Conformance {
     }
     assertAgentRunProjections(fixture, agent, client, streamDeltas, controlEvents, observerCalls, observerMarks);
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected agent request count mismatch");
+    // Every chat call's options carry these (a forward option each stage gets).
+    if (fixture.containsKey("expected_chat_options_all_subset")) {
+      if (client.chatOptions.isEmpty()) throw new FixtureError("fixture expected chat options but none were recorded");
+      for (int index = 0; index < client.chatOptions.size(); index++) assertSubset(client.chatOptions.get(index), fixture.get("expected_chat_options_all_subset"), "chat options " + index);
+    }
     Map<String, Object> exactProjection = Core.asMap(fixture.getOrDefault("exact_observable_projection", Map.of()));
     if (exactProjection.containsKey("stateRoundtrip")) assertEqual(stateRoundtripProjection, exactProjection.get("stateRoundtrip"), "exact agent state roundtrip projection");
     if (exactProjection.containsKey("ranking")) {
@@ -3127,6 +3132,11 @@ public final class Conformance {
       Core.setEnvOverrides(null);
     }
     if (fixture.containsKey("expected_warnings")) assertEqual(captured, fixture.get("expected_warnings"), "ai chat warnings");
+    // Each fragment appears in a warning the call logged (a port's wording may differ).
+    for (Object fragment : Core.asList(fixture.getOrDefault("expected_warnings_containing", List.of()))) {
+      boolean found = captured.stream().anyMatch(message -> String.valueOf(message).contains(String.valueOf(fragment)));
+      if (!found) throw new FixtureError("no ai chat warning contains " + fragment + ": " + captured);
+    }
   }
 
   static void runAIChatRequest(Map<String, Object> fixture) {

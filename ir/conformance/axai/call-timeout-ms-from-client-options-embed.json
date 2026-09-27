@@ -1,0 +1,34 @@
+{
+  "description": "Port-only: a timeoutMs in the client's options applies to each embed request, as TS's service timeout does.",
+  "embed_model": "text-embedding-3-small",
+  "expected_transport_request": {
+    "timeout_ms": 250
+  },
+  "kind": "ai_embed",
+  "name": "call-timeout-ms-from-client-options-embed",
+  "provider": "openai",
+  "request": {
+    "texts": ["hello"]
+  },
+  "service_options": {
+    "timeoutMs": 250
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "data": [
+          {
+            "embedding": [0.1, 0.2],
+            "index": 0
+          }
+        ],
+        "model": "text-embedding-3-small",
+        "usage": {
+          "prompt_tokens": 1,
+          "total_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}

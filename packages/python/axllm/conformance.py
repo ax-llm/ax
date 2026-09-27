@@ -2666,6 +2666,12 @@ def _run_agent_forward(fixture):
         _assert_equal(actual_messages, expected_first["messages"], f"{expected_first['stage']} first request")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+    # Every chat call's options carry these (a forward option each stage gets).
+    if "expected_chat_options_all_subset" in fixture:
+        if not client.chat_options:
+            raise FixtureError("fixture expected chat options but none were recorded")
+        for index, options in enumerate(client.chat_options):
+            _assert_subset(options, fixture["expected_chat_options_all_subset"], f"chat options {index}")
     projection = fixture.get("exact_observable_projection") or {}
     if "stateRoundtrip" in projection:
         _assert_equal(state_roundtrip_projection, projection["stateRoundtrip"], "exact agent state roundtrip projection")
@@ -3306,6 +3312,10 @@ def _run_ai_chat(fixture):
                 os.environ[key] = value
     if "expected_warnings" in fixture:
         _assert_equal(captured, fixture["expected_warnings"], "ai chat warnings")
+    # Each fragment appears in a warning the call logged (a port's wording may differ).
+    for fragment in fixture.get("expected_warnings_containing") or []:
+        if not any(str(fragment) in message for message in captured):
+            raise FixtureError(f"no ai chat warning contains {fragment!r}: {captured!r}")
 
 
 def _run_ai_chat_request(fixture):

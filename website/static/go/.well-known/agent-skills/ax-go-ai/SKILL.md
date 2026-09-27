@@ -80,10 +80,17 @@ Runnable signature, native criteria/scoring, and two-program hybrid examples are
 - Credential callbacks cover chat, stream, embeddings, Responses, transcription, speech, and retries. Callback errors stop before transport, and completed 401/403 generation responses are not replayed automatically.
 - Keep ADC and cloud SDK dependencies host-owned: obtain or refresh the token inside the callback. A required-auth profile accepts either a static key or the callback.
 - Core resolves `global`, `us`, `eu`, and regional Vertex hosts. An explicit `baseUrl` / `base_url` takes precedence.
+- `beta` on a call routes that Vertex call onto `v1beta1`, and `beta: false` keeps it on `v1` when the client sets `beta`, as in TypeScript.
 - On Vertex, `gemini-embedding-2` embeds through `:embedContent` at the `global` location whatever `region` is set. Each call embeds exactly one text, because Vertex fuses a request's texts into one vector, and sends no task type, which Vertex ignores for this model; put task instructions in the text instead. Other embedding models and `endpointId` / `endpoint_id` deployments keep the regional `:predict` call.
 - OpenAI GPT-5.6 Chat explicit caching is opt-in through `contextCache` / `context_cache` or message/function cache flags. Use `promptCacheKey` / `prompt_cache_key` for stable affinity; `sessionId` / `session_id` is the fallback.
+- As in TypeScript, every OpenAI Responses request sends `prompt_cache_key`: the `promptCacheKey` / `prompt_cache_key`, else the `sessionId` / `session_id`, the call's before the client's. Chat Completions sends it only with GPT-5.6 caching.
 - Normalized usage separates uncached prompt, cache-read, and cache-creation tokens. `get_model_cost` / target equivalent uses the shared model catalog, including cache-write pricing and long-context thresholds.
 - Start with the OpenAI prompt-caching and Vertex Gemini examples under `examples/`. Scripted AxAI fixtures verify routing without live credentials.
+
+## Request Timeouts
+
+- `timeoutMs` on a chat, stream or embed call bounds the wait for the response headers in milliseconds, as TypeScript's per-call `timeout` does. In the client's options it applies to every call. A request whose response has not started in time fails with `AxAIServiceTimeoutError` (`Request timed out after <N>ms`). The request layer does not retry it, and AxGen retries it as an infrastructure error. Once the response starts, the body reads as it did before. AxGen and agent forwards pass `timeoutMs` to every model call.
+- A per-call `timeout` is ignored until the next major version, which reads it in milliseconds as TypeScript does. A call that gives it without `timeoutMs` warns once, naming `timeoutMs`. Go's HTTP transport sets no timeout of its own; give `HTTPTransport` an `http.Client` with one for a client-wide bound.
 
 ## Routing And Balancing
 

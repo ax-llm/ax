@@ -101,14 +101,16 @@ function scriptedAI(
   const queue = clone(responses);
   let calls = 0;
   const prompts: unknown[] = [];
+  const chatOptions: Record<string, unknown>[] = [];
   const ai = new AxMockAIService({
     features: {
       functions: (features.functions as boolean | undefined) ?? false,
       streaming: (features.streaming as boolean | undefined) ?? true,
       structuredOutputs: features.structured_outputs as boolean | undefined,
     },
-    chatResponse: async (req) => {
+    chatResponse: async (req, options) => {
       calls++;
+      chatOptions.push({ ...(options ?? {}) });
       onRequest?.(calls);
       prompts.push(clone(req.chatPrompt));
       const first = req.chatPrompt[0];
@@ -134,7 +136,7 @@ function scriptedAI(
       });
     },
   });
-  return { ai, calls: () => calls, prompts: () => prompts };
+  return { ai, calls: () => calls, prompts: () => prompts, chatOptions };
 }
 
 // ----- scripted code runtime -----
@@ -245,6 +247,12 @@ type Case = {
   first_requests?: boolean;
   // Why the fixture leaves out expected_request_roles.
   no_request_roles?: string;
+  // Port-only: TS passes a forward timeout (milliseconds) to every stage's
+  // ai.chat. TS runs the case with that timeout, and the extractor checks each
+  // chat call got it; the fixture gives the ports' forward timeoutMs, their
+  // name for it until the next major version, and pins that each chat call
+  // gets it.
+  call_timeout_ms?: number;
 };
 
 // TS forward drops a failed answer and its correction once the next answer
@@ -267,7 +275,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const transcript: string[] = [];
   const control = spec.control ? runControl() : undefined;
   const steer = spec.control_steer;
-  const { ai, calls, prompts } = scriptedAI(
+  const { ai, calls, prompts, chatOptions } = scriptedAI(
     spec.responses,
     features,
     transcript,
@@ -339,6 +347,9 @@ async function record(name: string, spec: Case): Promise<void> {
   const forwardOptions: Record<string, unknown> = clone(
     spec.forward_options ?? {}
   );
+  if (spec.call_timeout_ms !== undefined) {
+    forwardOptions.timeout = spec.call_timeout_ms;
+  }
   // The run lifecycle events, in order, with their paths; with a steer,
   // every event.
   const controlEvents: JsonMap[] = [];
@@ -387,6 +398,23 @@ async function record(name: string, spec: Case): Promise<void> {
     expected_request_count: calls(),
     expected_transcript: transcript,
   };
+  if (spec.call_timeout_ms !== undefined) {
+    const timeout = spec.call_timeout_ms;
+    if (
+      chatOptions.length === 0 ||
+      chatOptions.some((options) => options.timeout !== timeout)
+    ) {
+      throw new Error(
+        `${name}: TS did not pass the forward timeout to every ai.chat call`
+      );
+    }
+    fixture.forward_options = {
+      ...clone(spec.forward_options ?? {}),
+      timeoutMs: timeout,
+    };
+    fixture.expected_chat_options_all_subset = { timeoutMs: timeout };
+    fixture.description = `Port-only: an agent forward timeoutMs reaches each of the ${chatOptions.length} stage ai.chat calls, as TS's forward timeout does (this extractor checks TS with timeout: ${timeout}).`;
+  }
   if (spec.keeps_date_text) {
     if (kind !== 'agent_forward') {
       throw new Error(`${name}: keeps_date_text supports agent_forward only`);
@@ -394,7 +422,9 @@ async function record(name: string, spec: Case): Promise<void> {
     fixture.description = spec.keeps_date_text;
   }
   for (const key of [
-    'forward_options',
+    ...(spec.call_timeout_ms === undefined
+      ? (['forward_options'] as const)
+      : []),
     'observers',
     'control',
     'control_steer',
@@ -989,6 +1019,13 @@ const cases: Record<string, Case> = {
     forward_options: { parse_dates: true },
     responses: [...baseActors(), datedAnswer()],
     runtime_script: baseRuntime(),
+  },
+  'agent-forward-call-timeout-ms-reaches-each-stage': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    call_timeout_ms: 250,
   },
   'agent-forward-keeps-date-text-call-false': {
     kind: 'agent_forward',

@@ -33,6 +33,19 @@ std::shared_ptr<AgentExecutionContext> MCPRunScope::current() { return active_mc
 
 thread_local const AxCancellationToken* ax_current_cancellation_token = nullptr;
 
+namespace {
+// A chat, stream or embed call's merged options while it builds its requests:
+// build_request reads the call's timeoutMs and base URL from them.
+thread_local const Value* ax_current_call_options = nullptr;
+struct AxCallOptionsScope {
+  const Value* previous;
+  explicit AxCallOptionsScope(const Value& options) : previous(ax_current_call_options) { ax_current_call_options = &options; }
+  ~AxCallOptionsScope() { ax_current_call_options = previous; }
+  AxCallOptionsScope(const AxCallOptionsScope&) = delete;
+  AxCallOptionsScope& operator=(const AxCallOptionsScope&) = delete;
+};
+}
+
 const AxCancellationToken* current_cancellation_token() { return ax_current_cancellation_token; }
 AxCancellationScope::AxCancellationScope(const AxCancellationToken* token) : previous_(ax_current_cancellation_token) { ax_current_cancellation_token = token; if (token) token->throw_if_cancelled(); }
 AxCancellationScope::~AxCancellationScope() { ax_current_cancellation_token = previous_; }
@@ -448,6 +461,38 @@ void HttpTransport::stream_cancellable(Value request, AxTransportStreamHandler h
   stream_impl(std::move(request), std::move(handler), nullptr, std::move(cancelled));
 }
 
+#if defined(AXLLM_ENABLE_CURL)
+static CURLcode ax_curl_perform(CURL* curl,const std::function<bool()>& cancelled);
+
+// TS apiCall's timer for a call's timeoutMs: it ends a request whose response
+// has not started in time and stops once the status line is in.
+struct AxHeaderDeadline {
+  CURL* curl;
+  double timeout_ms;
+  std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+  bool timed_out = false;
+  bool passed() {
+    if (timeout_ms <= 0 || timed_out) return timed_out;
+    long code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    if (code >= 200) return false;
+    if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count() < timeout_ms) return false;
+    timed_out = true;
+    return true;
+  }
+};
+
+// The client's timeout still caps the transfer; a longer timeoutMs raises the cap.
+static void ax_set_transfer_timeout(CURL* curl, double timeout_seconds, double timeout_ms) {
+  if (timeout_seconds <= 0) return;
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(std::max(timeout_seconds * 1000.0, timeout_ms)));
+}
+
+static AxError ax_call_timeout_error(const Value& timeout_ms) {
+  return Core::as_error(Core::ai_error_timeout(Core::provider_call_timeout_message(timeout_ms), Value(), Value(), Value(), Value(), true));
+}
+#endif
+
 void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation, std::shared_ptr<std::atomic<bool>> cancelled) {
   if (cancellation) cancellation->throw_if_cancelled();
   if (cancelled && cancelled->load()) return;
@@ -473,6 +518,7 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   std::string method = str(Core::get(request, "method", "POST"));
   std::string url = str(Core::get(request, "url"));
   double timeout = num(Core::get(request, "timeout", 0));
+  double timeout_ms = num(Core::get(request, "timeout_ms", 0));
 
   struct StreamContext {
     CURL* curl = nullptr;
@@ -508,13 +554,17 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {auto* context=static_cast<StreamContext*>(userdata);return (context->cancellation&&context->cancellation->is_cancelled()) || (context->session_cancelled&&context->session_cancelled->load())?1:0;});
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &context);
-  if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
+  ax_set_transfer_timeout(curl, timeout, timeout_ms);
   if (method == "POST") curl_easy_setopt(curl, CURLOPT_POST, 1L);
   else curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
 
-  CURLcode rc = curl_easy_perform(curl);
+  // A call's timeoutMs polls its header deadline; other streams run as before.
+  AxHeaderDeadline deadline{curl, timeout_ms};
+  CURLcode rc = timeout_ms > 0
+      ? ax_curl_perform(curl, [&] { return (cancellation && cancellation->is_cancelled()) || (cancelled && cancelled->load()) || deadline.passed(); })
+      : curl_easy_perform(curl);
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   curl_slist_free_all(headers);
@@ -525,6 +575,7 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   // may report it as CURLE_WRITE_ERROR (or another callback-abort code), but the
   // handler decision is authoritative once callback exceptions are excluded.
   if (context.cancelled || (cancelled && cancelled->load())) return;
+  if (deadline.timed_out) throw ax_call_timeout_error(Core::get(request, "timeout_ms"));
   // Provider errors never take the transport request: its headers hold the API
   // key or credential tokens, and AxError has no request field to carry anyway.
   if (rc != CURLE_OK) {
@@ -620,6 +671,7 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
   // must not be JSON-parsed or UTF-8 handled; they are returned as base64.
   bool binary_response = Core::truthy(Core::get(request, "binary", false));
   double timeout = num(Core::get(request, "timeout", 0));
+  double timeout_ms = num(Core::get(request, "timeout_ms", 0));
 
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
@@ -647,7 +699,7 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {auto* token=static_cast<const AxCancellationToken*>(userdata);return token&&token->is_cancelled()?1:0;});
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, const_cast<AxCancellationToken*>(cancellation));
-  if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
+  ax_set_transfer_timeout(curl, timeout, timeout_ms);
   if (method == "POST") {
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     // POSTFIELDSIZE makes the body binary-safe: curl sends exactly this many
@@ -664,7 +716,8 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
   }
 
-  CURLcode rc = ax_curl_perform(curl,[&]{return (cancellation&&cancellation->is_cancelled())||(cancelled&&cancelled());});
+  AxHeaderDeadline deadline{curl, timeout_ms};
+  CURLcode rc = ax_curl_perform(curl,[&]{return (cancellation&&cancellation->is_cancelled())||(cancelled&&cancelled())||deadline.passed();});
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   // Capture the response Content-Type before cleanup so callers (e.g. the MCP
@@ -677,6 +730,7 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
 
   if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
   if(cancelled&&cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
+  if (deadline.timed_out) throw ax_call_timeout_error(Core::get(request, "timeout_ms"));
 
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
@@ -4553,6 +4607,7 @@ Value AxBaseAI::resolve_model_key_request(Value request, Value call_options, boo
 }
 
 Value AxBaseAI::chat(Value request, Value call_options, const AxRuntimeHooks& call_hooks) {
+  check_call_options(call_options);
   Value resolved = resolve_model_key_request(Core::coerce_chat_request(std::move(request)), call_options, false);
   Value req = Core::get(resolved, "request");
   call_options = Core::get(resolved, "options");
@@ -4614,6 +4669,7 @@ Value AxBaseAI::embed(Value request, Value call_options) {
 }
 
 Value AxBaseAI::embed(Value request, Value call_options, const AxRuntimeHooks& call_hooks) {
+  check_call_options(call_options);
   Value resolved = resolve_model_key_request(std::move(request), call_options, true);
   request = Core::get(resolved, "request");
   call_options = Core::get(resolved, "options");
@@ -4963,6 +5019,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
 }
 
 Value OpenAICompatibleClient::do_chat(Value request, Value options) {
+  AxCallOptionsScope call_scope(options);
   Value realtime_model = Core::coalesce(Core::get(request, "model"), Value(model_));
   if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request, options))) {
     return realtime_chat(request, nullptr);
@@ -5021,6 +5078,7 @@ static bool service_accepts_request_cpp(const std::shared_ptr<AxAIService>& serv
 }
 
 Value OpenAICompatibleClient::do_embed(Value request, Value options) {
+  AxCallOptionsScope call_scope(options);
   Value payload = Core::provider_build_embed_request(profile_, request, options);
   Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
   std::string embed_url = str(Core::provider_embed_url(profile_, model, options));
@@ -5114,6 +5172,7 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler)
 
 // options are the stream call options; null means none (stream_each(request, handler)).
 void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler, Value options) {
+  if (options.is_object()) check_call_options(options);
   Value resolved = resolve_model_key_request(Core::coerce_chat_request(std::move(request)), options, false);
   request = Core::get(resolved, "request");
   Value call_options = Core::get(resolved, "options");
@@ -5142,6 +5201,7 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
   bool cancelled = false;
   try {
     AxRequestExecutor next = [&]() {
+      AxCallOptionsScope call_scope(merged_options);
       if (Core::truthy(Core::provider_should_use_realtime(profile_, model, req, merged_options))) {
         Value final = realtime_chat(req, nullptr, [&](Value event) { if (!handler(event)) { cancelled = true; return false; } return true; });
         if (!cancelled) handler(Core::provider_realtime_terminal_response(final));
@@ -5213,7 +5273,9 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
           // Retry transport/open failures before any SSE event. Once a provider
           // event exists, its normalized error is authoritative unless the
           // explicit transient-status classifier above requested a retry.
-          if (!received_event && !delivered && stream_error_retryable(error) && attempt < max_retries) retry_requested = true;
+          // As in TS apiCall, a call's timeoutMs is not retried here.
+          bool call_timed_out = error.type == "AxAIServiceTimeoutError" && !Core::get(call, "timeout_ms").is_null();
+          if (!received_event && !delivered && stream_error_retryable(error) && !call_timed_out && attempt < max_retries) retry_requested = true;
           else if (delivered) {
             AxError terminated("response", error.what(), "AxAIServiceStreamTerminatedError", error.status, error.code, true, error.response_body);
             terminated.url = error.url;
@@ -5671,11 +5733,28 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
   return transport_result(raw, call, error_options);
 }
 
+// The call's options can move the provider's base URL (a Vertex beta selects
+// v1beta1), as TS resolves it for each call. An explicit base_url or
+// OPENAI_BASE_URL still wins.
+static std::string ax_call_base_url(const std::string& profile, const Value& descriptor, const std::string& base_url) {
+  if (ax_current_call_options == nullptr || !ax_current_call_options->is_object()) return base_url;
+  Value descriptor_base = Core::get(descriptor, "baseUrl");
+  if (descriptor_base.is_null() || strip_trailing_slashes(str(descriptor_base)) != base_url) return base_url;
+  Value resolved = Core::get(Core::provider_resolve_descriptor(profile, *ax_current_call_options), "baseUrl");
+  return resolved.is_null() ? base_url : strip_trailing_slashes(str(resolved));
+}
+
+// TS reads a per-call timeout in milliseconds; this port ignores it until the
+// next major version and warns once, naming timeoutMs.
+void OpenAICompatibleClient::check_call_options(const Value& call_options) {
+  Core::provider_warn_call_timeout(call_options, false);
+}
+
 Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
   Value call = Value::object();
   Core::set(call, "method", method.empty() ? "POST" : method);
   bool absolute = endpoint.rfind("http://", 0) == 0 || endpoint.rfind("https://", 0) == 0;
-  Core::set(call, "url", absolute ? endpoint : base_url_ + endpoint);
+  Core::set(call, "url", absolute ? endpoint : ax_call_base_url(profile_, descriptor_, base_url_) + endpoint);
   Value resolved_headers = headers();
   if (profile_ == "meta" && body_key == "data" && !binary_response) Core::set(resolved_headers, "Accept", "text/event-stream");
   std::string request_url = str(Core::get(call, "url"));
@@ -5695,6 +5774,12 @@ Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value p
   // Signals the transport to return the raw body as base64 instead of JSON.
   if (binary_response) Core::set(call, "binary", Value(true));
   Core::set(call, "timeout", timeout_seconds_);
+  // The chat, stream or embed call's timeoutMs (TS's per-call timeout, in
+  // milliseconds) bounds the wait for the response headers.
+  if (ax_current_call_options != nullptr) {
+    Value timeout_ms = Core::provider_call_timeout_ms(*ax_current_call_options);
+    if (!timeout_ms.is_null()) Core::set(call, "timeout_ms", timeout_ms);
+  }
   if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) {
     // A credential provider can still be attached after construction, so a
     // missing key fails here, before anything is sent. The error carries no
