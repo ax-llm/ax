@@ -63541,6 +63541,299 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _agent_eval_marks(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_eval_marks")
+	var v_state Value
+	var v_empty_list Value
+	var v_log Value
+	var v_log_count Value
+	var v_marks Value
+	var v_trace_count Value
+	var v_traces Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_empty_list
+	_ = v_log
+	_ = v_log_count
+	_ = v_marks
+	_ = v_trace_count
+	_ = v_traces
+	v_empty_list = MutableArray()
+	v_log = coreGet(v_state, "action_log", v_empty_list)
+	v_traces = coreGet(v_state, "function_call_traces", v_empty_list)
+	v_log_count = _core_len(v_log)
+	v_trace_count = _core_len(v_traces)
+	v_marks = Object()
+	if err := coreSet(v_marks, "action_log", v_log_count); err != nil { return nil, err }
+	if err := coreSet(v_marks, "function_call_traces", v_trace_count); err != nil { return nil, err }
+	return v_marks, nil
+}
+
+func _agent_eval_function_calls(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_eval_function_calls")
+	var v_traces Value
+	var v_arguments Value
+	var v_call Value
+	var v_calls Value
+	var v_derive_name Value
+	var v_empty_map Value
+	var v_error Value
+	var v_error_text Value
+	var v_failed Value
+	var v_has_value Value
+	var v_name Value
+	var v_name_missing Value
+	var v_name_part Value
+	var v_name_parts Value
+	var v_name_qualified Value
+	var v_qualified Value
+	var v_result Value
+	var v_result_is_map Value
+	var v_status Value
+	var v_trace Value
+	var v_value Value
+	if len(args) > 0 { v_traces = args[0] }
+	_ = v_traces
+	_ = v_arguments
+	_ = v_call
+	_ = v_calls
+	_ = v_derive_name
+	_ = v_empty_map
+	_ = v_error
+	_ = v_error_text
+	_ = v_failed
+	_ = v_has_value
+	_ = v_name
+	_ = v_name_missing
+	_ = v_name_part
+	_ = v_name_parts
+	_ = v_name_qualified
+	_ = v_qualified
+	_ = v_result
+	_ = v_result_is_map
+	_ = v_status
+	_ = v_trace
+	_ = v_value
+	v_calls = MutableArray()
+	v_empty_map = Object()
+	for _, v_trace = range coreIter(v_traces) {
+		v_qualified = coreGet(v_trace, "qualified_name", "")
+		v_name = coreGet(v_trace, "name", "")
+		v_name_missing = _core_eq(v_name, "")
+		v_name_qualified = _core_eq(v_name, v_qualified)
+		v_derive_name = _core_or(v_name_missing, v_name_qualified)
+		if coreTruthy(v_derive_name) {
+			v_name_parts = _core_string_split(v_qualified, ".")
+			for _, v_name_part = range coreIter(v_name_parts) {
+				v_name = v_name_part
+			}
+		} else {
+		// empty
+		}
+		v_arguments = coreGet(v_trace, "arguments", nil)
+		v_result = coreGet(v_trace, "result", v_empty_map)
+		v_result_is_map = coreTypeIs(v_result, "object")
+		if coreTruthy(v_result_is_map) {
+		// empty
+		} else {
+			v_result = v_empty_map
+		}
+		v_status = coreGet(v_trace, "status", "ok")
+		v_call = Object()
+		if err := coreSet(v_call, "qualifiedName", v_qualified); err != nil { return nil, err }
+		if err := coreSet(v_call, "name", v_name); err != nil { return nil, err }
+		if err := coreSet(v_call, "arguments", v_arguments); err != nil { return nil, err }
+		v_failed = _core_eq(v_status, "error")
+		if coreTruthy(v_failed) {
+			v_error = coreGet(v_result, "error", "unknown error")
+			v_error_text = _core_string_str(v_error)
+			if err := coreSet(v_call, "error", v_error_text); err != nil { return nil, err }
+		} else {
+			v_value = coreGet(v_result, "value", nil)
+			v_has_value = _core_is_not_none(v_value)
+			if coreTruthy(v_has_value) {
+				if err := coreSet(v_call, "result", v_value); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+		v_calls = coreAppend(v_calls, v_call)
+	}
+	return v_calls, nil
+}
+
+func _agent_eval_run(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_eval_run")
+	var v_state Value
+	var v_marks Value
+	var v_call Value
+	var v_call_error Value
+	var v_call_name Value
+	var v_calls Value
+	var v_distiller_turns Value
+	var v_empty_list Value
+	var v_entry Value
+	var v_entry_in_run Value
+	var v_executor_ran Value
+	var v_executor_turns Value
+	var v_has_error Value
+	var v_is_distiller Value
+	var v_is_executor Value
+	var v_is_step Value
+	var v_log Value
+	var v_log_index Value
+	var v_log_start Value
+	var v_next_distiller_turns Value
+	var v_next_executor_turns Value
+	var v_next_log_index Value
+	var v_next_trace_index Value
+	var v_run Value
+	var v_run_log Value
+	var v_run_state Value
+	var v_run_traces Value
+	var v_signals Value
+	var v_stage Value
+	var v_tool_error Value
+	var v_tool_errors Value
+	var v_trace Value
+	var v_trace_in_run Value
+	var v_trace_index Value
+	var v_trace_start Value
+	var v_traces Value
+	var v_turn_count Value
+	var v_type Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_marks = args[1] }
+	_ = v_marks
+	_ = v_call
+	_ = v_call_error
+	_ = v_call_name
+	_ = v_calls
+	_ = v_distiller_turns
+	_ = v_empty_list
+	_ = v_entry
+	_ = v_entry_in_run
+	_ = v_executor_ran
+	_ = v_executor_turns
+	_ = v_has_error
+	_ = v_is_distiller
+	_ = v_is_executor
+	_ = v_is_step
+	_ = v_log
+	_ = v_log_index
+	_ = v_log_start
+	_ = v_next_distiller_turns
+	_ = v_next_executor_turns
+	_ = v_next_log_index
+	_ = v_next_trace_index
+	_ = v_run
+	_ = v_run_log
+	_ = v_run_state
+	_ = v_run_traces
+	_ = v_signals
+	_ = v_stage
+	_ = v_tool_error
+	_ = v_tool_errors
+	_ = v_trace
+	_ = v_trace_in_run
+	_ = v_trace_index
+	_ = v_trace_start
+	_ = v_traces
+	_ = v_turn_count
+	_ = v_type
+	v_empty_list = MutableArray()
+	v_log = coreGet(v_state, "action_log", v_empty_list)
+	v_traces = coreGet(v_state, "function_call_traces", v_empty_list)
+	v_log_start = coreGet(v_marks, "action_log", 0)
+	v_trace_start = coreGet(v_marks, "function_call_traces", 0)
+	v_run_log = MutableArray()
+	v_log_index = 0
+	for _, v_entry = range coreIter(v_log) {
+		v_entry_in_run = _core_gte(v_log_index, v_log_start)
+		if coreTruthy(v_entry_in_run) {
+			v_run_log = coreAppend(v_run_log, v_entry)
+		} else {
+		// empty
+		}
+		v_next_log_index = _core_add(v_log_index, 1)
+		v_log_index = v_next_log_index
+	}
+	v_run_traces = MutableArray()
+	v_trace_index = 0
+	for _, v_trace = range coreIter(v_traces) {
+		v_trace_in_run = _core_gte(v_trace_index, v_trace_start)
+		if coreTruthy(v_trace_in_run) {
+			v_run_traces = coreAppend(v_run_traces, v_trace)
+		} else {
+		// empty
+		}
+		v_next_trace_index = _core_add(v_trace_index, 1)
+		v_trace_index = v_next_trace_index
+	}
+	{ v, err := _agent_eval_function_calls(v_run_traces); if err != nil { return nil, err }; v_calls = v }
+	v_tool_errors = MutableArray()
+	for _, v_call = range coreIter(v_calls) {
+		v_call_error = coreGet(v_call, "error", nil)
+		v_has_error = _core_truthy(v_call_error)
+		if coreTruthy(v_has_error) {
+			v_call_name = coreGet(v_call, "qualifiedName", "")
+			v_tool_error = _core_string_format("{}: {}", v_call_name, v_call_error)
+			v_tool_errors = coreAppend(v_tool_errors, v_tool_error)
+		} else {
+		// empty
+		}
+	}
+	v_executor_ran = false
+	v_executor_turns = 0
+	v_distiller_turns = 0
+	for _, v_entry = range coreIter(v_run_log) {
+		v_stage = coreGet(v_entry, "stage", "")
+		v_is_executor = _core_eq(v_stage, "executor")
+		if coreTruthy(v_is_executor) {
+			v_executor_ran = true
+		} else {
+		// empty
+		}
+		v_type = coreGet(v_entry, "type", "")
+		v_is_step = _core_eq(v_type, "runtime_step")
+		if coreTruthy(v_is_step) {
+			if coreTruthy(v_is_executor) {
+				v_next_executor_turns = _core_add(v_executor_turns, 1)
+				v_executor_turns = v_next_executor_turns
+			} else {
+			// empty
+			}
+			v_is_distiller = _core_eq(v_stage, "distiller")
+			if coreTruthy(v_is_distiller) {
+				v_next_distiller_turns = _core_add(v_distiller_turns, 1)
+				v_distiller_turns = v_next_distiller_turns
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_turn_count = v_distiller_turns
+	if coreTruthy(v_executor_ran) {
+		v_turn_count = v_executor_turns
+	} else {
+	// empty
+	}
+	v_run_state = Object()
+	if err := coreSet(v_run_state, "action_log", v_run_log); err != nil { return nil, err }
+	if err := coreSet(v_run_state, "function_call_traces", v_run_traces); err != nil { return nil, err }
+	{ v, err := _agent_build_failure_signals(v_run_state); if err != nil { return nil, err }; v_signals = v }
+	v_run = Object()
+	if err := coreSet(v_run, "actionLog", v_run_log); err != nil { return nil, err }
+	if err := coreSet(v_run, "functionCalls", v_calls); err != nil { return nil, err }
+	if err := coreSet(v_run, "toolErrors", v_tool_errors); err != nil { return nil, err }
+	if err := coreSet(v_run, "turnCount", v_turn_count); err != nil { return nil, err }
+	if err := coreSet(v_run, "failureSignals", v_signals); err != nil { return nil, err }
+	return v_run, nil
+}
+
 func _select_agent_executor_model(args ...Value) (Value, error) {
 	axirCoverageMark("_select_agent_executor_model")
 	var v_policy Value
@@ -63719,6 +64012,101 @@ func _agent_action_log_char_count(args ...Value) (Value, error) {
 		v_total = _core_add(v_total, v_entry_len)
 	}
 	return v_total, nil
+}
+
+func _build_agent_run_prediction(args ...Value) (Value, error) {
+	axirCoverageMark("_build_agent_run_prediction")
+	var v_state Value
+	var v_marks Value
+	var v_completion Value
+	var v_usage Value
+	var v_trace Value
+	var v_calls Value
+	var v_clarification Value
+	var v_error Value
+	var v_error_tool_errors Value
+	var v_is_clarification Value
+	var v_is_error Value
+	var v_is_final Value
+	var v_message Value
+	var v_out Value
+	var v_output Value
+	var v_run Value
+	var v_run_log Value
+	var v_signals Value
+	var v_tool_errors Value
+	var v_turn_count Value
+	var v_type Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_marks = args[1] }
+	_ = v_marks
+	if len(args) > 2 { v_completion = args[2] }
+	_ = v_completion
+	if len(args) > 3 { v_usage = args[3] }
+	_ = v_usage
+	if len(args) > 4 { v_trace = args[4] }
+	_ = v_trace
+	_ = v_calls
+	_ = v_clarification
+	_ = v_error
+	_ = v_error_tool_errors
+	_ = v_is_clarification
+	_ = v_is_error
+	_ = v_is_final
+	_ = v_message
+	_ = v_out
+	_ = v_output
+	_ = v_run
+	_ = v_run_log
+	_ = v_signals
+	_ = v_tool_errors
+	_ = v_turn_count
+	_ = v_type
+	{ v, err := _agent_eval_run(v_state, v_marks); if err != nil { return nil, err }; v_run = v }
+	v_type = coreGet(v_completion, "type", "final")
+	v_out = Object()
+	if err := coreSet(v_out, "completionType", v_type); err != nil { return nil, err }
+	v_is_final = _core_eq(v_type, "final")
+	if coreTruthy(v_is_final) {
+		v_output = coreGet(v_completion, "output", nil)
+		if err := coreSet(v_out, "output", v_output); err != nil { return nil, err }
+		if err := coreSet(v_out, "finalOutput", v_output); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_is_clarification = _core_eq(v_type, "askClarification")
+	if coreTruthy(v_is_clarification) {
+		v_clarification = coreGet(v_completion, "clarification", nil)
+		if err := coreSet(v_out, "clarification", v_clarification); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_tool_errors = coreGet(v_run, "toolErrors", nil)
+	v_is_error = _core_eq(v_type, "error")
+	if coreTruthy(v_is_error) {
+		v_message = coreGet(v_completion, "message", "")
+		v_error = Object()
+		if err := coreSet(v_error, "message", v_message); err != nil { return nil, err }
+		if err := coreSet(v_out, "error", v_error); err != nil { return nil, err }
+		v_error_tool_errors = MutableArray()
+		v_error_tool_errors = coreAppend(v_error_tool_errors, v_message)
+		v_tool_errors = v_error_tool_errors
+	} else {
+	// empty
+	}
+	v_run_log = coreGet(v_run, "actionLog", nil)
+	if err := coreSet(v_out, "actionLog", v_run_log); err != nil { return nil, err }
+	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
+	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
+	v_signals = coreGet(v_run, "failureSignals", nil)
+	if err := coreSet(v_out, "failureSignals", v_signals); err != nil { return nil, err }
+	v_calls = coreGet(v_run, "functionCalls", nil)
+	if err := coreSet(v_out, "functionCalls", v_calls); err != nil { return nil, err }
+	if err := coreSet(v_out, "toolErrors", v_tool_errors); err != nil { return nil, err }
+	v_turn_count = coreGet(v_run, "turnCount", nil)
+	if err := coreSet(v_out, "turnCount", v_turn_count); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func _agent_compute_dynamic_runtime_chars(args ...Value) (Value, error) {
@@ -74696,18 +75084,21 @@ func _agent_playbook_action_log_text(args ...Value) (Value, error) {
 	var v_entry Value
 	var v_error Value
 	var v_error_text Value
+	var v_executor_ran Value
 	var v_is_error Value
-	var v_is_executor Value
+	var v_is_kept_stage Value
 	var v_is_list Value
 	var v_is_step Value
 	var v_is_text Value
 	var v_keep Value
+	var v_kept_stage Value
 	var v_not_list Value
 	var v_output Value
 	var v_output_empty Value
 	var v_part Value
 	var v_parts Value
 	var v_probe Value
+	var v_probe_executor Value
 	var v_probe_has_stage Value
 	var v_probe_stage Value
 	var v_stage Value
@@ -74723,18 +75114,21 @@ func _agent_playbook_action_log_text(args ...Value) (Value, error) {
 	_ = v_entry
 	_ = v_error
 	_ = v_error_text
+	_ = v_executor_ran
 	_ = v_is_error
-	_ = v_is_executor
+	_ = v_is_kept_stage
 	_ = v_is_list
 	_ = v_is_step
 	_ = v_is_text
 	_ = v_keep
+	_ = v_kept_stage
 	_ = v_not_list
 	_ = v_output
 	_ = v_output_empty
 	_ = v_part
 	_ = v_parts
 	_ = v_probe
+	_ = v_probe_executor
 	_ = v_probe_has_stage
 	_ = v_probe_stage
 	_ = v_stage
@@ -74758,6 +75152,7 @@ func _agent_playbook_action_log_text(args ...Value) (Value, error) {
 	// empty
 	}
 	v_tagged = false
+	v_executor_ran = false
 	for _, v_probe = range coreIter(v_action_log) {
 		v_probe_stage = coreGet(v_probe, "stage", nil)
 		v_probe_has_stage = _core_is_not_none(v_probe_stage)
@@ -74766,6 +75161,18 @@ func _agent_playbook_action_log_text(args ...Value) (Value, error) {
 		} else {
 		// empty
 		}
+		v_probe_executor = _core_eq(v_probe_stage, "executor")
+		if coreTruthy(v_probe_executor) {
+			v_executor_ran = true
+		} else {
+		// empty
+		}
+	}
+	v_kept_stage = "distiller"
+	if coreTruthy(v_executor_ran) {
+		v_kept_stage = "executor"
+	} else {
+	// empty
 	}
 	v_parts = MutableArray()
 	for _, v_entry = range coreIter(v_action_log) {
@@ -74773,9 +75180,9 @@ func _agent_playbook_action_log_text(args ...Value) (Value, error) {
 		v_is_step = _core_eq(v_type, "runtime_step")
 		if coreTruthy(v_is_step) {
 			v_stage = coreGet(v_entry, "stage", "executor")
-			v_is_executor = _core_eq(v_stage, "executor")
+			v_is_kept_stage = _core_eq(v_stage, v_kept_stage)
 			v_untagged = _core_not(v_tagged)
-			v_keep = _core_or(v_is_executor, v_untagged)
+			v_keep = _core_or(v_is_kept_stage, v_untagged)
 			if coreTruthy(v_keep) {
 				v_code = coreGet(v_entry, "code", "")
 				v_output = coreGet(v_entry, "output", "")
@@ -94291,14 +94698,19 @@ func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Valu
 	if !coreTruthy(input) {
 		input = task
 	}
+	// As TS evaluates each task from a fresh state, the prediction carries
+	// only this run's share of the agent's logs.
+	marks := mustCore(_agent_eval_marks(a.State))
 	output, err := a.forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
-	if err == nil {
-		return mustCore(_build_agent_eval_prediction(output, a.GetActionLog(), a.GetUsage(), a.ExportTrace()))
+	completion := Object("type", "final", "output", output)
+	if err != nil {
+		if clarification, ok := agentClarificationFromError(err); ok {
+			completion = Object("type", "askClarification", "clarification", clarification)
+		} else {
+			completion = Object("type", "error", "message", err.Error())
+		}
 	}
-	if clarification, ok := agentClarificationFromError(err); ok {
-		return Object("completionType", "askClarification", "clarification", clarification, "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
-	}
-	return Object("completionType", "error", "error", Object("message", err.Error()), "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(err.Error()), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
+	return mustCore(_build_agent_run_prediction(a.State, marks, completion, a.GetUsage(), a.ExportTrace()))
 }
 func (a *AxAgent) EvaluateOptimization(client AIClient, dataset Value, candidateMap map[string]Value, options map[string]Value) Value {
 	opts := options
@@ -101209,6 +101621,11 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil {
 			assertSubset(prediction, expected, "eval prediction")
 		}
+		// Fields that must match exactly: a list compares in full.
+		fields := asMap(coreGet(fixture, "expected_prediction_fields", Object()))
+		for _, key := range orderedKeys(fields) {
+			assertEqual(coreGet(prediction, key, nil), fields[key], "eval prediction "+key)
+		}
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
 		request := Object("contractVersion", "axir-optimize-contract-v1", "programKind", conformanceProgramKind(fixture), "components", components, "dataset", mustCore(_normalize_optimization_dataset(coreGet(fixture, "dataset", Array()))), "options", coreGet(fixture, "optimize_options", Object()), "trace", Object(), "evaluator", Object("available", true, "contractVersion", "axir-optimizer-evaluator-v1"))
@@ -101691,7 +102108,15 @@ func conformanceBuildProgram(fixture map[string]Value) AxProgram {
 	tools, _ := conformanceBuildTools(coreGet(fixture, "tools", Array()))
 	switch display(coreGet(fixture, "program", "axgen")) {
 	case "agent":
-		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), asMap(coreGet(fixture, "options", Object())))
+		options := asMap(coreGet(fixture, "options", Object()))
+		// An agent's runtime_script runs its actor code, as in the agent fixtures.
+		if script := coreGet(fixture, "runtime_script", nil); script != nil {
+			options = cloneMap(options)
+			runtime := newConformanceScriptedCodeRuntime(script, Object())
+			runtime.LanguageName = display(coreGet(fixture, "runtime_language", "JavaScript"))
+			coreSet(options, "runtime", runtime)
+		}
+		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 		ag.Executor.Functions = tools
 		return ag
 	case "flow":

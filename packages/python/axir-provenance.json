@@ -1,11 +1,11 @@
 {
   "target": "python",
   "enforced": true,
-  "emitted_functions": 913,
+  "emitted_functions": 917,
   "files": {
     "axllm/agent.py": {
-      "emitted_lines": 9588,
-      "total_lines": 12433
+      "emitted_lines": 9783,
+      "total_lines": 12614
     },
     "axllm/ai.py": {
       "emitted_lines": 11539,

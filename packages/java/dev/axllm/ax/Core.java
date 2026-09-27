@@ -30249,6 +30249,145 @@ final class Core {
     return out;
   }
 
+  static Object _agent_eval_marks(Object state) {
+    axirCoverageMark("_agent_eval_marks");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object log = Core.get(state, "action_log", empty_list);
+    Object traces = Core.get(state, "function_call_traces", empty_list);
+    Object log_count = Core.len(log);
+    Object trace_count = Core.len(traces);
+    Object marks = new java.util.LinkedHashMap<String, Object>();
+    Core.set(marks, "action_log", log_count);
+    Core.set(marks, "function_call_traces", trace_count);
+    return marks;
+  }
+
+  static Object _agent_eval_function_calls(Object traces) {
+    axirCoverageMark("_agent_eval_function_calls");
+    Object calls = new java.util.ArrayList<Object>();
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    for (Object trace : Core.iter(traces)) {
+      Object qualified = Core.get(trace, "qualified_name", "");
+      Object name = Core.get(trace, "name", "");
+      Object name_missing = Core.eq(name, "");
+      Object name_qualified = Core.eq(name, qualified);
+      Object derive_name = Core.or(name_missing, name_qualified);
+      if (Core.truthy(derive_name)) {
+        Object name_parts = Core.stringSplit(qualified, ".");
+        for (Object name_part : Core.iter(name_parts)) {
+          name = name_part;
+        }
+      }
+      Object arguments = Core.get(trace, "arguments", null);
+      Object result = Core.get(trace, "result", empty_map);
+      Object result_is_map = Core.typeIs(result, "object");
+      if (Core.truthy(result_is_map)) {
+        // empty
+      }
+      if (!Core.truthy(result_is_map)) {
+        result = empty_map;
+      }
+      Object status = Core.get(trace, "status", "ok");
+      Object call = new java.util.LinkedHashMap<String, Object>();
+      Core.set(call, "qualifiedName", qualified);
+      Core.set(call, "name", name);
+      Core.set(call, "arguments", arguments);
+      Object failed = Core.eq(status, "error");
+      if (Core.truthy(failed)) {
+        Object error = Core.get(result, "error", "unknown error");
+        Object error_text = Core.stringStr(error);
+        Core.set(call, "error", error_text);
+      }
+      if (!Core.truthy(failed)) {
+        Object value = Core.get(result, "value", null);
+        Object has_value = Core.isNotNone(value);
+        if (Core.truthy(has_value)) {
+          Core.set(call, "result", value);
+        }
+      }
+      Core.append(calls, call);
+    }
+    return calls;
+  }
+
+  static Object _agent_eval_run(Object state, Object marks) {
+    axirCoverageMark("_agent_eval_run");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object log = Core.get(state, "action_log", empty_list);
+    Object traces = Core.get(state, "function_call_traces", empty_list);
+    Object log_start = Core.get(marks, "action_log", 0);
+    Object trace_start = Core.get(marks, "function_call_traces", 0);
+    Object run_log = new java.util.ArrayList<Object>();
+    Object log_index = 0;
+    for (Object entry : Core.iter(log)) {
+      Object entry_in_run = Core.gte(log_index, log_start);
+      if (Core.truthy(entry_in_run)) {
+        Core.append(run_log, entry);
+      }
+      Object next_log_index = Core.add(log_index, 1);
+      log_index = next_log_index;
+    }
+    Object run_traces = new java.util.ArrayList<Object>();
+    Object trace_index = 0;
+    for (Object trace : Core.iter(traces)) {
+      Object trace_in_run = Core.gte(trace_index, trace_start);
+      if (Core.truthy(trace_in_run)) {
+        Core.append(run_traces, trace);
+      }
+      Object next_trace_index = Core.add(trace_index, 1);
+      trace_index = next_trace_index;
+    }
+    Object calls = Core._agent_eval_function_calls(run_traces);
+    Object tool_errors = new java.util.ArrayList<Object>();
+    for (Object call : Core.iter(calls)) {
+      Object call_error = Core.get(call, "error", null);
+      Object has_error = Core.truthyValue(call_error);
+      if (Core.truthy(has_error)) {
+        Object call_name = Core.get(call, "qualifiedName", "");
+        Object tool_error = Core.stringFormat("{}: {}", call_name, call_error);
+        Core.append(tool_errors, tool_error);
+      }
+    }
+    Object executor_ran = Boolean.FALSE;
+    Object executor_turns = 0;
+    Object distiller_turns = 0;
+    for (Object entry : Core.iter(run_log)) {
+      Object stage = Core.get(entry, "stage", "");
+      Object is_executor = Core.eq(stage, "executor");
+      if (Core.truthy(is_executor)) {
+        executor_ran = Boolean.TRUE;
+      }
+      Object type = Core.get(entry, "type", "");
+      Object is_step = Core.eq(type, "runtime_step");
+      if (Core.truthy(is_step)) {
+        if (Core.truthy(is_executor)) {
+          Object next_executor_turns = Core.add(executor_turns, 1);
+          executor_turns = next_executor_turns;
+        }
+        Object is_distiller = Core.eq(stage, "distiller");
+        if (Core.truthy(is_distiller)) {
+          Object next_distiller_turns = Core.add(distiller_turns, 1);
+          distiller_turns = next_distiller_turns;
+        }
+      }
+    }
+    Object turn_count = distiller_turns;
+    if (Core.truthy(executor_ran)) {
+      turn_count = executor_turns;
+    }
+    Object run_state = new java.util.LinkedHashMap<String, Object>();
+    Core.set(run_state, "action_log", run_log);
+    Core.set(run_state, "function_call_traces", run_traces);
+    Object signals = Core._agent_build_failure_signals(run_state);
+    Object run = new java.util.LinkedHashMap<String, Object>();
+    Core.set(run, "actionLog", run_log);
+    Core.set(run, "functionCalls", calls);
+    Core.set(run, "toolErrors", tool_errors);
+    Core.set(run, "turnCount", turn_count);
+    Core.set(run, "failureSignals", signals);
+    return run;
+  }
+
   static Object _select_agent_executor_model(Object policy, Object actor_model_state) {
     axirCoverageMark("_select_agent_executor_model");
     Object none = Core.none();
@@ -30332,6 +30471,48 @@ final class Core {
       total = Core.add(total, entry_len);
     }
     return total;
+  }
+
+  static Object _build_agent_run_prediction(Object state, Object marks, Object completion, Object usage, Object trace) {
+    axirCoverageMark("_build_agent_run_prediction");
+    Object run = Core._agent_eval_run(state, marks);
+    Object type = Core.get(completion, "type", "final");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "completionType", type);
+    Object is_final = Core.eq(type, "final");
+    if (Core.truthy(is_final)) {
+      Object output = Core.get(completion, "output", null);
+      Core.set(out, "output", output);
+      Core.set(out, "finalOutput", output);
+    }
+    Object is_clarification = Core.eq(type, "askClarification");
+    if (Core.truthy(is_clarification)) {
+      Object clarification = Core.get(completion, "clarification", null);
+      Core.set(out, "clarification", clarification);
+    }
+    Object tool_errors = Core.get(run, "toolErrors", null);
+    Object is_error = Core.eq(type, "error");
+    if (Core.truthy(is_error)) {
+      Object message = Core.get(completion, "message", "");
+      Object error = new java.util.LinkedHashMap<String, Object>();
+      Core.set(error, "message", message);
+      Core.set(out, "error", error);
+      Object error_tool_errors = new java.util.ArrayList<Object>();
+      Core.append(error_tool_errors, message);
+      tool_errors = error_tool_errors;
+    }
+    Object run_log = Core.get(run, "actionLog", null);
+    Core.set(out, "actionLog", run_log);
+    Core.set(out, "usage", usage);
+    Core.set(out, "trace", trace);
+    Object signals = Core.get(run, "failureSignals", null);
+    Core.set(out, "failureSignals", signals);
+    Object calls = Core.get(run, "functionCalls", null);
+    Core.set(out, "functionCalls", calls);
+    Core.set(out, "toolErrors", tool_errors);
+    Object turn_count = Core.get(run, "turnCount", null);
+    Core.set(out, "turnCount", turn_count);
+    return out;
   }
 
   static Object _agent_compute_dynamic_runtime_chars(Object entries, Object target_prompt_chars, Object max_runtime_chars) {
@@ -35560,12 +35741,21 @@ final class Core {
       return "";
     }
     Object tagged = Boolean.FALSE;
+    Object executor_ran = Boolean.FALSE;
     for (Object probe : Core.iter(action_log)) {
       Object probe_stage = Core.get(probe, "stage", null);
       Object probe_has_stage = Core.isNotNone(probe_stage);
       if (Core.truthy(probe_has_stage)) {
         tagged = Boolean.TRUE;
       }
+      Object probe_executor = Core.eq(probe_stage, "executor");
+      if (Core.truthy(probe_executor)) {
+        executor_ran = Boolean.TRUE;
+      }
+    }
+    Object kept_stage = "distiller";
+    if (Core.truthy(executor_ran)) {
+      kept_stage = "executor";
     }
     Object parts = new java.util.ArrayList<Object>();
     for (Object entry : Core.iter(action_log)) {
@@ -35573,9 +35763,9 @@ final class Core {
       Object is_step = Core.eq(type, "runtime_step");
       if (Core.truthy(is_step)) {
         Object stage = Core.get(entry, "stage", "executor");
-        Object is_executor = Core.eq(stage, "executor");
+        Object is_kept_stage = Core.eq(stage, kept_stage);
         Object untagged = Core.not(tagged);
-        Object keep = Core.or(is_executor, untagged);
+        Object keep = Core.or(is_kept_stage, untagged);
         if (Core.truthy(keep)) {
           Object code = Core.get(entry, "code", "");
           Object output = Core.get(entry, "output", "");
