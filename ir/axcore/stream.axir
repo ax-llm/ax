@@ -3488,9 +3488,11 @@ module @ax.stream version "0.1" {
             %message = core.let %returned
           }
           // Marked so the attempt can tell an exhausted streaming assertion,
-          // which TS surfaces as it is, from other exhausted retries.
+          // which TS surfaces as it is, from other exhausted retries. As in
+          // TS, its correction reads like an assertion's ("Follow these
+          // instructions: ..."), not a field's.
           core.set %xstate["assertion_failed"] = true
-          %error = core.call intrinsic.error.validation(%message)
+          %error = core.call intrinsic.error.runtime(%message)
           core.raise %error
         }
       }

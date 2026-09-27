@@ -90554,7 +90554,7 @@ fn _stream_check_assertions_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
                 CoreValue::from("assertion_failed"),
                 CoreValue::Bool(true),
             )?;
-            v_error = core_validation_error(&[v_message.clone()])?;
+            v_error = core_runtime_error(&[v_message.clone()])?;
             return Err(core_as_error(&v_error));
         }
     }

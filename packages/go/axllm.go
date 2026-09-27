@@ -59643,7 +59643,7 @@ func _stream_check_assertions_impl(args ...Value) (Value, error) {
 			// empty
 			}
 			if err := coreSet(v_xstate, "assertion_failed", true); err != nil { return nil, err }
-			v_error = _core_validation_error(v_message)
+			v_error = _core_runtime_error(v_message)
 			return nil, asError(v_error)
 		} else {
 		// empty

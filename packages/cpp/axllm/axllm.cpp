@@ -29994,7 +29994,7 @@ Value Core::_stream_check_assertions_impl(Value gen, Value xstate, Value content
         message = returned;
       }
       Core::set(xstate, Value("assertion_failed"), Value(true));
-      Value error = Core::validation_error(message);
+      Value error = Core::runtime_error(message);
       Core::raise_error(error);
     }
   }

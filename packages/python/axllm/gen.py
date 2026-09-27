@@ -14865,7 +14865,7 @@ def _stream_check_assertions_impl(gen: AxGen, xstate: Any, content: str, done: b
             else:
                 pass
             xstate["assertion_failed"] = True
-            error = _core_validation_error(message)
+            error = _core_runtime_error(message)
             raise error
         else:
             pass

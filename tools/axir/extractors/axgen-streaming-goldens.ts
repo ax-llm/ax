@@ -1333,6 +1333,8 @@ const cases: Record<string, Case> = {
       streamed(text('Answer: this is '), text('forbidden text'), done()),
       streamed(text('Answer: this is fine'), done()),
     ],
+    // The correction reads like an assertion's, closing period added.
+    request_tail: 2,
   },
 
   // ----- field processors (TypeScript feedback semantics) -----

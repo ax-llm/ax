@@ -28406,7 +28406,7 @@ final class Core {
           message = returned;
         }
         Core.set(xstate, "assertion_failed", Boolean.TRUE);
-        Object error = Core.validationError(message);
+        Object error = Core.runtimeError(message);
         throw Core.asRuntime(error);
       }
     }
