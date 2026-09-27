@@ -479,8 +479,12 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		"Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.",
 	}
 	if target == "go" && spec.ID == "ai" {
+		guardrails = append(guardrails, "A provider can split a surrogate pair (an emoji, say) across stream chunks. AxGen streaming deltas and outputs join it, but a raw client `Stream` delta carries each half as its WTF-8 bytes, as TypeScript's raw deltas carry the lone surrogate. Join raw deltas with `JoinStreamText(text, delta)`: concatenating them with `+` leaves the two halves' bytes, which are not valid UTF-8, where the character belongs.")
 		guardrails = append(guardrails, "When decorating `AIClient`, forward `GetFeatures(model) map[string]Value` whenever the wrapped client implements it. AxGen otherwise falls back to permissive capabilities, which can select an unsupported structured-output rung.")
 		guardrails = append(guardrails, "For Vertex OpenAI-compatible MaaS, prefer `NewAI(\"vertex-ai\", options)` with `AxCredentialProviderFunc`; do not reintroduce a request-rewriting response-format decorator.")
+	}
+	if target == "rust" && spec.ID == "ai" {
+		guardrails = append(guardrails, "A provider can split a surrogate pair (an emoji, say) across stream chunks. AxGen streaming deltas and outputs join it, but a raw client `stream` delta carries each half as a private-use mark (U+10F800 plus the half's offset from U+D800), since a Rust `String` can't hold a lone surrogate. Join raw deltas with `join_stream_text(&text, &delta)`: `push_str` leaves the two marks where the character belongs.")
 	}
 	return readmeLines(
 		skillFrontmatter(name, description, generatedPackageVersion()),
@@ -643,7 +647,7 @@ func skillDateFieldsText(target string) string {
 }
 
 func skillFieldProcessorText(target string) string {
-	feedback := " As in TypeScript, the feedback message's content is one text part (`[{type: \"text\", text}]`), and a streaming field processor's feedback waits for the end of the step: it follows the full answer and comes before the final processors' feedback. A streamed delta never ends in half of a surrogate pair."
+	feedback := " As in TypeScript, the feedback message's content is one text part (`[{type: \"text\", text}]`), and a streaming field processor's feedback waits for the end of the step: it follows the full answer and comes before the final processors' feedback. A streamed delta never ends in half of a surrogate pair, and a pair a provider splits across stream events is joined back into one character."
 	switch target {
 	case "python":
 		return "`add_field_processor(field, fn, feedback=True)` follows TypeScript: `fn(value, {\"values\", \"done\"})` runs on the parsed field, and a non-empty result goes back to the model as a user message for another step, whose answer replaces the earlier one. `add_streaming_field_processor(field, fn)` does the same on each streamed chunk of a string or code field. Without `feedback=True`, `add_field_processor` still rewrites the field value and raises a `DeprecationWarning`: that default becomes the feedback behavior in the next major version. `add_field_transform(field, op)` is the permanent, port-only home of the rewrite (`uppercase`, `lowercase`, `trim`, `prefix:...`, `suffix:...`, or a callable); in `streaming_forward` a transformed field is held back and sent once, transformed." + feedback
