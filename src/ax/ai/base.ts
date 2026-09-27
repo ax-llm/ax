@@ -1872,7 +1872,7 @@ export class AxBaseAI<
     this.applySamplingSupport(
       modelConfig,
       model,
-      selectedModelInfo,
+      selectedModelInfo ?? this.aiImpl.samplingModelInfo?.(model) ?? null,
       [keyModelConfig, req.modelConfig],
       options
     );

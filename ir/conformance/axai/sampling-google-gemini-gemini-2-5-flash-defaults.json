@@ -12,6 +12,7 @@
       }
     }
   },
+  "expected_warnings": [],
   "kind": "ai_chat",
   "model": "gemini-2.5-flash",
   "name": "sampling-google-gemini-gemini-2-5-flash-defaults",

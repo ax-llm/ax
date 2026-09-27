@@ -133,6 +133,11 @@ describe('axir-conformance-sync helpers', () => {
               aliases: ['mini'],
               isExpensive: false,
               notSupported: { temperature: false },
+              supported: {
+                structuredOutputs: true,
+                samplingWithoutReasoning: true,
+                reasoningOffByDefault: false,
+              },
             },
           ],
         },
@@ -149,7 +154,11 @@ describe('axir-conformance-sync helpers', () => {
           isExpensive: true,
           notSupported: { temperature: true, topP: true },
         },
-        { name: 'gpt-5.4-mini', aliases: ['mini'] },
+        {
+          name: 'gpt-5.4-mini',
+          aliases: ['mini'],
+          supported: { samplingWithoutReasoning: true },
+        },
       ],
     });
   });

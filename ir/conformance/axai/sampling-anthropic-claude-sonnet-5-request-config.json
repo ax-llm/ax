@@ -5,6 +5,7 @@
       "max_tokens": 77
     }
   },
+  "expected_warnings": [],
   "kind": "ai_chat",
   "model": "claude-sonnet-5",
   "name": "sampling-anthropic-claude-sonnet-5-request-config",

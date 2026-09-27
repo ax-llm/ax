@@ -3457,14 +3457,10 @@ func newProviderClient(profile, name string, options map[string]Value, defaultMo
 	if options["embed_model"] == nil {
 		options["embed_model"] = defaultEmbed
 	}
-	// The provider's sampling defaults (as its TS class starts from) sit under
-	// the caller's model_config.
-	modelConfig := asMap(mustCore(provider_default_model_config(profile)))
-	userConfig := asMap(coreGet(options, "model_config", Object()))
-	for _, key := range orderedKeys(userConfig) {
-		coreSet(modelConfig, key, userConfig[key])
-	}
-	coreSet(options, "model_config", modelConfig)
+	// Only the caller's settings: provider_build_chat_request adds the
+	// provider's sampling defaults (as its TS class starts from) under them,
+	// after dropping the explicit ones the model rejects.
+	coreSet(options, "model_config", cloneMap(asMap(coreGet(options, "model_config", Object()))))
 	transport, _ := options["transport"].(Transport)
 	if transport == nil {
 		transport = HTTPTransport{}
@@ -3483,14 +3479,14 @@ func NewGoogleGeminiClient(options map[string]Value) *GoogleGeminiClient {
 }
 func newGoogleGeminiClient(profile string, options map[string]Value) *GoogleGeminiClient {
 	descriptor := asMap(mustCore(provider_descriptor(profile)))
-	return &GoogleGeminiClient{newProviderClient(profile, profile, normalizeGoogleOptions(options), display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))}
+	return &GoogleGeminiClient{newProviderClient(profile, profile, normalizeGoogleOptions(profile, options), display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))}
 }
 func NewAnthropicClient(options map[string]Value) *AnthropicClient {
 	return newAnthropicClient("anthropic", options)
 }
 func newAnthropicClient(profile string, options map[string]Value) *AnthropicClient {
 	descriptor := asMap(mustCore(provider_descriptor(profile)))
-	return &AnthropicClient{newProviderClient(profile, profile, normalizeAnthropicOptions(options), display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))}
+	return &AnthropicClient{newProviderClient(profile, profile, normalizeAnthropicOptions(profile, options), display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))}
 }
 func NewAI(provider string, options map[string]Value) AIClient {
 	profile := display(mustCore(provider_normalize_profile(provider)))
@@ -3501,12 +3497,28 @@ func NewAI(provider string, options map[string]Value) AIClient {
     if profile=="typesafe" && coreGet(options,"api_key",coreGet(options,"apiKey",nil))==nil {
         options=cloneMap(options);key:=os.Getenv("TYPESAFE_APIKEY");if key==""{key=os.Getenv("TYPESAFE_API_KEY")};options["api_key"]=key
     }
-	credentialProvider := coreGet(options, "credential_provider", coreGet(options, "credentialProvider", nil))
-	apiKey := display(coreGet(options, "api_key", coreGet(options, "apiKey", "")))
-	if coreTruthy(coreGet(descriptor, "authRequired", false)) && apiKey == "" && credentialProvider == nil {
-		panic(AxError{Category: "authentication", Message: profile + " requires api_key or credential_provider"})
+	transportName := display(coreGet(descriptor, "transport", ""))
+	switch transportName {
+	case "gemini-generate-content":
+		options = normalizeGoogleOptions(profile, options)
+	case "anthropic-messages":
+		options = normalizeAnthropicOptions(profile, options)
 	}
-	switch display(coreGet(descriptor, "transport", "")) {
+	// A profile without a base URL of its own needs the caller's (TS
+	// resolveProfileURL) instead of sending its key to another host.
+	mustCore(provider_require_api_url(profile, options))
+	credentialProvider := coreGet(options, "credential_provider", coreGet(options, "credentialProvider", nil))
+	apiKey := ""
+	if key := coreGet(options, "api_key", coreGet(options, "apiKey", nil)); key != nil {
+		apiKey = display(key)
+	}
+	if apiKey == "" {
+		apiKey = goOpenAIEnvKey(profile)
+	}
+	if coreTruthy(coreGet(descriptor, "authRequired", false)) && apiKey == "" && credentialProvider == nil {
+		panic(AxError{Category: "authentication", Message: display(mustCore(provider_missing_api_key_message(profile)))})
+	}
+	switch transportName {
 	case "openai-responses":
 		return newOpenAIResponsesClient(profile, options)
 	case "gemini-generate-content":
@@ -3550,8 +3562,24 @@ func normalizeAzureOptions(options map[string]Value) map[string]Value {
 	return options
 }
 
-func normalizeGoogleOptions(options map[string]Value) map[string]Value {
+// goOpenAIEnvKey is OPENAI_API_KEY for OpenAI's own profiles and the generic
+// client, and empty for every other provider: the OpenAI key never goes to
+// another provider's servers.
+func goOpenAIEnvKey(profile string) string {
+	switch profile {
+	case "openai", "openai-responses", "openai-compatible":
+		return os.Getenv("OPENAI_API_KEY")
+	}
+	return ""
+}
+
+// normalizeGoogleOptions fills the key and base URL from the Google env vars,
+// which belong to the google-gemini profile only.
+func normalizeGoogleOptions(profile string, options map[string]Value) map[string]Value {
 	options = cloneMap(options)
+	if profile != "google-gemini" {
+		return options
+	}
 	vertex := coreGet(options, "project_id", coreGet(options, "projectId", nil)) != nil && coreGet(options, "region", nil) != nil
 	if coreGet(options, "api_key", coreGet(options, "apiKey", nil)) == nil {
 		key := os.Getenv("GOOGLE_API_KEY")
@@ -3573,8 +3601,14 @@ func normalizeGoogleOptions(options map[string]Value) map[string]Value {
 	return options
 }
 
-func normalizeAnthropicOptions(options map[string]Value) map[string]Value {
+// normalizeAnthropicOptions fills the key and base URL from the Anthropic env
+// vars, which belong to the anthropic profile only: an Anthropic key never
+// goes to another anthropic-messages host.
+func normalizeAnthropicOptions(profile string, options map[string]Value) map[string]Value {
 	options = cloneMap(options)
+	if profile != "anthropic" {
+		return options
+	}
 	vertex := coreGet(options, "project_id", coreGet(options, "projectId", nil)) != nil && coreGet(options, "region", nil) != nil
 	if coreGet(options, "api_key", coreGet(options, "apiKey", nil)) == nil {
 		key := os.Getenv("ANTHROPIC_API_KEY")
@@ -4267,7 +4301,7 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	descriptor := mustCore(provider_resolve_descriptor(c.Profile, opts))
 	base := display(coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://api.openai.com/v1"))))
 	headers := Object("Content-Type", "application/json")
-	defaultKey:=os.Getenv("OPENAI_API_KEY");if c.Profile=="typesafe" { defaultKey="" }
+	defaultKey:=goOpenAIEnvKey(c.Profile)
 	apiKey := display(coreGet(opts, "api_key", coreGet(opts, "apiKey", defaultKey)))
 	switch display(coreGet(descriptor, "auth", "bearer")) {
 	case "bearer":
@@ -4499,7 +4533,7 @@ func realtimeEventIsDone(event Value) bool {
 func (c *OpenAICompatibleClient) realtimeWSTarget(model Value, opts map[string]Value) (string, map[string]Value) {
 	// Grammar-specific URL + auth construction lives in Core so the client stays
 	// provider-agnostic.
-	defaultKey:=os.Getenv("OPENAI_API_KEY");if c.Profile=="typesafe" { defaultKey="" }
+	defaultKey:=goOpenAIEnvKey(c.Profile)
 	apiKey := display(coreGet(opts, "api_key", coreGet(opts, "apiKey", defaultKey)))
 	target := mustCore(provider_realtime_ws_url(c.Profile, display(model), apiKey, opts))
 	headers := Object()
@@ -10307,6 +10341,42 @@ func _core_axgen_check_streaming_assertion(spec Value, value Value, done Value) 
 
 var coreDeprecationsShown sync.Map
 
+var (
+	coreAIWarningsMu    sync.Mutex
+	coreAIWarningsShown = map[string]bool{}
+	coreAIWarningSink   func(string)
+)
+
+// _core_ai_warn_once logs a warning once per key per process (TS
+// console.warn): a setting Ax could not send, such as a sampling parameter
+// the selected model rejects.
+func _core_ai_warn_once(key Value, message Value) Value {
+	coreAIWarningsMu.Lock()
+	id := display(key)
+	if coreAIWarningsShown[id] {
+		coreAIWarningsMu.Unlock()
+		return nil
+	}
+	coreAIWarningsShown[id] = true
+	sink := coreAIWarningSink
+	coreAIWarningsMu.Unlock()
+	if sink != nil {
+		sink(display(message))
+	} else {
+		log.Print(display(message))
+	}
+	return nil
+}
+
+// coreAICaptureWarnings forgets the one-time warnings already shown and sends
+// new ones to sink (nil logs them again). Conformance fixtures use it.
+func coreAICaptureWarnings(sink func(string)) {
+	coreAIWarningsMu.Lock()
+	defer coreAIWarningsMu.Unlock()
+	coreAIWarningsShown = map[string]bool{}
+	coreAIWarningSink = sink
+}
+
 // _core_axgen_deprecation logs a deprecated behavior once per key per process.
 func _core_axgen_deprecation(key Value, message Value) Value {
 	if _, shown := coreDeprecationsShown.LoadOrStore(display(key), true); !shown {
@@ -12954,7 +13024,8 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 	transport := NewScriptedTransport(asSlice(coreGet(fixture, "transport_responses", Array())))
 	provider := display(coreGet(fixture, "provider", "openai"))
 	options := cloneMap(asMap(coreGet(fixture, "service_options", coreGet(fixture, "options", Object()))))
-	if coreGet(options, "api_key", nil) == nil && coreGet(options, "apiKey", nil) == nil {
+	// no_api_key: the client gets no key argument (the env fixtures).
+	if coreGet(options, "api_key", nil) == nil && coreGet(options, "apiKey", nil) == nil && !coreTruthy(coreGet(fixture, "no_api_key", false)) {
 		coreSet(options, "api_key", "test-key")
 	}
 	if model := coreGet(fixture, "model", nil); model != nil {
@@ -13019,15 +13090,65 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 		panic(AxError{Category: "fixture", Message: "unexpected AI client"})
 	}
 }
+// applyConformanceEnv sets (or, for null, unsets) the fixture's environment
+// variables and returns the function that restores them.
+func applyConformanceEnv(fixture map[string]Value) func() {
+	env := asMap(coreGet(fixture, "env", Object()))
+	saved := map[string]*string{}
+	for _, key := range orderedKeys(env) {
+		if previous, ok := os.LookupEnv(key); ok {
+			value := previous
+			saved[key] = &value
+		} else {
+			saved[key] = nil
+		}
+		if env[key] == nil {
+			os.Unsetenv(key)
+		} else {
+			os.Setenv(key, display(env[key]))
+		}
+	}
+	return func() {
+		for key, value := range saved {
+			if value == nil {
+				os.Unsetenv(key)
+			} else {
+				os.Setenv(key, *value)
+			}
+		}
+	}
+}
+
+// runConformanceAIChat runs one chat fixture. A fixture can set environment
+// variables and pins the one-time warnings the request logs with
+// expected_warnings.
 func runConformanceAIChat(fixture map[string]Value) {
-	client, transport := conformanceAIClient(fixture)
+	restore := applyConformanceEnv(fixture)
+	defer restore()
+	captured := []Value{}
+	coreAICaptureWarnings(func(message string) { captured = append(captured, message) })
+	defer coreAICaptureWarnings(nil)
+	runConformanceAIChatRequest(fixture)
+	if expected, ok := fixture["expected_warnings"]; ok {
+		assertEqual(captured, expected, "ai chat warnings")
+	}
+}
+
+func runConformanceAIChatRequest(fixture map[string]Value) {
+	var client *OpenAICompatibleClient
+	var transport *ScriptedTransport
 	output := expectMaybeFixtureError(func() Value {
+		client, transport = conformanceAIClient(fixture)
 		out, err := client.Chat(context.Background(), asMap(coreGet(fixture, "request", Object())), asMap(coreGet(fixture, "options", Object())))
 		if err != nil {
 			panic(err)
 		}
 		return out
 	}, fixture, nil)
+	if transport == nil {
+		// The client failed to build, so it sent nothing.
+		return
+	}
 	if coreGet(fixture, "expected_error_contains", nil) == nil {
 		if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 			assertEqual(output, expected, "ai chat output")

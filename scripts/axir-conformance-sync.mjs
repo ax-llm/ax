@@ -122,10 +122,17 @@ const providerDataFiles = {
   summary: 'provider-model-catalog-summary.json',
 };
 
-// The per-provider model names, aliases, isExpensive flags and notSupported
-// sampling parameters from the catalog, in catalog order. The chat path reads
-// this small index on every request (the expensive-model gate and the
-// temperature/topP filter), so it doesn't parse the full catalog.
+const samplingSupportFlags = [
+  'samplingWithoutReasoning',
+  'reasoningOffByDefault',
+];
+
+// The per-provider model names, aliases, isExpensive flags, notSupported
+// sampling parameters and the two supported flags that qualify them
+// (samplingWithoutReasoning, reasoningOffByDefault) from the catalog, in
+// catalog order. The chat path reads this small index on every request (the
+// expensive-model gate and the sampling filter), so it doesn't parse the full
+// catalog.
 export function buildProviderModelIndex(catalog) {
   const index = {};
   for (const provider of catalog.all ?? []) {
@@ -133,11 +140,17 @@ export function buildProviderModelIndex(catalog) {
       const notSupported = Object.fromEntries(
         Object.entries(model.notSupported ?? {}).filter(([, value]) => value)
       );
+      const supported = Object.fromEntries(
+        samplingSupportFlags
+          .filter((flag) => model.supported?.[flag] === true)
+          .map((flag) => [flag, true])
+      );
       return {
         name: model.name,
         ...(model.aliases?.length ? { aliases: model.aliases } : {}),
         ...(model.isExpensive ? { isExpensive: true } : {}),
         ...(Object.keys(notSupported).length > 0 ? { notSupported } : {}),
+        ...(Object.keys(supported).length > 0 ? { supported } : {}),
       };
     });
   }

@@ -10,6 +10,7 @@
       }
     }
   },
+  "expected_warnings": [],
   "kind": "ai_chat",
   "model": "gemini-2.5-flash",
   "model_config": {

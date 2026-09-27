@@ -12,6 +12,10 @@
       }
     }
   },
+  "expected_warnings": [
+    "Ax dropped temperature for gemini-3.6-flash: the model does not accept it.",
+    "Ax dropped topP for gemini-3.6-flash: the model does not accept it."
+  ],
   "kind": "ai_chat",
   "model": "gemini-3.6-flash",
   "name": "sampling-google-gemini-gemini-3-6-flash-request-config",

@@ -1,5 +1,5 @@
 {
-  "expected_transport_json_absent": ["max_output_tokens"],
+  "expected_transport_json_absent": ["max_output_tokens", "reasoning.effort"],
   "expected_transport_request": {
     "json": {
       "frequency_penalty": 0.2,
@@ -8,6 +8,7 @@
       "top_p": 1
     }
   },
+  "expected_warnings": [],
   "kind": "ai_chat",
   "model": "gpt-4.1",
   "name": "sampling-openai-responses-gpt-4-1-request-penalties",
@@ -21,6 +22,7 @@
     ],
     "model_config": {
       "frequencyPenalty": 0.2,
+      "n": 2,
       "presencePenalty": 0.1,
       "stream": false
     }

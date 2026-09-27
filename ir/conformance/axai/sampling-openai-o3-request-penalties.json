@@ -3,13 +3,19 @@
     "temperature",
     "top_p",
     "max_completion_tokens",
-    "n",
     "presence_penalty",
-    "frequency_penalty"
+    "frequency_penalty",
+    "reasoning_effort"
   ],
   "expected_transport_request": {
-    "json": {}
+    "json": {
+      "n": 2
+    }
   },
+  "expected_warnings": [
+    "Ax dropped presencePenalty for o3: the model does not accept it.",
+    "Ax dropped frequencyPenalty for o3: the model does not accept it."
+  ],
   "kind": "ai_chat",
   "model": "o3",
   "name": "sampling-openai-o3-request-penalties",
@@ -23,6 +29,7 @@
     ],
     "model_config": {
       "frequencyPenalty": 0.2,
+      "n": 2,
       "presencePenalty": 0.1,
       "stream": false
     }

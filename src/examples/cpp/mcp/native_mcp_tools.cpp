@@ -17,7 +17,12 @@ int main() {
   const char* key = std::getenv("OPENAI_API_KEY"); if (!key) key = std::getenv("OPENAI_APIKEY");
   const char* endpoint = std::getenv("MCP_URL");
   if (!key || !endpoint) return 2;
-  auto transport = std::make_shared<axllm::AxMCPStreamableHTTPTransport>(endpoint);
+  // The repo's demo MCP server runs on http://127.0.0.1; any other endpoint
+  // keeps the default SSRF protection (https only, no local hosts).
+  std::string url(endpoint);
+  bool local = url.rfind("http://127.0.0.1", 0) == 0;
+  auto transport = std::make_shared<axllm::AxMCPStreamableHTTPTransport>(
+      url, axllm::object({{"ssrfProtection", axllm::object({{"requireHttps", !local}, {"allowLocalhost", local}, {"allowPrivateNetworks", local}})}}));
   auto mcp = std::make_shared<axllm::AxMCPClient>(transport, axllm::object({{"namespace", "inventory"}}));
   axllm::AxExecutionContext context({mcp});
   auto program = axllm::ax("request:string -> answer:string");

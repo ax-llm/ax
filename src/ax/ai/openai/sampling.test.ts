@@ -222,6 +222,41 @@ describe('OpenAI sampling support', () => {
     expect(body).toMatchObject({ temperature: 0.2 });
   });
 
+  it('keeps sampling off o-series deployments on a profile without model info', async () => {
+    const bodies: Captured[] = [];
+    const llm = ai({
+      name: 'azure-openai',
+      apiKey: 'test-key',
+      resourceName: 'https://example.openai.azure.com/',
+      deploymentName: 'o3-mini',
+      version: '2024-10-21',
+      config: { model: 'o3-mini' },
+      options: {
+        fetch: async (_url: unknown, init?: RequestInit) => {
+          bodies.push(JSON.parse(String(init?.body)));
+          return chatCompletion('o3-mini');
+        },
+      },
+    } as never);
+    await llm.chat({
+      chatPrompt: [{ role: 'user', content: 'Hi' }],
+      modelConfig: { stream: false },
+    });
+    // The profile's default temperature never reaches the model.
+    expect(bodies[0]).not.toHaveProperty('temperature');
+    expect(warn).not.toHaveBeenCalled();
+
+    await llm.chat({
+      chatPrompt: [{ role: 'user', content: 'Hi' }],
+      modelConfig: { stream: false, temperature: 0.5, maxTokens: 300, n: 2 },
+    });
+    expect(bodies[1]).not.toHaveProperty('temperature');
+    expect(bodies[1]).toMatchObject({ max_completion_tokens: 300, n: 2 });
+    expect(warn).toHaveBeenCalledWith(
+      'Ax dropped temperature for o3-mini: the model does not accept it.'
+    );
+  });
+
   it('applies the same support on the Responses API', async () => {
     const off = await send({
       name: 'openai-responses',

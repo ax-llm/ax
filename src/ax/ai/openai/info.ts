@@ -1235,3 +1235,27 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     },
   },
 ];
+
+const openAIOSeriesNames = new Set<string>([
+  AxAIOpenAIModel.O1,
+  AxAIOpenAIModel.O1Mini,
+  AxAIOpenAIResponsesModel.O1Pro,
+  AxAIOpenAIModel.O3,
+  AxAIOpenAIModel.O3Mini,
+  AxAIOpenAIResponsesModel.O3Pro,
+  AxAIOpenAIModel.O4Mini,
+]);
+
+/**
+ * OpenAI's own info for a model named exactly like an o-series reasoning
+ * model. A profile without model info (azure-openai, openai-compatible, the
+ * other OpenAI Chat and Responses profiles) still keeps sampling parameters
+ * these models reject off the wire.
+ */
+export const openAIOSeriesSamplingModelInfo = (
+  model: string
+): AxModelInfo | undefined =>
+  openAIOSeriesNames.has(model)
+    ? (axModelInfoOpenAI.find((info) => info.name === model) ??
+      axModelInfoOpenAIResponses.find((info) => info.name === model))
+    : undefined;

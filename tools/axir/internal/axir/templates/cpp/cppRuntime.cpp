@@ -3943,6 +3943,42 @@ Value Core::axgen_check_streaming_assertion(Value spec, Value value, Value done)
   return object({{"status", "pass"}});
 }
 
+static std::mutex& ai_warnings_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+static std::set<std::string>& ai_warnings_shown() {
+  static std::set<std::string> shown;
+  return shown;
+}
+static std::function<void(const std::string&)>& ai_warning_sink() {
+  static std::function<void(const std::string&)> sink;
+  return sink;
+}
+
+// TS console.warn, once per key per process: a setting Ax could not send,
+// such as a sampling parameter the selected model rejects.
+Value Core::ai_warn_once(Value key, Value message) {
+  std::function<void(const std::string&)> sink;
+  {
+    std::lock_guard<std::mutex> lock(ai_warnings_mutex());
+    if (!ai_warnings_shown().insert(str(key)).second) return Value();
+    sink = ai_warning_sink();
+  }
+  if (sink) {
+    sink(str(message));
+  } else {
+    std::cerr << "axllm: " << str(message) << std::endl;
+  }
+  return Value();
+}
+
+void Core::ai_capture_warnings(std::function<void(const std::string&)> sink) {
+  std::lock_guard<std::mutex> lock(ai_warnings_mutex());
+  ai_warnings_shown().clear();
+  ai_warning_sink() = std::move(sink);
+}
+
 // Deprecated port behavior warns once per key per process.
 Value Core::axgen_deprecation(Value key, Value message) {
   static std::mutex shown_mutex;
@@ -4264,6 +4300,13 @@ static std::string env_or_default(const char* name, const std::string& fallback)
   return value == nullptr ? fallback : std::string(value);
 }
 
+// OPENAI_BASE_URL and OPENAI_API_KEY belong to OpenAI's own profiles and the
+// generic client: any other provider's key never goes to that host, and the
+// OpenAI key never goes to another provider.
+static bool reads_openai_env(const std::string& profile) {
+  return profile == "openai" || profile == "openai-responses" || profile == "openai-compatible";
+}
+
 // Built directly without a base_url (or OPENAI_BASE_URL), the generic client
 // talks to OpenAI, as it does in the other languages.
 static Value with_default_openai_base_url(Value options) {
@@ -4302,18 +4345,31 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
           Core::map_merge(options, Core::get(options, "options", Value::object()))),
       profile_(std::move(profile)),
       descriptor_(Core::provider_resolve_descriptor(profile_, Core::map_merge(options, Core::get(options, "options", Value::object())))),
-      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", (profile_ == "typesafe" ? str(Core::get(descriptor_, "baseUrl")) : env_or_default("OPENAI_BASE_URL", str(Core::get(descriptor_, "baseUrl", "https://api.openai.com/v1"))))))),
-      api_key_(option_string(options, "api_key", "apiKey", (profile_ == "typesafe" ? env_or_default("TYPESAFE_APIKEY", env_or_default("TYPESAFE_API_KEY", "")) : env_or_default("OPENAI_API_KEY", "")))),
+      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", [&]() {
+        std::string descriptor_base = Core::get(descriptor_, "baseUrl").is_null() ? std::string("https://api.openai.com/v1") : str(Core::get(descriptor_, "baseUrl"));
+        return reads_openai_env(profile_) ? env_or_default("OPENAI_BASE_URL", descriptor_base) : descriptor_base;
+      }()))),
+      api_key_(option_string(options, "api_key", "apiKey", (profile_ == "typesafe" ? env_or_default("TYPESAFE_APIKEY", env_or_default("TYPESAFE_API_KEY", "")) : reads_openai_env(profile_) ? env_or_default("OPENAI_API_KEY", "") : std::string()))),
       api_version_(str(Core::get(descriptor_, "apiVersion", option_string(options, "api_version", "apiVersion", "")))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),
       credential_provider_(std::move(credential_provider)),
       transport_(transport) {
-  // The provider's sampling defaults (as its TS class starts from) sit under
-  // the caller's model_config.
-  model_config_ = Core::map_merge(Core::provider_default_model_config(profile_), Core::get(options, "model_config", Value::object()));
+  // Only the caller's settings: provider_build_chat_request adds the
+  // provider's sampling defaults (as its TS class starts from) under them,
+  // after dropping the explicit ones the model rejects.
+  model_config_ = Core::map_merge(Value::object(), Core::get(options, "model_config", Value::object()));
   if (profile_ == "typesafe") {
     Core::typesafe_require_number(Core::get(options_, "trueThreshold", Core::get(options_, "true_threshold", 0.5)), "trueThreshold", 0, 1);
   }
+  // TS resolveProfileURL: a profile without a base URL of its own needs the
+  // caller's instead of sending its key to another host. The generic client
+  // also takes OPENAI_BASE_URL, and built directly it defaults to OpenAI.
+  Value url_options = Core::map_merge(Core::get(options, "options", Value::object()), options);
+  std::string env_base_url = reads_openai_env(profile_) ? env_or_default("OPENAI_BASE_URL", "") : std::string();
+  if (!env_base_url.empty() && !Core::truthy(Core::get(url_options, "base_url")) && !Core::truthy(Core::get(url_options, "baseUrl")) && !Core::truthy(Core::get(url_options, "apiURL"))) {
+    Core::set(url_options, "base_url", env_base_url);
+  }
+  Core::provider_require_api_url(profile_, url_options);
   if (transport_ == nullptr) {
     owned_transport_ = std::make_shared<HttpTransport>();
     transport_ = owned_transport_.get();
@@ -4363,6 +4419,8 @@ GoogleGeminiClient::GoogleGeminiClient(Value options, Transport* transport)
 GoogleGeminiClient::GoogleGeminiClient(std::string profile, Value options, Transport* transport)
     : OpenAICompatibleClient(profile, profile, [&]() {
         Value out = std::move(options);
+        // The Google env vars belong to the google-gemini profile only.
+        if (profile != "google-gemini") return out;
         bool vertex = (!Core::get(out, "project_id").is_null() || !Core::get(out, "projectId").is_null()) && !Core::get(out, "region").is_null();
         if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", vertex ? env_or_default("GOOGLE_VERTEX_ACCESS_TOKEN", "") : env_or_default("GOOGLE_API_KEY", env_or_default("GEMINI_API_KEY", "")));
         std::string base = env_or_default("GOOGLE_GEMINI_BASE_URL", "");
@@ -4378,6 +4436,9 @@ AnthropicClient::AnthropicClient(Value options, Transport* transport)
 AnthropicClient::AnthropicClient(std::string profile, Value options, Transport* transport)
     : OpenAICompatibleClient(profile, profile, [&]() {
         Value out = std::move(options);
+        // The Anthropic env vars belong to the anthropic profile only: an
+        // Anthropic key never goes to another anthropic-messages host.
+        if (profile != "anthropic") return out;
         bool vertex = (!Core::get(out, "project_id").is_null() || !Core::get(out, "projectId").is_null()) && !Core::get(out, "region").is_null();
         if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", vertex ? env_or_default("GOOGLE_VERTEX_ACCESS_TOKEN", "") : env_or_default("ANTHROPIC_API_KEY", ""));
         std::string base = env_or_default("ANTHROPIC_BASE_URL", "");
@@ -5169,7 +5230,14 @@ Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value p
   // Signals the transport to return the raw body as base64 instead of JSON.
   if (binary_response) Core::set(call, "binary", Value(true));
   Core::set(call, "timeout", timeout_seconds_);
-  if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) throw Core::as_error(Core::ai_error_auth("api_key or credential_provider is required", Value(), Value(), Value(), call));
+  if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) {
+    // A credential provider can still be attached after construction, so a
+    // missing key fails here, before anything is sent.
+    std::string message = Core::truthy(Core::get(descriptor_, "authRequired", false))
+        ? str(Core::provider_missing_api_key_message(profile_))
+        : std::string("api_key or credential_provider is required");
+    throw Core::as_error(Core::ai_error_auth(message, Value(), Value(), Value(), call));
+  }
   return call;
 }
 

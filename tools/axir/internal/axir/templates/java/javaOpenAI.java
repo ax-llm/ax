@@ -175,10 +175,12 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     this("openai-compatible", "openai", withDefaultBaseUrl(options == null ? Map.of() : options), "gpt-4.1-mini", "text-embedding-3-small");
   }
 
+  private static final java.util.Set<String> OPENAI_ENV_PROFILES = java.util.Set.of("openai", "openai-responses", "openai-compatible");
+
   // Built directly without a base_url (or OPENAI_BASE_URL), the generic client
   // talks to OpenAI, as it does in the other languages.
   private static Map<String, Object> withDefaultBaseUrl(Map<String, Object> options) {
-    if (options.get("base_url") != null || options.get("baseUrl") != null || System.getenv("OPENAI_BASE_URL") != null) return options;
+    if (options.get("base_url") != null || options.get("baseUrl") != null || Core.env("OPENAI_BASE_URL") != null) return options;
     Map<String, Object> resolved = new LinkedHashMap<>(options);
     resolved.put("base_url", "https://api.openai.com/v1");
     return resolved;
@@ -193,18 +195,32 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))))
     );
     this.profile = profile == null || profile.isBlank() ? "openai-compatible" : profile;
-    // The provider's sampling defaults (as its TS class starts from) sit under
-    // the caller's model_config.
-    this.modelConfig = new LinkedHashMap<>(Core.asMap(Core.provider_default_model_config(this.profile)));
-    this.modelConfig.putAll(Core.asMap(options.get("model_config")));
+    // Only the caller's settings: provider_build_chat_request adds the
+    // provider's sampling defaults (as its TS class starts from) under them,
+    // after dropping the explicit ones the model rejects.
+    this.modelConfig = new LinkedHashMap<>(Core.asMap(options.get("model_config")));
     if (this.profile.equals("typesafe")) {
       Core.typesafe_require_number(this.options.getOrDefault("trueThreshold", this.options.getOrDefault("true_threshold", 0.5)), "trueThreshold", 0, 1);
     }
     Map<String, Object> resolvedOptions = Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))));
     this.descriptor = Core.asMap(Core.provider_resolve_descriptor(this.profile, resolvedOptions));
-    String descriptorBaseUrl = String.valueOf(this.descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1"));
-    this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", (this.profile.equals("typesafe") ? descriptorBaseUrl : System.getenv().getOrDefault("OPENAI_BASE_URL", descriptorBaseUrl))))).replaceAll("/+$", "");
-    this.apiKey = String.valueOf(options.getOrDefault("api_key", options.getOrDefault("apiKey", this.profile.equals("typesafe") ? System.getenv().getOrDefault("TYPESAFE_APIKEY", System.getenv("TYPESAFE_API_KEY")) : System.getenv("OPENAI_API_KEY"))));
+    // OPENAI_BASE_URL and OPENAI_API_KEY belong to OpenAI's own profiles and the
+    // generic client: any other provider's key never goes to that host, and the
+    // OpenAI key never goes to another provider.
+    boolean readsOpenAIEnv = OPENAI_ENV_PROFILES.contains(this.profile);
+    Object explicitBaseUrl = options.get("base_url") != null ? options.get("base_url") : options.get("baseUrl");
+    String envBaseUrl = readsOpenAIEnv ? Core.env("OPENAI_BASE_URL") : null;
+    Object descriptorBaseUrl = this.descriptor.get("baseUrl");
+    String resolvedBaseUrl = explicitBaseUrl != null ? String.valueOf(explicitBaseUrl)
+        : envBaseUrl != null && !envBaseUrl.isBlank() ? envBaseUrl
+        : descriptorBaseUrl != null ? String.valueOf(descriptorBaseUrl)
+        : "https://api.openai.com/v1";
+    this.baseUrl = resolvedBaseUrl.replaceAll("/+$", "");
+    Object explicitApiKey = options.get("api_key") != null ? options.get("api_key") : options.get("apiKey");
+    String envApiKey = this.profile.equals("typesafe")
+        ? (Core.env("TYPESAFE_APIKEY") != null ? Core.env("TYPESAFE_APIKEY") : Core.env("TYPESAFE_API_KEY"))
+        : readsOpenAIEnv ? Core.env("OPENAI_API_KEY") : null;
+    this.apiKey = explicitApiKey != null ? String.valueOf(explicitApiKey) : envApiKey;
     this.apiVersion = String.valueOf(this.descriptor.getOrDefault("apiVersion", options.getOrDefault("api_version", options.getOrDefault("apiVersion", ""))));
     Object timeout = options.getOrDefault("timeout", 60.0);
     this.timeoutSeconds = timeout instanceof Number n ? n.doubleValue() : 60.0;
@@ -214,7 +230,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (Core.truthy(this.descriptor.get("authRequired")) &&
         (this.apiKey == null || this.apiKey.isBlank() || "null".equals(this.apiKey)) &&
         this.credentialProvider == null) {
-      throw new AxAIServiceAuthenticationError(profile + " requires api_key or credential_provider", null, null, null, null);
+      throw new AxAIServiceAuthenticationError(String.valueOf(Core.provider_missing_api_key_message(this.profile)), null, null, null, null);
     }
   }
 

@@ -4,11 +4,13 @@
     "top_p",
     "max_output_tokens",
     "presence_penalty",
-    "frequency_penalty"
+    "frequency_penalty",
+    "reasoning.effort"
   ],
   "expected_transport_request": {
     "json": {}
   },
+  "expected_warnings": [],
   "kind": "ai_chat",
   "model": "o3",
   "name": "sampling-openai-responses-o3-defaults",

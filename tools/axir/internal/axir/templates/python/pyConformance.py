@@ -17,6 +17,7 @@ from .ai import AnthropicClient, AxAIRefusalError, AxAIServiceAbortedError, AxAI
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import openai_responses_transport_cursor, openai_responses_session_event, _wire_json_body
 from .ai import _snapshot_global_caching_function, set_caching_function
+from .ai import _core_ai_capture_warnings
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
@@ -2933,13 +2934,40 @@ def _run_agent_runtime_protocol(fixture):
 
 
 def _run_ai_chat(fixture):
-    client, transport = _openai_fixture_client(fixture)
+    # A fixture can set (or, with null, unset) environment variables, and pins
+    # the one-time warnings the request logs with expected_warnings.
+    captured = []
+    saved_env = {key: os.environ.get(key) for key in (fixture.get("env") or {})}
     try:
+        for key, value in (fixture.get("env") or {}).items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = str(value)
+        _core_ai_capture_warnings(captured.append)
+        _run_ai_chat_request(fixture)
+    finally:
+        _core_ai_capture_warnings(None)
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    if "expected_warnings" in fixture:
+        _assert_equal(captured, fixture["expected_warnings"], "ai chat warnings")
+
+
+def _run_ai_chat_request(fixture):
+    transport = None
+    try:
+        client, transport = _openai_fixture_client(fixture)
         result = client.chat(fixture["request"], fixture.get("options"))
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
-            _assert_transport_request(fixture, transport)
+            # A client that fails to build has sent nothing.
+            if transport is not None:
+                _assert_transport_request(fixture, transport)
             return
         raise
     if fixture.get("expected_error_contains"):
@@ -3585,10 +3613,12 @@ def _openai_fixture_client(fixture):
             return copy.deepcopy(credential_headers[index])
     # The generic client built by its own constructor instead of ai().
     factory = OpenAICompatibleClient if fixture.get("client_class") == "OpenAICompatibleClient" else (lambda **kwargs: ai(provider, **kwargs))
+    # no_api_key: the client gets no key argument (the env fixtures).
+    if not fixture.get("no_api_key"):
+        extra_options["api_key"] = "test-key"
     client = factory(
         model=fixture.get("model", default_model),
         embed_model=fixture.get("embed_model", default_embed_model),
-        api_key="test-key",
         transport=transport,
         model_config=fixture.get("model_config"),
         options=fixture.get("service_options") or fixture.get("options") or {},

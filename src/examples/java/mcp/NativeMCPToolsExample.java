@@ -16,7 +16,12 @@ public final class NativeMCPToolsExample {
     String key = Optional.ofNullable(System.getenv("OPENAI_API_KEY")).orElse(System.getenv("OPENAI_APIKEY"));
     String endpoint = System.getenv("MCP_URL");
     if (key == null || endpoint == null) throw new IllegalStateException("Set OPENAI_API_KEY and MCP_URL.");
-    AxMCPClient mcp = new AxMCPClient(new AxMCPStreamableHTTPTransport(endpoint), Map.of("namespace", "inventory"));
+    // The repo's demo MCP server runs on http://127.0.0.1; any other endpoint
+    // keeps the default SSRF protection (https only, no local hosts).
+    boolean local = endpoint.startsWith("http://127.0.0.1");
+    AxMCPStreamableHTTPTransport transport = new AxMCPStreamableHTTPTransport(endpoint,
+        Map.of("ssrfProtection", Map.of("requireHttps", !local, "allowLocalhost", local, "allowPrivateNetworks", local)));
+    AxMCPClient mcp = new AxMCPClient(transport, Map.of("namespace", "inventory"));
     AxGen program = new AxGen(Ax.s("request:string -> answer:string"), Map.of("mcp", mcp));
     AxAIService llm = Ax.ai("openai", Map.of("api_key", key, "model", "gpt-5.4-mini"));
     try {

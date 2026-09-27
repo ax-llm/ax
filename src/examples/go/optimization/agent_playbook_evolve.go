@@ -59,6 +59,8 @@ func main() {
 	assistant := ax.NewAgent(
 		"question:string -> answer:string",
 		ax.Object(
+			// The playbook learns with the agent's own client.
+			"ai", client,
 			"contextFields", ax.Array(),
 			"runtime", ax.Object("language", "JavaScript"),
 			"playbook", ax.Object(

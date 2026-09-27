@@ -22,7 +22,13 @@ fn main() -> AxResult<()> {
         .or_else(|_| env::var("OPENAI_APIKEY"))
         .map_err(|_| axllm::AxError::runtime("Set OPENAI_API_KEY."))?;
     let endpoint = env::var("MCP_URL").map_err(|_| axllm::AxError::runtime("Set MCP_URL."))?;
-    let transport = AxMCPStreamableHTTPTransport::new(endpoint, json!({}))?;
+    // The repo's demo MCP server runs on http://127.0.0.1; any other endpoint
+    // keeps the default SSRF protection (https only, no local hosts).
+    let local = endpoint.starts_with("http://127.0.0.1");
+    let transport = AxMCPStreamableHTTPTransport::new(
+        endpoint,
+        json!({"ssrfProtection": {"requireHttps": !local, "allowLocalhost": local, "allowPrivateNetworks": local}}),
+    )?;
     let mcp = Arc::new(Mutex::new(AxMCPClient::new(
         Box::new(transport),
         json!({"namespace":"inventory"}),

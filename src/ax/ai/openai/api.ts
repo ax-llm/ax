@@ -58,7 +58,7 @@ import {
   AxAIOpenAIModel,
 } from './chat_types.js';
 import { axResolveOpenAIChatReasoningEffort } from './effort.js';
-import { axModelInfoOpenAI } from './info.js';
+import { axModelInfoOpenAI, openAIOSeriesSamplingModelInfo } from './info.js';
 import {
   axIsGPT6Astra,
   axIsGPT6Family,
@@ -356,6 +356,11 @@ class AxAIOpenAIImpl<
       n: config.n,
       stream: config.stream,
     };
+  }
+
+  /** OpenAI's info for an o-series name, for profiles without model info. */
+  samplingModelInfo(model: TModel): Readonly<AxModelInfo> | undefined {
+    return openAIOSeriesSamplingModelInfo(String(model));
   }
 
   /** The `reasoning_effort` createChatReq will send for this model. */

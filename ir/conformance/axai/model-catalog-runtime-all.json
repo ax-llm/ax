@@ -1653,6 +1653,8 @@
             "isDefault": false,
             "name": "gpt-5-nano",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
@@ -1790,12 +1792,15 @@
             "maxTokens": 128000,
             "name": "gpt-5.6-luna",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 0.2,
             "provider": "openai",
             "supported": {
+              "samplingWithoutReasoning": true,
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -1819,12 +1824,16 @@
             "isDefault": false,
             "name": "gpt-5.4-nano",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 0.2,
             "provider": "openai",
             "supported": {
+              "reasoningOffByDefault": true,
+              "samplingWithoutReasoning": true,
               "structuredOutputs": true
             },
             "type": "text"
@@ -1892,6 +1901,8 @@
             "isDefault": true,
             "name": "gpt-5-mini",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
@@ -1948,12 +1959,16 @@
             "isDefault": false,
             "name": "gpt-5.4-mini",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 0.75,
             "provider": "openai",
             "supported": {
+              "reasoningOffByDefault": true,
+              "samplingWithoutReasoning": true,
               "structuredOutputs": true
             },
             "type": "text"
@@ -1966,15 +1981,21 @@
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": false,
               "thinkingLevels": [],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 4.4,
             "currency": "usd",
             "isDefault": false,
             "name": "o1-mini",
+            "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
+              "temperature": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 1.1,
             "provider": "openai",
             "supported": {
@@ -1990,15 +2011,51 @@
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": false,
               "thinkingLevels": [],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 4.4,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "o3-mini",
+            "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
+              "temperature": true,
               "topP": true
+            },
+            "promptTokenCostPer1M": 1.1,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": false
             },
             "completionTokenCostPer1M": 4.4,
             "currency": "usd",
             "isDefault": false,
             "name": "o4-mini",
+            "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
+              "temperature": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 1.1,
             "provider": "openai",
             "supported": {
@@ -2038,15 +2095,21 @@
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": false,
               "thinkingLevels": [],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 8,
             "currency": "usd",
             "isDefault": false,
             "name": "o3",
+            "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
+              "temperature": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 2,
             "provider": "openai",
             "supported": {
@@ -2072,6 +2135,8 @@
             "isDefault": false,
             "name": "gpt-5",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
@@ -2184,12 +2249,16 @@
             "isDefault": false,
             "name": "gpt-5.1",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 1.25,
             "provider": "openai",
             "supported": {
+              "reasoningOffByDefault": true,
+              "samplingWithoutReasoning": true,
               "structuredOutputs": true
             },
             "type": "text"
@@ -2381,12 +2450,15 @@
             "maxTokens": 128000,
             "name": "gpt-5.6-terra",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 2,
             "provider": "openai",
             "supported": {
+              "samplingWithoutReasoning": true,
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -2410,12 +2482,16 @@
             "isDefault": false,
             "name": "gpt-5.2",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 1.75,
             "provider": "openai",
             "supported": {
+              "reasoningOffByDefault": true,
+              "samplingWithoutReasoning": true,
               "structuredOutputs": true
             },
             "type": "text"
@@ -2494,12 +2570,16 @@
             "isDefault": false,
             "name": "gpt-5.4",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 2.5,
             "provider": "openai",
             "supported": {
+              "reasoningOffByDefault": true,
+              "samplingWithoutReasoning": true,
               "structuredOutputs": true
             },
             "type": "text"
@@ -2562,12 +2642,15 @@
             "maxTokens": 128000,
             "name": "gpt-5.6-sol",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 4,
             "provider": "openai",
             "supported": {
+              "samplingWithoutReasoning": true,
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -2604,12 +2687,15 @@
             "longContextThreshold": 272000,
             "name": "gpt-5.5",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 5,
             "provider": "openai",
             "supported": {
+              "samplingWithoutReasoning": true,
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -2686,15 +2772,21 @@
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": false,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": false,
               "thinkingLevels": [],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 60,
             "currency": "usd",
             "isDefault": false,
             "name": "o1",
+            "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
+              "temperature": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 15,
             "provider": "openai",
             "supported": {
@@ -3668,6 +3760,8 @@
             "isDefault": false,
             "name": "gpt-5-nano",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
@@ -3807,12 +3901,15 @@
             "maxTokens": 128000,
             "name": "gpt-5.6-luna",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 0.2,
             "provider": "openai-responses",
             "supported": {
+              "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
               "thinkingBudget": true
@@ -3844,12 +3941,16 @@
             "isDefault": false,
             "name": "gpt-5.4-nano",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 0.2,
             "provider": "openai-responses",
             "supported": {
+              "reasoningOffByDefault": true,
+              "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
               "thinkingBudget": true
@@ -3926,6 +4027,8 @@
             "isDefault": false,
             "name": "gpt-5-mini",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
@@ -4000,12 +4103,16 @@
             "isDefault": false,
             "name": "gpt-5.4-mini",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 0.75,
             "provider": "openai-responses",
             "supported": {
+              "reasoningOffByDefault": true,
+              "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
               "thinkingBudget": true
@@ -4020,7 +4127,7 @@
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -4030,12 +4137,18 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 4.4,
             "currency": "usd",
             "isDefault": false,
             "name": "o3-mini",
+            "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
+              "temperature": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 1.1,
             "provider": "openai-responses",
             "supported": {
@@ -4053,7 +4166,7 @@
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -4063,12 +4176,18 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 4.4,
             "currency": "usd",
             "isDefault": false,
             "name": "o4-mini",
+            "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
+              "temperature": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 1.1,
             "provider": "openai-responses",
             "supported": {
@@ -4110,7 +4229,7 @@
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -4120,12 +4239,18 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 8,
             "currency": "usd",
             "isDefault": false,
             "name": "o3",
+            "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
+              "temperature": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 2,
             "provider": "openai-responses",
             "supported": {
@@ -4160,6 +4285,8 @@
             "isDefault": false,
             "name": "gpt-5",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
@@ -4308,12 +4435,16 @@
             "isDefault": false,
             "name": "gpt-5.1",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 1.25,
             "provider": "openai-responses",
             "supported": {
+              "reasoningOffByDefault": true,
+              "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
               "thinkingBudget": true
@@ -4534,12 +4665,15 @@
             "maxTokens": 128000,
             "name": "gpt-5.6-terra",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 2,
             "provider": "openai-responses",
             "supported": {
+              "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
               "thinkingBudget": true
@@ -4571,12 +4705,16 @@
             "isDefault": false,
             "name": "gpt-5.2",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 1.75,
             "provider": "openai-responses",
             "supported": {
+              "reasoningOffByDefault": true,
+              "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
               "thinkingBudget": true
@@ -4682,12 +4820,16 @@
             "isDefault": false,
             "name": "gpt-5.4",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 2.5,
             "provider": "openai-responses",
             "supported": {
+              "reasoningOffByDefault": true,
+              "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
               "thinkingBudget": true
@@ -4752,12 +4894,15 @@
             "maxTokens": 128000,
             "name": "gpt-5.6-sol",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 4,
             "provider": "openai-responses",
             "supported": {
+              "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
               "thinkingBudget": true
@@ -4795,12 +4940,15 @@
             "longContextThreshold": 272000,
             "name": "gpt-5.5",
             "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
               "temperature": true,
               "topP": true
             },
             "promptTokenCostPer1M": 5,
             "provider": "openai-responses",
             "supported": {
+              "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
               "thinkingBudget": true
@@ -4878,7 +5026,7 @@
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -4888,12 +5036,18 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 60,
             "currency": "usd",
             "isDefault": false,
             "name": "o1",
+            "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
+              "temperature": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 15,
             "provider": "openai-responses",
             "supported": {
@@ -4932,7 +5086,7 @@
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -4942,13 +5096,19 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 80,
             "currency": "usd",
             "isDefault": false,
             "isExpensive": true,
             "name": "o3-pro",
+            "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
+              "temperature": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 20,
             "provider": "openai-responses",
             "supported": {
@@ -5082,7 +5242,7 @@
               "serviceTiers": ["standard", "flex", "priority"],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -5092,13 +5252,19 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 600,
             "currency": "usd",
             "isDefault": false,
             "isExpensive": true,
             "name": "o1-pro",
+            "notSupported": {
+              "frequencyPenalty": true,
+              "presencePenalty": true,
+              "temperature": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 150,
             "provider": "openai-responses",
             "supported": {
@@ -8261,7 +8427,7 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 243,
+    "modelCount": 244,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["audio", "code", "embeddings", "text"],
     "providerCount": 50,

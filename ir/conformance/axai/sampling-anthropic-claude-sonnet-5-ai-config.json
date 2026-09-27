@@ -5,6 +5,7 @@
       "max_tokens": 123
     }
   },
+  "expected_warnings": [],
   "kind": "ai_chat",
   "model": "claude-sonnet-5",
   "model_config": {

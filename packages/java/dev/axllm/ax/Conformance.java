@@ -2709,12 +2709,31 @@ public final class Conformance {
     }
   }
 
-	  static void runAIChat(Map<String, Object> fixture) {
-    ClientFixture cf = openaiClient(fixture);
+	  // A chat fixture can set (or, with null, unset) environment variables, and
+  // pins the one-time warnings the request logs with expected_warnings.
+  static void runAIChat(Map<String, Object> fixture) {
+    List<Object> captured = new ArrayList<>();
+    Core.setEnvOverrides(Core.asMap(fixture.get("env")));
+    Core.aiCaptureWarnings(captured::add);
+    try {
+      runAIChatRequest(fixture);
+    } finally {
+      Core.aiCaptureWarnings(null);
+      Core.setEnvOverrides(null);
+    }
+    if (fixture.containsKey("expected_warnings")) assertEqual(captured, fixture.get("expected_warnings"), "ai chat warnings");
+  }
+
+  static void runAIChatRequest(Map<String, Object> fixture) {
+    ClientFixture[] built = {null};
     Object result = expectMaybeError(() -> {
-      try { return cf.client.chat(Core.asMap(fixture.get("request")), new LinkedHashMap<>(Core.asMap(fixture.get("options")))); }
+      built[0] = openaiClient(fixture);
+      try { return built[0].client.chat(Core.asMap(fixture.get("request")), new LinkedHashMap<>(Core.asMap(fixture.get("options")))); }
       catch (Exception e) { throw Core.asRuntime(e); }
     }, fixture);
+    ClientFixture cf = built[0];
+    // A client that fails to build has sent nothing.
+    if (cf == null) return;
     if (fixture.containsKey("expected_error_contains")) { assertTransport(fixture, cf.transport); return; }
     if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai chat output");
     if (fixture.containsKey("expected_request_after")) assertEqual(fixture.get("request"), fixture.get("expected_request_after"), "ai chat input mutation");
@@ -3334,16 +3353,13 @@ public final class Conformance {
     ScriptedTransport transport = new ScriptedTransport(Core.asList(fixture.getOrDefault("transport_responses", fixture.getOrDefault("responses", List.of()))));
     String provider = String.valueOf(Core.provider_normalize_profile(String.valueOf(fixture.getOrDefault("provider", "openai"))));
     Map<String, Object> descriptor = Core.asMap(Core.provider_descriptor(provider));
-    String providerTransport = String.valueOf(descriptor.get("transport"));
-    boolean responsesProvider = providerTransport.equals("openai-responses");
-    boolean geminiProvider = providerTransport.equals("gemini-generate-content");
-    boolean anthropicProvider = providerTransport.equals("anthropic-messages");
     Map<String, Object> options = new LinkedHashMap<>();
     String defaultModel = String.valueOf(descriptor.getOrDefault("defaultModel", ""));
     String defaultEmbedModel = String.valueOf(descriptor.getOrDefault("defaultEmbedModel", ""));
     options.put("model", fixture.getOrDefault("model", defaultModel));
     options.put("embed_model", fixture.getOrDefault("embed_model", defaultEmbedModel));
-    options.put("api_key", "test-key");
+    // no_api_key: the client gets no key argument (the env fixtures).
+    if (!Core.truthy(fixture.get("no_api_key"))) options.put("api_key", "test-key");
     options.put("transport", transport);
     options.put("model_config", fixture.get("model_config"));
     options.put("options", fixture.getOrDefault("service_options", fixture.getOrDefault("options", Map.of())));
@@ -3370,12 +3386,10 @@ public final class Conformance {
         return fresh;
       });
     }
-    // client_class builds the generic client by its own public constructor.
+    // client_class builds the generic client by its own public constructor;
+    // everything else goes through Ax.ai, like the other languages' runners.
     OpenAICompatibleClient client = "OpenAICompatibleClient".equals(fixture.get("client_class")) ? new OpenAICompatibleClient(options)
-      : geminiProvider ? new GoogleGeminiClient(provider, options)
-      : anthropicProvider ? new AnthropicClient(provider, options)
-      : responsesProvider ? new OpenAIResponsesClient(provider, options)
-      : new OpenAICompatibleClient(provider, provider, options, defaultModel, defaultEmbedModel);
+      : (OpenAICompatibleClient) Ax.ai(provider, options);
     return new ClientFixture(client, transport);
   }
 

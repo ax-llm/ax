@@ -19,10 +19,12 @@ import type {
   AxInternalChatRequest,
   AxInternalEmbedRequest,
   AxModelConfig,
+  AxModelInfo,
   AxTokenUsage,
 } from '../types.js';
 import { axResolveOpenAIPromptCacheKey } from './caching.js';
 import { axResolveOpenAIResponsesReasoningEffort } from './effort.js';
+import { openAIOSeriesSamplingModelInfo } from './info.js';
 import { axIsGPT6Astra, axIsGPT6Family } from './model_family.js';
 import { axValidateOpenAIResponseRequest } from './responses_client.js';
 import type {
@@ -109,6 +111,11 @@ export class AxAIOpenAIResponsesImpl<
       // n: config.n, // Not a direct parameter in /v1/responses
       stream: config.stream,
     };
+  }
+
+  /** OpenAI's info for an o-series name, for profiles without model info. */
+  samplingModelInfo(model: TModel): Readonly<AxModelInfo> | undefined {
+    return openAIOSeriesSamplingModelInfo(String(model));
   }
 
   /** The `reasoning.effort` createChatReq will send for this model. */

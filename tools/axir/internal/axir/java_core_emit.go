@@ -352,6 +352,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicAIErrorAuth:               "Core.aiErrorAuth",
 	IntrinsicAIErrorTimeout:            "Core.aiErrorTimeout",
 	IntrinsicAIErrorStatus:             "Core.aiErrorStatus",
+	IntrinsicAIWarnOnce:                "Core.aiWarnOnce",
 	IntrinsicStringEndsWith:            "Core.stringEndsWith",
 	IntrinsicStringJoin:                "Core.stringJoin",
 	IntrinsicStringLower:               "Core.stringLower",

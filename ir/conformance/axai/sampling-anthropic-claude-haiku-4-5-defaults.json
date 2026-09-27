@@ -6,6 +6,7 @@
       "temperature": 0
     }
   },
+  "expected_warnings": [],
   "kind": "ai_chat",
   "model": "claude-haiku-4-5",
   "name": "sampling-anthropic-claude-haiku-4-5-defaults",

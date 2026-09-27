@@ -1448,6 +1448,12 @@ export interface AxAIServiceImpl<
     config: Readonly<AxAIServiceOptions>
   ): string | undefined;
 
+  /**
+   * Optional: model info for the sampling filter when the AI has none for
+   * `model` (the OpenAI o-series on profiles that carry no model info).
+   */
+  samplingModelInfo?(model: TModel): Readonly<AxModelInfo> | undefined;
+
   getModelConfig(): AxModelConfig;
 
   getTokenUsage(): AxTokenUsage | undefined;

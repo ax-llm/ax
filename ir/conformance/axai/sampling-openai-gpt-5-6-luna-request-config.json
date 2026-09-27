@@ -4,13 +4,18 @@
     "top_p",
     "n",
     "presence_penalty",
-    "frequency_penalty"
+    "frequency_penalty",
+    "reasoning_effort"
   ],
   "expected_transport_request": {
     "json": {
       "max_completion_tokens": 77
     }
   },
+  "expected_warnings": [
+    "Ax dropped temperature for gpt-5.6-luna: the model accepts it only with reasoning effort none.",
+    "Ax dropped topP for gpt-5.6-luna: the model accepts it only with reasoning effort none."
+  ],
   "kind": "ai_chat",
   "model": "gpt-5.6-luna",
   "name": "sampling-openai-gpt-5-6-luna-request-config",

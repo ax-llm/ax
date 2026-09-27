@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	ax "github.com/ax-llm/ax/packages/go"
 )
@@ -26,7 +27,10 @@ func main() {
 	if key == "" || endpoint == "" {
 		panic("Set OPENAI_API_KEY and MCP_URL.")
 	}
-	transport, err := ax.NewAxMCPStreamableHTTPTransport(endpoint, nil)
+	// The repo's demo MCP server runs on http://127.0.0.1; any other endpoint
+	// keeps the default SSRF protection (https only, no local hosts).
+	local := strings.HasPrefix(endpoint, "http://127.0.0.1")
+	transport, err := ax.NewAxMCPStreamableHTTPTransport(endpoint, map[string]ax.Value{"ssrfProtection": map[string]ax.Value{"requireHttps": !local, "allowLocalhost": local, "allowPrivateNetworks": local}})
 	if err != nil {
 		panic(err)
 	}
