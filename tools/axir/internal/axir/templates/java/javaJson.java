@@ -32,7 +32,7 @@ public final class Json {
     if (value instanceof Boolean) return String.valueOf(value);
     if (value instanceof Map<?, ?> map) {
       List<String> parts = new ArrayList<>();
-      for (Map.Entry<?, ?> e : map.entrySet()) parts.add(stringify(String.valueOf(e.getKey())) + ":" + stringify(e.getValue()));
+      for (Map.Entry<?, ?> e : ownKeyOrder(map)) parts.add(stringify(String.valueOf(e.getKey())) + ":" + stringify(e.getValue()));
       return "{" + String.join(",", parts) + "}";
     }
     if (value instanceof Iterable<?> items) {
@@ -41,6 +41,34 @@ public final class Json {
       return "[" + String.join(",", parts) + "]";
     }
     return stringify(String.valueOf(value));
+  }
+
+  // A map's entries in JavaScript's own-property order, which JSON.stringify
+  // follows: array-index keys ("0" to "4294967294" in canonical form) first
+  // in ascending numeric order, then the other keys in insertion order.
+  private static List<Map.Entry<?, ?>> ownKeyOrder(Map<?, ?> map) {
+    List<Map.Entry<?, ?>> indexed = new ArrayList<>();
+    List<Map.Entry<?, ?>> named = new ArrayList<>();
+    for (Map.Entry<?, ?> e : map.entrySet()) {
+      if (arrayIndex(String.valueOf(e.getKey())) >= 0) indexed.add(e);
+      else named.add(e);
+    }
+    if (indexed.isEmpty()) return named;
+    indexed.sort(java.util.Comparator.comparingLong(e -> arrayIndex(String.valueOf(e.getKey()))));
+    indexed.addAll(named);
+    return indexed;
+  }
+
+  // The array index a JavaScript property key names, else -1.
+  private static long arrayIndex(String key) {
+    int n = key.length();
+    if (n == 0 || n > 10 || (n > 1 && key.charAt(0) == '0')) return -1;
+    for (int i = 0; i < n; i++) {
+      char c = key.charAt(i);
+      if (c < '0' || c > '9') return -1;
+    }
+    long index = Long.parseLong(key);
+    return index <= 4294967294L ? index : -1;
   }
 
   // JSON string (RFC 8259): the quote, the backslash and U+0000-U+001F are escaped
@@ -156,7 +184,7 @@ public final class Json {
       if (map.isEmpty()) { out.append("{}"); return; }
       out.append("{\n");
       boolean first = true;
-      for (Map.Entry<?, ?> e : map.entrySet()) {
+      for (Map.Entry<?, ?> e : ownKeyOrder(map)) {
         if (!first) out.append(",\n");
         first = false;
         out.append(inner).append(quote(String.valueOf(e.getKey()))).append(": ");

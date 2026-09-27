@@ -1,0 +1,50 @@
+{
+  "kind": "flow",
+  "name": "forward-undeclared-steps-in-order",
+  "description": "Port-only. The runtime-hooks examples' flow run with a scripted client: outline runs before polish, and polish's request carries outline's output. Before the ports planned undeclared steps from their programs, both ran in one group and polish failed with \"Value for input field 'outline' is required\".",
+  "input": {
+    "topic": "Ax runtime hooks"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "outline",
+      "signature": "topic:string -> outline:string"
+    },
+    {
+      "kind": "execute",
+      "name": "polish",
+      "signature": "outline:string -> answer:string"
+    }
+  ],
+  "returns": {
+    "answer": "answer",
+    "outline": "outlineResult.outline"
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "Outline: hooks wrap every provider call",
+          "finish_reason": "stop"
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "Answer: Hooks wrap provider calls.",
+          "finish_reason": "stop"
+        }
+      ]
+    }
+  ],
+  "expected_output": {
+    "answer": "Hooks wrap provider calls.",
+    "outline": "hooks wrap every provider call"
+  },
+  "expected_request_count": 2,
+  "expected_request_contains": ["hooks wrap every provider call"]
+}

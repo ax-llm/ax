@@ -105,9 +105,10 @@ const geminiDefaultEmbedModel = 'gemini-embedding-2';
 const anthropicDefaultModel = profileDefaultModel('anthropic');
 // The simple-chat fixtures check that sampling parameters reach the wire, so
 // they pin models that still accept them: the current defaults (Claude
-// Sonnet 5, Gemini 3.6 Flash) drop temperature and candidate counts.
+// Sonnet 5, Gemini 3.6 Flash) drop temperature and candidate counts, and the
+// Gemini API returns one candidate on every Gemini 3 model (probed 2026-09-27).
 const anthropicSamplingModel = 'claude-haiku-4-5';
-const geminiSamplingModel = 'gemini-3.5-flash';
+const geminiSamplingModel = 'gemini-2.5-flash';
 const catalogAll = axGetSupportedAIModels();
 const catalogText = axGetSupportedAIModels({ type: 'text' });
 const catalogEmbeddings = axGetSupportedAIModels({ type: 'embeddings' });
@@ -7651,7 +7652,7 @@ writeFixture('gemini-simple-chat', {
         maxOutputTokens: 64,
         responseMimeType: 'text/plain',
         stopSequences: ['END'],
-        temperature: 1,
+        temperature: 0.2,
       },
     },
   },
@@ -13148,6 +13149,105 @@ writeFixture('openai-wire-json-numbers', {
   expected_transport_wire_json_contains: wireNumberNeedles,
 });
 
+// Tool-call arguments on the wire in TS's key order: JSON.stringify writes an
+// object's keys in its own-property order (array-index keys first in numeric
+// order, then insertion order), for Chat's tool_calls[].function.arguments and
+// Responses' function_call arguments alike. The request goes into the fixture
+// as request_json text: the canonical fixture sort would reorder the params
+// object's keys.
+const keyOrderParams = {
+  zeta: 1,
+  alpha: 'x',
+  '10': 'ten',
+  '2': 'two',
+  nested: { y: 1, x: 2 },
+};
+const keyOrderRequest = {
+  chat_prompt: [
+    { role: 'user', content: 'Look it up' },
+    {
+      role: 'assistant',
+      functionCalls: [
+        {
+          id: 'call-1',
+          type: 'function',
+          function: { name: 'lookup', params: keyOrderParams },
+        },
+      ],
+    },
+    { role: 'function', functionId: 'call-1', result: 'found' },
+  ],
+  functions: [
+    {
+      name: 'lookup',
+      description: 'Look something up',
+      parameters: {
+        type: 'object',
+        properties: { zeta: { type: 'number' }, alpha: { type: 'string' } },
+      },
+    },
+  ],
+  model_config: { stream: false },
+};
+const keyOrderNeedle = `"arguments":${JSON.stringify(JSON.stringify(keyOrderParams))}`;
+for (const [name, provider, AIClass, response] of [
+  [
+    'openai-tool-call-arguments-key-order',
+    'openai',
+    AxAIOpenAI,
+    compatibleResponse('chatcmpl_key_order', AxAIOpenAIModel.GPT54Mini).json,
+  ],
+  [
+    'openai-responses-tool-call-arguments-key-order',
+    'openai-responses',
+    AxAIOpenAIResponses,
+    {
+      id: 'resp_key_order',
+      object: 'response',
+      created_at: 0,
+      model: AxAIOpenAIModel.GPT54Mini,
+      status: 'completed',
+      output: [
+        {
+          type: 'message',
+          id: 'msg_key_order',
+          role: 'assistant',
+          status: 'completed',
+          content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+    },
+  ],
+] as const) {
+  let body = '';
+  await new (AIClass as any)({
+    apiKey: 'test-key',
+    config: { model: AxAIOpenAIModel.GPT54Mini },
+    options: {
+      fetch: async (_url: unknown, init?: RequestInit) => {
+        body = String(init?.body);
+        return Response.json(response);
+      },
+    },
+  }).chat({
+    chatPrompt: keyOrderRequest.chat_prompt,
+    functions: keyOrderRequest.functions,
+    modelConfig: keyOrderRequest.model_config,
+  } as any);
+  if (!body.includes(keyOrderNeedle)) {
+    throw new Error(`${name}: TS wire lacks ${keyOrderNeedle}: ${body}`);
+  }
+  writeFixture(name, {
+    kind: 'ai_chat',
+    provider,
+    model: AxAIOpenAIModel.GPT54Mini,
+    request_json: JSON.stringify(keyOrderRequest),
+    transport_responses: [{ status: 200, json: response as unknown as Json }],
+    expected_transport_wire_json_contains: [keyOrderNeedle],
+  });
+}
+
 // Sampling parameters on the wire. Each TS provider class starts from its own
 // default config: temperature 0 for the OpenAI Chat profiles, Anthropic and
 // Gemini (axBaseAIDefaultConfig), temperature 0.7 and topP 1 for
@@ -13180,13 +13280,21 @@ const samplingWireKeys: Record<string, string[]> = {
     'frequency_penalty',
     'reasoning.effort',
   ],
-  'anthropic-messages': ['temperature', 'top_p', 'top_k', 'max_tokens'],
+  'anthropic-messages': [
+    'temperature',
+    'top_p',
+    'top_k',
+    'max_tokens',
+    'thinking.type',
+  ],
   'gemini-generate-content': [
     'generationConfig.temperature',
     'generationConfig.topP',
     'generationConfig.topK',
     'generationConfig.maxOutputTokens',
     'generationConfig.candidateCount',
+    'generationConfig.frequencyPenalty',
+    'generationConfig.presencePenalty',
   ],
 };
 const samplingResponse = (transport: string, model: string) => {
@@ -13267,7 +13375,7 @@ const samplingChat = async (
   const originalWarn = console.warn;
   resetDroppedSamplingWarnings();
   console.warn = (message?: unknown) => {
-    if (String(message).startsWith('Ax dropped ')) {
+    if (/^Ax (dropped|raised) /.test(String(message))) {
       warnings.push(String(message));
     }
   };
@@ -13295,15 +13403,25 @@ const samplingChat = async (
   }
   return { body, url, warnings };
 };
+// Vertex clients take the access token from a function.
+const vertexTestKey = async () => 'test-key';
 const samplingModels: {
   provider: string;
   model: string;
+  // Names the fixture instead of the provider (the Vertex rows).
+  label?: string;
   base_url?: string;
-  // TS ai() arguments and the matching fixture keys (azure-openai).
+  // TS ai() arguments and the matching fixture keys (azure-openai, Vertex).
   args?: Record<string, unknown>;
   fixtureArgs?: Record<string, Json>;
   penalties?: boolean;
   reasoning?: boolean;
+  // Takes temperature 1 where it rejects other temperatures.
+  temperatureOne?: boolean;
+  // Anthropic thinking rules.
+  thinking?: boolean;
+  // Gemini penalties, candidate count and temperature floor.
+  gemini?: boolean;
 }[] = [
   // GPT-5.6 and 5.5 reject sampling unless a request turns reasoning off;
   // GPT-5.1 to 5.4 do not reason by default, so they take it unless a request
@@ -13314,30 +13432,44 @@ const samplingModels: {
     model: 'gpt-5.6-luna',
     penalties: true,
     reasoning: true,
+    temperatureOne: true,
   },
   {
     provider: 'openai',
     model: 'gpt-5.4-mini',
     penalties: true,
     reasoning: true,
+    temperatureOne: true,
   },
-  { provider: 'openai', model: 'gpt-5-mini', penalties: true },
+  {
+    provider: 'openai',
+    model: 'gpt-5-mini',
+    penalties: true,
+    temperatureOne: true,
+  },
   { provider: 'openai', model: 'gpt-4.1', penalties: true },
-  { provider: 'openai', model: 'o3', penalties: true },
+  { provider: 'openai', model: 'o3', penalties: true, temperatureOne: true },
   {
     provider: 'openai-responses',
     model: 'gpt-5.6-luna',
     penalties: true,
     reasoning: true,
+    temperatureOne: true,
   },
   {
     provider: 'openai-responses',
     model: 'gpt-5.4-mini',
     penalties: true,
     reasoning: true,
+    temperatureOne: true,
   },
   { provider: 'openai-responses', model: 'gpt-4.1', penalties: true },
-  { provider: 'openai-responses', model: 'o3', penalties: true },
+  {
+    provider: 'openai-responses',
+    model: 'o3',
+    penalties: true,
+    temperatureOne: true,
+  },
   // A profile carries no model info of its own, so GPT-5.x gets every
   // parameter, while an o-series name falls back to OpenAI's info.
   {
@@ -13365,13 +13497,88 @@ const samplingModels: {
       api_version: 'api-version=2024-10-21',
     },
     penalties: true,
+    temperatureOne: true,
   },
   { provider: 'meta', model: profileDefaultModel('meta') },
   { provider: 'deepseek-responses', model: deepseekResponsesDefaultModel },
-  { provider: 'anthropic', model: 'claude-sonnet-5' },
-  { provider: 'anthropic', model: anthropicSamplingModel },
-  { provider: 'google-gemini', model: 'gemini-3.6-flash' },
-  { provider: 'google-gemini', model: 'gemini-2.5-flash' },
+  // Anthropic (probed 2026-09-27): Sonnet 5 deprecated sampling (only
+  // temperature 1); Opus 4.6 and Haiku 4.5 take every value with thinking off
+  // and, while thinking, temperature 1, top_p >= 0.95 and no top_k, but never
+  // temperature and top_p together. Vertex was not probed and keeps the
+  // historical wire (the Haiku 4.5 Vertex row is the pair's negative).
+  {
+    provider: 'anthropic',
+    model: 'claude-sonnet-5',
+    thinking: true,
+    temperatureOne: true,
+  },
+  { provider: 'anthropic', model: 'claude-opus-4-6', thinking: true },
+  { provider: 'anthropic', model: anthropicSamplingModel, thinking: true },
+  {
+    provider: 'anthropic',
+    label: 'anthropic-vertex',
+    model: 'claude-opus-4-8',
+    args: { apiKey: vertexTestKey, projectId: 'demo-project', region: 'us' },
+    fixtureArgs: {
+      service_options: { projectId: 'demo-project', region: 'us' },
+    },
+    thinking: true,
+    temperatureOne: true,
+  },
+  {
+    provider: 'anthropic',
+    label: 'anthropic-vertex',
+    model: 'claude-opus-4-6',
+    args: { apiKey: vertexTestKey, projectId: 'demo-project', region: 'us' },
+    fixtureArgs: {
+      service_options: { projectId: 'demo-project', region: 'us' },
+    },
+    thinking: true,
+  },
+  {
+    provider: 'anthropic',
+    label: 'anthropic-vertex',
+    model: 'claude-haiku-4-5@20251001',
+    args: { apiKey: vertexTestKey, projectId: 'demo-project', region: 'us' },
+    fixtureArgs: {
+      service_options: { projectId: 'demo-project', region: 'us' },
+    },
+    thinking: true,
+  },
+  // Gemini: the server-managed Flash models ignore temperature, topP and topK;
+  // the Gemini API rejects the penalties and, on Gemini 3, more than one
+  // candidate; Gemini 3 takes no temperature below 1. Vertex keeps its wire.
+  { provider: 'google-gemini', model: 'gemini-3.6-flash', gemini: true },
+  { provider: 'google-gemini', model: 'gemini-3.5-flash', gemini: true },
+  { provider: 'google-gemini', model: 'gemini-2.5-flash', gemini: true },
+  {
+    provider: 'google-gemini',
+    label: 'google-gemini-vertex',
+    model: 'gemini-3.5-flash',
+    args: {
+      apiKey: vertexTestKey,
+      projectId: 'demo-project',
+      region: 'us-central1',
+    },
+    fixtureArgs: {
+      service_options: { projectId: 'demo-project', region: 'us-central1' },
+    },
+    gemini: true,
+  },
+  {
+    provider: 'google-gemini',
+    label: 'google-gemini-vertex',
+    model: 'gemini-2.5-flash',
+    args: {
+      apiKey: vertexTestKey,
+      projectId: 'demo-project',
+      region: 'us-central1',
+    },
+    fixtureArgs: {
+      service_options: { projectId: 'demo-project', region: 'us-central1' },
+    },
+    gemini: true,
+  },
 ];
 const samplingCases: {
   id: string;
@@ -13380,6 +13587,9 @@ const samplingCases: {
   budget?: 'none' | 'low';
   penalties?: boolean;
   reasoning?: boolean;
+  temperatureOne?: boolean;
+  thinking?: boolean;
+  gemini?: boolean;
 }[] = [
   { id: 'defaults' },
   {
@@ -13419,6 +13629,50 @@ const samplingCases: {
     aiConfig: { temperature: 0.3, reasoningEffort: 'none' },
     reasoning: true,
   },
+  // The value a model takes where it rejects every other temperature.
+  {
+    id: 'temperature-one',
+    requestConfig: { temperature: 1 },
+    temperatureOne: true,
+  },
+  // Anthropic: every sampling field with thinking off, while thinking, and the
+  // values a thinking model takes.
+  {
+    id: 'sampling-thinking-off',
+    requestConfig: { temperature: 0.5, topP: 0.9, topK: 40 },
+    thinking: true,
+  },
+  {
+    id: 'sampling-thinking-low',
+    requestConfig: { temperature: 0.5, topP: 0.9, topK: 40 },
+    budget: 'low',
+    thinking: true,
+  },
+  {
+    id: 'sampling-thinking-accepted',
+    requestConfig: { temperature: 1, topP: 0.95 },
+    budget: 'low',
+    thinking: true,
+  },
+  // Anthropic: an explicit top_p alone, which goes in place of the default
+  // temperature where a model rejects the pair.
+  {
+    id: 'top-p-only',
+    requestConfig: { topP: 0.9 },
+    thinking: true,
+  },
+  // Gemini: a temperature below 1, topK, both penalties and two candidates.
+  {
+    id: 'gemini-limits',
+    requestConfig: {
+      temperature: 0.2,
+      topK: 40,
+      presencePenalty: 0.1,
+      frequencyPenalty: 0.2,
+      n: 2,
+    },
+    gemini: true,
+  },
 ];
 for (const row of samplingModels) {
   const transport = axGetAIProfile(row.provider as any).transport as string;
@@ -13426,6 +13680,9 @@ for (const row of samplingModels) {
   for (const testCase of samplingCases) {
     if (testCase.penalties && !row.penalties) continue;
     if (testCase.reasoning && !row.reasoning) continue;
+    if (testCase.temperatureOne && !row.temperatureOne) continue;
+    if (testCase.thinking && !row.thinking) continue;
+    if (testCase.gemini && !row.gemini) continue;
     const response = samplingResponse(transport, row.model);
     const { body, warnings } = await samplingChat(
       {
@@ -13456,26 +13713,33 @@ for (const row of samplingModels) {
       target[parts[parts.length - 1]!] = value as Json;
     }
     const modelSlug = row.model.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-    writeFixture(`sampling-${row.provider}-${modelSlug}-${testCase.id}`, {
-      kind: 'ai_chat',
-      provider: row.provider,
-      model: row.model,
-      ...(row.base_url ? { base_url: row.base_url } : {}),
-      ...(row.fixtureArgs ?? {}),
-      ...(testCase.aiConfig ? { model_config: testCase.aiConfig } : {}),
-      request: {
-        chat_prompt: [{ role: 'user', content: 'Hi' }],
-        model_config: {
-          stream: false,
-          ...(testCase.requestConfig ?? {}),
-          ...(testCase.budget ? { thinkingTokenBudget: testCase.budget } : {}),
+    writeFixture(
+      `sampling-${row.label ?? row.provider}-${modelSlug}-${testCase.id}`,
+      {
+        kind: 'ai_chat',
+        provider: row.provider,
+        model: row.model,
+        ...(row.base_url ? { base_url: row.base_url } : {}),
+        ...(row.fixtureArgs ?? {}),
+        ...(testCase.aiConfig ? { model_config: testCase.aiConfig } : {}),
+        request: {
+          chat_prompt: [{ role: 'user', content: 'Hi' }],
+          model_config: {
+            stream: false,
+            ...(testCase.requestConfig ?? {}),
+            ...(testCase.budget
+              ? { thinkingTokenBudget: testCase.budget }
+              : {}),
+          },
         },
-      },
-      transport_responses: [response as unknown as Json],
-      expected_transport_request: { json: sent },
-      ...(absent.length > 0 ? { expected_transport_json_absent: absent } : {}),
-      expected_warnings: warnings,
-    });
+        transport_responses: [response as unknown as Json],
+        expected_transport_request: { json: sent },
+        ...(absent.length > 0
+          ? { expected_transport_json_absent: absent }
+          : {}),
+        expected_warnings: warnings,
+      }
+    );
   }
 }
 
@@ -13837,6 +14101,62 @@ providerErrorFixture(
     transport_responses: [errorResponse(500), errorResponse(500)],
   }
 );
+
+// TS checks each chat prompt message before any request goes out
+// (axValidateChatRequestMessage): a role that is not a non-empty string, an
+// unknown role, and a user content item that is not an object or has no type
+// fail with messages that show the value as JSON.stringify(value, null, 2)
+// writes it, undefined when it is missing. The expected messages are TS's own.
+// TS throws a plain Error; the ports keep their classes: a role error is an
+// AxAIServiceResponseError, and a content-item error stays the
+// AxUnsupportedCapabilityError they raised before (it becomes the response
+// error at the next major).
+async function tsChatPromptError(chatPrompt: unknown[]): Promise<string> {
+  const llm = ai({ name: 'openai', apiKey: 'test-key' });
+  llm.setOptions({
+    fetch: (async () => {
+      throw new Error('chat-prompt check: no request expected');
+    }) as never,
+  });
+  try {
+    await llm.chat({ chatPrompt: chatPrompt as never }, { stream: false });
+  } catch (error) {
+    return (error as Error).message;
+  }
+  throw new Error('chat-prompt check: TS accepted the prompt');
+}
+for (const [name, chatPrompt] of [
+  ['chat-message-missing-role', [{ content: 'hi' }]],
+  ['chat-message-null-role', [{ role: null, content: 'hi' }]],
+  ['chat-message-empty-role', [{ role: '', content: 'hi' }]],
+  ['chat-message-number-role', [{ role: 5, content: 'hi' }]],
+  ['chat-message-blank-role', [{ role: '  ', content: 'hi' }]],
+  ['chat-message-unknown-role', [{ role: 'robot', content: 'hi' }]],
+  [
+    'chat-message-content-item-without-type',
+    [{ role: 'user', content: [{ text: 'hi' }] }],
+  ],
+  [
+    'chat-message-content-item-null-type',
+    [{ role: 'user', content: [{ type: null, text: 'hi' }] }],
+  ],
+  [
+    'chat-message-content-item-empty-type',
+    [{ role: 'user', content: [{ type: '', text: 'hi' }] }],
+  ],
+  ['chat-message-content-item-not-object', [{ role: 'user', content: ['hi'] }]],
+  ['chat-message-content-item-null', [{ role: 'user', content: [null] }]],
+  ['chat-message-content-item-list', [{ role: 'user', content: [['hi']] }]],
+] as const) {
+  writeFixture(name, {
+    kind: 'ai_error',
+    request: { chat_prompt: chatPrompt },
+    expected_error_contains: await tsChatPromptError([...chatPrompt]),
+    expected_error_type: name.startsWith('chat-message-content-item')
+      ? 'AxUnsupportedCapabilityError'
+      : 'AxAIServiceResponseError',
+  });
+}
 
 // Core owns the request a provider error keeps (@ai_error_request), and the
 // normalizer and the request-carrying ai.error intrinsics build every error

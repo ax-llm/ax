@@ -1,0 +1,22 @@
+{
+  "expected_output": {
+    "answer": "\u001cParis"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-text-trim-keeps-control-chars",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: \u001cParis",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -1218,12 +1218,39 @@ Value Core::type_is(Value value, Value type_name) {
 Value Core::regex_match(Value pattern, Value value) {
   return Value(value.is_string() && std::regex_search(str(value), std::regex(str(pattern))));
 }
+// The UTF-8 length of the JavaScript white space or line terminator at pos
+// (String.prototype.trim's set), or 0.
+static size_t js_space_at(const std::string& s, size_t pos) {
+  const auto at = [&](size_t i) { return i < s.size() ? static_cast<unsigned char>(s[i]) : 0; };
+  const unsigned char a = at(pos), b = at(pos + 1), c = at(pos + 2);
+  if (a == 0x09 || a == 0x0A || a == 0x0B || a == 0x0C || a == 0x0D || a == 0x20) return 1;
+  if (a == 0xC2 && b == 0xA0) return 2;
+  if (a == 0xE1 && b == 0x9A && c == 0x80) return 3;
+  if (a == 0xE2 && b == 0x80 && ((c >= 0x80 && c <= 0x8A) || c == 0xA8 || c == 0xA9 || c == 0xAF)) return 3;
+  if (a == 0xE2 && b == 0x81 && c == 0x9F) return 3;
+  if (a == 0xE3 && b == 0x80 && c == 0x80) return 3;
+  if (a == 0xEF && b == 0xBB && c == 0xBF) return 3;
+  return 0;
+}
+// As JavaScript's String.prototype.trim: white space and line terminators,
+// not other control characters.
 Value Core::string_trim(Value value) {
   std::string s = str(value);
-  auto start = s.find_first_not_of(" \t\n\r");
-  if (start == std::string::npos) return Value("");
-  auto end = s.find_last_not_of(" \t\n\r");
-  return Value(s.substr(start, end - start + 1));
+  size_t start = 0, end = s.size();
+  while (start < end) {
+    size_t n = js_space_at(s, start);
+    if (n == 0 || start + n > end) break;
+    start += n;
+  }
+  while (end > start) {
+    size_t trimmed = 0;
+    for (size_t n = 1; n <= 3 && n <= end - start; n++) {
+      if (js_space_at(s, end - n) == n) { trimmed = n; break; }
+    }
+    if (trimmed == 0) break;
+    end -= trimmed;
+  }
+  return Value(s.substr(start, end - start));
 }
 Value Core::string_join(Value sep, Value values) {
   std::string out;
@@ -1341,18 +1368,34 @@ Value Core::string_words(Value value) {
 Value Core::string_default_if_empty(Value value, Value fallback) {
   return truthy(string_trim(value)) ? string_trim(value) : fallback;
 }
+// A value's text in string.format and string.str, as every port writes it: a
+// string as is, null as "null", a boolean as "true" or "false", a number as
+// JavaScript's String(x), and a list or object as compact JSON with its keys
+// in insertion order (JSON.stringify).
+static std::string js_text(const Value& value) {
+  if (value.is_null()) return "null";
+  if (value.is_array() || value.is_object()) return stringify(value);
+  return display(value);
+}
+// Each {} takes the next argument's js_text, from left to right and inserted
+// as is (never read as a template); {{ and }} write one brace, any other brace
+// is kept, and a {} past the last argument stays {}.
 Value Core::string_format_values(Value templ, const std::vector<Value>& args) {
-  // Each value fills the next {} after the previous one, so a value that
-  // itself contains {} is not formatted again. A null value fills its {} as
-  // well (display() writes it as the empty string, as Go's does).
-  std::string out = str(templ);
-  size_t cursor = 0;
-  for (const auto& arg : args) {
-    size_t pos = out.find("{}", cursor);
-    if (pos == std::string::npos) break;
-    std::string text = display(arg);
-    out.replace(pos, 2, text);
-    cursor = pos + text.size();
+  std::string text = str(templ);
+  std::string out;
+  size_t next = 0;
+  for (size_t i = 0; i < text.size();) {
+    if (i + 1 < text.size()) {
+      if (text[i] == '{' && text[i + 1] == '{') { out += '{'; i += 2; continue; }
+      if (text[i] == '}' && text[i + 1] == '}') { out += '}'; i += 2; continue; }
+      if (text[i] == '{' && text[i + 1] == '}') {
+        out += next < args.size() ? js_text(args[next++]) : std::string("{}");
+        i += 2;
+        continue;
+      }
+    }
+    out += text[i];
+    i++;
   }
   return Value(out);
 }
@@ -1523,7 +1566,7 @@ Value Core::string_extract_quoted_suffix(Value text) {
   }
   return Value(Object{{"value", Value()}, {"index", Value()}, {"rest", ""}, {"head", s}, {"found", false}});
 }
-Value Core::string_str(Value value) { return Value(display(value)); }
+Value Core::string_str(Value value) { return Value(js_text(value)); }
 Value Core::regex_replace(Value pattern, Value repl, Value value) {
   return Value(std::regex_replace(str(value), std::regex(str(pattern)), str(repl)));
 }
@@ -1850,6 +1893,10 @@ Value Core::exception_is_infrastructure(Value error) {
   return Value(type == "AxAIServiceNetworkError" || type == "AxAIServiceTimeoutError" || type == "AxAIServiceStreamTerminatedError");
 }
 // TS AxGen retries a model refusal inside its validation loop.
+Value Core::exception_is_validation(Value error) {
+  if (!error.is_object()) return Value(false);
+  return Value(str(get_key(error, "__error")) == "validation");
+}
 Value Core::exception_is_refusal(Value error) {
   if (!error.is_object()) return Value(false);
   return Value(str(get_key(error, "__type")) == "AxAIRefusalError");
@@ -2001,6 +2048,14 @@ Value Core::program_apply_components(Value program, Value component_map) {
   auto* stage_ptr = registered_stage(stage_id);
   if (stage_ptr) stage_ptr->apply_optimized_components(std::move(component_map));
   return Value::object();
+}
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+Value Core::program_signature(Value program) {
+  auto* stage_ptr = registered_stage(str(get_key(program, "__agent_stage_id")));
+  if (auto* gen = dynamic_cast<AxGen*>(stage_ptr)) return Core::signature_to_string(Core::get(gen->value(), "signature"));
+  if (auto* agent = dynamic_cast<AxAgent*>(stage_ptr)) return Core::signature_to_string(Core::get(agent->state_, "signature"));
+  return Value();
 }
 Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
@@ -3571,6 +3626,33 @@ static std::string escape_json(const std::string& in) {
   return out;
 }
 
+// The array index a JavaScript property key names: "0" to "4294967294" in
+// canonical form (no sign, no leading zero), else -1.
+static long long js_array_index(const std::string& key) {
+  if (key.empty() || key.size() > 10 || (key.size() > 1 && key[0] == '0')) return -1;
+  for (char c : key) {
+    if (c < '0' || c > '9') return -1;
+  }
+  long long index = std::stoll(key);
+  return index <= 4294967294LL ? index : -1;
+}
+
+// Entries in JavaScript's own-property order, which JSON.stringify follows:
+// array-index keys first in ascending numeric order, then the other keys in
+// insertion order.
+static std::vector<std::pair<std::string, Value>> js_own_key_order(std::vector<std::pair<std::string, Value>> items) {
+  std::vector<std::pair<std::string, Value>> indexed;
+  std::vector<std::pair<std::string, Value>> named;
+  for (auto& item : items) {
+    if (js_array_index(item.first) >= 0) indexed.push_back(std::move(item));
+    else named.push_back(std::move(item));
+  }
+  if (indexed.empty()) return named;
+  std::stable_sort(indexed.begin(), indexed.end(), [](const auto& a, const auto& b) { return js_array_index(a.first) < js_array_index(b.first); });
+  for (auto& item : named) indexed.push_back(std::move(item));
+  return indexed;
+}
+
 std::string stringify(const Value& value) {
   if (value.is_null()) return "null";
   if (auto p = std::get_if<bool>(&value.data)) return *p ? "true" : "false";
@@ -3583,7 +3665,7 @@ std::string stringify(const Value& value) {
   }
   std::string out = "{";
   size_t i = 0;
-  for (const auto& kv : entries(value)) { if (i++) out += ","; out += "\"" + escape_json(kv.first) + "\":" + stringify(kv.second); }
+  for (const auto& kv : js_own_key_order(entries(value))) { if (i++) out += ","; out += "\"" + escape_json(kv.first) + "\":" + stringify(kv.second); }
   return out + "}";
 }
 
@@ -3612,7 +3694,7 @@ static std::string stable_stringify(const Value& value) {
 static void write_pretty_json(std::string& out, const Value& value, const std::string& indent) {
   const std::string inner = indent + "  ";
   if (value.is_object()) {
-    auto items = entries(value);
+    auto items = js_own_key_order(entries(value));
     if (items.empty()) {
       out += "{}";
       return;
@@ -4242,19 +4324,44 @@ void Core::ai_capture_warnings(std::function<void(const std::string&)> sink) {
   ai_warning_sink() = std::move(sink);
 }
 
+static std::mutex& axgen_deprecations_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+static std::set<std::string>& axgen_deprecations_shown() {
+  static std::set<std::string> shown;
+  return shown;
+}
+
+static std::function<void(const std::string&)>& axgen_deprecation_sink() {
+  static std::function<void(const std::string&)> sink;
+  return sink;
+}
+
 // Deprecated port behavior warns once per key per process.
 Value Core::axgen_deprecation(Value key, Value message) {
-  static std::mutex shown_mutex;
-  static std::set<std::string> shown;
   try {
+    std::function<void(const std::string&)> sink;
     {
-      std::lock_guard<std::mutex> lock(shown_mutex);
-      if (!shown.insert(str(key)).second) return Value();
+      std::lock_guard<std::mutex> lock(axgen_deprecations_mutex());
+      if (!axgen_deprecations_shown().insert(str(key)).second) return Value();
+      sink = axgen_deprecation_sink();
+    }
+    if (sink) {
+      sink(str(message));
+      return Value();
     }
     std::cerr << "axllm deprecation: " << str(message) << std::endl;
   } catch (...) {
   }
   return Value();
+}
+
+void Core::axgen_capture_deprecations(std::function<void(const std::string&)> sink) {
+  std::lock_guard<std::mutex> lock(axgen_deprecations_mutex());
+  axgen_deprecations_shown().clear();
+  axgen_deprecation_sink() = std::move(sink);
 }
 
 // Caching functions the AxGen IR reaches through {"__caching_function_id"}
@@ -8552,7 +8659,12 @@ AxAgent& AxAgent::apply_optimization(Value artifact) {
 }
 Value AxAgent::evaluate_optimization_task(AIClient& client, Value task, Value options) {
   Value input = Core::get(task, "input", task);
-  Value forward_options = Core::get(options, "forward_options", Value::object());
+  // A runtime on the evolve or optimize call runs each task, as it runs a
+  // forward call (the agent may hold only a runtime descriptor), unless
+  // forward_options names one. A copy: the caller's options stay as they are.
+  Value forward_options = Core::map_merge(Value::object(), Core::get(options, "forward_options", Value::object()));
+  Value call_runtime = Core::get(options, "runtime");
+  if (!call_runtime.is_null() && Core::get(forward_options, "runtime").is_null()) Core::set(forward_options, "runtime", call_runtime);
   // As TS evaluates each task from a fresh state, the prediction carries only
   // this run's share of the agent's logs.
   Value marks = Core::_agent_eval_marks(state_);

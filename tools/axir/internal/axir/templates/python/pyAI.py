@@ -24,10 +24,11 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
 # AXIR_CORE_IMPORTS
-from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text
+from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text, _js_format, _js_text
 import warnings
 
 _CORE_DEPRECATIONS_SHOWN: set[str] = set()
+_CORE_DEPRECATION_SINK = None
 
 
 def _core_axgen_deprecation(key, message):
@@ -35,8 +36,19 @@ def _core_axgen_deprecation(key, message):
     if key in _CORE_DEPRECATIONS_SHOWN:
         return None
     _CORE_DEPRECATIONS_SHOWN.add(key)
+    if _CORE_DEPRECATION_SINK is not None:
+        _CORE_DEPRECATION_SINK(str(message))
+        return None
     warnings.warn(str(message), DeprecationWarning, stacklevel=4)
     return None
+
+
+def _core_axgen_capture_deprecations(sink):
+    # Conformance hook: forgets the deprecations already shown and sends new
+    # ones to sink (None warns again).
+    global _CORE_DEPRECATION_SINK
+    _CORE_DEPRECATIONS_SHOWN.clear()
+    _CORE_DEPRECATION_SINK = sink
 
 def _core_validation_error(message):
     return ValueError(str(message))
@@ -3267,7 +3279,8 @@ def _core_json_parse(value):
 
 
 def _core_json_stringify(value):
-    return _js_json_dumps(value or {}, sort_keys=True)
+    # TS JSON.stringify(value): keys in insertion order, null as null.
+    return _js_json_dumps(value)
 
 
 def _core_string_starts_with(value, prefix):
@@ -3293,8 +3306,7 @@ def _core_string_slice(value, start, end=None):
 
 
 def _core_string_format(template, *args):
-    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
-    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
+    return _js_format(template, args)
 
 
 def _core_string_replace(value, old, new):
@@ -3308,8 +3320,11 @@ def _core_url_encode_component(value):
 
 
 def _core_string_str(value):
-    # String(x): a float two is "2", not "2.0".
-    return _js_number_text(value) if isinstance(value, float) else str(value)
+    return _js_text(value)
+
+
+def _core_json_pretty(value):
+    return _js_json_dumps(value, indent=2)
 
 
 def _core_ai_error_response(message, response_body=None):

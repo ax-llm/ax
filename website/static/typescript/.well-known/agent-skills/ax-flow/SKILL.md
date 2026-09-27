@@ -224,6 +224,7 @@ Planner rules:
 - Independent `.execute()` and `.derive()` steps may parallelize.
 - `.map()`, `.returns()`, `.branch()`, `.while()`, `.feedback()`, and explicit `.parallel()` are barriers.
 - Branch, while, and feedback bodies still use the same planner internally.
+- A parallel group ends as running its steps one after another would: each step's changes merge into the state in step order.
 - Use `autoParallel: false` when you need strict sequential execution.
 
 Disable auto-parallel:
