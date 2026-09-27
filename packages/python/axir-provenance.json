@@ -16,8 +16,8 @@
       "total_lines": 3353
     },
     "axllm/gen.py": {
-      "emitted_lines": 13829,
-      "total_lines": 15505
+      "emitted_lines": 13851,
+      "total_lines": 15531
     },
     "axllm/mcp.py": {
       "emitted_lines": 2386,
@@ -29,7 +29,7 @@
     },
     "axllm/schema.py": {
       "emitted_lines": 918,
-      "total_lines": 1192
+      "total_lines": 1198
     },
     "axllm/signature.py": {
       "emitted_lines": 1546,

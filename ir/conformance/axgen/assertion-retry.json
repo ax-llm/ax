@@ -10,8 +10,7 @@
     "answer": "good"
   },
   "expected_request_contains": [
-    "answer must contain good",
-    "Return only corrected JSON"
+    "Follow these instructions: answer must contain good."
   ],
   "expected_request_count": 2,
   "input": {

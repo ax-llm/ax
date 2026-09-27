@@ -445,7 +445,24 @@ final class Core {
     };
   }
   static boolean regexMatch(Object pattern, Object value) { return value instanceof String s && Pattern.compile(String.valueOf(pattern)).matcher(s).find(); }
-  static Object stringTrim(Object value) { return String.valueOf(value).trim(); }
+  // As JavaScript's String.prototype.trim: white space and line terminators,
+  // not other control characters.
+  static Object stringTrim(Object value) {
+    String text = String.valueOf(value);
+    int start = 0, end = text.length();
+    while (start < end && isJsWhitespace(text.charAt(start))) start++;
+    while (end > start && isJsWhitespace(text.charAt(end - 1))) end--;
+    return text.substring(start, end);
+  }
+  static boolean isJsWhitespace(char c) {
+    switch (c) {
+      case '\t': case '\n': case '\u000b': case '\f': case '\r': case ' ': case '\u00a0': case '\u1680':
+      case '\u2028': case '\u2029': case '\u202f': case '\u205f': case '\u3000': case '\ufeff':
+        return true;
+      default:
+        return c >= '\u2000' && c <= '\u200a';
+    }
+  }
   static Object stringJoin(Object sep, Object values) { List<String> parts = new ArrayList<>(); for (Object item : asList(values)) parts.add(String.valueOf(item)); return String.join(String.valueOf(sep), parts); }
   static Object stringLower(Object value) { return String.valueOf(value).toLowerCase(java.util.Locale.ROOT); }
   static Object stringLowerCamel(Object values) {
@@ -728,6 +745,15 @@ final class Core {
     return false;
   }
   // TS AxGen retries a model refusal inside its validation loop.
+  static Object exceptionIsValidation(Object error) {
+    Object current=error;
+    while(current instanceof Throwable throwable){
+      if(throwable instanceof AxValidationError)return true;
+      if(throwable.getCause()==null || throwable.getCause()==throwable)break;
+      current=throwable.getCause();
+    }
+    return false;
+  }
   static Object exceptionIsRefusal(Object error) {
     Object current=error;
     while(current instanceof Throwable throwable){

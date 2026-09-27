@@ -771,6 +771,130 @@ const cases: Record<string, Case> = {
     responses: [streamed(text('User: {"name":"Ada"}'), done())],
   },
 
+  // ----- retry messages on the text paths -----
+  // A retry after a failed check is one user message with a text part,
+  // `Title: description`, as TS's renderExtraFields renders the error:
+  // "Follow these instructions" for an assertion (its message ends with a
+  // period), "Invalid Field" for a validation error.
+  'forward-retry-message-assertion': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+    ],
+  },
+  'forward-retry-message-assertion-adds-period': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris',
+      },
+    ],
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+    ],
+  },
+  'forward-retry-message-missing-field': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+    ],
+  },
+  'forward-retry-message-json-object-parse': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: jsonObjectFeatures,
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Here you go' }] },
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+    ],
+  },
+  'streaming-forward-retry-message-assertion': {
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    request_tail: 2,
+    responses: [
+      streamed(text('Answer: Lyon'), done()),
+      streamed(text('Answer: Paris'), done()),
+    ],
+  },
+
+  // ----- JS trim -----
+  // TS trims values with String.prototype.trim: JS whitespace and line
+  // terminators (U+FEFF, U+00A0, U+2028, U+3000 among them) go, while
+  // control characters such as U+001C and U+0085 stay.
+  'forward-text-trim-js-whitespace': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [
+      {
+        results: [
+          { index: 0, content: 'Answer: \ufeff\u00a0Paris\u2028\u3000' },
+        ],
+      },
+    ],
+  },
+  'forward-text-trim-keeps-control-chars': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [
+      { results: [{ index: 0, content: 'Answer: \u001cParis\u0085' }] },
+    ],
+  },
+
+  // ----- re-parse cadence in UTF-16 units -----
+  // TS re-parses streamed structured output after 160 new characters of
+  // String.prototype.length (UTF-16 code units): 90 emoji reach it (197
+  // units) in the first chunk, so a partial delta streams before the end.
+  'streaming-forward-structured-cadence-utf16-parse': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(`{"user":{"name":"${'\u{1F600}'.repeat(90)}`),
+        text(`${'\u{1F600}'.repeat(10)}"}}`),
+        done()
+      ),
+    ],
+  },
+  // 60 emoji are 137 units (257 UTF-8 bytes): below the threshold, and the
+  // text doesn't end at a structural boundary, so TS waits for the end.
+  'streaming-forward-structured-cadence-utf16-wait': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(`{"user":{"name":"${'\u{1F600}'.repeat(60)}`),
+        text(`${'\u{1F600}'.repeat(10)}"}}`),
+        done()
+      ),
+    ],
+  },
+
   // ----- function rung -----
   'streaming-forward-function-rung': {
     signature: 'question:string -> user:object{name:string}',
@@ -1218,6 +1342,8 @@ const cases: Record<string, Case> = {
       streamed(text('Answer: this is '), text('forbidden text'), done()),
       streamed(text('Answer: this is fine'), done()),
     ],
+    // The correction reads like an assertion's, closing period added.
+    request_tail: 2,
   },
 
   // ----- field processors (TypeScript feedback semantics) -----

@@ -1,15 +1,22 @@
 {
+  "assertions": [
+    {
+      "contains": "Paris",
+      "field": "answer",
+      "message": "The answer must be Paris."
+    }
+  ],
   "expected_deltas": [
     {
       "delta": {
-        "answer": "this is"
+        "answer": "Lyon"
       },
       "index": 0,
       "version": 0
     },
     {
       "delta": {
-        "answer": "this is fine"
+        "answer": "Paris"
       },
       "index": 0,
       "version": 1
@@ -17,13 +24,13 @@
   ],
   "expected_last_request_tail": [
     {
-      "content": "Answer: this is forbidden text",
+      "content": "Answer: Lyon",
       "role": "assistant"
     },
     {
       "content": [
         {
-          "text": "Follow these instructions: Do not say forbidden.",
+          "text": "Follow these instructions: The answer must be Paris.",
           "type": "text"
         }
       ],
@@ -31,29 +38,21 @@
     }
   ],
   "expected_output": {
-    "answer": "this is fine"
+    "answer": "Paris"
   },
   "expected_request_count": 2,
   "input": {
     "question": "Status?"
   },
   "kind": "streaming_forward",
-  "name": "streaming-forward-streaming-assertion-retry",
+  "name": "streaming-forward-retry-message-assertion",
   "responses": [
     {
       "stream": [
         {
           "results": [
             {
-              "content": "Answer: this is ",
-              "index": 0
-            }
-          ]
-        },
-        {
-          "results": [
-            {
-              "content": "forbidden text",
+              "content": "Answer: Lyon",
               "index": 0
             }
           ]
@@ -73,7 +72,7 @@
         {
           "results": [
             {
-              "content": "Answer: this is fine",
+              "content": "Answer: Paris",
               "index": 0
             }
           ]
@@ -89,12 +88,5 @@
       ]
     }
   ],
-  "signature": "question:string -> answer:string",
-  "streaming_assertions": [
-    {
-      "field": "answer",
-      "message": "Do not say forbidden",
-      "not_contains": "forbidden"
-    }
-  ]
+  "signature": "question:string -> answer:string"
 }

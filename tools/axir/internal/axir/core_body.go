@@ -187,6 +187,7 @@ const (
 	IntrinsicExceptionIsAborted        CoreIntrinsic = "intrinsic.exception.is_aborted"
 	IntrinsicExceptionIsInfrastructure CoreIntrinsic = "intrinsic.exception.is_infrastructure"
 	IntrinsicExceptionIsRefusal        CoreIntrinsic = "intrinsic.exception.is_refusal"
+	IntrinsicExceptionIsValidation     CoreIntrinsic = "intrinsic.exception.is_validation"
 	IntrinsicStringIndexOf             CoreIntrinsic = "intrinsic.string.index_of"
 	IntrinsicAIStreamOpen              CoreIntrinsic = "intrinsic.ai.stream_open"
 	IntrinsicAIStreamNext              CoreIntrinsic = "intrinsic.ai.stream_next"
@@ -352,6 +353,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicExceptionIsAborted:        "_core_exception_is_aborted",
 	IntrinsicExceptionIsInfrastructure: "_core_exception_is_infrastructure",
 	IntrinsicExceptionIsRefusal:        "_core_exception_is_refusal",
+	IntrinsicExceptionIsValidation:     "_core_exception_is_validation",
 	IntrinsicStringIndexOf:             "_core_string_index_of",
 	IntrinsicAIStreamOpen:              "_core_ai_stream_open",
 	IntrinsicAIStreamNext:              "_core_ai_stream_next",
@@ -420,6 +422,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.exception.is_aborted":                  true,
 	"intrinsic.exception.is_infrastructure":           true,
 	"intrinsic.exception.is_refusal":                  true,
+	"intrinsic.exception.is_validation":               true,
 	"intrinsic.string.index_of":                       true,
 	"intrinsic.ai.stream_open":                        true,
 	"intrinsic.ai.stream_next":                        true,
@@ -842,6 +845,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.exception.is_aborted":                intrinsicInfo("intrinsic.exception.is_aborted", 1, 1, true, "bool"),
 	"intrinsic.exception.is_infrastructure":         intrinsicInfo("intrinsic.exception.is_infrastructure", 1, 1, true, "bool"),
 	"intrinsic.exception.is_refusal":                intrinsicInfo("intrinsic.exception.is_refusal", 1, 1, true, "bool"),
+	"intrinsic.exception.is_validation":             intrinsicInfo("intrinsic.exception.is_validation", 1, 1, true, "bool"),
 	"intrinsic.string.index_of":                     intrinsicInfo("intrinsic.string.index_of", 3, 3, false, "i64"),
 	"intrinsic.ai.stream_open":                      intrinsicInfo("intrinsic.ai.stream_open", 3, 3, true, "json"),
 	"intrinsic.ai.stream_next":                      intrinsicInfo("intrinsic.ai.stream_next", 1, 1, true, "json"),

@@ -19149,8 +19149,14 @@ fn core_iter(value: &CoreValue) -> Result<Vec<CoreValue>, AxError> {
     }
 }
 
+// As JavaScript's String.prototype.trim: white space and line terminators,
+// not U+0085 or other control characters.
+fn is_js_whitespace(c: char) -> bool {
+    matches!(c, '\t' | '\n' | '\u{000b}' | '\u{000c}' | '\r' | ' ' | '\u{00a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
 fn core_string_trim(value: &CoreValue) -> CoreValue {
-    CoreValue::from_string(value.text().trim().to_string())
+    CoreValue::from_string(value.text().trim_matches(is_js_whitespace).to_string())
 }
 
 fn core_string_join(sep: &CoreValue, values: &CoreValue) -> Result<CoreValue, AxError> {
@@ -22816,6 +22822,11 @@ fn core_exception_is_infrastructure(args: &[CoreValue]) -> Result<CoreValue, AxE
 
 // TS AxGen retries a model refusal inside its validation loop.
 #[allow(dead_code)]
+fn core_exception_is_validation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let validation = matches!(core_arg(args, 0), CoreValue::Error(error) if error.category == "validation");
+    Ok(CoreValue::Bool(validation))
+}
+
 fn core_exception_is_refusal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let refusal = matches!(
         core_arg(args, 0),

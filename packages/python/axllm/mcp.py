@@ -1825,22 +1825,22 @@ def mcp_oauth_parse_www_authenticate(www_authenticate: str) -> Any:
     out["scopes"] = scopes
     parts = _core_string_split(www_authenticate, ",")
     for raw in parts:
-        part = str(raw).strip()
+        part = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         lower = _core_string_lower(part)
         bearer = _core_string_starts_with(lower, "bearer ")
         if bearer:
             part = _core_string_slice(part, 7)
-            part = str(part).strip()
+            part = str(part).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         else:
             pass
         pair = _core_string_split_once(part, "=")
         found = _core_get(pair, "found", False)
         if found:
             name = _core_get(pair, "left", "")
-            name = str(name).strip()
+            name = str(name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             name = _core_string_lower(name)
             value = _core_get(pair, "right", "")
-            value = str(value).strip()
+            value = str(value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             value = _core_string_replace(value, "\"", "")
             is_resource = _core_eq(name, "resource_metadata")
             if is_resource:

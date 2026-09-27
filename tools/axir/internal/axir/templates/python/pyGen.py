@@ -1313,6 +1313,10 @@ def _core_exception_is_refusal(error):
     return isinstance(error, AxAIRefusalError)
 
 
+def _core_exception_is_validation(error):
+    return isinstance(error, AxValidationError)
+
+
 def _core_regex_match(pattern, value):
     return isinstance(value, str) and re.search(pattern, value) is not None
 

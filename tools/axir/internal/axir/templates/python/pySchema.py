@@ -54,6 +54,12 @@ def _core_contains(container, item):
     return item in container
 
 
+def _core_string_utf16_units(value):
+    # A string's UTF-16 code units, as TS counts String.prototype.length.
+    raw = str(value).encode("utf-16-le", "surrogatepass")
+    return [raw[index] + 256 * raw[index + 1] for index in range(0, len(raw), 2)]
+
+
 def _core_len(value):
     return len(value)
 
