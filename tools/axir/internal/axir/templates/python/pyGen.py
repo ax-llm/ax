@@ -1039,7 +1039,8 @@ def _core_json_parse_strict(value):
 
 
 def _core_json_stringify(value):
-    return _js_json_dumps(value, sort_keys=True)
+    # TS JSON.stringify(value): keys in insertion order, null as null.
+    return _js_json_dumps(value)
 
 
 def _core_fields_from_map(fields):
@@ -1319,6 +1320,10 @@ def _core_exception_is_infrastructure(error):
 # TS AxGen retries a model refusal inside its validation loop.
 def _core_exception_is_refusal(error):
     return isinstance(error, AxAIRefusalError)
+
+
+def _core_exception_is_validation(error):
+    return isinstance(error, AxValidationError)
 
 
 def _core_regex_match(pattern, value):

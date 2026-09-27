@@ -1218,12 +1218,39 @@ Value Core::type_is(Value value, Value type_name) {
 Value Core::regex_match(Value pattern, Value value) {
   return Value(value.is_string() && std::regex_search(str(value), std::regex(str(pattern))));
 }
+// The UTF-8 length of the JavaScript white space or line terminator at pos
+// (String.prototype.trim's set), or 0.
+static size_t js_space_at(const std::string& s, size_t pos) {
+  const auto at = [&](size_t i) { return i < s.size() ? static_cast<unsigned char>(s[i]) : 0; };
+  const unsigned char a = at(pos), b = at(pos + 1), c = at(pos + 2);
+  if (a == 0x09 || a == 0x0A || a == 0x0B || a == 0x0C || a == 0x0D || a == 0x20) return 1;
+  if (a == 0xC2 && b == 0xA0) return 2;
+  if (a == 0xE1 && b == 0x9A && c == 0x80) return 3;
+  if (a == 0xE2 && b == 0x80 && ((c >= 0x80 && c <= 0x8A) || c == 0xA8 || c == 0xA9 || c == 0xAF)) return 3;
+  if (a == 0xE2 && b == 0x81 && c == 0x9F) return 3;
+  if (a == 0xE3 && b == 0x80 && c == 0x80) return 3;
+  if (a == 0xEF && b == 0xBB && c == 0xBF) return 3;
+  return 0;
+}
+// As JavaScript's String.prototype.trim: white space and line terminators,
+// not other control characters.
 Value Core::string_trim(Value value) {
   std::string s = str(value);
-  auto start = s.find_first_not_of(" \t\n\r");
-  if (start == std::string::npos) return Value("");
-  auto end = s.find_last_not_of(" \t\n\r");
-  return Value(s.substr(start, end - start + 1));
+  size_t start = 0, end = s.size();
+  while (start < end) {
+    size_t n = js_space_at(s, start);
+    if (n == 0 || start + n > end) break;
+    start += n;
+  }
+  while (end > start) {
+    size_t trimmed = 0;
+    for (size_t n = 1; n <= 3 && n <= end - start; n++) {
+      if (js_space_at(s, end - n) == n) { trimmed = n; break; }
+    }
+    if (trimmed == 0) break;
+    end -= trimmed;
+  }
+  return Value(s.substr(start, end - start));
 }
 Value Core::string_join(Value sep, Value values) {
   std::string out;
@@ -1866,6 +1893,10 @@ Value Core::exception_is_infrastructure(Value error) {
   return Value(type == "AxAIServiceNetworkError" || type == "AxAIServiceTimeoutError" || type == "AxAIServiceStreamTerminatedError");
 }
 // TS AxGen retries a model refusal inside its validation loop.
+Value Core::exception_is_validation(Value error) {
+  if (!error.is_object()) return Value(false);
+  return Value(str(get_key(error, "__error")) == "validation");
+}
 Value Core::exception_is_refusal(Value error) {
   if (!error.is_object()) return Value(false);
   return Value(str(get_key(error, "__type")) == "AxAIRefusalError");
@@ -3618,6 +3649,33 @@ static std::string escape_json(const std::string& in) {
   return out;
 }
 
+// The array index a JavaScript property key names: "0" to "4294967294" in
+// canonical form (no sign, no leading zero), else -1.
+static long long js_array_index(const std::string& key) {
+  if (key.empty() || key.size() > 10 || (key.size() > 1 && key[0] == '0')) return -1;
+  for (char c : key) {
+    if (c < '0' || c > '9') return -1;
+  }
+  long long index = std::stoll(key);
+  return index <= 4294967294LL ? index : -1;
+}
+
+// Entries in JavaScript's own-property order, which JSON.stringify follows:
+// array-index keys first in ascending numeric order, then the other keys in
+// insertion order.
+static std::vector<std::pair<std::string, Value>> js_own_key_order(std::vector<std::pair<std::string, Value>> items) {
+  std::vector<std::pair<std::string, Value>> indexed;
+  std::vector<std::pair<std::string, Value>> named;
+  for (auto& item : items) {
+    if (js_array_index(item.first) >= 0) indexed.push_back(std::move(item));
+    else named.push_back(std::move(item));
+  }
+  if (indexed.empty()) return named;
+  std::stable_sort(indexed.begin(), indexed.end(), [](const auto& a, const auto& b) { return js_array_index(a.first) < js_array_index(b.first); });
+  for (auto& item : named) indexed.push_back(std::move(item));
+  return indexed;
+}
+
 std::string stringify(const Value& value) {
   if (value.is_null()) return "null";
   if (auto p = std::get_if<bool>(&value.data)) return *p ? "true" : "false";
@@ -3630,7 +3688,7 @@ std::string stringify(const Value& value) {
   }
   std::string out = "{";
   size_t i = 0;
-  for (const auto& kv : entries(value)) { if (i++) out += ","; out += "\"" + escape_json(kv.first) + "\":" + stringify(kv.second); }
+  for (const auto& kv : js_own_key_order(entries(value))) { if (i++) out += ","; out += "\"" + escape_json(kv.first) + "\":" + stringify(kv.second); }
   return out + "}";
 }
 
@@ -3659,7 +3717,7 @@ static std::string stable_stringify(const Value& value) {
 static void write_pretty_json(std::string& out, const Value& value, const std::string& indent) {
   const std::string inner = indent + "  ";
   if (value.is_object()) {
-    auto items = entries(value);
+    auto items = js_own_key_order(entries(value));
     if (items.empty()) {
       out += "{}";
       return;

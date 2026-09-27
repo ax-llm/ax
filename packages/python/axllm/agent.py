@@ -2465,7 +2465,8 @@ def _core_list_get(values, index, default=None):
 
 
 def _core_json_stringify(value):
-    return _js_json_dumps(value, sort_keys=True)
+    # TS JSON.stringify(value): keys in insertion order, null as null.
+    return _js_json_dumps(value)
 
 
 def _core_json_stable_stringify(value):
@@ -3128,7 +3129,7 @@ def _agent_runtime_reserved_names_for_state(state: Any) -> list[Any]:
 
 def _agent_runtime_language_tokens(language: str) -> list[Any]:
     _core_coverage_mark("_agent_runtime_language_tokens")
-    trimmed = str(language).strip()
+    trimmed = str(language).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     sharp_spaced = _core_regex_replace("#", " Sharp ", trimmed)
     plus_spaced = _core_regex_replace("\\+", " Plus ", sharp_spaced)
     word_spaced = _core_regex_replace("[^A-Za-z0-9]+", " ", plus_spaced)
@@ -3190,7 +3191,7 @@ def _normalize_agent_runtime(options: Any) -> Any:
     runtime_camel = _core_get(options, "runtimeConfig", empty_map)
     runtime = _core_get(options, "runtime", runtime_camel)
     raw_language = _core_get(runtime, "language", "JavaScript")
-    trimmed_language = str(raw_language).strip()
+    trimmed_language = str(raw_language).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     language_missing = _core_eq(trimmed_language, "")
     language = trimmed_language
     if language_missing:
@@ -4373,7 +4374,7 @@ def _rlm_render_template(template: str, vars: Any, context: str) -> str:
     _core_coverage_mark("_rlm_render_template")
     rendered = render_template_content(template, vars, context)
     collapsed = _core_regex_replace("\\n{3,}", "\n\n", rendered)
-    trimmed = str(collapsed).strip()
+    trimmed = str(collapsed).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     return trimmed
 
 
@@ -4843,7 +4844,7 @@ def _resolve_agent_executor_model_policy(options: Any) -> Any:
             for namespace in namespaces:
                 namespace_is_string = _core_type_is(namespace, "string")
                 if namespace_is_string:
-                    trimmed_namespace = str(namespace).strip()
+                    trimmed_namespace = str(namespace).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                     namespace_nonempty = _core_ne(trimmed_namespace, "")
                     if namespace_nonempty:
                         valid_namespace_count = _core_add(valid_namespace_count, 1)
@@ -6869,7 +6870,7 @@ def _normalize_agent_string_list(value: Any, label: str) -> list[Any]:
     out = []
     is_string = _core_type_is(value, "string")
     if is_string:
-        trimmed = str(value).strip()
+        trimmed = str(value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         empty = _core_eq(trimmed, "")
         if empty:
             message = _core_string_format("{} entries must be non-empty strings", label)
@@ -6893,7 +6894,7 @@ def _normalize_agent_string_list(value: Any, label: str) -> list[Any]:
                     error = _core_runtime_error(message)
                     raise error
                 else:
-                    trimmed_item = str(item).strip()
+                    trimmed_item = str(item).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                     empty_item = _core_eq(trimmed_item, "")
                     if empty_item:
                         message = _core_string_format("{} entries must be non-empty strings", label)
@@ -7017,7 +7018,7 @@ def _agent_normalize_skill_entry(entry: Any) -> Any:
     else:
         none = _core_none()
         return none
-    name = str(name_raw).strip()
+    name = str(name_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     name_empty = _core_eq(name, "")
     if name_empty:
         none = _core_none()
@@ -7028,7 +7029,7 @@ def _agent_normalize_skill_entry(entry: Any) -> Any:
     id = name
     id_is_string = _core_type_is(id_raw, "string")
     if id_is_string:
-        id_trimmed = str(id_raw).strip()
+        id_trimmed = str(id_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         id_has_value = _core_ne(id_trimmed, "")
         if id_has_value:
             id = id_trimmed
@@ -7419,7 +7420,7 @@ def _agent_merge_memory_results(existing: Any, incoming: Any) -> Any:
                 content_is_string = _core_type_is(content, "string")
                 valid_types = _core_and(id_is_string, content_is_string)
                 if valid_types:
-                    id = str(id_raw).strip()
+                    id = str(id_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                     has_id = _core_ne(id, "")
                     if has_id:
                         normalized = {}
@@ -7445,7 +7446,7 @@ def _agent_merge_memory_results(existing: Any, incoming: Any) -> Any:
                 content2_is_string = _core_type_is(content2, "string")
                 valid2_types = _core_and(id2_is_string, content2_is_string)
                 if valid2_types:
-                    id2 = str(id2_raw).strip()
+                    id2 = str(id2_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                     has_id2 = _core_ne(id2, "")
                     if has_id2:
                         normalized2 = {}
@@ -7560,8 +7561,8 @@ def _normalize_agent_used_request(request: Any, default_stage: str) -> Any:
         stage = _core_get(request, "stage", default_stage)
     else:
         id = request
-    id = str(id).strip()
-    reason = str(reason).strip()
+    id = str(id).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    reason = str(reason).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     reason = _core_string_slice(reason, 0, 300)
     missing = _core_eq(id, "")
     if missing:
@@ -7656,7 +7657,7 @@ def _normalize_agent_guidance_payload(value: Any, triggered_by: str) -> Any:
         trigger = _core_get(value, "triggeredBy", triggered_by)
     else:
         guidance = value
-    guidance = str(guidance).strip()
+    guidance = str(guidance).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     missing = _core_eq(guidance, "")
     if missing:
         error = _core_runtime_error("guideAgent() requires a non-empty string guidance")
@@ -7993,14 +7994,14 @@ def _agent_refresh_actor_instruction(state: Any) -> str:
     _core_coverage_mark("_agent_refresh_actor_instruction")
     parts = []
     instruction = _core_get(state, "stage_instruction", "")
-    instruction_trimmed = str(instruction).strip()
+    instruction_trimmed = str(instruction).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     has_instruction = _core_ne(instruction_trimmed, "")
     if has_instruction:
         parts.append(instruction_trimmed)
     else:
         pass
     base = _core_get(state, "executor_description_base", "")
-    base_trimmed = str(base).strip()
+    base_trimmed = str(base).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     has_base = _core_ne(base_trimmed, "")
     if has_base:
         parts.append(base_trimmed)
@@ -8011,7 +8012,7 @@ def _agent_refresh_actor_instruction(state: Any) -> str:
     for addendum in addenda:
         addendum_is_string = _core_type_is(addendum, "string")
         if addendum_is_string:
-            addendum_trimmed = str(addendum).strip()
+            addendum_trimmed = str(addendum).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             has_addendum = _core_ne(addendum_trimmed, "")
             if has_addendum:
                 parts.append(addendum_trimmed)
@@ -8031,7 +8032,7 @@ def _agent_refresh_actor_instruction(state: Any) -> str:
 
 def _agent_set_instruction(state: Any, instruction: str) -> str:
     _core_coverage_mark("_agent_set_instruction")
-    trimmed = str(instruction).strip()
+    trimmed = str(instruction).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     state["stage_instruction"] = trimmed
     composed = _agent_refresh_actor_instruction(state)
     return composed
@@ -8039,7 +8040,7 @@ def _agent_set_instruction(state: Any, instruction: str) -> str:
 
 def _agent_add_actor_instruction(state: Any, addendum: str) -> str:
     _core_coverage_mark("_agent_add_actor_instruction")
-    trimmed = str(addendum).strip()
+    trimmed = str(addendum).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     has_addendum = _core_ne(trimmed, "")
     if has_addendum:
         empty_list = []
@@ -8277,8 +8278,8 @@ def _agent_replay_trace(trace: Any, fixtures: Any) -> Any:
     expected_output = _core_get(fixtures, "expected_output", None)
     has_expected_output = _core_is_not_none(expected_output)
     if has_expected_output:
-        actual_output_text = _core_json_stringify(output)
-        expected_output_text = _core_json_stringify(expected_output)
+        actual_output_text = _core_json_stable_stringify(output)
+        expected_output_text = _core_json_stable_stringify(expected_output)
         output_matches = _core_eq(actual_output_text, expected_output_text)
         output_mismatch = _core_not(output_matches)
         if output_mismatch:
@@ -9604,7 +9605,7 @@ def _agent_rank_relevance_memories(state: Any, task: str) -> Any:
             if id_match:
                 candidate_content = _core_get(candidate, "content", "")
                 single_line = _core_regex_replace("\\s+", " ", candidate_content)
-                trimmed = str(single_line).strip()
+                trimmed = str(single_line).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 snippet = _core_string_slice(trimmed, 0, 80)
             else:
                 pass
@@ -10641,7 +10642,7 @@ def _agent_playbook_miner_inputs(signature: str, records: list[Any], current_pla
                         pass
                     window_end = _core_add(window_start, 2000)
                     body = _core_string_slice(log, window_start, window_end)
-        body_trimmed = str(body).strip()
+        body_trimmed = str(body).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         body_present = _core_ne(body_trimmed, "")
         if body_present:
             any_body = True
@@ -11174,11 +11175,11 @@ def _agent_runtime_code_fence_violation(code: str) -> bool:
 
 def _normalize_agent_runtime_code(code: str) -> str:
     _core_coverage_mark("_normalize_agent_runtime_code")
-    normalized = str(code).strip()
+    normalized = str(code).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     normalized = _core_regex_replace("<think>[\\s\\S]*?</think>", "", normalized)
-    normalized = str(normalized).strip()
+    normalized = str(normalized).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     normalized = _core_regex_replace("[^\\n]*</think>", "", normalized)
-    normalized = str(normalized).strip()
+    normalized = str(normalized).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     normalized = _core_string_replace(normalized, "r\n", "\n")
     search = normalized
     extracted = ""
@@ -11212,13 +11213,13 @@ def _normalize_agent_runtime_code(code: str) -> str:
             pass
         search = after_marker
     if has_extracted:
-        normalized = str(extracted).strip()
+        normalized = str(extracted).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     else:
         while True:
             before = normalized
             normalized = _core_regex_replace("^```([A-Za-z0-9_-]+)?[ \\t]*\\n", "", normalized)
             normalized = _core_regex_replace("\\n?```[ \\t]*$", "", normalized)
-            normalized = str(normalized).strip()
+            normalized = str(normalized).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             unchanged = _core_eq(normalized, before)
             if unchanged:
                 break
@@ -11361,7 +11362,7 @@ def _context_map_parse_items(text: Any) -> Any:
         is_header = _core_string_starts_with(line, "##")
         if is_header:
             title_raw = _core_string_replace(line, "#", "")
-            title = str(title_raw).strip()
+            title = str(title_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             for sec in sections:
                 sec_title = _core_get(sec, "title", None)
                 match = _core_eq(sec_title, title)
@@ -11377,8 +11378,8 @@ def _context_map_parse_items(text: Any) -> Any:
                 left = _core_get(parts, "left", "")
                 right = _core_get(parts, "right", "")
                 id_raw = _core_string_replace(left, "[", "")
-                id = str(id_raw).strip()
-                content = str(right).strip()
+                id = str(id_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                content = str(right).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 id_ok = _core_ne(id, "")
                 content_ok = _core_ne(content, "")
                 valid = _core_and(id_ok, content_ok)
@@ -11616,7 +11617,7 @@ def _context_map_complete(client: Any, system: Any, user: Any, options: Any) -> 
 def _context_map_parse_json(content: Any) -> Any:
     _core_coverage_mark("_context_map_parse_json")
     empty_map = {}
-    trimmed = str(content).strip()
+    trimmed = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     is_empty = _core_eq(trimmed, "")
     if is_empty:
         return empty_map
@@ -12934,7 +12935,7 @@ def _agent_render_guidance_log(entries: Any) -> str:
             guidance_raw = _core_get(entry, "guidance", "")
             guidance_text = _core_string_str(guidance_raw)
             guidance = _core_regex_replace("\\s+", " ", guidance_text)
-            guidance = str(guidance).strip()
+            guidance = str(guidance).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             line = _core_string_format("- {}, {}", trigger, guidance)
             lines.append(line)
     else:
@@ -13243,7 +13244,7 @@ def _agent_render_callable_block(callable: Any, language: str, is_javascript: bo
     has_description_raw = _core_truthy(description_raw)
     if has_description_raw:
         description_text = _core_string_str(description_raw)
-        description = str(description_text).strip()
+        description = str(description_text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     else:
         pass
     has_description = _core_ne(description, "")
@@ -13340,7 +13341,7 @@ def _agent_render_actor_modules_list(callable_split: Any) -> str:
             namespaces.append(namespace)
             selection = _core_get(group, "selection_criteria", "")
             selection_text = _core_string_str(selection)
-            trimmed = str(selection_text).strip()
+            trimmed = str(selection_text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             criteria[namespace] = trimmed
     sorted = _core_sorted_strings(namespaces)
     lines = []

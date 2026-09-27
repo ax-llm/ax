@@ -77,13 +77,40 @@ def _js_json_key(key) -> str:
     raise TypeError(f"keys must be str, int, float, bool or None, not {type(key).__name__}")
 
 
+def _js_array_index(key: str) -> int | None:
+    """The array index a JavaScript property key names: "0" to "4294967294"
+    in canonical form (no sign, no leading zero), else None."""
+    if not key or not key.isascii() or not key.isdigit() or (len(key) > 1 and key[0] == "0"):
+        return None
+    index = int(key)
+    return index if index <= 4294967294 else None
+
+
+def _js_own_key_entries(mapping) -> list:
+    """A dict's entries in JavaScript's own-property order, which
+    JSON.stringify follows: array-index keys first in ascending numeric
+    order, then the other keys in insertion order."""
+    indexed = []
+    named = []
+    for key, element in mapping.items():
+        index = _js_array_index(_js_json_key(key))
+        if index is None:
+            named.append((key, element))
+        else:
+            indexed.append((index, key, element))
+    if not indexed:
+        return named
+    indexed.sort(key=lambda entry: entry[0])
+    return [(key, element) for _, key, element in indexed] + named
+
+
 def _js_json_dumps(value, indent: int | None = None, sort_keys: bool = False, default=None, separators: tuple[str, str] | None = None) -> str:
     """json.dumps(value, ensure_ascii=False) with JavaScript's output: compact
     separators by default (JSON.stringify(value)), `indent`-space lines as
     JSON.stringify(value, null, indent) writes them, floats as
     _js_json_number, and NaN or Infinity as null. Ints keep their exact digits;
-    dict keys convert and sort, and `default` and `separators` work, as in
-    json.dumps."""
+    dict keys convert and come in JavaScript's own-key order (sort_keys sorts
+    them instead), and `default` and `separators` work, as in json.dumps."""
     out: list[str] = []
     active: set[int] = set()
     item_separator, key_separator = separators or ((",", ":") if indent is None else (",", ": "))
@@ -108,7 +135,7 @@ def _js_json_dumps(value, indent: int | None = None, sort_keys: bool = False, de
             active.add(marker)
             inner = prefix + " " * indent if indent is not None else ""
             if isinstance(item, dict):
-                entries = sorted(item.items(), key=lambda entry: entry[0]) if sort_keys else list(item.items())
+                entries = sorted(item.items(), key=lambda entry: entry[0]) if sort_keys else _js_own_key_entries(item)
                 opening, closing = "{", "}"
             else:
                 entries = [(None, element) for element in item]

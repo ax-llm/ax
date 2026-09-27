@@ -2454,7 +2454,8 @@ def _core_list_get(values, index, default=None):
 
 
 def _core_json_stringify(value):
-    return _js_json_dumps(value, sort_keys=True)
+    # TS JSON.stringify(value): keys in insertion order, null as null.
+    return _js_json_dumps(value)
 
 
 def _core_json_stable_stringify(value):

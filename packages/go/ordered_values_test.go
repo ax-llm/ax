@@ -163,13 +163,14 @@ func TestJSONTextOmitsOrderListsAndHTMLEscapes(t *testing.T) {
 	}
 }
 
-// MCP messages go out through the same encoder as provider requests: keys sorted,
-// no "__order" lists, RFC 8259 escapes for control characters only, everything
-// else as UTF-8, and U+FFFD for invalid UTF-8.
+// MCP messages go out through the same encoder as provider requests, as TS's
+// JSON.stringify writes the message: keys in insertion order, no "__order"
+// lists, RFC 8259 escapes for control characters only, everything else as
+// UTF-8, and U+FFFD for invalid UTF-8.
 func TestMCPWireJSONOmitsOrderListsAndEscapesControlCharacters(t *testing.T) {
 	text := "tab\t cr\r ctl\x01 del\x7f <b>&   emoji\U0001F600 bad\xff"
 	got := AxMCPStdioEncode(Object("jsonrpc", "2.0", "id", 1, "method", "tools/call", "params", Object("arguments", Object("q", text))))
-	want := "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"arguments\":{\"q\":\"tab\\t cr\\r ctl\\u0001 del\x7f <b>&   emoji\U0001F600 bad�\"}}}\n"
+	want := "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"arguments\":{\"q\":\"tab\\t cr\\r ctl\\u0001 del\x7f <b>&   emoji\U0001F600 bad�\"}}}\n"
 	if got != want {
 		t.Fatalf("AxMCPStdioEncode = %q\nwant %q", got, want)
 	}

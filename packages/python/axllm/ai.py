@@ -3281,7 +3281,8 @@ def _core_json_parse(value):
 
 
 def _core_json_stringify(value):
-    return _js_json_dumps(value or {}, sort_keys=True)
+    # TS JSON.stringify(value): keys in insertion order, null as null.
+    return _js_json_dumps(value)
 
 
 def _core_string_starts_with(value, prefix):
@@ -3404,7 +3405,7 @@ def typesafe_require_string(value: Any, context: str, nonempty: bool) -> str:
     valid = _core_type_is(value, "string")
     if valid:
         if nonempty:
-            text = str(value).strip()
+            text = str(value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             valid = _core_ne(text, "")
         else:
             pass
@@ -7551,7 +7552,7 @@ def provider_balancer_adaptive_score(estimated_cost: number, bad_outcome_cost: n
 
 def provider_balancer_validate_route_key(route_key: str, seen_keys: Any) -> str:
     _core_coverage_mark("provider_balancer_validate_route_key")
-    key = str(route_key).strip()
+    key = str(route_key).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     empty = _core_eq(key, "")
     if empty:
         error = _core_runtime_error("Adaptive route keys must be non-empty.")
@@ -12066,9 +12067,9 @@ def _audio_mime_params_impl(mime_type: str) -> Any:
             has_value = _core_get(pair, "found", False)
             if has_value:
                 key = _core_get(pair, "left", "")
-                key = str(key).strip()
+                key = str(key).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 value = _core_get(pair, "right", "")
-                value = str(value).strip()
+                value = str(value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 is_number = _core_regex_match("^[0-9]+(\\.[0-9]+)?$", value)
                 if is_number:
                     try:

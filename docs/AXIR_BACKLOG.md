@@ -18,18 +18,36 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-27-drop-a-failed-non-streaming-axgen-attempt-and-its-correction-whe` [axgen] Drop a failed non-streaming AxGen attempt and its correction when the next answer arrives in the ports
-  - Status: open
-  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
-  - TS paths: `src/ax/dsp/response/nonStreaming.ts`, `src/ax/dsp/generate.ts`
-  - Impact: TS forward removes the memory tagged correction and error when a new answer arrives (response/nonStreaming.ts, unless disableMemoryCleanup), and generate.ts tags the failed answer error, so every validation retry sends one failed attempt and its correction. The ports keep them all. Plain ax('question:string -> answer:string') with an assert that always fails and maxRetries 3, request roles: TS [[system,user],[system,user,assistant,user],[system,user,assistant,user],[system,user,assistant,user]]; Python port [[system,user],[system,user,assistant,user],[system,user,assistant,user,assistant,user],[system,user,assistant,user,assistant,user,assistant,user]]. TS streamingForward keeps them all, as the ports do. The agent goldens agent-forward-citations-exhausted and agent-forward-control-failed leave expected_request_roles out until this lands.
-  - Suggested AxIR work: Port TS's non-streaming memory cleanup of correction and error tagged messages; Add an AxGen forward golden with two or more validation retries that pins the request roles; Re-add expected_request_roles to agent-forward-citations-exhausted and agent-forward-control-failed
 - `axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event` [axgen] Keep a surrogate pair that a provider splits across stream events in Go and Rust
   - Status: open
   - Source commit: `af38cd35839a83461ac28242a01a10fd9ff1632c`
   - TS paths: `src/ax/dsp/extract/delta.ts`
   - Impact: TypeScript joins an escaped surrogate pair split across stream events into one character (a trailing high surrogate waits for its low half). Go's encoding/json decodes each lone surrogate escape to U+FFFD, so the character is lost (two U+FFFD). Rust's serde_json rejects a lone surrogate escape, which failed the whole stream; since 2e its SSE parsers read each lone half as U+FFFD (the same loss as Go), and its WebSocket frame parsers (realtime and native chat sessions) still fail on one. Python and Java hold lone surrogates natively, and C++ keeps them as WTF-8 and joins them (2e). Go and Rust need surrogate-preserving JSON decoding of stream events (for example a pre-pass that turns escaped UTF-16 surrogates into WTF-8) plus 2e's join intrinsics, and then run streaming-forward-split-surrogate-pair instead of skipping it.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-27-match-typescript-s-structured-output-validation-messages-for-str` [axgen] Match TypeScript's structured-output validation messages for string and number constraints in the ports
+  - Status: open
+  - Source commit: `7a45c6024cb4b7a32526b81b86e447a57ea49ed1`
+  - TS paths: `src/ax/dsp/errors.ts`, `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/validators.ts`
+  - Impact: TypeScript's validateStructuredOutputValues reports a constraint failure as "Field '<title>' failed validation: String must be at most 20 characters long. You provided: \"<value>\" (22 characters).", where a nested field's title is its key (structuredJson.ts nestedFieldFromType title: name). The ports' validate path (validate.axir @validate_string_constraints_impl and @validate_number_constraints_impl) drops the 'You provided' suffix and titles nested fields ('Username' for username); the streaming path (stream.axir) already has the suffix. The message reaches the model in a validation retry (Invalid Field: ...). Pinned so far only by substring in validation/output-string-*; add full-message goldens and fix.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-27-open-a-fresh-native-chat-session-for-each-axgen-request-in-the-p` [axgen] Open a fresh native chat session for each AxGen request in the ports, as TypeScript does, instead of steering the open session with a correction
+  - Status: open
+  - Source commit: `d691dd63fb7f6ec665309a3c354322e6320f229d`
+  - TS paths: `src/ax/dsp/chatSession.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TypeScript's axRunChatSession opens a native chat session for each AxGen request and closes it when the request's response completes; a validation or assertion correction (and a processor-feedback continuation) is a new request, so it opens a fresh session whose prompt ends with the correction message. The ports keep one session for the whole run and steer it with the correction text, then continue it: reproduced in Python with a scripted session (TS: open, close, open with the correction [{type: 'text', text: 'Follow these instructions: The answer must be Paris.'}], close; Python: open, steer 'The previous response failed validation: The answer must be Paris.. Return only corrected JSON.', continue, close). The request sequence on the wire differs for session-capable providers (for example GPT-6 Astra WebSocket sessions).
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-27-stream-axgen-deltas-under-native-chat-sessions-in-the-ports-as-t` [axgen] Stream AxGen deltas under native chat sessions in the ports as TypeScript does: each session response through the plain-stream extraction, with a new version per response
+  - Status: open
+  - Source commit: `c14f3d834656e966a2cc100e8ae9be53ebfa3ec0`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/response/streaming.ts`, `src/ax/dsp/chatSession.test.ts`
+  - Impact: TypeScript streamingForward under a native chat session (a session-capable provider with a run control or background tools) now streams each session response through the same extraction as a plain stream, on that response's own state. Before, a partial event that split a field label corrupted the merged output: chunks 'Answer: Pa', 'ris' + newline + 'Rea', 'son: capi', 'tal' merged to answer 'Paris' + newline + 'ReaParis' and reason 'capitalcapital', and forward with stream: true returned the same. A later response or a correction starts a new version, the final pass sends only what the partial events did not (the thought included), and a streaming assertion that fails on a partial keeps the partial answer in the retry prompt, as in a plain stream. The ports have no session deltas yet: Python and Java raise NotImplementedError / UnsupportedOperationException for streaming_forward deltas under a run session, and per their session clients (StreamEvents, stream_open, stream_service) Go, Rust and C++ answer a session's stream with its completed response as one chunk.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-27-drop-a-failed-non-streaming-axgen-attempt-and-its-correction-whe` [axgen] Drop a failed non-streaming AxGen attempt and its correction when the next answer arrives in the ports
+  - Status: open
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/dsp/response/nonStreaming.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TS forward removes the memory tagged correction and error when a new answer arrives (response/nonStreaming.ts, unless disableMemoryCleanup), and generate.ts tags the failed answer error, so every validation retry sends one failed attempt and its correction. The ports keep them all. Plain ax('question:string -> answer:string') with an assert that always fails and maxRetries 3, request roles: TS [[system,user],[system,user,assistant,user],[system,user,assistant,user],[system,user,assistant,user]]; Python port [[system,user],[system,user,assistant,user],[system,user,assistant,user,assistant,user],[system,user,assistant,user,assistant,user,assistant,user]]. TS streamingForward keeps them all, as the ports do. The agent goldens agent-forward-citations-exhausted and agent-forward-control-failed leave expected_request_roles out until this lands.
+  - Suggested AxIR work: Port TS's non-streaming memory cleanup of correction and error tagged messages; Add an AxGen forward golden with two or more validation retries that pins the request roles; Re-add expected_request_roles to agent-forward-citations-exhausted and agent-forward-control-failed
 - `axir-2026-09-27-match-ts-s-auto-promoted-context-value-previews-in-the-ports-age` [axagent] Match TS's auto-promoted context value previews in the ports' agent prompts
   - Status: open
   - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
@@ -48,12 +66,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
   - Impact: TS's actor marks the stage's own inputs and the stable loop inputs cached (buildSplitPrograms), and under contextCache TS's prompt renderer sends the cached fields as a user message of their own with cache: true, then the other fields in a second user message (prompt.ts). The ports' renderer instead turns a cached field's user content into a list of parts with a cache flag, so the ports' actor signatures leave the cache markers out (3a2 PR A) and the ports' actor requests under contextCache carry no cached user message. Without contextCache both send the same single user message.
   - Suggested AxIR work: Port TS's contextCache user-message split to the ports' prompt renderer; Mark the actor signatures' cached inputs as TS does once the split lands; Pin a contextCache agent golden with TS's cached and uncached user messages
-- `axir-2026-09-27-stream-axgen-deltas-under-native-chat-sessions-in-the-ports-as-t` [axgen] Stream AxGen deltas under native chat sessions in the ports as TypeScript does: each session response through the plain-stream extraction, with a new version per response
-  - Status: open
-  - Source commit: `c14f3d834656e966a2cc100e8ae9be53ebfa3ec0`
-  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/response/streaming.ts`, `src/ax/dsp/chatSession.test.ts`
-  - Impact: TypeScript streamingForward under a native chat session (a session-capable provider with a run control or background tools) now streams each session response through the same extraction as a plain stream, on that response's own state. Before, a partial event that split a field label corrupted the merged output: chunks 'Answer: Pa', 'ris' + newline + 'Rea', 'son: capi', 'tal' merged to answer 'Paris' + newline + 'ReaParis' and reason 'capitalcapital', and forward with stream: true returned the same. A later response or a correction starts a new version, the final pass sends only what the partial events did not (the thought included), and a streaming assertion that fails on a partial keeps the partial answer in the retry prompt, as in a plain stream. The ports have no session deltas yet: Python and Java raise NotImplementedError / UnsupportedOperationException for streaming_forward deltas under a run session, and per their session clients (StreamEvents, stream_open, stream_service) Go, Rust and C++ answer a session's stream with its completed response as one chunk.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -986,6 +998,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `1b6d8b9f84346048f73cad9b255adcb42b950e28`
   - Verification: `node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with forward-control-steer-continues, streaming-forward-control-steer-continues and forward-control-steer-persists-across-tool-steps`
+- `axir-2026-09-27-count-utf-16-code-units-trim-with-javascript-s-whitespace-set-an` [axgen] Count UTF-16 code units, trim with JavaScript's whitespace set, and send TypeScript's retry messages in the ports
+  - Status: done
+  - Source commit: `eff7fd4ef847d94e80c60894e44946afb8930fe1`
+  - TS paths: `src/ax/dsp/validators.ts`, `src/ax/dsp/response/structuredDelta.ts`, `src/ax/dsp/asserts.ts`, `src/ax/dsp/errors.ts`, `src/ax/dsp/prompt.ts`
+  - Impact: TypeScript measures string length constraints and the structured stream re-parse cadence with String.prototype.length (UTF-16 code units), trims with String.prototype.trim (JS white space and line terminators only), and sends a retry as one user message with a text part: 'Invalid Field: <message>' for a validation error, 'Follow these instructions: <message>.' for an assertion, and a fixed message when a json_object answer isn't one JSON object. The ports counted code points (Python, Rust) or bytes (Go, C++), trimmed with each language's own whitespace set, and sent 'The previous response failed validation: <error>. Return only corrected JSON.' as a string (with the parser's error for json_object).
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `7a45c6024`
+  - Verification: `TS goldens that fail on main in the ports: validation/output-string-min-utf16-units, -max-utf16-units and -max-counts-units-not-bytes (UTF-16 length constraints); axgen streaming-forward-structured-cadence-utf16-parse and -wait (re-parse cadence); forward-text-trim-js-whitespace and -keeps-control-chars (JS trim); forward-retry-message-assertion, -assertion-adds-period, -missing-field, -json-object-parse and streaming-forward-retry-message-assertion (retry messages, pinned with expected_last_request_tail); axgen/assertion-retry now pins TS's text. New intrinsic.exception.is_validation in all five ports. verify --mode dev: 1398 fixtures in python, java and cpp, 1397 plus the lone-surrogate skip in go and rust (Rust cargo test 70/70); axagent-real 10/10 in Python; Python response-perturbation gate 343 mutations across 138 fixtures; npm run test --workspace=@ax-llm/ax passes 3612 tests.`
 - `axir-2026-09-27-date-fields-parse-dates` [axgen] Parse date, datetime and range outputs as TypeScript does (opt-in parseDates) and fix time-zone abbreviations
   - Status: done
   - Source commit: `319c07a31b08bba2f246f8551c25d7433d15864d`
@@ -1148,6 +1169,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `67b2e78e8`
   - Verification: `12 TS-derived axai speak goldens (TypeScript's real OpenAI, Mistral, Grok and Gemini speak() against fetch stubs, with expected_transport_json_absent for keys TS leaves out) fail on origin/main in all five ports and pass in all five; responses-speak pins the deprecated audio-key fallback.`
+- `axir-2026-09-27-stable-stringify-locale-order` [axai] TS stableStringify sorts keys with localeCompare while the ports sort by code point (context-cache tool-state hash)
+  - Status: done
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/ai/base.ts`
+  - Impact: normalizeForStableStringify in src/ax/ai/base.ts orders object keys with localeCompare, which depends on the machine's locale; the ports' stable_stringify sorts by code point. For mixed-case keys the context-cache tool-state hash, and so the provider cache key, differs between TS and the ports and between TS machines. Measure where the hash is persisted before choosing code-point order in TS.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `730ca7b3f4eb0908928c248fde915dc37835fa00`
+  - Verification: `Fixed on the TS side by #764: stableStringify sorts keys by code point, as the ports do; src/ax/ai/base.test.ts pins the key and its locale independence`
 - `axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths` [axagent] Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths
   - Status: done
   - Source commit: `c3662628d8916a174fc1ef3bd0484f7b3ffd989c`

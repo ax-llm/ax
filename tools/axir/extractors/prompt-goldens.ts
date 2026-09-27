@@ -796,6 +796,38 @@ writeFixture('number-format-cases', {
   }),
 });
 
+// JSON.stringify: keys in the object's own-key order (array-index keys, "0"
+// to "4294967294" in canonical form, first in ascending numeric order, then
+// the other keys in insertion order), null as null, empty arrays and objects
+// as themselves. Each case's input is JSON text, parsed in key order by the
+// runners (the fixture's own keys would lose it to the canonical sort), and
+// `json` is what JSON.stringify(JSON.parse(input)) writes; every port's
+// json.stringify intrinsic must write it. json.stable_stringify stays
+// key-sorted.
+const jsonStringifyInputs: string[] = [
+  '{"b":1,"a":[2]}',
+  '{"zeta":{"y":1,"x":[{"d":1,"c":2}]},"alpha":null,"mid":"text"}',
+  '[]',
+  'null',
+  '{}',
+  '[null,{},[],{"b":false,"a":true}]',
+  '{"k":[],"e":{},"c":""}',
+  JSON.stringify('quote " backslash \\ newline \n tab \t'),
+  '0',
+  'false',
+  '""',
+  '{"b":1,"10":2,"2":3}',
+  '{"01":1,"1":2,"-1":3,"4294967295":4,"4294967294":5,"1.5":6,"0":7}',
+  '{"z":{"9":"nine","x":"ex","3":"three"},"list":[{"20":0,"b":1,"1":2}]}',
+];
+writeFixture('json-stringify-cases', {
+  kind: 'json_stringify',
+  cases: jsonStringifyInputs.map((input) => ({
+    input,
+    json: JSON.stringify(JSON.parse(input)),
+  })),
+});
+
 // string.format fills each {} from left to right with the next argument's
 // text and string.str writes one value's text, in every port as JavaScript
 // writes it: String(x) for a string, number, boolean or null, JSON.stringify(x)

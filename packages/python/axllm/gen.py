@@ -1044,7 +1044,8 @@ def _core_json_parse_strict(value):
 
 
 def _core_json_stringify(value):
-    return _js_json_dumps(value, sort_keys=True)
+    # TS JSON.stringify(value): keys in insertion order, null as null.
+    return _js_json_dumps(value)
 
 
 def _core_fields_from_map(fields):
@@ -1324,6 +1325,10 @@ def _core_exception_is_infrastructure(error):
 # TS AxGen retries a model refusal inside its validation loop.
 def _core_exception_is_refusal(error):
     return isinstance(error, AxAIRefusalError)
+
+
+def _core_exception_is_validation(error):
+    return isinstance(error, AxValidationError)
 
 
 def _core_regex_match(pattern, value):
@@ -3275,7 +3280,7 @@ def _structured_output_call_args(call: Any) -> Any:
 
 def _stream_trim_end_impl(text: str) -> str:
     _core_coverage_mark("_stream_trim_end_impl")
-    trimmed = str(text).strip()
+    trimmed = str(text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     blank = _core_eq(trimmed, "")
     if blank:
         return ""
@@ -3348,7 +3353,7 @@ def _date_parse_date_impl(text: Any) -> Any:
 
 def _stream_trim_start_impl(text: str) -> str:
     _core_coverage_mark("_stream_trim_start_impl")
-    trimmed = str(text).strip()
+    trimmed = str(text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     blank = _core_eq(trimmed, "")
     if blank:
         return ""
@@ -3562,7 +3567,7 @@ def _stream_is_space_impl(ch: str) -> bool:
         return False
     else:
         pass
-    trimmed = str(ch).strip()
+    trimmed = str(ch).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     space = _core_eq(trimmed, "")
     return space
 
@@ -4477,7 +4482,18 @@ def _parse_sample_outputs(gen: AxGen, output_fields: list[Any], response: Any, v
             extracted = _core_get(text_parsed, "extracted", False)
         else:
             if validate_exact_json:
-                output = _parse_output_impl(content)
+                strict_parsed = False
+                try:
+                    output = _parse_output_impl(content)
+                    strict_parsed = True
+                except Exception as strict_parse_error:
+                    pass
+                strict_failed = _core_not(strict_parsed)
+                if strict_failed:
+                    strict_error = _core_validation_error("Structured output must be one JSON object with no prose or Markdown fences.")
+                    raise strict_error
+                else:
+                    pass
             else:
                 output = _parse_output_fields_impl(content, output_fields)
         if validate_exact_json:
@@ -4644,7 +4660,7 @@ def _date_abbreviation_offset_impl(units: Any, start: Any, end: Any, zone: Any) 
 def _stream_markdown_list_impl(input: str) -> list[Any]:
     _core_coverage_mark("_stream_markdown_list_impl")
     items = []
-    blank = str(input).strip()
+    blank = str(input).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     is_blank = _core_eq(blank, "")
     if is_blank:
         return items
@@ -4652,7 +4668,7 @@ def _stream_markdown_list_impl(input: str) -> list[Any]:
         pass
     lines = _core_string_split(input, "\n")
     for line in lines:
-        text = str(line).strip()
+        text = str(line).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         empty = _core_eq(text, "")
         if empty:
             continue
@@ -4662,7 +4678,7 @@ def _stream_markdown_list_impl(input: str) -> list[Any]:
         bullet = _core_regex_match("^[-*+]$", first)
         if bullet:
             rest = _core_string_slice(text, 1)
-            item = str(rest).strip()
+            item = str(rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             items.append(item)
             continue
         else:
@@ -4693,7 +4709,7 @@ def _stream_markdown_list_impl(input: str) -> list[Any]:
                 cursor = next
             marker_end = _core_add(cursor, 1)
             rest = _core_string_slice(text, marker_end)
-            item = str(rest).strip()
+            item = str(rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             items.append(item)
             continue
         else:
@@ -4814,6 +4830,22 @@ def _date_zone_resolve_impl(units: Any, start: Any, end: Any, zone: Any, probe: 
     raise missing_error
 
 
+def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
+    _core_coverage_mark("_build_optimization_eval_row")
+    out = {}
+    out["input"] = task
+    out["prediction"] = prediction
+    out["scores"] = scores
+    out["scalar"] = scalar
+    out["trace"] = trace
+    has_error = _core_is_not_none(error)
+    if has_error:
+        out["error"] = error
+    else:
+        pass
+    return out
+
+
 def _select_sample_index(samples: list[Any], options: Any) -> number:
     _core_coverage_mark("_select_sample_index")
     picker_snake = _core_get(options, "result_picker", None)
@@ -4844,22 +4876,6 @@ def _select_sample_index(samples: list[Any], options: Any) -> number:
     else:
         pass
     return selected
-
-
-def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
-    _core_coverage_mark("_build_optimization_eval_row")
-    out = {}
-    out["input"] = task
-    out["prediction"] = prediction
-    out["scores"] = scores
-    out["scalar"] = scalar
-    out["trace"] = trace
-    has_error = _core_is_not_none(error)
-    if has_error:
-        out["error"] = error
-    else:
-        pass
-    return out
 
 
 def chat_session_create_state(model: str, path: str, max_steps: Any) -> Any:
@@ -4959,6 +4975,15 @@ def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -
     out["avg"] = avg
     out["count"] = count
     return out
+
+
+def chat_session_target_matches(target: str, path: str) -> bool:
+    _core_coverage_mark("chat_session_target_matches")
+    exact = _core_eq(target, path)
+    prefix = _core_string_format("{}/", target)
+    descendant = _core_string_starts_with(path, prefix)
+    matches = _core_or(exact, descendant)
+    return matches
 
 
 def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> Any:
@@ -5293,15 +5318,6 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
     raise RuntimeError("unreachable AxGen forward loop exit")
 
 
-def chat_session_target_matches(target: str, path: str) -> bool:
-    _core_coverage_mark("chat_session_target_matches")
-    exact = _core_eq(target, path)
-    prefix = _core_string_format("{}/", target)
-    descendant = _core_string_starts_with(path, prefix)
-    matches = _core_or(exact, descendant)
-    return matches
-
-
 def chat_session_unresolved(state: Any) -> list[Any]:
     _core_coverage_mark("chat_session_unresolved")
     out = []
@@ -5541,7 +5557,7 @@ def _stream_js_number_impl(value: Any) -> Any:
         else:
             nan = _core_none()
             return nan
-    trimmed = str(text).strip()
+    trimmed = str(text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     empty = _core_eq(trimmed, "")
     if empty:
         return 0
@@ -6788,7 +6804,8 @@ def _stream_validate_constraints_impl(field: Any, value: Any, kind: str) -> None
         return None
     else:
         pass
-    length = _core_len(value)
+    units = _core_string_utf16_units(value)
+    length = _core_len(units)
     min_snake = _core_get(typ, "min_length", None)
     min_length = _core_get(typ, "minLength", min_snake)
     has_min = _core_is_not_none(min_length)
@@ -7226,12 +7243,6 @@ def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
     return gen
 
 
-def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
-    _core_coverage_mark("_set_demos")
-    gen["demos"] = demos
-    return gen
-
-
 def _ace_render_playbook(playbook: Any) -> str:
     _core_coverage_mark("_ace_render_playbook")
     empty_map = {}
@@ -7256,7 +7267,7 @@ def _ace_render_playbook(playbook: Any) -> str:
         pass
     header = "## Context Playbook\n"
     if has_description:
-        trimmed_description = str(description).strip()
+        trimmed_description = str(description).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         header_with_description = _core_string_format("## Context Playbook\n{}\n", trimmed_description)
         header = header_with_description
     else:
@@ -7282,19 +7293,19 @@ def _ace_render_playbook(playbook: Any) -> str:
         section_blocks.append(block)
     joined_sections = _core_string_join("\n\n", section_blocks)
     combined = _core_string_format("{}\n{}", header, joined_sections)
-    result = str(combined).strip()
+    result = str(combined).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     return result
+
+
+def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_demos")
+    gen["demos"] = demos
+    return gen
 
 
 def _render_examples(gen: AxGen) -> list[Any]:
     _core_coverage_mark("_render_examples")
     messages = _core_axgen_render_examples(gen)
-    return messages
-
-
-def _render_demos(gen: AxGen) -> list[Any]:
-    _core_coverage_mark("_render_demos")
-    messages = _core_axgen_render_demos(gen)
     return messages
 
 
@@ -7472,37 +7483,16 @@ def _stream_convert_value_impl(field: Any, value: Any, required: bool) -> Any:
     return out
 
 
+def _render_demos(gen: AxGen) -> list[Any]:
+    _core_coverage_mark("_render_demos")
+    messages = _core_axgen_render_demos(gen)
+    return messages
+
+
 def _apply_field_processors(gen: AxGen, output: Any) -> Any:
     _core_coverage_mark("_apply_field_processors")
     processed = _core_axgen_apply_field_processors(gen, output)
     return processed
-
-
-def _run_assertions(gen: AxGen, output: Any) -> Any:
-    _core_coverage_mark("_run_assertions")
-    result = _core_axgen_run_assertions(gen, output)
-    status = _core_get(result, "status", "pass")
-    threw = _core_eq(status, "error")
-    if threw:
-        thrown = _core_get(result, "error", None)
-        return thrown
-    else:
-        pass
-    failed = _core_eq(status, "fail")
-    if failed:
-        message = _core_get(result, "message", None)
-        has_message = _core_is_not_none(message)
-        if has_message:
-            assertion_error = _core_runtime_error(message)
-            raise assertion_error
-        else:
-            pass
-        message_less = _core_runtime_error("Assertion failed without message")
-        return message_less
-    else:
-        pass
-    passed = _core_none()
-    return passed
 
 
 def _date_range_keyword_impl(units: Any, at: Any, end: Any) -> Any:
@@ -7556,6 +7546,33 @@ def _date_range_keyword_impl(units: Any, at: Any, end: Any) -> Any:
     return 0
 
 
+def _run_assertions(gen: AxGen, output: Any) -> Any:
+    _core_coverage_mark("_run_assertions")
+    result = _core_axgen_run_assertions(gen, output)
+    status = _core_get(result, "status", "pass")
+    threw = _core_eq(status, "error")
+    if threw:
+        thrown = _core_get(result, "error", None)
+        return thrown
+    else:
+        pass
+    failed = _core_eq(status, "fail")
+    if failed:
+        message = _core_get(result, "message", None)
+        has_message = _core_is_not_none(message)
+        if has_message:
+            assertion_error = _core_runtime_error(message)
+            raise assertion_error
+        else:
+            pass
+        message_less = _core_runtime_error("Assertion failed without message")
+        return message_less
+    else:
+        pass
+    passed = _core_none()
+    return passed
+
+
 def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: str) -> Any:
     _core_coverage_mark("_ace_update_bullet_feedback")
     empty_map = {}
@@ -7601,12 +7618,6 @@ def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: st
     else:
         pass
     return playbook
-
-
-def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> list[Any]:
-    _core_coverage_mark("_append_assertion_retry_messages")
-    updated_messages = _append_validation_retry_messages_impl(messages, response, error)
-    return updated_messages
 
 
 def _regex_alternative(s: Any) -> Any:
@@ -7669,10 +7680,10 @@ def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
     return None
 
 
-def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
-    _core_coverage_mark("_record_trace")
-    _core_axgen_record_trace(gen, input, output, status)
-    return None
+def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> list[Any]:
+    _core_coverage_mark("_append_assertion_retry_messages")
+    updated_messages = _append_validation_retry_messages_impl(messages, response, error)
+    return updated_messages
 
 
 def _date_strip_code_fence_impl(value: Any) -> Any:
@@ -7740,10 +7751,10 @@ def chat_session_queue_update(state: Any, update: Any) -> bool:
     return True
 
 
-def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
-    _core_coverage_mark("_should_continue_steps")
-    should_continue = _core_axgen_should_continue_steps(gen, calls)
-    return should_continue
+def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
+    _core_coverage_mark("_record_trace")
+    _core_axgen_record_trace(gen, input, output, status)
+    return None
 
 
 def _ace_dedupe_playbook(playbook: Any) -> Any:
@@ -7757,7 +7768,7 @@ def _ace_dedupe_playbook(playbook: Any) -> Any:
         unique = []
         for bullet in bullets:
             content = _core_get(bullet, "content", "")
-            trimmed = str(content).strip()
+            trimmed = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             key = _core_string_lower(trimmed)
             has_existing = _core_map_contains(seen, key)
             if has_existing:
@@ -7781,11 +7792,53 @@ def _ace_dedupe_playbook(playbook: Any) -> Any:
     return recomputed
 
 
-def _parse_output_impl(content: str) -> Any:
-    _core_coverage_mark("_parse_output_impl")
-    text = str(content).strip()
-    output = _core_json_parse_strict(text)
-    return output
+def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
+    _core_coverage_mark("_should_continue_steps")
+    should_continue = _core_axgen_should_continue_steps(gen, calls)
+    return should_continue
+
+
+def _regex_word(c: Any) -> Any:
+    _core_coverage_mark("_regex_word")
+    t1 = _core_gte(c, 48)
+    t2 = t1
+    if t2:
+        t3 = _core_lte(c, 57)
+        t2 = t3
+    else:
+        pass
+    t4 = t2
+    t5 = _core_not(t4)
+    if t5:
+        t6 = _core_gte(c, 65)
+        t7 = t6
+        if t7:
+            t8 = _core_lte(c, 90)
+            t7 = t8
+        else:
+            pass
+        t4 = t7
+    else:
+        pass
+    t9 = _core_not(t4)
+    if t9:
+        t10 = _core_gte(c, 97)
+        t11 = t10
+        if t11:
+            t12 = _core_lte(c, 122)
+            t11 = t12
+        else:
+            pass
+        t4 = t11
+    else:
+        pass
+    t13 = _core_not(t4)
+    if t13:
+        t14 = _core_eq(c, 95)
+        t4 = t14
+    else:
+        pass
+    return t4
 
 
 def _stream_field_value_impl(field: Any, text: str) -> Any:
@@ -7803,13 +7856,13 @@ def _stream_field_value_impl(field: Any, text: str) -> Any:
     starts_null = _core_string_starts_with(lowered, "null")
     if starts_null:
         after_null = _core_string_slice(lowered, 4)
-        null_rest = str(after_null).strip()
+        null_rest = str(after_null).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     else:
         pass
     starts_undefined = _core_string_starts_with(lowered, "undefined")
     if starts_undefined:
         after_undefined = _core_string_slice(lowered, 9)
-        null_rest = str(after_undefined).strip()
+        null_rest = str(after_undefined).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     else:
         pass
     null_text = _core_eq(null_rest, "")
@@ -7886,7 +7939,7 @@ def _stream_field_value_impl(field: Any, text: str) -> Any:
                 item_value = item
                 item_is_string = _core_type_is(item, "string")
                 if item_is_string:
-                    item_value = str(item).strip()
+                    item_value = str(item).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                     if json_items:
                         try:
                             item_block = _stream_extract_block_impl(item_value)
@@ -7974,47 +8027,11 @@ def _stream_field_value_impl(field: Any, text: str) -> Any:
     return out
 
 
-def _regex_word(c: Any) -> Any:
-    _core_coverage_mark("_regex_word")
-    t1 = _core_gte(c, 48)
-    t2 = t1
-    if t2:
-        t3 = _core_lte(c, 57)
-        t2 = t3
-    else:
-        pass
-    t4 = t2
-    t5 = _core_not(t4)
-    if t5:
-        t6 = _core_gte(c, 65)
-        t7 = t6
-        if t7:
-            t8 = _core_lte(c, 90)
-            t7 = t8
-        else:
-            pass
-        t4 = t7
-    else:
-        pass
-    t9 = _core_not(t4)
-    if t9:
-        t10 = _core_gte(c, 97)
-        t11 = t10
-        if t11:
-            t12 = _core_lte(c, 122)
-            t11 = t12
-        else:
-            pass
-        t4 = t11
-    else:
-        pass
-    t13 = _core_not(t4)
-    if t13:
-        t14 = _core_eq(c, 95)
-        t4 = t14
-    else:
-        pass
-    return t4
+def _parse_output_impl(content: str) -> Any:
+    _core_coverage_mark("_parse_output_impl")
+    text = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    output = _core_json_parse_strict(text)
+    return output
 
 
 def chat_session_record_unresolved(gen: Any, state: Any) -> None:
@@ -8040,6 +8057,23 @@ def chat_session_record_unresolved(gen: Any, state: Any) -> None:
     return None
 
 
+def _date_string_mode_impl() -> Any:
+    _core_coverage_mark("_date_string_mode_impl")
+    accented = _core_len("é")
+    wide = _core_gt(accented, 1)
+    if wide:
+        return "utf8"
+    else:
+        pass
+    astral = _core_len("😀")
+    pair = _core_gt(astral, 1)
+    if pair:
+        return "utf16"
+    else:
+        pass
+    return "codepoint"
+
+
 def _is_flexible_json_field(typ: FieldType) -> bool:
     _core_coverage_mark("_is_flexible_json_field")
     type_name = _core_get(typ, "name", None)
@@ -8057,23 +8091,6 @@ def _is_flexible_json_field(typ: FieldType) -> bool:
     else:
         pass
     return flexible
-
-
-def _date_string_mode_impl() -> Any:
-    _core_coverage_mark("_date_string_mode_impl")
-    accented = _core_len("é")
-    wide = _core_gt(accented, 1)
-    if wide:
-        return "utf8"
-    else:
-        pass
-    astral = _core_len("😀")
-    pair = _core_gt(astral, 1)
-    if pair:
-        return "utf16"
-    else:
-        pass
-    return "codepoint"
 
 
 def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
@@ -8158,23 +8175,6 @@ def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
     return out
 
 
-def _parse_json_string_value(value: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_value")
-    is_string = _core_type_is(value, "string")
-    not_string = _core_not(is_string)
-    if not_string:
-        return value
-    else:
-        pass
-    result = value
-    try:
-        parsed = _core_json_parse(value)
-        result = parsed
-    except Exception as parse_error:
-        result = value
-    return result
-
-
 def chat_session_close_state(state: Any) -> list[Any]:
     _core_coverage_mark("chat_session_close_state")
     state["terminal"] = True
@@ -8233,6 +8233,23 @@ def _date_native_offset_impl(units: Any, index: Any, mode: Any) -> Any:
         offset = _core_add(offset, width)
         cursor = _core_add(cursor, step)
     return offset
+
+
+def _parse_json_string_value(value: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_value")
+    is_string = _core_type_is(value, "string")
+    not_string = _core_not(is_string)
+    if not_string:
+        return value
+    else:
+        pass
+    result = value
+    try:
+        parsed = _core_json_parse(value)
+        result = parsed
+    except Exception as parse_error:
+        result = value
+    return result
 
 
 def chat_session_transition(state: Any, event: Any) -> Any:
@@ -8556,7 +8573,7 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
                 is_add = _core_eq(op_type, "ADD")
                 if is_add:
                     raw_content = _core_get(op, "content", "")
-                    content = str(raw_content).strip()
+                    content = str(raw_content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                     has_content = _core_ne(content, "")
                     if has_content:
                         section_len = _core_len(section)
@@ -8696,26 +8713,6 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
     return out
 
 
-def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_fields")
-    values_is_map = _core_type_is(values, "object")
-    not_map = _core_not(values_is_map)
-    if not_map:
-        return values
-    else:
-        pass
-    for field in output_fields:
-        name = _core_get(field, "name", None)
-        has_key = _core_map_contains(values, name)
-        if has_key:
-            value = _core_get(values, name, None)
-            parsed = _parse_json_string_for_field(field, value)
-            values[name] = parsed
-        else:
-            pass
-    return values
-
-
 def _date_trim_bounds_impl(units: Any, start: Any, end: Any) -> Any:
     _core_coverage_mark("_date_trim_bounds_impl")
     first = _date_skip_space_impl(units, start, end)
@@ -8739,6 +8736,26 @@ def _date_trim_bounds_impl(units: Any, start: Any, end: Any) -> Any:
     bounds["start"] = first
     bounds["end"] = last
     return bounds
+
+
+def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_fields")
+    values_is_map = _core_type_is(values, "object")
+    not_map = _core_not(values_is_map)
+    if not_map:
+        return values
+    else:
+        pass
+    for field in output_fields:
+        name = _core_get(field, "name", None)
+        has_key = _core_map_contains(values, name)
+        if has_key:
+            value = _core_get(values, name, None)
+            parsed = _parse_json_string_for_field(field, value)
+            values[name] = parsed
+        else:
+            pass
+    return values
 
 
 def _regex_member(n: Any, c: Any) -> Any:
@@ -8881,6 +8898,26 @@ def _regex_member(n: Any, c: Any) -> Any:
     return False
 
 
+def _date_skip_space_impl(units: Any, start: Any, end: Any) -> Any:
+    _core_coverage_mark("_date_skip_space_impl")
+    cursor = start
+    while True:
+        done = _core_gte(cursor, end)
+        if done:
+            break
+        else:
+            pass
+        unit = _core_get(units, cursor, 0)
+        space = _date_space_impl(unit)
+        not_space = _core_not(space)
+        if not_space:
+            break
+        else:
+            pass
+        cursor = _core_add(cursor, 1)
+    return cursor
+
+
 def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
     _core_coverage_mark("_parse_json_string_for_fields")
     values_is_map = _core_type_is(values, "object")
@@ -8902,24 +8939,37 @@ def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
     return values
 
 
-def _date_skip_space_impl(units: Any, start: Any, end: Any) -> Any:
-    _core_coverage_mark("_date_skip_space_impl")
-    cursor = start
-    while True:
-        done = _core_gte(cursor, end)
-        if done:
-            break
-        else:
-            pass
-        unit = _core_get(units, cursor, 0)
-        space = _date_space_impl(unit)
-        not_space = _core_not(space)
-        if not_space:
-            break
-        else:
-            pass
-        cursor = _core_add(cursor, 1)
-    return cursor
+def _date_space_impl(unit: Any) -> bool:
+    _core_coverage_mark("_date_space_impl")
+    tab_low = _core_gte(unit, 9)
+    tab_high = _core_lte(unit, 13)
+    control = _core_and(tab_low, tab_high)
+    if control:
+        return True
+    else:
+        pass
+    space = _core_eq(unit, 32)
+    no_break = _core_eq(unit, 160)
+    ogham = _core_eq(unit, 5760)
+    en_low = _core_gte(unit, 8192)
+    en_high = _core_lte(unit, 8202)
+    typographic = _core_and(en_low, en_high)
+    line_separator = _core_eq(unit, 8232)
+    paragraph_separator = _core_eq(unit, 8233)
+    narrow = _core_eq(unit, 8239)
+    math_space = _core_eq(unit, 8287)
+    ideographic = _core_eq(unit, 12288)
+    byte_order = _core_eq(unit, 65279)
+    blank = _core_or(space, no_break)
+    blank = _core_or(blank, ogham)
+    blank = _core_or(blank, typographic)
+    blank = _core_or(blank, line_separator)
+    blank = _core_or(blank, paragraph_separator)
+    blank = _core_or(blank, narrow)
+    blank = _core_or(blank, math_space)
+    blank = _core_or(blank, ideographic)
+    blank = _core_or(blank, byte_order)
+    return blank
 
 
 def _validate_exact_output_keys(fields: list[Any], values: Any, context: str) -> None:
@@ -8972,39 +9022,6 @@ def _validate_exact_output_keys(fields: list[Any], values: Any, context: str) ->
         else:
             pass
     return None
-
-
-def _date_space_impl(unit: Any) -> bool:
-    _core_coverage_mark("_date_space_impl")
-    tab_low = _core_gte(unit, 9)
-    tab_high = _core_lte(unit, 13)
-    control = _core_and(tab_low, tab_high)
-    if control:
-        return True
-    else:
-        pass
-    space = _core_eq(unit, 32)
-    no_break = _core_eq(unit, 160)
-    ogham = _core_eq(unit, 5760)
-    en_low = _core_gte(unit, 8192)
-    en_high = _core_lte(unit, 8202)
-    typographic = _core_and(en_low, en_high)
-    line_separator = _core_eq(unit, 8232)
-    paragraph_separator = _core_eq(unit, 8233)
-    narrow = _core_eq(unit, 8239)
-    math_space = _core_eq(unit, 8287)
-    ideographic = _core_eq(unit, 12288)
-    byte_order = _core_eq(unit, 65279)
-    blank = _core_or(space, no_break)
-    blank = _core_or(blank, ogham)
-    blank = _core_or(blank, typographic)
-    blank = _core_or(blank, line_separator)
-    blank = _core_or(blank, paragraph_separator)
-    blank = _core_or(blank, narrow)
-    blank = _core_or(blank, math_space)
-    blank = _core_or(blank, ideographic)
-    blank = _core_or(blank, byte_order)
-    return blank
 
 
 def _stream_text_state_impl() -> Any:
@@ -9063,6 +9080,18 @@ def _stream_text_note_field_impl(xstate: Any, field: Any, init_streamed: bool) -
     return None
 
 
+def _date_ascii_letter_impl(unit: Any) -> bool:
+    _core_coverage_mark("_date_ascii_letter_impl")
+    upper_low = _core_gte(unit, 65)
+    upper_high = _core_lte(unit, 90)
+    upper = _core_and(upper_low, upper_high)
+    lower_low = _core_gte(unit, 97)
+    lower_high = _core_lte(unit, 122)
+    lower = _core_and(lower_low, lower_high)
+    letter = _core_or(upper, lower)
+    return letter
+
+
 def _tool_spec_impl(fn: Tool) -> Any:
     _core_coverage_mark("_tool_spec_impl")
     spec = {}
@@ -9079,18 +9108,6 @@ def _tool_spec_impl(fn: Tool) -> Any:
     else:
         pass
     return spec
-
-
-def _date_ascii_letter_impl(unit: Any) -> bool:
-    _core_coverage_mark("_date_ascii_letter_impl")
-    upper_low = _core_gte(unit, 65)
-    upper_high = _core_lte(unit, 90)
-    upper = _core_and(upper_low, upper_high)
-    lower_low = _core_gte(unit, 97)
-    lower_high = _core_lte(unit, 122)
-    lower = _core_and(lower_low, lower_high)
-    letter = _core_or(upper, lower)
-    return letter
 
 
 def _stream_text_extract_impl(xstate: Any, values: Any, content: str, fields: list[Any], options: Any) -> bool:
@@ -9208,7 +9225,7 @@ def _stream_text_extract_impl(xstate: Any, values: Any, content: str, fields: li
             pass
         if has_curr:
             raw = _stream_substring_impl(content, start, end)
-            text = str(raw).strip()
+            text = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             parsed = _stream_field_value_impl(curr, text)
             parsed_has = _core_get(parsed, "has", False)
             if parsed_has:
@@ -9233,28 +9250,6 @@ def _stream_text_extract_impl(xstate: Any, values: Any, content: str, fields: li
         xstate["curr_field_index"] = chosen_index
         _stream_text_note_field_impl(xstate, chosen_field, True)
     return False
-
-
-def _function_call_mode_impl(mode: Any) -> str:
-    _core_coverage_mark("_function_call_mode_impl")
-    missing = _core_is_none(mode)
-    if missing:
-        return "auto"
-    else:
-        pass
-    is_native = _core_eq(mode, "native")
-    is_auto = _core_eq(mode, "auto")
-    native_or_auto = _core_or(is_native, is_auto)
-    if native_or_auto:
-        return "auto"
-    else:
-        pass
-    is_prompt = _core_eq(mode, "prompt")
-    if is_prompt:
-        return "none"
-    else:
-        pass
-    return "auto"
 
 
 def _date_ascii_matches_impl(units: Any, at: Any, end: Any, word: Any) -> bool:
@@ -9293,6 +9288,28 @@ def _date_ascii_matches_impl(units: Any, at: Any, end: Any, word: Any) -> bool:
     return True
 
 
+def _function_call_mode_impl(mode: Any) -> str:
+    _core_coverage_mark("_function_call_mode_impl")
+    missing = _core_is_none(mode)
+    if missing:
+        return "auto"
+    else:
+        pass
+    is_native = _core_eq(mode, "native")
+    is_auto = _core_eq(mode, "auto")
+    native_or_auto = _core_or(is_native, is_auto)
+    if native_or_auto:
+        return "auto"
+    else:
+        pass
+    is_prompt = _core_eq(mode, "prompt")
+    if is_prompt:
+        return "none"
+    else:
+        pass
+    return "auto"
+
+
 def _regex_state(pos: Any, caps: Any) -> Any:
     _core_coverage_mark("_regex_state")
     t1 = {}
@@ -9300,13 +9317,6 @@ def _regex_state(pos: Any, caps: Any) -> Any:
     t2 = _regex_copy_map(caps)
     t1["caps"] = t2
     return t1
-
-
-def _response_function_calls_impl(response: Any) -> list[Any]:
-    _core_coverage_mark("_response_function_calls_impl")
-    empty = []
-    calls = _core_get(response, "function_calls", empty)
-    return calls
 
 
 def _regex_capture_ids(n: Any) -> Any:
@@ -9358,7 +9368,7 @@ def _regex_capture_ids(n: Any) -> Any:
 def _ace_is_noop_acknowledgment(content: str) -> bool:
     _core_coverage_mark("_ace_is_noop_acknowledgment")
     lowered = _core_string_lower(content)
-    c = str(lowered).strip()
+    c = str(lowered).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     is_noop = False
     empty = _core_eq(c, "")
     nonempty = _core_not(empty)
@@ -9488,6 +9498,45 @@ def _ace_is_noop_acknowledgment(content: str) -> bool:
     return is_noop
 
 
+def _response_function_calls_impl(response: Any) -> list[Any]:
+    _core_coverage_mark("_response_function_calls_impl")
+    empty = []
+    calls = _core_get(response, "function_calls", empty)
+    return calls
+
+
+def _date_digits_impl(units: Any, at: Any, count: Any, end: Any) -> Any:
+    _core_coverage_mark("_date_digits_impl")
+    last = _core_add(at, count)
+    past = _core_gt(last, end)
+    if past:
+        return -1
+    else:
+        pass
+    value = 0
+    index = at
+    while True:
+        done = _core_gte(index, last)
+        if done:
+            break
+        else:
+            pass
+        unit = _core_get(units, index, 0)
+        low = _core_gte(unit, 48)
+        high = _core_lte(unit, 57)
+        digit = _core_and(low, high)
+        not_digit = _core_not(digit)
+        if not_digit:
+            return -1
+        else:
+            pass
+        scaled = _core_mul(value, 10)
+        digit_value = _core_add(unit, -48)
+        value = _core_add(scaled, digit_value)
+        index = _core_add(index, 1)
+    return value
+
+
 def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> list[Any]:
     _core_coverage_mark("_append_tool_call_messages_impl")
     chat_calls = []
@@ -9525,38 +9574,6 @@ def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: l
         pass
     messages.append(message)
     return messages
-
-
-def _date_digits_impl(units: Any, at: Any, count: Any, end: Any) -> Any:
-    _core_coverage_mark("_date_digits_impl")
-    last = _core_add(at, count)
-    past = _core_gt(last, end)
-    if past:
-        return -1
-    else:
-        pass
-    value = 0
-    index = at
-    while True:
-        done = _core_gte(index, last)
-        if done:
-            break
-        else:
-            pass
-        unit = _core_get(units, index, 0)
-        low = _core_gte(unit, 48)
-        high = _core_lte(unit, 57)
-        digit = _core_and(low, high)
-        not_digit = _core_not(digit)
-        if not_digit:
-            return -1
-        else:
-            pass
-        scaled = _core_mul(value, 10)
-        digit_value = _core_add(unit, -48)
-        value = _core_add(scaled, digit_value)
-        index = _core_add(index, 1)
-    return value
 
 
 def _date_expect_unit_impl(units: Any, at: Any, end: Any, expected: Any) -> bool:
@@ -9634,6 +9651,14 @@ def _regex_task(n: Any, next: Any) -> Any:
     return t1
 
 
+def _regex_frame(todo: Any, st: Any) -> Any:
+    _core_coverage_mark("_regex_frame")
+    t1 = {}
+    t1["todo"] = todo
+    t1["st"] = st
+    return t1
+
+
 def _tool_result_message_impl(call: Any, result: Any) -> Any:
     _core_coverage_mark("_tool_result_message_impl")
     id = _core_get(call, "id", None)
@@ -9644,31 +9669,6 @@ def _tool_result_message_impl(call: Any, result: Any) -> Any:
     message["function_id"] = id
     message["name"] = name
     message["result"] = result_json
-    return message
-
-
-def _regex_frame(todo: Any, st: Any) -> Any:
-    _core_coverage_mark("_regex_frame")
-    t1 = {}
-    t1["todo"] = todo
-    t1["st"] = st
-    return t1
-
-
-def _tool_error_message_impl(call: Any, error: error) -> Any:
-    _core_coverage_mark("_tool_error_message_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    error_text = _core_exception_message(error)
-    payload = {}
-    payload["error"] = error_text
-    payload_json = _core_json_stringify(payload)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["name"] = name
-    message["result"] = payload_json
-    message["is_error"] = True
     return message
 
 
@@ -10316,6 +10316,23 @@ def _date_scan_datetime_impl(units: Any, start: Any, end: Any) -> Any:
     return parts
 
 
+def _tool_error_message_impl(call: Any, error: error) -> Any:
+    _core_coverage_mark("_tool_error_message_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    error_text = _core_exception_message(error)
+    payload = {}
+    payload["error"] = error_text
+    payload_json = _core_json_stringify(payload)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["name"] = name
+    message["result"] = payload_json
+    message["is_error"] = True
+    return message
+
+
 def _stream_text_required_check_impl(values: Any, fields: list[Any]) -> None:
     _core_coverage_mark("_stream_text_required_check_impl")
     parts = []
@@ -10363,33 +10380,22 @@ def _append_validation_retry_messages_impl(messages: list[Any], response: Any, e
     assistant_message["content"] = content
     messages.append(assistant_message)
     error_text = _core_exception_message(error)
-    prefix_message = _core_add("The previous response failed validation: ", error_text)
-    retry_content = _core_add(prefix_message, ". Return only corrected JSON.")
-    retry_message = {}
-    retry_message["role"] = "user"
-    retry_message["content"] = retry_content
+    is_validation = _core_exception_is_validation(error)
+    retry_text = ""
+    if is_validation:
+        retry_text = _core_add("Invalid Field: ", error_text)
+    else:
+        instruction = str(error_text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        has_period = _core_string_ends_with(instruction, ".")
+        no_period = _core_not(has_period)
+        if no_period:
+            instruction = _core_add(instruction, ".")
+        else:
+            pass
+        retry_text = _core_add("Follow these instructions: ", instruction)
+    retry_message = _feedback_message_impl(retry_text)
     messages.append(retry_message)
     return messages
-
-
-def _parse_text_field_value_impl(field: Any, text: str) -> Any:
-    _core_coverage_mark("_parse_text_field_value_impl")
-    text = str(text).strip()
-    typ = _core_get(field, "type", None)
-    name = _core_get(typ, "name", None)
-    array = _core_get(typ, "is_array", False)
-    is_boolean = _core_eq(name, "boolean")
-    numeric = _core_eq(name, "number")
-    json = _core_eq(name, "json")
-    parse = _core_or(is_boolean, numeric)
-    parse = _core_or(parse, array)
-    parse = _core_or(parse, json)
-    if parse:
-        value = _core_json_parse_strict(text)
-        return value
-    else:
-        pass
-    return text
 
 
 def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
@@ -10431,7 +10437,7 @@ def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
                 section_is_string = _core_type_is(section_raw, "string")
                 section = "Guidelines"
                 if section_is_string:
-                    section_trimmed = str(section_raw).strip()
+                    section_trimmed = str(section_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                     section_nonempty = _core_ne(section_trimmed, "")
                     if section_nonempty:
                         section = section_trimmed
@@ -10443,7 +10449,7 @@ def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
                 content_is_string = _core_type_is(content_raw, "string")
                 content = ""
                 if content_is_string:
-                    content_trimmed = str(content_raw).strip()
+                    content_trimmed = str(content_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                     content = content_trimmed
                 else:
                     pass
@@ -10479,7 +10485,7 @@ def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
                     none_value = _core_none()
                     bullet_id = none_value
                     if bullet_id_is_string:
-                        bullet_id_trimmed = str(bullet_id_source).strip()
+                        bullet_id_trimmed = str(bullet_id_source).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                         bullet_id_nonempty = _core_ne(bullet_id_trimmed, "")
                         if bullet_id_nonempty:
                             bullet_id = bullet_id_trimmed
@@ -10595,7 +10601,7 @@ def _stream_text_missed_fields_impl(values: Any, content: str, fields: list[Any]
                 else:
                     pass
             raw = _stream_substring_impl(content, value_start, value_end)
-            text = str(raw).strip()
+            text = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             has_text = _core_ne(text, "")
             if has_text:
                 done = False
@@ -10632,7 +10638,7 @@ def _stream_text_missed_fields_impl(values: Any, content: str, fields: list[Any]
         missed_labels = _stream_field_labels_impl(missed)
         optional = _stream_field_flag_impl(missed, "is_optional", "isOptional")
         for line in lines:
-            trimmed_line = str(line).strip()
+            trimmed_line = str(line).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             matched = _core_none()
             for line_label in missed_labels:
                 line_prefix = _core_string_format("{}:", line_label)
@@ -10649,7 +10655,7 @@ def _stream_text_missed_fields_impl(values: Any, content: str, fields: list[Any]
                 pass
             matched_length = _core_len(matched)
             after = _core_string_slice(trimmed_line, matched_length)
-            line_value = str(after).strip()
+            line_value = str(after).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             has_line_value = _core_ne(line_value, "")
             if has_line_value:
                 try:
@@ -10672,6 +10678,26 @@ def _stream_text_missed_fields_impl(values: Any, content: str, fields: list[Any]
     return None
 
 
+def _parse_text_field_value_impl(field: Any, text: str) -> Any:
+    _core_coverage_mark("_parse_text_field_value_impl")
+    text = str(text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    typ = _core_get(field, "type", None)
+    name = _core_get(typ, "name", None)
+    array = _core_get(typ, "is_array", False)
+    is_boolean = _core_eq(name, "boolean")
+    numeric = _core_eq(name, "number")
+    json = _core_eq(name, "json")
+    parse = _core_or(is_boolean, numeric)
+    parse = _core_or(parse, array)
+    parse = _core_or(parse, json)
+    if parse:
+        value = _core_json_parse_strict(text)
+        return value
+    else:
+        pass
+    return text
+
+
 def _parse_text_output_fields_impl(content: str, fields: Any, is_final: bool) -> Any:
     _core_coverage_mark("_parse_text_output_fields_impl")
     lines = _core_string_split(content, "\n")
@@ -10683,7 +10709,7 @@ def _parse_text_output_fields_impl(content: str, fields: Any, is_final: bool) ->
     parts = []
     for line in lines:
         index = _core_add(index, 1)
-        line_trimmed = str(line).strip()
+        line_trimmed = str(line).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         matched = _core_none()
         value = ""
         withhold = False
@@ -10814,7 +10840,7 @@ def _date_offset_zone_matches_impl(units: Any, start: Any, end: Any) -> bool:
 
 def _parse_output_fields_impl(content: str, fields: Any) -> Any:
     _core_coverage_mark("_parse_output_fields_impl")
-    text = str(content).strip()
+    text = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     is_json = _core_string_starts_with(text, "{")
     if is_json:
         output = _parse_output_impl(text)
@@ -10823,38 +10849,6 @@ def _parse_output_fields_impl(content: str, fields: Any) -> Any:
         pass
     output = _parse_text_output_fields_impl(text, fields, True)
     return output
-
-
-def _signature_has_complex_fields(signature: AxSignature, options: Any) -> bool:
-    _core_coverage_mark("_signature_has_complex_fields")
-    option_forced_snake = _core_get(options, "force_structured", False)
-    option_forced = _core_get(options, "forceStructured", option_forced_snake)
-    signature_forced_snake = _core_get(signature, "force_structured", False)
-    signature_forced = _core_get(signature, "forceStructured", signature_forced_snake)
-    forced = _core_or(option_forced, signature_forced)
-    if forced:
-        return True
-    else:
-        pass
-    output_fields = _core_get(signature, "output_fields", None)
-    for field in output_fields:
-        field_type = _core_get(field, "type", None)
-        type_name = _core_get(field_type, "name", None)
-        is_object = _core_eq(type_name, "object")
-        if is_object:
-            return True
-        else:
-            pass
-        is_array_snake = _core_get(field_type, "is_array", False)
-        is_array = _core_get(field_type, "isArray", is_array_snake)
-        nested_fields = _core_get(field_type, "fields", None)
-        has_nested_fields = _core_truthy(nested_fields)
-        object_array = _core_and(is_array, has_nested_fields)
-        if object_array:
-            return True
-        else:
-            pass
-    return False
 
 
 def _date_offset_minutes_impl(units: Any, start: Any, end: Any) -> Any:
@@ -10986,7 +10980,7 @@ def _stream_text_final_impl(xstate: Any, values: Any, content: str, fields: list
                 else:
                     pass
         raw = _stream_substring_impl(content, start, end)
-        text = str(raw).strip()
+        text = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         parsed = _stream_field_value_impl(curr, text)
         parsed_has = _core_get(parsed, "has", False)
         if parsed_has:
@@ -11003,7 +10997,7 @@ def _stream_text_final_impl(xstate: Any, values: Any, content: str, fields: list
         extracted = _core_get(xstate, "extracted_fields", empty_extracted)
         extracted_count = _core_len(extracted)
         nothing_extracted = _core_eq(extracted_count, 0)
-        trimmed_content = str(content).strip()
+        trimmed_content = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         text_length = _core_len(trimmed_content)
         has_text = _core_gt(text_length, 0)
         unlabeled_text = _core_and(nothing_extracted, has_text)
@@ -11049,28 +11043,36 @@ def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
     return found
 
 
-def _caller_function_call_impl(options: Any) -> Any:
-    _core_coverage_mark("_caller_function_call_impl")
-    requested_snake = _core_get(options, "function_call", None)
-    requested = _core_get(options, "functionCall", requested_snake)
-    has_requested = _core_is_not_none(requested)
-    if has_requested:
-        return requested
+def _signature_has_complex_fields(signature: AxSignature, options: Any) -> bool:
+    _core_coverage_mark("_signature_has_complex_fields")
+    option_forced_snake = _core_get(options, "force_structured", False)
+    option_forced = _core_get(options, "forceStructured", option_forced_snake)
+    signature_forced_snake = _core_get(signature, "force_structured", False)
+    signature_forced = _core_get(signature, "forceStructured", signature_forced_snake)
+    forced = _core_or(option_forced, signature_forced)
+    if forced:
+        return True
     else:
         pass
-    mode_snake = _core_get(options, "function_call_mode", None)
-    mode = _core_get(options, "functionCallMode", mode_snake)
-    is_required = _core_eq(mode, "required")
-    is_none = _core_eq(mode, "none")
-    is_named = _core_type_is(mode, "object")
-    required_or_none = _core_or(is_required, is_none)
-    routed = _core_or(required_or_none, is_named)
-    if routed:
-        return mode
-    else:
-        pass
-    none = _core_none()
-    return none
+    output_fields = _core_get(signature, "output_fields", None)
+    for field in output_fields:
+        field_type = _core_get(field, "type", None)
+        type_name = _core_get(field_type, "name", None)
+        is_object = _core_eq(type_name, "object")
+        if is_object:
+            return True
+        else:
+            pass
+        is_array_snake = _core_get(field_type, "is_array", False)
+        is_array = _core_get(field_type, "isArray", is_array_snake)
+        nested_fields = _core_get(field_type, "fields", None)
+        has_nested_fields = _core_truthy(nested_fields)
+        object_array = _core_and(is_array, has_nested_fields)
+        if object_array:
+            return True
+        else:
+            pass
+    return False
 
 
 def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, reflection: Any, generator_output: Any) -> list[Any]:
@@ -11218,6 +11220,30 @@ def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, refle
     return resolved
 
 
+def _caller_function_call_impl(options: Any) -> Any:
+    _core_coverage_mark("_caller_function_call_impl")
+    requested_snake = _core_get(options, "function_call", None)
+    requested = _core_get(options, "functionCall", requested_snake)
+    has_requested = _core_is_not_none(requested)
+    if has_requested:
+        return requested
+    else:
+        pass
+    mode_snake = _core_get(options, "function_call_mode", None)
+    mode = _core_get(options, "functionCallMode", mode_snake)
+    is_required = _core_eq(mode, "required")
+    is_none = _core_eq(mode, "none")
+    is_named = _core_type_is(mode, "object")
+    required_or_none = _core_or(is_required, is_none)
+    routed = _core_or(required_or_none, is_named)
+    if routed:
+        return mode
+    else:
+        pass
+    none = _core_none()
+    return none
+
+
 def _function_call_forces_tool_impl(choice: Any) -> bool:
     _core_coverage_mark("_function_call_forces_tool_impl")
     is_required = _core_eq(choice, "required")
@@ -11227,41 +11253,6 @@ def _function_call_forces_tool_impl(choice: Any) -> bool:
         pass
     is_named = _core_type_is(choice, "object")
     return is_named
-
-
-def _function_call_names_output_impl(choice: Any) -> bool:
-    _core_coverage_mark("_function_call_names_output_impl")
-    is_named = _core_type_is(choice, "object")
-    not_named = _core_not(is_named)
-    if not_named:
-        return False
-    else:
-        pass
-    empty_function = {}
-    function = _core_get(choice, "function", empty_function)
-    name = _core_get(function, "name", "")
-    canonical = _core_eq(name, "__axOutput")
-    legacy = _core_eq(name, "__finalResult")
-    reserved = _core_or(canonical, legacy)
-    return reserved
-
-
-def _stream_text_extract_values_impl(content: str, fields: list[Any], strict_mode: bool) -> Any:
-    _core_coverage_mark("_stream_text_extract_values_impl")
-    extract_options = {}
-    extract_options["strict_mode"] = strict_mode
-    values = {}
-    xstate = _stream_text_state_impl()
-    _stream_text_extract_impl(xstate, values, content, fields, extract_options)
-    _stream_text_final_impl(xstate, values, content, fields, extract_options)
-    for field in fields:
-        internal = _stream_field_flag_impl(field, "is_internal", "isInternal")
-        if internal:
-            name = _core_get(field, "name", "")
-            _core_map_delete(values, name)
-        else:
-            pass
-    return values
 
 
 def _date_js_json_impl(value: Any) -> Any:
@@ -11318,44 +11309,39 @@ def _date_js_json_impl(value: Any) -> Any:
     return object_json
 
 
-def _append_structured_output_retry_messages_impl(messages: list[Any], response: Any, call: Any, error: error, stage: str) -> list[Any]:
-    _core_coverage_mark("_append_structured_output_retry_messages_impl")
-    output_calls = []
-    output_calls.append(call)
-    with_call = _append_tool_call_messages_impl(messages, response, output_calls)
-    id = _core_get(call, "id", None)
-    direct_name = _core_get(call, "name", None)
-    fn = _core_get(call, "function", None)
-    name = _core_get(fn, "name", direct_name)
-    result_message = {}
-    result_message["role"] = "function"
-    result_message["function_id"] = id
-    result_message["name"] = name
-    result_message["result"] = "done"
-    with_call.append(result_message)
-    notice = {}
-    notice["role"] = "user"
-    notice["content"] = "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."
-    with_call.append(notice)
-    error_text = _core_exception_message(error)
-    error_text = str(error_text).strip()
-    correction_text = _core_string_format("Invalid Field: {}", error_text)
-    is_assertion = _core_eq(stage, "assertion")
-    if is_assertion:
-        has_period = _core_string_ends_with(error_text, ".")
-        period = "."
-        if has_period:
-            period = ""
+def _stream_text_extract_values_impl(content: str, fields: list[Any], strict_mode: bool) -> Any:
+    _core_coverage_mark("_stream_text_extract_values_impl")
+    extract_options = {}
+    extract_options["strict_mode"] = strict_mode
+    values = {}
+    xstate = _stream_text_state_impl()
+    _stream_text_extract_impl(xstate, values, content, fields, extract_options)
+    _stream_text_final_impl(xstate, values, content, fields, extract_options)
+    for field in fields:
+        internal = _stream_field_flag_impl(field, "is_internal", "isInternal")
+        if internal:
+            name = _core_get(field, "name", "")
+            _core_map_delete(values, name)
         else:
             pass
-        correction_text = _core_string_format("Follow these instructions: {}{}", error_text, period)
+    return values
+
+
+def _function_call_names_output_impl(choice: Any) -> bool:
+    _core_coverage_mark("_function_call_names_output_impl")
+    is_named = _core_type_is(choice, "object")
+    not_named = _core_not(is_named)
+    if not_named:
+        return False
     else:
         pass
-    correction = {}
-    correction["role"] = "user"
-    correction["content"] = correction_text
-    with_call.append(correction)
-    return with_call
+    empty_function = {}
+    function = _core_get(choice, "function", empty_function)
+    name = _core_get(function, "name", "")
+    canonical = _core_eq(name, "__axOutput")
+    legacy = _core_eq(name, "__finalResult")
+    reserved = _core_or(canonical, legacy)
+    return reserved
 
 
 def _stream_text_yield_delta_impl(content: str, field: Any, start: int, end: int, xstate: Any, held: list[Any], complete: bool) -> Any:
@@ -11444,6 +11430,46 @@ def _stream_text_yield_delta_impl(content: str, field: Any, start: int, end: int
     else:
         pass
     return none
+
+
+def _append_structured_output_retry_messages_impl(messages: list[Any], response: Any, call: Any, error: error, stage: str) -> list[Any]:
+    _core_coverage_mark("_append_structured_output_retry_messages_impl")
+    output_calls = []
+    output_calls.append(call)
+    with_call = _append_tool_call_messages_impl(messages, response, output_calls)
+    id = _core_get(call, "id", None)
+    direct_name = _core_get(call, "name", None)
+    fn = _core_get(call, "function", None)
+    name = _core_get(fn, "name", direct_name)
+    result_message = {}
+    result_message["role"] = "function"
+    result_message["function_id"] = id
+    result_message["name"] = name
+    result_message["result"] = "done"
+    with_call.append(result_message)
+    notice = {}
+    notice["role"] = "user"
+    notice["content"] = "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."
+    with_call.append(notice)
+    error_text = _core_exception_message(error)
+    error_text = str(error_text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    correction_text = _core_string_format("Invalid Field: {}", error_text)
+    is_assertion = _core_eq(stage, "assertion")
+    if is_assertion:
+        has_period = _core_string_ends_with(error_text, ".")
+        period = "."
+        if has_period:
+            period = ""
+        else:
+            pass
+        correction_text = _core_string_format("Follow these instructions: {}{}", error_text, period)
+    else:
+        pass
+    correction = {}
+    correction["role"] = "user"
+    correction["content"] = correction_text
+    with_call.append(correction)
+    return with_call
 
 
 def _date_js_json_string_impl(text: Any) -> Any:
@@ -11589,6 +11615,38 @@ def _with_output_thought_impl(output: Any, field: str, prefix: str, thought: str
     else:
         pass
     return output
+
+
+def _ace_normalize_reflection_bullet_tags(reflection: Any) -> list[Any]:
+    _core_coverage_mark("_ace_normalize_reflection_bullet_tags")
+    empty_list = []
+    raw_bullet_tags = _core_get(reflection, "bulletTags", empty_list)
+    candidates = []
+    tags_is_list = _core_type_is(raw_bullet_tags, "list")
+    if tags_is_list:
+        candidates = raw_bullet_tags
+    else:
+        tags_is_object = _core_type_is(raw_bullet_tags, "object")
+        if tags_is_object:
+            candidates.append(raw_bullet_tags)
+        else:
+            pass
+    normalized = []
+    for tag in candidates:
+        tag_is_object = _core_type_is(tag, "object")
+        if tag_is_object:
+            tag_id = _core_get(tag, "id", None)
+            tag_id_is_string = _core_type_is(tag_id, "string")
+            tag_value = _core_get(tag, "tag", None)
+            tag_value_is_string = _core_type_is(tag_value, "string")
+            valid_tag_shape = _core_and(tag_id_is_string, tag_value_is_string)
+            if valid_tag_shape:
+                normalized.append(tag)
+            else:
+                pass
+        else:
+            pass
+    return normalized
 
 
 def _streaming_forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any, sink: Any) -> Any:
@@ -12180,38 +12238,6 @@ def _streaming_forward_impl(gen: AxGen, client: AIClient, values: Any, options: 
     raise RuntimeError("unreachable AxGen streaming loop exit")
 
 
-def _ace_normalize_reflection_bullet_tags(reflection: Any) -> list[Any]:
-    _core_coverage_mark("_ace_normalize_reflection_bullet_tags")
-    empty_list = []
-    raw_bullet_tags = _core_get(reflection, "bulletTags", empty_list)
-    candidates = []
-    tags_is_list = _core_type_is(raw_bullet_tags, "list")
-    if tags_is_list:
-        candidates = raw_bullet_tags
-    else:
-        tags_is_object = _core_type_is(raw_bullet_tags, "object")
-        if tags_is_object:
-            candidates.append(raw_bullet_tags)
-        else:
-            pass
-    normalized = []
-    for tag in candidates:
-        tag_is_object = _core_type_is(tag, "object")
-        if tag_is_object:
-            tag_id = _core_get(tag, "id", None)
-            tag_id_is_string = _core_type_is(tag_id, "string")
-            tag_value = _core_get(tag, "tag", None)
-            tag_value_is_string = _core_type_is(tag_value, "string")
-            valid_tag_shape = _core_and(tag_id_is_string, tag_value_is_string)
-            if valid_tag_shape:
-                normalized.append(tag)
-            else:
-                pass
-        else:
-            pass
-    return normalized
-
-
 def _stream_text_values_impl(fields: list[Any], content: str, values: Any, xstate: Any, held: list[Any], complete: bool) -> list[Any]:
     _core_coverage_mark("_stream_text_values_impl")
     deltas = []
@@ -12790,6 +12816,19 @@ def _regex_identifier(c: Any, first: Any) -> Any:
     return False
 
 
+def _date_make_day_impl(year: Any, month_index: Any, date: Any) -> Any:
+    _core_coverage_mark("_date_make_day_impl")
+    carry = _date_floor_div_impl(month_index, 12)
+    whole_year = _core_add(year, carry)
+    carry_months = _core_mul(carry, -12)
+    month = _core_add(month_index, carry_months)
+    month = _core_add(month, 1)
+    first = _date_days_from_civil_impl(whole_year, month, 1)
+    day = _core_add(first, date)
+    day = _core_add(day, -1)
+    return day
+
+
 def _stream_json_strip_dangling_key_impl(text: str, need_colon: bool, lead: str) -> Any:
     _core_coverage_mark("_stream_json_strip_dangling_key_impl")
     cursor = _core_len(text)
@@ -12891,19 +12930,6 @@ def _stream_json_strip_dangling_key_impl(text: str, need_colon: bool, lead: str)
     else:
         pass
     return -1
-
-
-def _date_make_day_impl(year: Any, month_index: Any, date: Any) -> Any:
-    _core_coverage_mark("_date_make_day_impl")
-    carry = _date_floor_div_impl(month_index, 12)
-    whole_year = _core_add(year, carry)
-    carry_months = _core_mul(carry, -12)
-    month = _core_add(month_index, carry_months)
-    month = _core_add(month, 1)
-    first = _date_days_from_civil_impl(whole_year, month, 1)
-    day = _core_add(first, date)
-    day = _core_add(day, -1)
-    return day
 
 
 def _date_utc_ms_impl(parts: Any) -> Any:
@@ -13255,7 +13281,7 @@ def _date_same_parts_impl(left: Any, right: Any) -> bool:
 
 def _stream_json_repair_impl(json_text: str) -> str:
     _core_coverage_mark("_stream_json_repair_impl")
-    result = str(json_text).strip()
+    result = str(json_text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     trailing_comma = _core_string_ends_with(result, ",")
     if trailing_comma:
         result_length = _core_len(result)
@@ -13606,7 +13632,7 @@ def _stream_json_parse_partial_impl(json_text: str) -> Any:
     none = _core_none()
     out["parsed"] = none
     out["marker"] = none
-    blank = str(json_text).strip()
+    blank = str(json_text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     is_blank = _core_eq(blank, "")
     if is_blank:
         return out
@@ -13646,54 +13672,6 @@ def _regex_id_continue_ranges() -> Any:
     return t1
 
 
-def _parse_text_contract_output_impl(content: str, output_fields: list[Any], strict_mode: bool) -> Any:
-    _core_coverage_mark("_parse_text_contract_output_impl")
-    out = {}
-    trimmed = str(content).strip()
-    opens_object = _core_string_starts_with(trimmed, "{")
-    lenient = _core_not(strict_mode)
-    looks_json = _core_and(opens_object, lenient)
-    if looks_json:
-        candidate = _core_none()
-        try:
-            candidate = _core_json_parse_strict(trimmed)
-        except Exception as not_json:
-            pass
-        is_object = _core_type_is(candidate, "object")
-        if is_object:
-            declared_only = True
-            keys = _core_map_keys(candidate)
-            for key in keys:
-                declared = False
-                for field in output_fields:
-                    field_name = _core_get(field, "name", "")
-                    same = _core_eq(field_name, key)
-                    if same:
-                        declared = True
-                    else:
-                        pass
-                undeclared = _core_not(declared)
-                if undeclared:
-                    declared_only = False
-                else:
-                    pass
-            if declared_only:
-                _core_axgen_deprecation("json-text-contract", "A text-contract answer that is one JSON object of output fields is parsed as those fields for compatibility; TypeScript Ax reads it as text. This fallback is deprecated and will be removed in the next major version: answer with `Label: value` lines.")
-                out["values"] = candidate
-                out["extracted"] = False
-                return out
-            else:
-                pass
-        else:
-            pass
-    else:
-        pass
-    values = _stream_text_extract_values_impl(content, output_fields, strict_mode)
-    out["values"] = values
-    out["extracted"] = True
-    return out
-
-
 def _regex_clear_capture(caps: Any, key: Any) -> Any:
     _core_coverage_mark("_regex_clear_capture")
     t1 = _core_none()
@@ -13703,7 +13681,8 @@ def _regex_clear_capture(caps: Any, key: Any) -> Any:
 
 def _stream_json_should_parse_impl(state: Any, content: str) -> bool:
     _core_coverage_mark("_stream_json_should_parse_impl")
-    length = _core_len(content)
+    units = _core_string_utf16_units(content)
+    length = _core_len(units)
     last = _core_get(state, "last_parse_length", 0)
     negative_last = _core_mul(last, -1)
     fresh = _core_add(length, negative_last)
@@ -13723,7 +13702,7 @@ def _stream_json_should_parse_impl(state: Any, content: str) -> bool:
         return False
     else:
         pass
-    cursor = length
+    cursor = _core_len(content)
     last_ch = ""
     while True:
         at_start = _core_lte(cursor, 0)
@@ -13769,17 +13748,52 @@ def _regex_copy_map(value: Any) -> Any:
     return out
 
 
-def _generate_failed_impl(error: error) -> error:
-    _core_coverage_mark("_generate_failed_impl")
-    aborted = _core_exception_is_aborted(error)
-    if aborted:
-        return error
+def _parse_text_contract_output_impl(content: str, output_fields: list[Any], strict_mode: bool) -> Any:
+    _core_coverage_mark("_parse_text_contract_output_impl")
+    out = {}
+    trimmed = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    opens_object = _core_string_starts_with(trimmed, "{")
+    lenient = _core_not(strict_mode)
+    looks_json = _core_and(opens_object, lenient)
+    if looks_json:
+        candidate = _core_none()
+        try:
+            candidate = _core_json_parse_strict(trimmed)
+        except Exception as not_json:
+            pass
+        is_object = _core_type_is(candidate, "object")
+        if is_object:
+            declared_only = True
+            keys = _core_map_keys(candidate)
+            for key in keys:
+                declared = False
+                for field in output_fields:
+                    field_name = _core_get(field, "name", "")
+                    same = _core_eq(field_name, key)
+                    if same:
+                        declared = True
+                    else:
+                        pass
+                undeclared = _core_not(declared)
+                if undeclared:
+                    declared_only = False
+                else:
+                    pass
+            if declared_only:
+                _core_axgen_deprecation("json-text-contract", "A text-contract answer that is one JSON object of output fields is parsed as those fields for compatibility; TypeScript Ax reads it as text. This fallback is deprecated and will be removed in the next major version: answer with `Label: value` lines.")
+                out["values"] = candidate
+                out["extracted"] = False
+                return out
+            else:
+                pass
+        else:
+            pass
     else:
         pass
-    text = _core_exception_message(error)
-    message = _core_add("Generate failed: ", text)
-    wrapped = _core_exception_rewrap(error, message)
-    return wrapped
+    values = _stream_text_extract_values_impl(content, output_fields, strict_mode)
+    out["values"] = values
+    out["extracted"] = True
+    return out
 
 
 def _stream_json_validate_impl(fields: list[Any], values: Any, allow_missing: bool, reject_unknown: bool) -> None:
@@ -13829,6 +13843,19 @@ def _stream_json_validate_impl(fields: list[Any], values: Any, allow_missing: bo
         typed = _stream_json_validate_value_impl(field, value, allow_missing)
         values[name] = typed
     return None
+
+
+def _generate_failed_impl(error: error) -> error:
+    _core_coverage_mark("_generate_failed_impl")
+    aborted = _core_exception_is_aborted(error)
+    if aborted:
+        return error
+    else:
+        pass
+    text = _core_exception_message(error)
+    message = _core_add("Generate failed: ", text)
+    wrapped = _core_exception_rewrap(error, message)
+    return wrapped
 
 
 def _unable_to_fix_impl(error: error, output: str) -> error:
@@ -14123,20 +14150,6 @@ def _cache_key_impl(gen: AxGen, values: Any) -> str:
     return key
 
 
-def _cache_store_impl(cache_fn: Any, key: str, output: Any) -> None:
-    _core_coverage_mark("_cache_store_impl")
-    no_cache = _core_is_none(cache_fn)
-    if no_cache:
-        return None
-    else:
-        pass
-    try:
-        _core_axgen_cache_write(cache_fn, key, output)
-    except Exception as cache_write_error:
-        pass
-    return None
-
-
 def _stream_json_select_fields_impl(fields: list[Any], values: Any) -> Any:
     _core_coverage_mark("_stream_json_select_fields_impl")
     out = {}
@@ -14158,6 +14171,20 @@ def _stream_json_select_fields_impl(fields: list[Any], values: Any) -> Any:
     return out
 
 
+def _cache_store_impl(cache_fn: Any, key: str, output: Any) -> None:
+    _core_coverage_mark("_cache_store_impl")
+    no_cache = _core_is_none(cache_fn)
+    if no_cache:
+        return None
+    else:
+        pass
+    try:
+        _core_axgen_cache_write(cache_fn, key, output)
+    except Exception as cache_write_error:
+        pass
+    return None
+
+
 def _cache_store_streamed_impl(cache_fn: Any, key: str, output: Any) -> None:
     _core_coverage_mark("_cache_store_streamed_impl")
     output_count = _core_len(output)
@@ -14167,6 +14194,25 @@ def _cache_store_streamed_impl(cache_fn: Any, key: str, output: Any) -> None:
     else:
         pass
     return None
+
+
+def _stream_json_nested_fields_impl(fields_map: Any) -> list[Any]:
+    _core_coverage_mark("_stream_json_nested_fields_impl")
+    out = []
+    nested_fields = _core_fields_from_map(fields_map)
+    for nested in nested_fields:
+        name = _core_get(nested, "name", "")
+        typ = _core_get(nested, "type", None)
+        optional = _stream_field_flag_impl(nested, "is_optional", "isOptional")
+        internal = _stream_field_flag_impl(nested, "is_internal", "isInternal")
+        field = {}
+        field["name"] = name
+        field["title"] = name
+        field["type"] = typ
+        field["is_optional"] = optional
+        field["is_internal"] = internal
+        out.append(field)
+    return out
 
 
 def _cache_lookup_impl(gen: AxGen, values: Any, options: Any, ignore_read_errors: bool) -> Any:
@@ -14199,25 +14245,6 @@ def _cache_lookup_impl(gen: AxGen, values: Any, options: Any, ignore_read_errors
     return lookup
 
 
-def _stream_json_nested_fields_impl(fields_map: Any) -> list[Any]:
-    _core_coverage_mark("_stream_json_nested_fields_impl")
-    out = []
-    nested_fields = _core_fields_from_map(fields_map)
-    for nested in nested_fields:
-        name = _core_get(nested, "name", "")
-        typ = _core_get(nested, "type", None)
-        optional = _stream_field_flag_impl(nested, "is_optional", "isOptional")
-        internal = _stream_field_flag_impl(nested, "is_internal", "isInternal")
-        field = {}
-        field["name"] = name
-        field["title"] = name
-        field["type"] = typ
-        field["is_optional"] = optional
-        field["is_internal"] = internal
-        out.append(field)
-    return out
-
-
 def _stream_json_flexible_impl(field: Any) -> bool:
     _core_coverage_mark("_stream_json_flexible_impl")
     typ = _core_get(field, "type", None)
@@ -14233,6 +14260,26 @@ def _stream_json_flexible_impl(field: Any) -> bool:
     open_object = _core_not(has_nested)
     flexible = _core_and(is_object, open_object)
     return flexible
+
+
+def _stream_json_string_value_impl(field: Any, value: Any) -> Any:
+    _core_coverage_mark("_stream_json_string_value_impl")
+    is_string = _core_type_is(value, "string")
+    not_string = _core_not(is_string)
+    if not_string:
+        return value
+    else:
+        pass
+    parsed = _core_none()
+    try:
+        parsed = _core_json_parse_strict(value)
+    except Exception as parse_error:
+        title = _stream_field_title_impl(field)
+        detail = _core_exception_message(parse_error)
+        message = _core_string_format("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", detail, title)
+        invalid = _core_validation_error(message)
+        raise invalid
+    return parsed
 
 
 def _cache_lookup_option_impl(options: Any) -> Any:
@@ -14266,26 +14313,6 @@ def _apply_control_updates_impl(gen: AxGen, messages: list[Any], runtime_options
     else:
         pass
     return messages
-
-
-def _stream_json_string_value_impl(field: Any, value: Any) -> Any:
-    _core_coverage_mark("_stream_json_string_value_impl")
-    is_string = _core_type_is(value, "string")
-    not_string = _core_not(is_string)
-    if not_string:
-        return value
-    else:
-        pass
-    parsed = _core_none()
-    try:
-        parsed = _core_json_parse_strict(value)
-    except Exception as parse_error:
-        title = _stream_field_title_impl(field)
-        detail = _core_exception_message(parse_error)
-        message = _core_string_format("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", detail, title)
-        invalid = _core_validation_error(message)
-        raise invalid
-    return parsed
 
 
 def _stream_json_strings_for_field_impl(field: Any, value: Any) -> Any:
@@ -14397,7 +14424,7 @@ def _validate_completion_function_call_names(response: Any) -> None:
             name_is_text = _core_type_is(name, "string")
             named = False
             if name_is_text:
-                trimmed = str(name).strip()
+                trimmed = str(name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 named = _core_ne(trimmed, "")
             else:
                 pass
@@ -14463,6 +14490,19 @@ def _stream_json_strings_impl(fields: list[Any], values: Any, partial: bool) -> 
     return None
 
 
+def _stream_state_impl(index: int) -> Any:
+    _core_coverage_mark("_stream_state_impl")
+    state = {}
+    state["index"] = index
+    state["content"] = ""
+    values = {}
+    state["values"] = values
+    xstate = _stream_text_state_impl()
+    state["xstate"] = xstate
+    state["last_parse_length"] = 0
+    return state
+
+
 def _check_completion_function_call_names(response: Any, options: Any) -> None:
     _core_coverage_mark("_check_completion_function_call_names")
     mode_snake = _core_get(options, "function_call_validation", None)
@@ -14497,19 +14537,6 @@ def _check_completion_function_call_names(response: Any, options: Any) -> None:
     else:
         pass
     return None
-
-
-def _stream_state_impl(index: int) -> Any:
-    _core_coverage_mark("_stream_state_impl")
-    state = {}
-    state["index"] = index
-    state["content"] = ""
-    values = {}
-    state["values"] = values
-    xstate = _stream_text_state_impl()
-    state["xstate"] = xstate
-    state["last_parse_length"] = 0
-    return state
 
 
 def _stream_merge_value_impl(base: Any, has_base: bool, delta: Any) -> Any:
@@ -14825,13 +14852,13 @@ def _stream_feedback_text_impl(result: Any) -> Any:
         starts_null = _core_string_starts_with(lowered, "null")
         if starts_null:
             after_null = _core_string_slice(lowered, 4)
-            null_rest = str(after_null).strip()
+            null_rest = str(after_null).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         else:
             pass
         starts_undefined = _core_string_starts_with(lowered, "undefined")
         if starts_undefined:
             after_undefined = _core_string_slice(lowered, 9)
-            null_rest = str(after_undefined).strip()
+            null_rest = str(after_undefined).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         else:
             pass
         null_text = _core_eq(null_rest, "")
@@ -14958,7 +14985,7 @@ def _stream_check_assertions_impl(gen: AxGen, xstate: Any, content: str, done: b
             else:
                 pass
             xstate["assertion_failed"] = True
-            error = _core_validation_error(message)
+            error = _core_runtime_error(message)
             raise error
         else:
             pass
@@ -15411,7 +15438,7 @@ def _stream_json_coerce_scalar_impl(field: Any, value: Any) -> Any:
             pass
         is_number_text = _core_type_is(value, "string")
         if is_number_text:
-            number_trimmed = str(value).strip()
+            number_trimmed = str(value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
             number_blank = _core_eq(number_trimmed, "")
             number_filled = _core_not(number_blank)
             if number_filled:

@@ -494,6 +494,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicExceptionIsAborted:        "Core::exception_is_aborted",
 	IntrinsicExceptionIsInfrastructure: "Core::exception_is_infrastructure",
 	IntrinsicExceptionIsRefusal:        "Core::exception_is_refusal",
+	IntrinsicExceptionIsValidation:     "Core::exception_is_validation",
 }
 
 func cppAttrValue(op Operation, name string) string {
