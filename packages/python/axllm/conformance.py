@@ -1630,6 +1630,10 @@ def _run_streaming_forward(fixture):
         for item in fixture.get("expected_request_contains") or []:
             if str(item) not in request_text:
                 raise FixtureError(f"request missing {item!r}: {request_text}")
+    if "expected_chat_prompt" in fixture:
+        if not client.requests:
+            raise FixtureError("fixture expected a request but none were sent")
+        _assert_equal(client.requests[0].get("chat_prompt"), fixture["expected_chat_prompt"], "chat prompt")
 
 
 def _flow_build_step_from_fixture(step, fixture):

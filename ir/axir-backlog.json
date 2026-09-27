@@ -2491,6 +2491,25 @@
       "verification": "TS streamingForward runs its stages at root/distiller, root/executor and root/responder and reports the run at root (src/ax/agent/agent.streamingControl.test.ts: 3 tests fail on main, pass here). All five ports stream the responder through @agent_streaming_forward and intrinsic.agent.stage_streaming_forward, sharing @agent_run_actor_stages and @agent_complete_run with forward. 20 TS goldens from tools/axir/extractors/agent-streaming-goldens.ts (axagent/agent-streaming-forward-* and agent-forward-*) pin the deltas, the output, the request count, the order of model requests and observer callbacks (used memories and skills, citations, playbook onUpdate), run-control events with paths (completed, failed, aborted), the chat-log shape and TS's citation messages and errors; the axagent suite (167 fixtures) passes in python, go, java, rust and cpp, and mutated copies of the control and playbook goldens fail in all five. verify --mode release passes in python, go, java, rust and cpp (1131 fixtures each)."
     },
     {
+      "id": "axir-2026-09-27-render-the-axgen-structured-output-contract-into-the-system-prom",
+      "status": "done",
+      "title": "Render the AxGen structured-output contract into the system prompt in the ports and select the rung by mode when structured output is required",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "35469b35c0b41678fc1b5e2858766fbffeb52aad",
+      "tsPaths": ["src/ax/dsp/prompt.ts", "src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript builds each forward's prompt template for the selected rung (structuredOutput when a rung is selected, the __axOutput function name and function under the function rung), so the system prompt ends its output fields with the exact JSON shape and gives the rung's formatting rule, with no turn after the user message; a provider that requires structured output gets a rung chosen by its modes. The ports appended a user instruction turn on every structured rung, gave the function rung the JSON rule without listing __axOutput, left a forced- or requires-structured simple signature (such as the agent actor stage) on the text-contract rule while demanding JSON, and always chose the native rung for requiresStructuredOutput.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "f95ab33cf",
+      "verification": "Ten TS goldens (axgen-streaming-goldens.ts pin_request_layout: forward-request-layout-* for the text contract, native, json_object, function and three requires-structured-output cases, and streaming-forward-request-layout-native/-json-object/-function) pin the first request's whole chat prompt, every request's roles and a forward's response format. On main they fail in all five ports (an extra user instruction turn; the function rung's JSON rule and missing __axOutput listing; no exact JSON shape for a requires-structured simple signature; json_schema for json_object- or function-only providers). Three hand-written fixtures now pin TS's JSON rule and fail on main (the forced-structured prompt carried the text-contract rule while demanding JSON; the axagent-real deepseek fixture passes 10/10 here). Per-port mutations: ignoring structured_output or extra_functions fails its goldens. verify --mode dev: 1235 fixtures in python, go, java, cpp and rust (Rust cargo test 67/67); Python response-perturbation gate 335 mutations across 134 fixtures."
+    },
+    {
       "id": "axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event",
       "status": "open",
       "title": "Keep a surrogate pair that a provider splits across stream events in Go and Rust",

@@ -1942,9 +1942,24 @@ Value Core::legacy_response_to_chat_response(Value raw) {
   if (!usage.is_null()) out["model_usage"] = Value(Object{{"tokens", usage}});
   return Value(out);
 }
-Value Core::object_call_method(Value target, Value method_name, Value arg) {
+Value Core::object_call_method(Value target, Value method_name, Value arg, Value options) {
   if (str(method_name) == "render" && str(get_key(target, "__kind")) == "PromptTemplate") {
-    return render_prompt(get_key(target, "signature"), arg, get_key(target, "functions", Value::array()), get_key(target, "options", Value::object()));
+    Value functions = get_key(target, "functions", Value::array());
+    Value render_options = get_key(target, "options", Value::object());
+    // A render's options win over the template's; extra_functions (the
+    // function rung's __axOutput) are listed after the template's own, as TS
+    // lists them.
+    if (options.is_object()) {
+      render_options = map_merge(render_options, options);
+      Value extra = get_key(options, "extra_functions");
+      if (!extra.is_null()) {
+        Array listed = array_ref(functions);
+        for (const auto& fn : array_ref(extra)) listed.push_back(fn);
+        functions = Value(std::move(listed));
+        map_delete(render_options, "extra_functions");
+      }
+    }
+    return render_prompt(get_key(target, "signature"), arg, functions, render_options);
   }
   if (str(method_name) == "call") {
     std::string picker_id = str(get_key(target, "__result_picker_id"));
@@ -2741,7 +2756,10 @@ static std::string prompt_render_functions(Value functions) {
   return joined;
 }
 Value Core::prompt_structured(Value signature, Value values, Value functions, Value options) {
-  bool complex = prompt_complex(signature);
+  // As TS's structuredOutput option: AxGen renders with it set when a
+  // structured-output rung is selected; otherwise the signature decides.
+  Value structured = get_key(options, "structured_output", get_key(options, "structuredOutput"));
+  bool complex = structured.is_null() ? prompt_complex(signature) : truthy(structured);
   Array outputs = prompt_outputs(signature);
   std::string task = prompt_task(signature, options);
   Object vars;

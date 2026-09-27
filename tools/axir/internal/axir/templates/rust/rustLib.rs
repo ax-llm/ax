@@ -17109,6 +17109,17 @@ fn expect_fixture_last_request_tail(fixture: &Value, client: &FixtureClient) -> 
     expect_json_equal("last request tail", &Value::Array(tail), expected)
 }
 
+// python: expected_chat_prompt. The first request's whole chat prompt.
+fn expect_fixture_chat_prompt(fixture: &Value, client: &FixtureClient) -> AxResult<()> {
+    let Some(expected) = fixture.get("expected_chat_prompt") else {
+        return Ok(());
+    };
+    let Some(first) = client.requests.first() else {
+        return Err(AxError::new("fixture", "fixture expected a request but none were sent"));
+    };
+    expect_json_equal("chat prompt", first.get("chat_prompt").unwrap_or(&Value::Null), expected)
+}
+
 // python: _run_streaming_forward. Streams the forward into a delta list and
 // checks the deltas (also those sent before an expected error), the merged
 // output, the requests, tool calls and field processor calls. With `control`
@@ -17208,6 +17219,7 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
     }
     expect_fixture_request_roles(fixture, &client)?;
     expect_fixture_last_request_tail(fixture, &client)?;
+    expect_fixture_chat_prompt(fixture, &client)?;
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() != expected as usize {
             return Err(AxError::new("fixture", format!("expected {expected} requests, got {}", client.requests.len())));
@@ -17592,6 +17604,7 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     }
     expect_fixture_request_roles(fixture, &client)?;
     expect_fixture_last_request_tail(fixture, &client)?;
+    expect_fixture_chat_prompt(fixture, &client)?;
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() != expected as usize {
             return Err(AxError::new(
@@ -21082,8 +21095,11 @@ fn core_prompt_is_provided_value(value: &CoreValue) -> bool {
     }
 }
 
+// `structured` gives the section its exact JSON shape: the rendered prompt's
+// structured output, which is the signature's complexity unless a render
+// sets it (core_prompt_structured).
 #[allow(dead_code)]
-fn core_prompt_output_fields_section(signature: &CoreValue) -> Result<String, AxError> {
+fn core_prompt_output_fields_section(signature: &CoreValue, structured: bool) -> Result<String, AxError> {
     let output_fields = core_prompt_get_output_fields(signature)?;
     let fields = core_prompt_render_output_fields(
         &output_fields,
@@ -21092,7 +21108,7 @@ fn core_prompt_output_fields_section(signature: &CoreValue) -> Result<String, Ax
     let mut output = format!(
         "**Output Fields**: You must generate the following fields:\n\n{fields}"
     );
-    if core_prompt_has_complex_fields(signature)? {
+    if structured {
         let mut shape = serde_json::Map::new();
         for field in output_fields {
             let name = core_get(&field, &CoreValue::from("name"), CoreValue::Null).text();
@@ -21341,7 +21357,17 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     if !core_truthy(&options) {
         options = CoreValue::new_map();
     }
-    let has_complex_fields = core_prompt_has_complex_fields(&signature)?;
+    // As TS's structuredOutput option: AxGen renders with it set when a
+    // structured-output rung is selected; otherwise the signature decides.
+    let structured = match core_get(&options, &CoreValue::from("structured_output"), CoreValue::Null) {
+        CoreValue::Null => core_get(&options, &CoreValue::from("structuredOutput"), CoreValue::Null),
+        value => value,
+    };
+    let has_complex_fields = if structured.is_null() {
+        core_prompt_has_complex_fields(&signature)?
+    } else {
+        core_truthy(&structured)
+    };
     let output_fields = core_prompt_get_output_fields(&signature)?;
     let task_definition = core_prompt_task_definition_section(&signature, &options)?;
     let funcs = core_prompt_function_descriptors(&functions)?;
@@ -21414,7 +21440,7 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(
         &template_vars,
         CoreValue::from("outputFieldsSection"),
-        CoreValue::from_string(core_prompt_output_fields_section(&signature)?),
+        CoreValue::from_string(core_prompt_output_fields_section(&signature, has_complex_fields)?),
     )?;
     core_set(
         &template_vars,
@@ -23862,12 +23888,33 @@ impl CoreHost for GenPromptHost {
     }
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
         match name {
-            "render" => render_prompt(&[
-                self.signature.clone(),
-                core_arg(args, 0),
-                self.tools.clone(),
-                self.options.clone(),
-            ]),
+            "render" => {
+                // A render's own options win over the template's: AxGen passes
+                // the selected rung's structured_output, and under the function
+                // rung structured_output_function_name. Their extra_functions
+                // (the function rung's __axOutput) are listed after the
+                // template's tools, as TS lists them. A render without options
+                // renders as before.
+                let (tools, options) = match core_arg(args, 1) {
+                    render_options @ CoreValue::Map(_) => {
+                        let options = core_map_merge(&[self.options.clone(), render_options])?;
+                        let extra = core_get(&options, &CoreValue::from("extra_functions"), CoreValue::Null);
+                        core_map_delete(&[options.clone(), CoreValue::from("extra_functions")])?;
+                        let tools = CoreValue::new_list();
+                        for tool in core_iter(&self.tools)? {
+                            core_append(&tools, tool)?;
+                        }
+                        if core_truthy(&extra) {
+                            for tool in core_iter(&extra)? {
+                                core_append(&tools, tool)?;
+                            }
+                        }
+                        (tools, options)
+                    }
+                    _ => (self.tools.clone(), self.options.clone()),
+                };
+                render_prompt(&[self.signature.clone(), core_arg(args, 0), tools, options])
+            }
             other => Err(AxError::runtime(format!(
                 "AxPromptTemplate has no callable method '{other}'"
             ))),
@@ -27003,6 +27050,46 @@ mod stream_split_surrogate_tests {
         // Any other bad escape still fails the event's parse.
         assert!(parse_stream_event_json("{\"content\":\"\\u12\"}").is_err());
         assert_eq!(parse_stream_event_json("{\"content\":\"\\ud83d\\ude00\"}")?, json!({"content": "\u{1f600}"}));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod axgen_prompt_render_options_tests {
+    use super::*;
+
+    #[test]
+    fn render_options_apply_to_one_render_only() -> AxResult<()> {
+        // The IR renders an AxGen prompt with the selected rung's options.
+        // They win for that render, and the template keeps its own tools and
+        // options: a render without options is as before.
+        let program = ax("question:string -> answer:string")?;
+        let state = core_gen_state(&program)?;
+        let template = core_get(&state, &CoreValue::from("prompt_template"), CoreValue::Null);
+        let system = |options: Option<Value>| -> AxResult<String> {
+            let mut args = vec![template.clone(), CoreValue::from("render"), core_value_from_json(&json!({"question": "Status?"}))];
+            args.extend(options.map(|options| core_value_from_json(&options)));
+            let messages = core_value_to_json(&core_object_call_method(&args)?);
+            Ok(messages[0]["content"].as_str().unwrap_or_default().to_string())
+        };
+        let plain = system(None)?;
+        let shape = "**Exact JSON shape**: `{\"answer\":\"<string>\"}`";
+        let output_function = json!({"name": "__axOutput", "description": "Emit the complete structured program output using the declared argument shape."});
+        let function_rung = system(Some(json!({
+            "structured_output": true,
+            "structured_output_function_name": "__axOutput",
+            "extra_functions": [output_function],
+        })))?;
+        assert!(function_rung.contains("- `__axOutput`: Emit the complete structured program output"), "{function_rung}");
+        assert!(function_rung.contains(shape) && function_rung.contains("Return the complete output by calling `__axOutput`."), "{function_rung}");
+        let native = system(Some(json!({"structured_output": true, "extra_functions": []})))?;
+        assert!(native.contains(shape) && native.contains("do not invent, rename, or wrap them"), "{native}");
+        assert!(!native.contains("__axOutput"), "{native}");
+        // The text contract, and a render without options after the others.
+        assert_eq!(system(Some(json!({"structured_output": false, "extra_functions": []})))?, plain);
+        assert_eq!(system(None)?, plain);
+        assert!(!plain.contains("__axOutput") && !plain.contains("Exact JSON shape"), "{plain}");
+        assert_eq!(core_value_to_json(&core_get(&state, &CoreValue::from("functions"), CoreValue::Null)), json!([]));
         Ok(())
     }
 }

@@ -835,7 +835,8 @@ final class Core {
   static Object validUrlShape(Object value) { return value instanceof String || (value instanceof Map<?, ?> map && map.containsKey("url")); }
 
   static Object objectCallMethod(Object target, Object methodName, Object... args) {
-    if (target instanceof PromptTemplate p && "render".equals(String.valueOf(methodName))) return p.render(asMap(args.length > 0 ? args[0] : null));
+    // AxGen renders with the selected structured-output rung's options.
+    if (target instanceof PromptTemplate p && "render".equals(String.valueOf(methodName))) return p.render(asMap(args.length > 0 ? args[0] : null), args.length > 1 ? asMap(args[1]) : null);
     if (target instanceof AxFlow.Mapper mapper && "call".equals(String.valueOf(methodName))) return mapper.apply(asMap(args.length > 0 ? args[0] : null));
     if (target instanceof AxGen.ResultPickerCallback picker && "call".equals(String.valueOf(methodName))) {
       Map<String, Object> payload = asMap(args.length > 0 ? args[0] : null);
@@ -1873,7 +1874,10 @@ class PromptRuntime {
     "Return the complete output by calling " + BT + "{{ structuredOutputFunctionName }}" + BT + ".\n{{ else }}{{ if hasComplexFields }}\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\n{{ else }}\nReturn one " + BT + "field name: value" + BT + " pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\n{{ /if }}{{ /if }}Above rules override later instructions.\n\n</formatting_rules>\n{{ if hasExampleDemonstrations }}\n\n## Example Demonstrations\nThe following User/Assistant turns are examples only until --- END OF EXAMPLES ---, not context for the current task.\n{{ /if }}\n";
 
   static String structured(AxSignature sig, Map<String, Object> values, List<Object> functions, Map<String, Object> options) {
-    boolean complex = sig.hasComplexFields();
+    // As TypeScript's structuredOutput option: AxGen renders with it set when
+    // a structured-output rung is selected; without it the signature decides.
+    Object structuredOption = options.containsKey("structured_output") ? options.get("structured_output") : options.get("structuredOutput");
+    boolean complex = structuredOption == null ? sig.hasComplexFields() : Core.truthy(structuredOption);
     List<Field> outputFields = outputFields(sig);
     String task = taskDefinition(sig, options);
     List<Map<String, Object>> funcs = functionDescriptors(functions);
@@ -1888,7 +1892,7 @@ class PromptRuntime {
     vars.put("taskDefinitionText", task);
     vars.put("functionsList", funcs.isEmpty() ? "" : renderFunctions(funcs));
     vars.put("inputFieldsSection", inputSection(sig, values));
-    vars.put("outputFieldsSection", outputSection(sig));
+    vars.put("outputFieldsSection", outputSection(sig, complex));
     vars.put("structuredOutputFunctionName", options.getOrDefault("structured_output_function_name", ""));
     String source = options.get("custom_template") == null ? DEFAULT_DSPY_TEMPLATE : String.valueOf(options.get("custom_template"));
     String context = options.get("custom_template") == null ? "template:dsp/dspy.md" : "inline-template";
@@ -1977,7 +1981,9 @@ class PromptRuntime {
   static String descFields(List<Field> fields) { List<String> out = new ArrayList<>(); for (Field f : fields) out.add(BT + f.title + BT); return String.join(", ", out); }
   static String taskDefinition(AxSignature sig, Map<String, Object> options) { String instruction = String.valueOf(options.getOrDefault("instruction", "")).trim(); String description = sig.description == null ? "" : sig.description.trim(); List<String> parts = new ArrayList<>(); if (!instruction.isEmpty()) parts.add(formatFieldRefs(formatDescription(instruction), fieldMap(sig))); if (!description.isEmpty() && !description.equals(instruction)) parts.add(formatFieldRefs(formatDescription(description), fieldMap(sig))); return String.join("\n\n", parts); }
   static String inputSection(AxSignature sig, Map<String, Object> values) { return "**Input Fields**: The following fields will be provided to you:\n\n" + renderInputFields(inputFieldsForValues(sig, values), fieldMap(sig)); }
-  static String outputSection(AxSignature sig) { List<Field> fields = outputFields(sig); String out = "**Output Fields**: You must generate the following fields:\n\n" + renderOutputFields(fields, fieldMap(sig)); if (sig.hasComplexFields()) { Map<String, Object> shape = new LinkedHashMap<>(); for (Field field : fields) shape.put(field.name, outputTypePlaceholder(field.type)); out += "\n\n**Exact JSON shape**: " + BT + Json.stringify(shape) + BT; } return out; }
+  // structured: whether the prompt asks for structured output, which ends the
+  // section with the exact JSON shape.
+  static String outputSection(AxSignature sig, boolean structured) { List<Field> fields = outputFields(sig); String out = "**Output Fields**: You must generate the following fields:\n\n" + renderOutputFields(fields, fieldMap(sig)); if (structured) { Map<String, Object> shape = new LinkedHashMap<>(); for (Field field : fields) shape.put(field.name, outputTypePlaceholder(field.type)); out += "\n\n**Exact JSON shape**: " + BT + Json.stringify(shape) + BT; } return out; }
   static Object outputTypePlaceholder(FieldType type) { Object value; switch (type.name) { case "number" -> value = 0; case "boolean" -> value = true; case "object", "json" -> { Map<String, Object> object = new LinkedHashMap<>(); if (type.fields != null) for (Map.Entry<String, Object> entry : type.fields.entrySet()) { Field field = entry.getValue() instanceof Field nested ? nested : new Field(entry.getKey(), (FieldType) entry.getValue(), null, false, false, false); if (!field.internal) object.put(entry.getKey(), outputTypePlaceholder(field.type)); } value = object; } case "class" -> value = type.options == null || type.options.isEmpty() ? "<allowed value>" : type.options.get(0); case "code" -> value = "<complete source>"; case "date" -> value = "<YYYY-MM-DD>"; case "datetime" -> value = "<ISO 8601 datetime>"; case "dateRange" -> value = new LinkedHashMap<>(Map.of("start", "<YYYY-MM-DD>", "end", "<YYYY-MM-DD>")); case "datetimeRange" -> value = new LinkedHashMap<>(Map.of("start", "<ISO 8601 datetime>", "end", "<ISO 8601 datetime>")); case "url" -> value = "<url>"; default -> value = "<string>"; } return type.array ? List.of(value) : value; }
   static List<Field> outputFields(AxSignature sig) { List<Field> out = new ArrayList<>(); for (Field field : sig.outputs) if (!field.internal) out.add(field); return out; }
   static Map<String, String> fieldMap(AxSignature sig) { Map<String, String> out = new LinkedHashMap<>(); for (Field f : sig.inputs) out.put(f.name, f.title); for (Field f : sig.outputs) out.put(f.name, f.title); return out; }

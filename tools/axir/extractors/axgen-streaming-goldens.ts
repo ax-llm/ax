@@ -120,6 +120,8 @@ function scriptedAI(
   let calls = 0;
   // The chat prompt of each request, in call order.
   const prompts: Json[][] = [];
+  // The response format type of each request (null without one).
+  const formats: (string | null)[] = [];
   const ai = new AxMockAIService({
     features: {
       functions: (features?.functions as boolean | undefined) ?? true,
@@ -134,6 +136,9 @@ function scriptedAI(
     chatResponse: async (req) => {
       calls++;
       prompts.push(clone(req.chatPrompt) as unknown as Json[]);
+      formats.push(
+        (req.responseFormat as { type?: string } | undefined)?.type ?? null
+      );
       onRequest?.(calls);
       const next = queue.shift();
       if (!next) throw new Error('scripted client exhausted');
@@ -156,15 +161,32 @@ function scriptedAI(
       });
     },
   });
-  // The mock has no functionCot setting, so report the provider feature here.
-  if (features?.function_cot !== undefined) {
+  // The mock has no functionCot or requiresStructuredOutput setting, so
+  // report those provider features here.
+  if (
+    features?.function_cot !== undefined ||
+    features?.requires_structured_output !== undefined
+  ) {
     const baseFeatures = ai.getFeatures.bind(ai);
     ai.getFeatures = (model) => ({
       ...baseFeatures(model),
-      functionCot: features.function_cot as boolean,
+      ...(features.function_cot !== undefined
+        ? { functionCot: features.function_cot as boolean }
+        : {}),
+      ...(features.requires_structured_output !== undefined
+        ? {
+            requiresStructuredOutput:
+              features.requires_structured_output as boolean,
+          }
+        : {}),
     });
   }
-  return { ai, calls: () => calls, prompts: () => prompts };
+  return {
+    ai,
+    calls: () => calls,
+    prompts: () => prompts,
+    formats: () => formats,
+  };
 }
 
 // Option keys the fixtures spell in snake_case, mapped to TS names.
@@ -320,6 +342,9 @@ type Case = {
   // Pin the first request's user message: its content as a JSON string
   // literal, which every runner's JSON text of the chat prompt must contain.
   pin_user_prompt?: boolean;
+  // Pin the request layout: the first request's whole chat prompt, and each
+  // request's message roles.
+  pin_request_layout?: boolean;
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -330,7 +355,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const control =
     spec.control || spec.constructor_control ? runControl() : undefined;
   const steer = spec.control_steer;
-  const { ai, calls, prompts } = scriptedAI(
+  const { ai, calls, prompts, formats } = scriptedAI(
     spec.responses,
     spec.features,
     (request) => {
@@ -480,6 +505,18 @@ async function record(name: string, spec: Case): Promise<void> {
   } else if (error === undefined) {
     fixture.expected_output = output;
   }
+  if (spec.pin_request_layout) {
+    // A forward also pins the first request's response format, which tells
+    // the native rung (json_schema) from json_object.
+    const format = formats()[0];
+    if (kind === 'forward' && format) {
+      fixture.expected_request = { response_format: { type: format } };
+    }
+    fixture.expected_chat_prompt = clone(prompts()[0] ?? []);
+    fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
+      prompt.map((message) => message.role as Json)
+    );
+  }
   if (spec.pin_user_prompt) {
     const first = (prompts()[0] ?? []) as { role?: string; content?: Json }[];
     const user = first.filter((message) => message.role === 'user').at(-1);
@@ -540,6 +577,11 @@ const finishTool: ToolSpec = {
   result: 'finished',
 };
 const nativeFeatures: JsonMap = { functions: true, structured_outputs: true };
+const jsonObjectFeatures: JsonMap = {
+  functions: true,
+  structured_outputs: false,
+  structured_output_modes: ['json_object'],
+};
 const longTitle =
   'Quarterly results for the northern region, including revenue, churn and hiring';
 const longBody =
@@ -735,6 +777,127 @@ const cases: Record<string, Case> = {
         }),
         chunk({
           function_calls: [call('output_1', '', '"Ada"}}')],
+          finish_reason: 'function_call',
+        })
+      ),
+    ],
+  },
+
+  // ----- request layout per rung -----
+  // TS puts the structured-output contract in the system prompt: the output
+  // section ends with the exact JSON shape, and the formatting rule names the
+  // rung (a JSON object, or a call to __axOutput). The request is the system
+  // prompt and the user message, with no instruction turn after them.
+  'forward-request-layout-text-contract': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: Ada' }] }],
+  },
+  'forward-request-layout-native': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+    ],
+  },
+  'forward-request-layout-json-object': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: jsonObjectFeatures,
+    pin_request_layout: true,
+    responses: [
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+    ],
+  },
+  'forward-request-layout-function': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    options: { structured_output_mode: 'function' },
+    features: { functions: true, structured_outputs: false },
+    pin_request_layout: true,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_1', '__axOutput', '{"user":{"name":"Ada"}}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+    ],
+  },
+  // A provider that requires structured output gets TS's structured prompt
+  // for a simple signature too: the exact JSON shape and the JSON rule.
+  'forward-request-layout-requires-structured-output': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: { ...nativeFeatures, requires_structured_output: true },
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: '{"answer":"Ada"}' }] }],
+  },
+  // With structured output required, a simple signature's rung still
+  // follows the provider's modes, as for a complex signature.
+  'forward-request-layout-requires-structured-output-json-object': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: { ...jsonObjectFeatures, requires_structured_output: true },
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: '{"answer":"Ada"}' }] }],
+  },
+  'forward-request-layout-requires-structured-output-function': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: {
+      functions: true,
+      structured_outputs: false,
+      structured_output_modes: ['function'],
+      requires_structured_output: true,
+    },
+    pin_request_layout: true,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_1', '__axOutput', '{"answer":"Ada"}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+    ],
+  },
+  'streaming-forward-request-layout-native': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [streamed(text('{"user":{"name":"Ada"}}'), done())],
+  },
+  'streaming-forward-request-layout-json-object': {
+    signature: 'question:string -> user:object{name:string}',
+    features: jsonObjectFeatures,
+    pin_request_layout: true,
+    responses: [streamed(text('{"user":{"name":"Ada"}}'), done())],
+  },
+  'streaming-forward-request-layout-function': {
+    signature: 'question:string -> user:object{name:string}',
+    options: { structured_output_mode: 'function' },
+    features: { functions: true, structured_outputs: false },
+    pin_request_layout: true,
+    responses: [
+      streamed(
+        chunk({
+          function_calls: [
+            call('output_1', '__axOutput', '{"user":{"name":"Ada"}}'),
+          ],
           finish_reason: 'function_call',
         })
       ),

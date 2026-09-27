@@ -1120,6 +1120,10 @@ static void run_streaming_forward(Value fixture) {
       if (request_text.find(display(item)) == std::string::npos) throw AxError("fixture", "request missing " + display(item) + ": " + request_text);
     }
   }
+  if (!Core::get(fixture, "expected_chat_prompt").is_null()) {
+    if (client.requests.empty()) throw AxError("fixture", "fixture expected a request but none were sent");
+    assert_equal(Core::get(client.requests[0], "chat_prompt"), Core::get(fixture, "expected_chat_prompt"), "chat prompt");
+  }
 }
 
 // Several forward / streaming_forward calls on one AxGen with one in-memory
