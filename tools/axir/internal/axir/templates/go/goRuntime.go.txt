@@ -14865,6 +14865,8 @@ func conformanceAgentRequestStage(request map[string]Value) string {
 		return "distiller"
 	case strings.Contains(system, "You (`executor`)"):
 		return "executor"
+	case strings.Contains(system, "`Generator answer`"), strings.Contains(system, "`Question context`"):
+		return "playbook"
 	case strings.Contains(system, "context-map Distiller"), strings.Contains(system, "context-map Cartographer"):
 		return "context_map"
 	}
@@ -14915,6 +14917,14 @@ func runConformanceAgentForward(fixture map[string]Value) {
 			citations := cloneMap(asMap(coreGet(options, "citations", Object())))
 			citations["onCitations"] = recordingObserver(label)
 			options["citations"] = citations
+		case "playbook_update":
+			// The playbook's onUpdate after run-end learning, by its status.
+			playbook := cloneMap(asMap(coreGet(options, "playbook", Object())))
+			playbook["onUpdate"] = func(update map[string]Value) {
+				observerMarks = append(observerMarks, observerMark{len(client.Requests), label})
+				coreAppend(observerCalls, Object("callback", label, "payload", Object("status", update["status"])))
+			}
+			options["playbook"] = playbook
 		}
 	}
 	var controlEventsMu sync.Mutex

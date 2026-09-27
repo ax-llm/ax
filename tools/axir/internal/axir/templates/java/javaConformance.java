@@ -2085,6 +2085,7 @@ public final class Conformance {
     }
     if (system.contains("You (`distiller`)")) return "distiller";
     if (system.contains("You (`executor`)")) return "executor";
+    if (system.contains("`Generator answer`") || system.contains("`Question context`")) return "playbook";
     if (system.contains("context-map Distiller") || system.contains("context-map Cartographer")) return "context_map";
     return "responder";
   }
@@ -2154,6 +2155,16 @@ public final class Conformance {
           Map<String, Object> citations = new LinkedHashMap<>(Core.asMap(agentOptions.getOrDefault("citations", Map.of())));
           citations.put("onCitations", (java.util.function.Consumer<List<Object>>) payload -> recorder.accept(payload));
           agentOptions.put("citations", citations);
+        }
+        case "playbook_update" -> {
+          // The playbook's onUpdate after run-end learning, by its status.
+          Map<String, Object> playbook = new LinkedHashMap<>(Core.asMap(agentOptions.getOrDefault("playbook", Map.of())));
+          playbook.put("onUpdate", (java.util.function.Consumer<Map<String, Object>>) update -> {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("status", update.get("status"));
+            recorder.accept(payload);
+          });
+          agentOptions.put("playbook", playbook);
         }
         default -> throw new FixtureError("unknown agent observer " + label);
       }

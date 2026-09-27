@@ -2188,6 +2188,13 @@ def _run_agent_forward(fixture):
             citations = dict(citations) if isinstance(citations, dict) else {}
             citations["onCitations"] = _recording_observer(label)
             agent_options["citations"] = citations
+        elif label == "playbook_update":
+            # The playbook's onUpdate after run-end learning, by its status.
+            playbook_options = agent_options.get("playbook")
+            playbook_options = dict(playbook_options) if isinstance(playbook_options, dict) else {}
+            record_update = _recording_observer(label)
+            playbook_options["onUpdate"] = lambda result, record_update=record_update: record_update({"status": result.get("status")})
+            agent_options["playbook"] = playbook_options
     control_events = []
     run_control_handle = None
     if fixture.get("control"):
@@ -2477,6 +2484,8 @@ def _agent_request_stage(request):
         return "distiller"
     if "You (`executor`)" in system:
         return "executor"
+    if "`Generator answer`" in system or "`Question context`" in system:
+        return "playbook"
     if "context-map Distiller" in system or "context-map Cartographer" in system:
         return "context_map"
     return "responder"

@@ -1896,6 +1896,7 @@ static std::string agent_request_stage(const Value& request) {
   }
   if (system.find("You (`distiller`)") != std::string::npos) return "distiller";
   if (system.find("You (`executor`)") != std::string::npos) return "executor";
+  if (system.find("`Generator answer`") != std::string::npos || system.find("`Question context`") != std::string::npos) return "playbook";
   if (system.find("context-map Distiller") != std::string::npos || system.find("context-map Cartographer") != std::string::npos) return "context_map";
   return "responder";
 }
@@ -1952,11 +1953,13 @@ static void run_agent_forward(Value fixture) {
   };
   Value observers = Core::get(fixture, "observers", Value::array());
   bool record_citations = false;
+  bool record_playbook_update = false;
   for (const auto& raw_label : Core::iter(observers)) {
     std::string label = display(raw_label);
     if (label == "used_memories") Core::set(agent_options, "onUsedMemories", register_agent_observer(recording_observer(label)));
     else if (label == "used_skills") Core::set(agent_options, "onUsedSkills", register_agent_observer(recording_observer(label)));
     else if (label == "citations") record_citations = true;
+    else if (label == "playbook_update") record_playbook_update = true;
   }
   std::optional<AxRunControl> run_control_handle;
   Value control_events = Value::array();
@@ -2027,6 +2030,11 @@ static void run_agent_forward(Value fixture) {
     if (!Core::get(fixture, "set_instruction").is_null()) ag->set_instruction(Core::get(fixture, "set_instruction"));
     if (!Core::get(fixture, "add_actor_instruction").is_null()) ag->add_actor_instruction(Core::get(fixture, "add_actor_instruction"));
     if (record_citations) ag->set_citations_observer(recording_observer("citations"));
+    if (record_playbook_update) {
+      // The playbook's onUpdate after run-end learning, by its status.
+      auto record = recording_observer("playbook_update");
+      ag->set_playbook_observer([record](Value update) mutable { record(object({{"status", Core::get(update, "status")}})); });
+    }
     if (Core::truthy(Core::get(fixture, "observer_throws", false))) {
       ag->set_citations_observer([&observer_called](Value) {
         observer_called = true;

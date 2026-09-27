@@ -76,6 +76,12 @@ function tsChunk(chunk: ChunkSpec): AxChatResponse {
 function requestStage(system: string): string {
   if (system.includes('You (`distiller`)')) return 'distiller';
   if (system.includes('You (`executor`)')) return 'executor';
+  // The playbook's ACE reflector and curator.
+  if (
+    system.includes('`Generator answer`') ||
+    system.includes('`Question context`')
+  )
+    return 'playbook';
   if (
     system.includes('context-map Distiller') ||
     system.includes('context-map Cartographer')
@@ -128,9 +134,13 @@ function scriptedAI(
 // ----- scripted code runtime -----
 // Each step checks the actor's code and ends the stage with its result, as
 // the ports' ScriptedCodeRuntime does with `runtime_script`.
+// A step either completes the stage or fails as a runtime error: the ports'
+// scripted runtime returns the error envelope, and TypeScript's throws it.
 type ScriptStep = {
   expected_code: string;
-  result: { type: 'final' | 'respond' | 'askClarification'; args: Json[] };
+  result:
+    | { type: 'final' | 'respond' | 'askClarification'; args: Json[] }
+    | { is_error: true; kind: 'error'; error_category: string; error: string };
 };
 
 function scriptedRuntime(script: ScriptStep[]): AxCodeRuntime {
@@ -148,13 +158,15 @@ function scriptedRuntime(script: ScriptStep[]): AxCodeRuntime {
               `expected code ${JSON.stringify(step.expected_code)}, got ${JSON.stringify(code)}`
             );
           }
-          const complete = globals?.[step.result.type] as
+          const result = step.result;
+          if ('is_error' in result) throw new Error(result.error);
+          const complete = globals?.[result.type] as
             | ((...args: unknown[]) => unknown)
             | undefined;
           if (!complete) {
-            throw new Error(`runtime global ${step.result.type} is missing`);
+            throw new Error(`runtime global ${result.type} is missing`);
           }
-          await complete(...clone(step.result.args));
+          await complete(...clone(result.args));
           return 'done';
         },
         async patchGlobals(patch: Record<string, unknown>) {
@@ -191,8 +203,15 @@ type Case = {
   features?: JsonMap;
   responses: ResponseSpec[];
   runtime_script: ScriptStep[];
-  // Callbacks to record: used_memories, used_skills, citations.
-  observers?: ('used_memories' | 'used_skills' | 'citations')[];
+  // Callbacks to record: used_memories, used_skills, citations, and the
+  // playbook's onUpdate after run-end learning (its status only: the ports
+  // word the failure feedback it carries in their own runtime terms).
+  observers?: (
+    | 'used_memories'
+    | 'used_skills'
+    | 'citations'
+    | 'playbook_update'
+  )[];
   // Attach a run control and record every event it hears.
   control?: boolean;
   // The consumer stops the stream after this many deltas.
@@ -232,6 +251,17 @@ async function record(name: string, spec: Case): Promise<void> {
           ? (options.citations as Record<string, unknown>)
           : {};
       options.citations = { ...citations, onCitations: observe(label) };
+    }
+    if (label === 'playbook_update') {
+      const playbook =
+        options.playbook && typeof options.playbook === 'object'
+          ? (options.playbook as Record<string, unknown>)
+          : {};
+      options.playbook = {
+        ...playbook,
+        onUpdate: (result: { status: string }) =>
+          observe(label)({ status: result.status }),
+      };
     }
   }
   const ag = agent(signature, {
@@ -400,6 +430,47 @@ const contextMapTurns = (): ResponseSpec[] => [
   },
 ];
 
+// Run-end playbook learning: the executor's first turn fails at runtime and
+// its second finishes, so the run carries one failure signal; the playbook's
+// reflector and curator then answer after the responder.
+const LOOKUP = 'lookupPolicy()';
+const playbookRuntime = (): ScriptStep[] => [
+  step(DISTILL, 'final', 'Answer the question', {}),
+  {
+    expected_code: LOOKUP,
+    result: {
+      is_error: true,
+      kind: 'error',
+      error_category: 'runtime_error',
+      error: 'lookupPolicy is not defined',
+    },
+  },
+  step(EXECUTE, 'final', 'Answer the question', EVIDENCE),
+];
+const playbookActors = (): ResponseSpec[] => [
+  actor(DISTILL),
+  actor(LOOKUP),
+  actor(EXECUTE),
+];
+const playbookTeacher = (): ResponseSpec[] => [
+  {
+    content: [
+      'Reasoning: The executor called a helper that does not exist.',
+      'Error Identification: lookupPolicy is not defined.',
+      'Root Cause Analysis: The executor assumed a helper without checking.',
+      'Correct Approach: Read the policy from the evidence.',
+      'Key Insight: Check that a helper exists before calling it.',
+      'Bullet Tags: []',
+    ].join('\n'),
+  },
+  {
+    content: [
+      'Reasoning: One avoidance rule covers the failure.',
+      'Operations: [{"type":"ADD","section":"failures_to_avoid","content":"Check that a helper exists before calling it."}]',
+    ].join('\n'),
+  },
+];
+
 mkdirSync(outDir, { recursive: true });
 
 const cases: Record<string, Case> = {
@@ -490,6 +561,12 @@ const cases: Record<string, Case> = {
     responses: [...baseActors(), answerStream(), ...contextMapTurns()],
     runtime_script: baseRuntime(),
   },
+  'agent-streaming-forward-playbook': {
+    options: { directResponse: 'off', playbook: {} },
+    observers: ['playbook_update'],
+    responses: [...playbookActors(), answerStream(), ...playbookTeacher()],
+    runtime_script: playbookRuntime(),
+  },
   // ----- forward -----
   'agent-forward-citations-retry': {
     kind: 'agent_forward',
@@ -578,6 +655,17 @@ const cases: Record<string, Case> = {
       ...contextMapTurns(),
     ],
     runtime_script: baseRuntime(),
+  },
+  'agent-forward-playbook': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off', playbook: {} },
+    observers: ['playbook_update'],
+    responses: [
+      ...playbookActors(),
+      { content: 'Answer: Refunds take 30 days.' },
+      ...playbookTeacher(),
+    ],
+    runtime_script: playbookRuntime(),
   },
 };
 

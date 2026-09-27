@@ -12765,6 +12765,11 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if observers.iter().any(|label| label.as_str() == Some("citations")) {
         agent.set_citations_observer(recording_observer("citations"));
     }
+    if observers.iter().any(|label| label.as_str() == Some("playbook_update")) {
+        // The playbook's onUpdate after run-end learning, by its status.
+        let record = recording_observer("playbook_update");
+        agent.set_playbook_observer(move |update| record(json!({"status": update["status"]})));
+    }
     let observer_called = Rc::new(std::cell::Cell::new(false));
     if fixture
         .get("observer_throws")
@@ -13256,6 +13261,8 @@ fn agent_request_stage(request: &Value) -> &'static str {
         "distiller"
     } else if system.contains("You (`executor`)") {
         "executor"
+    } else if system.contains("`Generator answer`") || system.contains("`Question context`") {
+        "playbook"
     } else if system.contains("context-map Distiller") || system.contains("context-map Cartographer") {
         "context_map"
     } else {
