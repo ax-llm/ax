@@ -176,6 +176,23 @@ pub(crate) fn with_control<R>(options: AxForwardOptions, run: impl FnOnce(Value)
     }
 }
 
+// with_control for a program with its own run control (AxGen::with_control),
+// as TS's constructor control: the call's control wins, then the control of a
+// caller's run this one is part of (TS passes it to the calls it makes), then
+// the program's. A flow worker's relay control, with no caller's behind it,
+// gives way to the program's: TS runs a node of a flow without a control
+// under its program's control.
+pub(crate) fn with_program_control<R>(
+    mut options: AxForwardOptions,
+    program: Option<AxRunControl>,
+    run: impl FnOnce(Value) -> R,
+) -> R {
+    if options.control.is_none() && !current_control().is_some_and(|control| control.has_caller()) {
+        options.control = program;
+    }
+    with_control(options, run)
+}
+
 pub trait AxChatSession {
     fn next(&mut self, timeout: Duration) -> AxResult<Option<Value>>;
     fn submit(&mut self, results: Vec<Value>) -> AxResult<()>;
