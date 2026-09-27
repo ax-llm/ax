@@ -2251,7 +2251,12 @@ public final class Conformance {
           String.valueOf(fixture.getOrDefault("runtime_language", "Python")),
           "");
       Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
-      agentOptions.put("runtime", runtime);
+      // runtime_on_evolve: the agent gets only a runtime descriptor and the
+      // runtime goes on the evolve call, as the examples pass it.
+      boolean runtimeOnEvolve = Boolean.TRUE.equals(fixture.get("runtime_on_evolve"));
+      agentOptions.put("runtime", runtimeOnEvolve
+          ? Map.of("language", String.valueOf(fixture.getOrDefault("runtime_language", "Python")))
+          : runtime);
       AxAgent agent = Ax.agent(String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string")), agentOptions);
       Map<String, Object> playbookOptions = new LinkedHashMap<>();
       playbookOptions.put("target", "responder");
@@ -2264,6 +2269,7 @@ public final class Conformance {
       String before = Json.stringify(playbook.toJson());
       Map<String, Object> evolveOptions = new LinkedHashMap<>(Core.asMap(testCase.getOrDefault("options", Map.of())));
       if (teacherSpec != null) evolveOptions.put("teacherAI", teacher);
+      if (runtimeOnEvolve) evolveOptions.put("runtime", runtime);
       Map<String, Object> actual = playbook.evolve(fixture.getOrDefault("dataset", Map.of()), evolveOptions);
       List<Object> outcomes = Core.asList(actual.getOrDefault("outcomes", List.of()));
       Map<String, Object> expected = Core.asMap(testCase.getOrDefault("expected", Map.of()));

@@ -84,7 +84,15 @@ evolution = assistant.playbook().evolve(
     {"verify": True, "maxProposals": 1, "runtime": runtime},
 )
 
+# Each train task replays on the runtime. A replay that fails scores 0 and
+# would be mined as the weakness, so stop instead.
+for record in evolution["records"]:
+    prediction = record.get("prediction") or {}
+    if record.get("error") or prediction.get("completionType") == "error":
+        raise SystemExit(f"evolve replay failed: {record.get('error') or prediction.get('error')}")
+
 print(json.dumps(answer, indent=2, sort_keys=True))
+print("replays:", [(record.get("prediction") or {}).get("completionType") for record in evolution["records"]])
 print("citations:", observed_citations[-1] if observed_citations else [])
 print("run-end updates:", len(playbook_updates))
 print("outcomes:", evolution["outcomes"])

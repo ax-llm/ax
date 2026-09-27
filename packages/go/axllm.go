@@ -96916,10 +96916,20 @@ func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Valu
 	if !coreTruthy(input) {
 		input = task
 	}
+	// A runtime on the evolve or optimize call runs each task, as it runs a
+	// forward call (the agent may hold only a runtime descriptor), unless
+	// forward_options names one.
+	forwardOptions := Object()
+	for key, value := range asMap(coreGet(opts, "forward_options", Object())) {
+		forwardOptions[key] = value
+	}
+	if runtime := coreGet(opts, "runtime", nil); runtime != nil && coreGet(forwardOptions, "runtime", nil) == nil {
+		coreSet(forwardOptions, "runtime", runtime)
+	}
 	// As TS evaluates each task from a fresh state, the prediction carries
 	// only this run's share of the agent's logs.
 	marks := mustCore(_agent_eval_marks(a.State))
-	output, err := a.forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
+	output, err := a.forward(context.Background(), client, asMap(input), forwardOptions)
 	completion := Object("type", "final", "output", output)
 	if err != nil {
 		if clarification, ok := agentClarificationFromError(err); ok {
@@ -105701,7 +105711,14 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 		runtime := newConformanceScriptedCodeRuntime(coreGet(fixture, "runtime_script", Array()), Object())
 		runtime.LanguageName = display(coreGet(fixture, "runtime_language", "Python"))
 		agentOptions := cloneMap(asMap(coreGet(fixture, "options", Object())))
-		coreSet(agentOptions, "runtime", runtime)
+		// runtime_on_evolve: the agent gets only a runtime descriptor and the
+		// runtime goes on the evolve call, as the examples pass it.
+		runtimeOnEvolve := coreTruthy(coreGet(fixture, "runtime_on_evolve", false))
+		if runtimeOnEvolve {
+			coreSet(agentOptions, "runtime", Object("language", runtime.LanguageName))
+		} else {
+			coreSet(agentOptions, "runtime", runtime)
+		}
 		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), agentOptions)
 		playbookOptions := Object("target", "responder", "studentAI", client, "teacherAI", teacher, "maxEpochs", 1)
 		extraPlaybookOptions := asMap(coreGet(testCase, "playbook_options", Object()))
@@ -105716,6 +105733,9 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 		evolveOptions := cloneMap(asMap(coreGet(testCase, "options", Object())))
 		if teacherSpec != nil {
 			coreSet(evolveOptions, "teacherAI", teacher)
+		}
+		if runtimeOnEvolve {
+			coreSet(evolveOptions, "runtime", runtime)
 		}
 		actual, err := playbook.EvolveAgent(context.Background(), coreGet(fixture, "dataset", Object()), evolveOptions)
 		if err != nil {

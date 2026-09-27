@@ -2825,7 +2825,10 @@ def _run_agent_playbook_evolve(fixture):
             language=fixture.get("runtime_language", "Python"),
         )
         agent_options = copy.deepcopy(fixture.get("options") or {})
-        agent_options["runtime"] = runtime
+        # runtime_on_evolve: the agent gets only a runtime descriptor and the
+        # runtime goes on the evolve call, as the examples pass it.
+        runtime_on_evolve = bool(fixture.get("runtime_on_evolve"))
+        agent_options["runtime"] = {"language": fixture.get("runtime_language", "Python")} if runtime_on_evolve else runtime
         ag = agent(fixture.get("signature", "question:string -> answer:string"), agent_options)
         playbook = ag.playbook({
             "target": "responder",
@@ -2841,6 +2844,8 @@ def _run_agent_playbook_evolve(fixture):
         evolve_options = copy.deepcopy(case.get("options") or {})
         if teacher_spec is not None:
             evolve_options["teacherAI"] = teacher
+        if runtime_on_evolve:
+            evolve_options["runtime"] = runtime
         actual = playbook.evolve(copy.deepcopy(fixture.get("dataset") or {}), evolve_options)
         outcomes = actual.get("outcomes") or []
         expected = case.get("expected") or {}
