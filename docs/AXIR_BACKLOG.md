@@ -18,12 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-27-render-the-axgen-structured-output-contract-into-the-system-prom` [axgen] Render the AxGen structured-output contract into the system prompt in the ports and select the rung by mode when structured output is required
-  - Status: open
-  - Source commit: `35469b35c0b41678fc1b5e2858766fbffeb52aad`
-  - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/dsp/generate.ts`
-  - Impact: TypeScript builds each forward's prompt template for the selected rung (structuredOutput when a rung is selected, the __axOutput function name and function under the function rung), so the system prompt ends its output fields with the exact JSON shape and gives the rung's formatting rule, with no turn after the user message; a provider that requires structured output gets a rung chosen by its modes. The ports appended a user instruction turn on every structured rung, gave the function rung the JSON rule without listing __axOutput, left a forced- or requires-structured simple signature (such as the agent actor stage) on the text-contract rule while demanding JSON, and always chose the native rung for requiresStructuredOutput.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -1010,6 +1005,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `94cd7049eb4ab244410f175fc0779cf1e275ec39`
   - Verification: `renderAudio (or render_audio) true renders through @render_audio_outputs_impl in ir/axcore/audio_output.axir at every @forward exit, on forward and streaming cache hits and on the streamingForward result-picker delta; unset keeps the text and warns once per process, and false keeps it silently. The 16 TS-derived axgen audio-output-* goldens and axflow/audio-output-flow-speaker-to-summarizer check speak requests and outputs; the 10 goldens that render fail on origin/main in all five ports. verify --mode release passes 1138 fixtures in python, java, cpp and rust; the Go conformance passes the whole tree after the load-flaky axai/portable-cancellation fixture passed 5/5 alone.`
+- `axir-2026-09-27-render-the-axgen-structured-output-contract-into-the-system-prom` [axgen] Render the AxGen structured-output contract into the system prompt in the ports and select the rung by mode when structured output is required
+  - Status: done
+  - Source commit: `35469b35c0b41678fc1b5e2858766fbffeb52aad`
+  - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TypeScript builds each forward's prompt template for the selected rung (structuredOutput when a rung is selected, the __axOutput function name and function under the function rung), so the system prompt ends its output fields with the exact JSON shape and gives the rung's formatting rule, with no turn after the user message; a provider that requires structured output gets a rung chosen by its modes. The ports appended a user instruction turn on every structured rung, gave the function rung the JSON rule without listing __axOutput, left a forced- or requires-structured simple signature (such as the agent actor stage) on the text-contract rule while demanding JSON, and always chose the native rung for requiresStructuredOutput.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `f95ab33cf`
+  - Verification: `Ten TS goldens (axgen-streaming-goldens.ts pin_request_layout: forward-request-layout-* for the text contract, native, json_object, function and three requires-structured-output cases, and streaming-forward-request-layout-native/-json-object/-function) pin the first request's whole chat prompt, every request's roles and a forward's response format. On main they fail in all five ports (an extra user instruction turn; the function rung's JSON rule and missing __axOutput listing; no exact JSON shape for a requires-structured simple signature; json_schema for json_object- or function-only providers). Three hand-written fixtures now pin TS's JSON rule and fail on main (the forced-structured prompt carried the text-contract rule while demanding JSON; the axagent-real deepseek fixture passes 10/10 here). Per-port mutations: ignoring structured_output or extra_functions fails its goldens. verify --mode dev: 1235 fixtures in python, go, java, cpp and rust (Rust cargo test 67/67); Python response-perturbation gate 335 mutations across 134 fixtures.`
 - `axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths` [axagent] Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths
   - Status: done
   - Source commit: `c3662628d8916a174fc1ef3bd0484f7b3ffd989c`
