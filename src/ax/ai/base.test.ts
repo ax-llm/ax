@@ -3,6 +3,7 @@ import type { Span } from '@opentelemetry/api'; // Ensure Span is imported
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js'; // Added import
+import { createHash } from '../util/crypto.js';
 import type { AxAIFeatures, AxBaseAIArgs } from './base.js';
 import {
   AxBaseAI,
@@ -2016,6 +2017,88 @@ describe('AxBaseAI Tracing with Token Usage', () => {
       expect(impl.prepareCachedChatReq).toHaveBeenCalledTimes(2);
       expect(registry.set).toHaveBeenCalledTimes(1);
       expect(capture.calls).toHaveLength(3);
+    });
+
+    // Property names that collations order differently: en-US puts `id`
+    // before `ID`, `username` before `userName`, and `ä` first; code point
+    // order puts uppercase first and `ä` after `z`. `😀` (U+1F600) sorts after
+    // `｡` (U+FF61) by code point, though its UTF-16 code units sort first.
+    const mixedKeyRequest = () => ({
+      chatPrompt: [
+        { role: 'system' as const, content: 'system', cache: true },
+        { role: 'user' as const, content: 'hello' },
+      ],
+      functions: [
+        {
+          name: 'lookup',
+          description: 'lookup',
+          parameters: {
+            type: 'object' as const,
+            properties: {
+              '😀': { type: 'string' as const },
+              ä: { type: 'string' as const },
+              '｡': { type: 'string' as const },
+              username: { type: 'string' as const },
+              id: { type: 'string' as const },
+              z: { type: 'string' as const },
+              userName: { type: 'string' as const },
+              ID: { type: 'string' as const },
+            },
+          },
+          cache: true,
+        },
+      ],
+    });
+
+    const contextCacheKeyFor = async (
+      req: ReturnType<typeof mixedKeyRequest>
+    ) => {
+      const fetch = createCapturingFetch({ calls: [] }, [
+        { name: 'cache-1', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+      ]);
+      const ai = createCacheAwareAI(createCacheAwareImpl(), fetch);
+      const registry = {
+        get: vi.fn(async (_key: string) => undefined),
+        set: vi.fn(async (_key: string, _value: unknown) => {}),
+      };
+      await ai.chat(req, {
+        stream: false,
+        contextCache: { minTokens: 0, registry },
+      });
+      return registry.get.mock.calls[0]?.[0];
+    };
+
+    it('orders cached tool state keys by code point', async () => {
+      const toolState =
+        '{"functions":[{"description":"lookup","name":"lookup","parameters":' +
+        '{"properties":{"ID":{"type":"string"},"id":{"type":"string"},' +
+        '"userName":{"type":"string"},"username":{"type":"string"},' +
+        '"z":{"type":"string"},"ä":{"type":"string"},"｡":{"type":"string"},' +
+        '"😀":{"type":"string"}},"type":"object"}}]}';
+      const hash = createHash('sha256')
+        .update('system:system')
+        .update(`tools:${toolState}`)
+        .digest('hex');
+
+      expect(await contextCacheKeyFor(mixedKeyRequest())).toBe(
+        `test-ai:test-model:${hash}`
+      );
+    });
+
+    it('computes the same context cache key under any host collation', async () => {
+      const hostKey = await contextCacheKeyFor(mixedKeyRequest());
+      // A host whose collation reverses every comparison.
+      const localeCompare = vi
+        .spyOn(String.prototype, 'localeCompare')
+        .mockImplementation(function (this: string, other: string) {
+          return this < other ? 1 : this > other ? -1 : 0;
+        });
+      try {
+        expect(await contextCacheKeyFor(mixedKeyRequest())).toBe(hostKey);
+      } finally {
+        localeCompare.mockRestore();
+      }
     });
 
     it('stores the provider expiry only after a successful TTL refresh', async () => {
