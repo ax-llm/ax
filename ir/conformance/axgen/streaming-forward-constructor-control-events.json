@@ -1,0 +1,54 @@
+{
+  "constructor_control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "ok"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-constructor-control-events",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: ok",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}
