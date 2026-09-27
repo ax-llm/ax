@@ -2292,6 +2292,25 @@
       "verification": "npm run axir:conformance:check (25 date fixtures: 305 parser cases, 16 input cases, forward and streamingForward with and without parseDates); node scripts/run-axir.mjs verify --mode release per target (python, go, java, cpp: 1137 fixtures; rust conformance suites); npm run test --workspace=@ax-llm/ax"
     },
     {
+      "id": "axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event",
+      "status": "open",
+      "title": "Keep a surrogate pair that a provider splits across stream events in Go and Rust",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "af38cd35839a83461ac28242a01a10fd9ff1632c",
+      "tsPaths": ["src/ax/dsp/extract/delta.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript joins an escaped surrogate pair split across stream events into one character (a trailing high surrogate waits for its low half). Go's encoding/json decodes each lone surrogate escape to U+FFFD, so the character is lost (two U+FFFD); Rust's serde_json handling of a lone surrogate escape is untested (an error or a replacement). Python and Java hold lone surrogates natively and C++ keeps them as WTF-8 and joins them (2e); Go and Rust need surrogate-preserving SSE JSON decoding (for example a pre-pass that turns escaped UTF-16 surrogates into WTF-8) plus 2e's join intrinsics, and then run streaming-forward-split-surrogate-pair instead of skipping it.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-27-match-typescript-ace-prompts-required-inputs-titles-and-agent-seed",
       "status": "done",
       "title": "Match TypeScript's ACE teacher prompts, required-input errors, field titles and agent playbook seed in the ports",
@@ -2339,6 +2358,56 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "44bb2306d4a4794442415e0164f44118c1092279",
       "verification": "TS: the new sig.test.ts field-title cases fail on main (User I D, Field  2) and pass; npm run test --workspace=@ax-llm/ax passes (a benchmark that timed out under load passes alone). TS goldens prompt/field-titles-snake-and-camel-case and axagent/agent-playbook-evolve-miner-system-prompt; runner keys expected_playbook_state_before_forward, expected_playbook_wall_clock, expected_playbook_config_unchanged and expected_teacher_system_prompts; hand-written axagent/playbook-config-empty-seed-wall-clock, playbook-config-kept-over-actor-instructions, -kept-after-child-agent, -kept-under-run-context, playbook-config-responder-target and axgen/function-call-chat-result-flat-shape and -nested-shape. Each fails on main in the ports named in the PR and passes in all five; 23 mutated copies fail in all five; per-port probes show a flat call runs its tool in every port. Full suites 1120/1120 in python, go, java, cpp and rust; the scripted-client tool examples assert the tool ran."
+    },
+    {
+      "id": "axir-2026-09-27-match-typescript-playbook-seed-miner-user-message-and-string-format",
+      "status": "done",
+      "title": "Load TypeScript's playbook seed shape, build the weakness miner's user message as TypeScript does, and fix string format in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "15cad746ec90a2a5a6299e74b86b258f6b6eafda",
+      "tsPaths": [
+        "src/ax/agent/playbookConfig.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts",
+        "src/ax/agent/contextManager.ts",
+        "src/ax/dsp/sigTools.ts",
+        "src/ax/dsp/toolSchemaConverter.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "The ports did not load TypeScript's playbook: {playbook: snapshot} seed and read a snapshot from playbook.seed, which TypeScript treats as a numeric random seed. The weakness miner's user message put the stringified action-log list into the excerpt (a Python repr, Java List.toString or JSON) where TypeScript sends the executor's action log text, and Python spaced the task-summary JSON. TypeScript titled tool fields in signature tool calling by splitting every capital (Get User I D, Search_docs). C++ string_format skipped a null argument, shifting later ones and leaving a literal {}, and Go and Java filled a {} inside an earlier argument.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "582e5e59643b774b012629d80ca2c69d78e77ec5",
+      "verification": "One IR op resolves a playbook config's seed as TS does (playbook.playbook: a snapshot or a bare playbook; the older playbook.seed snapshot loads with a deprecation warning); TS goldens axagent/playbook-config-ts-snapshot-seed and -ts-bare-seed pin TS's state and prompt. Two IR ops build the weakness miner's inputs as TS's mineWeakness does from the executor's action log text (entries now record their stage); the TS golden agent-playbook-evolve-miner-system-prompt pins the user message (expected_teacher_user_messages). TS tool fields use toFieldTitle (sigTools.test.ts fails on main). C++ string_format fills a null's {}, and Go and Java fill from after the previous argument (axgen/function-call-missing-name, function-call-name-with-braces). Each new fixture fails on main in the ports named in the PR; 11 mutated copies fail in all five. Full suites 1150/1150 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes; Python and Go perturbation gates pass."
+    },
+    {
+      "id": "axir-2026-09-27-match-typescript-s-processor-feedback-timing-and-shape-and-its-s",
+      "status": "open",
+      "title": "Match TypeScript's processor feedback timing and shape and its surrogate-safe streamed deltas in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "af38cd35839a83461ac28242a01a10fd9ff1632c",
+      "tsPaths": [
+        "src/ax/dsp/fieldProcessor.ts",
+        "src/ax/dsp/response/finalize.ts",
+        "src/ax/dsp/response/streaming.ts",
+        "src/ax/dsp/response/types.ts",
+        "src/ax/dsp/extract/delta.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript now adds a streaming field processor's mid-stream feedback when the step ends (after the full assistant message, tagged processor) so the run continues with it, treats a null result as no feedback, sends each piece as a user message with one text part ([{type: 'text', text}]) before the final processors' feedback, and never streams a delta that ends in half of a surrogate pair. The ports sent feedback as a plain string and (Java) split a surrogate pair across deltas; hosts that steer an open native chat session with a correction now join the text parts.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     },
     {
       "id": "axir-2026-09-27-port-speak-results-carry-typescript-speech-response-keys",
@@ -2413,31 +2482,6 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "9b1f64a9a",
       "verification": "TS streamingForward runs its stages at root/distiller, root/executor and root/responder and reports the run at root (src/ax/agent/agent.streamingControl.test.ts: 3 tests fail on main, pass here). All five ports stream the responder through @agent_streaming_forward and intrinsic.agent.stage_streaming_forward, sharing @agent_run_actor_stages and @agent_complete_run with forward. 20 TS goldens from tools/axir/extractors/agent-streaming-goldens.ts (axagent/agent-streaming-forward-* and agent-forward-*) pin the deltas, the output, the request count, the order of model requests and observer callbacks (used memories and skills, citations, playbook onUpdate), run-control events with paths (completed, failed, aborted), the chat-log shape and TS's citation messages and errors; the axagent suite (167 fixtures) passes in python, go, java, rust and cpp, and mutated copies of the control and playbook goldens fail in all five. verify --mode release passes in python, go, java, rust and cpp (1131 fixtures each)."
-    },
-    {
-      "id": "axir-2026-09-27-match-typescript-playbook-seed-miner-user-message-and-string-format",
-      "status": "done",
-      "title": "Load TypeScript's playbook seed shape, build the weakness miner's user message as TypeScript does, and fix string format in the ports",
-      "createdAt": "2026-09-27",
-      "sourcePR": null,
-      "sourceCommit": "15cad746ec90a2a5a6299e74b86b258f6b6eafda",
-      "tsPaths": [
-        "src/ax/agent/playbookConfig.ts",
-        "src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts",
-        "src/ax/agent/contextManager.ts",
-        "src/ax/dsp/sigTools.ts",
-        "src/ax/dsp/toolSchemaConverter.ts"
-      ],
-      "portableSurface": "axagent",
-      "impact": "The ports did not load TypeScript's playbook: {playbook: snapshot} seed and read a snapshot from playbook.seed, which TypeScript treats as a numeric random seed. The weakness miner's user message put the stringified action-log list into the excerpt (a Python repr, Java List.toString or JSON) where TypeScript sends the executor's action log text, and Python spaced the task-summary JSON. TypeScript titled tool fields in signature tool calling by splitting every capital (Get User I D, Search_docs). C++ string_format skipped a null argument, shifting later ones and leaving a literal {}, and Go and Java filled a {} inside an earlier argument.",
-      "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": "2026-09-27",
-      "completedByCommit": "582e5e59643b774b012629d80ca2c69d78e77ec5",
-      "verification": "One IR op resolves a playbook config's seed as TS does (playbook.playbook: a snapshot or a bare playbook; the older playbook.seed snapshot loads with a deprecation warning); TS goldens axagent/playbook-config-ts-snapshot-seed and -ts-bare-seed pin TS's state and prompt. Two IR ops build the weakness miner's inputs as TS's mineWeakness does from the executor's action log text (entries now record their stage); the TS golden agent-playbook-evolve-miner-system-prompt pins the user message (expected_teacher_user_messages). TS tool fields use toFieldTitle (sigTools.test.ts fails on main). C++ string_format fills a null's {}, and Go and Java fill from after the previous argument (axgen/function-call-missing-name, function-call-name-with-braces). Each new fixture fails on main in the ports named in the PR; 11 mutated copies fail in all five. Full suites 1150/1150 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes; Python and Go perturbation gates pass."
     }
   ],
   "nonPortableExemptions": [
