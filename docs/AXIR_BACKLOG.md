@@ -818,6 +818,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-26
   - Completed by: `cca8df830442fd250cffa191dd17bb8804b1b586`
   - Verification: `All five ports build the reflector and curator inputs as TypeScript does; the TS-golden axoptimize/playbook-evolve-teacher-inputs fixture (TypeScript playbook().evolve through the real reflector and curator programs with scripted student and teacher clients) pins the grown playbook and the teacher inputs, fails on main in every port and passes in all five; verify --mode dev 1045/1045 per port; Java, C++, Go and Rust teacher messages byte-identical to TypeScript on two scenarios; every port's ACE example asserts that the playbook grows.`
+- `axir-2026-09-26-merge-axgen-constructor-and-call-modelconfig-key-by-key` [axgen] Merge AxGen constructor and call modelConfig key by key in the ports
+  - Status: done
+  - Source commit: `8f965437dfe10e585ecc230f65b971ab1277ac32`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.constructorOptions.test.ts`
+  - Impact: TypeScript AxGen now treats forward options given to its constructor as defaults for every call (model, modelConfig, sampleCount, showThoughts, thinkingTokenBudget, stepHooks, onFunctionCall, disableMemoryCleanup, selfTuning, asyncMode, resultPicker) and merges modelConfig key by key. The ports merged constructor and call options shallowly: a call modelConfig replaced the constructor's whole map, and a call model_config lost to a constructor modelConfig.
+  - Suggested AxIR work: Merge the constructor and call modelConfig key by key in @forward and @streaming_forward; Pin the merge and the mixed spellings with fixtures
+  - Completed at: 2026-09-27
+  - Completed by: `8f965437d`
+  - Verification: `@apply_model_config_option_impl merges the constructor and call modelConfig key by key in @forward and @streaming_forward, in either spelling, with the call's keys winning; the model-config-* fixtures (merge, call key override, mixed spellings) pass and fail with the merge disabled. TS AxGen applies constructor defaults for 11 forward options (generate.constructorOptions.test.ts fails on main). verify --mode dev 1088/1088 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes.`
 - `axir-2026-09-26-parse-the-ports-text-contract-answers-with-typescript-s-extractv` [axgen] Parse the ports' text-contract answers with TypeScript's extractValues
   - Status: done
   - Source commit: `8a2e5f5f303a27d8c38b8d2a06e8a519f8a1f39d`

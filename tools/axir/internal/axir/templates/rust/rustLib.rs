@@ -4506,8 +4506,8 @@ impl AxGen {
     /// Under a run control ([`AxForwardOptions::with_control`]) the stream
     /// works as a controlled forward does: the run reports `started`, then
     /// `completed` or `failed`, and applies steering at each model request.
-    /// A stop from `on_delta` ends the run as `aborted`, as `abort()` on the
-    /// control reports it.
+    /// A stop from `on_delta` ends the run with an `aborted` event rather than
+    /// `failed`.
     pub fn streaming_forward<C: AxAIClient>(
         &mut self,
         client: &mut C,

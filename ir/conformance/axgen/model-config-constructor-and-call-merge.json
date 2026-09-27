@@ -1,0 +1,33 @@
+{
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request": {
+    "model_config": {
+      "maxTokens": 500,
+      "temperature": 0.2
+    }
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "modelConfig": {
+      "maxTokens": 500
+    }
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "model-config-constructor-and-call-merge",
+  "options": {
+    "modelConfig": {
+      "temperature": 0.2
+    }
+  },
+  "responses": [
+    {
+      "content": "Answer: ok"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

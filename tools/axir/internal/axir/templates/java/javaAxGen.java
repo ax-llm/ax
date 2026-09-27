@@ -551,7 +551,7 @@ public final class AxGen implements AxProgram {
    * AxAIServiceAbortedError}. A forward error is rethrown from the iterator as the forward raised it.
    * With a run {@code control} option the run reports started, then completed or failed, and applies
    * the control's updates at each request, as {@link #forward} does; a stream closed early ends the
-   * run as aborted, as {@code control.abort()} reports it.
+   * run with an aborted event rather than failed.
    */
   public AxGenDeltaStream streamingForward(AiClient client, Map<String, Object> values, Map<String, Object> options, AxCancellationToken cancellation) {
     Map<String, Object> runOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
@@ -610,8 +610,8 @@ public final class AxGen implements AxProgram {
           bounded.finish(null);
           return output;
         } catch (RuntimeException | Error error) {
-          // A run the streamingForward() consumer stopped early ends as
-          // aborted, as control.abort() reports it.
+          // A run the streamingForward() consumer stopped early ends with an
+          // aborted event rather than failed.
           bounded.finish(error, runOptions.get("cancellation") instanceof AxGenDeltaStream.StopToken stop && stop.consumerStopped());
           throw error;
         }
