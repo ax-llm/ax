@@ -33999,101 +33999,158 @@ Value Core::_resolve_agent_citations(Value options, Value sig) {
 
 Value Core::_agent_collect_citation_ids(Value ids, Value node, Value depth) {
   axir_coverage_mark("_agent_collect_citation_ids");
-  Value has_depth = Core::gte(depth, Value(0));
-  if (Core::truthy(has_depth)) {
-    Value is_object = Core::type_is(node, Value("object"));
-    if (Core::truthy(is_object)) {
-      Value id = Core::get(node, Value("id"), Value());
-      Value id_is_string = Core::type_is(id, Value("string"));
-      Value id_is_number = Core::type_is(id, Value("number"));
-      Value valid_id = Core::or_(id_is_string, id_is_number);
-      if (Core::truthy(valid_id)) {
-        Value id_text = Core::string_format(Value("{}"), id);
-        Core::set(ids, id_text, Value(true));
-      }
-      Value next_depth = Core::add(depth, Value(-1));
-      Value children = Core::map_values(node);
-      for (auto child : Core::iter(children)) {
-        ids = Core::_agent_collect_citation_ids(ids, child, next_depth);
+  Value in_depth = Core::gte(depth, Value(0));
+  Value out_of_depth = Core::not_(in_depth);
+  if (Core::truthy(out_of_depth)) {
+    return ids;
+  }
+  Value is_map = Core::type_is(node, Value("object"));
+  Value is_list = Core::type_is(node, Value("list"));
+  Value children = Value::array();
+  if (Core::truthy(is_map)) {
+    Value id = Core::get(node, Value("id"), Value());
+    Value id_is_string = Core::type_is(id, Value("string"));
+    Value id_is_number = Core::type_is(id, Value("number"));
+    Value valid_id = Core::or_(id_is_string, id_is_number);
+    if (Core::truthy(valid_id)) {
+      Value id_text = Core::string_format(Value("{}"), id);
+      Value seen = Core::contains(ids, id_text);
+      Value unseen = Core::not_(seen);
+      if (Core::truthy(unseen)) {
+        Core::append(ids, id_text);
       }
     }
-    if (!Core::truthy(is_object)) {
-      Value is_list = Core::type_is(node, Value("list"));
-      if (Core::truthy(is_list)) {
-        Value next_depth = Core::add(depth, Value(-1));
-        for (auto child : Core::iter(node)) {
-          ids = Core::_agent_collect_citation_ids(ids, child, next_depth);
-        }
-      }
+    children = Core::map_values(node);
+  }
+  if (Core::truthy(is_list)) {
+    children = node;
+  }
+  Value next_depth = Core::add(depth, Value(-1));
+  for (auto child : Core::iter(children)) {
+    Value child_is_map = Core::type_is(child, Value("object"));
+    Value child_is_list = Core::type_is(child, Value("list"));
+    Value child_is_node = Core::or_(child_is_map, child_is_list);
+    if (Core::truthy(child_is_node)) {
+      ids = Core::_agent_collect_citation_ids(ids, child, next_depth);
     }
   }
   return ids;
 }
 
-Value Core::_agent_validate_citations(Value state, Value output) {
-  axir_coverage_mark("_agent_validate_citations");
+Value Core::_agent_begin_citation_checks(Value state, Value executor_payload) {
+  axir_coverage_mark("_agent_begin_citation_checks");
+  Value none = Core::none();
+  Core::set(state, Value("citation_valid_keys"), none);
   Value empty_map = Value::object();
   Value citations = Core::get(state, Value("citations"), empty_map);
   Value enabled = Core::get(citations, Value("enabled"), Value(false));
-  Value disabled = Core::not_(enabled);
-  if (Core::truthy(disabled)) {
-    return Value(true);
+  if (Core::truthy(enabled)) {
+    Value empty_list = Value::array();
+    Value args = Core::get(executor_payload, Value("args"), empty_list);
+    Value evidence = Core::list_get(args, Value(1), none);
+    Value evidence_is_map = Core::type_is(evidence, Value("object"));
+    if (Core::truthy(evidence_is_map)) {
+      Value keys = Value::array();
+      Value top_keys = Core::map_keys(evidence);
+      for (auto top_key : Core::iter(top_keys)) {
+        Core::append(keys, top_key);
+      }
+      Value include_memory_ids = Core::get(citations, Value("includeMemoryIds"), Value(true));
+      if (Core::truthy(include_memory_ids)) {
+        Value evidence_values = Core::map_values(evidence);
+        for (auto evidence_value : Core::iter(evidence_values)) {
+          keys = Core::_agent_collect_citation_ids(keys, evidence_value, Value(2));
+        }
+      }
+      Core::set(state, Value("citation_valid_keys"), keys);
+    }
   }
-  Value evidence_present = Core::get(state, Value("responder_evidence_present"), Value(false));
-  Value no_evidence_contract = Core::not_(evidence_present);
-  if (Core::truthy(no_evidence_contract)) {
-    return Value(true);
+  return Value();
+}
+
+Value Core::_agent_end_citation_checks(Value state) {
+  axir_coverage_mark("_agent_end_citation_checks");
+  Value none = Core::none();
+  Core::set(state, Value("citation_valid_keys"), none);
+  return Value();
+}
+
+Value Core::_agent_citation_assert(Value state, Value output) {
+  axir_coverage_mark("_agent_citation_assert");
+  Value none = Core::none();
+  Value keys = Core::get(state, Value("citation_valid_keys"), Value());
+  Value unchecked = Core::is_none(keys);
+  if (Core::truthy(unchecked)) {
+    return none;
   }
+  Value empty_map = Value::object();
+  Value citations = Core::get(state, Value("citations"), empty_map);
   Value field = Core::get(citations, Value("field"), Value("evidenceCitations"));
   Value raw = Core::get(output, field, Value());
   Value missing = Core::is_none(raw);
   if (Core::truthy(missing)) {
-    return Value(true);
+    return none;
   }
-  Value ids = Value::object();
-  Value evidence = Core::get(state, Value("responder_evidence"), empty_map);
-  Value keys = Core::map_keys(evidence);
-  for (auto key : Core::iter(keys)) {
-    Core::set(ids, key, Value(true));
-  }
-  Value include_memory_ids = Core::get(citations, Value("includeMemoryIds"), Value(true));
-  if (Core::truthy(include_memory_ids)) {
-    Value values = Core::map_values(evidence);
-    for (auto value : Core::iter(values)) {
-      ids = Core::_agent_collect_citation_ids(ids, value, Value(2));
-    }
-  }
-  Value empty_list = Value::array();
-  Value cited = empty_list;
+  Value cited = Value::array();
   Value raw_is_list = Core::type_is(raw, Value("list"));
   if (Core::truthy(raw_is_list)) {
-    cited = raw;
+    for (auto raw_item : Core::iter(raw)) {
+      Core::append(cited, raw_item);
+    }
   }
   if (!Core::truthy(raw_is_list)) {
     Core::append(cited, raw);
   }
-  Value valid = Value(true);
-  for (auto raw_id : Core::iter(cited)) {
-    Value id_text = Core::string_format(Value("{}"), raw_id);
-    Value known = Core::map_contains(ids, id_text);
+  Value invalid = Value::array();
+  for (auto cited_item : Core::iter(cited)) {
+    Value cited_text = Core::string_format(Value("{}"), cited_item);
+    Value known = Core::contains(keys, cited_text);
     Value unknown = Core::not_(known);
     if (Core::truthy(unknown)) {
-      valid = Value(false);
+      Core::append(invalid, cited_text);
     }
   }
-  return valid;
+  Value invalid_count = Core::len(invalid);
+  Value all_known = Core::eq(invalid_count, Value(0));
+  if (Core::truthy(all_known)) {
+    return none;
+  }
+  Value key_count = Core::len(keys);
+  Value no_evidence = Core::eq(key_count, Value(0));
+  if (Core::truthy(no_evidence)) {
+    Value no_evidence_message = Core::string_format(Value("This answer has no evidence to cite — leave {} empty."), field);
+    return no_evidence_message;
+  }
+  Value invalid_text = Core::string_join(Value(", "), invalid);
+  Value keys_text = Core::string_join(Value(", "), keys);
+  Value message = Core::string_format(Value("Invalid {} entries: {}. Cite only evidence ids that exist: {} — or leave the field empty."), field, invalid_text, keys_text);
+  return message;
 }
 
 Value Core::_agent_finalize_citations(Value state, Value output) {
   axir_coverage_mark("_agent_finalize_citations");
   Value empty_map = Value::object();
-  Value empty_list = Value::array();
   Value citations = Core::get(state, Value("citations"), empty_map);
   Value enabled = Core::get(citations, Value("enabled"), Value(false));
   if (Core::truthy(enabled)) {
     Value field = Core::get(citations, Value("field"), Value("evidenceCitations"));
-    Value raw = Core::get(output, field, empty_list);
-    Core::set(state, Value("last_citations"), raw);
+    Value raw = Core::get(output, field, Value());
+    Value reported = Value::array();
+    Value raw_is_list = Core::type_is(raw, Value("list"));
+    Value raw_present = Core::is_not_none(raw);
+    if (Core::truthy(raw_is_list)) {
+      for (auto raw_item : Core::iter(raw)) {
+        Value raw_text = Core::string_format(Value("{}"), raw_item);
+        Core::append(reported, raw_text);
+      }
+    }
+    if (!Core::truthy(raw_is_list)) {
+      if (Core::truthy(raw_present)) {
+        Value raw_text = Core::string_format(Value("{}"), raw);
+        Core::append(reported, raw_text);
+      }
+    }
+    Core::set(state, Value("last_citations"), reported);
     Value surface = Core::get(citations, Value("surface"), Value("output"));
     Value hidden = Core::eq(surface, Value("hidden"));
     if (Core::truthy(hidden)) {
@@ -35164,349 +35221,34 @@ Value Core::_agent_run_llm_query(Value sub_gen, Value client, Value params, Valu
 
 Value Core::_agent_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options) {
   axir_coverage_mark("_agent_forward_impl");
-  Value empty_list = Value::array();
-  Value empty_map = Value::object();
-  Core::set(state, Value("native_tool_names"), empty_list);
-  Value loaded_memories = Value::array();
-  Value used_memories = Value::array();
-  Value used_skills = Value::array();
-  Value relevance_hints_for_turn = Core::none();
-  Core::set(state, Value("loaded_memories"), loaded_memories);
-  Core::set(state, Value("used_memories"), used_memories);
-  Core::set(state, Value("used_skills"), used_skills);
-  Core::set(state, Value("relevance_hints_for_turn"), relevance_hints_for_turn);
-  Value preset_memories = Core::get(values, Value("memories"), empty_list);
-  loaded_memories = Core::_agent_merge_memory_results(loaded_memories, preset_memories);
-  Core::set(state, Value("loaded_memories"), loaded_memories);
-  Value loaded_skills = Core::get(state, Value("loaded_skill_docs"), empty_list);
-  Value forward_skills = Core::get(options, Value("skills"), empty_list);
-  loaded_skills = Core::_agent_merge_skill_results(loaded_skills, forward_skills);
-  Core::set(state, Value("loaded_skill_docs"), loaded_skills);
-  Value flags = Core::get(state, Value("policy_flags"), empty_map);
-  Value forward_used_memories = Core::get(options, Value("onUsedMemories"), Value());
-  Value forward_used_memories_snake = Core::get(options, Value("on_used_memories"), forward_used_memories);
-  Value forward_used_skills = Core::get(options, Value("onUsedSkills"), Value());
-  Value forward_used_skills_snake = Core::get(options, Value("on_used_skills"), forward_used_skills);
-  Value has_forward_used_memories = Core::is_not_none(forward_used_memories_snake);
-  Value has_forward_used_skills = Core::is_not_none(forward_used_skills_snake);
-  Value has_forward_used_observer = Core::or_(has_forward_used_memories, has_forward_used_skills);
-  if (Core::truthy(has_forward_used_observer)) {
-    Core::set(flags, Value("usageTrackingMode"), Value(true));
-    Core::set(state, Value("policy_flags"), flags);
-  }
-  Value direct_respond_only = Core::get(flags, Value("directRespondOnly"), Value(false));
-  if (Core::truthy(direct_respond_only)) {
-    Value distiller_skills = Core::get(state, Value("distiller_loaded_skill_docs"), empty_list);
-    distiller_skills = Core::_agent_merge_skill_results(distiller_skills, forward_skills);
-    Core::set(state, Value("distiller_loaded_skill_docs"), distiller_skills);
-  }
-  Core::set(state, Value("active_stage"), Value("distiller"));
-  Value transcribed_values = Core::_agent_transcribe_audio_inputs(state, client, values, options);
-  values = transcribed_values;
-  Value runtime_input_names = Value::array();
-  for (auto runtime_input_name : Core::iter(values)) {
-    Core::append(runtime_input_names, runtime_input_name);
-  }
-  Core::set(state, Value("runtime_input_names"), runtime_input_names);
-  Value previous_runtime_session_state = Core::get(state, Value("runtime_session_state"), Value());
-  Value previous_runtime_session_state_is_map = Core::type_is(previous_runtime_session_state, Value("object"));
-  if (Core::truthy(previous_runtime_session_state_is_map)) {
-    Value previous_runtime_globals = Core::get(previous_runtime_session_state, Value("globals"), Value());
-    Value previous_runtime_bindings = Core::get(previous_runtime_session_state, Value("bindings"), Value());
-    Value previous_runtime_globals_is_map = Core::type_is(previous_runtime_globals, Value("object"));
-    Value previous_runtime_bindings_is_map = Core::type_is(previous_runtime_bindings, Value("object"));
-    Value previous_runtime_state_has_bindings = Core::or_(previous_runtime_globals_is_map, previous_runtime_bindings_is_map);
-    if (Core::truthy(previous_runtime_state_has_bindings)) {
-      Value clean_previous_runtime_state = Core::_normalize_agent_runtime_snapshot(state, previous_runtime_session_state);
-      Core::set(state, Value("runtime_session_state"), clean_previous_runtime_state);
-    }
-  }
-  Core::_agent_begin_trace(state, values);
-  Core::_agent_apply_llm_checkpoint_summary(state, client, options);
-  Value state_options = Core::get(state, Value("options"), Value());
-  Value runtime_from_state = Core::get(state_options, Value("runtime"), Value());
-  Value runtime_from_options = Core::get(options, Value("runtime"), runtime_from_state);
-  Value runtime_enabled = Core::is_not_none(runtime_from_options);
-  Value distiller_options = Core::_agent_stage_options(state, Value("distiller"), options);
-  Value executor_options = Core::_agent_stage_options(state, Value("executor"), options);
-  Value responder_options = Core::_agent_stage_options(state, Value("responder"), options);
-  Value distiller_payload = Core::none();
-  if (Core::truthy(runtime_enabled)) {
-    Value distiller_empty_log = Value::array();
-    Value distiller_saved_action_log = Core::get(state, Value("action_log"), distiller_empty_log);
-    Value distiller_globals = Core::_agent_runtime_build_globals(state, values);
-    Value distiller_session = Core::none();
-    Value distiller_max_steps = Core::get(options, Value("max_actor_steps"), Value(4));
-    Value distiller_step = Value(0);
-    while (true) {
-      Value distiller_too_many = Core::gte(distiller_step, distiller_max_steps);
-      if (Core::truthy(distiller_too_many)) {
-        Value distiller_error_event = Value::object();
-        Core::set(distiller_error_event, Value("error"), Value("agent distiller loop exceeded max steps"));
-        Core::set(distiller_error_event, Value("stage"), Value("distiller"));
-        Core::_agent_record_trace_event(state, Value("error"), distiller_error_event);
-        Value distiller_error = Core::runtime_error(Value("agent distiller loop exceeded max steps"));
-        Core::raise_error(distiller_error);
-      }
-      Value distiller_values = Core::_build_distiller_inputs(state, values);
-      Value distiller_request_event = Value::object();
-      Core::set(distiller_request_event, Value("stage"), Value("distiller"));
-      Core::set(distiller_request_event, Value("step"), distiller_step);
-      Core::set(distiller_request_event, Value("values"), distiller_values);
-      Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
-      Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
-      Value distiller_output = Core::_agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options);
-      Value distiller_response_event = Value::object();
-      Core::set(distiller_response_event, Value("stage"), Value("distiller"));
-      Core::set(distiller_response_event, Value("step"), distiller_step);
-      Core::set(distiller_response_event, Value("output"), distiller_output);
-      Core::set(distiller_response_event, Value("component_id"), Value("agent.stage.distiller"));
-      Core::_agent_record_trace_event(state, Value("stage_response"), distiller_response_event);
-      Value distiller_code_raw = Core::_extract_agent_runtime_code(state, distiller_output);
-      Value distiller_fence_violation = Core::_agent_runtime_code_fence_violation(distiller_code_raw);
-      if (Core::truthy(distiller_fence_violation)) {
-        Core::_agent_record_runtime_code_fence_violation(state, distiller_code_raw);
-        distiller_step = Core::add(distiller_step, Value(1));
-        continue;
-      }
-      Value distiller_code = Core::_normalize_agent_runtime_code(distiller_code_raw);
-      Value distiller_runtime_step = Core::_agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options);
-      distiller_session = Core::get(state, Value("runtime_session"), distiller_session);
-      Value distiller_step_error = Core::get(distiller_runtime_step, Value("is_error"), Value(false));
-      Value distiller_step_ok = Core::not_(distiller_step_error);
-      if (Core::truthy(distiller_step_ok)) {
-        Core::_agent_runtime_refresh_state_summary(state, distiller_session, options);
-      }
-      Value distiller_completion = Core::get(distiller_runtime_step, Value("completion_payload"), Value());
-      Value distiller_has_completion = Core::type_is(distiller_completion, Value("object"));
-      if (Core::truthy(distiller_has_completion)) {
-        distiller_payload = distiller_completion;
-        break;
-      }
-      distiller_step = Core::add(distiller_step, Value(1));
-    }
-    Value shared_contract = Core::get(state, Value("runtime_contract"), Value());
-    Value shared_js = Core::get(shared_contract, Value("is_javascript"), Value(true));
-    if (Core::truthy(shared_js)) {
-      Core::set(state, Value("runtime_session"), distiller_session);
-    }
-    if (!Core::truthy(shared_js)) {
-      Value distiller_session_reset = Core::none();
-      Core::set(state, Value("runtime_session"), distiller_session_reset);
-      Value distiller_state_reset = Value::object();
-      Core::set(state, Value("runtime_session_state"), distiller_state_reset);
-    }
-    Core::set(state, Value("action_log"), distiller_saved_action_log);
-  }
-  if (!Core::truthy(runtime_enabled)) {
-    Value distiller_values = Core::_build_distiller_inputs(state, values);
-    Value distiller_request_event = Value::object();
-    Core::set(distiller_request_event, Value("stage"), Value("distiller"));
-    Core::set(distiller_request_event, Value("values"), distiller_values);
-    Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
-    Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
-    Value distiller_output = Core::_agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options);
-    Value distiller_response_event = Value::object();
-    Core::set(distiller_response_event, Value("stage"), Value("distiller"));
-    Core::set(distiller_response_event, Value("output"), distiller_output);
-    Core::set(distiller_response_event, Value("component_id"), Value("agent.stage.distiller"));
-    Core::_agent_record_trace_event(state, Value("stage_response"), distiller_response_event);
-    distiller_payload = Core::_normalize_agent_completion_payload(distiller_output);
-  }
-  Core::_throw_agent_clarification(distiller_payload, state);
-  Value distiller_skills_after = Core::get(state, Value("distiller_loaded_skill_docs"), empty_list);
-  Value executor_skills_after = Core::get(state, Value("loaded_skill_docs"), empty_list);
-  executor_skills_after = Core::_agent_merge_skill_results(executor_skills_after, distiller_skills_after);
-  Core::set(state, Value("loaded_skill_docs"), executor_skills_after);
-  Core::set(state, Value("active_stage"), Value("executor"));
-  Value executor_payload = Core::none();
-  Value distiller_payload_type = Core::get(distiller_payload, Value("type"), Value(""));
-  Value distiller_is_respond = Core::eq(distiller_payload_type, Value("respond"));
-  if (Core::truthy(distiller_is_respond)) {
-    Value skip_empty_map = Value::object();
-    Value skip_policy_flags = Core::get(state, Value("policy_flags"), skip_empty_map);
-    Value skip_enabled = Core::get(skip_policy_flags, Value("directRespondEnabled"), Value(true));
-    Value skip_disabled = Core::not_(skip_enabled);
-    if (Core::truthy(skip_disabled)) {
-      Value skip_error = Core::runtime_error(Value("agent distiller produced a respond() payload while directResponse is 'off'"));
-      Core::raise_error(skip_error);
-    }
-    Value skip_args_empty = Value::array();
-    Value skip_args = Core::get(distiller_payload, Value("args"), skip_args_empty);
-    Value skip_payload = Value::object();
-    Core::set(skip_payload, Value("type"), Value("final"));
-    Core::set(skip_payload, Value("args"), skip_args);
-    executor_payload = skip_payload;
-    Value skip_event = Value::object();
-    Core::set(skip_event, Value("stage"), Value("executor"));
-    Core::set(skip_event, Value("reason"), Value("direct_respond"));
-    Core::set(skip_event, Value("component_id"), Value("agent.stage.executor"));
-    Core::_agent_record_trace_event(state, Value("stage_skipped"), skip_event);
-  }
-  Value run_executor = Core::not_(distiller_is_respond);
-  Value runtime_executor_enabled = Core::and_(run_executor, runtime_enabled);
-  if (Core::truthy(runtime_executor_enabled)) {
-    Value exec_empty_map = Value::object();
-    Value exec_empty_list = Value::array();
-    Value exec_args = Core::get(distiller_payload, Value("args"), exec_empty_list);
-    Value exec_non_ctx_split = Core::_split_context_values(state, values);
-    Value exec_non_ctx = Core::get(exec_non_ctx_split, Value("values"), exec_empty_map);
-    Value exec_fallback_req = Core::json_stringify(exec_non_ctx);
-    Value exec_req_raw = Core::list_get(exec_args, Value(0), exec_fallback_req);
-    Value exec_req_is_string = Core::type_is(exec_req_raw, Value("string"));
-    Value exec_req = exec_req_raw;
-    if (Core::truthy(exec_req_is_string)) {
-      // empty
-    }
-    if (!Core::truthy(exec_req_is_string)) {
-      Value exec_req_coerced = Core::string_format(Value("{}"), exec_req_raw);
-      exec_req = exec_req_coerced;
-    }
-    Value exec_distilled = Core::list_get(exec_args, Value(1), exec_empty_map);
-    Value exec_extras = Value::object();
-    Core::set(exec_extras, Value("executorRequest"), exec_req);
-    Core::set(exec_extras, Value("distilledContext"), exec_distilled);
-    Value exec_runtime_values = Core::map_merge(values, exec_extras);
-    Value globals = Core::_agent_runtime_build_globals(state, exec_runtime_values);
-    Value session = Core::get(state, Value("runtime_session"), Value());
-    Value has_shared_session = Core::is_not_none(session);
-    if (Core::truthy(has_shared_session)) {
-      Value patch_snapshot = Value::object();
-      Core::set(patch_snapshot, Value("globals"), globals);
-      Core::_agent_runtime_restore_session_state(state, session, patch_snapshot, options);
-    }
-    Value max_steps = Core::get(options, Value("max_actor_steps"), Value(4));
-    Value step = Value(0);
-    while (true) {
-      Value too_many = Core::gte(step, max_steps);
-      if (Core::truthy(too_many)) {
-        Value error_event = Value::object();
-        Core::set(error_event, Value("error"), Value("agent actor loop exceeded max steps"));
-        Core::set(error_event, Value("stage"), Value("executor"));
-        Core::_agent_record_trace_event(state, Value("error"), error_event);
-        Value error = Core::runtime_error(Value("agent actor loop exceeded max steps"));
-        Core::raise_error(error);
-      }
-      Value executor_values = Core::_build_executor_inputs(state, values, distiller_payload);
-      Value executor_request_event = Value::object();
-      Core::set(executor_request_event, Value("stage"), Value("executor"));
-      Core::set(executor_request_event, Value("step"), step);
-      Core::set(executor_request_event, Value("values"), executor_values);
-      Core::set(executor_request_event, Value("component_id"), Value("agent.stage.executor"));
-      Core::_agent_record_trace_event(state, Value("stage_request"), executor_request_event);
-      Value executor_output = Core::_agent_executor_stage_forward(state, executor, client, executor_values, executor_options);
-      Value executor_response_event = Value::object();
-      Core::set(executor_response_event, Value("stage"), Value("executor"));
-      Core::set(executor_response_event, Value("step"), step);
-      Core::set(executor_response_event, Value("output"), executor_output);
-      Core::set(executor_response_event, Value("component_id"), Value("agent.stage.executor"));
-      Core::_agent_record_trace_event(state, Value("stage_response"), executor_response_event);
-      Value raw_code = Core::_extract_agent_runtime_code(state, executor_output);
-      Value fence_violation = Core::_agent_runtime_code_fence_violation(raw_code);
-      if (Core::truthy(fence_violation)) {
-        Core::_agent_record_runtime_code_fence_violation(state, raw_code);
-        step = Core::add(step, Value(1));
-        continue;
-      }
-      Value code = Core::_normalize_agent_runtime_code(raw_code);
-      Value runtime_step = Core::_agent_runtime_execute_step(state, runtime_from_options, session, code, options);
-      session = Core::get(state, Value("runtime_session"), session);
-      Value exec_step_error = Core::get(runtime_step, Value("is_error"), Value(false));
-      Value exec_step_ok = Core::not_(exec_step_error);
-      if (Core::truthy(exec_step_ok)) {
-        Core::_agent_runtime_refresh_state_summary(state, session, options);
-      }
-      Value completion_payload = Core::get(runtime_step, Value("completion_payload"), Value());
-      Value has_completion = Core::type_is(completion_payload, Value("object"));
-      if (Core::truthy(has_completion)) {
-        Value executor_completion_type = Core::get(completion_payload, Value("type"), Value(""));
-        Value executor_completion_is_respond = Core::eq(executor_completion_type, Value("respond"));
-        if (Core::truthy(executor_completion_is_respond)) {
-          Core::set(completion_payload, Value("type"), Value("final"));
-        }
-        Core::_throw_agent_clarification(completion_payload, state);
-        executor_payload = completion_payload;
-        break;
-      }
-      step = Core::add(step, Value(1));
-    }
-  }
-  Value runtime_disabled = Core::not_(runtime_enabled);
-  Value non_runtime_executor = Core::and_(run_executor, runtime_disabled);
-  if (Core::truthy(non_runtime_executor)) {
-    Value executor_values = Core::_build_executor_inputs(state, values, distiller_payload);
-    Value executor_request_event = Value::object();
-    Core::set(executor_request_event, Value("stage"), Value("executor"));
-    Core::set(executor_request_event, Value("values"), executor_values);
-    Core::set(executor_request_event, Value("component_id"), Value("agent.stage.executor"));
-    Core::_agent_record_trace_event(state, Value("stage_request"), executor_request_event);
-    Value executor_output = Core::_agent_executor_stage_forward(state, executor, client, executor_values, executor_options);
-    Value executor_response_event = Value::object();
-    Core::set(executor_response_event, Value("stage"), Value("executor"));
-    Core::set(executor_response_event, Value("output"), executor_output);
-    Core::set(executor_response_event, Value("component_id"), Value("agent.stage.executor"));
-    Core::_agent_record_trace_event(state, Value("stage_response"), executor_response_event);
-    executor_payload = Core::_normalize_agent_completion_payload(executor_output);
-    Core::_throw_agent_clarification(executor_payload, state);
-    Value executor_payload_type = Core::get(executor_payload, Value("type"), Value(""));
-    Value executor_payload_is_respond = Core::eq(executor_payload_type, Value("respond"));
-    if (Core::truthy(executor_payload_is_respond)) {
-      Core::set(executor_payload, Value("type"), Value("final"));
-    }
-  }
-  Core::_agent_apply_llm_checkpoint_summary(state, client, options);
-  Core::_agent_apply_context_management(state);
-  Core::_agent_apply_llm_tombstone_summary(state, client, options);
-  Core::_agent_evolve_context_map(state, client, options);
+  Value prepared = Core::_agent_run_actor_stages(state, distiller, executor, client, values, options);
+  values = Core::get(prepared, Value("values"), Value());
+  Value executor_payload = Core::get(prepared, Value("executor_payload"), Value());
+  Value responder_options = Core::get(prepared, Value("responder_options"), Value());
   Value responder_values = Core::_build_responder_inputs(state, values, executor_payload);
   Value responder_request_event = Value::object();
   Core::set(responder_request_event, Value("stage"), Value("responder"));
   Core::set(responder_request_event, Value("values"), responder_values);
   Core::set(responder_request_event, Value("component_id"), Value("agent.stage.responder"));
   Core::_agent_record_trace_event(state, Value("stage_request"), responder_request_event);
-  Value responder_output = Core::_agent_controlled_stage_forward(responder, client, responder_values, responder_options);
-  Value citation_retry_options = Value::object();
-  citation_retry_options = Core::map_merge(citation_retry_options, responder_options);
-  Value citations_valid = Core::_agent_validate_citations(state, responder_output);
-  Value citations_invalid = Core::not_(citations_valid);
-  if (Core::truthy(citations_invalid)) {
-    Value invalid_citations_output = Core::json_stringify(responder_output);
-    Value citation_retry_feedback = Core::string_format(Value("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON."), invalid_citations_output);
-    Core::set(citation_retry_options, Value("validation_feedback"), citation_retry_feedback);
-    responder_output = Core::_agent_controlled_stage_forward(responder, client, responder_values, citation_retry_options);
-    citations_valid = Core::_agent_validate_citations(state, responder_output);
+  Core::_agent_begin_citation_checks(state, executor_payload);
+  Value responder_output = Value::object();
+  try {
+    responder_output = Core::_agent_controlled_stage_forward(responder, client, responder_values, responder_options);
+  } catch (const std::exception& e) {
+    Value responder_error = Core::exception_value(e);
+    Core::_agent_end_citation_checks(state);
+    Core::raise_error(responder_error);
   }
-  citations_invalid = Core::not_(citations_valid);
-  if (Core::truthy(citations_invalid)) {
-    Value invalid_citations_output = Core::json_stringify(responder_output);
-    Value citation_retry_feedback = Core::string_format(Value("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON."), invalid_citations_output);
-    Core::set(citation_retry_options, Value("validation_feedback"), citation_retry_feedback);
-    responder_output = Core::_agent_controlled_stage_forward(responder, client, responder_values, citation_retry_options);
-    citations_valid = Core::_agent_validate_citations(state, responder_output);
-  }
-  citations_invalid = Core::not_(citations_valid);
-  if (Core::truthy(citations_invalid)) {
-    Value error = Core::runtime_error(Value("AxAgent responder returned citations that do not exist in the run evidence"));
-    Core::raise_error(error);
-  }
+  Core::_agent_end_citation_checks(state);
   responder_output = Core::_agent_finalize_citations(state, responder_output);
   Value responder_response_event = Value::object();
   Core::set(responder_response_event, Value("stage"), Value("responder"));
   Core::set(responder_response_event, Value("output"), responder_output);
   Core::set(responder_response_event, Value("component_id"), Value("agent.stage.responder"));
   Core::_agent_record_trace_event(state, Value("stage_response"), responder_response_event);
-  Value logs = Core::_merge_agent_chat_log(state, distiller, executor, responder);
-  Value usage = Core::_merge_agent_usage(state, distiller, executor, responder);
-  Core::set(state, Value("last_output"), responder_output);
-  Core::set(state, Value("chat_log"), logs);
-  Core::set(state, Value("usage"), usage);
-  forward_used_memories = Core::get(state, Value("used_memories"), empty_list);
-  forward_used_skills = Core::get(state, Value("used_skills"), empty_list);
-  Core::agent_observer_notify(state, options, Value("used_memories"), forward_used_memories);
-  Core::agent_observer_notify(state, options, Value("used_skills"), forward_used_skills);
-  Core::_agent_build_failure_signals(state);
-  Core::_agent_finalize_trace(state, Value("completed"), responder_output);
-  return responder_output;
+  Value output = Core::_agent_complete_run(state, distiller, executor, responder, client, options, responder_output);
+  return output;
 }
 
 Value Core::_agent_apply_run_context(Value state, Value configured, Value call, Value modules) {
@@ -35817,6 +35559,492 @@ Value Core::_agent_runtime_invoke_callable(Value state, Value qualified, Value a
   }
   Value value = Core::get(result, Value("value"), result);
   return value;
+}
+
+Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor, Value client, Value values, Value options) {
+  axir_coverage_mark("_agent_run_actor_stages");
+  Value empty_list = Value::array();
+  Value empty_map = Value::object();
+  Core::set(state, Value("native_tool_names"), empty_list);
+  Value loaded_memories = Value::array();
+  Value used_memories = Value::array();
+  Value used_skills = Value::array();
+  Value relevance_hints_for_turn = Core::none();
+  Core::set(state, Value("loaded_memories"), loaded_memories);
+  Core::set(state, Value("used_memories"), used_memories);
+  Core::set(state, Value("used_skills"), used_skills);
+  Core::set(state, Value("relevance_hints_for_turn"), relevance_hints_for_turn);
+  Value preset_memories = Core::get(values, Value("memories"), empty_list);
+  loaded_memories = Core::_agent_merge_memory_results(loaded_memories, preset_memories);
+  Core::set(state, Value("loaded_memories"), loaded_memories);
+  Value loaded_skills = Core::get(state, Value("loaded_skill_docs"), empty_list);
+  Value forward_skills = Core::get(options, Value("skills"), empty_list);
+  loaded_skills = Core::_agent_merge_skill_results(loaded_skills, forward_skills);
+  Core::set(state, Value("loaded_skill_docs"), loaded_skills);
+  Value flags = Core::get(state, Value("policy_flags"), empty_map);
+  Value forward_used_memories = Core::get(options, Value("onUsedMemories"), Value());
+  Value forward_used_memories_snake = Core::get(options, Value("on_used_memories"), forward_used_memories);
+  Value forward_used_skills = Core::get(options, Value("onUsedSkills"), Value());
+  Value forward_used_skills_snake = Core::get(options, Value("on_used_skills"), forward_used_skills);
+  Value has_forward_used_memories = Core::is_not_none(forward_used_memories_snake);
+  Value has_forward_used_skills = Core::is_not_none(forward_used_skills_snake);
+  Value has_forward_used_observer = Core::or_(has_forward_used_memories, has_forward_used_skills);
+  if (Core::truthy(has_forward_used_observer)) {
+    Core::set(flags, Value("usageTrackingMode"), Value(true));
+    Core::set(state, Value("policy_flags"), flags);
+  }
+  Value direct_respond_only = Core::get(flags, Value("directRespondOnly"), Value(false));
+  if (Core::truthy(direct_respond_only)) {
+    Value distiller_skills = Core::get(state, Value("distiller_loaded_skill_docs"), empty_list);
+    distiller_skills = Core::_agent_merge_skill_results(distiller_skills, forward_skills);
+    Core::set(state, Value("distiller_loaded_skill_docs"), distiller_skills);
+  }
+  Core::set(state, Value("active_stage"), Value("distiller"));
+  Value transcribed_values = Core::_agent_transcribe_audio_inputs(state, client, values, options);
+  values = transcribed_values;
+  Value runtime_input_names = Value::array();
+  for (auto runtime_input_name : Core::iter(values)) {
+    Core::append(runtime_input_names, runtime_input_name);
+  }
+  Core::set(state, Value("runtime_input_names"), runtime_input_names);
+  Value previous_runtime_session_state = Core::get(state, Value("runtime_session_state"), Value());
+  Value previous_runtime_session_state_is_map = Core::type_is(previous_runtime_session_state, Value("object"));
+  if (Core::truthy(previous_runtime_session_state_is_map)) {
+    Value previous_runtime_globals = Core::get(previous_runtime_session_state, Value("globals"), Value());
+    Value previous_runtime_bindings = Core::get(previous_runtime_session_state, Value("bindings"), Value());
+    Value previous_runtime_globals_is_map = Core::type_is(previous_runtime_globals, Value("object"));
+    Value previous_runtime_bindings_is_map = Core::type_is(previous_runtime_bindings, Value("object"));
+    Value previous_runtime_state_has_bindings = Core::or_(previous_runtime_globals_is_map, previous_runtime_bindings_is_map);
+    if (Core::truthy(previous_runtime_state_has_bindings)) {
+      Value clean_previous_runtime_state = Core::_normalize_agent_runtime_snapshot(state, previous_runtime_session_state);
+      Core::set(state, Value("runtime_session_state"), clean_previous_runtime_state);
+    }
+  }
+  Core::_agent_begin_trace(state, values);
+  Core::_agent_apply_llm_checkpoint_summary(state, client, options);
+  Value state_options = Core::get(state, Value("options"), Value());
+  Value runtime_from_state = Core::get(state_options, Value("runtime"), Value());
+  Value runtime_from_options = Core::get(options, Value("runtime"), runtime_from_state);
+  Value runtime_enabled = Core::is_not_none(runtime_from_options);
+  Value distiller_options = Core::_agent_stage_options(state, Value("distiller"), options);
+  Value executor_options = Core::_agent_stage_options(state, Value("executor"), options);
+  Value responder_options = Core::_agent_stage_options(state, Value("responder"), options);
+  Value distiller_payload = Core::none();
+  if (Core::truthy(runtime_enabled)) {
+    Value distiller_empty_log = Value::array();
+    Value distiller_saved_action_log = Core::get(state, Value("action_log"), distiller_empty_log);
+    Value distiller_globals = Core::_agent_runtime_build_globals(state, values);
+    Value distiller_session = Core::none();
+    Value distiller_max_steps = Core::get(options, Value("max_actor_steps"), Value(4));
+    Value distiller_step = Value(0);
+    while (true) {
+      Value distiller_too_many = Core::gte(distiller_step, distiller_max_steps);
+      if (Core::truthy(distiller_too_many)) {
+        Value distiller_error_event = Value::object();
+        Core::set(distiller_error_event, Value("error"), Value("agent distiller loop exceeded max steps"));
+        Core::set(distiller_error_event, Value("stage"), Value("distiller"));
+        Core::_agent_record_trace_event(state, Value("error"), distiller_error_event);
+        Value distiller_error = Core::runtime_error(Value("agent distiller loop exceeded max steps"));
+        Core::raise_error(distiller_error);
+      }
+      Value distiller_values = Core::_build_distiller_inputs(state, values);
+      Value distiller_request_event = Value::object();
+      Core::set(distiller_request_event, Value("stage"), Value("distiller"));
+      Core::set(distiller_request_event, Value("step"), distiller_step);
+      Core::set(distiller_request_event, Value("values"), distiller_values);
+      Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
+      Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
+      Value distiller_output = Core::_agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options);
+      Value distiller_response_event = Value::object();
+      Core::set(distiller_response_event, Value("stage"), Value("distiller"));
+      Core::set(distiller_response_event, Value("step"), distiller_step);
+      Core::set(distiller_response_event, Value("output"), distiller_output);
+      Core::set(distiller_response_event, Value("component_id"), Value("agent.stage.distiller"));
+      Core::_agent_record_trace_event(state, Value("stage_response"), distiller_response_event);
+      Value distiller_code_raw = Core::_extract_agent_runtime_code(state, distiller_output);
+      Value distiller_fence_violation = Core::_agent_runtime_code_fence_violation(distiller_code_raw);
+      if (Core::truthy(distiller_fence_violation)) {
+        Core::_agent_record_runtime_code_fence_violation(state, distiller_code_raw);
+        distiller_step = Core::add(distiller_step, Value(1));
+        continue;
+      }
+      Value distiller_code = Core::_normalize_agent_runtime_code(distiller_code_raw);
+      Value distiller_runtime_step = Core::_agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options);
+      distiller_session = Core::get(state, Value("runtime_session"), distiller_session);
+      Value distiller_step_error = Core::get(distiller_runtime_step, Value("is_error"), Value(false));
+      Value distiller_step_ok = Core::not_(distiller_step_error);
+      if (Core::truthy(distiller_step_ok)) {
+        Core::_agent_runtime_refresh_state_summary(state, distiller_session, options);
+      }
+      Value distiller_completion = Core::get(distiller_runtime_step, Value("completion_payload"), Value());
+      Value distiller_has_completion = Core::type_is(distiller_completion, Value("object"));
+      if (Core::truthy(distiller_has_completion)) {
+        distiller_payload = distiller_completion;
+        break;
+      }
+      distiller_step = Core::add(distiller_step, Value(1));
+    }
+    Value shared_contract = Core::get(state, Value("runtime_contract"), Value());
+    Value shared_js = Core::get(shared_contract, Value("is_javascript"), Value(true));
+    if (Core::truthy(shared_js)) {
+      Core::set(state, Value("runtime_session"), distiller_session);
+    }
+    if (!Core::truthy(shared_js)) {
+      Value distiller_session_reset = Core::none();
+      Core::set(state, Value("runtime_session"), distiller_session_reset);
+      Value distiller_state_reset = Value::object();
+      Core::set(state, Value("runtime_session_state"), distiller_state_reset);
+    }
+    Core::set(state, Value("action_log"), distiller_saved_action_log);
+  }
+  if (!Core::truthy(runtime_enabled)) {
+    Value distiller_values = Core::_build_distiller_inputs(state, values);
+    Value distiller_request_event = Value::object();
+    Core::set(distiller_request_event, Value("stage"), Value("distiller"));
+    Core::set(distiller_request_event, Value("values"), distiller_values);
+    Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
+    Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
+    Value distiller_output = Core::_agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options);
+    Value distiller_response_event = Value::object();
+    Core::set(distiller_response_event, Value("stage"), Value("distiller"));
+    Core::set(distiller_response_event, Value("output"), distiller_output);
+    Core::set(distiller_response_event, Value("component_id"), Value("agent.stage.distiller"));
+    Core::_agent_record_trace_event(state, Value("stage_response"), distiller_response_event);
+    distiller_payload = Core::_normalize_agent_completion_payload(distiller_output);
+  }
+  Core::_throw_agent_clarification(distiller_payload, state);
+  Value distiller_skills_after = Core::get(state, Value("distiller_loaded_skill_docs"), empty_list);
+  Value executor_skills_after = Core::get(state, Value("loaded_skill_docs"), empty_list);
+  executor_skills_after = Core::_agent_merge_skill_results(executor_skills_after, distiller_skills_after);
+  Core::set(state, Value("loaded_skill_docs"), executor_skills_after);
+  Core::set(state, Value("active_stage"), Value("executor"));
+  Value executor_payload = Core::none();
+  Value distiller_payload_type = Core::get(distiller_payload, Value("type"), Value(""));
+  Value distiller_is_respond = Core::eq(distiller_payload_type, Value("respond"));
+  if (Core::truthy(distiller_is_respond)) {
+    Value skip_empty_map = Value::object();
+    Value skip_policy_flags = Core::get(state, Value("policy_flags"), skip_empty_map);
+    Value skip_enabled = Core::get(skip_policy_flags, Value("directRespondEnabled"), Value(true));
+    Value skip_disabled = Core::not_(skip_enabled);
+    if (Core::truthy(skip_disabled)) {
+      Value skip_error = Core::runtime_error(Value("agent distiller produced a respond() payload while directResponse is 'off'"));
+      Core::raise_error(skip_error);
+    }
+    Value skip_args_empty = Value::array();
+    Value skip_args = Core::get(distiller_payload, Value("args"), skip_args_empty);
+    Value skip_payload = Value::object();
+    Core::set(skip_payload, Value("type"), Value("final"));
+    Core::set(skip_payload, Value("args"), skip_args);
+    executor_payload = skip_payload;
+    Value skip_event = Value::object();
+    Core::set(skip_event, Value("stage"), Value("executor"));
+    Core::set(skip_event, Value("reason"), Value("direct_respond"));
+    Core::set(skip_event, Value("component_id"), Value("agent.stage.executor"));
+    Core::_agent_record_trace_event(state, Value("stage_skipped"), skip_event);
+  }
+  Value run_executor = Core::not_(distiller_is_respond);
+  Value runtime_executor_enabled = Core::and_(run_executor, runtime_enabled);
+  if (Core::truthy(runtime_executor_enabled)) {
+    Value exec_empty_map = Value::object();
+    Value exec_empty_list = Value::array();
+    Value exec_args = Core::get(distiller_payload, Value("args"), exec_empty_list);
+    Value exec_non_ctx_split = Core::_split_context_values(state, values);
+    Value exec_non_ctx = Core::get(exec_non_ctx_split, Value("values"), exec_empty_map);
+    Value exec_fallback_req = Core::json_stringify(exec_non_ctx);
+    Value exec_req_raw = Core::list_get(exec_args, Value(0), exec_fallback_req);
+    Value exec_req_is_string = Core::type_is(exec_req_raw, Value("string"));
+    Value exec_req = exec_req_raw;
+    if (Core::truthy(exec_req_is_string)) {
+      // empty
+    }
+    if (!Core::truthy(exec_req_is_string)) {
+      Value exec_req_coerced = Core::string_format(Value("{}"), exec_req_raw);
+      exec_req = exec_req_coerced;
+    }
+    Value exec_distilled = Core::list_get(exec_args, Value(1), exec_empty_map);
+    Value exec_extras = Value::object();
+    Core::set(exec_extras, Value("executorRequest"), exec_req);
+    Core::set(exec_extras, Value("distilledContext"), exec_distilled);
+    Value exec_runtime_values = Core::map_merge(values, exec_extras);
+    Value globals = Core::_agent_runtime_build_globals(state, exec_runtime_values);
+    Value session = Core::get(state, Value("runtime_session"), Value());
+    Value has_shared_session = Core::is_not_none(session);
+    if (Core::truthy(has_shared_session)) {
+      Value patch_snapshot = Value::object();
+      Core::set(patch_snapshot, Value("globals"), globals);
+      Core::_agent_runtime_restore_session_state(state, session, patch_snapshot, options);
+    }
+    Value max_steps = Core::get(options, Value("max_actor_steps"), Value(4));
+    Value step = Value(0);
+    while (true) {
+      Value too_many = Core::gte(step, max_steps);
+      if (Core::truthy(too_many)) {
+        Value error_event = Value::object();
+        Core::set(error_event, Value("error"), Value("agent actor loop exceeded max steps"));
+        Core::set(error_event, Value("stage"), Value("executor"));
+        Core::_agent_record_trace_event(state, Value("error"), error_event);
+        Value error = Core::runtime_error(Value("agent actor loop exceeded max steps"));
+        Core::raise_error(error);
+      }
+      Value executor_values = Core::_build_executor_inputs(state, values, distiller_payload);
+      Value executor_request_event = Value::object();
+      Core::set(executor_request_event, Value("stage"), Value("executor"));
+      Core::set(executor_request_event, Value("step"), step);
+      Core::set(executor_request_event, Value("values"), executor_values);
+      Core::set(executor_request_event, Value("component_id"), Value("agent.stage.executor"));
+      Core::_agent_record_trace_event(state, Value("stage_request"), executor_request_event);
+      Value executor_output = Core::_agent_executor_stage_forward(state, executor, client, executor_values, executor_options);
+      Value executor_response_event = Value::object();
+      Core::set(executor_response_event, Value("stage"), Value("executor"));
+      Core::set(executor_response_event, Value("step"), step);
+      Core::set(executor_response_event, Value("output"), executor_output);
+      Core::set(executor_response_event, Value("component_id"), Value("agent.stage.executor"));
+      Core::_agent_record_trace_event(state, Value("stage_response"), executor_response_event);
+      Value raw_code = Core::_extract_agent_runtime_code(state, executor_output);
+      Value fence_violation = Core::_agent_runtime_code_fence_violation(raw_code);
+      if (Core::truthy(fence_violation)) {
+        Core::_agent_record_runtime_code_fence_violation(state, raw_code);
+        step = Core::add(step, Value(1));
+        continue;
+      }
+      Value code = Core::_normalize_agent_runtime_code(raw_code);
+      Value runtime_step = Core::_agent_runtime_execute_step(state, runtime_from_options, session, code, options);
+      session = Core::get(state, Value("runtime_session"), session);
+      Value exec_step_error = Core::get(runtime_step, Value("is_error"), Value(false));
+      Value exec_step_ok = Core::not_(exec_step_error);
+      if (Core::truthy(exec_step_ok)) {
+        Core::_agent_runtime_refresh_state_summary(state, session, options);
+      }
+      Value completion_payload = Core::get(runtime_step, Value("completion_payload"), Value());
+      Value has_completion = Core::type_is(completion_payload, Value("object"));
+      if (Core::truthy(has_completion)) {
+        Value executor_completion_type = Core::get(completion_payload, Value("type"), Value(""));
+        Value executor_completion_is_respond = Core::eq(executor_completion_type, Value("respond"));
+        if (Core::truthy(executor_completion_is_respond)) {
+          Core::set(completion_payload, Value("type"), Value("final"));
+        }
+        Core::_throw_agent_clarification(completion_payload, state);
+        executor_payload = completion_payload;
+        break;
+      }
+      step = Core::add(step, Value(1));
+    }
+  }
+  Value runtime_disabled = Core::not_(runtime_enabled);
+  Value non_runtime_executor = Core::and_(run_executor, runtime_disabled);
+  if (Core::truthy(non_runtime_executor)) {
+    Value executor_values = Core::_build_executor_inputs(state, values, distiller_payload);
+    Value executor_request_event = Value::object();
+    Core::set(executor_request_event, Value("stage"), Value("executor"));
+    Core::set(executor_request_event, Value("values"), executor_values);
+    Core::set(executor_request_event, Value("component_id"), Value("agent.stage.executor"));
+    Core::_agent_record_trace_event(state, Value("stage_request"), executor_request_event);
+    Value executor_output = Core::_agent_executor_stage_forward(state, executor, client, executor_values, executor_options);
+    Value executor_response_event = Value::object();
+    Core::set(executor_response_event, Value("stage"), Value("executor"));
+    Core::set(executor_response_event, Value("output"), executor_output);
+    Core::set(executor_response_event, Value("component_id"), Value("agent.stage.executor"));
+    Core::_agent_record_trace_event(state, Value("stage_response"), executor_response_event);
+    executor_payload = Core::_normalize_agent_completion_payload(executor_output);
+    Core::_throw_agent_clarification(executor_payload, state);
+    Value executor_payload_type = Core::get(executor_payload, Value("type"), Value(""));
+    Value executor_payload_is_respond = Core::eq(executor_payload_type, Value("respond"));
+    if (Core::truthy(executor_payload_is_respond)) {
+      Core::set(executor_payload, Value("type"), Value("final"));
+    }
+  }
+  Core::_agent_apply_llm_checkpoint_summary(state, client, options);
+  Core::_agent_apply_context_management(state);
+  Core::_agent_apply_llm_tombstone_summary(state, client, options);
+  Value used_memories_payload = Core::get(state, Value("used_memories"), empty_list);
+  Value used_skills_payload = Core::get(state, Value("used_skills"), empty_list);
+  Core::agent_observer_notify(state, options, Value("used_memories"), used_memories_payload);
+  Core::agent_observer_notify(state, options, Value("used_skills"), used_skills_payload);
+  Value prepared = Value::object();
+  Core::set(prepared, Value("values"), values);
+  Core::set(prepared, Value("executor_payload"), executor_payload);
+  Core::set(prepared, Value("responder_options"), responder_options);
+  return prepared;
+}
+
+Value Core::_agent_complete_run(Value state, Value distiller, Value executor, Value responder, Value client, Value options, Value output) {
+  axir_coverage_mark("_agent_complete_run");
+  Value logs = Core::_merge_agent_chat_log(state, distiller, executor, responder);
+  Value usage = Core::_merge_agent_usage(state, distiller, executor, responder);
+  Core::set(state, Value("last_output"), output);
+  Core::set(state, Value("chat_log"), logs);
+  Core::set(state, Value("usage"), usage);
+  try {
+    Core::_agent_evolve_context_map(state, client, options);
+  } catch (const std::exception& e) {
+    Value context_map_error = Core::exception_value(e);
+    // empty
+  }
+  Core::_agent_build_failure_signals(state);
+  Core::_agent_finalize_trace(state, Value("completed"), output);
+  return output;
+}
+
+Value Core::_agent_stream_citation_delta(Value state, Value envelope) {
+  axir_coverage_mark("_agent_stream_citation_delta");
+  Value empty_map = Value::object();
+  Value citations = Core::get(state, Value("citations"), empty_map);
+  Value enabled = Core::get(citations, Value("enabled"), Value(false));
+  Value disabled = Core::not_(enabled);
+  if (Core::truthy(disabled)) {
+    return envelope;
+  }
+  Value field = Core::get(citations, Value("field"), Value("evidenceCitations"));
+  Value delta = Core::get(envelope, Value("delta"), Value());
+  Value delta_is_map = Core::type_is(delta, Value("object"));
+  Value delta_not_map = Core::not_(delta_is_map);
+  if (Core::truthy(delta_not_map)) {
+    return envelope;
+  }
+  Value has_field = Core::map_contains(delta, field);
+  Value no_field = Core::not_(has_field);
+  if (Core::truthy(no_field)) {
+    return envelope;
+  }
+  Value version = Core::get(envelope, Value("version"), Value());
+  Value citation_version = Core::get(state, Value("stream_citation_version"), Value());
+  Value new_version = Core::ne(version, citation_version);
+  if (Core::truthy(new_version)) {
+    Value fresh = Value::array();
+    Core::set(state, Value("stream_citations"), fresh);
+    Core::set(state, Value("stream_citation_version"), version);
+  }
+  Value empty_list = Value::array();
+  Value accumulated = Core::get(state, Value("stream_citations"), empty_list);
+  Value chunk = Core::get(delta, field, Value());
+  Value chunk_is_list = Core::type_is(chunk, Value("list"));
+  if (Core::truthy(chunk_is_list)) {
+    for (auto chunk_item : Core::iter(chunk)) {
+      Value chunk_text = Core::string_format(Value("{}"), chunk_item);
+      Core::append(accumulated, chunk_text);
+    }
+  }
+  if (!Core::truthy(chunk_is_list)) {
+    Value has_chunk = Core::is_not_none(chunk);
+    if (Core::truthy(has_chunk)) {
+      Value chunk_text = Core::string_format(Value("{}"), chunk);
+      Core::append(accumulated, chunk_text);
+    }
+  }
+  Core::set(state, Value("stream_citations"), accumulated);
+  Value surface = Core::get(citations, Value("surface"), Value("output"));
+  Value hidden = Core::eq(surface, Value("hidden"));
+  if (Core::truthy(hidden)) {
+    Value stripped_delta = Value::object();
+    stripped_delta = Core::map_merge(stripped_delta, delta);
+    Core::map_delete(stripped_delta, field);
+    Value stripped = Value::object();
+    stripped = Core::map_merge(stripped, envelope);
+    Core::set(stripped, Value("delta"), stripped_delta);
+    return stripped;
+  }
+  return envelope;
+}
+
+Value Core::_agent_finalize_stream_citations(Value state, Value output) {
+  axir_coverage_mark("_agent_finalize_stream_citations");
+  Value empty_map = Value::object();
+  Value citations = Core::get(state, Value("citations"), empty_map);
+  Value enabled = Core::get(citations, Value("enabled"), Value(false));
+  if (Core::truthy(enabled)) {
+    Value empty_list = Value::array();
+    Value accumulated = Core::get(state, Value("stream_citations"), empty_list);
+    Core::set(state, Value("last_citations"), accumulated);
+    Value field = Core::get(citations, Value("field"), Value("evidenceCitations"));
+    Value surface = Core::get(citations, Value("surface"), Value("output"));
+    Value hidden = Core::eq(surface, Value("hidden"));
+    if (Core::truthy(hidden)) {
+      Core::map_delete(output, field);
+    }
+  }
+  return output;
+}
+
+Value Core::_agent_controlled_stage_streaming_forward(Value stage, Value state, Value client, Value values, Value options, Value sink) {
+  axir_coverage_mark("_agent_controlled_stage_streaming_forward");
+  Value control = Core::get(options, Value("control"), Value());
+  Value aborted = Core::run_control_aborted(control);
+  if (Core::truthy(aborted)) {
+    Value error = Core::runtime_error(Value("Agent aborted before starting the next stage"));
+    Core::raise_error(error);
+  }
+  Value output = Core::agent_stage_streaming_forward(stage, state, client, values, options, sink);
+  return output;
+}
+
+Value Core::_agent_streaming_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink) {
+  axir_coverage_mark("_agent_streaming_forward_impl");
+  Value prepared = Core::_agent_run_actor_stages(state, distiller, executor, client, values, options);
+  values = Core::get(prepared, Value("values"), Value());
+  Value executor_payload = Core::get(prepared, Value("executor_payload"), Value());
+  Value responder_options = Core::get(prepared, Value("responder_options"), Value());
+  Value responder_values = Core::_build_responder_inputs(state, values, executor_payload);
+  Value responder_request_event = Value::object();
+  Core::set(responder_request_event, Value("stage"), Value("responder"));
+  Core::set(responder_request_event, Value("values"), responder_values);
+  Core::set(responder_request_event, Value("component_id"), Value("agent.stage.responder"));
+  Core::_agent_record_trace_event(state, Value("stage_request"), responder_request_event);
+  Core::_agent_begin_citation_checks(state, executor_payload);
+  Value no_citations = Value::array();
+  Value no_citation_version = Core::none();
+  Core::set(state, Value("stream_citations"), no_citations);
+  Core::set(state, Value("stream_citation_version"), no_citation_version);
+  Value responder_output = Value::object();
+  try {
+    responder_output = Core::_agent_controlled_stage_streaming_forward(responder, state, client, responder_values, responder_options, sink);
+  } catch (const std::exception& e) {
+    Value responder_error = Core::exception_value(e);
+    Core::_agent_end_citation_checks(state);
+    Core::raise_error(responder_error);
+  }
+  Core::_agent_end_citation_checks(state);
+  responder_output = Core::_agent_finalize_stream_citations(state, responder_output);
+  Value responder_response_event = Value::object();
+  Core::set(responder_response_event, Value("stage"), Value("responder"));
+  Core::set(responder_response_event, Value("output"), responder_output);
+  Core::set(responder_response_event, Value("component_id"), Value("agent.stage.responder"));
+  Core::_agent_record_trace_event(state, Value("stage_response"), responder_response_event);
+  Value output = Core::_agent_complete_run(state, distiller, executor, responder, client, options, responder_output);
+  return output;
+}
+
+Value Core::_agent_streaming_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink) {
+  axir_coverage_mark("_agent_streaming_forward");
+  Value none = Core::none();
+  Value active = Core::get(state, Value("forward_active"), Value(false));
+  if (Core::truthy(active)) {
+    Value error = Core::runtime_error(Value("An agent cannot delegate recursively to an already active agent"));
+    Core::raise_error(error);
+  }
+  Core::set(state, Value("forward_active"), Value(true));
+  Core::set(state, Value("active_client"), client);
+  Core::set(state, Value("active_forward_options"), options);
+  Value output = Value::object();
+  try {
+    output = Core::_agent_streaming_forward_impl(state, distiller, executor, responder, client, values, options, sink);
+  } catch (const std::exception& e) {
+    Value forward_error = Core::exception_value(e);
+    Core::set(state, Value("forward_active"), Value(false));
+    Core::set(state, Value("active_client"), none);
+    Core::set(state, Value("active_forward_options"), none);
+    Value session = Core::get(state, Value("runtime_session"), Value());
+    try {
+      Core::_agent_runtime_close_session(state, session);
+    } catch (const std::exception& e) {
+      Value close_error = Core::exception_value(e);
+      // empty
+    }
+    Core::raise_error(forward_error);
+  }
+  Core::set(state, Value("forward_active"), Value(false));
+  Core::set(state, Value("active_client"), none);
+  Core::set(state, Value("active_forward_options"), none);
+  return output;
 }
 
 Value Core::_flow_factory(Value options) {

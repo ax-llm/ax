@@ -418,21 +418,71 @@
     },
     {
       "capability": "agent.citations.chain_of_evidence",
-      "summary": "Nested record identifiers are collected into a citation chain, invalid citations trigger a retry, and hidden citations remain available in agent state without leaking into the typed answer.",
+      "summary": "Nested record identifiers are collected into a citation chain; as in TypeScript, the responder's citation assert rejects ids outside the run's evidence with TypeScript's messages inside the responder's validation retries (maxRetries, 4 attempts by default), and hidden citations remain available to onCitations without leaking into the typed answer.",
       "ir_ops": [
         "@resolve_agent_citations",
         "@agent_collect_citation_ids",
-        "@agent_validate_citations",
+        "@agent_begin_citation_checks",
+        "@agent_citation_assert",
         "@agent_finalize_citations"
       ],
       "fixtures": [
-        "axagent/citations-validation-retry.json",
+        "axagent/agent-forward-citations-retry.json",
+        "axagent/agent-forward-citations-exhausted.json",
+        "axagent/agent-forward-citations-no-evidence.json",
         "axagent/citations-hidden-nested-record-ids.json"
       ],
       "gate": "G6 perturbation + cross-target coverage",
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
-      "state": "VERIFIED IN ALL FIVE LANGUAGES. The retry fixture rejects an invalid citation before accepting the corrected response; the hidden-surface fixture proves nested record ids populate exported citation state while the public answer stays clean."
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. TypeScript goldens pin the retry (TS's assert message in the correction request), exhaustion after four responder attempts with TS's Unable-to-fix error, and the no-evidence message; the hidden-surface fixture proves nested record ids populate exported citation state while the public answer stays clean."
+    },
+    {
+      "capability": "agent.streaming_forward",
+      "summary": "AxAgent streaming forward runs the distiller and the executor (or the direct-respond skip) as forward does, then streams the responder's {version, index, delta} deltas; citations accumulate per version and a hidden citation field leaves each delta; clarifications fail before any delta; used memories and skills are reported before the responder and the context map updates after it; a run control hears the run at root and each stage at root/<stage>, and an early stop ends both as aborted.",
+      "ir_ops": [
+        "@agent_streaming_forward",
+        "@agent_streaming_forward_impl",
+        "@agent_run_actor_stages",
+        "@agent_complete_run",
+        "@agent_controlled_stage_streaming_forward",
+        "@agent_stream_citation_delta",
+        "@agent_finalize_stream_citations"
+      ],
+      "fixtures": [
+        "axagent/agent-streaming-forward-plain.json",
+        "axagent/agent-streaming-forward-direct-respond.json",
+        "axagent/agent-streaming-forward-clarification.json",
+        "axagent/agent-streaming-forward-citations.json",
+        "axagent/agent-streaming-forward-citations-hidden.json",
+        "axagent/agent-streaming-forward-citations-retry.json",
+        "axagent/agent-streaming-forward-used-observers.json",
+        "axagent/agent-streaming-forward-control.json",
+        "axagent/agent-streaming-forward-control-early-stop.json",
+        "axagent/agent-streaming-forward-context-map.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES against TypeScript goldens (tools/axir/extractors/agent-streaming-goldens.ts): exact deltas, merged output, request count, the order of model requests and observer callbacks, run-control events with paths, and the chat-log shape. A run control on a session-capable client is not streamed through an async run session yet: Python and Java raise the error their AxGen deltas raise, and Go, Rust and C++ stream the responder through the request boundary as their AxGen deltas do."
+    },
+    {
+      "capability": "agent.forward.run_order",
+      "summary": "As in TypeScript, forward reports used memories and skills before the responder, updates the context map after it (context-map upkeep never fails the run), and a run control hears the run at root and each stage at root/<stage>.",
+      "ir_ops": [
+        "@agent_forward_impl",
+        "@agent_run_actor_stages",
+        "@agent_complete_run"
+      ],
+      "fixtures": [
+        "axagent/agent-forward-used-observers.json",
+        "axagent/agent-forward-context-map.json",
+        "axagent/agent-forward-control.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES against TypeScript goldens: the order of model requests and observer callbacks, and run-control events with paths."
     },
     {
       "capability": "agent.failure_signals.run_end_learning",

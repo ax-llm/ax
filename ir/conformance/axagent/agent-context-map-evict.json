@@ -37,13 +37,13 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
     },
     {
+      "content": "{\"answer\":\"Paris\"}"
+    },
+    {
       "content": "{\"itemTags\":{\"cu-1\":\"harmful\"}}"
     },
     {
       "content": "{\"operations\":[]}"
-    },
-    {
-      "content": "{\"answer\":\"Paris\"}"
     }
   ],
   "signature": "question:string -> answer:string"

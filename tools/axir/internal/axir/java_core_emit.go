@@ -408,6 +408,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicFlowDispatchGroup:         "Core.flowDispatchGroup",
 	IntrinsicAgentStageForward:         "Core.agentStageForward",
 	IntrinsicAgentNativeStageForward:   "Core.agentNativeStageForward",
+	IntrinsicAgentStageStreamForward:   "Core.agentStageStreamingForward",
 	IntrinsicAgentStageChatLog:         "Core.agentStageChatLog",
 	IntrinsicAgentStageUsage:           "Core.agentStageUsage",
 	IntrinsicAgentStageTraces:          "Core.agentStageTraces",

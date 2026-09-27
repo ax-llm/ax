@@ -1134,7 +1134,9 @@ struct Core {
   static Value _build_responder_signature(Value sig, Value context_fields, Value citations);
   static Value _resolve_agent_citations(Value options, Value sig);
   static Value _agent_collect_citation_ids(Value ids, Value node, Value depth);
-  static Value _agent_validate_citations(Value state, Value output);
+  static Value _agent_begin_citation_checks(Value state, Value executor_payload);
+  static Value _agent_end_citation_checks(Value state);
+  static Value _agent_citation_assert(Value state, Value output);
   static Value _agent_finalize_citations(Value state, Value output);
   static Value _agent_collect_covered_failure_signatures(Value snapshot);
   static Value _agent_build_failure_signals(Value state);
@@ -1176,6 +1178,13 @@ struct Core {
   static Value _agent_runtime_callable_names(Value state);
   static Value _agent_callable_visible(Value state, Value qualified);
   static Value _agent_runtime_invoke_callable(Value state, Value qualified, Value arguments);
+  static Value _agent_run_actor_stages(Value state, Value distiller, Value executor, Value client, Value values, Value options);
+  static Value _agent_complete_run(Value state, Value distiller, Value executor, Value responder, Value client, Value options, Value output);
+  static Value _agent_stream_citation_delta(Value state, Value envelope);
+  static Value _agent_finalize_stream_citations(Value state, Value output);
+  static Value _agent_controlled_stage_streaming_forward(Value stage, Value state, Value client, Value values, Value options, Value sink);
+  static Value _agent_streaming_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink);
+  static Value _agent_streaming_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);

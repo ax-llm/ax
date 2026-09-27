@@ -2,10 +2,13 @@ from __future__ import annotations
 import os
 
 from abc import ABC, abstractmethod
+import contextvars
 import copy
 import json
 import math
+import queue
 import re
+import threading
 from typing import Any
 
 from .ai import (
@@ -25,6 +28,8 @@ from .ai import (
 from .session import _core_run_control_aborted
 from .gen import (
     AxGen,
+    _StreamingConsumerStopped,
+    chat_session_mode_enabled,
     _core_ai_complete_once,
     _core_ai_client_features,
     _core_tool_invoke,
@@ -1759,7 +1764,15 @@ class AxAgent:
         actor_validation_retries = self.options.get("validation_retries", self.options.get("validationRetries", 1))
         self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": actor_validation_retries, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
         self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
-        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
+        responder_options = {"id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")}
+        # As in TS, the responder's validation budget is maxRetries (3 by
+        # default) unless validation_retries is set.
+        if "validation_retries" in self.options:
+            responder_options["validation_retries"] = self.options["validation_retries"]
+        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), responder_options)
+        if (_core_get(self.state, "citations", {}) or {}).get("enabled"):
+            state = self.state
+            self.responder.add_assert(lambda output: _agent_citation_assert(state, output))
         self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
 
     def add_child_agent(self, namespace: str, name: str, child: "AxAgent"):
@@ -1793,18 +1806,90 @@ class AxAgent:
         options: dict[str, Any] | None = None,
         hooks: AxRuntimeHooks | None = None,
     ):
+        return self._run(client, values, options, hooks)
+
+    def streaming_forward(
+        self,
+        client,
+        values: dict[str, Any],
+        options: dict[str, Any] | None = None,
+        hooks: AxRuntimeHooks | None = None,
+    ):
+        """Run the agent and yield the responder's output as it streams.
+
+        As TypeScript's streamingForward does, the distiller and the executor
+        (or the direct-respond skip) run first without streaming; then this
+        yields the responder's ``{"version", "index", "delta"}`` deltas: merge
+        each index's deltas (strings and lists append, other values replace)
+        and start over when the version changes. With citations
+        ``surface: "hidden"`` the deltas leave out the citation field, and
+        ``onCitations`` gets the streamed citations after the stream. The run
+        works on a worker thread that waits while you handle each delta;
+        closing the generator stops the run, and with a run ``control`` the run
+        then ends with an ``aborted`` event. A run ``control`` on a client that
+        opens async model sessions is not covered yet and raises
+        ``NotImplementedError``, as AxGen deltas do.
+        """
+        return self._streaming_deltas(client, values, dict(options or {}), hooks)
+
+    def _streaming_deltas(self, client, values, options, hooks):
+        # The run works in a worker thread and hands each delta to this
+        # generator, then waits until the consumer asks for the next one, as
+        # TypeScript's async generator does.
+        deliveries = queue.Queue()
+        resume = threading.Semaphore(0)
+        stopped = threading.Event()
+
+        def sink(envelope):
+            if stopped.is_set():
+                raise _StreamingConsumerStopped("streaming consumer closed")
+            deliveries.put(("delta", copy.deepcopy(envelope)))
+            resume.acquire()
+            if stopped.is_set():
+                raise _StreamingConsumerStopped("streaming consumer closed")
+
+        def run():
+            try:
+                self._run(client, values, options, hooks, sink)
+                deliveries.put(("done", None))
+            except BaseException as error:  # noqa: BLE001 - re-raised in the consumer
+                deliveries.put(("error", error))
+
+        context = contextvars.copy_context()
+        worker = threading.Thread(target=context.run, args=(run,), daemon=True)
+        worker.start()
+        try:
+            while True:
+                kind, item = deliveries.get()
+                if kind == "error":
+                    raise item
+                if kind == "done":
+                    return
+                yield item
+                resume.release()
+        finally:
+            stopped.set()
+            resume.release()
+            worker.join()
+
+    def _run(self, client, values, options, hooks, sink=None):
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
+        attributes = {"ax.program.id": "root.agent", "ax.program.type": "AxAgent"}
+        if sink is not None:
+            attributes["ax.streaming"] = True
         with _runtime_hook_scope(
             call_hooks,
             self.runtime_hooks,
             span_name="ax_gen_agent_forward",
-            attributes={"ax.program.id": "root.agent", "ax.program.type": "AxAgent"},
+            attributes=attributes,
             metric_prefix="ax_gen_agent",
         ):
-            return self._forward_unscoped(client, values, _strip_runtime_hooks(options))
+            return self._forward_unscoped(client, values, _strip_runtime_hooks(options), sink)
 
-    def _forward_unscoped(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
+    def _forward_unscoped(self, client, values: dict[str, Any], options: dict[str, Any] | None = None, sink=None):
         options = dict(options or {})
+        if sink is not None:
+            _agent_check_stream_run_session(self, client, options)
         call_context = resolve_execution_context(options, self.execution_context)
         if call_context is not None or self.state.get("mcp_run_context_active"):
             modules = []
@@ -1855,16 +1940,44 @@ class AxAgent:
                     raise RuntimeError("Agent runtime callbacks must execute on the owning run thread")
                 return _agent_run_llm_query(binding.sub_gen, binding.client, params, binding.options)
             runtime.register_callable("llmQuery", llm_query)
+        # As TypeScript's forward and streamingForward do, a run control hears
+        # the run's own lifecycle at its path; each stage reports at
+        # <path>/<stage>.
+        control = options.get("control")
+        run_path = options.get("execution_path", options.get("executionPath", "root"))
+        if control is not None:
+            control._emit({"type": "started", "path": run_path})
         try:
-            output = _agent_forward(
-                self.state,
-                self.distiller,
-                self.executor,
-                self.responder,
-                client,
-                values or {},
-                options,
-            )
+            if sink is None:
+                output = _agent_forward(
+                    self.state,
+                    self.distiller,
+                    self.executor,
+                    self.responder,
+                    client,
+                    values or {},
+                    options,
+                )
+            else:
+                output = _agent_streaming_forward(
+                    self.state,
+                    self.distiller,
+                    self.executor,
+                    self.responder,
+                    client,
+                    values or {},
+                    options,
+                    sink,
+                )
+        except BaseException as error:
+            if control is not None:
+                if isinstance(error, _StreamingConsumerStopped):
+                    # The consumer stopped the stream early: the run ended on
+                    # purpose, as with control.abort().
+                    control._emit({"type": "aborted", "path": run_path})
+                else:
+                    control._emit({"type": "failed", "path": run_path, "error": str(error)})
+            raise
         finally:
             if invocation_binding is not None:
                 invocation_binding.active = False
@@ -1878,7 +1991,11 @@ class AxAgent:
                 citation_callback(list(_core_get(self.state, "last_citations", []) or []))
             except Exception:
                 pass
-        self._learn_playbook_failures(output)
+        # TS learns from the responder's answer after forward; a stream has
+        # no single answer to hand the playbook.
+        self._learn_playbook_failures(output if sink is None else {})
+        if control is not None:
+            control._emit({"type": "completed", "path": run_path})
         return output
 
     def test(self, runtime: AxCodeRuntime, code: str, context_field_values: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
@@ -2407,6 +2524,36 @@ def _core_agent_native_stage_forward(stage, state, client, values, options, sele
         stage._base_functions=original_base
         stage.function_call_traces=[*previous,*records]
         _agent_record_native_calls(state,selected,records,options or {})
+
+
+def _core_agent_stage_streaming_forward(stage, state, client, values, options, sink):
+    # Streams the stage's AxGen deltas to sink, each through the agent's
+    # citation handling (hidden citations leave the delta).
+    def emit(envelope):
+        sink(_agent_stream_citation_delta(state, envelope))
+
+    return stage._streaming_forward_with(client, values or {}, options or {}, emit)
+
+
+def _agent_check_stream_run_session(agent, client, options):
+    # Until AxGen deltas cover async run sessions, an agent stream that would
+    # stream its responder through one fails before any stage runs, with the
+    # error AxGen deltas raise.
+    responder = agent.responder
+    run_options = {**responder.options, **_agent_stage_options(agent.state, "responder", options)}
+    model = str(run_options.get("model") or getattr(client, "model", "")) or None
+    session_capable = callable(getattr(client, "_pin_chat_run", None)) or (
+        callable(getattr(client, "open_chat_session", None))
+        and bool(getattr(client, "get_features", lambda model=None: {})(model).get("asyncTools"))
+    )
+    needs_session = run_options.get("control") is not None or any(
+        getattr(tool, "execution", "blocking") == "background" for tool in responder.functions
+    )
+    if chat_session_mode_enabled(run_options) and session_capable and needs_session:
+        raise NotImplementedError(
+            "streaming_forward deltas do not cover async run sessions (control or background tools "
+            "on a session-capable client) yet; use forward()."
+        )
 
 
 def _core_agent_stage_forward(stage, client, values, options):

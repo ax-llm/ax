@@ -68888,15 +68888,21 @@ func _agent_collect_citation_ids(args ...Value) (Value, error) {
 	var v_node Value
 	var v_depth Value
 	var v_child Value
+	var v_child_is_list Value
+	var v_child_is_map Value
+	var v_child_is_node Value
 	var v_children Value
-	var v_has_depth Value
 	var v_id Value
 	var v_id_is_number Value
 	var v_id_is_string Value
 	var v_id_text Value
+	var v_in_depth Value
 	var v_is_list Value
-	var v_is_object Value
+	var v_is_map Value
 	var v_next_depth Value
+	var v_out_of_depth Value
+	var v_seen Value
+	var v_unseen Value
 	var v_valid_id Value
 	if len(args) > 0 { v_ids = args[0] }
 	_ = v_ids
@@ -68905,167 +68911,268 @@ func _agent_collect_citation_ids(args ...Value) (Value, error) {
 	if len(args) > 2 { v_depth = args[2] }
 	_ = v_depth
 	_ = v_child
+	_ = v_child_is_list
+	_ = v_child_is_map
+	_ = v_child_is_node
 	_ = v_children
-	_ = v_has_depth
 	_ = v_id
 	_ = v_id_is_number
 	_ = v_id_is_string
 	_ = v_id_text
+	_ = v_in_depth
 	_ = v_is_list
-	_ = v_is_object
+	_ = v_is_map
 	_ = v_next_depth
+	_ = v_out_of_depth
+	_ = v_seen
+	_ = v_unseen
 	_ = v_valid_id
-	v_has_depth = _core_gte(v_depth, 0)
-	if coreTruthy(v_has_depth) {
-		v_is_object = coreTypeIs(v_node, "object")
-		if coreTruthy(v_is_object) {
-			v_id = coreGet(v_node, "id", nil)
-			v_id_is_string = coreTypeIs(v_id, "string")
-			v_id_is_number = coreTypeIs(v_id, "number")
-			v_valid_id = _core_or(v_id_is_string, v_id_is_number)
-			if coreTruthy(v_valid_id) {
-				v_id_text = _core_string_format("{}", v_id)
-				if err := coreSet(v_ids, v_id_text, true); err != nil { return nil, err }
+	v_in_depth = _core_gte(v_depth, 0)
+	v_out_of_depth = _core_not(v_in_depth)
+	if coreTruthy(v_out_of_depth) {
+		return v_ids, nil
+	} else {
+	// empty
+	}
+	v_is_map = coreTypeIs(v_node, "object")
+	v_is_list = coreTypeIs(v_node, "list")
+	v_children = MutableArray()
+	if coreTruthy(v_is_map) {
+		v_id = coreGet(v_node, "id", nil)
+		v_id_is_string = coreTypeIs(v_id, "string")
+		v_id_is_number = coreTypeIs(v_id, "number")
+		v_valid_id = _core_or(v_id_is_string, v_id_is_number)
+		if coreTruthy(v_valid_id) {
+			v_id_text = _core_string_format("{}", v_id)
+			v_seen = _core_contains(v_ids, v_id_text)
+			v_unseen = _core_not(v_seen)
+			if coreTruthy(v_unseen) {
+				v_ids = coreAppend(v_ids, v_id_text)
 			} else {
 			// empty
-			}
-			v_next_depth = _core_add(v_depth, -1)
-			v_children = _core_map_values(v_node)
-			for _, v_child = range coreIter(v_children) {
-				{ v, err := _agent_collect_citation_ids(v_ids, v_child, v_next_depth); if err != nil { return nil, err }; v_ids = v }
 			}
 		} else {
-			v_is_list = coreTypeIs(v_node, "list")
-			if coreTruthy(v_is_list) {
-				v_next_depth = _core_add(v_depth, -1)
-				for _, v_child = range coreIter(v_node) {
-					{ v, err := _agent_collect_citation_ids(v_ids, v_child, v_next_depth); if err != nil { return nil, err }; v_ids = v }
-				}
-			} else {
-			// empty
-			}
+		// empty
 		}
+		v_children = _core_map_values(v_node)
 	} else {
 	// empty
 	}
-	return v_ids, nil
-}
-
-func _agent_validate_citations(args ...Value) (Value, error) {
-	axirCoverageMark("_agent_validate_citations")
-	var v_state Value
-	var v_output Value
-	var v_citations Value
-	var v_cited Value
-	var v_disabled Value
-	var v_empty_list Value
-	var v_empty_map Value
-	var v_enabled Value
-	var v_evidence Value
-	var v_evidence_present Value
-	var v_field Value
-	var v_id_text Value
-	var v_ids Value
-	var v_include_memory_ids Value
-	var v_key Value
-	var v_keys Value
-	var v_known Value
-	var v_missing Value
-	var v_no_evidence_contract Value
-	var v_raw Value
-	var v_raw_id Value
-	var v_raw_is_list Value
-	var v_unknown Value
-	var v_valid Value
-	var v_value Value
-	var v_values Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	if len(args) > 1 { v_output = args[1] }
-	_ = v_output
-	_ = v_citations
-	_ = v_cited
-	_ = v_disabled
-	_ = v_empty_list
-	_ = v_empty_map
-	_ = v_enabled
-	_ = v_evidence
-	_ = v_evidence_present
-	_ = v_field
-	_ = v_id_text
-	_ = v_ids
-	_ = v_include_memory_ids
-	_ = v_key
-	_ = v_keys
-	_ = v_known
-	_ = v_missing
-	_ = v_no_evidence_contract
-	_ = v_raw
-	_ = v_raw_id
-	_ = v_raw_is_list
-	_ = v_unknown
-	_ = v_valid
-	_ = v_value
-	_ = v_values
-	v_empty_map = Object()
-	v_citations = coreGet(v_state, "citations", v_empty_map)
-	v_enabled = coreGet(v_citations, "enabled", false)
-	v_disabled = _core_not(v_enabled)
-	if coreTruthy(v_disabled) {
-		return true, nil
+	if coreTruthy(v_is_list) {
+		v_children = v_node
 	} else {
 	// empty
 	}
-	v_evidence_present = coreGet(v_state, "responder_evidence_present", false)
-	v_no_evidence_contract = _core_not(v_evidence_present)
-	if coreTruthy(v_no_evidence_contract) {
-		return true, nil
-	} else {
-	// empty
-	}
-	v_field = coreGet(v_citations, "field", "evidenceCitations")
-	v_raw = coreGet(v_output, v_field, nil)
-	v_missing = _core_is_none(v_raw)
-	if coreTruthy(v_missing) {
-		return true, nil
-	} else {
-	// empty
-	}
-	v_ids = Object()
-	v_evidence = coreGet(v_state, "responder_evidence", v_empty_map)
-	v_keys = _core_map_keys(v_evidence)
-	for _, v_key = range coreIter(v_keys) {
-		if err := coreSet(v_ids, v_key, true); err != nil { return nil, err }
-	}
-	v_include_memory_ids = coreGet(v_citations, "includeMemoryIds", true)
-	if coreTruthy(v_include_memory_ids) {
-		v_values = _core_map_values(v_evidence)
-		for _, v_value = range coreIter(v_values) {
-			{ v, err := _agent_collect_citation_ids(v_ids, v_value, 2); if err != nil { return nil, err }; v_ids = v }
-		}
-	} else {
-	// empty
-	}
-	v_empty_list = MutableArray()
-	v_cited = v_empty_list
-	v_raw_is_list = coreTypeIs(v_raw, "list")
-	if coreTruthy(v_raw_is_list) {
-		v_cited = v_raw
-	} else {
-		v_cited = coreAppend(v_cited, v_raw)
-	}
-	v_valid = true
-	for _, v_raw_id = range coreIter(v_cited) {
-		v_id_text = _core_string_format("{}", v_raw_id)
-		v_known = _core_map_contains(v_ids, v_id_text)
-		v_unknown = _core_not(v_known)
-		if coreTruthy(v_unknown) {
-			v_valid = false
+	v_next_depth = _core_add(v_depth, -1)
+	for _, v_child = range coreIter(v_children) {
+		v_child_is_map = coreTypeIs(v_child, "object")
+		v_child_is_list = coreTypeIs(v_child, "list")
+		v_child_is_node = _core_or(v_child_is_map, v_child_is_list)
+		if coreTruthy(v_child_is_node) {
+			{ v, err := _agent_collect_citation_ids(v_ids, v_child, v_next_depth); if err != nil { return nil, err }; v_ids = v }
 		} else {
 		// empty
 		}
 	}
-	return v_valid, nil
+	return v_ids, nil
+}
+
+func _agent_begin_citation_checks(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_begin_citation_checks")
+	var v_state Value
+	var v_executor_payload Value
+	var v_args Value
+	var v_citations Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_enabled Value
+	var v_evidence Value
+	var v_evidence_is_map Value
+	var v_evidence_value Value
+	var v_evidence_values Value
+	var v_include_memory_ids Value
+	var v_keys Value
+	var v_none Value
+	var v_top_key Value
+	var v_top_keys Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_executor_payload = args[1] }
+	_ = v_executor_payload
+	_ = v_args
+	_ = v_citations
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_enabled
+	_ = v_evidence
+	_ = v_evidence_is_map
+	_ = v_evidence_value
+	_ = v_evidence_values
+	_ = v_include_memory_ids
+	_ = v_keys
+	_ = v_none
+	_ = v_top_key
+	_ = v_top_keys
+	v_none = _core_none()
+	if err := coreSet(v_state, "citation_valid_keys", v_none); err != nil { return nil, err }
+	v_empty_map = Object()
+	v_citations = coreGet(v_state, "citations", v_empty_map)
+	v_enabled = coreGet(v_citations, "enabled", false)
+	if coreTruthy(v_enabled) {
+		v_empty_list = MutableArray()
+		v_args = coreGet(v_executor_payload, "args", v_empty_list)
+		v_evidence = _core_list_get(v_args, 1, v_none)
+		v_evidence_is_map = coreTypeIs(v_evidence, "object")
+		if coreTruthy(v_evidence_is_map) {
+			v_keys = MutableArray()
+			v_top_keys = _core_map_keys(v_evidence)
+			for _, v_top_key = range coreIter(v_top_keys) {
+				v_keys = coreAppend(v_keys, v_top_key)
+			}
+			v_include_memory_ids = coreGet(v_citations, "includeMemoryIds", true)
+			if coreTruthy(v_include_memory_ids) {
+				v_evidence_values = _core_map_values(v_evidence)
+				for _, v_evidence_value = range coreIter(v_evidence_values) {
+					{ v, err := _agent_collect_citation_ids(v_keys, v_evidence_value, 2); if err != nil { return nil, err }; v_keys = v }
+				}
+			} else {
+			// empty
+			}
+			if err := coreSet(v_state, "citation_valid_keys", v_keys); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
+func _agent_end_citation_checks(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_end_citation_checks")
+	var v_state Value
+	var v_none Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_none
+	v_none = _core_none()
+	if err := coreSet(v_state, "citation_valid_keys", v_none); err != nil { return nil, err }
+	return nil, nil
+}
+
+func _agent_citation_assert(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_citation_assert")
+	var v_state Value
+	var v_output Value
+	var v_all_known Value
+	var v_citations Value
+	var v_cited Value
+	var v_cited_item Value
+	var v_cited_text Value
+	var v_empty_map Value
+	var v_field Value
+	var v_invalid Value
+	var v_invalid_count Value
+	var v_invalid_text Value
+	var v_key_count Value
+	var v_keys Value
+	var v_keys_text Value
+	var v_known Value
+	var v_message Value
+	var v_missing Value
+	var v_no_evidence Value
+	var v_no_evidence_message Value
+	var v_none Value
+	var v_raw Value
+	var v_raw_is_list Value
+	var v_raw_item Value
+	var v_unchecked Value
+	var v_unknown Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_output = args[1] }
+	_ = v_output
+	_ = v_all_known
+	_ = v_citations
+	_ = v_cited
+	_ = v_cited_item
+	_ = v_cited_text
+	_ = v_empty_map
+	_ = v_field
+	_ = v_invalid
+	_ = v_invalid_count
+	_ = v_invalid_text
+	_ = v_key_count
+	_ = v_keys
+	_ = v_keys_text
+	_ = v_known
+	_ = v_message
+	_ = v_missing
+	_ = v_no_evidence
+	_ = v_no_evidence_message
+	_ = v_none
+	_ = v_raw
+	_ = v_raw_is_list
+	_ = v_raw_item
+	_ = v_unchecked
+	_ = v_unknown
+	v_none = _core_none()
+	v_keys = coreGet(v_state, "citation_valid_keys", nil)
+	v_unchecked = _core_is_none(v_keys)
+	if coreTruthy(v_unchecked) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_empty_map = Object()
+	v_citations = coreGet(v_state, "citations", v_empty_map)
+	v_field = coreGet(v_citations, "field", "evidenceCitations")
+	v_raw = coreGet(v_output, v_field, nil)
+	v_missing = _core_is_none(v_raw)
+	if coreTruthy(v_missing) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_cited = MutableArray()
+	v_raw_is_list = coreTypeIs(v_raw, "list")
+	if coreTruthy(v_raw_is_list) {
+		for _, v_raw_item = range coreIter(v_raw) {
+			v_cited = coreAppend(v_cited, v_raw_item)
+		}
+	} else {
+		v_cited = coreAppend(v_cited, v_raw)
+	}
+	v_invalid = MutableArray()
+	for _, v_cited_item = range coreIter(v_cited) {
+		v_cited_text = _core_string_format("{}", v_cited_item)
+		v_known = _core_contains(v_keys, v_cited_text)
+		v_unknown = _core_not(v_known)
+		if coreTruthy(v_unknown) {
+			v_invalid = coreAppend(v_invalid, v_cited_text)
+		} else {
+		// empty
+		}
+	}
+	v_invalid_count = _core_len(v_invalid)
+	v_all_known = _core_eq(v_invalid_count, 0)
+	if coreTruthy(v_all_known) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_key_count = _core_len(v_keys)
+	v_no_evidence = _core_eq(v_key_count, 0)
+	if coreTruthy(v_no_evidence) {
+		v_no_evidence_message = _core_string_format("This answer has no evidence to cite — leave {} empty.", v_field)
+		return v_no_evidence_message, nil
+	} else {
+	// empty
+	}
+	v_invalid_text = _core_string_join(", ", v_invalid)
+	v_keys_text = _core_string_join(", ", v_keys)
+	v_message = _core_string_format("Invalid {} entries: {}. Cite only evidence ids that exist: {} — or leave the field empty.", v_field, v_invalid_text, v_keys_text)
+	return v_message, nil
 }
 
 func _agent_finalize_citations(args ...Value) (Value, error) {
@@ -69073,33 +69180,56 @@ func _agent_finalize_citations(args ...Value) (Value, error) {
 	var v_state Value
 	var v_output Value
 	var v_citations Value
-	var v_empty_list Value
 	var v_empty_map Value
 	var v_enabled Value
 	var v_field Value
 	var v_hidden Value
 	var v_raw Value
+	var v_raw_is_list Value
+	var v_raw_item Value
+	var v_raw_present Value
+	var v_raw_text Value
+	var v_reported Value
 	var v_surface Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_output = args[1] }
 	_ = v_output
 	_ = v_citations
-	_ = v_empty_list
 	_ = v_empty_map
 	_ = v_enabled
 	_ = v_field
 	_ = v_hidden
 	_ = v_raw
+	_ = v_raw_is_list
+	_ = v_raw_item
+	_ = v_raw_present
+	_ = v_raw_text
+	_ = v_reported
 	_ = v_surface
 	v_empty_map = Object()
-	v_empty_list = MutableArray()
 	v_citations = coreGet(v_state, "citations", v_empty_map)
 	v_enabled = coreGet(v_citations, "enabled", false)
 	if coreTruthy(v_enabled) {
 		v_field = coreGet(v_citations, "field", "evidenceCitations")
-		v_raw = coreGet(v_output, v_field, v_empty_list)
-		if err := coreSet(v_state, "last_citations", v_raw); err != nil { return nil, err }
+		v_raw = coreGet(v_output, v_field, nil)
+		v_reported = MutableArray()
+		v_raw_is_list = coreTypeIs(v_raw, "list")
+		v_raw_present = _core_is_not_none(v_raw)
+		if coreTruthy(v_raw_is_list) {
+			for _, v_raw_item = range coreIter(v_raw) {
+				v_raw_text = _core_string_format("{}", v_raw_item)
+				v_reported = coreAppend(v_reported, v_raw_text)
+			}
+		} else {
+			if coreTruthy(v_raw_present) {
+				v_raw_text = _core_string_format("{}", v_raw)
+				v_reported = coreAppend(v_reported, v_raw_text)
+			} else {
+			// empty
+			}
+		}
+		if err := coreSet(v_state, "last_citations", v_reported); err != nil { return nil, err }
 		v_surface = coreGet(v_citations, "surface", "output")
 		v_hidden = _core_eq(v_surface, "hidden")
 		if coreTruthy(v_hidden) {
@@ -71444,136 +71574,15 @@ func _agent_forward_impl(args ...Value) (Value, error) {
 	var v_client Value
 	var v_values Value
 	var v_options Value
-	var v_citation_retry_feedback Value
-	var v_citation_retry_options Value
-	var v_citations_invalid Value
-	var v_citations_valid Value
-	var v_clean_previous_runtime_state Value
-	var v_code Value
-	var v_completion_payload Value
-	var v_direct_respond_only Value
-	var v_distiller_code Value
-	var v_distiller_code_raw Value
-	var v_distiller_completion Value
-	var v_distiller_empty_log Value
-	var v_distiller_error Value
-	var v_distiller_error_event Value
-	var v_distiller_fence_violation Value
-	var v_distiller_globals Value
-	var v_distiller_has_completion Value
-	var v_distiller_is_respond Value
-	var v_distiller_max_steps Value
-	var v_distiller_options Value
-	var v_distiller_output Value
-	var v_distiller_payload Value
-	var v_distiller_payload_type Value
-	var v_distiller_request_event Value
-	var v_distiller_response_event Value
-	var v_distiller_runtime_step Value
-	var v_distiller_saved_action_log Value
-	var v_distiller_session Value
-	var v_distiller_session_reset Value
-	var v_distiller_skills Value
-	var v_distiller_skills_after Value
-	var v_distiller_state_reset Value
-	var v_distiller_step Value
-	var v_distiller_step_error Value
-	var v_distiller_step_ok Value
-	var v_distiller_too_many Value
-	var v_distiller_values Value
-	var v_empty_list Value
-	var v_empty_map Value
-	var v_error Value
-	var v_error_event Value
-	var v_exec_args Value
-	var v_exec_distilled Value
-	var v_exec_empty_list Value
-	var v_exec_empty_map Value
-	var v_exec_extras Value
-	var v_exec_fallback_req Value
-	var v_exec_non_ctx Value
-	var v_exec_non_ctx_split Value
-	var v_exec_req Value
-	var v_exec_req_coerced Value
-	var v_exec_req_is_string Value
-	var v_exec_req_raw Value
-	var v_exec_runtime_values Value
-	var v_exec_step_error Value
-	var v_exec_step_ok Value
-	var v_executor_completion_is_respond Value
-	var v_executor_completion_type Value
-	var v_executor_options Value
-	var v_executor_output Value
 	var v_executor_payload Value
-	var v_executor_payload_is_respond Value
-	var v_executor_payload_type Value
-	var v_executor_request_event Value
-	var v_executor_response_event Value
-	var v_executor_skills_after Value
-	var v_executor_values Value
-	var v_fence_violation Value
-	var v_flags Value
-	var v_forward_skills Value
-	var v_forward_used_memories Value
-	var v_forward_used_memories_snake Value
-	var v_forward_used_skills Value
-	var v_forward_used_skills_snake Value
-	var v_globals Value
-	var v_has_completion Value
-	var v_has_forward_used_memories Value
-	var v_has_forward_used_observer Value
-	var v_has_forward_used_skills Value
-	var v_has_shared_session Value
-	var v_invalid_citations_output Value
-	var v_loaded_memories Value
-	var v_loaded_skills Value
-	var v_logs Value
-	var v_max_steps Value
-	var v_non_runtime_executor Value
-	var v_patch_snapshot Value
-	var v_preset_memories Value
-	var v_previous_runtime_bindings Value
-	var v_previous_runtime_bindings_is_map Value
-	var v_previous_runtime_globals Value
-	var v_previous_runtime_globals_is_map Value
-	var v_previous_runtime_session_state Value
-	var v_previous_runtime_session_state_is_map Value
-	var v_previous_runtime_state_has_bindings Value
-	var v_raw_code Value
-	var v_relevance_hints_for_turn Value
+	var v_output Value
+	var v_prepared Value
+	var v_responder_error Value
 	var v_responder_options Value
 	var v_responder_output Value
 	var v_responder_request_event Value
 	var v_responder_response_event Value
 	var v_responder_values Value
-	var v_run_executor Value
-	var v_runtime_disabled Value
-	var v_runtime_enabled Value
-	var v_runtime_executor_enabled Value
-	var v_runtime_from_options Value
-	var v_runtime_from_state Value
-	var v_runtime_input_name Value
-	var v_runtime_input_names Value
-	var v_runtime_step Value
-	var v_session Value
-	var v_shared_contract Value
-	var v_shared_js Value
-	var v_skip_args Value
-	var v_skip_args_empty Value
-	var v_skip_disabled Value
-	var v_skip_empty_map Value
-	var v_skip_enabled Value
-	var v_skip_error Value
-	var v_skip_event Value
-	var v_skip_payload Value
-	var v_skip_policy_flags Value
-	var v_state_options Value
-	var v_step Value
-	var v_too_many Value
-	var v_transcribed_values Value
-	var v_usage Value
-	var v_used_memories Value
-	var v_used_skills Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_distiller = args[1] }
@@ -71588,520 +71597,48 @@ func _agent_forward_impl(args ...Value) (Value, error) {
 	_ = v_values
 	if len(args) > 6 { v_options = args[6] }
 	_ = v_options
-	_ = v_citation_retry_feedback
-	_ = v_citation_retry_options
-	_ = v_citations_invalid
-	_ = v_citations_valid
-	_ = v_clean_previous_runtime_state
-	_ = v_code
-	_ = v_completion_payload
-	_ = v_direct_respond_only
-	_ = v_distiller_code
-	_ = v_distiller_code_raw
-	_ = v_distiller_completion
-	_ = v_distiller_empty_log
-	_ = v_distiller_error
-	_ = v_distiller_error_event
-	_ = v_distiller_fence_violation
-	_ = v_distiller_globals
-	_ = v_distiller_has_completion
-	_ = v_distiller_is_respond
-	_ = v_distiller_max_steps
-	_ = v_distiller_options
-	_ = v_distiller_output
-	_ = v_distiller_payload
-	_ = v_distiller_payload_type
-	_ = v_distiller_request_event
-	_ = v_distiller_response_event
-	_ = v_distiller_runtime_step
-	_ = v_distiller_saved_action_log
-	_ = v_distiller_session
-	_ = v_distiller_session_reset
-	_ = v_distiller_skills
-	_ = v_distiller_skills_after
-	_ = v_distiller_state_reset
-	_ = v_distiller_step
-	_ = v_distiller_step_error
-	_ = v_distiller_step_ok
-	_ = v_distiller_too_many
-	_ = v_distiller_values
-	_ = v_empty_list
-	_ = v_empty_map
-	_ = v_error
-	_ = v_error_event
-	_ = v_exec_args
-	_ = v_exec_distilled
-	_ = v_exec_empty_list
-	_ = v_exec_empty_map
-	_ = v_exec_extras
-	_ = v_exec_fallback_req
-	_ = v_exec_non_ctx
-	_ = v_exec_non_ctx_split
-	_ = v_exec_req
-	_ = v_exec_req_coerced
-	_ = v_exec_req_is_string
-	_ = v_exec_req_raw
-	_ = v_exec_runtime_values
-	_ = v_exec_step_error
-	_ = v_exec_step_ok
-	_ = v_executor_completion_is_respond
-	_ = v_executor_completion_type
-	_ = v_executor_options
-	_ = v_executor_output
 	_ = v_executor_payload
-	_ = v_executor_payload_is_respond
-	_ = v_executor_payload_type
-	_ = v_executor_request_event
-	_ = v_executor_response_event
-	_ = v_executor_skills_after
-	_ = v_executor_values
-	_ = v_fence_violation
-	_ = v_flags
-	_ = v_forward_skills
-	_ = v_forward_used_memories
-	_ = v_forward_used_memories_snake
-	_ = v_forward_used_skills
-	_ = v_forward_used_skills_snake
-	_ = v_globals
-	_ = v_has_completion
-	_ = v_has_forward_used_memories
-	_ = v_has_forward_used_observer
-	_ = v_has_forward_used_skills
-	_ = v_has_shared_session
-	_ = v_invalid_citations_output
-	_ = v_loaded_memories
-	_ = v_loaded_skills
-	_ = v_logs
-	_ = v_max_steps
-	_ = v_non_runtime_executor
-	_ = v_patch_snapshot
-	_ = v_preset_memories
-	_ = v_previous_runtime_bindings
-	_ = v_previous_runtime_bindings_is_map
-	_ = v_previous_runtime_globals
-	_ = v_previous_runtime_globals_is_map
-	_ = v_previous_runtime_session_state
-	_ = v_previous_runtime_session_state_is_map
-	_ = v_previous_runtime_state_has_bindings
-	_ = v_raw_code
-	_ = v_relevance_hints_for_turn
+	_ = v_output
+	_ = v_prepared
+	_ = v_responder_error
 	_ = v_responder_options
 	_ = v_responder_output
 	_ = v_responder_request_event
 	_ = v_responder_response_event
 	_ = v_responder_values
-	_ = v_run_executor
-	_ = v_runtime_disabled
-	_ = v_runtime_enabled
-	_ = v_runtime_executor_enabled
-	_ = v_runtime_from_options
-	_ = v_runtime_from_state
-	_ = v_runtime_input_name
-	_ = v_runtime_input_names
-	_ = v_runtime_step
-	_ = v_session
-	_ = v_shared_contract
-	_ = v_shared_js
-	_ = v_skip_args
-	_ = v_skip_args_empty
-	_ = v_skip_disabled
-	_ = v_skip_empty_map
-	_ = v_skip_enabled
-	_ = v_skip_error
-	_ = v_skip_event
-	_ = v_skip_payload
-	_ = v_skip_policy_flags
-	_ = v_state_options
-	_ = v_step
-	_ = v_too_many
-	_ = v_transcribed_values
-	_ = v_usage
-	_ = v_used_memories
-	_ = v_used_skills
-	v_empty_list = MutableArray()
-	v_empty_map = Object()
-	if err := coreSet(v_state, "native_tool_names", v_empty_list); err != nil { return nil, err }
-	v_loaded_memories = MutableArray()
-	v_used_memories = MutableArray()
-	v_used_skills = MutableArray()
-	v_relevance_hints_for_turn = _core_none()
-	if err := coreSet(v_state, "loaded_memories", v_loaded_memories); err != nil { return nil, err }
-	if err := coreSet(v_state, "used_memories", v_used_memories); err != nil { return nil, err }
-	if err := coreSet(v_state, "used_skills", v_used_skills); err != nil { return nil, err }
-	if err := coreSet(v_state, "relevance_hints_for_turn", v_relevance_hints_for_turn); err != nil { return nil, err }
-	v_preset_memories = coreGet(v_values, "memories", v_empty_list)
-	{ v, err := _agent_merge_memory_results(v_loaded_memories, v_preset_memories); if err != nil { return nil, err }; v_loaded_memories = v }
-	if err := coreSet(v_state, "loaded_memories", v_loaded_memories); err != nil { return nil, err }
-	v_loaded_skills = coreGet(v_state, "loaded_skill_docs", v_empty_list)
-	v_forward_skills = coreGet(v_options, "skills", v_empty_list)
-	{ v, err := _agent_merge_skill_results(v_loaded_skills, v_forward_skills); if err != nil { return nil, err }; v_loaded_skills = v }
-	if err := coreSet(v_state, "loaded_skill_docs", v_loaded_skills); err != nil { return nil, err }
-	v_flags = coreGet(v_state, "policy_flags", v_empty_map)
-	v_forward_used_memories = coreGet(v_options, "onUsedMemories", nil)
-	v_forward_used_memories_snake = coreGet(v_options, "on_used_memories", v_forward_used_memories)
-	v_forward_used_skills = coreGet(v_options, "onUsedSkills", nil)
-	v_forward_used_skills_snake = coreGet(v_options, "on_used_skills", v_forward_used_skills)
-	v_has_forward_used_memories = _core_is_not_none(v_forward_used_memories_snake)
-	v_has_forward_used_skills = _core_is_not_none(v_forward_used_skills_snake)
-	v_has_forward_used_observer = _core_or(v_has_forward_used_memories, v_has_forward_used_skills)
-	if coreTruthy(v_has_forward_used_observer) {
-		if err := coreSet(v_flags, "usageTrackingMode", true); err != nil { return nil, err }
-		if err := coreSet(v_state, "policy_flags", v_flags); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_direct_respond_only = coreGet(v_flags, "directRespondOnly", false)
-	if coreTruthy(v_direct_respond_only) {
-		v_distiller_skills = coreGet(v_state, "distiller_loaded_skill_docs", v_empty_list)
-		{ v, err := _agent_merge_skill_results(v_distiller_skills, v_forward_skills); if err != nil { return nil, err }; v_distiller_skills = v }
-		if err := coreSet(v_state, "distiller_loaded_skill_docs", v_distiller_skills); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	if err := coreSet(v_state, "active_stage", "distiller"); err != nil { return nil, err }
-	{ v, err := _agent_transcribe_audio_inputs(v_state, v_client, v_values, v_options); if err != nil { return nil, err }; v_transcribed_values = v }
-	v_values = v_transcribed_values
-	v_runtime_input_names = MutableArray()
-	for _, v_runtime_input_name = range coreIter(v_values) {
-		v_runtime_input_names = coreAppend(v_runtime_input_names, v_runtime_input_name)
-	}
-	if err := coreSet(v_state, "runtime_input_names", v_runtime_input_names); err != nil { return nil, err }
-	v_previous_runtime_session_state = coreGet(v_state, "runtime_session_state", nil)
-	v_previous_runtime_session_state_is_map = coreTypeIs(v_previous_runtime_session_state, "object")
-	if coreTruthy(v_previous_runtime_session_state_is_map) {
-		v_previous_runtime_globals = coreGet(v_previous_runtime_session_state, "globals", nil)
-		v_previous_runtime_bindings = coreGet(v_previous_runtime_session_state, "bindings", nil)
-		v_previous_runtime_globals_is_map = coreTypeIs(v_previous_runtime_globals, "object")
-		v_previous_runtime_bindings_is_map = coreTypeIs(v_previous_runtime_bindings, "object")
-		v_previous_runtime_state_has_bindings = _core_or(v_previous_runtime_globals_is_map, v_previous_runtime_bindings_is_map)
-		if coreTruthy(v_previous_runtime_state_has_bindings) {
-			{ v, err := _normalize_agent_runtime_snapshot(v_state, v_previous_runtime_session_state); if err != nil { return nil, err }; v_clean_previous_runtime_state = v }
-			if err := coreSet(v_state, "runtime_session_state", v_clean_previous_runtime_state); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	if _, err := _agent_begin_trace(v_state, v_values); err != nil { return nil, err }
-	if _, err := _agent_apply_llm_checkpoint_summary(v_state, v_client, v_options); err != nil { return nil, err }
-	v_state_options = coreGet(v_state, "options", nil)
-	v_runtime_from_state = coreGet(v_state_options, "runtime", nil)
-	v_runtime_from_options = coreGet(v_options, "runtime", v_runtime_from_state)
-	v_runtime_enabled = _core_is_not_none(v_runtime_from_options)
-	{ v, err := _agent_stage_options(v_state, "distiller", v_options); if err != nil { return nil, err }; v_distiller_options = v }
-	{ v, err := _agent_stage_options(v_state, "executor", v_options); if err != nil { return nil, err }; v_executor_options = v }
-	{ v, err := _agent_stage_options(v_state, "responder", v_options); if err != nil { return nil, err }; v_responder_options = v }
-	v_distiller_payload = _core_none()
-	if coreTruthy(v_runtime_enabled) {
-		v_distiller_empty_log = MutableArray()
-		v_distiller_saved_action_log = coreGet(v_state, "action_log", v_distiller_empty_log)
-		{ v, err := _agent_runtime_build_globals(v_state, v_values); if err != nil { return nil, err }; v_distiller_globals = v }
-		v_distiller_session = _core_none()
-		v_distiller_max_steps = coreGet(v_options, "max_actor_steps", 4)
-		v_distiller_step = 0
-		for {
-			v_distiller_too_many = _core_gte(v_distiller_step, v_distiller_max_steps)
-			if coreTruthy(v_distiller_too_many) {
-				v_distiller_error_event = Object()
-				if err := coreSet(v_distiller_error_event, "error", "agent distiller loop exceeded max steps"); err != nil { return nil, err }
-				if err := coreSet(v_distiller_error_event, "stage", "distiller"); err != nil { return nil, err }
-				if _, err := _agent_record_trace_event(v_state, "error", v_distiller_error_event); err != nil { return nil, err }
-				v_distiller_error = _core_runtime_error("agent distiller loop exceeded max steps")
-				return nil, asError(v_distiller_error)
-			} else {
-			// empty
-			}
-			{ v, err := _build_distiller_inputs(v_state, v_values); if err != nil { return nil, err }; v_distiller_values = v }
-			v_distiller_request_event = Object()
-			if err := coreSet(v_distiller_request_event, "stage", "distiller"); err != nil { return nil, err }
-			if err := coreSet(v_distiller_request_event, "step", v_distiller_step); err != nil { return nil, err }
-			if err := coreSet(v_distiller_request_event, "values", v_distiller_values); err != nil { return nil, err }
-			if err := coreSet(v_distiller_request_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
-			if _, err := _agent_record_trace_event(v_state, "stage_request", v_distiller_request_event); err != nil { return nil, err }
-			{ v, err := _agent_controlled_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
-			v_distiller_response_event = Object()
-			if err := coreSet(v_distiller_response_event, "stage", "distiller"); err != nil { return nil, err }
-			if err := coreSet(v_distiller_response_event, "step", v_distiller_step); err != nil { return nil, err }
-			if err := coreSet(v_distiller_response_event, "output", v_distiller_output); err != nil { return nil, err }
-			if err := coreSet(v_distiller_response_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
-			if _, err := _agent_record_trace_event(v_state, "stage_response", v_distiller_response_event); err != nil { return nil, err }
-			{ v, err := _extract_agent_runtime_code(v_state, v_distiller_output); if err != nil { return nil, err }; v_distiller_code_raw = v }
-			{ v, err := _agent_runtime_code_fence_violation(v_distiller_code_raw); if err != nil { return nil, err }; v_distiller_fence_violation = v }
-			if coreTruthy(v_distiller_fence_violation) {
-				if _, err := _agent_record_runtime_code_fence_violation(v_state, v_distiller_code_raw); err != nil { return nil, err }
-				v_distiller_step = _core_add(v_distiller_step, 1)
-				continue
-			} else {
-			// empty
-			}
-			{ v, err := _normalize_agent_runtime_code(v_distiller_code_raw); if err != nil { return nil, err }; v_distiller_code = v }
-			{ v, err := _agent_runtime_execute_step(v_state, v_runtime_from_options, v_distiller_session, v_distiller_code, v_options); if err != nil { return nil, err }; v_distiller_runtime_step = v }
-			v_distiller_session = coreGet(v_state, "runtime_session", v_distiller_session)
-			v_distiller_step_error = coreGet(v_distiller_runtime_step, "is_error", false)
-			v_distiller_step_ok = _core_not(v_distiller_step_error)
-			if coreTruthy(v_distiller_step_ok) {
-				if _, err := _agent_runtime_refresh_state_summary(v_state, v_distiller_session, v_options); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-			v_distiller_completion = coreGet(v_distiller_runtime_step, "completion_payload", nil)
-			v_distiller_has_completion = coreTypeIs(v_distiller_completion, "object")
-			if coreTruthy(v_distiller_has_completion) {
-				v_distiller_payload = v_distiller_completion
-				break
-			} else {
-			// empty
-			}
-			v_distiller_step = _core_add(v_distiller_step, 1)
-		}
-		v_shared_contract = coreGet(v_state, "runtime_contract", nil)
-		v_shared_js = coreGet(v_shared_contract, "is_javascript", true)
-		if coreTruthy(v_shared_js) {
-			if err := coreSet(v_state, "runtime_session", v_distiller_session); err != nil { return nil, err }
-		} else {
-			v_distiller_session_reset = _core_none()
-			if err := coreSet(v_state, "runtime_session", v_distiller_session_reset); err != nil { return nil, err }
-			v_distiller_state_reset = Object()
-			if err := coreSet(v_state, "runtime_session_state", v_distiller_state_reset); err != nil { return nil, err }
-		}
-		if err := coreSet(v_state, "action_log", v_distiller_saved_action_log); err != nil { return nil, err }
-	} else {
-		{ v, err := _build_distiller_inputs(v_state, v_values); if err != nil { return nil, err }; v_distiller_values = v }
-		v_distiller_request_event = Object()
-		if err := coreSet(v_distiller_request_event, "stage", "distiller"); err != nil { return nil, err }
-		if err := coreSet(v_distiller_request_event, "values", v_distiller_values); err != nil { return nil, err }
-		if err := coreSet(v_distiller_request_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
-		if _, err := _agent_record_trace_event(v_state, "stage_request", v_distiller_request_event); err != nil { return nil, err }
-		{ v, err := _agent_controlled_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
-		v_distiller_response_event = Object()
-		if err := coreSet(v_distiller_response_event, "stage", "distiller"); err != nil { return nil, err }
-		if err := coreSet(v_distiller_response_event, "output", v_distiller_output); err != nil { return nil, err }
-		if err := coreSet(v_distiller_response_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
-		if _, err := _agent_record_trace_event(v_state, "stage_response", v_distiller_response_event); err != nil { return nil, err }
-		{ v, err := _normalize_agent_completion_payload(v_distiller_output); if err != nil { return nil, err }; v_distiller_payload = v }
-	}
-	if _, err := _throw_agent_clarification(v_distiller_payload, v_state); err != nil { return nil, err }
-	v_distiller_skills_after = coreGet(v_state, "distiller_loaded_skill_docs", v_empty_list)
-	v_executor_skills_after = coreGet(v_state, "loaded_skill_docs", v_empty_list)
-	{ v, err := _agent_merge_skill_results(v_executor_skills_after, v_distiller_skills_after); if err != nil { return nil, err }; v_executor_skills_after = v }
-	if err := coreSet(v_state, "loaded_skill_docs", v_executor_skills_after); err != nil { return nil, err }
-	if err := coreSet(v_state, "active_stage", "executor"); err != nil { return nil, err }
-	v_executor_payload = _core_none()
-	v_distiller_payload_type = coreGet(v_distiller_payload, "type", "")
-	v_distiller_is_respond = _core_eq(v_distiller_payload_type, "respond")
-	if coreTruthy(v_distiller_is_respond) {
-		v_skip_empty_map = Object()
-		v_skip_policy_flags = coreGet(v_state, "policy_flags", v_skip_empty_map)
-		v_skip_enabled = coreGet(v_skip_policy_flags, "directRespondEnabled", true)
-		v_skip_disabled = _core_not(v_skip_enabled)
-		if coreTruthy(v_skip_disabled) {
-			v_skip_error = _core_runtime_error("agent distiller produced a respond() payload while directResponse is 'off'")
-			return nil, asError(v_skip_error)
-		} else {
-		// empty
-		}
-		v_skip_args_empty = MutableArray()
-		v_skip_args = coreGet(v_distiller_payload, "args", v_skip_args_empty)
-		v_skip_payload = Object()
-		if err := coreSet(v_skip_payload, "type", "final"); err != nil { return nil, err }
-		if err := coreSet(v_skip_payload, "args", v_skip_args); err != nil { return nil, err }
-		v_executor_payload = v_skip_payload
-		v_skip_event = Object()
-		if err := coreSet(v_skip_event, "stage", "executor"); err != nil { return nil, err }
-		if err := coreSet(v_skip_event, "reason", "direct_respond"); err != nil { return nil, err }
-		if err := coreSet(v_skip_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
-		if _, err := _agent_record_trace_event(v_state, "stage_skipped", v_skip_event); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_run_executor = _core_not(v_distiller_is_respond)
-	v_runtime_executor_enabled = _core_and(v_run_executor, v_runtime_enabled)
-	if coreTruthy(v_runtime_executor_enabled) {
-		v_exec_empty_map = Object()
-		v_exec_empty_list = MutableArray()
-		v_exec_args = coreGet(v_distiller_payload, "args", v_exec_empty_list)
-		{ v, err := _split_context_values(v_state, v_values); if err != nil { return nil, err }; v_exec_non_ctx_split = v }
-		v_exec_non_ctx = coreGet(v_exec_non_ctx_split, "values", v_exec_empty_map)
-		v_exec_fallback_req = _core_json_stringify(v_exec_non_ctx)
-		v_exec_req_raw = _core_list_get(v_exec_args, 0, v_exec_fallback_req)
-		v_exec_req_is_string = coreTypeIs(v_exec_req_raw, "string")
-		v_exec_req = v_exec_req_raw
-		if coreTruthy(v_exec_req_is_string) {
-		// empty
-		} else {
-			v_exec_req_coerced = _core_string_format("{}", v_exec_req_raw)
-			v_exec_req = v_exec_req_coerced
-		}
-		v_exec_distilled = _core_list_get(v_exec_args, 1, v_exec_empty_map)
-		v_exec_extras = Object()
-		if err := coreSet(v_exec_extras, "executorRequest", v_exec_req); err != nil { return nil, err }
-		if err := coreSet(v_exec_extras, "distilledContext", v_exec_distilled); err != nil { return nil, err }
-		v_exec_runtime_values = _core_map_merge(v_values, v_exec_extras)
-		{ v, err := _agent_runtime_build_globals(v_state, v_exec_runtime_values); if err != nil { return nil, err }; v_globals = v }
-		v_session = coreGet(v_state, "runtime_session", nil)
-		v_has_shared_session = _core_is_not_none(v_session)
-		if coreTruthy(v_has_shared_session) {
-			v_patch_snapshot = Object()
-			if err := coreSet(v_patch_snapshot, "globals", v_globals); err != nil { return nil, err }
-			if _, err := _agent_runtime_restore_session_state(v_state, v_session, v_patch_snapshot, v_options); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-		v_max_steps = coreGet(v_options, "max_actor_steps", 4)
-		v_step = 0
-		for {
-			v_too_many = _core_gte(v_step, v_max_steps)
-			if coreTruthy(v_too_many) {
-				v_error_event = Object()
-				if err := coreSet(v_error_event, "error", "agent actor loop exceeded max steps"); err != nil { return nil, err }
-				if err := coreSet(v_error_event, "stage", "executor"); err != nil { return nil, err }
-				if _, err := _agent_record_trace_event(v_state, "error", v_error_event); err != nil { return nil, err }
-				v_error = _core_runtime_error("agent actor loop exceeded max steps")
-				return nil, asError(v_error)
-			} else {
-			// empty
-			}
-			{ v, err := _build_executor_inputs(v_state, v_values, v_distiller_payload); if err != nil { return nil, err }; v_executor_values = v }
-			v_executor_request_event = Object()
-			if err := coreSet(v_executor_request_event, "stage", "executor"); err != nil { return nil, err }
-			if err := coreSet(v_executor_request_event, "step", v_step); err != nil { return nil, err }
-			if err := coreSet(v_executor_request_event, "values", v_executor_values); err != nil { return nil, err }
-			if err := coreSet(v_executor_request_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
-			if _, err := _agent_record_trace_event(v_state, "stage_request", v_executor_request_event); err != nil { return nil, err }
-			{ v, err := _agent_executor_stage_forward(v_state, v_executor, v_client, v_executor_values, v_executor_options); if err != nil { return nil, err }; v_executor_output = v }
-			v_executor_response_event = Object()
-			if err := coreSet(v_executor_response_event, "stage", "executor"); err != nil { return nil, err }
-			if err := coreSet(v_executor_response_event, "step", v_step); err != nil { return nil, err }
-			if err := coreSet(v_executor_response_event, "output", v_executor_output); err != nil { return nil, err }
-			if err := coreSet(v_executor_response_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
-			if _, err := _agent_record_trace_event(v_state, "stage_response", v_executor_response_event); err != nil { return nil, err }
-			{ v, err := _extract_agent_runtime_code(v_state, v_executor_output); if err != nil { return nil, err }; v_raw_code = v }
-			{ v, err := _agent_runtime_code_fence_violation(v_raw_code); if err != nil { return nil, err }; v_fence_violation = v }
-			if coreTruthy(v_fence_violation) {
-				if _, err := _agent_record_runtime_code_fence_violation(v_state, v_raw_code); err != nil { return nil, err }
-				v_step = _core_add(v_step, 1)
-				continue
-			} else {
-			// empty
-			}
-			{ v, err := _normalize_agent_runtime_code(v_raw_code); if err != nil { return nil, err }; v_code = v }
-			{ v, err := _agent_runtime_execute_step(v_state, v_runtime_from_options, v_session, v_code, v_options); if err != nil { return nil, err }; v_runtime_step = v }
-			v_session = coreGet(v_state, "runtime_session", v_session)
-			v_exec_step_error = coreGet(v_runtime_step, "is_error", false)
-			v_exec_step_ok = _core_not(v_exec_step_error)
-			if coreTruthy(v_exec_step_ok) {
-				if _, err := _agent_runtime_refresh_state_summary(v_state, v_session, v_options); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-			v_completion_payload = coreGet(v_runtime_step, "completion_payload", nil)
-			v_has_completion = coreTypeIs(v_completion_payload, "object")
-			if coreTruthy(v_has_completion) {
-				v_executor_completion_type = coreGet(v_completion_payload, "type", "")
-				v_executor_completion_is_respond = _core_eq(v_executor_completion_type, "respond")
-				if coreTruthy(v_executor_completion_is_respond) {
-					if err := coreSet(v_completion_payload, "type", "final"); err != nil { return nil, err }
-				} else {
-				// empty
-				}
-				if _, err := _throw_agent_clarification(v_completion_payload, v_state); err != nil { return nil, err }
-				v_executor_payload = v_completion_payload
-				break
-			} else {
-			// empty
-			}
-			v_step = _core_add(v_step, 1)
-		}
-	} else {
-	// empty
-	}
-	v_runtime_disabled = _core_not(v_runtime_enabled)
-	v_non_runtime_executor = _core_and(v_run_executor, v_runtime_disabled)
-	if coreTruthy(v_non_runtime_executor) {
-		{ v, err := _build_executor_inputs(v_state, v_values, v_distiller_payload); if err != nil { return nil, err }; v_executor_values = v }
-		v_executor_request_event = Object()
-		if err := coreSet(v_executor_request_event, "stage", "executor"); err != nil { return nil, err }
-		if err := coreSet(v_executor_request_event, "values", v_executor_values); err != nil { return nil, err }
-		if err := coreSet(v_executor_request_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
-		if _, err := _agent_record_trace_event(v_state, "stage_request", v_executor_request_event); err != nil { return nil, err }
-		{ v, err := _agent_executor_stage_forward(v_state, v_executor, v_client, v_executor_values, v_executor_options); if err != nil { return nil, err }; v_executor_output = v }
-		v_executor_response_event = Object()
-		if err := coreSet(v_executor_response_event, "stage", "executor"); err != nil { return nil, err }
-		if err := coreSet(v_executor_response_event, "output", v_executor_output); err != nil { return nil, err }
-		if err := coreSet(v_executor_response_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
-		if _, err := _agent_record_trace_event(v_state, "stage_response", v_executor_response_event); err != nil { return nil, err }
-		{ v, err := _normalize_agent_completion_payload(v_executor_output); if err != nil { return nil, err }; v_executor_payload = v }
-		if _, err := _throw_agent_clarification(v_executor_payload, v_state); err != nil { return nil, err }
-		v_executor_payload_type = coreGet(v_executor_payload, "type", "")
-		v_executor_payload_is_respond = _core_eq(v_executor_payload_type, "respond")
-		if coreTruthy(v_executor_payload_is_respond) {
-			if err := coreSet(v_executor_payload, "type", "final"); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	if _, err := _agent_apply_llm_checkpoint_summary(v_state, v_client, v_options); err != nil { return nil, err }
-	if _, err := _agent_apply_context_management(v_state); err != nil { return nil, err }
-	if _, err := _agent_apply_llm_tombstone_summary(v_state, v_client, v_options); err != nil { return nil, err }
-	if _, err := _agent_evolve_context_map(v_state, v_client, v_options); err != nil { return nil, err }
+	{ v, err := _agent_run_actor_stages(v_state, v_distiller, v_executor, v_client, v_values, v_options); if err != nil { return nil, err }; v_prepared = v }
+	v_values = coreGet(v_prepared, "values", nil)
+	v_executor_payload = coreGet(v_prepared, "executor_payload", nil)
+	v_responder_options = coreGet(v_prepared, "responder_options", nil)
 	{ v, err := _build_responder_inputs(v_state, v_values, v_executor_payload); if err != nil { return nil, err }; v_responder_values = v }
 	v_responder_request_event = Object()
 	if err := coreSet(v_responder_request_event, "stage", "responder"); err != nil { return nil, err }
 	if err := coreSet(v_responder_request_event, "values", v_responder_values); err != nil { return nil, err }
 	if err := coreSet(v_responder_request_event, "component_id", "agent.stage.responder"); err != nil { return nil, err }
 	if _, err := _agent_record_trace_event(v_state, "stage_request", v_responder_request_event); err != nil { return nil, err }
-	{ v, err := _agent_controlled_stage_forward(v_responder, v_client, v_responder_values, v_responder_options); if err != nil { return nil, err }; v_responder_output = v }
-	v_citation_retry_options = Object()
-	v_citation_retry_options = _core_map_merge(v_citation_retry_options, v_responder_options)
-	{ v, err := _agent_validate_citations(v_state, v_responder_output); if err != nil { return nil, err }; v_citations_valid = v }
-	v_citations_invalid = _core_not(v_citations_valid)
-	if coreTruthy(v_citations_invalid) {
-		v_invalid_citations_output = _core_json_stringify(v_responder_output)
-		v_citation_retry_feedback = _core_string_format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", v_invalid_citations_output)
-		if err := coreSet(v_citation_retry_options, "validation_feedback", v_citation_retry_feedback); err != nil { return nil, err }
-		{ v, err := _agent_controlled_stage_forward(v_responder, v_client, v_responder_values, v_citation_retry_options); if err != nil { return nil, err }; v_responder_output = v }
-		{ v, err := _agent_validate_citations(v_state, v_responder_output); if err != nil { return nil, err }; v_citations_valid = v }
-	} else {
-	// empty
+	if _, err := _agent_begin_citation_checks(v_state, v_executor_payload); err != nil { return nil, err }
+	v_responder_output = Object()
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _agent_controlled_stage_forward(v_responder, v_client, v_responder_values, v_responder_options); if err != nil { return coreFlow{}, err }; v_responder_output = v }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_responder_error = errorValue(__err)
+			if _, err := _agent_end_citation_checks(v_state); err != nil { return nil, err }
+			return nil, asError(v_responder_error)
+		}
 	}
-	v_citations_invalid = _core_not(v_citations_valid)
-	if coreTruthy(v_citations_invalid) {
-		v_invalid_citations_output = _core_json_stringify(v_responder_output)
-		v_citation_retry_feedback = _core_string_format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", v_invalid_citations_output)
-		if err := coreSet(v_citation_retry_options, "validation_feedback", v_citation_retry_feedback); err != nil { return nil, err }
-		{ v, err := _agent_controlled_stage_forward(v_responder, v_client, v_responder_values, v_citation_retry_options); if err != nil { return nil, err }; v_responder_output = v }
-		{ v, err := _agent_validate_citations(v_state, v_responder_output); if err != nil { return nil, err }; v_citations_valid = v }
-	} else {
-	// empty
-	}
-	v_citations_invalid = _core_not(v_citations_valid)
-	if coreTruthy(v_citations_invalid) {
-		v_error = _core_runtime_error("AxAgent responder returned citations that do not exist in the run evidence")
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
+	if _, err := _agent_end_citation_checks(v_state); err != nil { return nil, err }
 	{ v, err := _agent_finalize_citations(v_state, v_responder_output); if err != nil { return nil, err }; v_responder_output = v }
 	v_responder_response_event = Object()
 	if err := coreSet(v_responder_response_event, "stage", "responder"); err != nil { return nil, err }
 	if err := coreSet(v_responder_response_event, "output", v_responder_output); err != nil { return nil, err }
 	if err := coreSet(v_responder_response_event, "component_id", "agent.stage.responder"); err != nil { return nil, err }
 	if _, err := _agent_record_trace_event(v_state, "stage_response", v_responder_response_event); err != nil { return nil, err }
-	{ v, err := _merge_agent_chat_log(v_state, v_distiller, v_executor, v_responder); if err != nil { return nil, err }; v_logs = v }
-	{ v, err := _merge_agent_usage(v_state, v_distiller, v_executor, v_responder); if err != nil { return nil, err }; v_usage = v }
-	if err := coreSet(v_state, "last_output", v_responder_output); err != nil { return nil, err }
-	if err := coreSet(v_state, "chat_log", v_logs); err != nil { return nil, err }
-	if err := coreSet(v_state, "usage", v_usage); err != nil { return nil, err }
-	v_forward_used_memories = coreGet(v_state, "used_memories", v_empty_list)
-	v_forward_used_skills = coreGet(v_state, "used_skills", v_empty_list)
-	_core_agent_observer_notify(v_state, v_options, "used_memories", v_forward_used_memories)
-	_core_agent_observer_notify(v_state, v_options, "used_skills", v_forward_used_skills)
-	if _, err := _agent_build_failure_signals(v_state); err != nil { return nil, err }
-	if _, err := _agent_finalize_trace(v_state, "completed", v_responder_output); err != nil { return nil, err }
-	return v_responder_output, nil
+	{ v, err := _agent_complete_run(v_state, v_distiller, v_executor, v_responder, v_client, v_options, v_responder_output); if err != nil { return nil, err }; v_output = v }
+	return v_output, nil
 }
 
 func _agent_apply_run_context(args ...Value) (Value, error) {
@@ -72742,6 +72279,1043 @@ func _agent_runtime_invoke_callable(args ...Value) (Value, error) {
 	}
 	v_value = coreGet(v_result, "value", v_result)
 	return v_value, nil
+}
+
+func _agent_run_actor_stages(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_run_actor_stages")
+	var v_state Value
+	var v_distiller Value
+	var v_executor Value
+	var v_client Value
+	var v_values Value
+	var v_options Value
+	var v_clean_previous_runtime_state Value
+	var v_code Value
+	var v_completion_payload Value
+	var v_direct_respond_only Value
+	var v_distiller_code Value
+	var v_distiller_code_raw Value
+	var v_distiller_completion Value
+	var v_distiller_empty_log Value
+	var v_distiller_error Value
+	var v_distiller_error_event Value
+	var v_distiller_fence_violation Value
+	var v_distiller_globals Value
+	var v_distiller_has_completion Value
+	var v_distiller_is_respond Value
+	var v_distiller_max_steps Value
+	var v_distiller_options Value
+	var v_distiller_output Value
+	var v_distiller_payload Value
+	var v_distiller_payload_type Value
+	var v_distiller_request_event Value
+	var v_distiller_response_event Value
+	var v_distiller_runtime_step Value
+	var v_distiller_saved_action_log Value
+	var v_distiller_session Value
+	var v_distiller_session_reset Value
+	var v_distiller_skills Value
+	var v_distiller_skills_after Value
+	var v_distiller_state_reset Value
+	var v_distiller_step Value
+	var v_distiller_step_error Value
+	var v_distiller_step_ok Value
+	var v_distiller_too_many Value
+	var v_distiller_values Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_error Value
+	var v_error_event Value
+	var v_exec_args Value
+	var v_exec_distilled Value
+	var v_exec_empty_list Value
+	var v_exec_empty_map Value
+	var v_exec_extras Value
+	var v_exec_fallback_req Value
+	var v_exec_non_ctx Value
+	var v_exec_non_ctx_split Value
+	var v_exec_req Value
+	var v_exec_req_coerced Value
+	var v_exec_req_is_string Value
+	var v_exec_req_raw Value
+	var v_exec_runtime_values Value
+	var v_exec_step_error Value
+	var v_exec_step_ok Value
+	var v_executor_completion_is_respond Value
+	var v_executor_completion_type Value
+	var v_executor_options Value
+	var v_executor_output Value
+	var v_executor_payload Value
+	var v_executor_payload_is_respond Value
+	var v_executor_payload_type Value
+	var v_executor_request_event Value
+	var v_executor_response_event Value
+	var v_executor_skills_after Value
+	var v_executor_values Value
+	var v_fence_violation Value
+	var v_flags Value
+	var v_forward_skills Value
+	var v_forward_used_memories Value
+	var v_forward_used_memories_snake Value
+	var v_forward_used_skills Value
+	var v_forward_used_skills_snake Value
+	var v_globals Value
+	var v_has_completion Value
+	var v_has_forward_used_memories Value
+	var v_has_forward_used_observer Value
+	var v_has_forward_used_skills Value
+	var v_has_shared_session Value
+	var v_loaded_memories Value
+	var v_loaded_skills Value
+	var v_max_steps Value
+	var v_non_runtime_executor Value
+	var v_patch_snapshot Value
+	var v_prepared Value
+	var v_preset_memories Value
+	var v_previous_runtime_bindings Value
+	var v_previous_runtime_bindings_is_map Value
+	var v_previous_runtime_globals Value
+	var v_previous_runtime_globals_is_map Value
+	var v_previous_runtime_session_state Value
+	var v_previous_runtime_session_state_is_map Value
+	var v_previous_runtime_state_has_bindings Value
+	var v_raw_code Value
+	var v_relevance_hints_for_turn Value
+	var v_responder_options Value
+	var v_run_executor Value
+	var v_runtime_disabled Value
+	var v_runtime_enabled Value
+	var v_runtime_executor_enabled Value
+	var v_runtime_from_options Value
+	var v_runtime_from_state Value
+	var v_runtime_input_name Value
+	var v_runtime_input_names Value
+	var v_runtime_step Value
+	var v_session Value
+	var v_shared_contract Value
+	var v_shared_js Value
+	var v_skip_args Value
+	var v_skip_args_empty Value
+	var v_skip_disabled Value
+	var v_skip_empty_map Value
+	var v_skip_enabled Value
+	var v_skip_error Value
+	var v_skip_event Value
+	var v_skip_payload Value
+	var v_skip_policy_flags Value
+	var v_state_options Value
+	var v_step Value
+	var v_too_many Value
+	var v_transcribed_values Value
+	var v_used_memories Value
+	var v_used_memories_payload Value
+	var v_used_skills Value
+	var v_used_skills_payload Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_distiller = args[1] }
+	_ = v_distiller
+	if len(args) > 2 { v_executor = args[2] }
+	_ = v_executor
+	if len(args) > 3 { v_client = args[3] }
+	_ = v_client
+	if len(args) > 4 { v_values = args[4] }
+	_ = v_values
+	if len(args) > 5 { v_options = args[5] }
+	_ = v_options
+	_ = v_clean_previous_runtime_state
+	_ = v_code
+	_ = v_completion_payload
+	_ = v_direct_respond_only
+	_ = v_distiller_code
+	_ = v_distiller_code_raw
+	_ = v_distiller_completion
+	_ = v_distiller_empty_log
+	_ = v_distiller_error
+	_ = v_distiller_error_event
+	_ = v_distiller_fence_violation
+	_ = v_distiller_globals
+	_ = v_distiller_has_completion
+	_ = v_distiller_is_respond
+	_ = v_distiller_max_steps
+	_ = v_distiller_options
+	_ = v_distiller_output
+	_ = v_distiller_payload
+	_ = v_distiller_payload_type
+	_ = v_distiller_request_event
+	_ = v_distiller_response_event
+	_ = v_distiller_runtime_step
+	_ = v_distiller_saved_action_log
+	_ = v_distiller_session
+	_ = v_distiller_session_reset
+	_ = v_distiller_skills
+	_ = v_distiller_skills_after
+	_ = v_distiller_state_reset
+	_ = v_distiller_step
+	_ = v_distiller_step_error
+	_ = v_distiller_step_ok
+	_ = v_distiller_too_many
+	_ = v_distiller_values
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_error
+	_ = v_error_event
+	_ = v_exec_args
+	_ = v_exec_distilled
+	_ = v_exec_empty_list
+	_ = v_exec_empty_map
+	_ = v_exec_extras
+	_ = v_exec_fallback_req
+	_ = v_exec_non_ctx
+	_ = v_exec_non_ctx_split
+	_ = v_exec_req
+	_ = v_exec_req_coerced
+	_ = v_exec_req_is_string
+	_ = v_exec_req_raw
+	_ = v_exec_runtime_values
+	_ = v_exec_step_error
+	_ = v_exec_step_ok
+	_ = v_executor_completion_is_respond
+	_ = v_executor_completion_type
+	_ = v_executor_options
+	_ = v_executor_output
+	_ = v_executor_payload
+	_ = v_executor_payload_is_respond
+	_ = v_executor_payload_type
+	_ = v_executor_request_event
+	_ = v_executor_response_event
+	_ = v_executor_skills_after
+	_ = v_executor_values
+	_ = v_fence_violation
+	_ = v_flags
+	_ = v_forward_skills
+	_ = v_forward_used_memories
+	_ = v_forward_used_memories_snake
+	_ = v_forward_used_skills
+	_ = v_forward_used_skills_snake
+	_ = v_globals
+	_ = v_has_completion
+	_ = v_has_forward_used_memories
+	_ = v_has_forward_used_observer
+	_ = v_has_forward_used_skills
+	_ = v_has_shared_session
+	_ = v_loaded_memories
+	_ = v_loaded_skills
+	_ = v_max_steps
+	_ = v_non_runtime_executor
+	_ = v_patch_snapshot
+	_ = v_prepared
+	_ = v_preset_memories
+	_ = v_previous_runtime_bindings
+	_ = v_previous_runtime_bindings_is_map
+	_ = v_previous_runtime_globals
+	_ = v_previous_runtime_globals_is_map
+	_ = v_previous_runtime_session_state
+	_ = v_previous_runtime_session_state_is_map
+	_ = v_previous_runtime_state_has_bindings
+	_ = v_raw_code
+	_ = v_relevance_hints_for_turn
+	_ = v_responder_options
+	_ = v_run_executor
+	_ = v_runtime_disabled
+	_ = v_runtime_enabled
+	_ = v_runtime_executor_enabled
+	_ = v_runtime_from_options
+	_ = v_runtime_from_state
+	_ = v_runtime_input_name
+	_ = v_runtime_input_names
+	_ = v_runtime_step
+	_ = v_session
+	_ = v_shared_contract
+	_ = v_shared_js
+	_ = v_skip_args
+	_ = v_skip_args_empty
+	_ = v_skip_disabled
+	_ = v_skip_empty_map
+	_ = v_skip_enabled
+	_ = v_skip_error
+	_ = v_skip_event
+	_ = v_skip_payload
+	_ = v_skip_policy_flags
+	_ = v_state_options
+	_ = v_step
+	_ = v_too_many
+	_ = v_transcribed_values
+	_ = v_used_memories
+	_ = v_used_memories_payload
+	_ = v_used_skills
+	_ = v_used_skills_payload
+	v_empty_list = MutableArray()
+	v_empty_map = Object()
+	if err := coreSet(v_state, "native_tool_names", v_empty_list); err != nil { return nil, err }
+	v_loaded_memories = MutableArray()
+	v_used_memories = MutableArray()
+	v_used_skills = MutableArray()
+	v_relevance_hints_for_turn = _core_none()
+	if err := coreSet(v_state, "loaded_memories", v_loaded_memories); err != nil { return nil, err }
+	if err := coreSet(v_state, "used_memories", v_used_memories); err != nil { return nil, err }
+	if err := coreSet(v_state, "used_skills", v_used_skills); err != nil { return nil, err }
+	if err := coreSet(v_state, "relevance_hints_for_turn", v_relevance_hints_for_turn); err != nil { return nil, err }
+	v_preset_memories = coreGet(v_values, "memories", v_empty_list)
+	{ v, err := _agent_merge_memory_results(v_loaded_memories, v_preset_memories); if err != nil { return nil, err }; v_loaded_memories = v }
+	if err := coreSet(v_state, "loaded_memories", v_loaded_memories); err != nil { return nil, err }
+	v_loaded_skills = coreGet(v_state, "loaded_skill_docs", v_empty_list)
+	v_forward_skills = coreGet(v_options, "skills", v_empty_list)
+	{ v, err := _agent_merge_skill_results(v_loaded_skills, v_forward_skills); if err != nil { return nil, err }; v_loaded_skills = v }
+	if err := coreSet(v_state, "loaded_skill_docs", v_loaded_skills); err != nil { return nil, err }
+	v_flags = coreGet(v_state, "policy_flags", v_empty_map)
+	v_forward_used_memories = coreGet(v_options, "onUsedMemories", nil)
+	v_forward_used_memories_snake = coreGet(v_options, "on_used_memories", v_forward_used_memories)
+	v_forward_used_skills = coreGet(v_options, "onUsedSkills", nil)
+	v_forward_used_skills_snake = coreGet(v_options, "on_used_skills", v_forward_used_skills)
+	v_has_forward_used_memories = _core_is_not_none(v_forward_used_memories_snake)
+	v_has_forward_used_skills = _core_is_not_none(v_forward_used_skills_snake)
+	v_has_forward_used_observer = _core_or(v_has_forward_used_memories, v_has_forward_used_skills)
+	if coreTruthy(v_has_forward_used_observer) {
+		if err := coreSet(v_flags, "usageTrackingMode", true); err != nil { return nil, err }
+		if err := coreSet(v_state, "policy_flags", v_flags); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_direct_respond_only = coreGet(v_flags, "directRespondOnly", false)
+	if coreTruthy(v_direct_respond_only) {
+		v_distiller_skills = coreGet(v_state, "distiller_loaded_skill_docs", v_empty_list)
+		{ v, err := _agent_merge_skill_results(v_distiller_skills, v_forward_skills); if err != nil { return nil, err }; v_distiller_skills = v }
+		if err := coreSet(v_state, "distiller_loaded_skill_docs", v_distiller_skills); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if err := coreSet(v_state, "active_stage", "distiller"); err != nil { return nil, err }
+	{ v, err := _agent_transcribe_audio_inputs(v_state, v_client, v_values, v_options); if err != nil { return nil, err }; v_transcribed_values = v }
+	v_values = v_transcribed_values
+	v_runtime_input_names = MutableArray()
+	for _, v_runtime_input_name = range coreIter(v_values) {
+		v_runtime_input_names = coreAppend(v_runtime_input_names, v_runtime_input_name)
+	}
+	if err := coreSet(v_state, "runtime_input_names", v_runtime_input_names); err != nil { return nil, err }
+	v_previous_runtime_session_state = coreGet(v_state, "runtime_session_state", nil)
+	v_previous_runtime_session_state_is_map = coreTypeIs(v_previous_runtime_session_state, "object")
+	if coreTruthy(v_previous_runtime_session_state_is_map) {
+		v_previous_runtime_globals = coreGet(v_previous_runtime_session_state, "globals", nil)
+		v_previous_runtime_bindings = coreGet(v_previous_runtime_session_state, "bindings", nil)
+		v_previous_runtime_globals_is_map = coreTypeIs(v_previous_runtime_globals, "object")
+		v_previous_runtime_bindings_is_map = coreTypeIs(v_previous_runtime_bindings, "object")
+		v_previous_runtime_state_has_bindings = _core_or(v_previous_runtime_globals_is_map, v_previous_runtime_bindings_is_map)
+		if coreTruthy(v_previous_runtime_state_has_bindings) {
+			{ v, err := _normalize_agent_runtime_snapshot(v_state, v_previous_runtime_session_state); if err != nil { return nil, err }; v_clean_previous_runtime_state = v }
+			if err := coreSet(v_state, "runtime_session_state", v_clean_previous_runtime_state); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	if _, err := _agent_begin_trace(v_state, v_values); err != nil { return nil, err }
+	if _, err := _agent_apply_llm_checkpoint_summary(v_state, v_client, v_options); err != nil { return nil, err }
+	v_state_options = coreGet(v_state, "options", nil)
+	v_runtime_from_state = coreGet(v_state_options, "runtime", nil)
+	v_runtime_from_options = coreGet(v_options, "runtime", v_runtime_from_state)
+	v_runtime_enabled = _core_is_not_none(v_runtime_from_options)
+	{ v, err := _agent_stage_options(v_state, "distiller", v_options); if err != nil { return nil, err }; v_distiller_options = v }
+	{ v, err := _agent_stage_options(v_state, "executor", v_options); if err != nil { return nil, err }; v_executor_options = v }
+	{ v, err := _agent_stage_options(v_state, "responder", v_options); if err != nil { return nil, err }; v_responder_options = v }
+	v_distiller_payload = _core_none()
+	if coreTruthy(v_runtime_enabled) {
+		v_distiller_empty_log = MutableArray()
+		v_distiller_saved_action_log = coreGet(v_state, "action_log", v_distiller_empty_log)
+		{ v, err := _agent_runtime_build_globals(v_state, v_values); if err != nil { return nil, err }; v_distiller_globals = v }
+		v_distiller_session = _core_none()
+		v_distiller_max_steps = coreGet(v_options, "max_actor_steps", 4)
+		v_distiller_step = 0
+		for {
+			v_distiller_too_many = _core_gte(v_distiller_step, v_distiller_max_steps)
+			if coreTruthy(v_distiller_too_many) {
+				v_distiller_error_event = Object()
+				if err := coreSet(v_distiller_error_event, "error", "agent distiller loop exceeded max steps"); err != nil { return nil, err }
+				if err := coreSet(v_distiller_error_event, "stage", "distiller"); err != nil { return nil, err }
+				if _, err := _agent_record_trace_event(v_state, "error", v_distiller_error_event); err != nil { return nil, err }
+				v_distiller_error = _core_runtime_error("agent distiller loop exceeded max steps")
+				return nil, asError(v_distiller_error)
+			} else {
+			// empty
+			}
+			{ v, err := _build_distiller_inputs(v_state, v_values); if err != nil { return nil, err }; v_distiller_values = v }
+			v_distiller_request_event = Object()
+			if err := coreSet(v_distiller_request_event, "stage", "distiller"); err != nil { return nil, err }
+			if err := coreSet(v_distiller_request_event, "step", v_distiller_step); err != nil { return nil, err }
+			if err := coreSet(v_distiller_request_event, "values", v_distiller_values); err != nil { return nil, err }
+			if err := coreSet(v_distiller_request_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
+			if _, err := _agent_record_trace_event(v_state, "stage_request", v_distiller_request_event); err != nil { return nil, err }
+			{ v, err := _agent_controlled_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
+			v_distiller_response_event = Object()
+			if err := coreSet(v_distiller_response_event, "stage", "distiller"); err != nil { return nil, err }
+			if err := coreSet(v_distiller_response_event, "step", v_distiller_step); err != nil { return nil, err }
+			if err := coreSet(v_distiller_response_event, "output", v_distiller_output); err != nil { return nil, err }
+			if err := coreSet(v_distiller_response_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
+			if _, err := _agent_record_trace_event(v_state, "stage_response", v_distiller_response_event); err != nil { return nil, err }
+			{ v, err := _extract_agent_runtime_code(v_state, v_distiller_output); if err != nil { return nil, err }; v_distiller_code_raw = v }
+			{ v, err := _agent_runtime_code_fence_violation(v_distiller_code_raw); if err != nil { return nil, err }; v_distiller_fence_violation = v }
+			if coreTruthy(v_distiller_fence_violation) {
+				if _, err := _agent_record_runtime_code_fence_violation(v_state, v_distiller_code_raw); err != nil { return nil, err }
+				v_distiller_step = _core_add(v_distiller_step, 1)
+				continue
+			} else {
+			// empty
+			}
+			{ v, err := _normalize_agent_runtime_code(v_distiller_code_raw); if err != nil { return nil, err }; v_distiller_code = v }
+			{ v, err := _agent_runtime_execute_step(v_state, v_runtime_from_options, v_distiller_session, v_distiller_code, v_options); if err != nil { return nil, err }; v_distiller_runtime_step = v }
+			v_distiller_session = coreGet(v_state, "runtime_session", v_distiller_session)
+			v_distiller_step_error = coreGet(v_distiller_runtime_step, "is_error", false)
+			v_distiller_step_ok = _core_not(v_distiller_step_error)
+			if coreTruthy(v_distiller_step_ok) {
+				if _, err := _agent_runtime_refresh_state_summary(v_state, v_distiller_session, v_options); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_distiller_completion = coreGet(v_distiller_runtime_step, "completion_payload", nil)
+			v_distiller_has_completion = coreTypeIs(v_distiller_completion, "object")
+			if coreTruthy(v_distiller_has_completion) {
+				v_distiller_payload = v_distiller_completion
+				break
+			} else {
+			// empty
+			}
+			v_distiller_step = _core_add(v_distiller_step, 1)
+		}
+		v_shared_contract = coreGet(v_state, "runtime_contract", nil)
+		v_shared_js = coreGet(v_shared_contract, "is_javascript", true)
+		if coreTruthy(v_shared_js) {
+			if err := coreSet(v_state, "runtime_session", v_distiller_session); err != nil { return nil, err }
+		} else {
+			v_distiller_session_reset = _core_none()
+			if err := coreSet(v_state, "runtime_session", v_distiller_session_reset); err != nil { return nil, err }
+			v_distiller_state_reset = Object()
+			if err := coreSet(v_state, "runtime_session_state", v_distiller_state_reset); err != nil { return nil, err }
+		}
+		if err := coreSet(v_state, "action_log", v_distiller_saved_action_log); err != nil { return nil, err }
+	} else {
+		{ v, err := _build_distiller_inputs(v_state, v_values); if err != nil { return nil, err }; v_distiller_values = v }
+		v_distiller_request_event = Object()
+		if err := coreSet(v_distiller_request_event, "stage", "distiller"); err != nil { return nil, err }
+		if err := coreSet(v_distiller_request_event, "values", v_distiller_values); err != nil { return nil, err }
+		if err := coreSet(v_distiller_request_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
+		if _, err := _agent_record_trace_event(v_state, "stage_request", v_distiller_request_event); err != nil { return nil, err }
+		{ v, err := _agent_controlled_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
+		v_distiller_response_event = Object()
+		if err := coreSet(v_distiller_response_event, "stage", "distiller"); err != nil { return nil, err }
+		if err := coreSet(v_distiller_response_event, "output", v_distiller_output); err != nil { return nil, err }
+		if err := coreSet(v_distiller_response_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
+		if _, err := _agent_record_trace_event(v_state, "stage_response", v_distiller_response_event); err != nil { return nil, err }
+		{ v, err := _normalize_agent_completion_payload(v_distiller_output); if err != nil { return nil, err }; v_distiller_payload = v }
+	}
+	if _, err := _throw_agent_clarification(v_distiller_payload, v_state); err != nil { return nil, err }
+	v_distiller_skills_after = coreGet(v_state, "distiller_loaded_skill_docs", v_empty_list)
+	v_executor_skills_after = coreGet(v_state, "loaded_skill_docs", v_empty_list)
+	{ v, err := _agent_merge_skill_results(v_executor_skills_after, v_distiller_skills_after); if err != nil { return nil, err }; v_executor_skills_after = v }
+	if err := coreSet(v_state, "loaded_skill_docs", v_executor_skills_after); err != nil { return nil, err }
+	if err := coreSet(v_state, "active_stage", "executor"); err != nil { return nil, err }
+	v_executor_payload = _core_none()
+	v_distiller_payload_type = coreGet(v_distiller_payload, "type", "")
+	v_distiller_is_respond = _core_eq(v_distiller_payload_type, "respond")
+	if coreTruthy(v_distiller_is_respond) {
+		v_skip_empty_map = Object()
+		v_skip_policy_flags = coreGet(v_state, "policy_flags", v_skip_empty_map)
+		v_skip_enabled = coreGet(v_skip_policy_flags, "directRespondEnabled", true)
+		v_skip_disabled = _core_not(v_skip_enabled)
+		if coreTruthy(v_skip_disabled) {
+			v_skip_error = _core_runtime_error("agent distiller produced a respond() payload while directResponse is 'off'")
+			return nil, asError(v_skip_error)
+		} else {
+		// empty
+		}
+		v_skip_args_empty = MutableArray()
+		v_skip_args = coreGet(v_distiller_payload, "args", v_skip_args_empty)
+		v_skip_payload = Object()
+		if err := coreSet(v_skip_payload, "type", "final"); err != nil { return nil, err }
+		if err := coreSet(v_skip_payload, "args", v_skip_args); err != nil { return nil, err }
+		v_executor_payload = v_skip_payload
+		v_skip_event = Object()
+		if err := coreSet(v_skip_event, "stage", "executor"); err != nil { return nil, err }
+		if err := coreSet(v_skip_event, "reason", "direct_respond"); err != nil { return nil, err }
+		if err := coreSet(v_skip_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
+		if _, err := _agent_record_trace_event(v_state, "stage_skipped", v_skip_event); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_run_executor = _core_not(v_distiller_is_respond)
+	v_runtime_executor_enabled = _core_and(v_run_executor, v_runtime_enabled)
+	if coreTruthy(v_runtime_executor_enabled) {
+		v_exec_empty_map = Object()
+		v_exec_empty_list = MutableArray()
+		v_exec_args = coreGet(v_distiller_payload, "args", v_exec_empty_list)
+		{ v, err := _split_context_values(v_state, v_values); if err != nil { return nil, err }; v_exec_non_ctx_split = v }
+		v_exec_non_ctx = coreGet(v_exec_non_ctx_split, "values", v_exec_empty_map)
+		v_exec_fallback_req = _core_json_stringify(v_exec_non_ctx)
+		v_exec_req_raw = _core_list_get(v_exec_args, 0, v_exec_fallback_req)
+		v_exec_req_is_string = coreTypeIs(v_exec_req_raw, "string")
+		v_exec_req = v_exec_req_raw
+		if coreTruthy(v_exec_req_is_string) {
+		// empty
+		} else {
+			v_exec_req_coerced = _core_string_format("{}", v_exec_req_raw)
+			v_exec_req = v_exec_req_coerced
+		}
+		v_exec_distilled = _core_list_get(v_exec_args, 1, v_exec_empty_map)
+		v_exec_extras = Object()
+		if err := coreSet(v_exec_extras, "executorRequest", v_exec_req); err != nil { return nil, err }
+		if err := coreSet(v_exec_extras, "distilledContext", v_exec_distilled); err != nil { return nil, err }
+		v_exec_runtime_values = _core_map_merge(v_values, v_exec_extras)
+		{ v, err := _agent_runtime_build_globals(v_state, v_exec_runtime_values); if err != nil { return nil, err }; v_globals = v }
+		v_session = coreGet(v_state, "runtime_session", nil)
+		v_has_shared_session = _core_is_not_none(v_session)
+		if coreTruthy(v_has_shared_session) {
+			v_patch_snapshot = Object()
+			if err := coreSet(v_patch_snapshot, "globals", v_globals); err != nil { return nil, err }
+			if _, err := _agent_runtime_restore_session_state(v_state, v_session, v_patch_snapshot, v_options); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_max_steps = coreGet(v_options, "max_actor_steps", 4)
+		v_step = 0
+		for {
+			v_too_many = _core_gte(v_step, v_max_steps)
+			if coreTruthy(v_too_many) {
+				v_error_event = Object()
+				if err := coreSet(v_error_event, "error", "agent actor loop exceeded max steps"); err != nil { return nil, err }
+				if err := coreSet(v_error_event, "stage", "executor"); err != nil { return nil, err }
+				if _, err := _agent_record_trace_event(v_state, "error", v_error_event); err != nil { return nil, err }
+				v_error = _core_runtime_error("agent actor loop exceeded max steps")
+				return nil, asError(v_error)
+			} else {
+			// empty
+			}
+			{ v, err := _build_executor_inputs(v_state, v_values, v_distiller_payload); if err != nil { return nil, err }; v_executor_values = v }
+			v_executor_request_event = Object()
+			if err := coreSet(v_executor_request_event, "stage", "executor"); err != nil { return nil, err }
+			if err := coreSet(v_executor_request_event, "step", v_step); err != nil { return nil, err }
+			if err := coreSet(v_executor_request_event, "values", v_executor_values); err != nil { return nil, err }
+			if err := coreSet(v_executor_request_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
+			if _, err := _agent_record_trace_event(v_state, "stage_request", v_executor_request_event); err != nil { return nil, err }
+			{ v, err := _agent_executor_stage_forward(v_state, v_executor, v_client, v_executor_values, v_executor_options); if err != nil { return nil, err }; v_executor_output = v }
+			v_executor_response_event = Object()
+			if err := coreSet(v_executor_response_event, "stage", "executor"); err != nil { return nil, err }
+			if err := coreSet(v_executor_response_event, "step", v_step); err != nil { return nil, err }
+			if err := coreSet(v_executor_response_event, "output", v_executor_output); err != nil { return nil, err }
+			if err := coreSet(v_executor_response_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
+			if _, err := _agent_record_trace_event(v_state, "stage_response", v_executor_response_event); err != nil { return nil, err }
+			{ v, err := _extract_agent_runtime_code(v_state, v_executor_output); if err != nil { return nil, err }; v_raw_code = v }
+			{ v, err := _agent_runtime_code_fence_violation(v_raw_code); if err != nil { return nil, err }; v_fence_violation = v }
+			if coreTruthy(v_fence_violation) {
+				if _, err := _agent_record_runtime_code_fence_violation(v_state, v_raw_code); err != nil { return nil, err }
+				v_step = _core_add(v_step, 1)
+				continue
+			} else {
+			// empty
+			}
+			{ v, err := _normalize_agent_runtime_code(v_raw_code); if err != nil { return nil, err }; v_code = v }
+			{ v, err := _agent_runtime_execute_step(v_state, v_runtime_from_options, v_session, v_code, v_options); if err != nil { return nil, err }; v_runtime_step = v }
+			v_session = coreGet(v_state, "runtime_session", v_session)
+			v_exec_step_error = coreGet(v_runtime_step, "is_error", false)
+			v_exec_step_ok = _core_not(v_exec_step_error)
+			if coreTruthy(v_exec_step_ok) {
+				if _, err := _agent_runtime_refresh_state_summary(v_state, v_session, v_options); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_completion_payload = coreGet(v_runtime_step, "completion_payload", nil)
+			v_has_completion = coreTypeIs(v_completion_payload, "object")
+			if coreTruthy(v_has_completion) {
+				v_executor_completion_type = coreGet(v_completion_payload, "type", "")
+				v_executor_completion_is_respond = _core_eq(v_executor_completion_type, "respond")
+				if coreTruthy(v_executor_completion_is_respond) {
+					if err := coreSet(v_completion_payload, "type", "final"); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+				if _, err := _throw_agent_clarification(v_completion_payload, v_state); err != nil { return nil, err }
+				v_executor_payload = v_completion_payload
+				break
+			} else {
+			// empty
+			}
+			v_step = _core_add(v_step, 1)
+		}
+	} else {
+	// empty
+	}
+	v_runtime_disabled = _core_not(v_runtime_enabled)
+	v_non_runtime_executor = _core_and(v_run_executor, v_runtime_disabled)
+	if coreTruthy(v_non_runtime_executor) {
+		{ v, err := _build_executor_inputs(v_state, v_values, v_distiller_payload); if err != nil { return nil, err }; v_executor_values = v }
+		v_executor_request_event = Object()
+		if err := coreSet(v_executor_request_event, "stage", "executor"); err != nil { return nil, err }
+		if err := coreSet(v_executor_request_event, "values", v_executor_values); err != nil { return nil, err }
+		if err := coreSet(v_executor_request_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
+		if _, err := _agent_record_trace_event(v_state, "stage_request", v_executor_request_event); err != nil { return nil, err }
+		{ v, err := _agent_executor_stage_forward(v_state, v_executor, v_client, v_executor_values, v_executor_options); if err != nil { return nil, err }; v_executor_output = v }
+		v_executor_response_event = Object()
+		if err := coreSet(v_executor_response_event, "stage", "executor"); err != nil { return nil, err }
+		if err := coreSet(v_executor_response_event, "output", v_executor_output); err != nil { return nil, err }
+		if err := coreSet(v_executor_response_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
+		if _, err := _agent_record_trace_event(v_state, "stage_response", v_executor_response_event); err != nil { return nil, err }
+		{ v, err := _normalize_agent_completion_payload(v_executor_output); if err != nil { return nil, err }; v_executor_payload = v }
+		if _, err := _throw_agent_clarification(v_executor_payload, v_state); err != nil { return nil, err }
+		v_executor_payload_type = coreGet(v_executor_payload, "type", "")
+		v_executor_payload_is_respond = _core_eq(v_executor_payload_type, "respond")
+		if coreTruthy(v_executor_payload_is_respond) {
+			if err := coreSet(v_executor_payload, "type", "final"); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	if _, err := _agent_apply_llm_checkpoint_summary(v_state, v_client, v_options); err != nil { return nil, err }
+	if _, err := _agent_apply_context_management(v_state); err != nil { return nil, err }
+	if _, err := _agent_apply_llm_tombstone_summary(v_state, v_client, v_options); err != nil { return nil, err }
+	v_used_memories_payload = coreGet(v_state, "used_memories", v_empty_list)
+	v_used_skills_payload = coreGet(v_state, "used_skills", v_empty_list)
+	_core_agent_observer_notify(v_state, v_options, "used_memories", v_used_memories_payload)
+	_core_agent_observer_notify(v_state, v_options, "used_skills", v_used_skills_payload)
+	v_prepared = Object()
+	if err := coreSet(v_prepared, "values", v_values); err != nil { return nil, err }
+	if err := coreSet(v_prepared, "executor_payload", v_executor_payload); err != nil { return nil, err }
+	if err := coreSet(v_prepared, "responder_options", v_responder_options); err != nil { return nil, err }
+	return v_prepared, nil
+}
+
+func _agent_complete_run(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_complete_run")
+	var v_state Value
+	var v_distiller Value
+	var v_executor Value
+	var v_responder Value
+	var v_client Value
+	var v_options Value
+	var v_output Value
+	var v_context_map_error Value
+	var v_logs Value
+	var v_usage Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_distiller = args[1] }
+	_ = v_distiller
+	if len(args) > 2 { v_executor = args[2] }
+	_ = v_executor
+	if len(args) > 3 { v_responder = args[3] }
+	_ = v_responder
+	if len(args) > 4 { v_client = args[4] }
+	_ = v_client
+	if len(args) > 5 { v_options = args[5] }
+	_ = v_options
+	if len(args) > 6 { v_output = args[6] }
+	_ = v_output
+	_ = v_context_map_error
+	_ = v_logs
+	_ = v_usage
+	{ v, err := _merge_agent_chat_log(v_state, v_distiller, v_executor, v_responder); if err != nil { return nil, err }; v_logs = v }
+	{ v, err := _merge_agent_usage(v_state, v_distiller, v_executor, v_responder); if err != nil { return nil, err }; v_usage = v }
+	if err := coreSet(v_state, "last_output", v_output); err != nil { return nil, err }
+	if err := coreSet(v_state, "chat_log", v_logs); err != nil { return nil, err }
+	if err := coreSet(v_state, "usage", v_usage); err != nil { return nil, err }
+	{
+		__flow, __err := func() (coreFlow, error) {
+			if _, err := _agent_evolve_context_map(v_state, v_client, v_options); err != nil { return coreFlow{}, err }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_context_map_error = errorValue(__err)
+		// empty
+		}
+	}
+	if _, err := _agent_build_failure_signals(v_state); err != nil { return nil, err }
+	if _, err := _agent_finalize_trace(v_state, "completed", v_output); err != nil { return nil, err }
+	return v_output, nil
+}
+
+func _agent_stream_citation_delta(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_stream_citation_delta")
+	var v_state Value
+	var v_envelope Value
+	var v_accumulated Value
+	var v_chunk Value
+	var v_chunk_is_list Value
+	var v_chunk_item Value
+	var v_chunk_text Value
+	var v_citation_version Value
+	var v_citations Value
+	var v_delta Value
+	var v_delta_is_map Value
+	var v_delta_not_map Value
+	var v_disabled Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_enabled Value
+	var v_field Value
+	var v_fresh Value
+	var v_has_chunk Value
+	var v_has_field Value
+	var v_hidden Value
+	var v_new_version Value
+	var v_no_field Value
+	var v_stripped Value
+	var v_stripped_delta Value
+	var v_surface Value
+	var v_version Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_envelope = args[1] }
+	_ = v_envelope
+	_ = v_accumulated
+	_ = v_chunk
+	_ = v_chunk_is_list
+	_ = v_chunk_item
+	_ = v_chunk_text
+	_ = v_citation_version
+	_ = v_citations
+	_ = v_delta
+	_ = v_delta_is_map
+	_ = v_delta_not_map
+	_ = v_disabled
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_enabled
+	_ = v_field
+	_ = v_fresh
+	_ = v_has_chunk
+	_ = v_has_field
+	_ = v_hidden
+	_ = v_new_version
+	_ = v_no_field
+	_ = v_stripped
+	_ = v_stripped_delta
+	_ = v_surface
+	_ = v_version
+	v_empty_map = Object()
+	v_citations = coreGet(v_state, "citations", v_empty_map)
+	v_enabled = coreGet(v_citations, "enabled", false)
+	v_disabled = _core_not(v_enabled)
+	if coreTruthy(v_disabled) {
+		return v_envelope, nil
+	} else {
+	// empty
+	}
+	v_field = coreGet(v_citations, "field", "evidenceCitations")
+	v_delta = coreGet(v_envelope, "delta", nil)
+	v_delta_is_map = coreTypeIs(v_delta, "object")
+	v_delta_not_map = _core_not(v_delta_is_map)
+	if coreTruthy(v_delta_not_map) {
+		return v_envelope, nil
+	} else {
+	// empty
+	}
+	v_has_field = _core_map_contains(v_delta, v_field)
+	v_no_field = _core_not(v_has_field)
+	if coreTruthy(v_no_field) {
+		return v_envelope, nil
+	} else {
+	// empty
+	}
+	v_version = coreGet(v_envelope, "version", nil)
+	v_citation_version = coreGet(v_state, "stream_citation_version", nil)
+	v_new_version = _core_ne(v_version, v_citation_version)
+	if coreTruthy(v_new_version) {
+		v_fresh = MutableArray()
+		if err := coreSet(v_state, "stream_citations", v_fresh); err != nil { return nil, err }
+		if err := coreSet(v_state, "stream_citation_version", v_version); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_empty_list = MutableArray()
+	v_accumulated = coreGet(v_state, "stream_citations", v_empty_list)
+	v_chunk = coreGet(v_delta, v_field, nil)
+	v_chunk_is_list = coreTypeIs(v_chunk, "list")
+	if coreTruthy(v_chunk_is_list) {
+		for _, v_chunk_item = range coreIter(v_chunk) {
+			v_chunk_text = _core_string_format("{}", v_chunk_item)
+			v_accumulated = coreAppend(v_accumulated, v_chunk_text)
+		}
+	} else {
+		v_has_chunk = _core_is_not_none(v_chunk)
+		if coreTruthy(v_has_chunk) {
+			v_chunk_text = _core_string_format("{}", v_chunk)
+			v_accumulated = coreAppend(v_accumulated, v_chunk_text)
+		} else {
+		// empty
+		}
+	}
+	if err := coreSet(v_state, "stream_citations", v_accumulated); err != nil { return nil, err }
+	v_surface = coreGet(v_citations, "surface", "output")
+	v_hidden = _core_eq(v_surface, "hidden")
+	if coreTruthy(v_hidden) {
+		v_stripped_delta = Object()
+		v_stripped_delta = _core_map_merge(v_stripped_delta, v_delta)
+		_core_map_delete(v_stripped_delta, v_field)
+		v_stripped = Object()
+		v_stripped = _core_map_merge(v_stripped, v_envelope)
+		if err := coreSet(v_stripped, "delta", v_stripped_delta); err != nil { return nil, err }
+		return v_stripped, nil
+	} else {
+	// empty
+	}
+	return v_envelope, nil
+}
+
+func _agent_finalize_stream_citations(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_finalize_stream_citations")
+	var v_state Value
+	var v_output Value
+	var v_accumulated Value
+	var v_citations Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_enabled Value
+	var v_field Value
+	var v_hidden Value
+	var v_surface Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_output = args[1] }
+	_ = v_output
+	_ = v_accumulated
+	_ = v_citations
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_enabled
+	_ = v_field
+	_ = v_hidden
+	_ = v_surface
+	v_empty_map = Object()
+	v_citations = coreGet(v_state, "citations", v_empty_map)
+	v_enabled = coreGet(v_citations, "enabled", false)
+	if coreTruthy(v_enabled) {
+		v_empty_list = MutableArray()
+		v_accumulated = coreGet(v_state, "stream_citations", v_empty_list)
+		if err := coreSet(v_state, "last_citations", v_accumulated); err != nil { return nil, err }
+		v_field = coreGet(v_citations, "field", "evidenceCitations")
+		v_surface = coreGet(v_citations, "surface", "output")
+		v_hidden = _core_eq(v_surface, "hidden")
+		if coreTruthy(v_hidden) {
+			_core_map_delete(v_output, v_field)
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_output, nil
+}
+
+func _agent_controlled_stage_streaming_forward(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_controlled_stage_streaming_forward")
+	var v_stage Value
+	var v_state Value
+	var v_client Value
+	var v_values Value
+	var v_options Value
+	var v_sink Value
+	var v_aborted Value
+	var v_control Value
+	var v_error Value
+	var v_output Value
+	if len(args) > 0 { v_stage = args[0] }
+	_ = v_stage
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	if len(args) > 2 { v_client = args[2] }
+	_ = v_client
+	if len(args) > 3 { v_values = args[3] }
+	_ = v_values
+	if len(args) > 4 { v_options = args[4] }
+	_ = v_options
+	if len(args) > 5 { v_sink = args[5] }
+	_ = v_sink
+	_ = v_aborted
+	_ = v_control
+	_ = v_error
+	_ = v_output
+	v_control = coreGet(v_options, "control", nil)
+	v_aborted = _core_run_control_aborted(v_control)
+	if coreTruthy(v_aborted) {
+		v_error = _core_runtime_error("Agent aborted before starting the next stage")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	{ v, err := _core_agent_stage_streaming_forward(v_stage, v_state, v_client, v_values, v_options, v_sink); if err != nil { return nil, err }; v_output = v }
+	return v_output, nil
+}
+
+func _agent_streaming_forward_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_streaming_forward_impl")
+	var v_state Value
+	var v_distiller Value
+	var v_executor Value
+	var v_responder Value
+	var v_client Value
+	var v_values Value
+	var v_options Value
+	var v_sink Value
+	var v_executor_payload Value
+	var v_no_citation_version Value
+	var v_no_citations Value
+	var v_output Value
+	var v_prepared Value
+	var v_responder_error Value
+	var v_responder_options Value
+	var v_responder_output Value
+	var v_responder_request_event Value
+	var v_responder_response_event Value
+	var v_responder_values Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_distiller = args[1] }
+	_ = v_distiller
+	if len(args) > 2 { v_executor = args[2] }
+	_ = v_executor
+	if len(args) > 3 { v_responder = args[3] }
+	_ = v_responder
+	if len(args) > 4 { v_client = args[4] }
+	_ = v_client
+	if len(args) > 5 { v_values = args[5] }
+	_ = v_values
+	if len(args) > 6 { v_options = args[6] }
+	_ = v_options
+	if len(args) > 7 { v_sink = args[7] }
+	_ = v_sink
+	_ = v_executor_payload
+	_ = v_no_citation_version
+	_ = v_no_citations
+	_ = v_output
+	_ = v_prepared
+	_ = v_responder_error
+	_ = v_responder_options
+	_ = v_responder_output
+	_ = v_responder_request_event
+	_ = v_responder_response_event
+	_ = v_responder_values
+	{ v, err := _agent_run_actor_stages(v_state, v_distiller, v_executor, v_client, v_values, v_options); if err != nil { return nil, err }; v_prepared = v }
+	v_values = coreGet(v_prepared, "values", nil)
+	v_executor_payload = coreGet(v_prepared, "executor_payload", nil)
+	v_responder_options = coreGet(v_prepared, "responder_options", nil)
+	{ v, err := _build_responder_inputs(v_state, v_values, v_executor_payload); if err != nil { return nil, err }; v_responder_values = v }
+	v_responder_request_event = Object()
+	if err := coreSet(v_responder_request_event, "stage", "responder"); err != nil { return nil, err }
+	if err := coreSet(v_responder_request_event, "values", v_responder_values); err != nil { return nil, err }
+	if err := coreSet(v_responder_request_event, "component_id", "agent.stage.responder"); err != nil { return nil, err }
+	if _, err := _agent_record_trace_event(v_state, "stage_request", v_responder_request_event); err != nil { return nil, err }
+	if _, err := _agent_begin_citation_checks(v_state, v_executor_payload); err != nil { return nil, err }
+	v_no_citations = MutableArray()
+	v_no_citation_version = _core_none()
+	if err := coreSet(v_state, "stream_citations", v_no_citations); err != nil { return nil, err }
+	if err := coreSet(v_state, "stream_citation_version", v_no_citation_version); err != nil { return nil, err }
+	v_responder_output = Object()
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _agent_controlled_stage_streaming_forward(v_responder, v_state, v_client, v_responder_values, v_responder_options, v_sink); if err != nil { return coreFlow{}, err }; v_responder_output = v }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_responder_error = errorValue(__err)
+			if _, err := _agent_end_citation_checks(v_state); err != nil { return nil, err }
+			return nil, asError(v_responder_error)
+		}
+	}
+	if _, err := _agent_end_citation_checks(v_state); err != nil { return nil, err }
+	{ v, err := _agent_finalize_stream_citations(v_state, v_responder_output); if err != nil { return nil, err }; v_responder_output = v }
+	v_responder_response_event = Object()
+	if err := coreSet(v_responder_response_event, "stage", "responder"); err != nil { return nil, err }
+	if err := coreSet(v_responder_response_event, "output", v_responder_output); err != nil { return nil, err }
+	if err := coreSet(v_responder_response_event, "component_id", "agent.stage.responder"); err != nil { return nil, err }
+	if _, err := _agent_record_trace_event(v_state, "stage_response", v_responder_response_event); err != nil { return nil, err }
+	{ v, err := _agent_complete_run(v_state, v_distiller, v_executor, v_responder, v_client, v_options, v_responder_output); if err != nil { return nil, err }; v_output = v }
+	return v_output, nil
+}
+
+func _agent_streaming_forward(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_streaming_forward")
+	var v_state Value
+	var v_distiller Value
+	var v_executor Value
+	var v_responder Value
+	var v_client Value
+	var v_values Value
+	var v_options Value
+	var v_sink Value
+	var v_active Value
+	var v_close_error Value
+	var v_error Value
+	var v_forward_error Value
+	var v_none Value
+	var v_output Value
+	var v_session Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_distiller = args[1] }
+	_ = v_distiller
+	if len(args) > 2 { v_executor = args[2] }
+	_ = v_executor
+	if len(args) > 3 { v_responder = args[3] }
+	_ = v_responder
+	if len(args) > 4 { v_client = args[4] }
+	_ = v_client
+	if len(args) > 5 { v_values = args[5] }
+	_ = v_values
+	if len(args) > 6 { v_options = args[6] }
+	_ = v_options
+	if len(args) > 7 { v_sink = args[7] }
+	_ = v_sink
+	_ = v_active
+	_ = v_close_error
+	_ = v_error
+	_ = v_forward_error
+	_ = v_none
+	_ = v_output
+	_ = v_session
+	v_none = _core_none()
+	v_active = coreGet(v_state, "forward_active", false)
+	if coreTruthy(v_active) {
+		v_error = _core_runtime_error("An agent cannot delegate recursively to an already active agent")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	if err := coreSet(v_state, "forward_active", true); err != nil { return nil, err }
+	if err := coreSet(v_state, "active_client", v_client); err != nil { return nil, err }
+	if err := coreSet(v_state, "active_forward_options", v_options); err != nil { return nil, err }
+	v_output = Object()
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _agent_streaming_forward_impl(v_state, v_distiller, v_executor, v_responder, v_client, v_values, v_options, v_sink); if err != nil { return coreFlow{}, err }; v_output = v }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_forward_error = errorValue(__err)
+			if err := coreSet(v_state, "forward_active", false); err != nil { return nil, err }
+			if err := coreSet(v_state, "active_client", v_none); err != nil { return nil, err }
+			if err := coreSet(v_state, "active_forward_options", v_none); err != nil { return nil, err }
+			v_session = coreGet(v_state, "runtime_session", nil)
+			{
+				__flow, __err := func() (coreFlow, error) {
+					if _, err := _agent_runtime_close_session(v_state, v_session); err != nil { return coreFlow{}, err }
+					return coreFlow{}, nil
+				}()
+				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+				if __err != nil {
+					v_close_error = errorValue(__err)
+				// empty
+				}
+			}
+			return nil, asError(v_forward_error)
+		}
+	}
+	if err := coreSet(v_state, "forward_active", false); err != nil { return nil, err }
+	if err := coreSet(v_state, "active_client", v_none); err != nil { return nil, err }
+	if err := coreSet(v_state, "active_forward_options", v_none); err != nil { return nil, err }
+	return v_output, nil
 }
 
 func _flow_factory(args ...Value) (Value, error) {

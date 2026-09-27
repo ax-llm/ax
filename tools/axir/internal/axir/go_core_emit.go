@@ -21,6 +21,7 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicFlowDispatchGroup:       true,
 	IntrinsicAgentStageForward:       true,
 	IntrinsicAgentNativeStageForward: true,
+	IntrinsicAgentStageStreamForward: true,
 	IntrinsicAgentRuntimeCreate:      true,
 	IntrinsicAgentRuntimeExecute:     true,
 	IntrinsicAgentRuntimeInspect:     true,

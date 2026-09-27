@@ -100806,51 +100806,60 @@ fn _agent_collect_citation_ids(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_node = core_arg(args, 1);
     let mut v_depth = core_arg(args, 2);
     let mut v_child = CoreValue::Null;
+    let mut v_child_is_list = CoreValue::Null;
+    let mut v_child_is_map = CoreValue::Null;
+    let mut v_child_is_node = CoreValue::Null;
     let mut v_children = CoreValue::Null;
-    let mut v_has_depth = CoreValue::Null;
     let mut v_id = CoreValue::Null;
     let mut v_id_is_number = CoreValue::Null;
     let mut v_id_is_string = CoreValue::Null;
     let mut v_id_text = CoreValue::Null;
+    let mut v_in_depth = CoreValue::Null;
     let mut v_is_list = CoreValue::Null;
-    let mut v_is_object = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
     let mut v_next_depth = CoreValue::Null;
+    let mut v_out_of_depth = CoreValue::Null;
+    let mut v_seen = CoreValue::Null;
+    let mut v_unseen = CoreValue::Null;
     let mut v_valid_id = CoreValue::Null;
-    v_has_depth = core_gte(&[v_depth.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_has_depth) {
-        v_is_object = core_type_is(&v_node, CoreValue::from("object"));
-        if core_truthy(&v_is_object) {
-            v_id = core_get(&v_node, &CoreValue::from("id"), CoreValue::Null);
-            v_id_is_string = core_type_is(&v_id, CoreValue::from("string"));
-            v_id_is_number = core_type_is(&v_id, CoreValue::from("number"));
-            v_valid_id = core_or(&[v_id_is_string.clone(), v_id_is_number.clone()])?;
-            if core_truthy(&v_valid_id) {
-                v_id_text = core_string_format(&[CoreValue::from("{}"), v_id.clone()])?;
-                core_set(&v_ids, v_id_text.clone(), CoreValue::Bool(true))?;
+    v_in_depth = core_gte(&[v_depth.clone(), CoreValue::Num(0f64)])?;
+    v_out_of_depth = core_not(&[v_in_depth.clone()])?;
+    if core_truthy(&v_out_of_depth) {
+        return Ok(v_ids.clone());
+    }
+    v_is_map = core_type_is(&v_node, CoreValue::from("object"));
+    v_is_list = core_type_is(&v_node, CoreValue::from("list"));
+    v_children = CoreValue::new_list();
+    if core_truthy(&v_is_map) {
+        v_id = core_get(&v_node, &CoreValue::from("id"), CoreValue::Null);
+        v_id_is_string = core_type_is(&v_id, CoreValue::from("string"));
+        v_id_is_number = core_type_is(&v_id, CoreValue::from("number"));
+        v_valid_id = core_or(&[v_id_is_string.clone(), v_id_is_number.clone()])?;
+        if core_truthy(&v_valid_id) {
+            v_id_text = core_string_format(&[CoreValue::from("{}"), v_id.clone()])?;
+            v_seen = core_contains(&[v_ids.clone(), v_id_text.clone()])?;
+            v_unseen = core_not(&[v_seen.clone()])?;
+            if core_truthy(&v_unseen) {
+                core_append(&v_ids, v_id_text.clone())?;
             }
-            v_next_depth = core_add(&[v_depth.clone(), CoreValue::Num(-1f64)])?;
-            v_children = core_map_values(&[v_node.clone()])?;
-            for v_child in core_iter(&v_children)? {
-                let mut v_child = v_child;
-                v_ids = _agent_collect_citation_ids(&[
-                    v_ids.clone(),
-                    v_child.clone(),
-                    v_next_depth.clone(),
-                ])?;
-            }
-        } else {
-            v_is_list = core_type_is(&v_node, CoreValue::from("list"));
-            if core_truthy(&v_is_list) {
-                v_next_depth = core_add(&[v_depth.clone(), CoreValue::Num(-1f64)])?;
-                for v_child in core_iter(&v_node)? {
-                    let mut v_child = v_child;
-                    v_ids = _agent_collect_citation_ids(&[
-                        v_ids.clone(),
-                        v_child.clone(),
-                        v_next_depth.clone(),
-                    ])?;
-                }
-            }
+        }
+        v_children = core_map_values(&[v_node.clone()])?;
+    }
+    if core_truthy(&v_is_list) {
+        v_children = v_node.clone();
+    }
+    v_next_depth = core_add(&[v_depth.clone(), CoreValue::Num(-1f64)])?;
+    for v_child in core_iter(&v_children)? {
+        let mut v_child = v_child;
+        v_child_is_map = core_type_is(&v_child, CoreValue::from("object"));
+        v_child_is_list = core_type_is(&v_child, CoreValue::from("list"));
+        v_child_is_node = core_or(&[v_child_is_map.clone(), v_child_is_list.clone()])?;
+        if core_truthy(&v_child_is_node) {
+            v_ids = _agent_collect_citation_ids(&[
+                v_ids.clone(),
+                v_child.clone(),
+                v_next_depth.clone(),
+            ])?;
         }
     }
     return Ok(v_ids.clone());
@@ -100863,34 +100872,30 @@ fn _agent_collect_citation_ids(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
-fn _agent_validate_citations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_validate_citations");
+fn _agent_begin_citation_checks(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_begin_citation_checks");
     let mut v_state = core_arg(args, 0);
-    let mut v_output = core_arg(args, 1);
+    let mut v_executor_payload = core_arg(args, 1);
+    let mut v_args = CoreValue::Null;
     let mut v_citations = CoreValue::Null;
-    let mut v_cited = CoreValue::Null;
-    let mut v_disabled = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_enabled = CoreValue::Null;
     let mut v_evidence = CoreValue::Null;
-    let mut v_evidence_present = CoreValue::Null;
-    let mut v_field = CoreValue::Null;
-    let mut v_id_text = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
+    let mut v_evidence_is_map = CoreValue::Null;
+    let mut v_evidence_value = CoreValue::Null;
+    let mut v_evidence_values = CoreValue::Null;
     let mut v_include_memory_ids = CoreValue::Null;
-    let mut v_key = CoreValue::Null;
     let mut v_keys = CoreValue::Null;
-    let mut v_known = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_no_evidence_contract = CoreValue::Null;
-    let mut v_raw = CoreValue::Null;
-    let mut v_raw_id = CoreValue::Null;
-    let mut v_raw_is_list = CoreValue::Null;
-    let mut v_unknown = CoreValue::Null;
-    let mut v_valid = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    let mut v_values = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_top_key = CoreValue::Null;
+    let mut v_top_keys = CoreValue::Null;
+    v_none = core_none(&[])?;
+    core_set(
+        &v_state,
+        CoreValue::from("citation_valid_keys"),
+        v_none.clone(),
+    )?;
     v_empty_map = CoreValue::new_map();
     v_citations = core_get(&v_state, &CoreValue::from("citations"), v_empty_map.clone());
     v_enabled = core_get(
@@ -100898,19 +100903,115 @@ fn _agent_validate_citations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &CoreValue::from("enabled"),
         CoreValue::Bool(false),
     );
-    v_disabled = core_not(&[v_enabled.clone()])?;
-    if core_truthy(&v_disabled) {
-        return Ok(CoreValue::Bool(true));
+    if core_truthy(&v_enabled) {
+        v_empty_list = CoreValue::new_list();
+        v_args = core_get(
+            &v_executor_payload,
+            &CoreValue::from("args"),
+            v_empty_list.clone(),
+        );
+        v_evidence = core_list_get(&[v_args.clone(), CoreValue::Num(1f64), v_none.clone()])?;
+        v_evidence_is_map = core_type_is(&v_evidence, CoreValue::from("object"));
+        if core_truthy(&v_evidence_is_map) {
+            v_keys = CoreValue::new_list();
+            v_top_keys = core_map_keys(&[v_evidence.clone()])?;
+            for v_top_key in core_iter(&v_top_keys)? {
+                let mut v_top_key = v_top_key;
+                core_append(&v_keys, v_top_key.clone())?;
+            }
+            v_include_memory_ids = core_get(
+                &v_citations,
+                &CoreValue::from("includeMemoryIds"),
+                CoreValue::Bool(true),
+            );
+            if core_truthy(&v_include_memory_ids) {
+                v_evidence_values = core_map_values(&[v_evidence.clone()])?;
+                for v_evidence_value in core_iter(&v_evidence_values)? {
+                    let mut v_evidence_value = v_evidence_value;
+                    v_keys = _agent_collect_citation_ids(&[
+                        v_keys.clone(),
+                        v_evidence_value.clone(),
+                        CoreValue::Num(2f64),
+                    ])?;
+                }
+            }
+            core_set(
+                &v_state,
+                CoreValue::from("citation_valid_keys"),
+                v_keys.clone(),
+            )?;
+        }
     }
-    v_evidence_present = core_get(
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_end_citation_checks(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_end_citation_checks");
+    let mut v_state = core_arg(args, 0);
+    let mut v_none = CoreValue::Null;
+    v_none = core_none(&[])?;
+    core_set(
         &v_state,
-        &CoreValue::from("responder_evidence_present"),
-        CoreValue::Bool(false),
+        CoreValue::from("citation_valid_keys"),
+        v_none.clone(),
+    )?;
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_citation_assert(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_citation_assert");
+    let mut v_state = core_arg(args, 0);
+    let mut v_output = core_arg(args, 1);
+    let mut v_all_known = CoreValue::Null;
+    let mut v_citations = CoreValue::Null;
+    let mut v_cited = CoreValue::Null;
+    let mut v_cited_item = CoreValue::Null;
+    let mut v_cited_text = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_invalid_count = CoreValue::Null;
+    let mut v_invalid_text = CoreValue::Null;
+    let mut v_key_count = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_keys_text = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_no_evidence = CoreValue::Null;
+    let mut v_no_evidence_message = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_raw = CoreValue::Null;
+    let mut v_raw_is_list = CoreValue::Null;
+    let mut v_raw_item = CoreValue::Null;
+    let mut v_unchecked = CoreValue::Null;
+    let mut v_unknown = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_keys = core_get(
+        &v_state,
+        &CoreValue::from("citation_valid_keys"),
+        CoreValue::Null,
     );
-    v_no_evidence_contract = core_not(&[v_evidence_present.clone()])?;
-    if core_truthy(&v_no_evidence_contract) {
-        return Ok(CoreValue::Bool(true));
+    v_unchecked = core_is_none(&[v_keys.clone()])?;
+    if core_truthy(&v_unchecked) {
+        return Ok(v_none.clone());
     }
+    v_empty_map = CoreValue::new_map();
+    v_citations = core_get(&v_state, &CoreValue::from("citations"), v_empty_map.clone());
     v_field = core_get(
         &v_citations,
         &CoreValue::from("field"),
@@ -100919,54 +101020,46 @@ fn _agent_validate_citations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_raw = core_get(&v_output, &v_field.clone(), CoreValue::Null);
     v_missing = core_is_none(&[v_raw.clone()])?;
     if core_truthy(&v_missing) {
-        return Ok(CoreValue::Bool(true));
+        return Ok(v_none.clone());
     }
-    v_ids = CoreValue::new_map();
-    v_evidence = core_get(
-        &v_state,
-        &CoreValue::from("responder_evidence"),
-        v_empty_map.clone(),
-    );
-    v_keys = core_map_keys(&[v_evidence.clone()])?;
-    for v_key in core_iter(&v_keys)? {
-        let mut v_key = v_key;
-        core_set(&v_ids, v_key.clone(), CoreValue::Bool(true))?;
-    }
-    v_include_memory_ids = core_get(
-        &v_citations,
-        &CoreValue::from("includeMemoryIds"),
-        CoreValue::Bool(true),
-    );
-    if core_truthy(&v_include_memory_ids) {
-        v_values = core_map_values(&[v_evidence.clone()])?;
-        for v_value in core_iter(&v_values)? {
-            let mut v_value = v_value;
-            v_ids = _agent_collect_citation_ids(&[
-                v_ids.clone(),
-                v_value.clone(),
-                CoreValue::Num(2f64),
-            ])?;
-        }
-    }
-    v_empty_list = CoreValue::new_list();
-    v_cited = v_empty_list.clone();
+    v_cited = CoreValue::new_list();
     v_raw_is_list = core_type_is(&v_raw, CoreValue::from("list"));
     if core_truthy(&v_raw_is_list) {
-        v_cited = v_raw.clone();
+        for v_raw_item in core_iter(&v_raw)? {
+            let mut v_raw_item = v_raw_item;
+            core_append(&v_cited, v_raw_item.clone())?;
+        }
     } else {
         core_append(&v_cited, v_raw.clone())?;
     }
-    v_valid = CoreValue::Bool(true);
-    for v_raw_id in core_iter(&v_cited)? {
-        let mut v_raw_id = v_raw_id;
-        v_id_text = core_string_format(&[CoreValue::from("{}"), v_raw_id.clone()])?;
-        v_known = core_map_contains(&[v_ids.clone(), v_id_text.clone()])?;
+    v_invalid = CoreValue::new_list();
+    for v_cited_item in core_iter(&v_cited)? {
+        let mut v_cited_item = v_cited_item;
+        v_cited_text = core_string_format(&[CoreValue::from("{}"), v_cited_item.clone()])?;
+        v_known = core_contains(&[v_keys.clone(), v_cited_text.clone()])?;
         v_unknown = core_not(&[v_known.clone()])?;
         if core_truthy(&v_unknown) {
-            v_valid = CoreValue::Bool(false);
+            core_append(&v_invalid, v_cited_text.clone())?;
         }
     }
-    return Ok(v_valid.clone());
+    v_invalid_count = core_len(&[v_invalid.clone()])?;
+    v_all_known = core_eq(&[v_invalid_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_all_known) {
+        return Ok(v_none.clone());
+    }
+    v_key_count = core_len(&[v_keys.clone()])?;
+    v_no_evidence = core_eq(&[v_key_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_no_evidence) {
+        v_no_evidence_message = core_string_format(&[
+            CoreValue::from("This answer has no evidence to cite — leave {} empty."),
+            v_field.clone(),
+        ])?;
+        return Ok(v_no_evidence_message.clone());
+    }
+    v_invalid_text = core_string_join_intrinsic(&[CoreValue::from(", "), v_invalid.clone()])?;
+    v_keys_text = core_string_join_intrinsic(&[CoreValue::from(", "), v_keys.clone()])?;
+    v_message = core_string_format(&[CoreValue::from("Invalid {} entries: {}. Cite only evidence ids that exist: {} — or leave the field empty."), v_field.clone(), v_invalid_text.clone(), v_keys_text.clone()])?;
+    return Ok(v_message.clone());
 }
 
 #[allow(
@@ -100981,15 +101074,18 @@ fn _agent_finalize_citations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_state = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
     let mut v_citations = CoreValue::Null;
-    let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_enabled = CoreValue::Null;
     let mut v_field = CoreValue::Null;
     let mut v_hidden = CoreValue::Null;
     let mut v_raw = CoreValue::Null;
+    let mut v_raw_is_list = CoreValue::Null;
+    let mut v_raw_item = CoreValue::Null;
+    let mut v_raw_present = CoreValue::Null;
+    let mut v_raw_text = CoreValue::Null;
+    let mut v_reported = CoreValue::Null;
     let mut v_surface = CoreValue::Null;
     v_empty_map = CoreValue::new_map();
-    v_empty_list = CoreValue::new_list();
     v_citations = core_get(&v_state, &CoreValue::from("citations"), v_empty_map.clone());
     v_enabled = core_get(
         &v_citations,
@@ -101002,8 +101098,27 @@ fn _agent_finalize_citations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             &CoreValue::from("field"),
             CoreValue::from("evidenceCitations"),
         );
-        v_raw = core_get(&v_output, &v_field.clone(), v_empty_list.clone());
-        core_set(&v_state, CoreValue::from("last_citations"), v_raw.clone())?;
+        v_raw = core_get(&v_output, &v_field.clone(), CoreValue::Null);
+        v_reported = CoreValue::new_list();
+        v_raw_is_list = core_type_is(&v_raw, CoreValue::from("list"));
+        v_raw_present = core_is_not_none(&[v_raw.clone()])?;
+        if core_truthy(&v_raw_is_list) {
+            for v_raw_item in core_iter(&v_raw)? {
+                let mut v_raw_item = v_raw_item;
+                v_raw_text = core_string_format(&[CoreValue::from("{}"), v_raw_item.clone()])?;
+                core_append(&v_reported, v_raw_text.clone())?;
+            }
+        } else {
+            if core_truthy(&v_raw_present) {
+                v_raw_text = core_string_format(&[CoreValue::from("{}"), v_raw.clone()])?;
+                core_append(&v_reported, v_raw_text.clone())?;
+            }
+        }
+        core_set(
+            &v_state,
+            CoreValue::from("last_citations"),
+            v_reported.clone(),
+        )?;
         v_surface = core_get(
             &v_citations,
             &CoreValue::from("surface"),
@@ -103454,10 +103569,892 @@ fn _agent_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_client = core_arg(args, 4);
     let mut v_values = core_arg(args, 5);
     let mut v_options = core_arg(args, 6);
-    let mut v_citation_retry_feedback = CoreValue::Null;
-    let mut v_citation_retry_options = CoreValue::Null;
-    let mut v_citations_invalid = CoreValue::Null;
-    let mut v_citations_valid = CoreValue::Null;
+    let mut v_executor_payload = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_prepared = CoreValue::Null;
+    let mut v_responder_error = CoreValue::Null;
+    let mut v_responder_options = CoreValue::Null;
+    let mut v_responder_output = CoreValue::Null;
+    let mut v_responder_request_event = CoreValue::Null;
+    let mut v_responder_response_event = CoreValue::Null;
+    let mut v_responder_values = CoreValue::Null;
+    v_prepared = _agent_run_actor_stages(&[
+        v_state.clone(),
+        v_distiller.clone(),
+        v_executor.clone(),
+        v_client.clone(),
+        v_values.clone(),
+        v_options.clone(),
+    ])?;
+    v_values = core_get(&v_prepared, &CoreValue::from("values"), CoreValue::Null);
+    v_executor_payload = core_get(
+        &v_prepared,
+        &CoreValue::from("executor_payload"),
+        CoreValue::Null,
+    );
+    v_responder_options = core_get(
+        &v_prepared,
+        &CoreValue::from("responder_options"),
+        CoreValue::Null,
+    );
+    v_responder_values = _build_responder_inputs(&[
+        v_state.clone(),
+        v_values.clone(),
+        v_executor_payload.clone(),
+    ])?;
+    v_responder_request_event = CoreValue::new_map();
+    core_set(
+        &v_responder_request_event,
+        CoreValue::from("stage"),
+        CoreValue::from("responder"),
+    )?;
+    core_set(
+        &v_responder_request_event,
+        CoreValue::from("values"),
+        v_responder_values.clone(),
+    )?;
+    core_set(
+        &v_responder_request_event,
+        CoreValue::from("component_id"),
+        CoreValue::from("agent.stage.responder"),
+    )?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("stage_request"),
+        v_responder_request_event.clone(),
+    ])?;
+    _agent_begin_citation_checks(&[v_state.clone(), v_executor_payload.clone()])?;
+    v_responder_output = CoreValue::new_map();
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_responder_output = _agent_controlled_stage_forward(&[
+            v_responder.clone(),
+            v_client.clone(),
+            v_responder_values.clone(),
+            v_responder_options.clone(),
+        ])?;
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_responder_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            _agent_end_citation_checks(&[v_state.clone()])?;
+            return Err(core_as_error(&v_responder_error));
+        }
+    }
+    _agent_end_citation_checks(&[v_state.clone()])?;
+    v_responder_output = _agent_finalize_citations(&[v_state.clone(), v_responder_output.clone()])?;
+    v_responder_response_event = CoreValue::new_map();
+    core_set(
+        &v_responder_response_event,
+        CoreValue::from("stage"),
+        CoreValue::from("responder"),
+    )?;
+    core_set(
+        &v_responder_response_event,
+        CoreValue::from("output"),
+        v_responder_output.clone(),
+    )?;
+    core_set(
+        &v_responder_response_event,
+        CoreValue::from("component_id"),
+        CoreValue::from("agent.stage.responder"),
+    )?;
+    _agent_record_trace_event(&[
+        v_state.clone(),
+        CoreValue::from("stage_response"),
+        v_responder_response_event.clone(),
+    ])?;
+    v_output = _agent_complete_run(&[
+        v_state.clone(),
+        v_distiller.clone(),
+        v_executor.clone(),
+        v_responder.clone(),
+        v_client.clone(),
+        v_options.clone(),
+        v_responder_output.clone(),
+    ])?;
+    return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_apply_run_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_apply_run_context");
+    let mut v_state = core_arg(args, 0);
+    let mut v_configured = core_arg(args, 1);
+    let mut v_call = core_arg(args, 2);
+    let mut v_modules = core_arg(args, 3);
+    let mut v_catalog = CoreValue::Null;
+    let mut v_default_name = CoreValue::Null;
+    let mut v_distiller = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_docs = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_executor = CoreValue::Null;
+    let mut v_flags = CoreValue::Null;
+    let mut v_function = CoreValue::Null;
+    let mut v_functions = CoreValue::Null;
+    let mut v_inventory = CoreValue::Null;
+    let mut v_mcp = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_namespace = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_policy = CoreValue::Null;
+    let mut v_prompt = CoreValue::Null;
+    let mut v_protocol = CoreValue::Null;
+    let mut v_registry = CoreValue::Null;
+    let mut v_responder = CoreValue::Null;
+    let mut v_retained = CoreValue::Null;
+    let mut v_retained_docs = CoreValue::Null;
+    let mut v_runtime = CoreValue::Null;
+    let mut v_split = CoreValue::Null;
+    let mut v_ucp = CoreValue::Null;
+    let mut v_upgrade = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_options = core_map_merge(&[v_configured.clone(), v_call.clone()])?;
+    v_functions = core_get(
+        &v_options,
+        &CoreValue::from("functions"),
+        v_empty_list.clone(),
+    );
+    v_retained = CoreValue::new_list();
+    for v_function in core_iter(&v_functions)? {
+        let mut v_function = v_function;
+        v_default_name = core_get(&v_function, &CoreValue::from("name"), CoreValue::from(""));
+        v_namespace = core_get(
+            &v_function,
+            &CoreValue::from("namespace"),
+            v_default_name.clone(),
+        );
+        v_mcp = core_string_starts_with(&[v_namespace.clone(), CoreValue::from("mcp.")])?;
+        v_ucp = core_string_starts_with(&[v_namespace.clone(), CoreValue::from("ucp.")])?;
+        v_protocol = core_or(&[v_mcp.clone(), v_ucp.clone()])?;
+        if core_truthy(&v_protocol) {
+        } else {
+            core_append(&v_retained, v_function.clone())?;
+        }
+    }
+    core_set(&v_options, CoreValue::from("functions"), v_retained.clone())?;
+    v_options = _agent_append_runtime_modules(&[v_options.clone(), v_modules.clone()])?;
+    v_inventory = _normalize_agent_callable_inventory(&[v_options.clone()])?;
+    v_split = _split_agent_callable_inventory(&[v_inventory.clone()])?;
+    v_catalog = _render_agent_discovery_catalog(&[v_split.clone()])?;
+    core_set(&v_state, CoreValue::from("options"), v_options.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("callable_inventory"),
+        v_inventory.clone(),
+    )?;
+    core_set(&v_state, CoreValue::from("callable_split"), v_split.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("discovery_catalog"),
+        v_catalog.clone(),
+    )?;
+    v_upgrade = _resolve_agent_auto_upgrade(&[v_options.clone()])?;
+    v_flags = _agent_policy_flags(&[v_options.clone(), v_split.clone(), v_upgrade.clone()])?;
+    v_policy = _normalize_agent_policy(&[v_options.clone()])?;
+    v_registry = _agent_policy_registry(&[v_policy.clone(), v_flags.clone()])?;
+    core_set(&v_state, CoreValue::from("policy_flags"), v_flags.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("policy_registry"),
+        v_registry.clone(),
+    )?;
+    v_docs = core_get(
+        &v_state,
+        &CoreValue::from("discovered_tool_docs"),
+        v_empty_list.clone(),
+    );
+    v_retained_docs = CoreValue::new_list();
+    for v_doc in core_iter(&v_docs)? {
+        let mut v_doc = v_doc;
+        v_name = core_get(
+            &v_doc,
+            &CoreValue::from("qualified_name"),
+            CoreValue::from(""),
+        );
+        v_mcp = core_string_starts_with(&[v_name.clone(), CoreValue::from("mcp.")])?;
+        v_ucp = core_string_starts_with(&[v_name.clone(), CoreValue::from("ucp.")])?;
+        v_protocol = core_or(&[v_mcp.clone(), v_ucp.clone()])?;
+        if core_truthy(&v_protocol) {
+        } else {
+            core_append(&v_retained_docs, v_doc.clone())?;
+        }
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("discovered_tool_docs"),
+        v_retained_docs.clone(),
+    )?;
+    v_prompt = _build_agent_actor_prompt_policy(&[v_state.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("actor_prompt_policy"),
+        v_prompt.clone(),
+    )?;
+    v_runtime = core_get(
+        &v_state,
+        &CoreValue::from("runtime_enabled"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_runtime) {
+        v_executor = _render_rlm_executor_description(&[v_state.clone(), v_options.clone()])?;
+        v_distiller = _render_rlm_distiller_description(&[v_state.clone(), v_options.clone()])?;
+        v_responder = _render_rlm_responder_description(&[v_state.clone(), v_options.clone()])?;
+        core_set(
+            &v_state,
+            CoreValue::from("executor_description_base"),
+            v_executor.clone(),
+        )?;
+        core_set(
+            &v_state,
+            CoreValue::from("distiller_description"),
+            v_distiller.clone(),
+        )?;
+        core_set(
+            &v_state,
+            CoreValue::from("responder_description"),
+            v_responder.clone(),
+        )?;
+        _agent_refresh_actor_instruction(&[v_state.clone()])?;
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("mcp_run_context_active"),
+        CoreValue::Bool(true),
+    )?;
+    return Ok(v_call.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_append_runtime_modules(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_append_runtime_modules");
+    let mut v_options = core_arg(args, 0);
+    let mut v_additional = core_arg(args, 1);
+    let mut v_count = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_flat = CoreValue::Null;
+    let mut v_functions = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_has_flat = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_members = CoreValue::Null;
+    let mut v_module = CoreValue::Null;
+    let mut v_modules = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_out = core_map_merge(&[v_empty_map.clone(), v_options.clone()])?;
+    v_functions = core_get(
+        &v_options,
+        &CoreValue::from("functions"),
+        v_empty_list.clone(),
+    );
+    v_modules = CoreValue::new_list();
+    v_flat = CoreValue::new_list();
+    for v_item in core_iter(&v_functions)? {
+        let mut v_item = v_item;
+        v_members = core_get(&v_item, &CoreValue::from("functions"), CoreValue::Null);
+        v_group = core_type_is(&v_members, CoreValue::from("list"));
+        if core_truthy(&v_group) {
+            core_append(&v_modules, v_item.clone())?;
+        } else {
+            core_append(&v_flat, v_item.clone())?;
+        }
+    }
+    v_count = core_len(&[v_flat.clone()])?;
+    v_has_flat = core_gt(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_flat) {
+        v_module = CoreValue::new_map();
+        core_set(
+            &v_module,
+            CoreValue::from("namespace"),
+            CoreValue::from("tools"),
+        )?;
+        core_set(
+            &v_module,
+            CoreValue::from("title"),
+            CoreValue::from("Tools"),
+        )?;
+        core_set(
+            &v_module,
+            CoreValue::from("alwaysInclude"),
+            CoreValue::Bool(true),
+        )?;
+        core_set(&v_module, CoreValue::from("functions"), v_flat.clone())?;
+        core_append(&v_modules, v_module.clone())?;
+    }
+    for v_module in core_iter(&v_additional)? {
+        let mut v_module = v_module;
+        core_append(&v_modules, v_module.clone())?;
+    }
+    core_set(&v_out, CoreValue::from("functions"), v_modules.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_register_child(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_register_child");
+    let mut v_options = core_arg(args, 0);
+    let mut v_namespace = core_arg(args, 1);
+    let mut v_name = core_arg(args, 2);
+    let mut v_program = core_arg(args, 3);
+    let mut v_signature = core_arg(args, 4);
+    let mut v_additional = CoreValue::Null;
+    let mut v_child = CoreValue::Null;
+    let mut v_children = CoreValue::Null;
+    let mut v_copy = CoreValue::Null;
+    let mut v_default_name = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_functions = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_member = CoreValue::Null;
+    let mut v_members = CoreValue::Null;
+    let mut v_module = CoreValue::Null;
+    let mut v_module_namespace = CoreValue::Null;
+    let mut v_modules = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_schema = CoreValue::Null;
+    v_additional = CoreValue::new_list();
+    v_options = _agent_append_runtime_modules(&[v_options.clone(), v_additional.clone()])?;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_out = core_map_merge(&[v_empty_map.clone(), v_options.clone()])?;
+    v_fields = core_get(
+        &v_signature,
+        &CoreValue::from("input_fields"),
+        v_empty_list.clone(),
+    );
+    v_schema =
+        _schema_to_json_schema_impl(&[v_fields.clone(), v_name.clone(), v_empty_map.clone()])?;
+    v_child = CoreValue::new_map();
+    core_set(&v_child, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_child, CoreValue::from("kind"), CoreValue::from("agent"))?;
+    core_set(
+        &v_child,
+        CoreValue::from("execution"),
+        CoreValue::from("blocking"),
+    )?;
+    core_set(&v_child, CoreValue::from("parameters"), v_schema.clone())?;
+    core_set(&v_child, CoreValue::from("program"), v_program.clone())?;
+    v_description = core_get(
+        &v_signature,
+        &CoreValue::from("description"),
+        CoreValue::from("Delegate to a child agent"),
+    );
+    core_set(
+        &v_child,
+        CoreValue::from("description"),
+        v_description.clone(),
+    )?;
+    v_functions = core_get(
+        &v_options,
+        &CoreValue::from("functions"),
+        v_empty_list.clone(),
+    );
+    v_modules = CoreValue::new_list();
+    v_found = CoreValue::Bool(false);
+    for v_module in core_iter(&v_functions)? {
+        let mut v_module = v_module;
+        v_default_name = core_get(
+            &v_module,
+            &CoreValue::from("name"),
+            CoreValue::from("tools"),
+        );
+        v_module_namespace = core_get(
+            &v_module,
+            &CoreValue::from("namespace"),
+            v_default_name.clone(),
+        );
+        v_matches = core_eq(&[v_module_namespace.clone(), v_namespace.clone()])?;
+        v_members = core_get(&v_module, &CoreValue::from("functions"), CoreValue::Null);
+        v_group = core_type_is(&v_members, CoreValue::from("list"));
+        v_matches = core_and(&[v_matches.clone(), v_group.clone()])?;
+        if core_truthy(&v_matches) {
+            v_copy = core_map_merge(&[v_empty_map.clone(), v_module.clone()])?;
+            v_children = CoreValue::new_list();
+            for v_member in core_iter(&v_members)? {
+                let mut v_member = v_member;
+                core_append(&v_children, v_member.clone())?;
+            }
+            core_append(&v_children, v_child.clone())?;
+            core_set(&v_copy, CoreValue::from("functions"), v_children.clone())?;
+            core_append(&v_modules, v_copy.clone())?;
+            v_found = CoreValue::Bool(true);
+        } else {
+            core_append(&v_modules, v_module.clone())?;
+        }
+    }
+    if core_truthy(&v_found) {
+    } else {
+        v_module = CoreValue::new_map();
+        v_children = CoreValue::new_list();
+        core_append(&v_children, v_child.clone())?;
+        core_set(&v_module, CoreValue::from("namespace"), v_namespace.clone())?;
+        core_set(&v_module, CoreValue::from("functions"), v_children.clone())?;
+        core_append(&v_modules, v_module.clone())?;
+    }
+    core_set(&v_out, CoreValue::from("functions"), v_modules.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_child_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_child_options");
+    let mut v_state = core_arg(args, 0);
+    let mut v_qualified = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_active = CoreValue::Null;
+    let mut v_base = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_inheritance = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parent = CoreValue::Null;
+    let mut v_parent_path = CoreValue::Null;
+    let mut v_path = CoreValue::Null;
+    let mut v_present = CoreValue::Null;
+    let mut v_snake_path = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_base = core_get(&v_state, &CoreValue::from("options"), v_empty_map.clone());
+    v_active = core_get(
+        &v_state,
+        &CoreValue::from("active_forward_options"),
+        v_empty_map.clone(),
+    );
+    v_parent = core_map_merge(&[v_base.clone(), v_active.clone()])?;
+    v_parent = core_map_merge(&[v_parent.clone(), v_options.clone()])?;
+    v_out = CoreValue::new_map();
+    v_keys = CoreValue::new_list();
+    core_append(&v_keys, CoreValue::from("control"))?;
+    core_append(&v_keys, CoreValue::from("asyncMode"))?;
+    core_append(&v_keys, CoreValue::from("async_mode"))?;
+    core_append(&v_keys, CoreValue::from("abortSignal"))?;
+    core_append(&v_keys, CoreValue::from("abort_signal"))?;
+    core_append(&v_keys, CoreValue::from("cancellation"))?;
+    core_append(&v_keys, CoreValue::from("executionContext"))?;
+    core_append(&v_keys, CoreValue::from("eventContext"))?;
+    core_append(&v_keys, CoreValue::from("protocol"))?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_value = core_get(&v_parent, &v_key.clone(), CoreValue::Null);
+        v_present = core_is_not_none(&[v_value.clone()])?;
+        if core_truthy(&v_present) {
+            core_set(&v_out, v_key.clone(), v_value.clone())?;
+        }
+    }
+    v_inheritance = core_get(
+        &v_parent,
+        &CoreValue::from("mcpInheritance"),
+        CoreValue::from("all"),
+    );
+    core_set(
+        &v_out,
+        CoreValue::from("mcpInheritanceFromParent"),
+        v_inheritance.clone(),
+    )?;
+    v_snake_path = core_get(
+        &v_parent,
+        &CoreValue::from("execution_path"),
+        CoreValue::from("root"),
+    );
+    v_parent_path = core_get(
+        &v_parent,
+        &CoreValue::from("executionPath"),
+        v_snake_path.clone(),
+    );
+    v_path = core_string_format(&[
+        CoreValue::from("{}/{}"),
+        v_parent_path.clone(),
+        v_qualified.clone(),
+    ])?;
+    core_set(&v_out, CoreValue::from("executionPath"), v_path.clone())?;
+    core_set(&v_out, CoreValue::from("execution_path"), v_path.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_forward");
+    let mut v_state = core_arg(args, 0);
+    let mut v_distiller = core_arg(args, 1);
+    let mut v_executor = core_arg(args, 2);
+    let mut v_responder = core_arg(args, 3);
+    let mut v_client = core_arg(args, 4);
+    let mut v_values = core_arg(args, 5);
+    let mut v_options = core_arg(args, 6);
+    let mut v_active = CoreValue::Null;
+    let mut v_close_error = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_forward_error = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_session = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_active = core_get(
+        &v_state,
+        &CoreValue::from("forward_active"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_active) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "An agent cannot delegate recursively to an already active agent",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("forward_active"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(&v_state, CoreValue::from("active_client"), v_client.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("active_forward_options"),
+        v_options.clone(),
+    )?;
+    v_output = CoreValue::new_map();
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_output = _agent_forward_impl(&[
+            v_state.clone(),
+            v_distiller.clone(),
+            v_executor.clone(),
+            v_responder.clone(),
+            v_client.clone(),
+            v_values.clone(),
+            v_options.clone(),
+        ])?;
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_forward_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            core_set(
+                &v_state,
+                CoreValue::from("forward_active"),
+                CoreValue::Bool(false),
+            )?;
+            core_set(&v_state, CoreValue::from("active_client"), v_none.clone())?;
+            core_set(
+                &v_state,
+                CoreValue::from("active_forward_options"),
+                v_none.clone(),
+            )?;
+            v_session = core_get(
+                &v_state,
+                &CoreValue::from("runtime_session"),
+                CoreValue::Null,
+            );
+            let __core_try: Result<CoreFlow, AxError> = (|| {
+                _agent_runtime_close_session(&[v_state.clone(), v_session.clone()])?;
+                Ok(CoreFlow::Normal)
+            })();
+            match __core_try {
+                Ok(CoreFlow::Normal) => {}
+                Ok(CoreFlow::Return(value)) => return Ok(value),
+                Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+                Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+                Err(__core_caught) => {
+                    v_close_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                }
+            }
+            return Err(core_as_error(&v_forward_error));
+        }
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("forward_active"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(&v_state, CoreValue::from("active_client"), v_none.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("active_forward_options"),
+        v_none.clone(),
+    )?;
+    return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_callable_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_callable_names");
+    let mut v_state = core_arg(args, 0);
+    let mut v_callable = CoreValue::Null;
+    let mut v_callables = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_inventory = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_inventory = core_get(
+        &v_state,
+        &CoreValue::from("callable_inventory"),
+        v_empty_list.clone(),
+    );
+    v_names = CoreValue::new_list();
+    for v_group in core_iter(&v_inventory)? {
+        let mut v_group = v_group;
+        v_callables = core_get(
+            &v_group,
+            &CoreValue::from("callables"),
+            v_empty_list.clone(),
+        );
+        for v_callable in core_iter(&v_callables)? {
+            let mut v_callable = v_callable;
+            v_name = core_get(
+                &v_callable,
+                &CoreValue::from("qualified_name"),
+                CoreValue::from(""),
+            );
+            core_append(&v_names, v_name.clone())?;
+        }
+    }
+    return Ok(v_names.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_callable_visible(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_callable_visible");
+    let mut v_state = core_arg(args, 0);
+    let mut v_qualified = core_arg(args, 1);
+    let mut v_all_visible = CoreValue::Null;
+    let mut v_always = CoreValue::Null;
+    let mut v_callable = CoreValue::Null;
+    let mut v_callables = CoreValue::Null;
+    let mut v_discovered = CoreValue::Null;
+    let mut v_discovery = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_doc_name = CoreValue::Null;
+    let mut v_docs = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_flags = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_group_always = CoreValue::Null;
+    let mut v_group_visible = CoreValue::Null;
+    let mut v_inventory = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_visible = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_flags = core_get(
+        &v_state,
+        &CoreValue::from("policy_flags"),
+        v_empty_map.clone(),
+    );
+    v_discovery = core_get(
+        &v_flags,
+        &CoreValue::from("discoveryMode"),
+        CoreValue::Bool(false),
+    );
+    v_all_visible = core_not(&[v_discovery.clone()])?;
+    v_inventory = core_get(
+        &v_state,
+        &CoreValue::from("callable_inventory"),
+        v_empty_list.clone(),
+    );
+    v_docs = core_get(
+        &v_state,
+        &CoreValue::from("discovered_tool_docs"),
+        v_empty_list.clone(),
+    );
+    for v_group in core_iter(&v_inventory)? {
+        let mut v_group = v_group;
+        v_group_always = core_get(
+            &v_group,
+            &CoreValue::from("always_include"),
+            CoreValue::Bool(false),
+        );
+        v_group_visible = core_or(&[v_all_visible.clone(), v_group_always.clone()])?;
+        v_callables = core_get(
+            &v_group,
+            &CoreValue::from("callables"),
+            v_empty_list.clone(),
+        );
+        for v_callable in core_iter(&v_callables)? {
+            let mut v_callable = v_callable;
+            v_name = core_get(
+                &v_callable,
+                &CoreValue::from("qualified_name"),
+                CoreValue::from(""),
+            );
+            v_matches = core_eq(&[v_name.clone(), v_qualified.clone()])?;
+            if core_truthy(&v_matches) {
+                v_always = core_get(
+                    &v_callable,
+                    &CoreValue::from("always_include"),
+                    CoreValue::Bool(false),
+                );
+                v_visible = core_or(&[v_group_visible.clone(), v_always.clone()])?;
+                for v_doc in core_iter(&v_docs)? {
+                    let mut v_doc = v_doc;
+                    v_doc_name = core_get(
+                        &v_doc,
+                        &CoreValue::from("qualified_name"),
+                        CoreValue::from(""),
+                    );
+                    v_discovered = core_eq(&[v_doc_name.clone(), v_qualified.clone()])?;
+                    v_visible = core_or(&[v_visible.clone(), v_discovered.clone()])?;
+                }
+                return Ok(v_visible.clone());
+            }
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_invoke_callable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_invoke_callable");
+    let mut v_state = core_arg(args, 0);
+    let mut v_qualified = core_arg(args, 1);
+    let mut v_arguments = core_arg(args, 2);
+    let mut v_active = CoreValue::Null;
+    let mut v_active_options = CoreValue::Null;
+    let mut v_base = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_request = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_visible = CoreValue::Null;
+    v_active = core_get(
+        &v_state,
+        &CoreValue::from("forward_active"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_active) {
+    } else {
+        v_error =
+            core_runtime_error(&[CoreValue::from("Agent invocation belongs to a closed run")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_visible = _agent_callable_visible(&[v_state.clone(), v_qualified.clone()])?;
+    if core_truthy(&v_visible) {
+    } else {
+        v_message = core_string_format(&[
+            CoreValue::from("Agent callable is not discovered: {}"),
+            v_qualified.clone(),
+        ])?;
+        v_error = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_empty_map = CoreValue::new_map();
+    v_base = core_get(&v_state, &CoreValue::from("options"), v_empty_map.clone());
+    v_active_options = core_get(
+        &v_state,
+        &CoreValue::from("active_forward_options"),
+        v_empty_map.clone(),
+    );
+    v_options = core_map_merge(&[v_base.clone(), v_active_options.clone()])?;
+    v_request = CoreValue::new_map();
+    core_set(
+        &v_request,
+        CoreValue::from("qualified_name"),
+        v_qualified.clone(),
+    )?;
+    core_set(&v_request, CoreValue::from("args"), v_arguments.clone())?;
+    v_result = _agent_execute_callable(&[v_state.clone(), v_request.clone(), v_options.clone()])?;
+    v_status = core_get(&v_result, &CoreValue::from("status"), CoreValue::from("ok"));
+    v_failed = core_eq(&[v_status.clone(), CoreValue::from("error")])?;
+    if core_truthy(&v_failed) {
+        v_message = core_get(
+            &v_result,
+            &CoreValue::from("error"),
+            CoreValue::from("Agent callable failed"),
+        );
+        v_error = core_runtime_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_value = core_get(&v_result, &CoreValue::from("value"), v_result.clone());
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_run_actor_stages(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_run_actor_stages");
+    let mut v_state = core_arg(args, 0);
+    let mut v_distiller = core_arg(args, 1);
+    let mut v_executor = core_arg(args, 2);
+    let mut v_client = core_arg(args, 3);
+    let mut v_values = core_arg(args, 4);
+    let mut v_options = core_arg(args, 5);
     let mut v_clean_previous_runtime_state = CoreValue::Null;
     let mut v_code = CoreValue::Null;
     let mut v_completion_payload = CoreValue::Null;
@@ -103534,13 +104531,12 @@ fn _agent_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_has_forward_used_observer = CoreValue::Null;
     let mut v_has_forward_used_skills = CoreValue::Null;
     let mut v_has_shared_session = CoreValue::Null;
-    let mut v_invalid_citations_output = CoreValue::Null;
     let mut v_loaded_memories = CoreValue::Null;
     let mut v_loaded_skills = CoreValue::Null;
-    let mut v_logs = CoreValue::Null;
     let mut v_max_steps = CoreValue::Null;
     let mut v_non_runtime_executor = CoreValue::Null;
     let mut v_patch_snapshot = CoreValue::Null;
+    let mut v_prepared = CoreValue::Null;
     let mut v_preset_memories = CoreValue::Null;
     let mut v_previous_runtime_bindings = CoreValue::Null;
     let mut v_previous_runtime_bindings_is_map = CoreValue::Null;
@@ -103552,10 +104548,6 @@ fn _agent_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw_code = CoreValue::Null;
     let mut v_relevance_hints_for_turn = CoreValue::Null;
     let mut v_responder_options = CoreValue::Null;
-    let mut v_responder_output = CoreValue::Null;
-    let mut v_responder_request_event = CoreValue::Null;
-    let mut v_responder_response_event = CoreValue::Null;
-    let mut v_responder_values = CoreValue::Null;
     let mut v_run_executor = CoreValue::Null;
     let mut v_runtime_disabled = CoreValue::Null;
     let mut v_runtime_enabled = CoreValue::Null;
@@ -103581,9 +104573,10 @@ fn _agent_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_step = CoreValue::Null;
     let mut v_too_many = CoreValue::Null;
     let mut v_transcribed_values = CoreValue::Null;
-    let mut v_usage = CoreValue::Null;
     let mut v_used_memories = CoreValue::Null;
+    let mut v_used_memories_payload = CoreValue::Null;
     let mut v_used_skills = CoreValue::Null;
+    let mut v_used_skills_payload = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
     v_empty_map = CoreValue::new_map();
     core_set(
@@ -104420,7 +105413,371 @@ fn _agent_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     _agent_apply_llm_checkpoint_summary(&[v_state.clone(), v_client.clone(), v_options.clone()])?;
     _agent_apply_context_management(&[v_state.clone()])?;
     _agent_apply_llm_tombstone_summary(&[v_state.clone(), v_client.clone(), v_options.clone()])?;
-    _agent_evolve_context_map(&[v_state.clone(), v_client.clone(), v_options.clone()])?;
+    v_used_memories_payload = core_get(
+        &v_state,
+        &CoreValue::from("used_memories"),
+        v_empty_list.clone(),
+    );
+    v_used_skills_payload = core_get(
+        &v_state,
+        &CoreValue::from("used_skills"),
+        v_empty_list.clone(),
+    );
+    core_agent_observer_notify(&[
+        v_state.clone(),
+        v_options.clone(),
+        CoreValue::from("used_memories"),
+        v_used_memories_payload.clone(),
+    ])?;
+    core_agent_observer_notify(&[
+        v_state.clone(),
+        v_options.clone(),
+        CoreValue::from("used_skills"),
+        v_used_skills_payload.clone(),
+    ])?;
+    v_prepared = CoreValue::new_map();
+    core_set(&v_prepared, CoreValue::from("values"), v_values.clone())?;
+    core_set(
+        &v_prepared,
+        CoreValue::from("executor_payload"),
+        v_executor_payload.clone(),
+    )?;
+    core_set(
+        &v_prepared,
+        CoreValue::from("responder_options"),
+        v_responder_options.clone(),
+    )?;
+    return Ok(v_prepared.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_complete_run(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_complete_run");
+    let mut v_state = core_arg(args, 0);
+    let mut v_distiller = core_arg(args, 1);
+    let mut v_executor = core_arg(args, 2);
+    let mut v_responder = core_arg(args, 3);
+    let mut v_client = core_arg(args, 4);
+    let mut v_options = core_arg(args, 5);
+    let mut v_output = core_arg(args, 6);
+    let mut v_context_map_error = CoreValue::Null;
+    let mut v_logs = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_logs = _merge_agent_chat_log(&[
+        v_state.clone(),
+        v_distiller.clone(),
+        v_executor.clone(),
+        v_responder.clone(),
+    ])?;
+    v_usage = _merge_agent_usage(&[
+        v_state.clone(),
+        v_distiller.clone(),
+        v_executor.clone(),
+        v_responder.clone(),
+    ])?;
+    core_set(&v_state, CoreValue::from("last_output"), v_output.clone())?;
+    core_set(&v_state, CoreValue::from("chat_log"), v_logs.clone())?;
+    core_set(&v_state, CoreValue::from("usage"), v_usage.clone())?;
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        _agent_evolve_context_map(&[v_state.clone(), v_client.clone(), v_options.clone()])?;
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_context_map_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+        }
+    }
+    _agent_build_failure_signals(&[v_state.clone()])?;
+    _agent_finalize_trace(&[
+        v_state.clone(),
+        CoreValue::from("completed"),
+        v_output.clone(),
+    ])?;
+    return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_stream_citation_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_stream_citation_delta");
+    let mut v_state = core_arg(args, 0);
+    let mut v_envelope = core_arg(args, 1);
+    let mut v_accumulated = CoreValue::Null;
+    let mut v_chunk = CoreValue::Null;
+    let mut v_chunk_is_list = CoreValue::Null;
+    let mut v_chunk_item = CoreValue::Null;
+    let mut v_chunk_text = CoreValue::Null;
+    let mut v_citation_version = CoreValue::Null;
+    let mut v_citations = CoreValue::Null;
+    let mut v_delta = CoreValue::Null;
+    let mut v_delta_is_map = CoreValue::Null;
+    let mut v_delta_not_map = CoreValue::Null;
+    let mut v_disabled = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_fresh = CoreValue::Null;
+    let mut v_has_chunk = CoreValue::Null;
+    let mut v_has_field = CoreValue::Null;
+    let mut v_hidden = CoreValue::Null;
+    let mut v_new_version = CoreValue::Null;
+    let mut v_no_field = CoreValue::Null;
+    let mut v_stripped = CoreValue::Null;
+    let mut v_stripped_delta = CoreValue::Null;
+    let mut v_surface = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_citations = core_get(&v_state, &CoreValue::from("citations"), v_empty_map.clone());
+    v_enabled = core_get(
+        &v_citations,
+        &CoreValue::from("enabled"),
+        CoreValue::Bool(false),
+    );
+    v_disabled = core_not(&[v_enabled.clone()])?;
+    if core_truthy(&v_disabled) {
+        return Ok(v_envelope.clone());
+    }
+    v_field = core_get(
+        &v_citations,
+        &CoreValue::from("field"),
+        CoreValue::from("evidenceCitations"),
+    );
+    v_delta = core_get(&v_envelope, &CoreValue::from("delta"), CoreValue::Null);
+    v_delta_is_map = core_type_is(&v_delta, CoreValue::from("object"));
+    v_delta_not_map = core_not(&[v_delta_is_map.clone()])?;
+    if core_truthy(&v_delta_not_map) {
+        return Ok(v_envelope.clone());
+    }
+    v_has_field = core_map_contains(&[v_delta.clone(), v_field.clone()])?;
+    v_no_field = core_not(&[v_has_field.clone()])?;
+    if core_truthy(&v_no_field) {
+        return Ok(v_envelope.clone());
+    }
+    v_version = core_get(&v_envelope, &CoreValue::from("version"), CoreValue::Null);
+    v_citation_version = core_get(
+        &v_state,
+        &CoreValue::from("stream_citation_version"),
+        CoreValue::Null,
+    );
+    v_new_version = core_ne(&[v_version.clone(), v_citation_version.clone()])?;
+    if core_truthy(&v_new_version) {
+        v_fresh = CoreValue::new_list();
+        core_set(
+            &v_state,
+            CoreValue::from("stream_citations"),
+            v_fresh.clone(),
+        )?;
+        core_set(
+            &v_state,
+            CoreValue::from("stream_citation_version"),
+            v_version.clone(),
+        )?;
+    }
+    v_empty_list = CoreValue::new_list();
+    v_accumulated = core_get(
+        &v_state,
+        &CoreValue::from("stream_citations"),
+        v_empty_list.clone(),
+    );
+    v_chunk = core_get(&v_delta, &v_field.clone(), CoreValue::Null);
+    v_chunk_is_list = core_type_is(&v_chunk, CoreValue::from("list"));
+    if core_truthy(&v_chunk_is_list) {
+        for v_chunk_item in core_iter(&v_chunk)? {
+            let mut v_chunk_item = v_chunk_item;
+            v_chunk_text = core_string_format(&[CoreValue::from("{}"), v_chunk_item.clone()])?;
+            core_append(&v_accumulated, v_chunk_text.clone())?;
+        }
+    } else {
+        v_has_chunk = core_is_not_none(&[v_chunk.clone()])?;
+        if core_truthy(&v_has_chunk) {
+            v_chunk_text = core_string_format(&[CoreValue::from("{}"), v_chunk.clone()])?;
+            core_append(&v_accumulated, v_chunk_text.clone())?;
+        }
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("stream_citations"),
+        v_accumulated.clone(),
+    )?;
+    v_surface = core_get(
+        &v_citations,
+        &CoreValue::from("surface"),
+        CoreValue::from("output"),
+    );
+    v_hidden = core_eq(&[v_surface.clone(), CoreValue::from("hidden")])?;
+    if core_truthy(&v_hidden) {
+        v_stripped_delta = CoreValue::new_map();
+        v_stripped_delta = core_map_merge(&[v_stripped_delta.clone(), v_delta.clone()])?;
+        core_map_delete(&[v_stripped_delta.clone(), v_field.clone()])?;
+        v_stripped = CoreValue::new_map();
+        v_stripped = core_map_merge(&[v_stripped.clone(), v_envelope.clone()])?;
+        core_set(
+            &v_stripped,
+            CoreValue::from("delta"),
+            v_stripped_delta.clone(),
+        )?;
+        return Ok(v_stripped.clone());
+    }
+    return Ok(v_envelope.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_finalize_stream_citations(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_finalize_stream_citations");
+    let mut v_state = core_arg(args, 0);
+    let mut v_output = core_arg(args, 1);
+    let mut v_accumulated = CoreValue::Null;
+    let mut v_citations = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_hidden = CoreValue::Null;
+    let mut v_surface = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_citations = core_get(&v_state, &CoreValue::from("citations"), v_empty_map.clone());
+    v_enabled = core_get(
+        &v_citations,
+        &CoreValue::from("enabled"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_enabled) {
+        v_empty_list = CoreValue::new_list();
+        v_accumulated = core_get(
+            &v_state,
+            &CoreValue::from("stream_citations"),
+            v_empty_list.clone(),
+        );
+        core_set(
+            &v_state,
+            CoreValue::from("last_citations"),
+            v_accumulated.clone(),
+        )?;
+        v_field = core_get(
+            &v_citations,
+            &CoreValue::from("field"),
+            CoreValue::from("evidenceCitations"),
+        );
+        v_surface = core_get(
+            &v_citations,
+            &CoreValue::from("surface"),
+            CoreValue::from("output"),
+        );
+        v_hidden = core_eq(&[v_surface.clone(), CoreValue::from("hidden")])?;
+        if core_truthy(&v_hidden) {
+            core_map_delete(&[v_output.clone(), v_field.clone()])?;
+        }
+    }
+    return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_controlled_stage_streaming_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_controlled_stage_streaming_forward");
+    let mut v_stage = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_client = core_arg(args, 2);
+    let mut v_values = core_arg(args, 3);
+    let mut v_options = core_arg(args, 4);
+    let mut v_sink = core_arg(args, 5);
+    let mut v_aborted = CoreValue::Null;
+    let mut v_control = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    v_control = core_get(&v_options, &CoreValue::from("control"), CoreValue::Null);
+    v_aborted = core_run_control_aborted(&[v_control.clone()])?;
+    if core_truthy(&v_aborted) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "Agent aborted before starting the next stage",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_output = core_agent_stage_streaming_forward(&[
+        v_stage.clone(),
+        v_state.clone(),
+        v_client.clone(),
+        v_values.clone(),
+        v_options.clone(),
+        v_sink.clone(),
+    ])?;
+    return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_streaming_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_streaming_forward_impl");
+    let mut v_state = core_arg(args, 0);
+    let mut v_distiller = core_arg(args, 1);
+    let mut v_executor = core_arg(args, 2);
+    let mut v_responder = core_arg(args, 3);
+    let mut v_client = core_arg(args, 4);
+    let mut v_values = core_arg(args, 5);
+    let mut v_options = core_arg(args, 6);
+    let mut v_sink = core_arg(args, 7);
+    let mut v_executor_payload = CoreValue::Null;
+    let mut v_no_citation_version = CoreValue::Null;
+    let mut v_no_citations = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_prepared = CoreValue::Null;
+    let mut v_responder_error = CoreValue::Null;
+    let mut v_responder_options = CoreValue::Null;
+    let mut v_responder_output = CoreValue::Null;
+    let mut v_responder_request_event = CoreValue::Null;
+    let mut v_responder_response_event = CoreValue::Null;
+    let mut v_responder_values = CoreValue::Null;
+    v_prepared = _agent_run_actor_stages(&[
+        v_state.clone(),
+        v_distiller.clone(),
+        v_executor.clone(),
+        v_client.clone(),
+        v_values.clone(),
+        v_options.clone(),
+    ])?;
+    v_values = core_get(&v_prepared, &CoreValue::from("values"), CoreValue::Null);
+    v_executor_payload = core_get(
+        &v_prepared,
+        &CoreValue::from("executor_payload"),
+        CoreValue::Null,
+    );
+    v_responder_options = core_get(
+        &v_prepared,
+        &CoreValue::from("responder_options"),
+        CoreValue::Null,
+    );
     v_responder_values = _build_responder_inputs(&[
         v_state.clone(),
         v_values.clone(),
@@ -104447,62 +105804,45 @@ fn _agent_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("stage_request"),
         v_responder_request_event.clone(),
     ])?;
-    v_responder_output = _agent_controlled_stage_forward(&[
-        v_responder.clone(),
-        v_client.clone(),
-        v_responder_values.clone(),
-        v_responder_options.clone(),
-    ])?;
-    v_citation_retry_options = CoreValue::new_map();
-    v_citation_retry_options = core_map_merge(&[
-        v_citation_retry_options.clone(),
-        v_responder_options.clone(),
-    ])?;
-    v_citations_valid = _agent_validate_citations(&[v_state.clone(), v_responder_output.clone()])?;
-    v_citations_invalid = core_not(&[v_citations_valid.clone()])?;
-    if core_truthy(&v_citations_invalid) {
-        v_invalid_citations_output = core_json_stringify(&[v_responder_output.clone()])?;
-        v_citation_retry_feedback = core_string_format(&[CoreValue::from("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON."), v_invalid_citations_output.clone()])?;
-        core_set(
-            &v_citation_retry_options,
-            CoreValue::from("validation_feedback"),
-            v_citation_retry_feedback.clone(),
-        )?;
-        v_responder_output = _agent_controlled_stage_forward(&[
+    _agent_begin_citation_checks(&[v_state.clone(), v_executor_payload.clone()])?;
+    v_no_citations = CoreValue::new_list();
+    v_no_citation_version = core_none(&[])?;
+    core_set(
+        &v_state,
+        CoreValue::from("stream_citations"),
+        v_no_citations.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("stream_citation_version"),
+        v_no_citation_version.clone(),
+    )?;
+    v_responder_output = CoreValue::new_map();
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_responder_output = _agent_controlled_stage_streaming_forward(&[
             v_responder.clone(),
+            v_state.clone(),
             v_client.clone(),
             v_responder_values.clone(),
-            v_citation_retry_options.clone(),
+            v_responder_options.clone(),
+            v_sink.clone(),
         ])?;
-        v_citations_valid =
-            _agent_validate_citations(&[v_state.clone(), v_responder_output.clone()])?;
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_responder_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            _agent_end_citation_checks(&[v_state.clone()])?;
+            return Err(core_as_error(&v_responder_error));
+        }
     }
-    v_citations_invalid = core_not(&[v_citations_valid.clone()])?;
-    if core_truthy(&v_citations_invalid) {
-        v_invalid_citations_output = core_json_stringify(&[v_responder_output.clone()])?;
-        v_citation_retry_feedback = core_string_format(&[CoreValue::from("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON."), v_invalid_citations_output.clone()])?;
-        core_set(
-            &v_citation_retry_options,
-            CoreValue::from("validation_feedback"),
-            v_citation_retry_feedback.clone(),
-        )?;
-        v_responder_output = _agent_controlled_stage_forward(&[
-            v_responder.clone(),
-            v_client.clone(),
-            v_responder_values.clone(),
-            v_citation_retry_options.clone(),
-        ])?;
-        v_citations_valid =
-            _agent_validate_citations(&[v_state.clone(), v_responder_output.clone()])?;
-    }
-    v_citations_invalid = core_not(&[v_citations_valid.clone()])?;
-    if core_truthy(&v_citations_invalid) {
-        v_error = core_runtime_error(&[CoreValue::from(
-            "AxAgent responder returned citations that do not exist in the run evidence",
-        )])?;
-        return Err(core_as_error(&v_error));
-    }
-    v_responder_output = _agent_finalize_citations(&[v_state.clone(), v_responder_output.clone()])?;
+    _agent_end_citation_checks(&[v_state.clone()])?;
+    v_responder_output =
+        _agent_finalize_stream_citations(&[v_state.clone(), v_responder_output.clone()])?;
     v_responder_response_event = CoreValue::new_map();
     core_set(
         &v_responder_response_event,
@@ -104524,54 +105864,16 @@ fn _agent_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("stage_response"),
         v_responder_response_event.clone(),
     ])?;
-    v_logs = _merge_agent_chat_log(&[
+    v_output = _agent_complete_run(&[
         v_state.clone(),
         v_distiller.clone(),
         v_executor.clone(),
         v_responder.clone(),
-    ])?;
-    v_usage = _merge_agent_usage(&[
-        v_state.clone(),
-        v_distiller.clone(),
-        v_executor.clone(),
-        v_responder.clone(),
-    ])?;
-    core_set(
-        &v_state,
-        CoreValue::from("last_output"),
-        v_responder_output.clone(),
-    )?;
-    core_set(&v_state, CoreValue::from("chat_log"), v_logs.clone())?;
-    core_set(&v_state, CoreValue::from("usage"), v_usage.clone())?;
-    v_forward_used_memories = core_get(
-        &v_state,
-        &CoreValue::from("used_memories"),
-        v_empty_list.clone(),
-    );
-    v_forward_used_skills = core_get(
-        &v_state,
-        &CoreValue::from("used_skills"),
-        v_empty_list.clone(),
-    );
-    core_agent_observer_notify(&[
-        v_state.clone(),
+        v_client.clone(),
         v_options.clone(),
-        CoreValue::from("used_memories"),
-        v_forward_used_memories.clone(),
-    ])?;
-    core_agent_observer_notify(&[
-        v_state.clone(),
-        v_options.clone(),
-        CoreValue::from("used_skills"),
-        v_forward_used_skills.clone(),
-    ])?;
-    _agent_build_failure_signals(&[v_state.clone()])?;
-    _agent_finalize_trace(&[
-        v_state.clone(),
-        CoreValue::from("completed"),
         v_responder_output.clone(),
     ])?;
-    return Ok(v_responder_output.clone());
+    return Ok(v_output.clone());
 }
 
 #[allow(
@@ -104581,437 +105883,8 @@ fn _agent_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _agent_apply_run_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_apply_run_context");
-    let mut v_state = core_arg(args, 0);
-    let mut v_configured = core_arg(args, 1);
-    let mut v_call = core_arg(args, 2);
-    let mut v_modules = core_arg(args, 3);
-    let mut v_catalog = CoreValue::Null;
-    let mut v_default_name = CoreValue::Null;
-    let mut v_distiller = CoreValue::Null;
-    let mut v_doc = CoreValue::Null;
-    let mut v_docs = CoreValue::Null;
-    let mut v_empty_list = CoreValue::Null;
-    let mut v_executor = CoreValue::Null;
-    let mut v_flags = CoreValue::Null;
-    let mut v_function = CoreValue::Null;
-    let mut v_functions = CoreValue::Null;
-    let mut v_inventory = CoreValue::Null;
-    let mut v_mcp = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_namespace = CoreValue::Null;
-    let mut v_options = CoreValue::Null;
-    let mut v_policy = CoreValue::Null;
-    let mut v_prompt = CoreValue::Null;
-    let mut v_protocol = CoreValue::Null;
-    let mut v_registry = CoreValue::Null;
-    let mut v_responder = CoreValue::Null;
-    let mut v_retained = CoreValue::Null;
-    let mut v_retained_docs = CoreValue::Null;
-    let mut v_runtime = CoreValue::Null;
-    let mut v_split = CoreValue::Null;
-    let mut v_ucp = CoreValue::Null;
-    let mut v_upgrade = CoreValue::Null;
-    v_empty_list = CoreValue::new_list();
-    v_options = core_map_merge(&[v_configured.clone(), v_call.clone()])?;
-    v_functions = core_get(
-        &v_options,
-        &CoreValue::from("functions"),
-        v_empty_list.clone(),
-    );
-    v_retained = CoreValue::new_list();
-    for v_function in core_iter(&v_functions)? {
-        let mut v_function = v_function;
-        v_default_name = core_get(&v_function, &CoreValue::from("name"), CoreValue::from(""));
-        v_namespace = core_get(
-            &v_function,
-            &CoreValue::from("namespace"),
-            v_default_name.clone(),
-        );
-        v_mcp = core_string_starts_with(&[v_namespace.clone(), CoreValue::from("mcp.")])?;
-        v_ucp = core_string_starts_with(&[v_namespace.clone(), CoreValue::from("ucp.")])?;
-        v_protocol = core_or(&[v_mcp.clone(), v_ucp.clone()])?;
-        if core_truthy(&v_protocol) {
-        } else {
-            core_append(&v_retained, v_function.clone())?;
-        }
-    }
-    core_set(&v_options, CoreValue::from("functions"), v_retained.clone())?;
-    v_options = _agent_append_runtime_modules(&[v_options.clone(), v_modules.clone()])?;
-    v_inventory = _normalize_agent_callable_inventory(&[v_options.clone()])?;
-    v_split = _split_agent_callable_inventory(&[v_inventory.clone()])?;
-    v_catalog = _render_agent_discovery_catalog(&[v_split.clone()])?;
-    core_set(&v_state, CoreValue::from("options"), v_options.clone())?;
-    core_set(
-        &v_state,
-        CoreValue::from("callable_inventory"),
-        v_inventory.clone(),
-    )?;
-    core_set(&v_state, CoreValue::from("callable_split"), v_split.clone())?;
-    core_set(
-        &v_state,
-        CoreValue::from("discovery_catalog"),
-        v_catalog.clone(),
-    )?;
-    v_upgrade = _resolve_agent_auto_upgrade(&[v_options.clone()])?;
-    v_flags = _agent_policy_flags(&[v_options.clone(), v_split.clone(), v_upgrade.clone()])?;
-    v_policy = _normalize_agent_policy(&[v_options.clone()])?;
-    v_registry = _agent_policy_registry(&[v_policy.clone(), v_flags.clone()])?;
-    core_set(&v_state, CoreValue::from("policy_flags"), v_flags.clone())?;
-    core_set(
-        &v_state,
-        CoreValue::from("policy_registry"),
-        v_registry.clone(),
-    )?;
-    v_docs = core_get(
-        &v_state,
-        &CoreValue::from("discovered_tool_docs"),
-        v_empty_list.clone(),
-    );
-    v_retained_docs = CoreValue::new_list();
-    for v_doc in core_iter(&v_docs)? {
-        let mut v_doc = v_doc;
-        v_name = core_get(
-            &v_doc,
-            &CoreValue::from("qualified_name"),
-            CoreValue::from(""),
-        );
-        v_mcp = core_string_starts_with(&[v_name.clone(), CoreValue::from("mcp.")])?;
-        v_ucp = core_string_starts_with(&[v_name.clone(), CoreValue::from("ucp.")])?;
-        v_protocol = core_or(&[v_mcp.clone(), v_ucp.clone()])?;
-        if core_truthy(&v_protocol) {
-        } else {
-            core_append(&v_retained_docs, v_doc.clone())?;
-        }
-    }
-    core_set(
-        &v_state,
-        CoreValue::from("discovered_tool_docs"),
-        v_retained_docs.clone(),
-    )?;
-    v_prompt = _build_agent_actor_prompt_policy(&[v_state.clone()])?;
-    core_set(
-        &v_state,
-        CoreValue::from("actor_prompt_policy"),
-        v_prompt.clone(),
-    )?;
-    v_runtime = core_get(
-        &v_state,
-        &CoreValue::from("runtime_enabled"),
-        CoreValue::Bool(false),
-    );
-    if core_truthy(&v_runtime) {
-        v_executor = _render_rlm_executor_description(&[v_state.clone(), v_options.clone()])?;
-        v_distiller = _render_rlm_distiller_description(&[v_state.clone(), v_options.clone()])?;
-        v_responder = _render_rlm_responder_description(&[v_state.clone(), v_options.clone()])?;
-        core_set(
-            &v_state,
-            CoreValue::from("executor_description_base"),
-            v_executor.clone(),
-        )?;
-        core_set(
-            &v_state,
-            CoreValue::from("distiller_description"),
-            v_distiller.clone(),
-        )?;
-        core_set(
-            &v_state,
-            CoreValue::from("responder_description"),
-            v_responder.clone(),
-        )?;
-        _agent_refresh_actor_instruction(&[v_state.clone()])?;
-    }
-    core_set(
-        &v_state,
-        CoreValue::from("mcp_run_context_active"),
-        CoreValue::Bool(true),
-    )?;
-    return Ok(v_call.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _agent_append_runtime_modules(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_append_runtime_modules");
-    let mut v_options = core_arg(args, 0);
-    let mut v_additional = core_arg(args, 1);
-    let mut v_count = CoreValue::Null;
-    let mut v_empty_list = CoreValue::Null;
-    let mut v_empty_map = CoreValue::Null;
-    let mut v_flat = CoreValue::Null;
-    let mut v_functions = CoreValue::Null;
-    let mut v_group = CoreValue::Null;
-    let mut v_has_flat = CoreValue::Null;
-    let mut v_item = CoreValue::Null;
-    let mut v_members = CoreValue::Null;
-    let mut v_module = CoreValue::Null;
-    let mut v_modules = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    v_empty_map = CoreValue::new_map();
-    v_empty_list = CoreValue::new_list();
-    v_out = core_map_merge(&[v_empty_map.clone(), v_options.clone()])?;
-    v_functions = core_get(
-        &v_options,
-        &CoreValue::from("functions"),
-        v_empty_list.clone(),
-    );
-    v_modules = CoreValue::new_list();
-    v_flat = CoreValue::new_list();
-    for v_item in core_iter(&v_functions)? {
-        let mut v_item = v_item;
-        v_members = core_get(&v_item, &CoreValue::from("functions"), CoreValue::Null);
-        v_group = core_type_is(&v_members, CoreValue::from("list"));
-        if core_truthy(&v_group) {
-            core_append(&v_modules, v_item.clone())?;
-        } else {
-            core_append(&v_flat, v_item.clone())?;
-        }
-    }
-    v_count = core_len(&[v_flat.clone()])?;
-    v_has_flat = core_gt(&[v_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_has_flat) {
-        v_module = CoreValue::new_map();
-        core_set(
-            &v_module,
-            CoreValue::from("namespace"),
-            CoreValue::from("tools"),
-        )?;
-        core_set(
-            &v_module,
-            CoreValue::from("title"),
-            CoreValue::from("Tools"),
-        )?;
-        core_set(
-            &v_module,
-            CoreValue::from("alwaysInclude"),
-            CoreValue::Bool(true),
-        )?;
-        core_set(&v_module, CoreValue::from("functions"), v_flat.clone())?;
-        core_append(&v_modules, v_module.clone())?;
-    }
-    for v_module in core_iter(&v_additional)? {
-        let mut v_module = v_module;
-        core_append(&v_modules, v_module.clone())?;
-    }
-    core_set(&v_out, CoreValue::from("functions"), v_modules.clone())?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _agent_register_child(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_register_child");
-    let mut v_options = core_arg(args, 0);
-    let mut v_namespace = core_arg(args, 1);
-    let mut v_name = core_arg(args, 2);
-    let mut v_program = core_arg(args, 3);
-    let mut v_signature = core_arg(args, 4);
-    let mut v_additional = CoreValue::Null;
-    let mut v_child = CoreValue::Null;
-    let mut v_children = CoreValue::Null;
-    let mut v_copy = CoreValue::Null;
-    let mut v_default_name = CoreValue::Null;
-    let mut v_description = CoreValue::Null;
-    let mut v_empty_list = CoreValue::Null;
-    let mut v_empty_map = CoreValue::Null;
-    let mut v_fields = CoreValue::Null;
-    let mut v_found = CoreValue::Null;
-    let mut v_functions = CoreValue::Null;
-    let mut v_group = CoreValue::Null;
-    let mut v_matches = CoreValue::Null;
-    let mut v_member = CoreValue::Null;
-    let mut v_members = CoreValue::Null;
-    let mut v_module = CoreValue::Null;
-    let mut v_module_namespace = CoreValue::Null;
-    let mut v_modules = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_schema = CoreValue::Null;
-    v_additional = CoreValue::new_list();
-    v_options = _agent_append_runtime_modules(&[v_options.clone(), v_additional.clone()])?;
-    v_empty_map = CoreValue::new_map();
-    v_empty_list = CoreValue::new_list();
-    v_out = core_map_merge(&[v_empty_map.clone(), v_options.clone()])?;
-    v_fields = core_get(
-        &v_signature,
-        &CoreValue::from("input_fields"),
-        v_empty_list.clone(),
-    );
-    v_schema =
-        _schema_to_json_schema_impl(&[v_fields.clone(), v_name.clone(), v_empty_map.clone()])?;
-    v_child = CoreValue::new_map();
-    core_set(&v_child, CoreValue::from("name"), v_name.clone())?;
-    core_set(&v_child, CoreValue::from("kind"), CoreValue::from("agent"))?;
-    core_set(
-        &v_child,
-        CoreValue::from("execution"),
-        CoreValue::from("blocking"),
-    )?;
-    core_set(&v_child, CoreValue::from("parameters"), v_schema.clone())?;
-    core_set(&v_child, CoreValue::from("program"), v_program.clone())?;
-    v_description = core_get(
-        &v_signature,
-        &CoreValue::from("description"),
-        CoreValue::from("Delegate to a child agent"),
-    );
-    core_set(
-        &v_child,
-        CoreValue::from("description"),
-        v_description.clone(),
-    )?;
-    v_functions = core_get(
-        &v_options,
-        &CoreValue::from("functions"),
-        v_empty_list.clone(),
-    );
-    v_modules = CoreValue::new_list();
-    v_found = CoreValue::Bool(false);
-    for v_module in core_iter(&v_functions)? {
-        let mut v_module = v_module;
-        v_default_name = core_get(
-            &v_module,
-            &CoreValue::from("name"),
-            CoreValue::from("tools"),
-        );
-        v_module_namespace = core_get(
-            &v_module,
-            &CoreValue::from("namespace"),
-            v_default_name.clone(),
-        );
-        v_matches = core_eq(&[v_module_namespace.clone(), v_namespace.clone()])?;
-        v_members = core_get(&v_module, &CoreValue::from("functions"), CoreValue::Null);
-        v_group = core_type_is(&v_members, CoreValue::from("list"));
-        v_matches = core_and(&[v_matches.clone(), v_group.clone()])?;
-        if core_truthy(&v_matches) {
-            v_copy = core_map_merge(&[v_empty_map.clone(), v_module.clone()])?;
-            v_children = CoreValue::new_list();
-            for v_member in core_iter(&v_members)? {
-                let mut v_member = v_member;
-                core_append(&v_children, v_member.clone())?;
-            }
-            core_append(&v_children, v_child.clone())?;
-            core_set(&v_copy, CoreValue::from("functions"), v_children.clone())?;
-            core_append(&v_modules, v_copy.clone())?;
-            v_found = CoreValue::Bool(true);
-        } else {
-            core_append(&v_modules, v_module.clone())?;
-        }
-    }
-    if core_truthy(&v_found) {
-    } else {
-        v_module = CoreValue::new_map();
-        v_children = CoreValue::new_list();
-        core_append(&v_children, v_child.clone())?;
-        core_set(&v_module, CoreValue::from("namespace"), v_namespace.clone())?;
-        core_set(&v_module, CoreValue::from("functions"), v_children.clone())?;
-        core_append(&v_modules, v_module.clone())?;
-    }
-    core_set(&v_out, CoreValue::from("functions"), v_modules.clone())?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _agent_child_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_child_options");
-    let mut v_state = core_arg(args, 0);
-    let mut v_qualified = core_arg(args, 1);
-    let mut v_options = core_arg(args, 2);
-    let mut v_active = CoreValue::Null;
-    let mut v_base = CoreValue::Null;
-    let mut v_empty_map = CoreValue::Null;
-    let mut v_inheritance = CoreValue::Null;
-    let mut v_key = CoreValue::Null;
-    let mut v_keys = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_parent = CoreValue::Null;
-    let mut v_parent_path = CoreValue::Null;
-    let mut v_path = CoreValue::Null;
-    let mut v_present = CoreValue::Null;
-    let mut v_snake_path = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    v_empty_map = CoreValue::new_map();
-    v_base = core_get(&v_state, &CoreValue::from("options"), v_empty_map.clone());
-    v_active = core_get(
-        &v_state,
-        &CoreValue::from("active_forward_options"),
-        v_empty_map.clone(),
-    );
-    v_parent = core_map_merge(&[v_base.clone(), v_active.clone()])?;
-    v_parent = core_map_merge(&[v_parent.clone(), v_options.clone()])?;
-    v_out = CoreValue::new_map();
-    v_keys = CoreValue::new_list();
-    core_append(&v_keys, CoreValue::from("control"))?;
-    core_append(&v_keys, CoreValue::from("asyncMode"))?;
-    core_append(&v_keys, CoreValue::from("async_mode"))?;
-    core_append(&v_keys, CoreValue::from("abortSignal"))?;
-    core_append(&v_keys, CoreValue::from("abort_signal"))?;
-    core_append(&v_keys, CoreValue::from("cancellation"))?;
-    core_append(&v_keys, CoreValue::from("executionContext"))?;
-    core_append(&v_keys, CoreValue::from("eventContext"))?;
-    core_append(&v_keys, CoreValue::from("protocol"))?;
-    for v_key in core_iter(&v_keys)? {
-        let mut v_key = v_key;
-        v_value = core_get(&v_parent, &v_key.clone(), CoreValue::Null);
-        v_present = core_is_not_none(&[v_value.clone()])?;
-        if core_truthy(&v_present) {
-            core_set(&v_out, v_key.clone(), v_value.clone())?;
-        }
-    }
-    v_inheritance = core_get(
-        &v_parent,
-        &CoreValue::from("mcpInheritance"),
-        CoreValue::from("all"),
-    );
-    core_set(
-        &v_out,
-        CoreValue::from("mcpInheritanceFromParent"),
-        v_inheritance.clone(),
-    )?;
-    v_snake_path = core_get(
-        &v_parent,
-        &CoreValue::from("execution_path"),
-        CoreValue::from("root"),
-    );
-    v_parent_path = core_get(
-        &v_parent,
-        &CoreValue::from("executionPath"),
-        v_snake_path.clone(),
-    );
-    v_path = core_string_format(&[
-        CoreValue::from("{}/{}"),
-        v_parent_path.clone(),
-        v_qualified.clone(),
-    ])?;
-    core_set(&v_out, CoreValue::from("executionPath"), v_path.clone())?;
-    core_set(&v_out, CoreValue::from("execution_path"), v_path.clone())?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_forward");
+fn _agent_streaming_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_streaming_forward");
     let mut v_state = core_arg(args, 0);
     let mut v_distiller = core_arg(args, 1);
     let mut v_executor = core_arg(args, 2);
@@ -105019,6 +105892,7 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_client = core_arg(args, 4);
     let mut v_values = core_arg(args, 5);
     let mut v_options = core_arg(args, 6);
+    let mut v_sink = core_arg(args, 7);
     let mut v_active = CoreValue::Null;
     let mut v_close_error = CoreValue::Null;
     let mut v_error = CoreValue::Null;
@@ -105051,7 +105925,7 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     )?;
     v_output = CoreValue::new_map();
     let __core_try: Result<CoreFlow, AxError> = (|| {
-        v_output = _agent_forward_impl(&[
+        v_output = _agent_streaming_forward_impl(&[
             v_state.clone(),
             v_distiller.clone(),
             v_executor.clone(),
@@ -105059,6 +105933,7 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_client.clone(),
             v_values.clone(),
             v_options.clone(),
+            v_sink.clone(),
         ])?;
         Ok(CoreFlow::Normal)
     })();
@@ -105113,225 +105988,6 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_none.clone(),
     )?;
     return Ok(v_output.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _agent_runtime_callable_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_runtime_callable_names");
-    let mut v_state = core_arg(args, 0);
-    let mut v_callable = CoreValue::Null;
-    let mut v_callables = CoreValue::Null;
-    let mut v_empty_list = CoreValue::Null;
-    let mut v_group = CoreValue::Null;
-    let mut v_inventory = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_names = CoreValue::Null;
-    v_empty_list = CoreValue::new_list();
-    v_inventory = core_get(
-        &v_state,
-        &CoreValue::from("callable_inventory"),
-        v_empty_list.clone(),
-    );
-    v_names = CoreValue::new_list();
-    for v_group in core_iter(&v_inventory)? {
-        let mut v_group = v_group;
-        v_callables = core_get(
-            &v_group,
-            &CoreValue::from("callables"),
-            v_empty_list.clone(),
-        );
-        for v_callable in core_iter(&v_callables)? {
-            let mut v_callable = v_callable;
-            v_name = core_get(
-                &v_callable,
-                &CoreValue::from("qualified_name"),
-                CoreValue::from(""),
-            );
-            core_append(&v_names, v_name.clone())?;
-        }
-    }
-    return Ok(v_names.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _agent_callable_visible(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_callable_visible");
-    let mut v_state = core_arg(args, 0);
-    let mut v_qualified = core_arg(args, 1);
-    let mut v_all_visible = CoreValue::Null;
-    let mut v_always = CoreValue::Null;
-    let mut v_callable = CoreValue::Null;
-    let mut v_callables = CoreValue::Null;
-    let mut v_discovered = CoreValue::Null;
-    let mut v_discovery = CoreValue::Null;
-    let mut v_doc = CoreValue::Null;
-    let mut v_doc_name = CoreValue::Null;
-    let mut v_docs = CoreValue::Null;
-    let mut v_empty_list = CoreValue::Null;
-    let mut v_empty_map = CoreValue::Null;
-    let mut v_flags = CoreValue::Null;
-    let mut v_group = CoreValue::Null;
-    let mut v_group_always = CoreValue::Null;
-    let mut v_group_visible = CoreValue::Null;
-    let mut v_inventory = CoreValue::Null;
-    let mut v_matches = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_visible = CoreValue::Null;
-    v_empty_map = CoreValue::new_map();
-    v_empty_list = CoreValue::new_list();
-    v_flags = core_get(
-        &v_state,
-        &CoreValue::from("policy_flags"),
-        v_empty_map.clone(),
-    );
-    v_discovery = core_get(
-        &v_flags,
-        &CoreValue::from("discoveryMode"),
-        CoreValue::Bool(false),
-    );
-    v_all_visible = core_not(&[v_discovery.clone()])?;
-    v_inventory = core_get(
-        &v_state,
-        &CoreValue::from("callable_inventory"),
-        v_empty_list.clone(),
-    );
-    v_docs = core_get(
-        &v_state,
-        &CoreValue::from("discovered_tool_docs"),
-        v_empty_list.clone(),
-    );
-    for v_group in core_iter(&v_inventory)? {
-        let mut v_group = v_group;
-        v_group_always = core_get(
-            &v_group,
-            &CoreValue::from("always_include"),
-            CoreValue::Bool(false),
-        );
-        v_group_visible = core_or(&[v_all_visible.clone(), v_group_always.clone()])?;
-        v_callables = core_get(
-            &v_group,
-            &CoreValue::from("callables"),
-            v_empty_list.clone(),
-        );
-        for v_callable in core_iter(&v_callables)? {
-            let mut v_callable = v_callable;
-            v_name = core_get(
-                &v_callable,
-                &CoreValue::from("qualified_name"),
-                CoreValue::from(""),
-            );
-            v_matches = core_eq(&[v_name.clone(), v_qualified.clone()])?;
-            if core_truthy(&v_matches) {
-                v_always = core_get(
-                    &v_callable,
-                    &CoreValue::from("always_include"),
-                    CoreValue::Bool(false),
-                );
-                v_visible = core_or(&[v_group_visible.clone(), v_always.clone()])?;
-                for v_doc in core_iter(&v_docs)? {
-                    let mut v_doc = v_doc;
-                    v_doc_name = core_get(
-                        &v_doc,
-                        &CoreValue::from("qualified_name"),
-                        CoreValue::from(""),
-                    );
-                    v_discovered = core_eq(&[v_doc_name.clone(), v_qualified.clone()])?;
-                    v_visible = core_or(&[v_visible.clone(), v_discovered.clone()])?;
-                }
-                return Ok(v_visible.clone());
-            }
-        }
-    }
-    return Ok(CoreValue::Bool(false));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _agent_runtime_invoke_callable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_runtime_invoke_callable");
-    let mut v_state = core_arg(args, 0);
-    let mut v_qualified = core_arg(args, 1);
-    let mut v_arguments = core_arg(args, 2);
-    let mut v_active = CoreValue::Null;
-    let mut v_active_options = CoreValue::Null;
-    let mut v_base = CoreValue::Null;
-    let mut v_empty_map = CoreValue::Null;
-    let mut v_error = CoreValue::Null;
-    let mut v_failed = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_options = CoreValue::Null;
-    let mut v_request = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    let mut v_visible = CoreValue::Null;
-    v_active = core_get(
-        &v_state,
-        &CoreValue::from("forward_active"),
-        CoreValue::Bool(false),
-    );
-    if core_truthy(&v_active) {
-    } else {
-        v_error =
-            core_runtime_error(&[CoreValue::from("Agent invocation belongs to a closed run")])?;
-        return Err(core_as_error(&v_error));
-    }
-    v_visible = _agent_callable_visible(&[v_state.clone(), v_qualified.clone()])?;
-    if core_truthy(&v_visible) {
-    } else {
-        v_message = core_string_format(&[
-            CoreValue::from("Agent callable is not discovered: {}"),
-            v_qualified.clone(),
-        ])?;
-        v_error = core_runtime_error(&[v_message.clone()])?;
-        return Err(core_as_error(&v_error));
-    }
-    v_empty_map = CoreValue::new_map();
-    v_base = core_get(&v_state, &CoreValue::from("options"), v_empty_map.clone());
-    v_active_options = core_get(
-        &v_state,
-        &CoreValue::from("active_forward_options"),
-        v_empty_map.clone(),
-    );
-    v_options = core_map_merge(&[v_base.clone(), v_active_options.clone()])?;
-    v_request = CoreValue::new_map();
-    core_set(
-        &v_request,
-        CoreValue::from("qualified_name"),
-        v_qualified.clone(),
-    )?;
-    core_set(&v_request, CoreValue::from("args"), v_arguments.clone())?;
-    v_result = _agent_execute_callable(&[v_state.clone(), v_request.clone(), v_options.clone()])?;
-    v_status = core_get(&v_result, &CoreValue::from("status"), CoreValue::from("ok"));
-    v_failed = core_eq(&[v_status.clone(), CoreValue::from("error")])?;
-    if core_truthy(&v_failed) {
-        v_message = core_get(
-            &v_result,
-            &CoreValue::from("error"),
-            CoreValue::from("Agent callable failed"),
-        );
-        v_error = core_runtime_error(&[v_message.clone()])?;
-        return Err(core_as_error(&v_error));
-    }
-    v_value = core_get(&v_result, &CoreValue::from("value"), v_result.clone());
-    return Ok(v_value.clone());
 }
 
 #[allow(
@@ -115076,7 +115732,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (826 of 826 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (835 of 835 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

@@ -32821,101 +32821,158 @@ final class Core {
 
   static Object _agent_collect_citation_ids(Object ids, Object node, Object depth) {
     axirCoverageMark("_agent_collect_citation_ids");
-    Object has_depth = Core.gte(depth, 0);
-    if (Core.truthy(has_depth)) {
-      Object is_object = Core.typeIs(node, "object");
-      if (Core.truthy(is_object)) {
-        Object id = Core.get(node, "id", null);
-        Object id_is_string = Core.typeIs(id, "string");
-        Object id_is_number = Core.typeIs(id, "number");
-        Object valid_id = Core.or(id_is_string, id_is_number);
-        if (Core.truthy(valid_id)) {
-          Object id_text = Core.stringFormat("{}", id);
-          Core.set(ids, id_text, Boolean.TRUE);
-        }
-        Object next_depth = Core.add(depth, -1);
-        Object children = Core.mapValues(node);
-        for (Object child : Core.iter(children)) {
-          ids = Core._agent_collect_citation_ids(ids, child, next_depth);
+    Object in_depth = Core.gte(depth, 0);
+    Object out_of_depth = Core.not(in_depth);
+    if (Core.truthy(out_of_depth)) {
+      return ids;
+    }
+    Object is_map = Core.typeIs(node, "object");
+    Object is_list = Core.typeIs(node, "list");
+    Object children = new java.util.ArrayList<Object>();
+    if (Core.truthy(is_map)) {
+      Object id = Core.get(node, "id", null);
+      Object id_is_string = Core.typeIs(id, "string");
+      Object id_is_number = Core.typeIs(id, "number");
+      Object valid_id = Core.or(id_is_string, id_is_number);
+      if (Core.truthy(valid_id)) {
+        Object id_text = Core.stringFormat("{}", id);
+        Object seen = Core.contains(ids, id_text);
+        Object unseen = Core.not(seen);
+        if (Core.truthy(unseen)) {
+          Core.append(ids, id_text);
         }
       }
-      if (!Core.truthy(is_object)) {
-        Object is_list = Core.typeIs(node, "list");
-        if (Core.truthy(is_list)) {
-          Object next_depth = Core.add(depth, -1);
-          for (Object child : Core.iter(node)) {
-            ids = Core._agent_collect_citation_ids(ids, child, next_depth);
-          }
-        }
+      children = Core.mapValues(node);
+    }
+    if (Core.truthy(is_list)) {
+      children = node;
+    }
+    Object next_depth = Core.add(depth, -1);
+    for (Object child : Core.iter(children)) {
+      Object child_is_map = Core.typeIs(child, "object");
+      Object child_is_list = Core.typeIs(child, "list");
+      Object child_is_node = Core.or(child_is_map, child_is_list);
+      if (Core.truthy(child_is_node)) {
+        ids = Core._agent_collect_citation_ids(ids, child, next_depth);
       }
     }
     return ids;
   }
 
-  static Object _agent_validate_citations(Object state, Object output) {
-    axirCoverageMark("_agent_validate_citations");
+  static Object _agent_begin_citation_checks(Object state, Object executor_payload) {
+    axirCoverageMark("_agent_begin_citation_checks");
+    Object none = Core.none();
+    Core.set(state, "citation_valid_keys", none);
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object citations = Core.get(state, "citations", empty_map);
     Object enabled = Core.get(citations, "enabled", Boolean.FALSE);
-    Object disabled = Core.not(enabled);
-    if (Core.truthy(disabled)) {
-      return Boolean.TRUE;
+    if (Core.truthy(enabled)) {
+      Object empty_list = new java.util.ArrayList<Object>();
+      Object args = Core.get(executor_payload, "args", empty_list);
+      Object evidence = Core.listGet(args, 1, none);
+      Object evidence_is_map = Core.typeIs(evidence, "object");
+      if (Core.truthy(evidence_is_map)) {
+        Object keys = new java.util.ArrayList<Object>();
+        Object top_keys = Core.mapKeys(evidence);
+        for (Object top_key : Core.iter(top_keys)) {
+          Core.append(keys, top_key);
+        }
+        Object include_memory_ids = Core.get(citations, "includeMemoryIds", Boolean.TRUE);
+        if (Core.truthy(include_memory_ids)) {
+          Object evidence_values = Core.mapValues(evidence);
+          for (Object evidence_value : Core.iter(evidence_values)) {
+            keys = Core._agent_collect_citation_ids(keys, evidence_value, 2);
+          }
+        }
+        Core.set(state, "citation_valid_keys", keys);
+      }
     }
-    Object evidence_present = Core.get(state, "responder_evidence_present", Boolean.FALSE);
-    Object no_evidence_contract = Core.not(evidence_present);
-    if (Core.truthy(no_evidence_contract)) {
-      return Boolean.TRUE;
+    return null;
+  }
+
+  static Object _agent_end_citation_checks(Object state) {
+    axirCoverageMark("_agent_end_citation_checks");
+    Object none = Core.none();
+    Core.set(state, "citation_valid_keys", none);
+    return null;
+  }
+
+  static Object _agent_citation_assert(Object state, Object output) {
+    axirCoverageMark("_agent_citation_assert");
+    Object none = Core.none();
+    Object keys = Core.get(state, "citation_valid_keys", null);
+    Object unchecked = Core.isNone(keys);
+    if (Core.truthy(unchecked)) {
+      return none;
     }
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object citations = Core.get(state, "citations", empty_map);
     Object field = Core.get(citations, "field", "evidenceCitations");
     Object raw = Core.get(output, field, null);
     Object missing = Core.isNone(raw);
     if (Core.truthy(missing)) {
-      return Boolean.TRUE;
+      return none;
     }
-    Object ids = new java.util.LinkedHashMap<String, Object>();
-    Object evidence = Core.get(state, "responder_evidence", empty_map);
-    Object keys = Core.mapKeys(evidence);
-    for (Object key : Core.iter(keys)) {
-      Core.set(ids, key, Boolean.TRUE);
-    }
-    Object include_memory_ids = Core.get(citations, "includeMemoryIds", Boolean.TRUE);
-    if (Core.truthy(include_memory_ids)) {
-      Object values = Core.mapValues(evidence);
-      for (Object value : Core.iter(values)) {
-        ids = Core._agent_collect_citation_ids(ids, value, 2);
-      }
-    }
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object cited = empty_list;
+    Object cited = new java.util.ArrayList<Object>();
     Object raw_is_list = Core.typeIs(raw, "list");
     if (Core.truthy(raw_is_list)) {
-      cited = raw;
+      for (Object raw_item : Core.iter(raw)) {
+        Core.append(cited, raw_item);
+      }
     }
     if (!Core.truthy(raw_is_list)) {
       Core.append(cited, raw);
     }
-    Object valid = Boolean.TRUE;
-    for (Object raw_id : Core.iter(cited)) {
-      Object id_text = Core.stringFormat("{}", raw_id);
-      Object known = Core.mapContains(ids, id_text);
+    Object invalid = new java.util.ArrayList<Object>();
+    for (Object cited_item : Core.iter(cited)) {
+      Object cited_text = Core.stringFormat("{}", cited_item);
+      Object known = Core.contains(keys, cited_text);
       Object unknown = Core.not(known);
       if (Core.truthy(unknown)) {
-        valid = Boolean.FALSE;
+        Core.append(invalid, cited_text);
       }
     }
-    return valid;
+    Object invalid_count = Core.len(invalid);
+    Object all_known = Core.eq(invalid_count, 0);
+    if (Core.truthy(all_known)) {
+      return none;
+    }
+    Object key_count = Core.len(keys);
+    Object no_evidence = Core.eq(key_count, 0);
+    if (Core.truthy(no_evidence)) {
+      Object no_evidence_message = Core.stringFormat("This answer has no evidence to cite — leave {} empty.", field);
+      return no_evidence_message;
+    }
+    Object invalid_text = Core.stringJoin(", ", invalid);
+    Object keys_text = Core.stringJoin(", ", keys);
+    Object message = Core.stringFormat("Invalid {} entries: {}. Cite only evidence ids that exist: {} — or leave the field empty.", field, invalid_text, keys_text);
+    return message;
   }
 
   static Object _agent_finalize_citations(Object state, Object output) {
     axirCoverageMark("_agent_finalize_citations");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object empty_list = new java.util.ArrayList<Object>();
     Object citations = Core.get(state, "citations", empty_map);
     Object enabled = Core.get(citations, "enabled", Boolean.FALSE);
     if (Core.truthy(enabled)) {
       Object field = Core.get(citations, "field", "evidenceCitations");
-      Object raw = Core.get(output, field, empty_list);
-      Core.set(state, "last_citations", raw);
+      Object raw = Core.get(output, field, null);
+      Object reported = new java.util.ArrayList<Object>();
+      Object raw_is_list = Core.typeIs(raw, "list");
+      Object raw_present = Core.isNotNone(raw);
+      if (Core.truthy(raw_is_list)) {
+        for (Object raw_item : Core.iter(raw)) {
+          Object raw_text = Core.stringFormat("{}", raw_item);
+          Core.append(reported, raw_text);
+        }
+      }
+      if (!Core.truthy(raw_is_list)) {
+        if (Core.truthy(raw_present)) {
+          Object raw_text = Core.stringFormat("{}", raw);
+          Core.append(reported, raw_text);
+        }
+      }
+      Core.set(state, "last_citations", reported);
       Object surface = Core.get(citations, "surface", "output");
       Object hidden = Core.eq(surface, "hidden");
       if (Core.truthy(hidden)) {
@@ -33986,349 +34043,33 @@ final class Core {
 
   static Object _agent_forward_impl(Object state, Object distiller, Object executor, Object responder, Object client, Object values, Object options) {
     axirCoverageMark("_agent_forward_impl");
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Core.set(state, "native_tool_names", empty_list);
-    Object loaded_memories = new java.util.ArrayList<Object>();
-    Object used_memories = new java.util.ArrayList<Object>();
-    Object used_skills = new java.util.ArrayList<Object>();
-    Object relevance_hints_for_turn = Core.none();
-    Core.set(state, "loaded_memories", loaded_memories);
-    Core.set(state, "used_memories", used_memories);
-    Core.set(state, "used_skills", used_skills);
-    Core.set(state, "relevance_hints_for_turn", relevance_hints_for_turn);
-    Object preset_memories = Core.get(values, "memories", empty_list);
-    loaded_memories = Core._agent_merge_memory_results(loaded_memories, preset_memories);
-    Core.set(state, "loaded_memories", loaded_memories);
-    Object loaded_skills = Core.get(state, "loaded_skill_docs", empty_list);
-    Object forward_skills = Core.get(options, "skills", empty_list);
-    loaded_skills = Core._agent_merge_skill_results(loaded_skills, forward_skills);
-    Core.set(state, "loaded_skill_docs", loaded_skills);
-    Object flags = Core.get(state, "policy_flags", empty_map);
-    Object forward_used_memories = Core.get(options, "onUsedMemories", null);
-    Object forward_used_memories_snake = Core.get(options, "on_used_memories", forward_used_memories);
-    Object forward_used_skills = Core.get(options, "onUsedSkills", null);
-    Object forward_used_skills_snake = Core.get(options, "on_used_skills", forward_used_skills);
-    Object has_forward_used_memories = Core.isNotNone(forward_used_memories_snake);
-    Object has_forward_used_skills = Core.isNotNone(forward_used_skills_snake);
-    Object has_forward_used_observer = Core.or(has_forward_used_memories, has_forward_used_skills);
-    if (Core.truthy(has_forward_used_observer)) {
-      Core.set(flags, "usageTrackingMode", Boolean.TRUE);
-      Core.set(state, "policy_flags", flags);
-    }
-    Object direct_respond_only = Core.get(flags, "directRespondOnly", Boolean.FALSE);
-    if (Core.truthy(direct_respond_only)) {
-      Object distiller_skills = Core.get(state, "distiller_loaded_skill_docs", empty_list);
-      distiller_skills = Core._agent_merge_skill_results(distiller_skills, forward_skills);
-      Core.set(state, "distiller_loaded_skill_docs", distiller_skills);
-    }
-    Core.set(state, "active_stage", "distiller");
-    Object transcribed_values = Core._agent_transcribe_audio_inputs(state, client, values, options);
-    values = transcribed_values;
-    Object runtime_input_names = new java.util.ArrayList<Object>();
-    for (Object runtime_input_name : Core.iter(values)) {
-      Core.append(runtime_input_names, runtime_input_name);
-    }
-    Core.set(state, "runtime_input_names", runtime_input_names);
-    Object previous_runtime_session_state = Core.get(state, "runtime_session_state", null);
-    Object previous_runtime_session_state_is_map = Core.typeIs(previous_runtime_session_state, "object");
-    if (Core.truthy(previous_runtime_session_state_is_map)) {
-      Object previous_runtime_globals = Core.get(previous_runtime_session_state, "globals", null);
-      Object previous_runtime_bindings = Core.get(previous_runtime_session_state, "bindings", null);
-      Object previous_runtime_globals_is_map = Core.typeIs(previous_runtime_globals, "object");
-      Object previous_runtime_bindings_is_map = Core.typeIs(previous_runtime_bindings, "object");
-      Object previous_runtime_state_has_bindings = Core.or(previous_runtime_globals_is_map, previous_runtime_bindings_is_map);
-      if (Core.truthy(previous_runtime_state_has_bindings)) {
-        Object clean_previous_runtime_state = Core._normalize_agent_runtime_snapshot(state, previous_runtime_session_state);
-        Core.set(state, "runtime_session_state", clean_previous_runtime_state);
-      }
-    }
-    Core._agent_begin_trace(state, values);
-    Core._agent_apply_llm_checkpoint_summary(state, client, options);
-    Object state_options = Core.get(state, "options", null);
-    Object runtime_from_state = Core.get(state_options, "runtime", null);
-    Object runtime_from_options = Core.get(options, "runtime", runtime_from_state);
-    Object runtime_enabled = Core.isNotNone(runtime_from_options);
-    Object distiller_options = Core._agent_stage_options(state, "distiller", options);
-    Object executor_options = Core._agent_stage_options(state, "executor", options);
-    Object responder_options = Core._agent_stage_options(state, "responder", options);
-    Object distiller_payload = Core.none();
-    if (Core.truthy(runtime_enabled)) {
-      Object distiller_empty_log = new java.util.ArrayList<Object>();
-      Object distiller_saved_action_log = Core.get(state, "action_log", distiller_empty_log);
-      Object distiller_globals = Core._agent_runtime_build_globals(state, values);
-      Object distiller_session = Core.none();
-      Object distiller_max_steps = Core.get(options, "max_actor_steps", 4);
-      Object distiller_step = 0;
-      while (Core.truthy(Boolean.TRUE)) {
-        Object distiller_too_many = Core.gte(distiller_step, distiller_max_steps);
-        if (Core.truthy(distiller_too_many)) {
-          Object distiller_error_event = new java.util.LinkedHashMap<String, Object>();
-          Core.set(distiller_error_event, "error", "agent distiller loop exceeded max steps");
-          Core.set(distiller_error_event, "stage", "distiller");
-          Core._agent_record_trace_event(state, "error", distiller_error_event);
-          Object distiller_error = Core.runtimeError("agent distiller loop exceeded max steps");
-          throw Core.asRuntime(distiller_error);
-        }
-        Object distiller_values = Core._build_distiller_inputs(state, values);
-        Object distiller_request_event = new java.util.LinkedHashMap<String, Object>();
-        Core.set(distiller_request_event, "stage", "distiller");
-        Core.set(distiller_request_event, "step", distiller_step);
-        Core.set(distiller_request_event, "values", distiller_values);
-        Core.set(distiller_request_event, "component_id", "agent.stage.distiller");
-        Core._agent_record_trace_event(state, "stage_request", distiller_request_event);
-        Object distiller_output = Core._agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options);
-        Object distiller_response_event = new java.util.LinkedHashMap<String, Object>();
-        Core.set(distiller_response_event, "stage", "distiller");
-        Core.set(distiller_response_event, "step", distiller_step);
-        Core.set(distiller_response_event, "output", distiller_output);
-        Core.set(distiller_response_event, "component_id", "agent.stage.distiller");
-        Core._agent_record_trace_event(state, "stage_response", distiller_response_event);
-        Object distiller_code_raw = Core._extract_agent_runtime_code(state, distiller_output);
-        Object distiller_fence_violation = Core._agent_runtime_code_fence_violation(distiller_code_raw);
-        if (Core.truthy(distiller_fence_violation)) {
-          Core._agent_record_runtime_code_fence_violation(state, distiller_code_raw);
-          distiller_step = Core.add(distiller_step, 1);
-          continue;
-        }
-        Object distiller_code = Core._normalize_agent_runtime_code(distiller_code_raw);
-        Object distiller_runtime_step = Core._agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options);
-        distiller_session = Core.get(state, "runtime_session", distiller_session);
-        Object distiller_step_error = Core.get(distiller_runtime_step, "is_error", Boolean.FALSE);
-        Object distiller_step_ok = Core.not(distiller_step_error);
-        if (Core.truthy(distiller_step_ok)) {
-          Core._agent_runtime_refresh_state_summary(state, distiller_session, options);
-        }
-        Object distiller_completion = Core.get(distiller_runtime_step, "completion_payload", null);
-        Object distiller_has_completion = Core.typeIs(distiller_completion, "object");
-        if (Core.truthy(distiller_has_completion)) {
-          distiller_payload = distiller_completion;
-          break;
-        }
-        distiller_step = Core.add(distiller_step, 1);
-      }
-      Object shared_contract = Core.get(state, "runtime_contract", null);
-      Object shared_js = Core.get(shared_contract, "is_javascript", Boolean.TRUE);
-      if (Core.truthy(shared_js)) {
-        Core.set(state, "runtime_session", distiller_session);
-      }
-      if (!Core.truthy(shared_js)) {
-        Object distiller_session_reset = Core.none();
-        Core.set(state, "runtime_session", distiller_session_reset);
-        Object distiller_state_reset = new java.util.LinkedHashMap<String, Object>();
-        Core.set(state, "runtime_session_state", distiller_state_reset);
-      }
-      Core.set(state, "action_log", distiller_saved_action_log);
-    }
-    if (!Core.truthy(runtime_enabled)) {
-      Object distiller_values = Core._build_distiller_inputs(state, values);
-      Object distiller_request_event = new java.util.LinkedHashMap<String, Object>();
-      Core.set(distiller_request_event, "stage", "distiller");
-      Core.set(distiller_request_event, "values", distiller_values);
-      Core.set(distiller_request_event, "component_id", "agent.stage.distiller");
-      Core._agent_record_trace_event(state, "stage_request", distiller_request_event);
-      Object distiller_output = Core._agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options);
-      Object distiller_response_event = new java.util.LinkedHashMap<String, Object>();
-      Core.set(distiller_response_event, "stage", "distiller");
-      Core.set(distiller_response_event, "output", distiller_output);
-      Core.set(distiller_response_event, "component_id", "agent.stage.distiller");
-      Core._agent_record_trace_event(state, "stage_response", distiller_response_event);
-      distiller_payload = Core._normalize_agent_completion_payload(distiller_output);
-    }
-    Core._throw_agent_clarification(distiller_payload, state);
-    Object distiller_skills_after = Core.get(state, "distiller_loaded_skill_docs", empty_list);
-    Object executor_skills_after = Core.get(state, "loaded_skill_docs", empty_list);
-    executor_skills_after = Core._agent_merge_skill_results(executor_skills_after, distiller_skills_after);
-    Core.set(state, "loaded_skill_docs", executor_skills_after);
-    Core.set(state, "active_stage", "executor");
-    Object executor_payload = Core.none();
-    Object distiller_payload_type = Core.get(distiller_payload, "type", "");
-    Object distiller_is_respond = Core.eq(distiller_payload_type, "respond");
-    if (Core.truthy(distiller_is_respond)) {
-      Object skip_empty_map = new java.util.LinkedHashMap<String, Object>();
-      Object skip_policy_flags = Core.get(state, "policy_flags", skip_empty_map);
-      Object skip_enabled = Core.get(skip_policy_flags, "directRespondEnabled", Boolean.TRUE);
-      Object skip_disabled = Core.not(skip_enabled);
-      if (Core.truthy(skip_disabled)) {
-        Object skip_error = Core.runtimeError("agent distiller produced a respond() payload while directResponse is 'off'");
-        throw Core.asRuntime(skip_error);
-      }
-      Object skip_args_empty = new java.util.ArrayList<Object>();
-      Object skip_args = Core.get(distiller_payload, "args", skip_args_empty);
-      Object skip_payload = new java.util.LinkedHashMap<String, Object>();
-      Core.set(skip_payload, "type", "final");
-      Core.set(skip_payload, "args", skip_args);
-      executor_payload = skip_payload;
-      Object skip_event = new java.util.LinkedHashMap<String, Object>();
-      Core.set(skip_event, "stage", "executor");
-      Core.set(skip_event, "reason", "direct_respond");
-      Core.set(skip_event, "component_id", "agent.stage.executor");
-      Core._agent_record_trace_event(state, "stage_skipped", skip_event);
-    }
-    Object run_executor = Core.not(distiller_is_respond);
-    Object runtime_executor_enabled = Core.and(run_executor, runtime_enabled);
-    if (Core.truthy(runtime_executor_enabled)) {
-      Object exec_empty_map = new java.util.LinkedHashMap<String, Object>();
-      Object exec_empty_list = new java.util.ArrayList<Object>();
-      Object exec_args = Core.get(distiller_payload, "args", exec_empty_list);
-      Object exec_non_ctx_split = Core._split_context_values(state, values);
-      Object exec_non_ctx = Core.get(exec_non_ctx_split, "values", exec_empty_map);
-      Object exec_fallback_req = Core.jsonStringify(exec_non_ctx);
-      Object exec_req_raw = Core.listGet(exec_args, 0, exec_fallback_req);
-      Object exec_req_is_string = Core.typeIs(exec_req_raw, "string");
-      Object exec_req = exec_req_raw;
-      if (Core.truthy(exec_req_is_string)) {
-        // empty
-      }
-      if (!Core.truthy(exec_req_is_string)) {
-        Object exec_req_coerced = Core.stringFormat("{}", exec_req_raw);
-        exec_req = exec_req_coerced;
-      }
-      Object exec_distilled = Core.listGet(exec_args, 1, exec_empty_map);
-      Object exec_extras = new java.util.LinkedHashMap<String, Object>();
-      Core.set(exec_extras, "executorRequest", exec_req);
-      Core.set(exec_extras, "distilledContext", exec_distilled);
-      Object exec_runtime_values = Core.mapMerge(values, exec_extras);
-      Object globals = Core._agent_runtime_build_globals(state, exec_runtime_values);
-      Object session = Core.get(state, "runtime_session", null);
-      Object has_shared_session = Core.isNotNone(session);
-      if (Core.truthy(has_shared_session)) {
-        Object patch_snapshot = new java.util.LinkedHashMap<String, Object>();
-        Core.set(patch_snapshot, "globals", globals);
-        Core._agent_runtime_restore_session_state(state, session, patch_snapshot, options);
-      }
-      Object max_steps = Core.get(options, "max_actor_steps", 4);
-      Object step = 0;
-      while (Core.truthy(Boolean.TRUE)) {
-        Object too_many = Core.gte(step, max_steps);
-        if (Core.truthy(too_many)) {
-          Object error_event = new java.util.LinkedHashMap<String, Object>();
-          Core.set(error_event, "error", "agent actor loop exceeded max steps");
-          Core.set(error_event, "stage", "executor");
-          Core._agent_record_trace_event(state, "error", error_event);
-          Object error = Core.runtimeError("agent actor loop exceeded max steps");
-          throw Core.asRuntime(error);
-        }
-        Object executor_values = Core._build_executor_inputs(state, values, distiller_payload);
-        Object executor_request_event = new java.util.LinkedHashMap<String, Object>();
-        Core.set(executor_request_event, "stage", "executor");
-        Core.set(executor_request_event, "step", step);
-        Core.set(executor_request_event, "values", executor_values);
-        Core.set(executor_request_event, "component_id", "agent.stage.executor");
-        Core._agent_record_trace_event(state, "stage_request", executor_request_event);
-        Object executor_output = Core._agent_executor_stage_forward(state, executor, client, executor_values, executor_options);
-        Object executor_response_event = new java.util.LinkedHashMap<String, Object>();
-        Core.set(executor_response_event, "stage", "executor");
-        Core.set(executor_response_event, "step", step);
-        Core.set(executor_response_event, "output", executor_output);
-        Core.set(executor_response_event, "component_id", "agent.stage.executor");
-        Core._agent_record_trace_event(state, "stage_response", executor_response_event);
-        Object raw_code = Core._extract_agent_runtime_code(state, executor_output);
-        Object fence_violation = Core._agent_runtime_code_fence_violation(raw_code);
-        if (Core.truthy(fence_violation)) {
-          Core._agent_record_runtime_code_fence_violation(state, raw_code);
-          step = Core.add(step, 1);
-          continue;
-        }
-        Object code = Core._normalize_agent_runtime_code(raw_code);
-        Object runtime_step = Core._agent_runtime_execute_step(state, runtime_from_options, session, code, options);
-        session = Core.get(state, "runtime_session", session);
-        Object exec_step_error = Core.get(runtime_step, "is_error", Boolean.FALSE);
-        Object exec_step_ok = Core.not(exec_step_error);
-        if (Core.truthy(exec_step_ok)) {
-          Core._agent_runtime_refresh_state_summary(state, session, options);
-        }
-        Object completion_payload = Core.get(runtime_step, "completion_payload", null);
-        Object has_completion = Core.typeIs(completion_payload, "object");
-        if (Core.truthy(has_completion)) {
-          Object executor_completion_type = Core.get(completion_payload, "type", "");
-          Object executor_completion_is_respond = Core.eq(executor_completion_type, "respond");
-          if (Core.truthy(executor_completion_is_respond)) {
-            Core.set(completion_payload, "type", "final");
-          }
-          Core._throw_agent_clarification(completion_payload, state);
-          executor_payload = completion_payload;
-          break;
-        }
-        step = Core.add(step, 1);
-      }
-    }
-    Object runtime_disabled = Core.not(runtime_enabled);
-    Object non_runtime_executor = Core.and(run_executor, runtime_disabled);
-    if (Core.truthy(non_runtime_executor)) {
-      Object executor_values = Core._build_executor_inputs(state, values, distiller_payload);
-      Object executor_request_event = new java.util.LinkedHashMap<String, Object>();
-      Core.set(executor_request_event, "stage", "executor");
-      Core.set(executor_request_event, "values", executor_values);
-      Core.set(executor_request_event, "component_id", "agent.stage.executor");
-      Core._agent_record_trace_event(state, "stage_request", executor_request_event);
-      Object executor_output = Core._agent_executor_stage_forward(state, executor, client, executor_values, executor_options);
-      Object executor_response_event = new java.util.LinkedHashMap<String, Object>();
-      Core.set(executor_response_event, "stage", "executor");
-      Core.set(executor_response_event, "output", executor_output);
-      Core.set(executor_response_event, "component_id", "agent.stage.executor");
-      Core._agent_record_trace_event(state, "stage_response", executor_response_event);
-      executor_payload = Core._normalize_agent_completion_payload(executor_output);
-      Core._throw_agent_clarification(executor_payload, state);
-      Object executor_payload_type = Core.get(executor_payload, "type", "");
-      Object executor_payload_is_respond = Core.eq(executor_payload_type, "respond");
-      if (Core.truthy(executor_payload_is_respond)) {
-        Core.set(executor_payload, "type", "final");
-      }
-    }
-    Core._agent_apply_llm_checkpoint_summary(state, client, options);
-    Core._agent_apply_context_management(state);
-    Core._agent_apply_llm_tombstone_summary(state, client, options);
-    Core._agent_evolve_context_map(state, client, options);
+    Object prepared = Core._agent_run_actor_stages(state, distiller, executor, client, values, options);
+    values = Core.get(prepared, "values", null);
+    Object executor_payload = Core.get(prepared, "executor_payload", null);
+    Object responder_options = Core.get(prepared, "responder_options", null);
     Object responder_values = Core._build_responder_inputs(state, values, executor_payload);
     Object responder_request_event = new java.util.LinkedHashMap<String, Object>();
     Core.set(responder_request_event, "stage", "responder");
     Core.set(responder_request_event, "values", responder_values);
     Core.set(responder_request_event, "component_id", "agent.stage.responder");
     Core._agent_record_trace_event(state, "stage_request", responder_request_event);
-    Object responder_output = Core._agent_controlled_stage_forward(responder, client, responder_values, responder_options);
-    Object citation_retry_options = new java.util.LinkedHashMap<String, Object>();
-    citation_retry_options = Core.mapMerge(citation_retry_options, responder_options);
-    Object citations_valid = Core._agent_validate_citations(state, responder_output);
-    Object citations_invalid = Core.not(citations_valid);
-    if (Core.truthy(citations_invalid)) {
-      Object invalid_citations_output = Core.jsonStringify(responder_output);
-      Object citation_retry_feedback = Core.stringFormat("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", invalid_citations_output);
-      Core.set(citation_retry_options, "validation_feedback", citation_retry_feedback);
-      responder_output = Core._agent_controlled_stage_forward(responder, client, responder_values, citation_retry_options);
-      citations_valid = Core._agent_validate_citations(state, responder_output);
+    Core._agent_begin_citation_checks(state, executor_payload);
+    Object responder_output = new java.util.LinkedHashMap<String, Object>();
+    try {
+      responder_output = Core._agent_controlled_stage_forward(responder, client, responder_values, responder_options);
+    } catch (RuntimeException responder_error) {
+      Core._agent_end_citation_checks(state);
+      throw Core.asRuntime(responder_error);
     }
-    citations_invalid = Core.not(citations_valid);
-    if (Core.truthy(citations_invalid)) {
-      Object invalid_citations_output = Core.jsonStringify(responder_output);
-      Object citation_retry_feedback = Core.stringFormat("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", invalid_citations_output);
-      Core.set(citation_retry_options, "validation_feedback", citation_retry_feedback);
-      responder_output = Core._agent_controlled_stage_forward(responder, client, responder_values, citation_retry_options);
-      citations_valid = Core._agent_validate_citations(state, responder_output);
-    }
-    citations_invalid = Core.not(citations_valid);
-    if (Core.truthy(citations_invalid)) {
-      Object error = Core.runtimeError("AxAgent responder returned citations that do not exist in the run evidence");
-      throw Core.asRuntime(error);
-    }
+    Core._agent_end_citation_checks(state);
     responder_output = Core._agent_finalize_citations(state, responder_output);
     Object responder_response_event = new java.util.LinkedHashMap<String, Object>();
     Core.set(responder_response_event, "stage", "responder");
     Core.set(responder_response_event, "output", responder_output);
     Core.set(responder_response_event, "component_id", "agent.stage.responder");
     Core._agent_record_trace_event(state, "stage_response", responder_response_event);
-    Object logs = Core._merge_agent_chat_log(state, distiller, executor, responder);
-    Object usage = Core._merge_agent_usage(state, distiller, executor, responder);
-    Core.set(state, "last_output", responder_output);
-    Core.set(state, "chat_log", logs);
-    Core.set(state, "usage", usage);
-    forward_used_memories = Core.get(state, "used_memories", empty_list);
-    forward_used_skills = Core.get(state, "used_skills", empty_list);
-    Core.agentObserverNotify(state, options, "used_memories", forward_used_memories);
-    Core.agentObserverNotify(state, options, "used_skills", forward_used_skills);
-    Core._agent_build_failure_signals(state);
-    Core._agent_finalize_trace(state, "completed", responder_output);
-    return responder_output;
+    Object output = Core._agent_complete_run(state, distiller, executor, responder, client, options, responder_output);
+    return output;
   }
 
   static Object _agent_apply_run_context(Object state, Object configured, Object call, Object modules) {
@@ -34637,6 +34378,488 @@ final class Core {
     }
     Object value = Core.get(result, "value", result);
     return value;
+  }
+
+  static Object _agent_run_actor_stages(Object state, Object distiller, Object executor, Object client, Object values, Object options) {
+    axirCoverageMark("_agent_run_actor_stages");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Core.set(state, "native_tool_names", empty_list);
+    Object loaded_memories = new java.util.ArrayList<Object>();
+    Object used_memories = new java.util.ArrayList<Object>();
+    Object used_skills = new java.util.ArrayList<Object>();
+    Object relevance_hints_for_turn = Core.none();
+    Core.set(state, "loaded_memories", loaded_memories);
+    Core.set(state, "used_memories", used_memories);
+    Core.set(state, "used_skills", used_skills);
+    Core.set(state, "relevance_hints_for_turn", relevance_hints_for_turn);
+    Object preset_memories = Core.get(values, "memories", empty_list);
+    loaded_memories = Core._agent_merge_memory_results(loaded_memories, preset_memories);
+    Core.set(state, "loaded_memories", loaded_memories);
+    Object loaded_skills = Core.get(state, "loaded_skill_docs", empty_list);
+    Object forward_skills = Core.get(options, "skills", empty_list);
+    loaded_skills = Core._agent_merge_skill_results(loaded_skills, forward_skills);
+    Core.set(state, "loaded_skill_docs", loaded_skills);
+    Object flags = Core.get(state, "policy_flags", empty_map);
+    Object forward_used_memories = Core.get(options, "onUsedMemories", null);
+    Object forward_used_memories_snake = Core.get(options, "on_used_memories", forward_used_memories);
+    Object forward_used_skills = Core.get(options, "onUsedSkills", null);
+    Object forward_used_skills_snake = Core.get(options, "on_used_skills", forward_used_skills);
+    Object has_forward_used_memories = Core.isNotNone(forward_used_memories_snake);
+    Object has_forward_used_skills = Core.isNotNone(forward_used_skills_snake);
+    Object has_forward_used_observer = Core.or(has_forward_used_memories, has_forward_used_skills);
+    if (Core.truthy(has_forward_used_observer)) {
+      Core.set(flags, "usageTrackingMode", Boolean.TRUE);
+      Core.set(state, "policy_flags", flags);
+    }
+    Object direct_respond_only = Core.get(flags, "directRespondOnly", Boolean.FALSE);
+    if (Core.truthy(direct_respond_only)) {
+      Object distiller_skills = Core.get(state, "distiller_loaded_skill_docs", empty_list);
+      distiller_skills = Core._agent_merge_skill_results(distiller_skills, forward_skills);
+      Core.set(state, "distiller_loaded_skill_docs", distiller_skills);
+    }
+    Core.set(state, "active_stage", "distiller");
+    Object transcribed_values = Core._agent_transcribe_audio_inputs(state, client, values, options);
+    values = transcribed_values;
+    Object runtime_input_names = new java.util.ArrayList<Object>();
+    for (Object runtime_input_name : Core.iter(values)) {
+      Core.append(runtime_input_names, runtime_input_name);
+    }
+    Core.set(state, "runtime_input_names", runtime_input_names);
+    Object previous_runtime_session_state = Core.get(state, "runtime_session_state", null);
+    Object previous_runtime_session_state_is_map = Core.typeIs(previous_runtime_session_state, "object");
+    if (Core.truthy(previous_runtime_session_state_is_map)) {
+      Object previous_runtime_globals = Core.get(previous_runtime_session_state, "globals", null);
+      Object previous_runtime_bindings = Core.get(previous_runtime_session_state, "bindings", null);
+      Object previous_runtime_globals_is_map = Core.typeIs(previous_runtime_globals, "object");
+      Object previous_runtime_bindings_is_map = Core.typeIs(previous_runtime_bindings, "object");
+      Object previous_runtime_state_has_bindings = Core.or(previous_runtime_globals_is_map, previous_runtime_bindings_is_map);
+      if (Core.truthy(previous_runtime_state_has_bindings)) {
+        Object clean_previous_runtime_state = Core._normalize_agent_runtime_snapshot(state, previous_runtime_session_state);
+        Core.set(state, "runtime_session_state", clean_previous_runtime_state);
+      }
+    }
+    Core._agent_begin_trace(state, values);
+    Core._agent_apply_llm_checkpoint_summary(state, client, options);
+    Object state_options = Core.get(state, "options", null);
+    Object runtime_from_state = Core.get(state_options, "runtime", null);
+    Object runtime_from_options = Core.get(options, "runtime", runtime_from_state);
+    Object runtime_enabled = Core.isNotNone(runtime_from_options);
+    Object distiller_options = Core._agent_stage_options(state, "distiller", options);
+    Object executor_options = Core._agent_stage_options(state, "executor", options);
+    Object responder_options = Core._agent_stage_options(state, "responder", options);
+    Object distiller_payload = Core.none();
+    if (Core.truthy(runtime_enabled)) {
+      Object distiller_empty_log = new java.util.ArrayList<Object>();
+      Object distiller_saved_action_log = Core.get(state, "action_log", distiller_empty_log);
+      Object distiller_globals = Core._agent_runtime_build_globals(state, values);
+      Object distiller_session = Core.none();
+      Object distiller_max_steps = Core.get(options, "max_actor_steps", 4);
+      Object distiller_step = 0;
+      while (Core.truthy(Boolean.TRUE)) {
+        Object distiller_too_many = Core.gte(distiller_step, distiller_max_steps);
+        if (Core.truthy(distiller_too_many)) {
+          Object distiller_error_event = new java.util.LinkedHashMap<String, Object>();
+          Core.set(distiller_error_event, "error", "agent distiller loop exceeded max steps");
+          Core.set(distiller_error_event, "stage", "distiller");
+          Core._agent_record_trace_event(state, "error", distiller_error_event);
+          Object distiller_error = Core.runtimeError("agent distiller loop exceeded max steps");
+          throw Core.asRuntime(distiller_error);
+        }
+        Object distiller_values = Core._build_distiller_inputs(state, values);
+        Object distiller_request_event = new java.util.LinkedHashMap<String, Object>();
+        Core.set(distiller_request_event, "stage", "distiller");
+        Core.set(distiller_request_event, "step", distiller_step);
+        Core.set(distiller_request_event, "values", distiller_values);
+        Core.set(distiller_request_event, "component_id", "agent.stage.distiller");
+        Core._agent_record_trace_event(state, "stage_request", distiller_request_event);
+        Object distiller_output = Core._agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options);
+        Object distiller_response_event = new java.util.LinkedHashMap<String, Object>();
+        Core.set(distiller_response_event, "stage", "distiller");
+        Core.set(distiller_response_event, "step", distiller_step);
+        Core.set(distiller_response_event, "output", distiller_output);
+        Core.set(distiller_response_event, "component_id", "agent.stage.distiller");
+        Core._agent_record_trace_event(state, "stage_response", distiller_response_event);
+        Object distiller_code_raw = Core._extract_agent_runtime_code(state, distiller_output);
+        Object distiller_fence_violation = Core._agent_runtime_code_fence_violation(distiller_code_raw);
+        if (Core.truthy(distiller_fence_violation)) {
+          Core._agent_record_runtime_code_fence_violation(state, distiller_code_raw);
+          distiller_step = Core.add(distiller_step, 1);
+          continue;
+        }
+        Object distiller_code = Core._normalize_agent_runtime_code(distiller_code_raw);
+        Object distiller_runtime_step = Core._agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options);
+        distiller_session = Core.get(state, "runtime_session", distiller_session);
+        Object distiller_step_error = Core.get(distiller_runtime_step, "is_error", Boolean.FALSE);
+        Object distiller_step_ok = Core.not(distiller_step_error);
+        if (Core.truthy(distiller_step_ok)) {
+          Core._agent_runtime_refresh_state_summary(state, distiller_session, options);
+        }
+        Object distiller_completion = Core.get(distiller_runtime_step, "completion_payload", null);
+        Object distiller_has_completion = Core.typeIs(distiller_completion, "object");
+        if (Core.truthy(distiller_has_completion)) {
+          distiller_payload = distiller_completion;
+          break;
+        }
+        distiller_step = Core.add(distiller_step, 1);
+      }
+      Object shared_contract = Core.get(state, "runtime_contract", null);
+      Object shared_js = Core.get(shared_contract, "is_javascript", Boolean.TRUE);
+      if (Core.truthy(shared_js)) {
+        Core.set(state, "runtime_session", distiller_session);
+      }
+      if (!Core.truthy(shared_js)) {
+        Object distiller_session_reset = Core.none();
+        Core.set(state, "runtime_session", distiller_session_reset);
+        Object distiller_state_reset = new java.util.LinkedHashMap<String, Object>();
+        Core.set(state, "runtime_session_state", distiller_state_reset);
+      }
+      Core.set(state, "action_log", distiller_saved_action_log);
+    }
+    if (!Core.truthy(runtime_enabled)) {
+      Object distiller_values = Core._build_distiller_inputs(state, values);
+      Object distiller_request_event = new java.util.LinkedHashMap<String, Object>();
+      Core.set(distiller_request_event, "stage", "distiller");
+      Core.set(distiller_request_event, "values", distiller_values);
+      Core.set(distiller_request_event, "component_id", "agent.stage.distiller");
+      Core._agent_record_trace_event(state, "stage_request", distiller_request_event);
+      Object distiller_output = Core._agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options);
+      Object distiller_response_event = new java.util.LinkedHashMap<String, Object>();
+      Core.set(distiller_response_event, "stage", "distiller");
+      Core.set(distiller_response_event, "output", distiller_output);
+      Core.set(distiller_response_event, "component_id", "agent.stage.distiller");
+      Core._agent_record_trace_event(state, "stage_response", distiller_response_event);
+      distiller_payload = Core._normalize_agent_completion_payload(distiller_output);
+    }
+    Core._throw_agent_clarification(distiller_payload, state);
+    Object distiller_skills_after = Core.get(state, "distiller_loaded_skill_docs", empty_list);
+    Object executor_skills_after = Core.get(state, "loaded_skill_docs", empty_list);
+    executor_skills_after = Core._agent_merge_skill_results(executor_skills_after, distiller_skills_after);
+    Core.set(state, "loaded_skill_docs", executor_skills_after);
+    Core.set(state, "active_stage", "executor");
+    Object executor_payload = Core.none();
+    Object distiller_payload_type = Core.get(distiller_payload, "type", "");
+    Object distiller_is_respond = Core.eq(distiller_payload_type, "respond");
+    if (Core.truthy(distiller_is_respond)) {
+      Object skip_empty_map = new java.util.LinkedHashMap<String, Object>();
+      Object skip_policy_flags = Core.get(state, "policy_flags", skip_empty_map);
+      Object skip_enabled = Core.get(skip_policy_flags, "directRespondEnabled", Boolean.TRUE);
+      Object skip_disabled = Core.not(skip_enabled);
+      if (Core.truthy(skip_disabled)) {
+        Object skip_error = Core.runtimeError("agent distiller produced a respond() payload while directResponse is 'off'");
+        throw Core.asRuntime(skip_error);
+      }
+      Object skip_args_empty = new java.util.ArrayList<Object>();
+      Object skip_args = Core.get(distiller_payload, "args", skip_args_empty);
+      Object skip_payload = new java.util.LinkedHashMap<String, Object>();
+      Core.set(skip_payload, "type", "final");
+      Core.set(skip_payload, "args", skip_args);
+      executor_payload = skip_payload;
+      Object skip_event = new java.util.LinkedHashMap<String, Object>();
+      Core.set(skip_event, "stage", "executor");
+      Core.set(skip_event, "reason", "direct_respond");
+      Core.set(skip_event, "component_id", "agent.stage.executor");
+      Core._agent_record_trace_event(state, "stage_skipped", skip_event);
+    }
+    Object run_executor = Core.not(distiller_is_respond);
+    Object runtime_executor_enabled = Core.and(run_executor, runtime_enabled);
+    if (Core.truthy(runtime_executor_enabled)) {
+      Object exec_empty_map = new java.util.LinkedHashMap<String, Object>();
+      Object exec_empty_list = new java.util.ArrayList<Object>();
+      Object exec_args = Core.get(distiller_payload, "args", exec_empty_list);
+      Object exec_non_ctx_split = Core._split_context_values(state, values);
+      Object exec_non_ctx = Core.get(exec_non_ctx_split, "values", exec_empty_map);
+      Object exec_fallback_req = Core.jsonStringify(exec_non_ctx);
+      Object exec_req_raw = Core.listGet(exec_args, 0, exec_fallback_req);
+      Object exec_req_is_string = Core.typeIs(exec_req_raw, "string");
+      Object exec_req = exec_req_raw;
+      if (Core.truthy(exec_req_is_string)) {
+        // empty
+      }
+      if (!Core.truthy(exec_req_is_string)) {
+        Object exec_req_coerced = Core.stringFormat("{}", exec_req_raw);
+        exec_req = exec_req_coerced;
+      }
+      Object exec_distilled = Core.listGet(exec_args, 1, exec_empty_map);
+      Object exec_extras = new java.util.LinkedHashMap<String, Object>();
+      Core.set(exec_extras, "executorRequest", exec_req);
+      Core.set(exec_extras, "distilledContext", exec_distilled);
+      Object exec_runtime_values = Core.mapMerge(values, exec_extras);
+      Object globals = Core._agent_runtime_build_globals(state, exec_runtime_values);
+      Object session = Core.get(state, "runtime_session", null);
+      Object has_shared_session = Core.isNotNone(session);
+      if (Core.truthy(has_shared_session)) {
+        Object patch_snapshot = new java.util.LinkedHashMap<String, Object>();
+        Core.set(patch_snapshot, "globals", globals);
+        Core._agent_runtime_restore_session_state(state, session, patch_snapshot, options);
+      }
+      Object max_steps = Core.get(options, "max_actor_steps", 4);
+      Object step = 0;
+      while (Core.truthy(Boolean.TRUE)) {
+        Object too_many = Core.gte(step, max_steps);
+        if (Core.truthy(too_many)) {
+          Object error_event = new java.util.LinkedHashMap<String, Object>();
+          Core.set(error_event, "error", "agent actor loop exceeded max steps");
+          Core.set(error_event, "stage", "executor");
+          Core._agent_record_trace_event(state, "error", error_event);
+          Object error = Core.runtimeError("agent actor loop exceeded max steps");
+          throw Core.asRuntime(error);
+        }
+        Object executor_values = Core._build_executor_inputs(state, values, distiller_payload);
+        Object executor_request_event = new java.util.LinkedHashMap<String, Object>();
+        Core.set(executor_request_event, "stage", "executor");
+        Core.set(executor_request_event, "step", step);
+        Core.set(executor_request_event, "values", executor_values);
+        Core.set(executor_request_event, "component_id", "agent.stage.executor");
+        Core._agent_record_trace_event(state, "stage_request", executor_request_event);
+        Object executor_output = Core._agent_executor_stage_forward(state, executor, client, executor_values, executor_options);
+        Object executor_response_event = new java.util.LinkedHashMap<String, Object>();
+        Core.set(executor_response_event, "stage", "executor");
+        Core.set(executor_response_event, "step", step);
+        Core.set(executor_response_event, "output", executor_output);
+        Core.set(executor_response_event, "component_id", "agent.stage.executor");
+        Core._agent_record_trace_event(state, "stage_response", executor_response_event);
+        Object raw_code = Core._extract_agent_runtime_code(state, executor_output);
+        Object fence_violation = Core._agent_runtime_code_fence_violation(raw_code);
+        if (Core.truthy(fence_violation)) {
+          Core._agent_record_runtime_code_fence_violation(state, raw_code);
+          step = Core.add(step, 1);
+          continue;
+        }
+        Object code = Core._normalize_agent_runtime_code(raw_code);
+        Object runtime_step = Core._agent_runtime_execute_step(state, runtime_from_options, session, code, options);
+        session = Core.get(state, "runtime_session", session);
+        Object exec_step_error = Core.get(runtime_step, "is_error", Boolean.FALSE);
+        Object exec_step_ok = Core.not(exec_step_error);
+        if (Core.truthy(exec_step_ok)) {
+          Core._agent_runtime_refresh_state_summary(state, session, options);
+        }
+        Object completion_payload = Core.get(runtime_step, "completion_payload", null);
+        Object has_completion = Core.typeIs(completion_payload, "object");
+        if (Core.truthy(has_completion)) {
+          Object executor_completion_type = Core.get(completion_payload, "type", "");
+          Object executor_completion_is_respond = Core.eq(executor_completion_type, "respond");
+          if (Core.truthy(executor_completion_is_respond)) {
+            Core.set(completion_payload, "type", "final");
+          }
+          Core._throw_agent_clarification(completion_payload, state);
+          executor_payload = completion_payload;
+          break;
+        }
+        step = Core.add(step, 1);
+      }
+    }
+    Object runtime_disabled = Core.not(runtime_enabled);
+    Object non_runtime_executor = Core.and(run_executor, runtime_disabled);
+    if (Core.truthy(non_runtime_executor)) {
+      Object executor_values = Core._build_executor_inputs(state, values, distiller_payload);
+      Object executor_request_event = new java.util.LinkedHashMap<String, Object>();
+      Core.set(executor_request_event, "stage", "executor");
+      Core.set(executor_request_event, "values", executor_values);
+      Core.set(executor_request_event, "component_id", "agent.stage.executor");
+      Core._agent_record_trace_event(state, "stage_request", executor_request_event);
+      Object executor_output = Core._agent_executor_stage_forward(state, executor, client, executor_values, executor_options);
+      Object executor_response_event = new java.util.LinkedHashMap<String, Object>();
+      Core.set(executor_response_event, "stage", "executor");
+      Core.set(executor_response_event, "output", executor_output);
+      Core.set(executor_response_event, "component_id", "agent.stage.executor");
+      Core._agent_record_trace_event(state, "stage_response", executor_response_event);
+      executor_payload = Core._normalize_agent_completion_payload(executor_output);
+      Core._throw_agent_clarification(executor_payload, state);
+      Object executor_payload_type = Core.get(executor_payload, "type", "");
+      Object executor_payload_is_respond = Core.eq(executor_payload_type, "respond");
+      if (Core.truthy(executor_payload_is_respond)) {
+        Core.set(executor_payload, "type", "final");
+      }
+    }
+    Core._agent_apply_llm_checkpoint_summary(state, client, options);
+    Core._agent_apply_context_management(state);
+    Core._agent_apply_llm_tombstone_summary(state, client, options);
+    Object used_memories_payload = Core.get(state, "used_memories", empty_list);
+    Object used_skills_payload = Core.get(state, "used_skills", empty_list);
+    Core.agentObserverNotify(state, options, "used_memories", used_memories_payload);
+    Core.agentObserverNotify(state, options, "used_skills", used_skills_payload);
+    Object prepared = new java.util.LinkedHashMap<String, Object>();
+    Core.set(prepared, "values", values);
+    Core.set(prepared, "executor_payload", executor_payload);
+    Core.set(prepared, "responder_options", responder_options);
+    return prepared;
+  }
+
+  static Object _agent_complete_run(Object state, Object distiller, Object executor, Object responder, Object client, Object options, Object output) {
+    axirCoverageMark("_agent_complete_run");
+    Object logs = Core._merge_agent_chat_log(state, distiller, executor, responder);
+    Object usage = Core._merge_agent_usage(state, distiller, executor, responder);
+    Core.set(state, "last_output", output);
+    Core.set(state, "chat_log", logs);
+    Core.set(state, "usage", usage);
+    try {
+      Core._agent_evolve_context_map(state, client, options);
+    } catch (RuntimeException context_map_error) {
+      // empty
+    }
+    Core._agent_build_failure_signals(state);
+    Core._agent_finalize_trace(state, "completed", output);
+    return output;
+  }
+
+  static Object _agent_stream_citation_delta(Object state, Object envelope) {
+    axirCoverageMark("_agent_stream_citation_delta");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object citations = Core.get(state, "citations", empty_map);
+    Object enabled = Core.get(citations, "enabled", Boolean.FALSE);
+    Object disabled = Core.not(enabled);
+    if (Core.truthy(disabled)) {
+      return envelope;
+    }
+    Object field = Core.get(citations, "field", "evidenceCitations");
+    Object delta = Core.get(envelope, "delta", null);
+    Object delta_is_map = Core.typeIs(delta, "object");
+    Object delta_not_map = Core.not(delta_is_map);
+    if (Core.truthy(delta_not_map)) {
+      return envelope;
+    }
+    Object has_field = Core.mapContains(delta, field);
+    Object no_field = Core.not(has_field);
+    if (Core.truthy(no_field)) {
+      return envelope;
+    }
+    Object version = Core.get(envelope, "version", null);
+    Object citation_version = Core.get(state, "stream_citation_version", null);
+    Object new_version = Core.ne(version, citation_version);
+    if (Core.truthy(new_version)) {
+      Object fresh = new java.util.ArrayList<Object>();
+      Core.set(state, "stream_citations", fresh);
+      Core.set(state, "stream_citation_version", version);
+    }
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object accumulated = Core.get(state, "stream_citations", empty_list);
+    Object chunk = Core.get(delta, field, null);
+    Object chunk_is_list = Core.typeIs(chunk, "list");
+    if (Core.truthy(chunk_is_list)) {
+      for (Object chunk_item : Core.iter(chunk)) {
+        Object chunk_text = Core.stringFormat("{}", chunk_item);
+        Core.append(accumulated, chunk_text);
+      }
+    }
+    if (!Core.truthy(chunk_is_list)) {
+      Object has_chunk = Core.isNotNone(chunk);
+      if (Core.truthy(has_chunk)) {
+        Object chunk_text = Core.stringFormat("{}", chunk);
+        Core.append(accumulated, chunk_text);
+      }
+    }
+    Core.set(state, "stream_citations", accumulated);
+    Object surface = Core.get(citations, "surface", "output");
+    Object hidden = Core.eq(surface, "hidden");
+    if (Core.truthy(hidden)) {
+      Object stripped_delta = new java.util.LinkedHashMap<String, Object>();
+      stripped_delta = Core.mapMerge(stripped_delta, delta);
+      Core.mapDelete(stripped_delta, field);
+      Object stripped = new java.util.LinkedHashMap<String, Object>();
+      stripped = Core.mapMerge(stripped, envelope);
+      Core.set(stripped, "delta", stripped_delta);
+      return stripped;
+    }
+    return envelope;
+  }
+
+  static Object _agent_finalize_stream_citations(Object state, Object output) {
+    axirCoverageMark("_agent_finalize_stream_citations");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object citations = Core.get(state, "citations", empty_map);
+    Object enabled = Core.get(citations, "enabled", Boolean.FALSE);
+    if (Core.truthy(enabled)) {
+      Object empty_list = new java.util.ArrayList<Object>();
+      Object accumulated = Core.get(state, "stream_citations", empty_list);
+      Core.set(state, "last_citations", accumulated);
+      Object field = Core.get(citations, "field", "evidenceCitations");
+      Object surface = Core.get(citations, "surface", "output");
+      Object hidden = Core.eq(surface, "hidden");
+      if (Core.truthy(hidden)) {
+        Core.mapDelete(output, field);
+      }
+    }
+    return output;
+  }
+
+  static Object _agent_controlled_stage_streaming_forward(Object stage, Object state, Object client, Object values, Object options, Object sink) {
+    axirCoverageMark("_agent_controlled_stage_streaming_forward");
+    Object control = Core.get(options, "control", null);
+    Object aborted = Core.runControlAborted(control);
+    if (Core.truthy(aborted)) {
+      Object error = Core.runtimeError("Agent aborted before starting the next stage");
+      throw Core.asRuntime(error);
+    }
+    Object output = Core.agentStageStreamingForward(stage, state, client, values, options, sink);
+    return output;
+  }
+
+  static Object _agent_streaming_forward_impl(Object state, Object distiller, Object executor, Object responder, Object client, Object values, Object options, Object sink) {
+    axirCoverageMark("_agent_streaming_forward_impl");
+    Object prepared = Core._agent_run_actor_stages(state, distiller, executor, client, values, options);
+    values = Core.get(prepared, "values", null);
+    Object executor_payload = Core.get(prepared, "executor_payload", null);
+    Object responder_options = Core.get(prepared, "responder_options", null);
+    Object responder_values = Core._build_responder_inputs(state, values, executor_payload);
+    Object responder_request_event = new java.util.LinkedHashMap<String, Object>();
+    Core.set(responder_request_event, "stage", "responder");
+    Core.set(responder_request_event, "values", responder_values);
+    Core.set(responder_request_event, "component_id", "agent.stage.responder");
+    Core._agent_record_trace_event(state, "stage_request", responder_request_event);
+    Core._agent_begin_citation_checks(state, executor_payload);
+    Object no_citations = new java.util.ArrayList<Object>();
+    Object no_citation_version = Core.none();
+    Core.set(state, "stream_citations", no_citations);
+    Core.set(state, "stream_citation_version", no_citation_version);
+    Object responder_output = new java.util.LinkedHashMap<String, Object>();
+    try {
+      responder_output = Core._agent_controlled_stage_streaming_forward(responder, state, client, responder_values, responder_options, sink);
+    } catch (RuntimeException responder_error) {
+      Core._agent_end_citation_checks(state);
+      throw Core.asRuntime(responder_error);
+    }
+    Core._agent_end_citation_checks(state);
+    responder_output = Core._agent_finalize_stream_citations(state, responder_output);
+    Object responder_response_event = new java.util.LinkedHashMap<String, Object>();
+    Core.set(responder_response_event, "stage", "responder");
+    Core.set(responder_response_event, "output", responder_output);
+    Core.set(responder_response_event, "component_id", "agent.stage.responder");
+    Core._agent_record_trace_event(state, "stage_response", responder_response_event);
+    Object output = Core._agent_complete_run(state, distiller, executor, responder, client, options, responder_output);
+    return output;
+  }
+
+  static Object _agent_streaming_forward(Object state, Object distiller, Object executor, Object responder, Object client, Object values, Object options, Object sink) {
+    axirCoverageMark("_agent_streaming_forward");
+    Object none = Core.none();
+    Object active = Core.get(state, "forward_active", Boolean.FALSE);
+    if (Core.truthy(active)) {
+      Object error = Core.runtimeError("An agent cannot delegate recursively to an already active agent");
+      throw Core.asRuntime(error);
+    }
+    Core.set(state, "forward_active", Boolean.TRUE);
+    Core.set(state, "active_client", client);
+    Core.set(state, "active_forward_options", options);
+    Object output = new java.util.LinkedHashMap<String, Object>();
+    try {
+      output = Core._agent_streaming_forward_impl(state, distiller, executor, responder, client, values, options, sink);
+    } catch (RuntimeException forward_error) {
+      Core.set(state, "forward_active", Boolean.FALSE);
+      Core.set(state, "active_client", none);
+      Core.set(state, "active_forward_options", none);
+      Object session = Core.get(state, "runtime_session", null);
+      try {
+        Core._agent_runtime_close_session(state, session);
+      } catch (RuntimeException close_error) {
+        // empty
+      }
+      throw Core.asRuntime(forward_error);
+    }
+    Core.set(state, "forward_active", Boolean.FALSE);
+    Core.set(state, "active_client", none);
+    Core.set(state, "active_forward_options", none);
+    return output;
   }
 
   static Object _flow_factory(Object options) {
