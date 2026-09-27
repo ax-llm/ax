@@ -654,8 +654,8 @@ struct Core {
   static Value openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model);
   static Value _openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry);
-  static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
   static Value _openai_stream_choice_impl(Value choice, Value index_ids, Value reasoning_content_mode, Value reasoning_details_mode);
+  static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
   static Value fold_chat_response_stream(Value events);
   static Value openai_normalize_error(Value status, Value body, Value request, Value options);
   static Value _fold_chat_stream_chunk_impl(Value target, Value chunk);
@@ -665,6 +665,7 @@ struct Core {
   static Value provider_model_catalog_summary();
   static Value _provider_model_catalog_registry();
   static Value provider_model_catalog(Value options);
+  static Value _chat_result_function_call_problems(Value result, Value result_index);
   static Value provider_estimate_cost(Value model_usage, Value model_info_overrides);
   static Value provider_route_request_requirements(Value request);
   static Value _provider_features_support(Value features, Value path);
@@ -1108,11 +1109,11 @@ struct Core {
   static Value _apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates);
   static Value _stream_json_strings_for_field_impl(Value field, Value value);
   static Value _structured_output_render_options_impl(Value selection);
-  static Value _validate_completion_function_call_names(Value response);
+  static Value _completion_function_call_problems(Value response);
   static Value _stream_json_strings_for_fields_impl(Value fields_map, Value values);
   static Value _stream_json_strings_impl(Value fields, Value values, Value partial);
   static Value _stream_state_impl(Value index);
-  static Value _check_completion_function_call_names(Value response, Value options);
+  static Value _check_completion_function_calls(Value response, Value options);
   static Value _stream_merge_value_impl(Value base, Value has_base, Value delta);
   static Value _stream_commit_delta_impl(Value committed, Value current, Value delta);
   static Value _stream_run_state_impl(Value sink, Value buffered, Value thought_field);

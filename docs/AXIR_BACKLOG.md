@@ -959,6 +959,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `ae09148e2a4b5dd10d32725492b84a3fe0264068`
   - Verification: `node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with 8 axflow flow-cache-* goldens and axgen/cache-forward-key-stable-input-order; per-port flow telemetry tests; npm run test --workspace=@ax-llm/ax`
+- `axir-2026-09-27-check-a-model-response-s-function-calls-as-typescript-does-in-th` [axgen] Check a model response's function calls as TypeScript does in the ports (id, type, function object, params, null calls)
+  - Status: done
+  - Source commit: `1c83032daba575846bae2d85eb88e74a4605b6ed`
+  - TS paths: `src/ax/ai/validate.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TypeScript checks every part of a response's function calls before any function runs (AxMemory.addResponse for a forward, the merged calls for a stream): a null call, a missing or non-string id, a type other than 'function', no function object, no name, or params that are not a string or an object fail the run at once with its message. The ports checked only the name (#754), under functionCallValidation: a call with a bad id, type or params ran as given, and a null call or one without a function object got the nameless correction. TypeScript's forward itself threw a TypeError ('Cannot read properties of null') for a null call or one without a function object, because the chat log read the call before the check; a stream failed with the check's message.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `1c83032daba575846bae2d85eb88e74a4605b6ed`
+  - Verification: `20 TS goldens (tools/axir/extractors/axgen-streaming-goldens.ts: a missing, empty, blank or number id, a missing or wrong type, no function object, number params in the first or second call, and a null call, forward and streamed) fail on main's packages in python, go, java, cpp and rust and pass here with functionCallValidation: 'fail'; port-only fixtures pin the default (the call runs, or is corrected, with the exact one-time warning) and 'correct'; src/ax/dsp/generate.streamParity.test.ts fails on main (a TypeError) and passes here; 21 perturbed copies fail in all five; the full suites pass (1574 in each of the five); npm run test --workspace=@ax-llm/ax passes.`
 - `axir-2026-09-27-continue-the-axgen-step-loop-while-a-run-control-update-is-pendi` [axgen] Continue the AxGen step loop while a run control update is pending in the ports
   - Status: done
   - Source commit: `54f626c2a0bff242fea15d356b7f9b325d6befae`

@@ -7769,6 +7769,7 @@ Value Core::_openai_normalize_chat_response_impl(Value raw, Value ai_name, Value
 Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
   axir_coverage_mark("_chat_result_to_completion");
   Value content = Core::get(result, Value("content"), Value(""));
+  Value call_problems = Core::_chat_result_function_call_problems(result, fallback_index);
   Value calls = Value::array();
   Value empty_calls = Value::array();
   Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
@@ -7824,6 +7825,10 @@ Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
   Value has_finish = Core::is_not_none(finish);
   if (Core::truthy(has_finish)) {
     Core::set(completion, Value("finish_reason"), finish);
+  }
+  Value has_call_problems = Core::is_not_none(call_problems);
+  if (Core::truthy(has_call_problems)) {
+    Core::set(completion, Value("function_call_problems"), call_problems);
   }
   return completion;
 }
@@ -8204,67 +8209,6 @@ Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Val
   return out;
 }
 
-Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options) {
-  axir_coverage_mark("ai_gemini_cache_ops");
-  Value ttl = Core::string_format(Value("{}s"), ttl_seconds);
-  Value descriptor = Core::provider_resolve_descriptor(Value("google-gemini"), options);
-  Value is_vertex = Core::get(descriptor, Value("vertex"), Value(false));
-  Value create_path = Value("/cachedContents");
-  Value update_path = Core::string_format(Value("/{}?updateMask=ttl"), cache_name);
-  Value delete_path = Core::string_format(Value("/{}"), cache_name);
-  if (Core::truthy(is_vertex)) {
-    Value parent = Core::get(descriptor, Value("vertexParent"), Value(""));
-    create_path = Core::string_format(Value("/{}/cachedContents"), parent);
-    update_path = Core::string_format(Value("/{}?updateMask=ttl"), cache_name);
-    delete_path = Core::string_format(Value("/{}"), cache_name);
-  }
-  Value create_request = Value::object();
-  Value create_is_object = Core::type_is(create_body, Value("object"));
-  if (Core::truthy(create_is_object)) {
-    Value empty = Value::object();
-    Value create_copy = Core::map_merge(create_body, empty);
-    create_request = create_copy;
-  }
-  Value model_resource = Core::string_format(Value("models/{}"), model);
-  if (Core::truthy(is_vertex)) {
-    Value parent = Core::get(descriptor, Value("vertexParent"), Value(""));
-    model_resource = Core::string_format(Value("{}/publishers/google/models/{}"), parent, model);
-  }
-  Core::set(create_request, Value("model"), model_resource);
-  Core::set(create_request, Value("ttl"), ttl);
-  Value update_request = Value::object();
-  Core::set(update_request, Value("ttl"), ttl);
-  Value empty_request = Value::object();
-  Value create = Value::object();
-  Core::set(create, Value("method"), Value("POST"));
-  Core::set(create, Value("path"), create_path);
-  Core::set(create, Value("request"), create_request);
-  Value cache_base_url = Core::get(descriptor, Value("vertexCacheBaseUrl"), Value());
-  Value has_cache_base_url = Core::truthy_value(cache_base_url);
-  if (Core::truthy(has_cache_base_url)) {
-    Core::set(create, Value("base_url"), cache_base_url);
-  }
-  Value update = Value::object();
-  Core::set(update, Value("method"), Value("PATCH"));
-  Core::set(update, Value("path"), update_path);
-  Core::set(update, Value("request"), update_request);
-  if (Core::truthy(has_cache_base_url)) {
-    Core::set(update, Value("base_url"), cache_base_url);
-  }
-  Value delete_op = Value::object();
-  Core::set(delete_op, Value("method"), Value("DELETE"));
-  Core::set(delete_op, Value("path"), delete_path);
-  Core::set(delete_op, Value("request"), empty_request);
-  if (Core::truthy(has_cache_base_url)) {
-    Core::set(delete_op, Value("base_url"), cache_base_url);
-  }
-  Value out = Value::object();
-  Core::set(out, Value("create"), create);
-  Core::set(out, Value("update"), update);
-  Core::set(out, Value("delete"), delete_op);
-  return out;
-}
-
 Value Core::_openai_stream_choice_impl(Value choice, Value index_ids, Value reasoning_content_mode, Value reasoning_details_mode) {
   axir_coverage_mark("_openai_stream_choice_impl");
   Value empty_delta = Value::object();
@@ -8343,6 +8287,67 @@ Value Core::_openai_stream_choice_impl(Value choice, Value index_ids, Value reas
   }
   Core::set(out, Value("function_calls"), calls);
   Core::set(out, Value("finish_reason"), finish_reason);
+  return out;
+}
+
+Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options) {
+  axir_coverage_mark("ai_gemini_cache_ops");
+  Value ttl = Core::string_format(Value("{}s"), ttl_seconds);
+  Value descriptor = Core::provider_resolve_descriptor(Value("google-gemini"), options);
+  Value is_vertex = Core::get(descriptor, Value("vertex"), Value(false));
+  Value create_path = Value("/cachedContents");
+  Value update_path = Core::string_format(Value("/{}?updateMask=ttl"), cache_name);
+  Value delete_path = Core::string_format(Value("/{}"), cache_name);
+  if (Core::truthy(is_vertex)) {
+    Value parent = Core::get(descriptor, Value("vertexParent"), Value(""));
+    create_path = Core::string_format(Value("/{}/cachedContents"), parent);
+    update_path = Core::string_format(Value("/{}?updateMask=ttl"), cache_name);
+    delete_path = Core::string_format(Value("/{}"), cache_name);
+  }
+  Value create_request = Value::object();
+  Value create_is_object = Core::type_is(create_body, Value("object"));
+  if (Core::truthy(create_is_object)) {
+    Value empty = Value::object();
+    Value create_copy = Core::map_merge(create_body, empty);
+    create_request = create_copy;
+  }
+  Value model_resource = Core::string_format(Value("models/{}"), model);
+  if (Core::truthy(is_vertex)) {
+    Value parent = Core::get(descriptor, Value("vertexParent"), Value(""));
+    model_resource = Core::string_format(Value("{}/publishers/google/models/{}"), parent, model);
+  }
+  Core::set(create_request, Value("model"), model_resource);
+  Core::set(create_request, Value("ttl"), ttl);
+  Value update_request = Value::object();
+  Core::set(update_request, Value("ttl"), ttl);
+  Value empty_request = Value::object();
+  Value create = Value::object();
+  Core::set(create, Value("method"), Value("POST"));
+  Core::set(create, Value("path"), create_path);
+  Core::set(create, Value("request"), create_request);
+  Value cache_base_url = Core::get(descriptor, Value("vertexCacheBaseUrl"), Value());
+  Value has_cache_base_url = Core::truthy_value(cache_base_url);
+  if (Core::truthy(has_cache_base_url)) {
+    Core::set(create, Value("base_url"), cache_base_url);
+  }
+  Value update = Value::object();
+  Core::set(update, Value("method"), Value("PATCH"));
+  Core::set(update, Value("path"), update_path);
+  Core::set(update, Value("request"), update_request);
+  if (Core::truthy(has_cache_base_url)) {
+    Core::set(update, Value("base_url"), cache_base_url);
+  }
+  Value delete_op = Value::object();
+  Core::set(delete_op, Value("method"), Value("DELETE"));
+  Core::set(delete_op, Value("path"), delete_path);
+  Core::set(delete_op, Value("request"), empty_request);
+  if (Core::truthy(has_cache_base_url)) {
+    Core::set(delete_op, Value("base_url"), cache_base_url);
+  }
+  Value out = Value::object();
+  Core::set(out, Value("create"), create);
+  Core::set(out, Value("update"), update);
+  Core::set(out, Value("delete"), delete_op);
   return out;
 }
 
@@ -8604,6 +8609,187 @@ Value Core::provider_model_catalog(Value options) {
     selected = Core::get(registry, Value("all"), Value());
   }
   return selected;
+}
+
+Value Core::_chat_result_function_call_problems(Value result, Value result_index) {
+  axir_coverage_mark("_chat_result_function_call_problems");
+  Value empty = Value::array();
+  Value calls = Core::get(result, Value("function_calls"), empty);
+  Value calls_is_list = Core::type_is(calls, Value("list"));
+  if (Core::truthy(calls_is_list)) {
+    // empty
+  }
+  if (!Core::truthy(calls_is_list)) {
+    calls = empty;
+  }
+  Value first = Core::none();
+  Value unnamed = Core::none();
+  Value call_problem = Core::none();
+  Value call_index = Value(0);
+  for (auto call : Core::iter(calls)) {
+    Value problem = Value("");
+    Value kind = Value("");
+    Value is_map = Core::type_is(call, Value("object"));
+    if (Core::truthy(is_map)) {
+      Value has_function = Core::map_contains(call, Value("function"));
+      Value has_type = Core::map_contains(call, Value("type"));
+      Value nested = Core::or_(has_function, has_type);
+      Value has_id = Core::map_contains(call, Value("id"));
+      Value id = Core::get(call, Value("id"), Value());
+      Value id_ok = Value(false);
+      Value id_is_text = Core::type_is(id, Value("string"));
+      if (Core::truthy(id_is_text)) {
+        Value id_trimmed = Core::string_trim(id);
+        id_ok = Core::ne(id_trimmed, Value(""));
+      }
+      Value id_bad = Core::not_(id_ok);
+      if (Core::truthy(id_bad)) {
+        Value id_received = Value("undefined");
+        if (Core::truthy(has_id)) {
+          id_received = Core::json_pretty(id);
+        }
+        problem = Core::string_format(Value("Function call at index {} in result {} must have a non-empty string id, received: {}"), call_index, result_index, id_received);
+        kind = Value("call");
+      }
+      Value fn = Core::get(call, Value("function"), Value());
+      Value fn_is_map = Core::type_is(fn, Value("object"));
+      Value check_nested = Core::eq(problem, Value(""));
+      check_nested = Core::and_(check_nested, nested);
+      if (Core::truthy(check_nested)) {
+        Value type = Core::get(call, Value("type"), Value());
+        Value type_ok = Core::eq(type, Value("function"));
+        Value type_bad = Core::not_(type_ok);
+        if (Core::truthy(type_bad)) {
+          Value type_received = Value("undefined");
+          if (Core::truthy(has_type)) {
+            type_received = Core::json_pretty(type);
+          }
+          problem = Core::string_format(Value("Function call at index {} in result {} must have type 'function', received: {}"), call_index, result_index, type_received);
+          kind = Value("call");
+        }
+        if (!Core::truthy(type_bad)) {
+          Value fn_falsy = Core::is_none(fn);
+          Value fn_false = Core::eq(fn, Value(false));
+          Value fn_zero = Core::eq(fn, Value(0));
+          Value fn_empty = Core::eq(fn, Value(""));
+          fn_falsy = Core::or_(fn_falsy, fn_false);
+          fn_falsy = Core::or_(fn_falsy, fn_zero);
+          fn_falsy = Core::or_(fn_falsy, fn_empty);
+          if (Core::truthy(fn_falsy)) {
+            Value fn_received = Value("undefined");
+            if (Core::truthy(has_function)) {
+              fn_received = Core::json_pretty(fn);
+            }
+            problem = Core::string_format(Value("Function call at index {} in result {} must have a function object, received: {}"), call_index, result_index, fn_received);
+            kind = Value("unnamed");
+          }
+        }
+      }
+      Value check_name = Core::eq(problem, Value(""));
+      if (Core::truthy(check_name)) {
+        Value has_name = Value(false);
+        Value name = Core::none();
+        if (Core::truthy(nested)) {
+          if (Core::truthy(fn_is_map)) {
+            has_name = Core::map_contains(fn, Value("name"));
+            name = Core::get(fn, Value("name"), Value());
+          }
+        }
+        if (!Core::truthy(nested)) {
+          has_name = Core::map_contains(call, Value("name"));
+          name = Core::get(call, Value("name"), Value());
+        }
+        Value named = Value(false);
+        Value name_is_text = Core::type_is(name, Value("string"));
+        if (Core::truthy(name_is_text)) {
+          Value name_trimmed = Core::string_trim(name);
+          named = Core::ne(name_trimmed, Value(""));
+        }
+        Value unnamed_call = Core::not_(named);
+        if (Core::truthy(unnamed_call)) {
+          Value name_received = Value("undefined");
+          if (Core::truthy(has_name)) {
+            name_received = Core::json_pretty(name);
+          }
+          problem = Core::string_format(Value("Function call at index {} in result {} must have a non-empty function name, received: {}"), call_index, result_index, name_received);
+          kind = Value("unnamed");
+        }
+      }
+      Value check_params = Core::eq(problem, Value(""));
+      if (Core::truthy(check_params)) {
+        Value has_params = Value(false);
+        Value params = Core::none();
+        if (Core::truthy(nested)) {
+          if (Core::truthy(fn_is_map)) {
+            has_params = Core::map_contains(fn, Value("params"));
+            params = Core::get(fn, Value("params"), Value());
+          }
+        }
+        if (!Core::truthy(nested)) {
+          has_params = Core::map_contains(call, Value("params"));
+          params = Core::get(call, Value("params"), Value());
+        }
+        Value params_number = Core::type_is(params, Value("number"));
+        Value params_bool = Core::type_is(params, Value("boolean"));
+        Value params_bad = Core::or_(params_number, params_bool);
+        params_bad = Core::and_(params_bad, has_params);
+        if (Core::truthy(params_bad)) {
+          Value params_received = Core::json_pretty(params);
+          problem = Core::string_format(Value("Function call params at index {} in result {} must be a string or object, received: {}"), call_index, result_index, params_received);
+          kind = Value("call");
+        }
+      }
+    }
+    if (!Core::truthy(is_map)) {
+      Value call_null = Core::is_none(call);
+      Value call_false = Core::eq(call, Value(false));
+      Value call_zero = Core::eq(call, Value(0));
+      Value call_empty = Core::eq(call, Value(""));
+      Value call_falsy = Core::or_(call_null, call_false);
+      call_falsy = Core::or_(call_falsy, call_zero);
+      call_falsy = Core::or_(call_falsy, call_empty);
+      if (Core::truthy(call_falsy)) {
+        Value call_received = Core::json_pretty(call);
+        problem = Core::string_format(Value("Function call at index {} in result {} cannot be null or undefined, received: {}"), call_index, result_index, call_received);
+      }
+      if (!Core::truthy(call_falsy)) {
+        problem = Core::string_format(Value("Function call at index {} in result {} must have a non-empty string id, received: undefined"), call_index, result_index);
+      }
+      kind = Value("unnamed");
+    }
+    Value failed = Core::ne(problem, Value(""));
+    if (Core::truthy(failed)) {
+      Value first_unset = Core::is_none(first);
+      if (Core::truthy(first_unset)) {
+        first = problem;
+      }
+      Value is_unnamed = Core::eq(kind, Value("unnamed"));
+      if (Core::truthy(is_unnamed)) {
+        Value unnamed_unset = Core::is_none(unnamed);
+        if (Core::truthy(unnamed_unset)) {
+          unnamed = problem;
+        }
+      }
+      if (!Core::truthy(is_unnamed)) {
+        Value call_unset = Core::is_none(call_problem);
+        if (Core::truthy(call_unset)) {
+          call_problem = problem;
+        }
+      }
+    }
+    Value next_call_index = Core::add(call_index, Value(1));
+    call_index = next_call_index;
+  }
+  Value none_failed = Core::is_none(first);
+  if (Core::truthy(none_failed)) {
+    Value nothing = Core::none();
+    return nothing;
+  }
+  Value out = Value::object();
+  Core::set(out, Value("first"), first);
+  Core::set(out, Value("unnamed"), unnamed);
+  Core::set(out, Value("call"), call_problem);
+  return out;
 }
 
 Value Core::provider_estimate_cost(Value model_usage, Value model_info_overrides) {
@@ -21223,11 +21409,11 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
       continue;
     }
     try {
-      Core::_check_completion_function_call_names(response, runtime_options);
+      Core::_check_completion_function_calls(response, runtime_options);
     } catch (const std::exception& e) {
-      Value unnamed_call_error = Core::exception_value(e);
-      Value unnamed_call_failure = Core::_generate_failed_impl(unnamed_call_error);
-      Core::raise_error(unnamed_call_failure);
+      Value call_check_error = Core::exception_value(e);
+      Value call_check_failure = Core::_generate_failed_impl(call_check_error);
+      Core::raise_error(call_check_failure);
     }
     Core::axgen_memory_add_response(gen, request, response);
     Core::axgen_record_chat_log(gen, request, response);
@@ -27681,7 +27867,7 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
           Value folded = Core::fold_chat_response_stream(events);
           response = Core::chat_response_to_completion(folded);
           stage = Value("fatal");
-          Core::_check_completion_function_call_names(response, runtime_options);
+          Core::_check_completion_function_calls(response, runtime_options);
           stage = Value("validation");
           Core::axgen_memory_add_response(gen, request, response);
           Core::axgen_record_chat_log(gen, request, response);
@@ -30000,54 +30186,66 @@ Value Core::_structured_output_render_options_impl(Value selection) {
   return render_options;
 }
 
-Value Core::_validate_completion_function_call_names(Value response) {
-  axir_coverage_mark("_validate_completion_function_call_names");
-  Value empty = Value::array();
+Value Core::_completion_function_call_problems(Value response) {
+  axir_coverage_mark("_completion_function_call_problems");
   Value results = Core::get(response, Value("results"), Value());
   Value no_results = Core::is_none(results);
   if (Core::truthy(no_results)) {
     results = Value::array();
     Core::append(results, response);
   }
+  Value first = Core::none();
+  Value unnamed = Core::none();
+  Value call_problem = Core::none();
   Value result_index = Value(0);
   for (auto result : Core::iter(results)) {
-    Value calls = Core::get(result, Value("function_calls"), empty);
-    Value call_index = Value(0);
-    for (auto call : Core::iter(calls)) {
-      Value has_name = Core::map_contains(call, Value("name"));
-      Value name = Core::get(call, Value("name"), Value());
-      Value fn = Core::get(call, Value("function"), Value());
-      Value fn_is_map = Core::type_is(fn, Value("object"));
-      if (Core::truthy(fn_is_map)) {
-        Value fn_has_name = Core::map_contains(fn, Value("name"));
-        if (Core::truthy(fn_has_name)) {
-          has_name = Value(true);
-          name = Core::get(fn, Value("name"), Value());
+    Value result_is_map = Core::type_is(result, Value("object"));
+    if (Core::truthy(result_is_map)) {
+      Value recorded = Core::map_contains(result, Value("function_call_problems"));
+      Value problems = Core::none();
+      if (Core::truthy(recorded)) {
+        problems = Core::get(result, Value("function_call_problems"), Value());
+        Core::map_delete(result, Value("function_call_problems"));
+      }
+      if (!Core::truthy(recorded)) {
+        problems = Core::_chat_result_function_call_problems(result, result_index);
+      }
+      Value has_problems = Core::is_not_none(problems);
+      if (Core::truthy(has_problems)) {
+        Value result_first = Core::get(problems, Value("first"), Value());
+        Value result_unnamed = Core::get(problems, Value("unnamed"), Value());
+        Value result_call = Core::get(problems, Value("call"), Value());
+        Value first_unset = Core::is_none(first);
+        if (Core::truthy(first_unset)) {
+          first = result_first;
+        }
+        Value unnamed_unset = Core::is_none(unnamed);
+        if (Core::truthy(unnamed_unset)) {
+          unnamed = result_unnamed;
+        }
+        Value call_unset = Core::is_none(call_problem);
+        if (Core::truthy(call_unset)) {
+          call_problem = result_call;
         }
       }
-      Value name_is_text = Core::type_is(name, Value("string"));
-      Value named = Value(false);
-      if (Core::truthy(name_is_text)) {
-        Value trimmed = Core::string_trim(name);
-        named = Core::ne(trimmed, Value(""));
-      }
-      Value unnamed = Core::not_(named);
-      if (Core::truthy(unnamed)) {
-        Value received = Value("undefined");
-        if (Core::truthy(has_name)) {
-          received = Core::json_pretty(name);
-        }
-        Value message = Core::string_format(Value("Function call at index {} in result {} must have a non-empty function name, received: {}"), call_index, result_index, received);
-        Value error = Core::runtime_error(message);
-        Core::raise_error(error);
-      }
-      Value next_call_index = Core::add(call_index, Value(1));
-      call_index = next_call_index;
     }
     Value next_result_index = Core::add(result_index, Value(1));
     result_index = next_result_index;
   }
-  return Value();
+  Value top_recorded = Core::map_contains(response, Value("function_call_problems"));
+  if (Core::truthy(top_recorded)) {
+    Core::map_delete(response, Value("function_call_problems"));
+  }
+  Value none_failed = Core::is_none(first);
+  if (Core::truthy(none_failed)) {
+    Value nothing = Core::none();
+    return nothing;
+  }
+  Value out = Value::object();
+  Core::set(out, Value("first"), first);
+  Core::set(out, Value("unnamed"), unnamed);
+  Core::set(out, Value("call"), call_problem);
+  return out;
 }
 
 Value Core::_stream_json_strings_for_fields_impl(Value fields_map, Value values) {
@@ -30107,13 +30305,14 @@ Value Core::_stream_state_impl(Value index) {
   return state;
 }
 
-Value Core::_check_completion_function_call_names(Value response, Value options) {
-  axir_coverage_mark("_check_completion_function_call_names");
+Value Core::_check_completion_function_calls(Value response, Value options) {
+  axir_coverage_mark("_check_completion_function_calls");
   Value mode_snake = Core::get(options, Value("function_call_validation"), Value());
   Value mode = Core::get(options, Value("functionCallValidation"), mode_snake);
   Value mode_set = Core::is_not_none(mode);
+  Value is_fail = Value(false);
   if (Core::truthy(mode_set)) {
-    Value is_fail = Core::eq(mode, Value("fail"));
+    is_fail = Core::eq(mode, Value("fail"));
     Value is_correct = Core::eq(mode, Value("correct"));
     Value known = Core::or_(is_fail, is_correct);
     Value unknown = Core::not_(known);
@@ -30123,20 +30322,29 @@ Value Core::_check_completion_function_call_names(Value response, Value options)
       Value mode_error = Core::validation_error(mode_message);
       Core::raise_error(mode_error);
     }
+  }
+  Value problems = Core::_completion_function_call_problems(response);
+  Value has_problems = Core::is_not_none(problems);
+  if (Core::truthy(has_problems)) {
     if (Core::truthy(is_fail)) {
-      Core::_validate_completion_function_call_names(response);
+      Value message = Core::get(problems, Value("first"), Value());
+      Value error = Core::runtime_error(message);
+      Core::raise_error(error);
     }
-    return Value();
-  }
-  Value unnamed = Value(false);
-  try {
-    Core::_validate_completion_function_call_names(response);
-  } catch (const std::exception& e) {
-    Value unnamed_error = Core::exception_value(e);
-    unnamed = Value(true);
-  }
-  if (Core::truthy(unnamed)) {
-    Core::axgen_deprecation(Value("function-call-validation"), Value("A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version."));
+    Value warn = Core::not_(mode_set);
+    if (Core::truthy(warn)) {
+      Value unnamed = Core::get(problems, Value("unnamed"), Value());
+      Value has_unnamed = Core::is_not_none(unnamed);
+      if (Core::truthy(has_unnamed)) {
+        Core::axgen_deprecation(Value("function-call-validation"), Value("A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version."));
+      }
+      Value call_problem = Core::get(problems, Value("call"), Value());
+      Value has_call_problem = Core::is_not_none(call_problem);
+      if (Core::truthy(has_call_problem)) {
+        Value warning = Core::string_format(Value("A model function call TypeScript Ax rejects runs as given here: {}. TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep running it. Failing becomes the default in the next major version."), call_problem);
+        Core::axgen_deprecation(Value("function-call-validation-call"), warning);
+      }
+    }
   }
   return Value();
 }

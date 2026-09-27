@@ -1,0 +1,52 @@
+{
+  "description": "Port-only: without functionCallValidation a call with no name gets a correction and another request this release, with a one-time warning.",
+  "expected_deprecations": [
+    "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version."
+  ],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_contains": [
+    "Function not found: null. Available functions: lookup. Call one of these exact function names."
+  ],
+  "expected_request_count": 2,
+  "expected_tool_calls": [],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "function-call-null-corrected",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [null],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: done",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

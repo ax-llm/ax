@@ -5468,6 +5468,7 @@ def _openai_normalize_chat_response_impl(raw: Any, ai_name: str, model: str, rea
 def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
     _core_coverage_mark("_chat_result_to_completion")
     content = _core_get(result, "content", "")
+    call_problems = _chat_result_function_call_problems(result, fallback_index)
     calls = []
     empty_calls = []
     function_calls = _core_get(result, "function_calls", empty_calls)
@@ -5528,6 +5529,11 @@ def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
     has_finish = _core_is_not_none(finish)
     if has_finish:
         completion["finish_reason"] = finish
+    else:
+        pass
+    has_call_problems = _core_is_not_none(call_problems)
+    if has_call_problems:
+        completion["function_call_problems"] = call_problems
     else:
         pass
     return completion
@@ -5925,73 +5931,6 @@ def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_regi
     return out
 
 
-def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, model: str, create_body: Any, options: Any) -> Any:
-    _core_coverage_mark("ai_gemini_cache_ops")
-    ttl = _core_string_format("{}s", ttl_seconds)
-    descriptor = provider_resolve_descriptor("google-gemini", options)
-    is_vertex = _core_get(descriptor, "vertex", False)
-    create_path = "/cachedContents"
-    update_path = _core_string_format("/{}?updateMask=ttl", cache_name)
-    delete_path = _core_string_format("/{}", cache_name)
-    if is_vertex:
-        parent = _core_get(descriptor, "vertexParent", "")
-        create_path = _core_string_format("/{}/cachedContents", parent)
-        update_path = _core_string_format("/{}?updateMask=ttl", cache_name)
-        delete_path = _core_string_format("/{}", cache_name)
-    else:
-        pass
-    create_request = {}
-    create_is_object = _core_type_is(create_body, "object")
-    if create_is_object:
-        empty = {}
-        create_copy = _core_map_merge(create_body, empty)
-        create_request = create_copy
-    else:
-        pass
-    model_resource = _core_string_format("models/{}", model)
-    if is_vertex:
-        parent = _core_get(descriptor, "vertexParent", "")
-        model_resource = _core_string_format("{}/publishers/google/models/{}", parent, model)
-    else:
-        pass
-    create_request["model"] = model_resource
-    create_request["ttl"] = ttl
-    update_request = {}
-    update_request["ttl"] = ttl
-    empty_request = {}
-    create = {}
-    create["method"] = "POST"
-    create["path"] = create_path
-    create["request"] = create_request
-    cache_base_url = _core_get(descriptor, "vertexCacheBaseUrl", None)
-    has_cache_base_url = _core_truthy(cache_base_url)
-    if has_cache_base_url:
-        create["base_url"] = cache_base_url
-    else:
-        pass
-    update = {}
-    update["method"] = "PATCH"
-    update["path"] = update_path
-    update["request"] = update_request
-    if has_cache_base_url:
-        update["base_url"] = cache_base_url
-    else:
-        pass
-    delete_op = {}
-    delete_op["method"] = "DELETE"
-    delete_op["path"] = delete_path
-    delete_op["request"] = empty_request
-    if has_cache_base_url:
-        delete_op["base_url"] = cache_base_url
-    else:
-        pass
-    out = {}
-    out["create"] = create
-    out["update"] = update
-    out["delete"] = delete_op
-    return out
-
-
 def _openai_stream_choice_impl(choice: Any, index_ids: Any, reasoning_content_mode: str, reasoning_details_mode: str) -> Any:
     _core_coverage_mark("_openai_stream_choice_impl")
     empty_delta = {}
@@ -6073,6 +6012,73 @@ def _openai_stream_choice_impl(choice: Any, index_ids: Any, reasoning_content_mo
         pass
     out["function_calls"] = calls
     out["finish_reason"] = finish_reason
+    return out
+
+
+def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, model: str, create_body: Any, options: Any) -> Any:
+    _core_coverage_mark("ai_gemini_cache_ops")
+    ttl = _core_string_format("{}s", ttl_seconds)
+    descriptor = provider_resolve_descriptor("google-gemini", options)
+    is_vertex = _core_get(descriptor, "vertex", False)
+    create_path = "/cachedContents"
+    update_path = _core_string_format("/{}?updateMask=ttl", cache_name)
+    delete_path = _core_string_format("/{}", cache_name)
+    if is_vertex:
+        parent = _core_get(descriptor, "vertexParent", "")
+        create_path = _core_string_format("/{}/cachedContents", parent)
+        update_path = _core_string_format("/{}?updateMask=ttl", cache_name)
+        delete_path = _core_string_format("/{}", cache_name)
+    else:
+        pass
+    create_request = {}
+    create_is_object = _core_type_is(create_body, "object")
+    if create_is_object:
+        empty = {}
+        create_copy = _core_map_merge(create_body, empty)
+        create_request = create_copy
+    else:
+        pass
+    model_resource = _core_string_format("models/{}", model)
+    if is_vertex:
+        parent = _core_get(descriptor, "vertexParent", "")
+        model_resource = _core_string_format("{}/publishers/google/models/{}", parent, model)
+    else:
+        pass
+    create_request["model"] = model_resource
+    create_request["ttl"] = ttl
+    update_request = {}
+    update_request["ttl"] = ttl
+    empty_request = {}
+    create = {}
+    create["method"] = "POST"
+    create["path"] = create_path
+    create["request"] = create_request
+    cache_base_url = _core_get(descriptor, "vertexCacheBaseUrl", None)
+    has_cache_base_url = _core_truthy(cache_base_url)
+    if has_cache_base_url:
+        create["base_url"] = cache_base_url
+    else:
+        pass
+    update = {}
+    update["method"] = "PATCH"
+    update["path"] = update_path
+    update["request"] = update_request
+    if has_cache_base_url:
+        update["base_url"] = cache_base_url
+    else:
+        pass
+    delete_op = {}
+    delete_op["method"] = "DELETE"
+    delete_op["path"] = delete_path
+    delete_op["request"] = empty_request
+    if has_cache_base_url:
+        delete_op["base_url"] = cache_base_url
+    else:
+        pass
+    out = {}
+    out["create"] = create
+    out["update"] = update
+    out["delete"] = delete_op
     return out
 
 
@@ -6338,6 +6344,192 @@ def provider_model_catalog(options: Any) -> Any:
     else:
         pass
     return selected
+
+
+def _chat_result_function_call_problems(result: Any, result_index: number) -> Any:
+    _core_coverage_mark("_chat_result_function_call_problems")
+    empty = []
+    calls = _core_get(result, "function_calls", empty)
+    calls_is_list = _core_type_is(calls, "list")
+    if calls_is_list:
+        pass
+    else:
+        calls = empty
+    first = _core_none()
+    unnamed = _core_none()
+    call_problem = _core_none()
+    call_index = 0
+    for call in calls:
+        problem = ""
+        kind = ""
+        is_map = _core_type_is(call, "object")
+        if is_map:
+            has_function = _core_map_contains(call, "function")
+            has_type = _core_map_contains(call, "type")
+            nested = _core_or(has_function, has_type)
+            has_id = _core_map_contains(call, "id")
+            id = _core_get(call, "id", None)
+            id_ok = False
+            id_is_text = _core_type_is(id, "string")
+            if id_is_text:
+                id_trimmed = str(id).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                id_ok = _core_ne(id_trimmed, "")
+            else:
+                pass
+            id_bad = _core_not(id_ok)
+            if id_bad:
+                id_received = "undefined"
+                if has_id:
+                    id_received = _core_json_pretty(id)
+                else:
+                    pass
+                problem = _core_string_format("Function call at index {} in result {} must have a non-empty string id, received: {}", call_index, result_index, id_received)
+                kind = "call"
+            else:
+                pass
+            fn = _core_get(call, "function", None)
+            fn_is_map = _core_type_is(fn, "object")
+            check_nested = _core_eq(problem, "")
+            check_nested = _core_and(check_nested, nested)
+            if check_nested:
+                type = _core_get(call, "type", None)
+                type_ok = _core_eq(type, "function")
+                type_bad = _core_not(type_ok)
+                if type_bad:
+                    type_received = "undefined"
+                    if has_type:
+                        type_received = _core_json_pretty(type)
+                    else:
+                        pass
+                    problem = _core_string_format("Function call at index {} in result {} must have type 'function', received: {}", call_index, result_index, type_received)
+                    kind = "call"
+                else:
+                    fn_falsy = _core_is_none(fn)
+                    fn_false = _core_eq(fn, False)
+                    fn_zero = _core_eq(fn, 0)
+                    fn_empty = _core_eq(fn, "")
+                    fn_falsy = _core_or(fn_falsy, fn_false)
+                    fn_falsy = _core_or(fn_falsy, fn_zero)
+                    fn_falsy = _core_or(fn_falsy, fn_empty)
+                    if fn_falsy:
+                        fn_received = "undefined"
+                        if has_function:
+                            fn_received = _core_json_pretty(fn)
+                        else:
+                            pass
+                        problem = _core_string_format("Function call at index {} in result {} must have a function object, received: {}", call_index, result_index, fn_received)
+                        kind = "unnamed"
+                    else:
+                        pass
+            else:
+                pass
+            check_name = _core_eq(problem, "")
+            if check_name:
+                has_name = False
+                name = _core_none()
+                if nested:
+                    if fn_is_map:
+                        has_name = _core_map_contains(fn, "name")
+                        name = _core_get(fn, "name", None)
+                    else:
+                        pass
+                else:
+                    has_name = _core_map_contains(call, "name")
+                    name = _core_get(call, "name", None)
+                named = False
+                name_is_text = _core_type_is(name, "string")
+                if name_is_text:
+                    name_trimmed = str(name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                    named = _core_ne(name_trimmed, "")
+                else:
+                    pass
+                unnamed_call = _core_not(named)
+                if unnamed_call:
+                    name_received = "undefined"
+                    if has_name:
+                        name_received = _core_json_pretty(name)
+                    else:
+                        pass
+                    problem = _core_string_format("Function call at index {} in result {} must have a non-empty function name, received: {}", call_index, result_index, name_received)
+                    kind = "unnamed"
+                else:
+                    pass
+            else:
+                pass
+            check_params = _core_eq(problem, "")
+            if check_params:
+                has_params = False
+                params = _core_none()
+                if nested:
+                    if fn_is_map:
+                        has_params = _core_map_contains(fn, "params")
+                        params = _core_get(fn, "params", None)
+                    else:
+                        pass
+                else:
+                    has_params = _core_map_contains(call, "params")
+                    params = _core_get(call, "params", None)
+                params_number = _core_type_is(params, "number")
+                params_bool = _core_type_is(params, "boolean")
+                params_bad = _core_or(params_number, params_bool)
+                params_bad = _core_and(params_bad, has_params)
+                if params_bad:
+                    params_received = _core_json_pretty(params)
+                    problem = _core_string_format("Function call params at index {} in result {} must be a string or object, received: {}", call_index, result_index, params_received)
+                    kind = "call"
+                else:
+                    pass
+            else:
+                pass
+        else:
+            call_null = _core_is_none(call)
+            call_false = _core_eq(call, False)
+            call_zero = _core_eq(call, 0)
+            call_empty = _core_eq(call, "")
+            call_falsy = _core_or(call_null, call_false)
+            call_falsy = _core_or(call_falsy, call_zero)
+            call_falsy = _core_or(call_falsy, call_empty)
+            if call_falsy:
+                call_received = _core_json_pretty(call)
+                problem = _core_string_format("Function call at index {} in result {} cannot be null or undefined, received: {}", call_index, result_index, call_received)
+            else:
+                problem = _core_string_format("Function call at index {} in result {} must have a non-empty string id, received: undefined", call_index, result_index)
+            kind = "unnamed"
+        failed = _core_ne(problem, "")
+        if failed:
+            first_unset = _core_is_none(first)
+            if first_unset:
+                first = problem
+            else:
+                pass
+            is_unnamed = _core_eq(kind, "unnamed")
+            if is_unnamed:
+                unnamed_unset = _core_is_none(unnamed)
+                if unnamed_unset:
+                    unnamed = problem
+                else:
+                    pass
+            else:
+                call_unset = _core_is_none(call_problem)
+                if call_unset:
+                    call_problem = problem
+                else:
+                    pass
+        else:
+            pass
+        next_call_index = _core_add(call_index, 1)
+        call_index = next_call_index
+    none_failed = _core_is_none(first)
+    if none_failed:
+        nothing = _core_none()
+        return nothing
+    else:
+        pass
+    out = {}
+    out["first"] = first
+    out["unnamed"] = unnamed
+    out["call"] = call_problem
+    return out
 
 
 def provider_estimate_cost(model_usage: Any, model_info_overrides: Any) -> number:

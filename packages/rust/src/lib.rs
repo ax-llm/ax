@@ -44400,6 +44400,7 @@ fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_result = core_arg(args, 0);
     let mut v_fallback_index = core_arg(args, 1);
     let mut v_call = CoreValue::Null;
+    let mut v_call_problems = CoreValue::Null;
     let mut v_calls = CoreValue::Null;
     let mut v_compat_call = CoreValue::Null;
     let mut v_completion = CoreValue::Null;
@@ -44414,6 +44415,7 @@ fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_fn_has_name = CoreValue::Null;
     let mut v_fn_is_map = CoreValue::Null;
     let mut v_function_calls = CoreValue::Null;
+    let mut v_has_call_problems = CoreValue::Null;
     let mut v_has_finish = CoreValue::Null;
     let mut v_has_images = CoreValue::Null;
     let mut v_has_name = CoreValue::Null;
@@ -44429,6 +44431,8 @@ fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_thought = CoreValue::Null;
     let mut v_thought_blocks = CoreValue::Null;
     v_content = core_get(&v_result, &CoreValue::from("content"), CoreValue::from(""));
+    v_call_problems =
+        _chat_result_function_call_problems(&[v_result.clone(), v_fallback_index.clone()])?;
     v_calls = CoreValue::new_list();
     v_empty_calls = CoreValue::new_list();
     v_function_calls = core_get(
@@ -44516,6 +44520,14 @@ fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> 
             &v_completion,
             CoreValue::from("finish_reason"),
             v_finish.clone(),
+        )?;
+    }
+    v_has_call_problems = core_is_not_none(&[v_call_problems.clone()])?;
+    if core_truthy(&v_has_call_problems) {
+        core_set(
+            &v_completion,
+            CoreValue::from("function_call_problems"),
+            v_call_problems.clone(),
         )?;
     }
     return Ok(v_completion.clone());
@@ -45372,164 +45384,6 @@ fn ai_context_cache_recovery(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn ai_gemini_cache_ops(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("ai_gemini_cache_ops");
-    let mut v_cache_name = core_arg(args, 0);
-    let mut v_ttl_seconds = core_arg(args, 1);
-    let mut v_api_key = core_arg(args, 2);
-    let mut v_model = core_arg(args, 3);
-    let mut v_create_body = core_arg(args, 4);
-    let mut v_options = core_arg(args, 5);
-    let mut v_cache_base_url = CoreValue::Null;
-    let mut v_create = CoreValue::Null;
-    let mut v_create_copy = CoreValue::Null;
-    let mut v_create_is_object = CoreValue::Null;
-    let mut v_create_path = CoreValue::Null;
-    let mut v_create_request = CoreValue::Null;
-    let mut v_delete_op = CoreValue::Null;
-    let mut v_delete_path = CoreValue::Null;
-    let mut v_descriptor = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    let mut v_empty_request = CoreValue::Null;
-    let mut v_has_cache_base_url = CoreValue::Null;
-    let mut v_is_vertex = CoreValue::Null;
-    let mut v_model_resource = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_parent = CoreValue::Null;
-    let mut v_ttl = CoreValue::Null;
-    let mut v_update = CoreValue::Null;
-    let mut v_update_path = CoreValue::Null;
-    let mut v_update_request = CoreValue::Null;
-    v_ttl = core_string_format(&[CoreValue::from("{}s"), v_ttl_seconds.clone()])?;
-    v_descriptor =
-        provider_resolve_descriptor(&[CoreValue::from("google-gemini"), v_options.clone()])?;
-    v_is_vertex = core_get(
-        &v_descriptor,
-        &CoreValue::from("vertex"),
-        CoreValue::Bool(false),
-    );
-    v_create_path = CoreValue::from("/cachedContents");
-    v_update_path =
-        core_string_format(&[CoreValue::from("/{}?updateMask=ttl"), v_cache_name.clone()])?;
-    v_delete_path = core_string_format(&[CoreValue::from("/{}"), v_cache_name.clone()])?;
-    if core_truthy(&v_is_vertex) {
-        v_parent = core_get(
-            &v_descriptor,
-            &CoreValue::from("vertexParent"),
-            CoreValue::from(""),
-        );
-        v_create_path =
-            core_string_format(&[CoreValue::from("/{}/cachedContents"), v_parent.clone()])?;
-        v_update_path =
-            core_string_format(&[CoreValue::from("/{}?updateMask=ttl"), v_cache_name.clone()])?;
-        v_delete_path = core_string_format(&[CoreValue::from("/{}"), v_cache_name.clone()])?;
-    }
-    v_create_request = CoreValue::new_map();
-    v_create_is_object = core_type_is(&v_create_body, CoreValue::from("object"));
-    if core_truthy(&v_create_is_object) {
-        v_empty = CoreValue::new_map();
-        v_create_copy = core_map_merge(&[v_create_body.clone(), v_empty.clone()])?;
-        v_create_request = v_create_copy.clone();
-    }
-    v_model_resource = core_string_format(&[CoreValue::from("models/{}"), v_model.clone()])?;
-    if core_truthy(&v_is_vertex) {
-        v_parent = core_get(
-            &v_descriptor,
-            &CoreValue::from("vertexParent"),
-            CoreValue::from(""),
-        );
-        v_model_resource = core_string_format(&[
-            CoreValue::from("{}/publishers/google/models/{}"),
-            v_parent.clone(),
-            v_model.clone(),
-        ])?;
-    }
-    core_set(
-        &v_create_request,
-        CoreValue::from("model"),
-        v_model_resource.clone(),
-    )?;
-    core_set(&v_create_request, CoreValue::from("ttl"), v_ttl.clone())?;
-    v_update_request = CoreValue::new_map();
-    core_set(&v_update_request, CoreValue::from("ttl"), v_ttl.clone())?;
-    v_empty_request = CoreValue::new_map();
-    v_create = CoreValue::new_map();
-    core_set(
-        &v_create,
-        CoreValue::from("method"),
-        CoreValue::from("POST"),
-    )?;
-    core_set(&v_create, CoreValue::from("path"), v_create_path.clone())?;
-    core_set(
-        &v_create,
-        CoreValue::from("request"),
-        v_create_request.clone(),
-    )?;
-    v_cache_base_url = core_get(
-        &v_descriptor,
-        &CoreValue::from("vertexCacheBaseUrl"),
-        CoreValue::Null,
-    );
-    v_has_cache_base_url = core_truthy_value(&[v_cache_base_url.clone()])?;
-    if core_truthy(&v_has_cache_base_url) {
-        core_set(
-            &v_create,
-            CoreValue::from("base_url"),
-            v_cache_base_url.clone(),
-        )?;
-    }
-    v_update = CoreValue::new_map();
-    core_set(
-        &v_update,
-        CoreValue::from("method"),
-        CoreValue::from("PATCH"),
-    )?;
-    core_set(&v_update, CoreValue::from("path"), v_update_path.clone())?;
-    core_set(
-        &v_update,
-        CoreValue::from("request"),
-        v_update_request.clone(),
-    )?;
-    if core_truthy(&v_has_cache_base_url) {
-        core_set(
-            &v_update,
-            CoreValue::from("base_url"),
-            v_cache_base_url.clone(),
-        )?;
-    }
-    v_delete_op = CoreValue::new_map();
-    core_set(
-        &v_delete_op,
-        CoreValue::from("method"),
-        CoreValue::from("DELETE"),
-    )?;
-    core_set(&v_delete_op, CoreValue::from("path"), v_delete_path.clone())?;
-    core_set(
-        &v_delete_op,
-        CoreValue::from("request"),
-        v_empty_request.clone(),
-    )?;
-    if core_truthy(&v_has_cache_base_url) {
-        core_set(
-            &v_delete_op,
-            CoreValue::from("base_url"),
-            v_cache_base_url.clone(),
-        )?;
-    }
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("create"), v_create.clone())?;
-    core_set(&v_out, CoreValue::from("update"), v_update.clone())?;
-    core_set(&v_out, CoreValue::from("delete"), v_delete_op.clone())?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _openai_stream_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_stream_choice_impl");
     let mut v_choice = core_arg(args, 0);
@@ -45708,6 +45562,164 @@ fn _openai_stream_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         CoreValue::from("finish_reason"),
         v_finish_reason.clone(),
     )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn ai_gemini_cache_ops(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_gemini_cache_ops");
+    let mut v_cache_name = core_arg(args, 0);
+    let mut v_ttl_seconds = core_arg(args, 1);
+    let mut v_api_key = core_arg(args, 2);
+    let mut v_model = core_arg(args, 3);
+    let mut v_create_body = core_arg(args, 4);
+    let mut v_options = core_arg(args, 5);
+    let mut v_cache_base_url = CoreValue::Null;
+    let mut v_create = CoreValue::Null;
+    let mut v_create_copy = CoreValue::Null;
+    let mut v_create_is_object = CoreValue::Null;
+    let mut v_create_path = CoreValue::Null;
+    let mut v_create_request = CoreValue::Null;
+    let mut v_delete_op = CoreValue::Null;
+    let mut v_delete_path = CoreValue::Null;
+    let mut v_descriptor = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_request = CoreValue::Null;
+    let mut v_has_cache_base_url = CoreValue::Null;
+    let mut v_is_vertex = CoreValue::Null;
+    let mut v_model_resource = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parent = CoreValue::Null;
+    let mut v_ttl = CoreValue::Null;
+    let mut v_update = CoreValue::Null;
+    let mut v_update_path = CoreValue::Null;
+    let mut v_update_request = CoreValue::Null;
+    v_ttl = core_string_format(&[CoreValue::from("{}s"), v_ttl_seconds.clone()])?;
+    v_descriptor =
+        provider_resolve_descriptor(&[CoreValue::from("google-gemini"), v_options.clone()])?;
+    v_is_vertex = core_get(
+        &v_descriptor,
+        &CoreValue::from("vertex"),
+        CoreValue::Bool(false),
+    );
+    v_create_path = CoreValue::from("/cachedContents");
+    v_update_path =
+        core_string_format(&[CoreValue::from("/{}?updateMask=ttl"), v_cache_name.clone()])?;
+    v_delete_path = core_string_format(&[CoreValue::from("/{}"), v_cache_name.clone()])?;
+    if core_truthy(&v_is_vertex) {
+        v_parent = core_get(
+            &v_descriptor,
+            &CoreValue::from("vertexParent"),
+            CoreValue::from(""),
+        );
+        v_create_path =
+            core_string_format(&[CoreValue::from("/{}/cachedContents"), v_parent.clone()])?;
+        v_update_path =
+            core_string_format(&[CoreValue::from("/{}?updateMask=ttl"), v_cache_name.clone()])?;
+        v_delete_path = core_string_format(&[CoreValue::from("/{}"), v_cache_name.clone()])?;
+    }
+    v_create_request = CoreValue::new_map();
+    v_create_is_object = core_type_is(&v_create_body, CoreValue::from("object"));
+    if core_truthy(&v_create_is_object) {
+        v_empty = CoreValue::new_map();
+        v_create_copy = core_map_merge(&[v_create_body.clone(), v_empty.clone()])?;
+        v_create_request = v_create_copy.clone();
+    }
+    v_model_resource = core_string_format(&[CoreValue::from("models/{}"), v_model.clone()])?;
+    if core_truthy(&v_is_vertex) {
+        v_parent = core_get(
+            &v_descriptor,
+            &CoreValue::from("vertexParent"),
+            CoreValue::from(""),
+        );
+        v_model_resource = core_string_format(&[
+            CoreValue::from("{}/publishers/google/models/{}"),
+            v_parent.clone(),
+            v_model.clone(),
+        ])?;
+    }
+    core_set(
+        &v_create_request,
+        CoreValue::from("model"),
+        v_model_resource.clone(),
+    )?;
+    core_set(&v_create_request, CoreValue::from("ttl"), v_ttl.clone())?;
+    v_update_request = CoreValue::new_map();
+    core_set(&v_update_request, CoreValue::from("ttl"), v_ttl.clone())?;
+    v_empty_request = CoreValue::new_map();
+    v_create = CoreValue::new_map();
+    core_set(
+        &v_create,
+        CoreValue::from("method"),
+        CoreValue::from("POST"),
+    )?;
+    core_set(&v_create, CoreValue::from("path"), v_create_path.clone())?;
+    core_set(
+        &v_create,
+        CoreValue::from("request"),
+        v_create_request.clone(),
+    )?;
+    v_cache_base_url = core_get(
+        &v_descriptor,
+        &CoreValue::from("vertexCacheBaseUrl"),
+        CoreValue::Null,
+    );
+    v_has_cache_base_url = core_truthy_value(&[v_cache_base_url.clone()])?;
+    if core_truthy(&v_has_cache_base_url) {
+        core_set(
+            &v_create,
+            CoreValue::from("base_url"),
+            v_cache_base_url.clone(),
+        )?;
+    }
+    v_update = CoreValue::new_map();
+    core_set(
+        &v_update,
+        CoreValue::from("method"),
+        CoreValue::from("PATCH"),
+    )?;
+    core_set(&v_update, CoreValue::from("path"), v_update_path.clone())?;
+    core_set(
+        &v_update,
+        CoreValue::from("request"),
+        v_update_request.clone(),
+    )?;
+    if core_truthy(&v_has_cache_base_url) {
+        core_set(
+            &v_update,
+            CoreValue::from("base_url"),
+            v_cache_base_url.clone(),
+        )?;
+    }
+    v_delete_op = CoreValue::new_map();
+    core_set(
+        &v_delete_op,
+        CoreValue::from("method"),
+        CoreValue::from("DELETE"),
+    )?;
+    core_set(&v_delete_op, CoreValue::from("path"), v_delete_path.clone())?;
+    core_set(
+        &v_delete_op,
+        CoreValue::from("request"),
+        v_empty_request.clone(),
+    )?;
+    if core_truthy(&v_has_cache_base_url) {
+        core_set(
+            &v_delete_op,
+            CoreValue::from("base_url"),
+            v_cache_base_url.clone(),
+        )?;
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("create"), v_create.clone())?;
+    core_set(&v_out, CoreValue::from("update"), v_update.clone())?;
+    core_set(&v_out, CoreValue::from("delete"), v_delete_op.clone())?;
     return Ok(v_out.clone());
 }
 
@@ -46283,6 +46295,257 @@ fn provider_model_catalog(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_selected = core_get(&v_registry, &CoreValue::from("all"), CoreValue::Null);
     }
     return Ok(v_selected.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _chat_result_function_call_problems(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_chat_result_function_call_problems");
+    let mut v_result = core_arg(args, 0);
+    let mut v_result_index = core_arg(args, 1);
+    let mut v_call = CoreValue::Null;
+    let mut v_call_empty = CoreValue::Null;
+    let mut v_call_false = CoreValue::Null;
+    let mut v_call_falsy = CoreValue::Null;
+    let mut v_call_index = CoreValue::Null;
+    let mut v_call_null = CoreValue::Null;
+    let mut v_call_problem = CoreValue::Null;
+    let mut v_call_received = CoreValue::Null;
+    let mut v_call_unset = CoreValue::Null;
+    let mut v_call_zero = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_calls_is_list = CoreValue::Null;
+    let mut v_check_name = CoreValue::Null;
+    let mut v_check_nested = CoreValue::Null;
+    let mut v_check_params = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_first = CoreValue::Null;
+    let mut v_first_unset = CoreValue::Null;
+    let mut v_fn = CoreValue::Null;
+    let mut v_fn_empty = CoreValue::Null;
+    let mut v_fn_false = CoreValue::Null;
+    let mut v_fn_falsy = CoreValue::Null;
+    let mut v_fn_is_map = CoreValue::Null;
+    let mut v_fn_received = CoreValue::Null;
+    let mut v_fn_zero = CoreValue::Null;
+    let mut v_has_function = CoreValue::Null;
+    let mut v_has_id = CoreValue::Null;
+    let mut v_has_name = CoreValue::Null;
+    let mut v_has_params = CoreValue::Null;
+    let mut v_has_type = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_id_bad = CoreValue::Null;
+    let mut v_id_is_text = CoreValue::Null;
+    let mut v_id_ok = CoreValue::Null;
+    let mut v_id_received = CoreValue::Null;
+    let mut v_id_trimmed = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_is_unnamed = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_name_is_text = CoreValue::Null;
+    let mut v_name_received = CoreValue::Null;
+    let mut v_name_trimmed = CoreValue::Null;
+    let mut v_named = CoreValue::Null;
+    let mut v_nested = CoreValue::Null;
+    let mut v_next_call_index = CoreValue::Null;
+    let mut v_none_failed = CoreValue::Null;
+    let mut v_nothing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_params_bad = CoreValue::Null;
+    let mut v_params_bool = CoreValue::Null;
+    let mut v_params_number = CoreValue::Null;
+    let mut v_params_received = CoreValue::Null;
+    let mut v_problem = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_type_bad = CoreValue::Null;
+    let mut v_type_ok = CoreValue::Null;
+    let mut v_type_received = CoreValue::Null;
+    let mut v_unnamed = CoreValue::Null;
+    let mut v_unnamed_call = CoreValue::Null;
+    let mut v_unnamed_unset = CoreValue::Null;
+    v_empty = CoreValue::new_list();
+    v_calls = core_get(
+        &v_result,
+        &CoreValue::from("function_calls"),
+        v_empty.clone(),
+    );
+    v_calls_is_list = core_type_is(&v_calls, CoreValue::from("list"));
+    if core_truthy(&v_calls_is_list) {
+    } else {
+        v_calls = v_empty.clone();
+    }
+    v_first = core_none(&[])?;
+    v_unnamed = core_none(&[])?;
+    v_call_problem = core_none(&[])?;
+    v_call_index = CoreValue::Num(0f64);
+    for v_call in core_iter(&v_calls)? {
+        let mut v_call = v_call;
+        v_problem = CoreValue::from("");
+        v_kind = CoreValue::from("");
+        v_is_map = core_type_is(&v_call, CoreValue::from("object"));
+        if core_truthy(&v_is_map) {
+            v_has_function = core_map_contains(&[v_call.clone(), CoreValue::from("function")])?;
+            v_has_type = core_map_contains(&[v_call.clone(), CoreValue::from("type")])?;
+            v_nested = core_or(&[v_has_function.clone(), v_has_type.clone()])?;
+            v_has_id = core_map_contains(&[v_call.clone(), CoreValue::from("id")])?;
+            v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+            v_id_ok = CoreValue::Bool(false);
+            v_id_is_text = core_type_is(&v_id, CoreValue::from("string"));
+            if core_truthy(&v_id_is_text) {
+                v_id_trimmed = core_string_trim(&v_id);
+                v_id_ok = core_ne(&[v_id_trimmed.clone(), CoreValue::from("")])?;
+            }
+            v_id_bad = core_not(&[v_id_ok.clone()])?;
+            if core_truthy(&v_id_bad) {
+                v_id_received = CoreValue::from("undefined");
+                if core_truthy(&v_has_id) {
+                    v_id_received = core_json_pretty(&[v_id.clone()])?;
+                }
+                v_problem = core_string_format(&[CoreValue::from("Function call at index {} in result {} must have a non-empty string id, received: {}"), v_call_index.clone(), v_result_index.clone(), v_id_received.clone()])?;
+                v_kind = CoreValue::from("call");
+            }
+            v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+            v_fn_is_map = core_type_is(&v_fn, CoreValue::from("object"));
+            v_check_nested = core_eq(&[v_problem.clone(), CoreValue::from("")])?;
+            v_check_nested = core_and(&[v_check_nested.clone(), v_nested.clone()])?;
+            if core_truthy(&v_check_nested) {
+                v_type = core_get(&v_call, &CoreValue::from("type"), CoreValue::Null);
+                v_type_ok = core_eq(&[v_type.clone(), CoreValue::from("function")])?;
+                v_type_bad = core_not(&[v_type_ok.clone()])?;
+                if core_truthy(&v_type_bad) {
+                    v_type_received = CoreValue::from("undefined");
+                    if core_truthy(&v_has_type) {
+                        v_type_received = core_json_pretty(&[v_type.clone()])?;
+                    }
+                    v_problem = core_string_format(&[CoreValue::from("Function call at index {} in result {} must have type 'function', received: {}"), v_call_index.clone(), v_result_index.clone(), v_type_received.clone()])?;
+                    v_kind = CoreValue::from("call");
+                } else {
+                    v_fn_falsy = core_is_none(&[v_fn.clone()])?;
+                    v_fn_false = core_eq(&[v_fn.clone(), CoreValue::Bool(false)])?;
+                    v_fn_zero = core_eq(&[v_fn.clone(), CoreValue::Num(0f64)])?;
+                    v_fn_empty = core_eq(&[v_fn.clone(), CoreValue::from("")])?;
+                    v_fn_falsy = core_or(&[v_fn_falsy.clone(), v_fn_false.clone()])?;
+                    v_fn_falsy = core_or(&[v_fn_falsy.clone(), v_fn_zero.clone()])?;
+                    v_fn_falsy = core_or(&[v_fn_falsy.clone(), v_fn_empty.clone()])?;
+                    if core_truthy(&v_fn_falsy) {
+                        v_fn_received = CoreValue::from("undefined");
+                        if core_truthy(&v_has_function) {
+                            v_fn_received = core_json_pretty(&[v_fn.clone()])?;
+                        }
+                        v_problem = core_string_format(&[CoreValue::from("Function call at index {} in result {} must have a function object, received: {}"), v_call_index.clone(), v_result_index.clone(), v_fn_received.clone()])?;
+                        v_kind = CoreValue::from("unnamed");
+                    }
+                }
+            }
+            v_check_name = core_eq(&[v_problem.clone(), CoreValue::from("")])?;
+            if core_truthy(&v_check_name) {
+                v_has_name = CoreValue::Bool(false);
+                v_name = core_none(&[])?;
+                if core_truthy(&v_nested) {
+                    if core_truthy(&v_fn_is_map) {
+                        v_has_name = core_map_contains(&[v_fn.clone(), CoreValue::from("name")])?;
+                        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+                    }
+                } else {
+                    v_has_name = core_map_contains(&[v_call.clone(), CoreValue::from("name")])?;
+                    v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
+                }
+                v_named = CoreValue::Bool(false);
+                v_name_is_text = core_type_is(&v_name, CoreValue::from("string"));
+                if core_truthy(&v_name_is_text) {
+                    v_name_trimmed = core_string_trim(&v_name);
+                    v_named = core_ne(&[v_name_trimmed.clone(), CoreValue::from("")])?;
+                }
+                v_unnamed_call = core_not(&[v_named.clone()])?;
+                if core_truthy(&v_unnamed_call) {
+                    v_name_received = CoreValue::from("undefined");
+                    if core_truthy(&v_has_name) {
+                        v_name_received = core_json_pretty(&[v_name.clone()])?;
+                    }
+                    v_problem = core_string_format(&[CoreValue::from("Function call at index {} in result {} must have a non-empty function name, received: {}"), v_call_index.clone(), v_result_index.clone(), v_name_received.clone()])?;
+                    v_kind = CoreValue::from("unnamed");
+                }
+            }
+            v_check_params = core_eq(&[v_problem.clone(), CoreValue::from("")])?;
+            if core_truthy(&v_check_params) {
+                v_has_params = CoreValue::Bool(false);
+                v_params = core_none(&[])?;
+                if core_truthy(&v_nested) {
+                    if core_truthy(&v_fn_is_map) {
+                        v_has_params =
+                            core_map_contains(&[v_fn.clone(), CoreValue::from("params")])?;
+                        v_params = core_get(&v_fn, &CoreValue::from("params"), CoreValue::Null);
+                    }
+                } else {
+                    v_has_params = core_map_contains(&[v_call.clone(), CoreValue::from("params")])?;
+                    v_params = core_get(&v_call, &CoreValue::from("params"), CoreValue::Null);
+                }
+                v_params_number = core_type_is(&v_params, CoreValue::from("number"));
+                v_params_bool = core_type_is(&v_params, CoreValue::from("boolean"));
+                v_params_bad = core_or(&[v_params_number.clone(), v_params_bool.clone()])?;
+                v_params_bad = core_and(&[v_params_bad.clone(), v_has_params.clone()])?;
+                if core_truthy(&v_params_bad) {
+                    v_params_received = core_json_pretty(&[v_params.clone()])?;
+                    v_problem = core_string_format(&[CoreValue::from("Function call params at index {} in result {} must be a string or object, received: {}"), v_call_index.clone(), v_result_index.clone(), v_params_received.clone()])?;
+                    v_kind = CoreValue::from("call");
+                }
+            }
+        } else {
+            v_call_null = core_is_none(&[v_call.clone()])?;
+            v_call_false = core_eq(&[v_call.clone(), CoreValue::Bool(false)])?;
+            v_call_zero = core_eq(&[v_call.clone(), CoreValue::Num(0f64)])?;
+            v_call_empty = core_eq(&[v_call.clone(), CoreValue::from("")])?;
+            v_call_falsy = core_or(&[v_call_null.clone(), v_call_false.clone()])?;
+            v_call_falsy = core_or(&[v_call_falsy.clone(), v_call_zero.clone()])?;
+            v_call_falsy = core_or(&[v_call_falsy.clone(), v_call_empty.clone()])?;
+            if core_truthy(&v_call_falsy) {
+                v_call_received = core_json_pretty(&[v_call.clone()])?;
+                v_problem = core_string_format(&[CoreValue::from("Function call at index {} in result {} cannot be null or undefined, received: {}"), v_call_index.clone(), v_result_index.clone(), v_call_received.clone()])?;
+            } else {
+                v_problem = core_string_format(&[CoreValue::from("Function call at index {} in result {} must have a non-empty string id, received: undefined"), v_call_index.clone(), v_result_index.clone()])?;
+            }
+            v_kind = CoreValue::from("unnamed");
+        }
+        v_failed = core_ne(&[v_problem.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_failed) {
+            v_first_unset = core_is_none(&[v_first.clone()])?;
+            if core_truthy(&v_first_unset) {
+                v_first = v_problem.clone();
+            }
+            v_is_unnamed = core_eq(&[v_kind.clone(), CoreValue::from("unnamed")])?;
+            if core_truthy(&v_is_unnamed) {
+                v_unnamed_unset = core_is_none(&[v_unnamed.clone()])?;
+                if core_truthy(&v_unnamed_unset) {
+                    v_unnamed = v_problem.clone();
+                }
+            } else {
+                v_call_unset = core_is_none(&[v_call_problem.clone()])?;
+                if core_truthy(&v_call_unset) {
+                    v_call_problem = v_problem.clone();
+                }
+            }
+        }
+        v_next_call_index = core_add(&[v_call_index.clone(), CoreValue::Num(1f64)])?;
+        v_call_index = v_next_call_index.clone();
+    }
+    v_none_failed = core_is_none(&[v_first.clone()])?;
+    if core_truthy(&v_none_failed) {
+        v_nothing = core_none(&[])?;
+        return Ok(v_nothing.clone());
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("first"), v_first.clone())?;
+    core_set(&v_out, CoreValue::from("unnamed"), v_unnamed.clone())?;
+    core_set(&v_out, CoreValue::from("call"), v_call_problem.clone())?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -73507,6 +73770,8 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_cached = CoreValue::Null;
     let mut v_cached_messages = CoreValue::Null;
     let mut v_call = CoreValue::Null;
+    let mut v_call_check_error = CoreValue::Null;
+    let mut v_call_check_failure = CoreValue::Null;
     let mut v_call_count = CoreValue::Null;
     let mut v_calls = CoreValue::Null;
     let mut v_completed = CoreValue::Null;
@@ -73638,8 +73903,6 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_tool_error_message = CoreValue::Null;
     let mut v_tool_message = CoreValue::Null;
     let mut v_tool_result = CoreValue::Null;
-    let mut v_unnamed_call_error = CoreValue::Null;
-    let mut v_unnamed_call_failure = CoreValue::Null;
     let mut v_updated_messages = CoreValue::Null;
     let mut v_user_message = CoreValue::Null;
     let mut v_validate_exact_json = CoreValue::Null;
@@ -73946,10 +74209,7 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             }
         }
         let __core_try: Result<CoreFlow, AxError> = (|| {
-            _check_completion_function_call_names(&[
-                v_response.clone(),
-                v_runtime_options.clone(),
-            ])?;
+            _check_completion_function_calls(&[v_response.clone(), v_runtime_options.clone()])?;
             Ok(CoreFlow::Normal)
         })();
         match __core_try {
@@ -73958,9 +74218,9 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             Ok(CoreFlow::Break) => break,
             Ok(CoreFlow::Continue) => continue,
             Err(__core_caught) => {
-                v_unnamed_call_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-                v_unnamed_call_failure = _generate_failed_impl(&[v_unnamed_call_error.clone()])?;
-                return Err(core_as_error(&v_unnamed_call_failure));
+                v_call_check_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                v_call_check_failure = _generate_failed_impl(&[v_call_check_error.clone()])?;
+                return Err(core_as_error(&v_call_check_failure));
             }
         }
         core_axgen_memory_add_response(&[v_gen.clone(), v_request.clone(), v_response.clone()])?;
@@ -86551,7 +86811,7 @@ fn _streaming_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                     v_folded = fold_chat_response_stream(&[v_events.clone()])?;
                     v_response = chat_response_to_completion(&[v_folded.clone()])?;
                     v_stage = CoreValue::from("fatal");
-                    _check_completion_function_call_names(&[
+                    _check_completion_function_calls(&[
                         v_response.clone(),
                         v_runtime_options.clone(),
                     ])?;
@@ -90930,83 +91190,104 @@ fn _structured_output_render_options_impl(args: &[CoreValue]) -> Result<CoreValu
     unreachable_code,
     clippy::all
 )]
-fn _validate_completion_function_call_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_validate_completion_function_call_names");
+fn _completion_function_call_problems(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_completion_function_call_problems");
     let mut v_response = core_arg(args, 0);
-    let mut v_call = CoreValue::Null;
-    let mut v_call_index = CoreValue::Null;
-    let mut v_calls = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    let mut v_error = CoreValue::Null;
-    let mut v_fn = CoreValue::Null;
-    let mut v_fn_has_name = CoreValue::Null;
-    let mut v_fn_is_map = CoreValue::Null;
-    let mut v_has_name = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_name_is_text = CoreValue::Null;
-    let mut v_named = CoreValue::Null;
-    let mut v_next_call_index = CoreValue::Null;
+    let mut v_call_problem = CoreValue::Null;
+    let mut v_call_unset = CoreValue::Null;
+    let mut v_first = CoreValue::Null;
+    let mut v_first_unset = CoreValue::Null;
+    let mut v_has_problems = CoreValue::Null;
     let mut v_next_result_index = CoreValue::Null;
     let mut v_no_results = CoreValue::Null;
-    let mut v_received = CoreValue::Null;
+    let mut v_none_failed = CoreValue::Null;
+    let mut v_nothing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_problems = CoreValue::Null;
+    let mut v_recorded = CoreValue::Null;
     let mut v_result = CoreValue::Null;
+    let mut v_result_call = CoreValue::Null;
+    let mut v_result_first = CoreValue::Null;
     let mut v_result_index = CoreValue::Null;
+    let mut v_result_is_map = CoreValue::Null;
+    let mut v_result_unnamed = CoreValue::Null;
     let mut v_results = CoreValue::Null;
-    let mut v_trimmed = CoreValue::Null;
+    let mut v_top_recorded = CoreValue::Null;
     let mut v_unnamed = CoreValue::Null;
-    v_empty = CoreValue::new_list();
+    let mut v_unnamed_unset = CoreValue::Null;
     v_results = core_get(&v_response, &CoreValue::from("results"), CoreValue::Null);
     v_no_results = core_is_none(&[v_results.clone()])?;
     if core_truthy(&v_no_results) {
         v_results = CoreValue::new_list();
         core_append(&v_results, v_response.clone())?;
     }
+    v_first = core_none(&[])?;
+    v_unnamed = core_none(&[])?;
+    v_call_problem = core_none(&[])?;
     v_result_index = CoreValue::Num(0f64);
     for v_result in core_iter(&v_results)? {
         let mut v_result = v_result;
-        v_calls = core_get(
-            &v_result,
-            &CoreValue::from("function_calls"),
-            v_empty.clone(),
-        );
-        v_call_index = CoreValue::Num(0f64);
-        for v_call in core_iter(&v_calls)? {
-            let mut v_call = v_call;
-            v_has_name = core_map_contains(&[v_call.clone(), CoreValue::from("name")])?;
-            v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
-            v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-            v_fn_is_map = core_type_is(&v_fn, CoreValue::from("object"));
-            if core_truthy(&v_fn_is_map) {
-                v_fn_has_name = core_map_contains(&[v_fn.clone(), CoreValue::from("name")])?;
-                if core_truthy(&v_fn_has_name) {
-                    v_has_name = CoreValue::Bool(true);
-                    v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+        v_result_is_map = core_type_is(&v_result, CoreValue::from("object"));
+        if core_truthy(&v_result_is_map) {
+            v_recorded =
+                core_map_contains(&[v_result.clone(), CoreValue::from("function_call_problems")])?;
+            v_problems = core_none(&[])?;
+            if core_truthy(&v_recorded) {
+                v_problems = core_get(
+                    &v_result,
+                    &CoreValue::from("function_call_problems"),
+                    CoreValue::Null,
+                );
+                core_map_delete(&[v_result.clone(), CoreValue::from("function_call_problems")])?;
+            } else {
+                v_problems = _chat_result_function_call_problems(&[
+                    v_result.clone(),
+                    v_result_index.clone(),
+                ])?;
+            }
+            v_has_problems = core_is_not_none(&[v_problems.clone()])?;
+            if core_truthy(&v_has_problems) {
+                v_result_first = core_get(&v_problems, &CoreValue::from("first"), CoreValue::Null);
+                v_result_unnamed =
+                    core_get(&v_problems, &CoreValue::from("unnamed"), CoreValue::Null);
+                v_result_call = core_get(&v_problems, &CoreValue::from("call"), CoreValue::Null);
+                v_first_unset = core_is_none(&[v_first.clone()])?;
+                if core_truthy(&v_first_unset) {
+                    v_first = v_result_first.clone();
+                }
+                v_unnamed_unset = core_is_none(&[v_unnamed.clone()])?;
+                if core_truthy(&v_unnamed_unset) {
+                    v_unnamed = v_result_unnamed.clone();
+                }
+                v_call_unset = core_is_none(&[v_call_problem.clone()])?;
+                if core_truthy(&v_call_unset) {
+                    v_call_problem = v_result_call.clone();
                 }
             }
-            v_name_is_text = core_type_is(&v_name, CoreValue::from("string"));
-            v_named = CoreValue::Bool(false);
-            if core_truthy(&v_name_is_text) {
-                v_trimmed = core_string_trim(&v_name);
-                v_named = core_ne(&[v_trimmed.clone(), CoreValue::from("")])?;
-            }
-            v_unnamed = core_not(&[v_named.clone()])?;
-            if core_truthy(&v_unnamed) {
-                v_received = CoreValue::from("undefined");
-                if core_truthy(&v_has_name) {
-                    v_received = core_json_pretty(&[v_name.clone()])?;
-                }
-                v_message = core_string_format(&[CoreValue::from("Function call at index {} in result {} must have a non-empty function name, received: {}"), v_call_index.clone(), v_result_index.clone(), v_received.clone()])?;
-                v_error = core_runtime_error(&[v_message.clone()])?;
-                return Err(core_as_error(&v_error));
-            }
-            v_next_call_index = core_add(&[v_call_index.clone(), CoreValue::Num(1f64)])?;
-            v_call_index = v_next_call_index.clone();
         }
         v_next_result_index = core_add(&[v_result_index.clone(), CoreValue::Num(1f64)])?;
         v_result_index = v_next_result_index.clone();
     }
-    return Ok(CoreValue::Null);
+    v_top_recorded = core_map_contains(&[
+        v_response.clone(),
+        CoreValue::from("function_call_problems"),
+    ])?;
+    if core_truthy(&v_top_recorded) {
+        core_map_delete(&[
+            v_response.clone(),
+            CoreValue::from("function_call_problems"),
+        ])?;
+    }
+    v_none_failed = core_is_none(&[v_first.clone()])?;
+    if core_truthy(&v_none_failed) {
+        v_nothing = core_none(&[])?;
+        return Ok(v_nothing.clone());
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("first"), v_first.clone())?;
+    core_set(&v_out, CoreValue::from("unnamed"), v_unnamed.clone())?;
+    core_set(&v_out, CoreValue::from("call"), v_call_problem.clone())?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -91135,22 +91416,30 @@ fn _stream_state_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _check_completion_function_call_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_check_completion_function_call_names");
+fn _check_completion_function_calls(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_check_completion_function_calls");
     let mut v_response = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
+    let mut v_call_problem = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_has_call_problem = CoreValue::Null;
+    let mut v_has_problems = CoreValue::Null;
+    let mut v_has_unnamed = CoreValue::Null;
     let mut v_is_correct = CoreValue::Null;
     let mut v_is_fail = CoreValue::Null;
     let mut v_known = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
     let mut v_mode = CoreValue::Null;
     let mut v_mode_error = CoreValue::Null;
     let mut v_mode_json = CoreValue::Null;
     let mut v_mode_message = CoreValue::Null;
     let mut v_mode_set = CoreValue::Null;
     let mut v_mode_snake = CoreValue::Null;
+    let mut v_problems = CoreValue::Null;
     let mut v_unknown = CoreValue::Null;
     let mut v_unnamed = CoreValue::Null;
-    let mut v_unnamed_error = CoreValue::Null;
+    let mut v_warn = CoreValue::Null;
+    let mut v_warning = CoreValue::Null;
     v_mode_snake = core_get(
         &v_options,
         &CoreValue::from("function_call_validation"),
@@ -91162,6 +91451,7 @@ fn _check_completion_function_call_names(args: &[CoreValue]) -> Result<CoreValue
         v_mode_snake.clone(),
     );
     v_mode_set = core_is_not_none(&[v_mode.clone()])?;
+    v_is_fail = CoreValue::Bool(false);
     if core_truthy(&v_mode_set) {
         v_is_fail = core_eq(&[v_mode.clone(), CoreValue::from("fail")])?;
         v_is_correct = core_eq(&[v_mode.clone(), CoreValue::from("correct")])?;
@@ -91176,28 +91466,32 @@ fn _check_completion_function_call_names(args: &[CoreValue]) -> Result<CoreValue
             v_mode_error = core_validation_error(&[v_mode_message.clone()])?;
             return Err(core_as_error(&v_mode_error));
         }
+    }
+    v_problems = _completion_function_call_problems(&[v_response.clone()])?;
+    v_has_problems = core_is_not_none(&[v_problems.clone()])?;
+    if core_truthy(&v_has_problems) {
         if core_truthy(&v_is_fail) {
-            _validate_completion_function_call_names(&[v_response.clone()])?;
+            v_message = core_get(&v_problems, &CoreValue::from("first"), CoreValue::Null);
+            v_error = core_runtime_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
         }
-        return Ok(CoreValue::Null);
-    }
-    v_unnamed = CoreValue::Bool(false);
-    let __core_try: Result<CoreFlow, AxError> = (|| {
-        _validate_completion_function_call_names(&[v_response.clone()])?;
-        Ok(CoreFlow::Normal)
-    })();
-    match __core_try {
-        Ok(CoreFlow::Normal) => {}
-        Ok(CoreFlow::Return(value)) => return Ok(value),
-        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
-        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
-        Err(__core_caught) => {
-            v_unnamed_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-            v_unnamed = CoreValue::Bool(true);
+        v_warn = core_not(&[v_mode_set.clone()])?;
+        if core_truthy(&v_warn) {
+            v_unnamed = core_get(&v_problems, &CoreValue::from("unnamed"), CoreValue::Null);
+            v_has_unnamed = core_is_not_none(&[v_unnamed.clone()])?;
+            if core_truthy(&v_has_unnamed) {
+                core_axgen_deprecation(&[CoreValue::from("function-call-validation"), CoreValue::from("A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")])?;
+            }
+            v_call_problem = core_get(&v_problems, &CoreValue::from("call"), CoreValue::Null);
+            v_has_call_problem = core_is_not_none(&[v_call_problem.clone()])?;
+            if core_truthy(&v_has_call_problem) {
+                v_warning = core_string_format(&[CoreValue::from("A model function call TypeScript Ax rejects runs as given here: {}. TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep running it. Failing becomes the default in the next major version."), v_call_problem.clone()])?;
+                core_axgen_deprecation(&[
+                    CoreValue::from("function-call-validation-call"),
+                    v_warning.clone(),
+                ])?;
+            }
         }
-    }
-    if core_truthy(&v_unnamed) {
-        core_axgen_deprecation(&[CoreValue::from("function-call-validation"), CoreValue::from("A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")])?;
     }
     return Ok(CoreValue::Null);
 }
@@ -128144,7 +128438,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (951 of 951 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (952 of 952 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

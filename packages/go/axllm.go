@@ -12150,6 +12150,7 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	var v_result Value
 	var v_fallback_index Value
 	var v_call Value
+	var v_call_problems Value
 	var v_calls Value
 	var v_compat_call Value
 	var v_completion Value
@@ -12164,6 +12165,7 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	var v_fn_has_name Value
 	var v_fn_is_map Value
 	var v_function_calls Value
+	var v_has_call_problems Value
 	var v_has_finish Value
 	var v_has_images Value
 	var v_has_name Value
@@ -12183,6 +12185,7 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	if len(args) > 1 { v_fallback_index = args[1] }
 	_ = v_fallback_index
 	_ = v_call
+	_ = v_call_problems
 	_ = v_calls
 	_ = v_compat_call
 	_ = v_completion
@@ -12197,6 +12200,7 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	_ = v_fn_has_name
 	_ = v_fn_is_map
 	_ = v_function_calls
+	_ = v_has_call_problems
 	_ = v_has_finish
 	_ = v_has_images
 	_ = v_has_name
@@ -12212,6 +12216,7 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	_ = v_thought
 	_ = v_thought_blocks
 	v_content = coreGet(v_result, "content", "")
+	{ v, err := _chat_result_function_call_problems(v_result, v_fallback_index); if err != nil { return nil, err }; v_call_problems = v }
 	v_calls = MutableArray()
 	v_empty_calls = MutableArray()
 	v_function_calls = coreGet(v_result, "function_calls", v_empty_calls)
@@ -12279,6 +12284,12 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	v_has_finish = _core_is_not_none(v_finish)
 	if coreTruthy(v_has_finish) {
 		if err := coreSet(v_completion, "finish_reason", v_finish); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_has_call_problems = _core_is_not_none(v_call_problems)
+	if coreTruthy(v_has_call_problems) {
+		if err := coreSet(v_completion, "function_call_problems", v_call_problems); err != nil { return nil, err }
 	} else {
 	// empty
 	}
@@ -13155,137 +13166,6 @@ func ai_context_cache_recovery(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func ai_gemini_cache_ops(args ...Value) (Value, error) {
-	axirCoverageMark("ai_gemini_cache_ops")
-	var v_cache_name Value
-	var v_ttl_seconds Value
-	var v_api_key Value
-	var v_model Value
-	var v_create_body Value
-	var v_options Value
-	var v_cache_base_url Value
-	var v_create Value
-	var v_create_copy Value
-	var v_create_is_object Value
-	var v_create_path Value
-	var v_create_request Value
-	var v_delete_op Value
-	var v_delete_path Value
-	var v_descriptor Value
-	var v_empty Value
-	var v_empty_request Value
-	var v_has_cache_base_url Value
-	var v_is_vertex Value
-	var v_model_resource Value
-	var v_out Value
-	var v_parent Value
-	var v_ttl Value
-	var v_update Value
-	var v_update_path Value
-	var v_update_request Value
-	if len(args) > 0 { v_cache_name = args[0] }
-	_ = v_cache_name
-	if len(args) > 1 { v_ttl_seconds = args[1] }
-	_ = v_ttl_seconds
-	if len(args) > 2 { v_api_key = args[2] }
-	_ = v_api_key
-	if len(args) > 3 { v_model = args[3] }
-	_ = v_model
-	if len(args) > 4 { v_create_body = args[4] }
-	_ = v_create_body
-	if len(args) > 5 { v_options = args[5] }
-	_ = v_options
-	_ = v_cache_base_url
-	_ = v_create
-	_ = v_create_copy
-	_ = v_create_is_object
-	_ = v_create_path
-	_ = v_create_request
-	_ = v_delete_op
-	_ = v_delete_path
-	_ = v_descriptor
-	_ = v_empty
-	_ = v_empty_request
-	_ = v_has_cache_base_url
-	_ = v_is_vertex
-	_ = v_model_resource
-	_ = v_out
-	_ = v_parent
-	_ = v_ttl
-	_ = v_update
-	_ = v_update_path
-	_ = v_update_request
-	v_ttl = _core_string_format("{}s", v_ttl_seconds)
-	{ v, err := provider_resolve_descriptor("google-gemini", v_options); if err != nil { return nil, err }; v_descriptor = v }
-	v_is_vertex = coreGet(v_descriptor, "vertex", false)
-	v_create_path = "/cachedContents"
-	v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
-	v_delete_path = _core_string_format("/{}", v_cache_name)
-	if coreTruthy(v_is_vertex) {
-		v_parent = coreGet(v_descriptor, "vertexParent", "")
-		v_create_path = _core_string_format("/{}/cachedContents", v_parent)
-		v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
-		v_delete_path = _core_string_format("/{}", v_cache_name)
-	} else {
-	// empty
-	}
-	v_create_request = Object()
-	v_create_is_object = coreTypeIs(v_create_body, "object")
-	if coreTruthy(v_create_is_object) {
-		v_empty = Object()
-		v_create_copy = _core_map_merge(v_create_body, v_empty)
-		v_create_request = v_create_copy
-	} else {
-	// empty
-	}
-	v_model_resource = _core_string_format("models/{}", v_model)
-	if coreTruthy(v_is_vertex) {
-		v_parent = coreGet(v_descriptor, "vertexParent", "")
-		v_model_resource = _core_string_format("{}/publishers/google/models/{}", v_parent, v_model)
-	} else {
-	// empty
-	}
-	if err := coreSet(v_create_request, "model", v_model_resource); err != nil { return nil, err }
-	if err := coreSet(v_create_request, "ttl", v_ttl); err != nil { return nil, err }
-	v_update_request = Object()
-	if err := coreSet(v_update_request, "ttl", v_ttl); err != nil { return nil, err }
-	v_empty_request = Object()
-	v_create = Object()
-	if err := coreSet(v_create, "method", "POST"); err != nil { return nil, err }
-	if err := coreSet(v_create, "path", v_create_path); err != nil { return nil, err }
-	if err := coreSet(v_create, "request", v_create_request); err != nil { return nil, err }
-	v_cache_base_url = coreGet(v_descriptor, "vertexCacheBaseUrl", nil)
-	v_has_cache_base_url = _core_truthy(v_cache_base_url)
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_create, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_update = Object()
-	if err := coreSet(v_update, "method", "PATCH"); err != nil { return nil, err }
-	if err := coreSet(v_update, "path", v_update_path); err != nil { return nil, err }
-	if err := coreSet(v_update, "request", v_update_request); err != nil { return nil, err }
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_update, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_delete_op = Object()
-	if err := coreSet(v_delete_op, "method", "DELETE"); err != nil { return nil, err }
-	if err := coreSet(v_delete_op, "path", v_delete_path); err != nil { return nil, err }
-	if err := coreSet(v_delete_op, "request", v_empty_request); err != nil { return nil, err }
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_delete_op, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_out = Object()
-	if err := coreSet(v_out, "create", v_create); err != nil { return nil, err }
-	if err := coreSet(v_out, "update", v_update); err != nil { return nil, err }
-	if err := coreSet(v_out, "delete", v_delete_op); err != nil { return nil, err }
-	return v_out, nil
-}
-
 func _openai_stream_choice_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_stream_choice_impl")
 	var v_choice Value
@@ -13470,6 +13350,137 @@ func _openai_stream_choice_impl(args ...Value) (Value, error) {
 	}
 	if err := coreSet(v_out, "function_calls", v_calls); err != nil { return nil, err }
 	if err := coreSet(v_out, "finish_reason", v_finish_reason); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func ai_gemini_cache_ops(args ...Value) (Value, error) {
+	axirCoverageMark("ai_gemini_cache_ops")
+	var v_cache_name Value
+	var v_ttl_seconds Value
+	var v_api_key Value
+	var v_model Value
+	var v_create_body Value
+	var v_options Value
+	var v_cache_base_url Value
+	var v_create Value
+	var v_create_copy Value
+	var v_create_is_object Value
+	var v_create_path Value
+	var v_create_request Value
+	var v_delete_op Value
+	var v_delete_path Value
+	var v_descriptor Value
+	var v_empty Value
+	var v_empty_request Value
+	var v_has_cache_base_url Value
+	var v_is_vertex Value
+	var v_model_resource Value
+	var v_out Value
+	var v_parent Value
+	var v_ttl Value
+	var v_update Value
+	var v_update_path Value
+	var v_update_request Value
+	if len(args) > 0 { v_cache_name = args[0] }
+	_ = v_cache_name
+	if len(args) > 1 { v_ttl_seconds = args[1] }
+	_ = v_ttl_seconds
+	if len(args) > 2 { v_api_key = args[2] }
+	_ = v_api_key
+	if len(args) > 3 { v_model = args[3] }
+	_ = v_model
+	if len(args) > 4 { v_create_body = args[4] }
+	_ = v_create_body
+	if len(args) > 5 { v_options = args[5] }
+	_ = v_options
+	_ = v_cache_base_url
+	_ = v_create
+	_ = v_create_copy
+	_ = v_create_is_object
+	_ = v_create_path
+	_ = v_create_request
+	_ = v_delete_op
+	_ = v_delete_path
+	_ = v_descriptor
+	_ = v_empty
+	_ = v_empty_request
+	_ = v_has_cache_base_url
+	_ = v_is_vertex
+	_ = v_model_resource
+	_ = v_out
+	_ = v_parent
+	_ = v_ttl
+	_ = v_update
+	_ = v_update_path
+	_ = v_update_request
+	v_ttl = _core_string_format("{}s", v_ttl_seconds)
+	{ v, err := provider_resolve_descriptor("google-gemini", v_options); if err != nil { return nil, err }; v_descriptor = v }
+	v_is_vertex = coreGet(v_descriptor, "vertex", false)
+	v_create_path = "/cachedContents"
+	v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
+	v_delete_path = _core_string_format("/{}", v_cache_name)
+	if coreTruthy(v_is_vertex) {
+		v_parent = coreGet(v_descriptor, "vertexParent", "")
+		v_create_path = _core_string_format("/{}/cachedContents", v_parent)
+		v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
+		v_delete_path = _core_string_format("/{}", v_cache_name)
+	} else {
+	// empty
+	}
+	v_create_request = Object()
+	v_create_is_object = coreTypeIs(v_create_body, "object")
+	if coreTruthy(v_create_is_object) {
+		v_empty = Object()
+		v_create_copy = _core_map_merge(v_create_body, v_empty)
+		v_create_request = v_create_copy
+	} else {
+	// empty
+	}
+	v_model_resource = _core_string_format("models/{}", v_model)
+	if coreTruthy(v_is_vertex) {
+		v_parent = coreGet(v_descriptor, "vertexParent", "")
+		v_model_resource = _core_string_format("{}/publishers/google/models/{}", v_parent, v_model)
+	} else {
+	// empty
+	}
+	if err := coreSet(v_create_request, "model", v_model_resource); err != nil { return nil, err }
+	if err := coreSet(v_create_request, "ttl", v_ttl); err != nil { return nil, err }
+	v_update_request = Object()
+	if err := coreSet(v_update_request, "ttl", v_ttl); err != nil { return nil, err }
+	v_empty_request = Object()
+	v_create = Object()
+	if err := coreSet(v_create, "method", "POST"); err != nil { return nil, err }
+	if err := coreSet(v_create, "path", v_create_path); err != nil { return nil, err }
+	if err := coreSet(v_create, "request", v_create_request); err != nil { return nil, err }
+	v_cache_base_url = coreGet(v_descriptor, "vertexCacheBaseUrl", nil)
+	v_has_cache_base_url = _core_truthy(v_cache_base_url)
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_create, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_update = Object()
+	if err := coreSet(v_update, "method", "PATCH"); err != nil { return nil, err }
+	if err := coreSet(v_update, "path", v_update_path); err != nil { return nil, err }
+	if err := coreSet(v_update, "request", v_update_request); err != nil { return nil, err }
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_update, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_delete_op = Object()
+	if err := coreSet(v_delete_op, "method", "DELETE"); err != nil { return nil, err }
+	if err := coreSet(v_delete_op, "path", v_delete_path); err != nil { return nil, err }
+	if err := coreSet(v_delete_op, "request", v_empty_request); err != nil { return nil, err }
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_delete_op, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "create", v_create); err != nil { return nil, err }
+	if err := coreSet(v_out, "update", v_update); err != nil { return nil, err }
+	if err := coreSet(v_out, "delete", v_delete_op); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -14029,6 +14040,352 @@ func provider_model_catalog(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_selected, nil
+}
+
+func _chat_result_function_call_problems(args ...Value) (Value, error) {
+	axirCoverageMark("_chat_result_function_call_problems")
+	var v_result Value
+	var v_result_index Value
+	var v_call Value
+	var v_call_empty Value
+	var v_call_false Value
+	var v_call_falsy Value
+	var v_call_index Value
+	var v_call_null Value
+	var v_call_problem Value
+	var v_call_received Value
+	var v_call_unset Value
+	var v_call_zero Value
+	var v_calls Value
+	var v_calls_is_list Value
+	var v_check_name Value
+	var v_check_nested Value
+	var v_check_params Value
+	var v_empty Value
+	var v_failed Value
+	var v_first Value
+	var v_first_unset Value
+	var v_fn Value
+	var v_fn_empty Value
+	var v_fn_false Value
+	var v_fn_falsy Value
+	var v_fn_is_map Value
+	var v_fn_received Value
+	var v_fn_zero Value
+	var v_has_function Value
+	var v_has_id Value
+	var v_has_name Value
+	var v_has_params Value
+	var v_has_type Value
+	var v_id Value
+	var v_id_bad Value
+	var v_id_is_text Value
+	var v_id_ok Value
+	var v_id_received Value
+	var v_id_trimmed Value
+	var v_is_map Value
+	var v_is_unnamed Value
+	var v_kind Value
+	var v_name Value
+	var v_name_is_text Value
+	var v_name_received Value
+	var v_name_trimmed Value
+	var v_named Value
+	var v_nested Value
+	var v_next_call_index Value
+	var v_none_failed Value
+	var v_nothing Value
+	var v_out Value
+	var v_params Value
+	var v_params_bad Value
+	var v_params_bool Value
+	var v_params_number Value
+	var v_params_received Value
+	var v_problem Value
+	var v_type Value
+	var v_type_bad Value
+	var v_type_ok Value
+	var v_type_received Value
+	var v_unnamed Value
+	var v_unnamed_call Value
+	var v_unnamed_unset Value
+	if len(args) > 0 { v_result = args[0] }
+	_ = v_result
+	if len(args) > 1 { v_result_index = args[1] }
+	_ = v_result_index
+	_ = v_call
+	_ = v_call_empty
+	_ = v_call_false
+	_ = v_call_falsy
+	_ = v_call_index
+	_ = v_call_null
+	_ = v_call_problem
+	_ = v_call_received
+	_ = v_call_unset
+	_ = v_call_zero
+	_ = v_calls
+	_ = v_calls_is_list
+	_ = v_check_name
+	_ = v_check_nested
+	_ = v_check_params
+	_ = v_empty
+	_ = v_failed
+	_ = v_first
+	_ = v_first_unset
+	_ = v_fn
+	_ = v_fn_empty
+	_ = v_fn_false
+	_ = v_fn_falsy
+	_ = v_fn_is_map
+	_ = v_fn_received
+	_ = v_fn_zero
+	_ = v_has_function
+	_ = v_has_id
+	_ = v_has_name
+	_ = v_has_params
+	_ = v_has_type
+	_ = v_id
+	_ = v_id_bad
+	_ = v_id_is_text
+	_ = v_id_ok
+	_ = v_id_received
+	_ = v_id_trimmed
+	_ = v_is_map
+	_ = v_is_unnamed
+	_ = v_kind
+	_ = v_name
+	_ = v_name_is_text
+	_ = v_name_received
+	_ = v_name_trimmed
+	_ = v_named
+	_ = v_nested
+	_ = v_next_call_index
+	_ = v_none_failed
+	_ = v_nothing
+	_ = v_out
+	_ = v_params
+	_ = v_params_bad
+	_ = v_params_bool
+	_ = v_params_number
+	_ = v_params_received
+	_ = v_problem
+	_ = v_type
+	_ = v_type_bad
+	_ = v_type_ok
+	_ = v_type_received
+	_ = v_unnamed
+	_ = v_unnamed_call
+	_ = v_unnamed_unset
+	v_empty = MutableArray()
+	v_calls = coreGet(v_result, "function_calls", v_empty)
+	v_calls_is_list = coreTypeIs(v_calls, "list")
+	if coreTruthy(v_calls_is_list) {
+	// empty
+	} else {
+		v_calls = v_empty
+	}
+	v_first = _core_none()
+	v_unnamed = _core_none()
+	v_call_problem = _core_none()
+	v_call_index = 0
+	for _, v_call = range coreIter(v_calls) {
+		v_problem = ""
+		v_kind = ""
+		v_is_map = coreTypeIs(v_call, "object")
+		if coreTruthy(v_is_map) {
+			v_has_function = _core_map_contains(v_call, "function")
+			v_has_type = _core_map_contains(v_call, "type")
+			v_nested = _core_or(v_has_function, v_has_type)
+			v_has_id = _core_map_contains(v_call, "id")
+			v_id = coreGet(v_call, "id", nil)
+			v_id_ok = false
+			v_id_is_text = coreTypeIs(v_id, "string")
+			if coreTruthy(v_id_is_text) {
+				v_id_trimmed = coreStringTrim(v_id)
+				v_id_ok = _core_ne(v_id_trimmed, "")
+			} else {
+			// empty
+			}
+			v_id_bad = _core_not(v_id_ok)
+			if coreTruthy(v_id_bad) {
+				v_id_received = "undefined"
+				if coreTruthy(v_has_id) {
+					v_id_received = _core_json_pretty(v_id)
+				} else {
+				// empty
+				}
+				v_problem = _core_string_format("Function call at index {} in result {} must have a non-empty string id, received: {}", v_call_index, v_result_index, v_id_received)
+				v_kind = "call"
+			} else {
+			// empty
+			}
+			v_fn = coreGet(v_call, "function", nil)
+			v_fn_is_map = coreTypeIs(v_fn, "object")
+			v_check_nested = _core_eq(v_problem, "")
+			v_check_nested = _core_and(v_check_nested, v_nested)
+			if coreTruthy(v_check_nested) {
+				v_type = coreGet(v_call, "type", nil)
+				v_type_ok = _core_eq(v_type, "function")
+				v_type_bad = _core_not(v_type_ok)
+				if coreTruthy(v_type_bad) {
+					v_type_received = "undefined"
+					if coreTruthy(v_has_type) {
+						v_type_received = _core_json_pretty(v_type)
+					} else {
+					// empty
+					}
+					v_problem = _core_string_format("Function call at index {} in result {} must have type 'function', received: {}", v_call_index, v_result_index, v_type_received)
+					v_kind = "call"
+				} else {
+					v_fn_falsy = _core_is_none(v_fn)
+					v_fn_false = _core_eq(v_fn, false)
+					v_fn_zero = _core_eq(v_fn, 0)
+					v_fn_empty = _core_eq(v_fn, "")
+					v_fn_falsy = _core_or(v_fn_falsy, v_fn_false)
+					v_fn_falsy = _core_or(v_fn_falsy, v_fn_zero)
+					v_fn_falsy = _core_or(v_fn_falsy, v_fn_empty)
+					if coreTruthy(v_fn_falsy) {
+						v_fn_received = "undefined"
+						if coreTruthy(v_has_function) {
+							v_fn_received = _core_json_pretty(v_fn)
+						} else {
+						// empty
+						}
+						v_problem = _core_string_format("Function call at index {} in result {} must have a function object, received: {}", v_call_index, v_result_index, v_fn_received)
+						v_kind = "unnamed"
+					} else {
+					// empty
+					}
+				}
+			} else {
+			// empty
+			}
+			v_check_name = _core_eq(v_problem, "")
+			if coreTruthy(v_check_name) {
+				v_has_name = false
+				v_name = _core_none()
+				if coreTruthy(v_nested) {
+					if coreTruthy(v_fn_is_map) {
+						v_has_name = _core_map_contains(v_fn, "name")
+						v_name = coreGet(v_fn, "name", nil)
+					} else {
+					// empty
+					}
+				} else {
+					v_has_name = _core_map_contains(v_call, "name")
+					v_name = coreGet(v_call, "name", nil)
+				}
+				v_named = false
+				v_name_is_text = coreTypeIs(v_name, "string")
+				if coreTruthy(v_name_is_text) {
+					v_name_trimmed = coreStringTrim(v_name)
+					v_named = _core_ne(v_name_trimmed, "")
+				} else {
+				// empty
+				}
+				v_unnamed_call = _core_not(v_named)
+				if coreTruthy(v_unnamed_call) {
+					v_name_received = "undefined"
+					if coreTruthy(v_has_name) {
+						v_name_received = _core_json_pretty(v_name)
+					} else {
+					// empty
+					}
+					v_problem = _core_string_format("Function call at index {} in result {} must have a non-empty function name, received: {}", v_call_index, v_result_index, v_name_received)
+					v_kind = "unnamed"
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+			v_check_params = _core_eq(v_problem, "")
+			if coreTruthy(v_check_params) {
+				v_has_params = false
+				v_params = _core_none()
+				if coreTruthy(v_nested) {
+					if coreTruthy(v_fn_is_map) {
+						v_has_params = _core_map_contains(v_fn, "params")
+						v_params = coreGet(v_fn, "params", nil)
+					} else {
+					// empty
+					}
+				} else {
+					v_has_params = _core_map_contains(v_call, "params")
+					v_params = coreGet(v_call, "params", nil)
+				}
+				v_params_number = coreTypeIs(v_params, "number")
+				v_params_bool = coreTypeIs(v_params, "boolean")
+				v_params_bad = _core_or(v_params_number, v_params_bool)
+				v_params_bad = _core_and(v_params_bad, v_has_params)
+				if coreTruthy(v_params_bad) {
+					v_params_received = _core_json_pretty(v_params)
+					v_problem = _core_string_format("Function call params at index {} in result {} must be a string or object, received: {}", v_call_index, v_result_index, v_params_received)
+					v_kind = "call"
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+			v_call_null = _core_is_none(v_call)
+			v_call_false = _core_eq(v_call, false)
+			v_call_zero = _core_eq(v_call, 0)
+			v_call_empty = _core_eq(v_call, "")
+			v_call_falsy = _core_or(v_call_null, v_call_false)
+			v_call_falsy = _core_or(v_call_falsy, v_call_zero)
+			v_call_falsy = _core_or(v_call_falsy, v_call_empty)
+			if coreTruthy(v_call_falsy) {
+				v_call_received = _core_json_pretty(v_call)
+				v_problem = _core_string_format("Function call at index {} in result {} cannot be null or undefined, received: {}", v_call_index, v_result_index, v_call_received)
+			} else {
+				v_problem = _core_string_format("Function call at index {} in result {} must have a non-empty string id, received: undefined", v_call_index, v_result_index)
+			}
+			v_kind = "unnamed"
+		}
+		v_failed = _core_ne(v_problem, "")
+		if coreTruthy(v_failed) {
+			v_first_unset = _core_is_none(v_first)
+			if coreTruthy(v_first_unset) {
+				v_first = v_problem
+			} else {
+			// empty
+			}
+			v_is_unnamed = _core_eq(v_kind, "unnamed")
+			if coreTruthy(v_is_unnamed) {
+				v_unnamed_unset = _core_is_none(v_unnamed)
+				if coreTruthy(v_unnamed_unset) {
+					v_unnamed = v_problem
+				} else {
+				// empty
+				}
+			} else {
+				v_call_unset = _core_is_none(v_call_problem)
+				if coreTruthy(v_call_unset) {
+					v_call_problem = v_problem
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		v_next_call_index = _core_add(v_call_index, 1)
+		v_call_index = v_next_call_index
+	}
+	v_none_failed = _core_is_none(v_first)
+	if coreTruthy(v_none_failed) {
+		v_nothing = _core_none()
+		return v_nothing, nil
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "first", v_first); err != nil { return nil, err }
+	if err := coreSet(v_out, "unnamed", v_unnamed); err != nil { return nil, err }
+	if err := coreSet(v_out, "call", v_call_problem); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func provider_estimate_cost(args ...Value) (Value, error) {
@@ -40449,6 +40806,8 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_cached Value
 	var v_cached_messages Value
 	var v_call Value
+	var v_call_check_error Value
+	var v_call_check_failure Value
 	var v_call_count Value
 	var v_calls Value
 	var v_completed Value
@@ -40580,8 +40939,6 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_tool_error_message Value
 	var v_tool_message Value
 	var v_tool_result Value
-	var v_unnamed_call_error Value
-	var v_unnamed_call_failure Value
 	var v_updated_messages Value
 	var v_user_message Value
 	var v_validate_exact_json Value
@@ -40613,6 +40970,8 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_cached
 	_ = v_cached_messages
 	_ = v_call
+	_ = v_call_check_error
+	_ = v_call_check_failure
 	_ = v_call_count
 	_ = v_calls
 	_ = v_completed
@@ -40744,8 +41103,6 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_tool_error_message
 	_ = v_tool_message
 	_ = v_tool_result
-	_ = v_unnamed_call_error
-	_ = v_unnamed_call_failure
 	_ = v_updated_messages
 	_ = v_user_message
 	_ = v_validate_exact_json
@@ -40920,14 +41277,14 @@ func _forward_impl(args ...Value) (Value, error) {
 		}
 		{
 			__flow, __err := func() (coreFlow, error) {
-				if _, err := _check_completion_function_call_names(v_response, v_runtime_options); err != nil { return coreFlow{}, err }
+				if _, err := _check_completion_function_calls(v_response, v_runtime_options); err != nil { return coreFlow{}, err }
 				return coreFlow{}, nil
 			}()
 			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
 			if __err != nil {
-				v_unnamed_call_error = errorValue(__err)
-				{ v, err := _generate_failed_impl(v_unnamed_call_error); if err != nil { return nil, err }; v_unnamed_call_failure = v }
-				return nil, asError(v_unnamed_call_failure)
+				v_call_check_error = errorValue(__err)
+				{ v, err := _generate_failed_impl(v_call_check_error); if err != nil { return nil, err }; v_call_check_failure = v }
+				return nil, asError(v_call_check_failure)
 			}
 		}
 		_core_axgen_memory_add_response(v_gen, v_request, v_response)
@@ -54956,7 +55313,7 @@ func _streaming_forward_impl(args ...Value) (Value, error) {
 						{ v, err := fold_chat_response_stream(v_events); if err != nil { return coreFlow{}, err }; v_folded = v }
 						{ v, err := chat_response_to_completion(v_folded); if err != nil { return coreFlow{}, err }; v_response = v }
 						v_stage = "fatal"
-						if _, err := _check_completion_function_call_names(v_response, v_runtime_options); err != nil { return coreFlow{}, err }
+						if _, err := _check_completion_function_calls(v_response, v_runtime_options); err != nil { return coreFlow{}, err }
 						v_stage = "validation"
 						_core_axgen_memory_add_response(v_gen, v_request, v_response)
 						_core_axgen_record_chat_log(v_gen, v_request, v_response)
@@ -59759,56 +60116,55 @@ func _structured_output_render_options_impl(args ...Value) (Value, error) {
 	return v_render_options, nil
 }
 
-func _validate_completion_function_call_names(args ...Value) (Value, error) {
-	axirCoverageMark("_validate_completion_function_call_names")
+func _completion_function_call_problems(args ...Value) (Value, error) {
+	axirCoverageMark("_completion_function_call_problems")
 	var v_response Value
-	var v_call Value
-	var v_call_index Value
-	var v_calls Value
-	var v_empty Value
-	var v_error Value
-	var v_fn Value
-	var v_fn_has_name Value
-	var v_fn_is_map Value
-	var v_has_name Value
-	var v_message Value
-	var v_name Value
-	var v_name_is_text Value
-	var v_named Value
-	var v_next_call_index Value
+	var v_call_problem Value
+	var v_call_unset Value
+	var v_first Value
+	var v_first_unset Value
+	var v_has_problems Value
 	var v_next_result_index Value
 	var v_no_results Value
-	var v_received Value
+	var v_none_failed Value
+	var v_nothing Value
+	var v_out Value
+	var v_problems Value
+	var v_recorded Value
 	var v_result Value
+	var v_result_call Value
+	var v_result_first Value
 	var v_result_index Value
+	var v_result_is_map Value
+	var v_result_unnamed Value
 	var v_results Value
-	var v_trimmed Value
+	var v_top_recorded Value
 	var v_unnamed Value
+	var v_unnamed_unset Value
 	if len(args) > 0 { v_response = args[0] }
 	_ = v_response
-	_ = v_call
-	_ = v_call_index
-	_ = v_calls
-	_ = v_empty
-	_ = v_error
-	_ = v_fn
-	_ = v_fn_has_name
-	_ = v_fn_is_map
-	_ = v_has_name
-	_ = v_message
-	_ = v_name
-	_ = v_name_is_text
-	_ = v_named
-	_ = v_next_call_index
+	_ = v_call_problem
+	_ = v_call_unset
+	_ = v_first
+	_ = v_first_unset
+	_ = v_has_problems
 	_ = v_next_result_index
 	_ = v_no_results
-	_ = v_received
+	_ = v_none_failed
+	_ = v_nothing
+	_ = v_out
+	_ = v_problems
+	_ = v_recorded
 	_ = v_result
+	_ = v_result_call
+	_ = v_result_first
 	_ = v_result_index
+	_ = v_result_is_map
+	_ = v_result_unnamed
 	_ = v_results
-	_ = v_trimmed
+	_ = v_top_recorded
 	_ = v_unnamed
-	v_empty = MutableArray()
+	_ = v_unnamed_unset
 	v_results = coreGet(v_response, "results", nil)
 	v_no_results = _core_is_none(v_results)
 	if coreTruthy(v_no_results) {
@@ -59817,55 +60173,71 @@ func _validate_completion_function_call_names(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	v_first = _core_none()
+	v_unnamed = _core_none()
+	v_call_problem = _core_none()
 	v_result_index = 0
 	for _, v_result = range coreIter(v_results) {
-		v_calls = coreGet(v_result, "function_calls", v_empty)
-		v_call_index = 0
-		for _, v_call = range coreIter(v_calls) {
-			v_has_name = _core_map_contains(v_call, "name")
-			v_name = coreGet(v_call, "name", nil)
-			v_fn = coreGet(v_call, "function", nil)
-			v_fn_is_map = coreTypeIs(v_fn, "object")
-			if coreTruthy(v_fn_is_map) {
-				v_fn_has_name = _core_map_contains(v_fn, "name")
-				if coreTruthy(v_fn_has_name) {
-					v_has_name = true
-					v_name = coreGet(v_fn, "name", nil)
+		v_result_is_map = coreTypeIs(v_result, "object")
+		if coreTruthy(v_result_is_map) {
+			v_recorded = _core_map_contains(v_result, "function_call_problems")
+			v_problems = _core_none()
+			if coreTruthy(v_recorded) {
+				v_problems = coreGet(v_result, "function_call_problems", nil)
+				_core_map_delete(v_result, "function_call_problems")
+			} else {
+				{ v, err := _chat_result_function_call_problems(v_result, v_result_index); if err != nil { return nil, err }; v_problems = v }
+			}
+			v_has_problems = _core_is_not_none(v_problems)
+			if coreTruthy(v_has_problems) {
+				v_result_first = coreGet(v_problems, "first", nil)
+				v_result_unnamed = coreGet(v_problems, "unnamed", nil)
+				v_result_call = coreGet(v_problems, "call", nil)
+				v_first_unset = _core_is_none(v_first)
+				if coreTruthy(v_first_unset) {
+					v_first = v_result_first
+				} else {
+				// empty
+				}
+				v_unnamed_unset = _core_is_none(v_unnamed)
+				if coreTruthy(v_unnamed_unset) {
+					v_unnamed = v_result_unnamed
+				} else {
+				// empty
+				}
+				v_call_unset = _core_is_none(v_call_problem)
+				if coreTruthy(v_call_unset) {
+					v_call_problem = v_result_call
 				} else {
 				// empty
 				}
 			} else {
 			// empty
 			}
-			v_name_is_text = coreTypeIs(v_name, "string")
-			v_named = false
-			if coreTruthy(v_name_is_text) {
-				v_trimmed = coreStringTrim(v_name)
-				v_named = _core_ne(v_trimmed, "")
-			} else {
-			// empty
-			}
-			v_unnamed = _core_not(v_named)
-			if coreTruthy(v_unnamed) {
-				v_received = "undefined"
-				if coreTruthy(v_has_name) {
-					v_received = _core_json_pretty(v_name)
-				} else {
-				// empty
-				}
-				v_message = _core_string_format("Function call at index {} in result {} must have a non-empty function name, received: {}", v_call_index, v_result_index, v_received)
-				v_error = _core_runtime_error(v_message)
-				return nil, asError(v_error)
-			} else {
-			// empty
-			}
-			v_next_call_index = _core_add(v_call_index, 1)
-			v_call_index = v_next_call_index
+		} else {
+		// empty
 		}
 		v_next_result_index = _core_add(v_result_index, 1)
 		v_result_index = v_next_result_index
 	}
-	return nil, nil
+	v_top_recorded = _core_map_contains(v_response, "function_call_problems")
+	if coreTruthy(v_top_recorded) {
+		_core_map_delete(v_response, "function_call_problems")
+	} else {
+	// empty
+	}
+	v_none_failed = _core_is_none(v_first)
+	if coreTruthy(v_none_failed) {
+		v_nothing = _core_none()
+		return v_nothing, nil
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "first", v_first); err != nil { return nil, err }
+	if err := coreSet(v_out, "unnamed", v_unnamed); err != nil { return nil, err }
+	if err := coreSet(v_out, "call", v_call_problem); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func _stream_json_strings_for_fields_impl(args ...Value) (Value, error) {
@@ -59996,41 +60368,58 @@ func _stream_state_impl(args ...Value) (Value, error) {
 	return v_state, nil
 }
 
-func _check_completion_function_call_names(args ...Value) (Value, error) {
-	axirCoverageMark("_check_completion_function_call_names")
+func _check_completion_function_calls(args ...Value) (Value, error) {
+	axirCoverageMark("_check_completion_function_calls")
 	var v_response Value
 	var v_options Value
+	var v_call_problem Value
+	var v_error Value
+	var v_has_call_problem Value
+	var v_has_problems Value
+	var v_has_unnamed Value
 	var v_is_correct Value
 	var v_is_fail Value
 	var v_known Value
+	var v_message Value
 	var v_mode Value
 	var v_mode_error Value
 	var v_mode_json Value
 	var v_mode_message Value
 	var v_mode_set Value
 	var v_mode_snake Value
+	var v_problems Value
 	var v_unknown Value
 	var v_unnamed Value
-	var v_unnamed_error Value
+	var v_warn Value
+	var v_warning Value
 	if len(args) > 0 { v_response = args[0] }
 	_ = v_response
 	if len(args) > 1 { v_options = args[1] }
 	_ = v_options
+	_ = v_call_problem
+	_ = v_error
+	_ = v_has_call_problem
+	_ = v_has_problems
+	_ = v_has_unnamed
 	_ = v_is_correct
 	_ = v_is_fail
 	_ = v_known
+	_ = v_message
 	_ = v_mode
 	_ = v_mode_error
 	_ = v_mode_json
 	_ = v_mode_message
 	_ = v_mode_set
 	_ = v_mode_snake
+	_ = v_problems
 	_ = v_unknown
 	_ = v_unnamed
-	_ = v_unnamed_error
+	_ = v_warn
+	_ = v_warning
 	v_mode_snake = coreGet(v_options, "function_call_validation", nil)
 	v_mode = coreGet(v_options, "functionCallValidation", v_mode_snake)
 	v_mode_set = _core_is_not_none(v_mode)
+	v_is_fail = false
 	if coreTruthy(v_mode_set) {
 		v_is_fail = _core_eq(v_mode, "fail")
 		v_is_correct = _core_eq(v_mode, "correct")
@@ -60044,29 +60433,39 @@ func _check_completion_function_call_names(args ...Value) (Value, error) {
 		} else {
 		// empty
 		}
-		if coreTruthy(v_is_fail) {
-			if _, err := _validate_completion_function_call_names(v_response); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-		return nil, nil
 	} else {
 	// empty
 	}
-	v_unnamed = false
-	{
-		__flow, __err := func() (coreFlow, error) {
-			if _, err := _validate_completion_function_call_names(v_response); err != nil { return coreFlow{}, err }
-			return coreFlow{}, nil
-		}()
-		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-		if __err != nil {
-			v_unnamed_error = errorValue(__err)
-			v_unnamed = true
+	{ v, err := _completion_function_call_problems(v_response); if err != nil { return nil, err }; v_problems = v }
+	v_has_problems = _core_is_not_none(v_problems)
+	if coreTruthy(v_has_problems) {
+		if coreTruthy(v_is_fail) {
+			v_message = coreGet(v_problems, "first", nil)
+			v_error = _core_runtime_error(v_message)
+			return nil, asError(v_error)
+		} else {
+		// empty
 		}
-	}
-	if coreTruthy(v_unnamed) {
-		_core_axgen_deprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")
+		v_warn = _core_not(v_mode_set)
+		if coreTruthy(v_warn) {
+			v_unnamed = coreGet(v_problems, "unnamed", nil)
+			v_has_unnamed = _core_is_not_none(v_unnamed)
+			if coreTruthy(v_has_unnamed) {
+				_core_axgen_deprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")
+			} else {
+			// empty
+			}
+			v_call_problem = coreGet(v_problems, "call", nil)
+			v_has_call_problem = _core_is_not_none(v_call_problem)
+			if coreTruthy(v_has_call_problem) {
+				v_warning = _core_string_format("A model function call TypeScript Ax rejects runs as given here: {}. TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep running it. Failing becomes the default in the next major version.", v_call_problem)
+				_core_axgen_deprecation("function-call-validation-call", v_warning)
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
 	} else {
 	// empty
 	}

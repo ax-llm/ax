@@ -1,0 +1,81 @@
+{
+  "description": "Port-only: without functionCallValidation a streamed call TS rejects runs as given this release, with a one-time warning.",
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "done"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_deprecations": [
+    "A model function call TypeScript Ax rejects runs as given here: Function call params at index 0 in result 0 must be a string or object, received: 42. TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep running it. Failing becomes the default in the next major version."
+  ],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-function-call-number-params-runs-by-default",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": 42
+                  },
+                  "id": "call_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: done",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

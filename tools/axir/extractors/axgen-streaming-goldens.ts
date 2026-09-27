@@ -2334,3 +2334,169 @@ writeFixture('function-call-validation-unknown-value', {
   expected_tool_calls: [],
   expected_request_count: 1,
 });
+
+// TS checks every part of a response's function calls, not only the name
+// (axValidateChatResponseResult in AxMemory.addResponse, and a stream's merged
+// calls once the stream ends), in this order: the call is present (not null),
+// its id is a non-empty string, its type is 'function', it has a function
+// object, the name (above), and params, when given, are a string or an object.
+// Any failure fails the run at once, with no retry. The ports check the same
+// with functionCallValidation: 'fail'.
+const goodCall = (id: string): JsonMap => ({
+  id,
+  type: 'function',
+  function: { name: 'lookup', params: '{"key":"a"}' },
+});
+const callCases: [string, Json[]][] = [
+  [
+    'missing-id',
+    [{ type: 'function', function: { name: 'lookup', params: '{"key":"a"}' } }],
+  ],
+  ['empty-id', [{ ...goodCall('call_1'), id: '' }]],
+  ['blank-id', [{ ...goodCall('call_1'), id: '  ' }]],
+  ['number-id', [{ ...goodCall('call_1'), id: 7 }]],
+  [
+    'missing-type',
+    [{ id: 'call_1', function: { name: 'lookup', params: '{"key":"a"}' } }],
+  ],
+  ['wrong-type', [{ ...goodCall('call_1'), type: 'tool' }]],
+  ['missing-function', [{ id: 'call_1', type: 'function' }]],
+  [
+    'number-params',
+    [{ ...goodCall('call_1'), function: { name: 'lookup', params: 42 } }],
+  ],
+  ['null', [null]],
+  [
+    'second-call-number-params',
+    [
+      goodCall('call_1'),
+      { ...goodCall('call_2'), function: { name: 'lookup', params: 42 } },
+    ],
+  ],
+];
+for (const [label, calls] of callCases) {
+  await record(`function-call-${label}`, {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    port_forward_options: { function_call_validation: 'fail' },
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            content: '',
+            function_calls: calls,
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      { results: [{ index: 0, content: 'Answer: done' }] },
+    ],
+  });
+  await record(`streaming-forward-function-call-${label}`, {
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    port_forward_options: { function_call_validation: 'fail' },
+    responses: [
+      streamed(
+        chunk({ function_calls: calls, finish_reason: 'function_call' })
+      ),
+      streamed(text('Answer: done'), done()),
+    ],
+  });
+}
+
+// Port-only: without functionCallValidation, the ports keep this release's
+// handling of the calls TS rejects. A call with a bad id, type or params runs
+// as given, with a one-time warning that quotes TS's message and names the
+// option; an explicit 'correct' runs it without the warning. A null call, or
+// one without a function object, has no name, so it gets the correction a
+// call without a name gets (above), with that warning. TS fails them all at
+// once, as above.
+const callWarning = (message: string) =>
+  `A model function call TypeScript Ax rejects runs as given here: ${message}. TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep running it. Failing becomes the default in the next major version.`;
+const callResponses = (calls: Json[]): ResponseSpec[] => [
+  {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: calls,
+        finish_reason: 'function_call',
+      },
+    ],
+  },
+  { results: [{ index: 0, content: 'Answer: done' }] },
+];
+const callStreamResponses = (calls: Json[]): ResponseSpec[] => [
+  streamed(chunk({ function_calls: calls, finish_reason: 'function_call' })),
+  streamed(text('Answer: done'), done()),
+];
+const byLabel = new Map(callCases);
+const ranCall = {
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  tools: [lookupTool],
+  expected_output: { answer: 'done' },
+  expected_request_count: 2,
+};
+for (const [label, message, toolCalls] of [
+  [
+    'missing-id',
+    'Function call at index 0 in result 0 must have a non-empty string id, received: undefined',
+    [{ name: 'lookup', args: { key: 'a' } }],
+  ],
+  [
+    'wrong-type',
+    'Function call at index 0 in result 0 must have type \'function\', received: "tool"',
+    [{ name: 'lookup', args: { key: 'a' } }],
+  ],
+  [
+    'number-params',
+    'Function call params at index 0 in result 0 must be a string or object, received: 42',
+    undefined,
+  ],
+] as const) {
+  const calls = byLabel.get(label) as Json[];
+  const tools = toolCalls ? { expected_tool_calls: toolCalls } : {};
+  writeFixture(`function-call-${label}-runs-by-default`, {
+    kind: 'forward',
+    description:
+      'Port-only: without functionCallValidation a call TS rejects runs as given this release, with a one-time warning.',
+    ...ranCall,
+    ...tools,
+    responses: callResponses(calls),
+    expected_deprecations: [callWarning(message)],
+  });
+  writeFixture(`streaming-forward-function-call-${label}-runs-by-default`, {
+    kind: 'streaming_forward',
+    description:
+      'Port-only: without functionCallValidation a streamed call TS rejects runs as given this release, with a one-time warning.',
+    ...ranCall,
+    ...tools,
+    responses: callStreamResponses(calls),
+    expected_deltas: [{ version: 0, index: 0, delta: { answer: 'done' } }],
+    expected_deprecations: [callWarning(message)],
+  });
+}
+writeFixture('function-call-missing-id-correct-explicit', {
+  kind: 'forward',
+  description:
+    "Port-only: functionCallValidation: 'correct' runs a call TS rejects as given, without the warning.",
+  ...ranCall,
+  expected_tool_calls: [{ name: 'lookup', args: { key: 'a' } }],
+  forward_options: { function_call_validation: 'correct' },
+  responses: callResponses(byLabel.get('missing-id') as Json[]),
+  expected_deprecations: [],
+});
+for (const label of ['missing-function', 'null'] as const) {
+  writeFixture(`function-call-${label}-corrected`, {
+    kind: 'forward',
+    description:
+      'Port-only: without functionCallValidation a call with no name gets a correction and another request this release, with a one-time warning.',
+    ...correctedFixture,
+    responses: callResponses(byLabel.get(label) as Json[]),
+    expected_deprecations: [namelessWarning],
+  });
+}
