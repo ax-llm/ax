@@ -1189,14 +1189,14 @@ struct Core {
   static Value _normalize_policy_action_result(Value action, Value payload);
   static Value _build_agent_actor_prompt_policy(Value state);
   static Value _resolve_agent_context_policy(Value options);
-  static Value _resolve_agent_executor_model_policy(Value options);
   static Value _agent_eval_marks(Value state);
+  static Value _resolve_agent_executor_model_policy(Value options);
   static Value _agent_eval_function_calls(Value traces);
   static Value _agent_eval_run(Value state, Value marks);
   static Value _select_agent_executor_model(Value policy, Value actor_model_state);
   static Value _agent_compute_effective_chat_budget(Value base_budget, Value fixed_overhead_chars);
-  static Value _agent_action_log_char_count(Value entries);
   static Value _build_agent_run_prediction(Value state, Value marks, Value completion, Value usage, Value trace);
+  static Value _agent_action_log_char_count(Value entries);
   static Value _agent_compute_dynamic_runtime_chars(Value entries, Value target_prompt_chars, Value max_runtime_chars);
   static Value _agent_context_pressure(Value mutable_prompt_chars, Value effective_budget_chars, Value checkpoint_active);
   static Value _agent_render_context_pressure(Value pressure);

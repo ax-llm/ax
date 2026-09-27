@@ -1,4 +1,5 @@
 {
+  "description": "Port-only: inputValidation: 'fail' on the forward call checks the context fields of an agent built without it, before any request.",
   "expected_error_contains": "RLM contextField \"doc\" is missing from input values",
   "expected_request_count": 0,
   "expected_transcript": [],
@@ -7,15 +8,17 @@
     "streaming": true,
     "structured_outputs": false
   },
+  "forward_options": {
+    "inputValidation": "fail"
+  },
   "input": {
     "question": "How long do refunds take?"
   },
   "kind": "agent_forward",
-  "name": "agent-forward-input-context-field-only-missing",
+  "name": "agent-forward-input-context-field-missing-fail-on-forward",
   "options": {
     "contextFields": ["doc"],
     "directResponse": "off",
-    "inputValidation": "fail",
     "runtime": {
       "language": "JavaScript"
     }

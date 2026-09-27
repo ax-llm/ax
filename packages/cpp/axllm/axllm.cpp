@@ -31469,6 +31469,36 @@ Value Core::_agent_policy_flags(Value options, Value callable_split, Value auto_
     Value direct_response_error = Core::runtime_error(Value("directResponse must be 'auto' or 'off'"));
     Core::raise_error(direct_response_error);
   }
+  Value shape_snake = Core::get(options, Value("clarification_shape"), Value());
+  Value shape = Core::get(options, Value("clarificationShape"), shape_snake);
+  Value shape_set = Core::is_not_none(shape);
+  if (Core::truthy(shape_set)) {
+    Value shape_is_raw = Core::eq(shape, Value("raw"));
+    Value shape_is_structured = Core::eq(shape, Value("structured"));
+    Value shape_known = Core::or_(shape_is_raw, shape_is_structured);
+    Value shape_unknown = Core::not_(shape_known);
+    if (Core::truthy(shape_unknown)) {
+      Value shape_json = Core::json_pretty(shape);
+      Value shape_message = Core::string_format(Value("clarificationShape must be 'raw' or 'structured', received: {}"), shape_json);
+      Value shape_error = Core::validation_error(shape_message);
+      Core::raise_error(shape_error);
+    }
+  }
+  Value input_mode_snake = Core::get(options, Value("input_validation"), Value());
+  Value input_mode = Core::get(options, Value("inputValidation"), input_mode_snake);
+  Value input_mode_set = Core::is_not_none(input_mode);
+  if (Core::truthy(input_mode_set)) {
+    Value input_mode_is_fail = Core::eq(input_mode, Value("fail"));
+    Value input_mode_is_lenient = Core::eq(input_mode, Value("lenient"));
+    Value input_mode_known = Core::or_(input_mode_is_fail, input_mode_is_lenient);
+    Value input_mode_unknown = Core::not_(input_mode_known);
+    if (Core::truthy(input_mode_unknown)) {
+      Value input_mode_json = Core::json_pretty(input_mode);
+      Value input_mode_message = Core::string_format(Value("inputValidation must be 'lenient' or 'fail', received: {}"), input_mode_json);
+      Value input_mode_error = Core::validation_error(input_mode_message);
+      Core::raise_error(input_mode_error);
+    }
+  }
   Value direct_respond_enabled = Core::not_(direct_response_is_off);
   Value inline_callables = Core::get(callable_split, Value("inline"), empty_list);
   Value discoverable_callables = Core::get(callable_split, Value("discoverable"), empty_list);
@@ -32580,6 +32610,19 @@ Value Core::_resolve_agent_context_policy(Value options) {
   return out;
 }
 
+Value Core::_agent_eval_marks(Value state) {
+  axir_coverage_mark("_agent_eval_marks");
+  Value empty_list = Value::array();
+  Value log = Core::get(state, Value("action_log"), empty_list);
+  Value traces = Core::get(state, Value("function_call_traces"), empty_list);
+  Value log_count = Core::len(log);
+  Value trace_count = Core::len(traces);
+  Value marks = Value::object();
+  Core::set(marks, Value("action_log"), log_count);
+  Core::set(marks, Value("function_call_traces"), trace_count);
+  return marks;
+}
+
 Value Core::_resolve_agent_executor_model_policy(Value options) {
   axir_coverage_mark("_resolve_agent_executor_model_policy");
   Value empty_list = Value::array();
@@ -32694,19 +32737,6 @@ Value Core::_resolve_agent_executor_model_policy(Value options) {
     Core::raise_error(error_empty);
   }
   return out;
-}
-
-Value Core::_agent_eval_marks(Value state) {
-  axir_coverage_mark("_agent_eval_marks");
-  Value empty_list = Value::array();
-  Value log = Core::get(state, Value("action_log"), empty_list);
-  Value traces = Core::get(state, Value("function_call_traces"), empty_list);
-  Value log_count = Core::len(log);
-  Value trace_count = Core::len(traces);
-  Value marks = Value::object();
-  Core::set(marks, Value("action_log"), log_count);
-  Core::set(marks, Value("function_call_traces"), trace_count);
-  return marks;
 }
 
 Value Core::_agent_eval_function_calls(Value traces) {
@@ -32906,20 +32936,6 @@ Value Core::_agent_compute_effective_chat_budget(Value base_budget, Value fixed_
   return budget;
 }
 
-Value Core::_agent_action_log_char_count(Value entries) {
-  axir_coverage_mark("_agent_action_log_char_count");
-  Value total = Value(0);
-  for (auto entry : Core::iter(entries)) {
-    Value code = Core::get(entry, Value("code"), Value(""));
-    Value output = Core::get(entry, Value("output"), Value(""));
-    Value code_len = Core::len(code);
-    Value output_len = Core::len(output);
-    Value entry_len = Core::add(code_len, output_len);
-    total = Core::add(total, entry_len);
-  }
-  return total;
-}
-
 Value Core::_build_agent_run_prediction(Value state, Value marks, Value completion, Value usage, Value trace) {
   axir_coverage_mark("_build_agent_run_prediction");
   Value run = Core::_agent_eval_run(state, marks);
@@ -32960,6 +32976,20 @@ Value Core::_build_agent_run_prediction(Value state, Value marks, Value completi
   Value turn_count = Core::get(run, Value("turnCount"), Value());
   Core::set(out, Value("turnCount"), turn_count);
   return out;
+}
+
+Value Core::_agent_action_log_char_count(Value entries) {
+  axir_coverage_mark("_agent_action_log_char_count");
+  Value total = Value(0);
+  for (auto entry : Core::iter(entries)) {
+    Value code = Core::get(entry, Value("code"), Value(""));
+    Value output = Core::get(entry, Value("output"), Value(""));
+    Value code_len = Core::len(code);
+    Value output_len = Core::len(output);
+    Value entry_len = Core::add(code_len, output_len);
+    total = Core::add(total, entry_len);
+  }
+  return total;
 }
 
 Value Core::_agent_compute_dynamic_runtime_chars(Value entries, Value target_prompt_chars, Value max_runtime_chars) {

@@ -2458,6 +2458,31 @@
       "verification": "One IR op resolves a playbook config's seed as TS does (playbook.playbook: a snapshot or a bare playbook; the older playbook.seed snapshot loads with a deprecation warning); TS goldens axagent/playbook-config-ts-snapshot-seed and -ts-bare-seed pin TS's state and prompt. Two IR ops build the weakness miner's inputs as TS's mineWeakness does from the executor's action log text (entries now record their stage); the TS golden agent-playbook-evolve-miner-system-prompt pins the user message (expected_teacher_user_messages). TS tool fields use toFieldTitle (sigTools.test.ts fails on main). C++ string_format fills a null's {}, and Go and Java fill from after the previous argument (axgen/function-call-missing-name, function-call-name-with-braces). Each new fixture fails on main in the ports named in the PR; 11 mutated copies fail in all five. Full suites 1150/1150 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes; Python and Go perturbation gates pass."
     },
     {
+      "id": "axir-2026-09-27-match-typescript-s-agent-run-end-learning-evaluation-evolve-reco",
+      "status": "done",
+      "title": "Match TypeScript's agent run-end learning, evaluation, evolve records, clarifications and input checks in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "15030d75894567084a2049e78f419860154398cf",
+      "tsPaths": [
+        "src/ax/agent/agentInternal/failureReport.ts",
+        "src/ax/agent/agentInternal/pipelineForwardForEvaluation.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/evalHarness.ts",
+        "src/ax/agent/completion.ts",
+        "src/ax/agent/agentInternal/runtimeInputState.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "TypeScript's run-end learning takes tool errors from the run's own calls (an earlier run's error turn carries through the agent state, its tool calls do not); its evaluation path runs no playbook learning; its evolve harness scores a thrown run 0 without a metric call, records it as error and quotes it to the miner ('Run threw: ...'); its clarification error carries normalizeClarificationForError's {question, ...} form; and it checks an agent run's inputs before any request (a required context field first, then a required input without a value). The ports learned earlier runs' tool errors again, learned during evaluation, scored thrown runs through the metric, carried the raw askClarification payload (C++ flattened an object payload to its question), and sent the distiller and executor requests before the responder rejected a missing input (a missing context field ran on). Rust's evaluate_optimization aborted the dataset on the first thrown task, hidden by a runner that built evaluations from the fixture.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "15030d75894567084a2049e78f419860154398cf",
+      "verification": "TS goldens from tools/axir/extractors/optimize-goldens.ts and agent-streaming-goldens.ts (two-run learning, evaluation without learning, the thrown-run miner, clarifications at evaluation, forward and streaming forward, the input checks) and port-only fixtures (raw clarifications, the context-field default and lenient runs, the call-level override, unknown option values), 30 in all, fail on main's packages as described and pass in python, go, java, cpp and rust (150 of 150); 28 perturbed copies fail in all five (140 of 140); a Rust mutant whose evaluate_optimization lets a thrown task's Err through fails candidate-evaluation-runtime-error; full suites pass (python 1495, go 1494, java 1495, cpp 1495, rust 1494); generated examples and the perturbation gates pass in all five; the one-time warnings print once for the unset defaults in all five."
+    },
+    {
       "id": "axir-2026-09-27-match-typescript-s-processor-feedback-timing-and-shape-and-its-s",
       "status": "done",
       "title": "Match TypeScript's processor feedback timing and shape and its surrogate-safe streamed deltas in the ports",
@@ -2759,31 +2784,6 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
-    },
-    {
-      "id": "axir-2026-09-27-match-typescript-s-agent-run-end-learning-evaluation-evolve-reco",
-      "status": "done",
-      "title": "Match TypeScript's agent run-end learning, evaluation, evolve records, clarifications and input checks in the ports",
-      "createdAt": "2026-09-27",
-      "sourcePR": null,
-      "sourceCommit": "15030d75894567084a2049e78f419860154398cf",
-      "tsPaths": [
-        "src/ax/agent/agentInternal/failureReport.ts",
-        "src/ax/agent/agentInternal/pipelineForwardForEvaluation.ts",
-        "src/ax/agent/agentInternal/playbookEvolve/evalHarness.ts",
-        "src/ax/agent/completion.ts",
-        "src/ax/agent/agentInternal/runtimeInputState.ts"
-      ],
-      "portableSurface": "axagent",
-      "impact": "TypeScript's run-end learning takes tool errors from the run's own calls (an earlier run's error turn carries through the agent state, its tool calls do not); its evaluation path runs no playbook learning; its evolve harness scores a thrown run 0 without a metric call, records it as error and quotes it to the miner ('Run threw: ...'); its clarification error carries normalizeClarificationForError's {question, ...} form; and it checks an agent run's inputs before any request (a required context field first, then a required input without a value). The ports learned earlier runs' tool errors again, learned during evaluation, scored thrown runs through the metric, carried the raw askClarification payload (C++ flattened an object payload to its question), and sent the distiller and executor requests before the responder rejected a missing input (a missing context field ran on). Rust's evaluate_optimization aborted the dataset on the first thrown task, hidden by a runner that built evaluations from the fixture.",
-      "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": "2026-09-27",
-      "completedByCommit": "15030d75894567084a2049e78f419860154398cf",
-      "verification": "TS goldens from tools/axir/extractors/optimize-goldens.ts and agent-streaming-goldens.ts (two-run learning, evaluation without learning, the thrown-run miner, clarifications at evaluation, forward and streaming forward, the input checks, and port-only raw, default and lenient pairs) fail on main's packages in python, go, java, cpp and rust as described and pass here; 25 perturbed copies fail in all five; a Rust mutant whose evaluate_optimization lets a thrown task's Err through fails candidate-evaluation-runtime-error; every conformance suite passes in all five; the one-time warnings print once for the unset defaults in all five."
     }
   ],
   "nonPortableExemptions": [

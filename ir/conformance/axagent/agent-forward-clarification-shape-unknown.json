@@ -1,18 +1,19 @@
 {
-  "expected_error_contains": "Value for input field 'question' is required.",
+  "description": "Port-only: an agent option of the ports with a value it does not name fails when the agent is built.",
+  "expected_error_contains": "clarificationShape must be 'raw' or 'structured', received: \"normalized\"",
   "expected_request_count": 0,
-  "expected_transcript": [],
   "features": {
     "functions": false,
     "streaming": true,
     "structured_outputs": false
   },
   "input": {
-    "question": ""
+    "question": "How long do refunds take?"
   },
   "kind": "agent_forward",
-  "name": "agent-forward-input-empty-string",
+  "name": "agent-forward-clarification-shape-unknown",
   "options": {
+    "clarificationShape": "normalized",
     "directResponse": "off",
     "runtime": {
       "language": "JavaScript"

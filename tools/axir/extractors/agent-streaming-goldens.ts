@@ -853,15 +853,17 @@ const inputCases: Record<string, Case> = {
     kind: 'agent_forward',
     input: {},
     options: { directResponse: 'off' },
-    responses: [...baseActors(), plainAnswer()],
-    runtime_script: baseRuntime(),
+    // TS fails the run before any request.
+    responses: [],
+    runtime_script: [],
   },
   'agent-forward-input-empty-string': {
     kind: 'agent_forward',
     input: { question: '' },
     options: { directResponse: 'off' },
-    responses: [...baseActors(), plainAnswer()],
-    runtime_script: baseRuntime(),
+    // TS fails the run before any request.
+    responses: [],
+    runtime_script: [],
   },
   'agent-forward-input-context-field-missing': {
     kind: 'agent_forward',
@@ -869,8 +871,9 @@ const inputCases: Record<string, Case> = {
     input: {},
     options: { directResponse: 'off', contextFields: ['doc'] },
     port_options: { inputValidation: 'fail' },
-    responses: [...baseActors(), plainAnswer()],
-    runtime_script: baseRuntime(),
+    // TS fails the run before any request.
+    responses: [],
+    runtime_script: [],
   },
   'agent-forward-input-context-field-only-missing': {
     kind: 'agent_forward',
@@ -878,8 +881,9 @@ const inputCases: Record<string, Case> = {
     input: { question: 'How long do refunds take?' },
     options: { directResponse: 'off', contextFields: ['doc'] },
     port_options: { inputValidation: 'fail' },
-    responses: [...baseActors(), plainAnswer()],
-    runtime_script: baseRuntime(),
+    // TS fails the run before any request.
+    responses: [],
+    runtime_script: [],
   },
   'agent-forward-input-context-field-empty-is-a-value': {
     kind: 'agent_forward',
@@ -930,5 +934,60 @@ for (const [name, portOptions] of [
     runtime_script: baseRuntime(),
     expected_output: { answer: 'Refunds take 30 days.' },
     expected_request_count: 3,
+  });
+}
+
+// Port-only: the forward call's inputValidation wins over the agent's.
+writeFixture('agent-forward-input-context-field-missing-fail-on-forward', {
+  kind: 'agent_forward',
+  description:
+    "Port-only: inputValidation: 'fail' on the forward call checks the context fields of an agent built without it, before any request.",
+  signature: CONTEXTUAL,
+  input: { question: 'How long do refunds take?' },
+  options: {
+    directResponse: 'off',
+    contextFields: ['doc'],
+    runtime: { language: 'JavaScript' },
+  },
+  forward_options: { inputValidation: 'fail' },
+  features: { functions: false, streaming: true, structured_outputs: false },
+  responses: [],
+  runtime_script: [],
+  expected_error_contains:
+    'RLM contextField "doc" is missing from input values',
+  expected_request_count: 0,
+  expected_transcript: [],
+});
+
+// Port-only: the ports' own agent options take only their named values; the
+// agent fails when it is built.
+for (const [name, option, message] of [
+  [
+    'agent-forward-clarification-shape-unknown',
+    { clarificationShape: 'normalized' },
+    "clarificationShape must be 'raw' or 'structured', received: \"normalized\"",
+  ],
+  [
+    'agent-forward-input-validation-unknown',
+    { inputValidation: 'strict' },
+    "inputValidation must be 'lenient' or 'fail', received: \"strict\"",
+  ],
+] as const) {
+  writeFixture(name, {
+    kind: 'agent_forward',
+    description:
+      'Port-only: an agent option of the ports with a value it does not name fails when the agent is built.',
+    signature: 'question:string -> answer:string',
+    input: { question: 'How long do refunds take?' },
+    options: {
+      directResponse: 'off',
+      ...option,
+      runtime: { language: 'JavaScript' },
+    },
+    features: { functions: false, streaming: true, structured_outputs: false },
+    responses: [],
+    runtime_script: [],
+    expected_error_contains: message,
+    expected_request_count: 0,
   });
 }

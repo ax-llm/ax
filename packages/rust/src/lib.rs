@@ -94134,6 +94134,16 @@ fn _agent_policy_flags(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_has_used_skills_observer = CoreValue::Null;
     let mut v_inline_callable_count = CoreValue::Null;
     let mut v_inline_callables = CoreValue::Null;
+    let mut v_input_mode = CoreValue::Null;
+    let mut v_input_mode_error = CoreValue::Null;
+    let mut v_input_mode_is_fail = CoreValue::Null;
+    let mut v_input_mode_is_lenient = CoreValue::Null;
+    let mut v_input_mode_json = CoreValue::Null;
+    let mut v_input_mode_known = CoreValue::Null;
+    let mut v_input_mode_message = CoreValue::Null;
+    let mut v_input_mode_set = CoreValue::Null;
+    let mut v_input_mode_snake = CoreValue::Null;
+    let mut v_input_mode_unknown = CoreValue::Null;
     let mut v_inspect_camel = CoreValue::Null;
     let mut v_inspect_direct = CoreValue::Null;
     let mut v_inspect_mode = CoreValue::Null;
@@ -94154,6 +94164,16 @@ fn _agent_policy_flags(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_relevance_is_false = CoreValue::Null;
     let mut v_relevance_raw = CoreValue::Null;
     let mut v_safe_namespace = CoreValue::Null;
+    let mut v_shape = CoreValue::Null;
+    let mut v_shape_error = CoreValue::Null;
+    let mut v_shape_is_raw = CoreValue::Null;
+    let mut v_shape_is_structured = CoreValue::Null;
+    let mut v_shape_json = CoreValue::Null;
+    let mut v_shape_known = CoreValue::Null;
+    let mut v_shape_message = CoreValue::Null;
+    let mut v_shape_set = CoreValue::Null;
+    let mut v_shape_snake = CoreValue::Null;
+    let mut v_shape_unknown = CoreValue::Null;
     let mut v_skills_callback_mode = CoreValue::Null;
     let mut v_skills_camel = CoreValue::Null;
     let mut v_skills_catalog = CoreValue::Null;
@@ -94405,6 +94425,61 @@ fn _agent_policy_flags(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_direct_response_error =
             core_runtime_error(&[CoreValue::from("directResponse must be 'auto' or 'off'")])?;
         return Err(core_as_error(&v_direct_response_error));
+    }
+    v_shape_snake = core_get(
+        &v_options,
+        &CoreValue::from("clarification_shape"),
+        CoreValue::Null,
+    );
+    v_shape = core_get(
+        &v_options,
+        &CoreValue::from("clarificationShape"),
+        v_shape_snake.clone(),
+    );
+    v_shape_set = core_is_not_none(&[v_shape.clone()])?;
+    if core_truthy(&v_shape_set) {
+        v_shape_is_raw = core_eq(&[v_shape.clone(), CoreValue::from("raw")])?;
+        v_shape_is_structured = core_eq(&[v_shape.clone(), CoreValue::from("structured")])?;
+        v_shape_known = core_or(&[v_shape_is_raw.clone(), v_shape_is_structured.clone()])?;
+        v_shape_unknown = core_not(&[v_shape_known.clone()])?;
+        if core_truthy(&v_shape_unknown) {
+            v_shape_json = core_json_pretty(&[v_shape.clone()])?;
+            v_shape_message = core_string_format(&[
+                CoreValue::from("clarificationShape must be 'raw' or 'structured', received: {}"),
+                v_shape_json.clone(),
+            ])?;
+            v_shape_error = core_validation_error(&[v_shape_message.clone()])?;
+            return Err(core_as_error(&v_shape_error));
+        }
+    }
+    v_input_mode_snake = core_get(
+        &v_options,
+        &CoreValue::from("input_validation"),
+        CoreValue::Null,
+    );
+    v_input_mode = core_get(
+        &v_options,
+        &CoreValue::from("inputValidation"),
+        v_input_mode_snake.clone(),
+    );
+    v_input_mode_set = core_is_not_none(&[v_input_mode.clone()])?;
+    if core_truthy(&v_input_mode_set) {
+        v_input_mode_is_fail = core_eq(&[v_input_mode.clone(), CoreValue::from("fail")])?;
+        v_input_mode_is_lenient = core_eq(&[v_input_mode.clone(), CoreValue::from("lenient")])?;
+        v_input_mode_known = core_or(&[
+            v_input_mode_is_fail.clone(),
+            v_input_mode_is_lenient.clone(),
+        ])?;
+        v_input_mode_unknown = core_not(&[v_input_mode_known.clone()])?;
+        if core_truthy(&v_input_mode_unknown) {
+            v_input_mode_json = core_json_pretty(&[v_input_mode.clone()])?;
+            v_input_mode_message = core_string_format(&[
+                CoreValue::from("inputValidation must be 'lenient' or 'fail', received: {}"),
+                v_input_mode_json.clone(),
+            ])?;
+            v_input_mode_error = core_validation_error(&[v_input_mode_message.clone()])?;
+            return Err(core_as_error(&v_input_mode_error));
+        }
     }
     v_direct_respond_enabled = core_not(&[v_direct_response_is_off.clone()])?;
     v_inline_callables = core_get(
@@ -98120,6 +98195,45 @@ fn _resolve_agent_context_policy(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
+fn _agent_eval_marks(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_eval_marks");
+    let mut v_state = core_arg(args, 0);
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_log = CoreValue::Null;
+    let mut v_log_count = CoreValue::Null;
+    let mut v_marks = CoreValue::Null;
+    let mut v_trace_count = CoreValue::Null;
+    let mut v_traces = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_traces = core_get(
+        &v_state,
+        &CoreValue::from("function_call_traces"),
+        v_empty_list.clone(),
+    );
+    v_log_count = core_len(&[v_log.clone()])?;
+    v_trace_count = core_len(&[v_traces.clone()])?;
+    v_marks = CoreValue::new_map();
+    core_set(&v_marks, CoreValue::from("action_log"), v_log_count.clone())?;
+    core_set(
+        &v_marks,
+        CoreValue::from("function_call_traces"),
+        v_trace_count.clone(),
+    )?;
+    return Ok(v_marks.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _resolve_agent_executor_model_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_resolve_agent_executor_model_policy");
     let mut v_options = core_arg(args, 0);
@@ -98326,45 +98440,6 @@ fn _resolve_agent_executor_model_policy(args: &[CoreValue]) -> Result<CoreValue,
         return Err(core_as_error(&v_error_empty));
     }
     return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _agent_eval_marks(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_eval_marks");
-    let mut v_state = core_arg(args, 0);
-    let mut v_empty_list = CoreValue::Null;
-    let mut v_log = CoreValue::Null;
-    let mut v_log_count = CoreValue::Null;
-    let mut v_marks = CoreValue::Null;
-    let mut v_trace_count = CoreValue::Null;
-    let mut v_traces = CoreValue::Null;
-    v_empty_list = CoreValue::new_list();
-    v_log = core_get(
-        &v_state,
-        &CoreValue::from("action_log"),
-        v_empty_list.clone(),
-    );
-    v_traces = core_get(
-        &v_state,
-        &CoreValue::from("function_call_traces"),
-        v_empty_list.clone(),
-    );
-    v_log_count = core_len(&[v_log.clone()])?;
-    v_trace_count = core_len(&[v_traces.clone()])?;
-    v_marks = CoreValue::new_map();
-    core_set(&v_marks, CoreValue::from("action_log"), v_log_count.clone())?;
-    core_set(
-        &v_marks,
-        CoreValue::from("function_call_traces"),
-        v_trace_count.clone(),
-    )?;
-    return Ok(v_marks.clone());
 }
 
 #[allow(
@@ -98760,36 +98835,6 @@ fn _agent_compute_effective_chat_budget(args: &[CoreValue]) -> Result<CoreValue,
     unreachable_code,
     clippy::all
 )]
-fn _agent_action_log_char_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_action_log_char_count");
-    let mut v_entries = core_arg(args, 0);
-    let mut v_code = CoreValue::Null;
-    let mut v_code_len = CoreValue::Null;
-    let mut v_entry = CoreValue::Null;
-    let mut v_entry_len = CoreValue::Null;
-    let mut v_output = CoreValue::Null;
-    let mut v_output_len = CoreValue::Null;
-    let mut v_total = CoreValue::Null;
-    v_total = CoreValue::Num(0f64);
-    for v_entry in core_iter(&v_entries)? {
-        let mut v_entry = v_entry;
-        v_code = core_get(&v_entry, &CoreValue::from("code"), CoreValue::from(""));
-        v_output = core_get(&v_entry, &CoreValue::from("output"), CoreValue::from(""));
-        v_code_len = core_len(&[v_code.clone()])?;
-        v_output_len = core_len(&[v_output.clone()])?;
-        v_entry_len = core_add(&[v_code_len.clone(), v_output_len.clone()])?;
-        v_total = core_add(&[v_total.clone(), v_entry_len.clone()])?;
-    }
-    return Ok(v_total.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _build_agent_run_prediction(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_build_agent_run_prediction");
     let mut v_state = core_arg(args, 0);
@@ -98867,6 +98912,36 @@ fn _build_agent_run_prediction(args: &[CoreValue]) -> Result<CoreValue, AxError>
     v_turn_count = core_get(&v_run, &CoreValue::from("turnCount"), CoreValue::Null);
     core_set(&v_out, CoreValue::from("turnCount"), v_turn_count.clone())?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_action_log_char_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_action_log_char_count");
+    let mut v_entries = core_arg(args, 0);
+    let mut v_code = CoreValue::Null;
+    let mut v_code_len = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_len = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_output_len = CoreValue::Null;
+    let mut v_total = CoreValue::Null;
+    v_total = CoreValue::Num(0f64);
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        v_code = core_get(&v_entry, &CoreValue::from("code"), CoreValue::from(""));
+        v_output = core_get(&v_entry, &CoreValue::from("output"), CoreValue::from(""));
+        v_code_len = core_len(&[v_code.clone()])?;
+        v_output_len = core_len(&[v_output.clone()])?;
+        v_entry_len = core_add(&[v_code_len.clone(), v_output_len.clone()])?;
+        v_total = core_add(&[v_total.clone(), v_entry_len.clone()])?;
+    }
+    return Ok(v_total.clone());
 }
 
 #[allow(

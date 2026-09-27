@@ -675,6 +675,38 @@ module @ax.agent version "0.1" {
         %direct_response_error = core.call intrinsic.error.runtime("directResponse must be 'auto' or 'off'")
         core.raise %direct_response_error
       }
+      // The ports' own agent options (see @throw_agent_clarification and
+      // @agent_check_inputs) take only their named values.
+      %shape_snake = core.get %options["clarification_shape"] default null
+      %shape = core.get %options["clarificationShape"] default %shape_snake
+      %shape_set = core.call intrinsic.is_not_none(%shape)
+      core.if %shape_set {
+        %shape_is_raw = core.call intrinsic.eq(%shape, "raw")
+        %shape_is_structured = core.call intrinsic.eq(%shape, "structured")
+        %shape_known = core.call intrinsic.or(%shape_is_raw, %shape_is_structured)
+        %shape_unknown = core.call intrinsic.not(%shape_known)
+        core.if %shape_unknown {
+          %shape_json = core.call intrinsic.json.pretty(%shape)
+          %shape_message = core.call intrinsic.string.format("clarificationShape must be 'raw' or 'structured', received: {}", %shape_json)
+          %shape_error = core.call intrinsic.error.validation(%shape_message)
+          core.raise %shape_error
+        }
+      }
+      %input_mode_snake = core.get %options["input_validation"] default null
+      %input_mode = core.get %options["inputValidation"] default %input_mode_snake
+      %input_mode_set = core.call intrinsic.is_not_none(%input_mode)
+      core.if %input_mode_set {
+        %input_mode_is_fail = core.call intrinsic.eq(%input_mode, "fail")
+        %input_mode_is_lenient = core.call intrinsic.eq(%input_mode, "lenient")
+        %input_mode_known = core.call intrinsic.or(%input_mode_is_fail, %input_mode_is_lenient)
+        %input_mode_unknown = core.call intrinsic.not(%input_mode_known)
+        core.if %input_mode_unknown {
+          %input_mode_json = core.call intrinsic.json.pretty(%input_mode)
+          %input_mode_message = core.call intrinsic.string.format("inputValidation must be 'lenient' or 'fail', received: {}", %input_mode_json)
+          %input_mode_error = core.call intrinsic.error.validation(%input_mode_message)
+          core.raise %input_mode_error
+        }
+      }
       %direct_respond_enabled = core.call intrinsic.not(%direct_response_is_off)
       %inline_callables = core.get %callable_split["inline"] default %empty_list
       %discoverable_callables = core.get %callable_split["discoverable"] default %empty_list

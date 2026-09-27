@@ -3592,6 +3592,40 @@ def _agent_policy_flags(options: Any, callable_split: Any, auto_upgrade: Any) ->
         raise direct_response_error
     else:
         pass
+    shape_snake = _core_get(options, "clarification_shape", None)
+    shape = _core_get(options, "clarificationShape", shape_snake)
+    shape_set = _core_is_not_none(shape)
+    if shape_set:
+        shape_is_raw = _core_eq(shape, "raw")
+        shape_is_structured = _core_eq(shape, "structured")
+        shape_known = _core_or(shape_is_raw, shape_is_structured)
+        shape_unknown = _core_not(shape_known)
+        if shape_unknown:
+            shape_json = _core_json_pretty(shape)
+            shape_message = _core_string_format("clarificationShape must be 'raw' or 'structured', received: {}", shape_json)
+            shape_error = _core_validation_error(shape_message)
+            raise shape_error
+        else:
+            pass
+    else:
+        pass
+    input_mode_snake = _core_get(options, "input_validation", None)
+    input_mode = _core_get(options, "inputValidation", input_mode_snake)
+    input_mode_set = _core_is_not_none(input_mode)
+    if input_mode_set:
+        input_mode_is_fail = _core_eq(input_mode, "fail")
+        input_mode_is_lenient = _core_eq(input_mode, "lenient")
+        input_mode_known = _core_or(input_mode_is_fail, input_mode_is_lenient)
+        input_mode_unknown = _core_not(input_mode_known)
+        if input_mode_unknown:
+            input_mode_json = _core_json_pretty(input_mode)
+            input_mode_message = _core_string_format("inputValidation must be 'lenient' or 'fail', received: {}", input_mode_json)
+            input_mode_error = _core_validation_error(input_mode_message)
+            raise input_mode_error
+        else:
+            pass
+    else:
+        pass
     direct_respond_enabled = _core_not(direct_response_is_off)
     inline_callables = _core_get(callable_split, "inline", empty_list)
     discoverable_callables = _core_get(callable_split, "discoverable", empty_list)
@@ -4684,6 +4718,19 @@ def _resolve_agent_context_policy(options: Any) -> Any:
     return out
 
 
+def _agent_eval_marks(state: Any) -> Any:
+    _core_coverage_mark("_agent_eval_marks")
+    empty_list = []
+    log = _core_get(state, "action_log", empty_list)
+    traces = _core_get(state, "function_call_traces", empty_list)
+    log_count = _core_len(log)
+    trace_count = _core_len(traces)
+    marks = {}
+    marks["action_log"] = log_count
+    marks["function_call_traces"] = trace_count
+    return marks
+
+
 def _resolve_agent_executor_model_policy(options: Any) -> Any:
     _core_coverage_mark("_resolve_agent_executor_model_policy")
     empty_list = []
@@ -4802,19 +4849,6 @@ def _resolve_agent_executor_model_policy(options: Any) -> Any:
     else:
         pass
     return out
-
-
-def _agent_eval_marks(state: Any) -> Any:
-    _core_coverage_mark("_agent_eval_marks")
-    empty_list = []
-    log = _core_get(state, "action_log", empty_list)
-    traces = _core_get(state, "function_call_traces", empty_list)
-    log_count = _core_len(log)
-    trace_count = _core_len(traces)
-    marks = {}
-    marks["action_log"] = log_count
-    marks["function_call_traces"] = trace_count
-    return marks
 
 
 def _agent_eval_function_calls(traces: Any) -> Any:
@@ -5015,19 +5049,6 @@ def _agent_compute_effective_chat_budget(base_budget: Any, fixed_overhead_chars:
     return budget
 
 
-def _agent_action_log_char_count(entries: Any) -> number:
-    _core_coverage_mark("_agent_action_log_char_count")
-    total = 0
-    for entry in entries:
-        code = _core_get(entry, "code", "")
-        output = _core_get(entry, "output", "")
-        code_len = _core_len(code)
-        output_len = _core_len(output)
-        entry_len = _core_add(code_len, output_len)
-        total = _core_add(total, entry_len)
-    return total
-
-
 def _build_agent_run_prediction(state: Any, marks: Any, completion: Any, usage: Any, trace: Any) -> Any:
     _core_coverage_mark("_build_agent_run_prediction")
     run = _agent_eval_run(state, marks)
@@ -5071,6 +5092,19 @@ def _build_agent_run_prediction(state: Any, marks: Any, completion: Any, usage: 
     turn_count = _core_get(run, "turnCount", None)
     out["turnCount"] = turn_count
     return out
+
+
+def _agent_action_log_char_count(entries: Any) -> number:
+    _core_coverage_mark("_agent_action_log_char_count")
+    total = 0
+    for entry in entries:
+        code = _core_get(entry, "code", "")
+        output = _core_get(entry, "output", "")
+        code_len = _core_len(code)
+        output_len = _core_len(output)
+        entry_len = _core_add(code_len, output_len)
+        total = _core_add(total, entry_len)
+    return total
 
 
 def _agent_compute_dynamic_runtime_chars(entries: Any, target_prompt_chars: Any, max_runtime_chars: Any) -> number:

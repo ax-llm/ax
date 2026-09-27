@@ -29875,6 +29875,36 @@ final class Core {
       Object direct_response_error = Core.runtimeError("directResponse must be 'auto' or 'off'");
       throw Core.asRuntime(direct_response_error);
     }
+    Object shape_snake = Core.get(options, "clarification_shape", null);
+    Object shape = Core.get(options, "clarificationShape", shape_snake);
+    Object shape_set = Core.isNotNone(shape);
+    if (Core.truthy(shape_set)) {
+      Object shape_is_raw = Core.eq(shape, "raw");
+      Object shape_is_structured = Core.eq(shape, "structured");
+      Object shape_known = Core.or(shape_is_raw, shape_is_structured);
+      Object shape_unknown = Core.not(shape_known);
+      if (Core.truthy(shape_unknown)) {
+        Object shape_json = Core.jsonPretty(shape);
+        Object shape_message = Core.stringFormat("clarificationShape must be 'raw' or 'structured', received: {}", shape_json);
+        Object shape_error = Core.validationError(shape_message);
+        throw Core.asRuntime(shape_error);
+      }
+    }
+    Object input_mode_snake = Core.get(options, "input_validation", null);
+    Object input_mode = Core.get(options, "inputValidation", input_mode_snake);
+    Object input_mode_set = Core.isNotNone(input_mode);
+    if (Core.truthy(input_mode_set)) {
+      Object input_mode_is_fail = Core.eq(input_mode, "fail");
+      Object input_mode_is_lenient = Core.eq(input_mode, "lenient");
+      Object input_mode_known = Core.or(input_mode_is_fail, input_mode_is_lenient);
+      Object input_mode_unknown = Core.not(input_mode_known);
+      if (Core.truthy(input_mode_unknown)) {
+        Object input_mode_json = Core.jsonPretty(input_mode);
+        Object input_mode_message = Core.stringFormat("inputValidation must be 'lenient' or 'fail', received: {}", input_mode_json);
+        Object input_mode_error = Core.validationError(input_mode_message);
+        throw Core.asRuntime(input_mode_error);
+      }
+    }
     Object direct_respond_enabled = Core.not(direct_response_is_off);
     Object inline_callables = Core.get(callable_split, "inline", empty_list);
     Object discoverable_callables = Core.get(callable_split, "discoverable", empty_list);
@@ -31002,6 +31032,19 @@ final class Core {
     return out;
   }
 
+  static Object _agent_eval_marks(Object state) {
+    axirCoverageMark("_agent_eval_marks");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object log = Core.get(state, "action_log", empty_list);
+    Object traces = Core.get(state, "function_call_traces", empty_list);
+    Object log_count = Core.len(log);
+    Object trace_count = Core.len(traces);
+    Object marks = new java.util.LinkedHashMap<String, Object>();
+    Core.set(marks, "action_log", log_count);
+    Core.set(marks, "function_call_traces", trace_count);
+    return marks;
+  }
+
   static Object _resolve_agent_executor_model_policy(Object options) {
     axirCoverageMark("_resolve_agent_executor_model_policy");
     Object empty_list = new java.util.ArrayList<Object>();
@@ -31116,19 +31159,6 @@ final class Core {
       throw Core.asRuntime(error_empty);
     }
     return out;
-  }
-
-  static Object _agent_eval_marks(Object state) {
-    axirCoverageMark("_agent_eval_marks");
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object log = Core.get(state, "action_log", empty_list);
-    Object traces = Core.get(state, "function_call_traces", empty_list);
-    Object log_count = Core.len(log);
-    Object trace_count = Core.len(traces);
-    Object marks = new java.util.LinkedHashMap<String, Object>();
-    Core.set(marks, "action_log", log_count);
-    Core.set(marks, "function_call_traces", trace_count);
-    return marks;
   }
 
   static Object _agent_eval_function_calls(Object traces) {
@@ -31328,20 +31358,6 @@ final class Core {
     return budget;
   }
 
-  static Object _agent_action_log_char_count(Object entries) {
-    axirCoverageMark("_agent_action_log_char_count");
-    Object total = 0;
-    for (Object entry : Core.iter(entries)) {
-      Object code = Core.get(entry, "code", "");
-      Object output = Core.get(entry, "output", "");
-      Object code_len = Core.len(code);
-      Object output_len = Core.len(output);
-      Object entry_len = Core.add(code_len, output_len);
-      total = Core.add(total, entry_len);
-    }
-    return total;
-  }
-
   static Object _build_agent_run_prediction(Object state, Object marks, Object completion, Object usage, Object trace) {
     axirCoverageMark("_build_agent_run_prediction");
     Object run = Core._agent_eval_run(state, marks);
@@ -31382,6 +31398,20 @@ final class Core {
     Object turn_count = Core.get(run, "turnCount", null);
     Core.set(out, "turnCount", turn_count);
     return out;
+  }
+
+  static Object _agent_action_log_char_count(Object entries) {
+    axirCoverageMark("_agent_action_log_char_count");
+    Object total = 0;
+    for (Object entry : Core.iter(entries)) {
+      Object code = Core.get(entry, "code", "");
+      Object output = Core.get(entry, "output", "");
+      Object code_len = Core.len(code);
+      Object output_len = Core.len(output);
+      Object entry_len = Core.add(code_len, output_len);
+      total = Core.add(total, entry_len);
+    }
+    return total;
   }
 
   static Object _agent_compute_dynamic_runtime_chars(Object entries, Object target_prompt_chars, Object max_runtime_chars) {

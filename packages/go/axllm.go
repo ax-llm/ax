@@ -62701,6 +62701,16 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	var v_has_used_skills_observer Value
 	var v_inline_callable_count Value
 	var v_inline_callables Value
+	var v_input_mode Value
+	var v_input_mode_error Value
+	var v_input_mode_is_fail Value
+	var v_input_mode_is_lenient Value
+	var v_input_mode_json Value
+	var v_input_mode_known Value
+	var v_input_mode_message Value
+	var v_input_mode_set Value
+	var v_input_mode_snake Value
+	var v_input_mode_unknown Value
 	var v_inspect_camel Value
 	var v_inspect_direct Value
 	var v_inspect_mode Value
@@ -62721,6 +62731,16 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	var v_relevance_is_false Value
 	var v_relevance_raw Value
 	var v_safe_namespace Value
+	var v_shape Value
+	var v_shape_error Value
+	var v_shape_is_raw Value
+	var v_shape_is_structured Value
+	var v_shape_json Value
+	var v_shape_known Value
+	var v_shape_message Value
+	var v_shape_set Value
+	var v_shape_snake Value
+	var v_shape_unknown Value
 	var v_skills_callback_mode Value
 	var v_skills_camel Value
 	var v_skills_catalog Value
@@ -62794,6 +62814,16 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	_ = v_has_used_skills_observer
 	_ = v_inline_callable_count
 	_ = v_inline_callables
+	_ = v_input_mode
+	_ = v_input_mode_error
+	_ = v_input_mode_is_fail
+	_ = v_input_mode_is_lenient
+	_ = v_input_mode_json
+	_ = v_input_mode_known
+	_ = v_input_mode_message
+	_ = v_input_mode_set
+	_ = v_input_mode_snake
+	_ = v_input_mode_unknown
 	_ = v_inspect_camel
 	_ = v_inspect_direct
 	_ = v_inspect_mode
@@ -62814,6 +62844,16 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	_ = v_relevance_is_false
 	_ = v_relevance_raw
 	_ = v_safe_namespace
+	_ = v_shape
+	_ = v_shape_error
+	_ = v_shape_is_raw
+	_ = v_shape_is_structured
+	_ = v_shape_json
+	_ = v_shape_known
+	_ = v_shape_message
+	_ = v_shape_set
+	_ = v_shape_snake
+	_ = v_shape_unknown
 	_ = v_skills_callback_mode
 	_ = v_skills_camel
 	_ = v_skills_catalog
@@ -62930,6 +62970,44 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	if coreTruthy(v_direct_response_invalid) {
 		v_direct_response_error = _core_runtime_error("directResponse must be 'auto' or 'off'")
 		return nil, asError(v_direct_response_error)
+	} else {
+	// empty
+	}
+	v_shape_snake = coreGet(v_options, "clarification_shape", nil)
+	v_shape = coreGet(v_options, "clarificationShape", v_shape_snake)
+	v_shape_set = _core_is_not_none(v_shape)
+	if coreTruthy(v_shape_set) {
+		v_shape_is_raw = _core_eq(v_shape, "raw")
+		v_shape_is_structured = _core_eq(v_shape, "structured")
+		v_shape_known = _core_or(v_shape_is_raw, v_shape_is_structured)
+		v_shape_unknown = _core_not(v_shape_known)
+		if coreTruthy(v_shape_unknown) {
+			v_shape_json = _core_json_pretty(v_shape)
+			v_shape_message = _core_string_format("clarificationShape must be 'raw' or 'structured', received: {}", v_shape_json)
+			v_shape_error = _core_validation_error(v_shape_message)
+			return nil, asError(v_shape_error)
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_input_mode_snake = coreGet(v_options, "input_validation", nil)
+	v_input_mode = coreGet(v_options, "inputValidation", v_input_mode_snake)
+	v_input_mode_set = _core_is_not_none(v_input_mode)
+	if coreTruthy(v_input_mode_set) {
+		v_input_mode_is_fail = _core_eq(v_input_mode, "fail")
+		v_input_mode_is_lenient = _core_eq(v_input_mode, "lenient")
+		v_input_mode_known = _core_or(v_input_mode_is_fail, v_input_mode_is_lenient)
+		v_input_mode_unknown = _core_not(v_input_mode_known)
+		if coreTruthy(v_input_mode_unknown) {
+			v_input_mode_json = _core_json_pretty(v_input_mode)
+			v_input_mode_message = _core_string_format("inputValidation must be 'lenient' or 'fail', received: {}", v_input_mode_json)
+			v_input_mode_error = _core_validation_error(v_input_mode_message)
+			return nil, asError(v_input_mode_error)
+		} else {
+		// empty
+		}
 	} else {
 	// empty
 	}
@@ -65077,6 +65155,34 @@ func _resolve_agent_context_policy(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _agent_eval_marks(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_eval_marks")
+	var v_state Value
+	var v_empty_list Value
+	var v_log Value
+	var v_log_count Value
+	var v_marks Value
+	var v_trace_count Value
+	var v_traces Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_empty_list
+	_ = v_log
+	_ = v_log_count
+	_ = v_marks
+	_ = v_trace_count
+	_ = v_traces
+	v_empty_list = MutableArray()
+	v_log = coreGet(v_state, "action_log", v_empty_list)
+	v_traces = coreGet(v_state, "function_call_traces", v_empty_list)
+	v_log_count = _core_len(v_log)
+	v_trace_count = _core_len(v_traces)
+	v_marks = Object()
+	if err := coreSet(v_marks, "action_log", v_log_count); err != nil { return nil, err }
+	if err := coreSet(v_marks, "function_call_traces", v_trace_count); err != nil { return nil, err }
+	return v_marks, nil
+}
+
 func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 	axirCoverageMark("_resolve_agent_executor_model_policy")
 	var v_options Value
@@ -65317,34 +65423,6 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_out, nil
-}
-
-func _agent_eval_marks(args ...Value) (Value, error) {
-	axirCoverageMark("_agent_eval_marks")
-	var v_state Value
-	var v_empty_list Value
-	var v_log Value
-	var v_log_count Value
-	var v_marks Value
-	var v_trace_count Value
-	var v_traces Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	_ = v_empty_list
-	_ = v_log
-	_ = v_log_count
-	_ = v_marks
-	_ = v_trace_count
-	_ = v_traces
-	v_empty_list = MutableArray()
-	v_log = coreGet(v_state, "action_log", v_empty_list)
-	v_traces = coreGet(v_state, "function_call_traces", v_empty_list)
-	v_log_count = _core_len(v_log)
-	v_trace_count = _core_len(v_traces)
-	v_marks = Object()
-	if err := coreSet(v_marks, "action_log", v_log_count); err != nil { return nil, err }
-	if err := coreSet(v_marks, "function_call_traces", v_trace_count); err != nil { return nil, err }
-	return v_marks, nil
 }
 
 func _agent_eval_function_calls(args ...Value) (Value, error) {
@@ -65761,37 +65839,6 @@ func _agent_compute_effective_chat_budget(args ...Value) (Value, error) {
 	return v_budget, nil
 }
 
-func _agent_action_log_char_count(args ...Value) (Value, error) {
-	axirCoverageMark("_agent_action_log_char_count")
-	var v_entries Value
-	var v_code Value
-	var v_code_len Value
-	var v_entry Value
-	var v_entry_len Value
-	var v_output Value
-	var v_output_len Value
-	var v_total Value
-	if len(args) > 0 { v_entries = args[0] }
-	_ = v_entries
-	_ = v_code
-	_ = v_code_len
-	_ = v_entry
-	_ = v_entry_len
-	_ = v_output
-	_ = v_output_len
-	_ = v_total
-	v_total = 0
-	for _, v_entry = range coreIter(v_entries) {
-		v_code = coreGet(v_entry, "code", "")
-		v_output = coreGet(v_entry, "output", "")
-		v_code_len = _core_len(v_code)
-		v_output_len = _core_len(v_output)
-		v_entry_len = _core_add(v_code_len, v_output_len)
-		v_total = _core_add(v_total, v_entry_len)
-	}
-	return v_total, nil
-}
-
 func _build_agent_run_prediction(args ...Value) (Value, error) {
 	axirCoverageMark("_build_agent_run_prediction")
 	var v_state Value
@@ -65885,6 +65932,37 @@ func _build_agent_run_prediction(args ...Value) (Value, error) {
 	v_turn_count = coreGet(v_run, "turnCount", nil)
 	if err := coreSet(v_out, "turnCount", v_turn_count); err != nil { return nil, err }
 	return v_out, nil
+}
+
+func _agent_action_log_char_count(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_action_log_char_count")
+	var v_entries Value
+	var v_code Value
+	var v_code_len Value
+	var v_entry Value
+	var v_entry_len Value
+	var v_output Value
+	var v_output_len Value
+	var v_total Value
+	if len(args) > 0 { v_entries = args[0] }
+	_ = v_entries
+	_ = v_code
+	_ = v_code_len
+	_ = v_entry
+	_ = v_entry_len
+	_ = v_output
+	_ = v_output_len
+	_ = v_total
+	v_total = 0
+	for _, v_entry = range coreIter(v_entries) {
+		v_code = coreGet(v_entry, "code", "")
+		v_output = coreGet(v_entry, "output", "")
+		v_code_len = _core_len(v_code)
+		v_output_len = _core_len(v_output)
+		v_entry_len = _core_add(v_code_len, v_output_len)
+		v_total = _core_add(v_total, v_entry_len)
+	}
+	return v_total, nil
 }
 
 func _agent_compute_dynamic_runtime_chars(args ...Value) (Value, error) {
