@@ -19245,8 +19245,17 @@ fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError
 // ending the text and a low one starting the chunk join into the character
 // they make; here each half is its mark (see LONE_SURROGATE_MARK).
 fn core_string_concat_stream_text(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    let text = core_arg(args, 0).text();
-    let chunk = core_arg(args, 1).text();
+    Ok(CoreValue::from_string(join_stream_text(&core_arg(args, 0).text(), &core_arg(args, 1).text())))
+}
+
+/// Appends a streamed chunk to `text`, as the AxGen stream does: half of a
+/// surrogate pair a provider split across chunks (read as its private-use
+/// mark, since a Rust `String` can't hold a lone surrogate) ending `text`, and
+/// the other half starting `chunk`, join into the character. A raw client
+/// `stream` delta can carry such a half, so join raw deltas with
+/// `join_stream_text` rather than `push_str`, which would leave the two
+/// marks instead of the character.
+pub fn join_stream_text(text: &str, chunk: &str) -> String {
     let last = text.chars().last();
     let first = chunk.chars().next();
     let high = last.and_then(lone_surrogate_unit).filter(|unit| *unit <= 0xDBFF);
@@ -19255,9 +19264,9 @@ fn core_string_concat_stream_text(args: &[CoreValue]) -> Result<CoreValue, AxErr
         let joined = char::from_u32(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00)).unwrap_or('\u{fffd}');
         let head = &text[..text.len() - last.len_utf8()];
         let tail = &chunk[first.len_utf8()..];
-        return Ok(CoreValue::from_string(format!("{head}{joined}{tail}")));
+        return format!("{head}{joined}{tail}");
     }
-    Ok(CoreValue::from_string(format!("{text}{chunk}")))
+    format!("{text}{chunk}")
 }
 
 // The value without a trailing high surrogate (U+D800 to U+DBFF), which TS
@@ -27385,6 +27394,16 @@ mod stream_split_surrogate_tests {
             assert_eq!(output, json!({"answer": "hi \u{1f600} there"}), "buffered {buffered}");
             assert_eq!(deltas.concat(), "hi \u{1f600} there", "buffered {buffered}");
             assert!(deltas.iter().all(|delta| !delta.chars().any(|ch| lone_surrogate_unit(ch).is_some())), "a delta holds half a character: {deltas:?}");
+        }
+        // Raw client stream deltas carry the halves; join_stream_text joins
+        // them into the character, as the AxGen stream does.
+        for buffered in [false, true] {
+            let mut client = ai("openai", json!({"api_key": "test", "model": "gpt-5.4-mini"}))?.with_transport(SplitPair { buffered });
+            let deltas = client.stream(json!({"chat_prompt": [{"role": "user", "content": "Status?"}]}))?;
+            let text = deltas.iter().fold(String::new(), |text, delta| {
+                join_stream_text(&text, delta["results"][0]["content"].as_str().unwrap_or_default())
+            });
+            assert_eq!(text, "Answer: hi \u{1f600} there", "buffered {buffered}");
         }
         // A lone half reads as its mark and is written back as JS writes it.
         let half = parse_stream_event_json("{\"content\":\"hi \\ud83d\"}")?;

@@ -194,6 +194,9 @@ func TestLoneSurrogateEscapesKeepTheirHalves(t *testing.T) {
 	if joined := display(_core_string_concat_stream_text(head, tail)); joined != "hi \U0001F600 there" {
 		t.Fatalf("joined = %q", joined)
 	}
+	if joined := JoinStreamText(head, tail); joined != "hi \U0001F600 there" {
+		t.Fatalf("JoinStreamText = %q", joined)
+	}
 	if held := display(_core_string_drop_trailing_high_surrogate(head)); held != "hi " {
 		t.Fatalf("held back = %q", held)
 	}
@@ -241,5 +244,20 @@ func TestStreamedSplitSurrogatePairJoins(t *testing.T) {
 		if !utf8.ValidString(delta) {
 			t.Fatalf("delta %q holds half a character", delta)
 		}
+	}
+	// Raw client Stream deltas carry the halves; JoinStreamText joins them
+	// into the character, as the AxGen stream does.
+	raw, err := client.Stream(context.Background(), map[string]Value{"chat_prompt": Array(Object("role", "user", "content", "Status?"))}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := ""
+	for _, delta := range raw {
+		for _, result := range asSlice(coreGet(delta, "results", Array())) {
+			text = JoinStreamText(text, display(coreGet(result, "content", "")))
+		}
+	}
+	if text != "Answer: hi \U0001F600 there" {
+		t.Fatalf("raw deltas joined = %q", text)
 	}
 }

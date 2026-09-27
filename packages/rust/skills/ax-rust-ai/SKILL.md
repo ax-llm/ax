@@ -137,3 +137,4 @@ Use the provider-backed Astra examples under `src/examples/rust/generation/`, `s
 - Use `no-key` examples for deterministic local checks and provider request mapping.
 - Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.
 - Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.
+- A provider can split a surrogate pair (an emoji, say) across stream chunks. AxGen streaming deltas and outputs join it, but a raw client `stream` delta carries each half as a private-use mark (U+10F800 plus the half's offset from U+D800), since a Rust `String` can't hold a lone surrogate. Join raw deltas with `join_stream_text(&text, &delta)`: `push_str` leaves the two marks where the character belongs.

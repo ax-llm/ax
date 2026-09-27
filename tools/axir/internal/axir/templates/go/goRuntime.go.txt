@@ -1652,6 +1652,16 @@ func _core_string_concat_stream_text(left Value, right Value) Value {
 	return text + chunk
 }
 
+// JoinStreamText appends a streamed chunk to text, as the AxGen stream does:
+// half of a surrogate pair a provider split across chunks (its WTF-8 bytes
+// ending text, the other half starting chunk) joins into the character. A raw
+// client Stream delta can carry such a half, so join raw deltas with
+// JoinStreamText rather than +, which would leave the two halves' WTF-8
+// bytes (not valid UTF-8) instead of the character.
+func JoinStreamText(text, chunk string) string {
+	return display(_core_string_concat_stream_text(text, chunk))
+}
+
 // _core_string_drop_trailing_high_surrogate holds back a high surrogate at the
 // end of a field's text until its pair streams in, as TS does, so no delta
 // ends in half a character.

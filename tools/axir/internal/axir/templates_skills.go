@@ -478,8 +478,12 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		"Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.",
 	}
 	if target == "go" && spec.ID == "ai" {
+		guardrails = append(guardrails, "A provider can split a surrogate pair (an emoji, say) across stream chunks. AxGen streaming deltas and outputs join it, but a raw client `Stream` delta carries each half as its WTF-8 bytes, as TypeScript's raw deltas carry the lone surrogate. Join raw deltas with `JoinStreamText(text, delta)`: concatenating them with `+` leaves the two halves' bytes, which are not valid UTF-8, where the character belongs.")
 		guardrails = append(guardrails, "When decorating `AIClient`, forward `GetFeatures(model) map[string]Value` whenever the wrapped client implements it. AxGen otherwise falls back to permissive capabilities, which can select an unsupported structured-output rung.")
 		guardrails = append(guardrails, "For Vertex OpenAI-compatible MaaS, prefer `NewAI(\"vertex-ai\", options)` with `AxCredentialProviderFunc`; do not reintroduce a request-rewriting response-format decorator.")
+	}
+	if target == "rust" && spec.ID == "ai" {
+		guardrails = append(guardrails, "A provider can split a surrogate pair (an emoji, say) across stream chunks. AxGen streaming deltas and outputs join it, but a raw client `stream` delta carries each half as a private-use mark (U+10F800 plus the half's offset from U+D800), since a Rust `String` can't hold a lone surrogate. Join raw deltas with `join_stream_text(&text, &delta)`: `push_str` leaves the two marks where the character belongs.")
 	}
 	return readmeLines(
 		skillFrontmatter(name, description, generatedPackageVersion()),
