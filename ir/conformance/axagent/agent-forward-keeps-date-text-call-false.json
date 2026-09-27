@@ -1,0 +1,66 @@
+{
+  "description": "Port-only: parse_dates false on the forward call wins over the agent constructor, so the responder keeps the model text of the date field; TS always parses it.",
+  "expected_output": {
+    "answer": "Refunds take 30 days.",
+    "when": "2024-05-09 14:30 America/New_York"
+  },
+  "expected_request_count": 3,
+  "expected_transcript": [
+    "request:distiller",
+    "request:executor",
+    "request:responder"
+  ],
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "forward_options": {
+    "parse_dates": false
+  },
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "kind": "agent_forward",
+  "name": "agent-forward-keeps-date-text-call-false",
+  "options": {
+    "directResponse": "off",
+    "parse_dates": true,
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: Refunds take 30 days.\nWhen: 2024-05-09 14:30 America/New_York"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string, when:datetime"
+}

@@ -44,6 +44,12 @@ result = helper.forward(aiClient, inputs)
 
 {{agentMinimalExample}}
 
+### Stream the answer
+
+`streamingForward()` runs the distiller and the executor first, then streams the responder's answer as field deltas. A clarification or an executor error surfaces before any delta. Each delta carries a `version`: merge the deltas of one version (strings append, other values replace) and start over when the version changes. The citation check runs when the answer completes; an answer that cites evidence the run never gathered is sent back for a correction, which streams as a new version, and `onCitations` fires after the stream ends.
+
+{{agentStreamingExample}}
+
 ### Namespaced tools and discovery
 
 Use a flat `functions` list for small stable sets: local `fn()` tools, child agents, MCP clients, and runtime providers can all live beside each other. The actor sees those callables directly.

@@ -1,0 +1,118 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "Refunds"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": " take 30 days."
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {},
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_observer_calls": [
+    {
+      "callback": "citations",
+      "payload": ["policy"]
+    }
+  ],
+  "expected_output": {
+    "answer": "Refunds take 30 days."
+  },
+  "expected_request_count": 3,
+  "expected_transcript": [
+    "request:distiller",
+    "request:executor",
+    "request:responder",
+    "citations"
+  ],
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "kind": "agent_streaming_forward",
+  "name": "agent-streaming-forward-citations-hidden",
+  "observers": ["citations"],
+  "options": {
+    "citations": {
+      "surface": "hidden"
+    },
+    "directResponse": "off",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Refunds ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "take 30 days.\n",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Evidence Citations: [\"policy\"]",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

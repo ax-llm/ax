@@ -881,6 +881,63 @@ func TestConstructorOptionsChooseTheNativeSession(t *testing.T) {
 	}
 }
 
+// Agent streams don't cover async run sessions yet: under a run control on a
+// session-capable client, StreamingForward streams the responder through the
+// request boundary, as AxGen.StreamingForward does, and the run reports its
+// lifecycle at root and each stage at root/<stage>.
+func TestAstraAgentStreamingForwardUnderControl(t *testing.T) {
+	answers := []string{
+		`{"completion":{"type":"final","args":["Find reference",{}]}}`,
+		`{"completion":{"type":"final","args":["Report reference",{"answer":"REF-42"}]}}`,
+		"Answer: REF-42",
+	}
+	transport := &sessionTestTransport{}
+	transport.stream = func(_ context.Context, _ Value, n int) (AxHTTPStreamResponse, error) {
+		if n > len(answers) {
+			return AxHTTPStreamResponse{}, fmt.Errorf("unexpected request %d", n)
+		}
+		var data strings.Builder
+		sessionSSE(&data, sessionCompleted(fmt.Sprintf("stream-r%d", n), answers[n-1]))
+		return AxHTTPStreamResponse{Status: 200, Body: io.NopCloser(strings.NewReader(data.String()))}, nil
+	}
+	control := RunControl()
+	var mu sync.Mutex
+	events := []string{}
+	control.OnEvent(func(event map[string]Value) {
+		switch display(event["type"]) {
+		case "started", "completed", "failed", "aborted":
+			mu.Lock()
+			events = append(events, display(event["type"])+"@"+display(event["path"]))
+			mu.Unlock()
+		}
+	})
+	program := NewAgent("question -> answer", Object("directResponse", "off"))
+	client := NewAI("openai", Object("api_key", "test", "model", "gpt-6-astra", "transport", transport))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	answer := ""
+	for delta, err := range program.StreamingForward(ctx, client, Object("question", "Find reference"), Object("control", control)) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text, ok := delta.Delta["answer"].(string); ok {
+			answer += text
+		}
+	}
+	transport.mu.Lock()
+	requests := len(transport.requests)
+	transport.mu.Unlock()
+	if answer != "REF-42" || requests != 3 {
+		t.Fatalf("streamed answer %q after %d requests", answer, requests)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := "started@root,started@root/distiller,completed@root/distiller,started@root/executor,completed@root/executor,started@root/responder,completed@root/responder,completed@root"
+	if strings.Join(events, ",") != want {
+		t.Fatalf("control events %v", events)
+	}
+}
+
 // retainingSteerClient keeps each request as given, as a logging client might,
 // steers the run while its first request is in flight and answers
 // "Answer: reply N".

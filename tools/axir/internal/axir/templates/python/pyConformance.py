@@ -643,6 +643,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_context_cache(fixture)
         elif kind == "agent_forward":
             _run_agent_forward(fixture)
+        elif kind == "agent_streaming_forward":
+            _run_agent_forward(fixture)
         elif kind == "agent_playbook_coverage":
             _run_agent_playbook_coverage(fixture)
         elif kind == "agent_playbook_evolve":
@@ -2333,6 +2335,39 @@ def _run_agent_forward(fixture):
     if "parent" in contexts: agent_options["executionContext"] = contexts["parent"]
     semantic_observer_transcript = []
     semantic_observers_enabled = "expected_observer_transcript" in fixture
+    # Observer calls, each marked with the number of model requests before it,
+    # so the transcript can interleave them with the requests.
+    observer_calls, observer_marks = [], []
+    def _recording_observer(label):
+        def observe(payload):
+            observer_marks.append((len(client.requests), label))
+            observer_calls.append({"callback": label, "payload": copy.deepcopy(payload)})
+        return observe
+    for label in fixture.get("observers") or []:
+        if label == "used_memories":
+            agent_options["onUsedMemories"] = _recording_observer(label)
+        elif label == "used_skills":
+            agent_options["onUsedSkills"] = _recording_observer(label)
+        elif label == "citations":
+            citations = agent_options.get("citations")
+            citations = dict(citations) if isinstance(citations, dict) else {}
+            citations["onCitations"] = _recording_observer(label)
+            agent_options["citations"] = citations
+        elif label == "playbook_update":
+            # The playbook's onUpdate after run-end learning, by its status.
+            playbook_options = agent_options.get("playbook")
+            playbook_options = dict(playbook_options) if isinstance(playbook_options, dict) else {}
+            record_update = _recording_observer(label)
+            playbook_options["onUpdate"] = lambda result, record_update=record_update: record_update({"status": result.get("status")})
+            agent_options["playbook"] = playbook_options
+    control_events = []
+    control_options = {}
+    if fixture.get("control"):
+        # The run lifecycle events, in order, with their paths; with
+        # control_steer every event, and the steer lands during that request.
+        control_events = _attach_fixture_control(fixture, client, control_options)
+    streaming = fixture.get("kind") == "agent_streaming_forward"
+    stream_deltas = []
     def _semantic_observer(label, throws=False):
         def observe(payload):
             semantic_observer_transcript.append({"callback": label, "payload": copy.deepcopy(payload or [])})
@@ -2437,7 +2472,20 @@ def _run_agent_forward(fixture):
                     forward_options["onUsedSkills"] = _semantic_observer("forward.used_skills")
                 if "onUsedMemories" in forward_options:
                     forward_options["onUsedMemories"] = _semantic_observer("forward.used_memories")
-            output = ag.forward(client, fixture.get("input") or {}, forward_options)
+            forward_options.update(control_options)
+            if streaming:
+                stop_after = fixture.get("stop_after_deltas")
+                stream = ag.streaming_forward(client, fixture.get("input") or {}, forward_options)
+                try:
+                    for delta in stream:
+                        stream_deltas.append(delta)
+                        if len(stream_deltas) == stop_after:
+                            break
+                finally:
+                    stream.close()
+                output = ag.state.get("last_output") if stop_after is None else None
+            else:
+                output = ag.forward(client, fixture.get("input") or {}, forward_options)
     except AxAgentClarificationError as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
@@ -2445,6 +2493,7 @@ def _run_agent_forward(fixture):
                 _assert_subset(exc.clarification, fixture["expected_clarification"], "clarification")
             if ag is not None:
                 _assert_agent_trace(ag, fixture)
+            _assert_agent_run_projections(fixture, ag, client, stream_deltas, control_events, observer_calls, observer_marks)
             return
         raise
     except Exception as exc:
@@ -2452,12 +2501,14 @@ def _run_agent_forward(fixture):
         if expected and expected in str(exc):
             if ag is not None:
                 _assert_agent_trace(ag, fixture)
+            _assert_agent_run_projections(fixture, ag, client, stream_deltas, control_events, observer_calls, observer_marks)
             return
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected agent forward to fail")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "agent output")
+    _assert_agent_run_projections(fixture, ag, client, stream_deltas, control_events, observer_calls, observer_marks)
     if "expected_run_state_projections" in fixture:
         _assert_equal(run_state_projections, fixture["expected_run_state_projections"], "agent run state projections")
     if "expected_state_roundtrip_projection" in fixture:
@@ -2605,6 +2656,45 @@ def _run_agent_forward(fixture):
     if runtime is not None and "expected_executed" in fixture:
         _assert_equal(runtime.executed, fixture["expected_executed"], "executed code")
     _assert_agent_trace(ag, fixture)
+
+
+def _agent_request_stage(request):
+    # Which part of the agent run sent a model request, by its system prompt.
+    prompt = request.get("chat_prompt") or request.get("chatPrompt") or []
+    system = ""
+    if prompt and isinstance(prompt[0], dict) and prompt[0].get("role") == "system":
+        system = str(prompt[0].get("content", ""))
+    if "You (`distiller`)" in system:
+        return "distiller"
+    if "You (`executor`)" in system:
+        return "executor"
+    if "`Generator answer`" in system or "`Question context`" in system:
+        return "playbook"
+    if "context-map Distiller" in system or "context-map Cartographer" in system:
+        return "context_map"
+    return "responder"
+
+
+def _assert_agent_run_projections(fixture, ag, client, deltas, control_events, observer_calls, observer_marks):
+    if fixture.get("kind") == "agent_streaming_forward" or "expected_deltas" in fixture:
+        _assert_equal(deltas, fixture.get("expected_deltas") or [], "agent streaming deltas")
+    if "expected_control_events" in fixture:
+        _assert_equal(control_events, fixture["expected_control_events"], "agent run control events")
+    _assert_request_roles(fixture, client)
+    if "expected_observer_calls" in fixture:
+        _assert_equal(observer_calls, fixture["expected_observer_calls"], "agent observer calls")
+    if "expected_transcript" in fixture:
+        marks = list(observer_marks)
+        transcript = []
+        for index, request in enumerate(client.requests):
+            while marks and marks[0][0] <= index:
+                transcript.append(marks.pop(0)[1])
+            transcript.append("request:" + _agent_request_stage(request))
+        transcript.extend(label for _, label in marks)
+        _assert_equal(transcript, fixture["expected_transcript"], "agent run transcript")
+    if "expected_chat_log_shape" in fixture and ag is not None:
+        shape = [{"name": entry.get("name"), "stage": entry.get("stage")} for entry in ag.get_chat_log()]
+        _assert_equal(shape, fixture["expected_chat_log_shape"], "agent chat log shape")
 
 
 def _assert_agent_trace(ag, fixture):

@@ -115,6 +115,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.flow.caching_function":                 "core_flow_caching_function",
 	"intrinsic.agent.stage_forward":                   "core_agent_stage_forward",
 	"intrinsic.agent.native_stage_forward":            "core_agent_native_stage_forward",
+	"intrinsic.agent.stage_streaming_forward":         "core_agent_stage_streaming_forward",
 	"intrinsic.agent.stage_traces":                    "core_agent_stage_traces",
 	"intrinsic.agent.stage_usage":                     "core_agent_stage_usage",
 	"intrinsic.json.stable_stringify":                 "core_json_stable_stringify",

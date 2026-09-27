@@ -455,6 +455,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicFlowCachingFunction:       "Core::flow_caching_function",
 	IntrinsicAgentStageForward:         "Core::agent_stage_forward",
 	IntrinsicAgentNativeStageForward:   "Core::agent_native_stage_forward",
+	IntrinsicAgentStageStreamForward:   "Core::agent_stage_streaming_forward",
 	IntrinsicAgentStageChatLog:         "Core::agent_stage_chat_log",
 	IntrinsicAgentStageUsage:           "Core::agent_stage_usage",
 	IntrinsicAgentStageTraces:          "Core::agent_stage_traces",

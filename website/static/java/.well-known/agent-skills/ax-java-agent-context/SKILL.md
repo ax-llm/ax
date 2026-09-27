@@ -33,7 +33,7 @@ var out = helper.forward(llm, java.util.Map.of("question", "How should I proceed
 
 ## Relevant API Surface
 
-- Agents And RLM: `Ax.agent`, `AxAgent`, `AxAgent.addChildAgent`
+- Agents And RLM: `Ax.agent`, `AxAgent`, `AxAgent.addChildAgent`, `AxAgent.streamingForward`
 - Runtime Profiles: `ProcessCodeRuntime`, `RuntimeCapabilities`, `RuntimeEnvelope`, `javascript-quickjs`, `python-pyodide`
 - Optimizers: `Ax.optimize`, `Ax.playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
 
