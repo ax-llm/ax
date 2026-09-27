@@ -19624,7 +19624,7 @@ func provider_build_chat_request(args ...Value) (Value, error) {
 		if coreTruthy(v_is_meta) {
 			{ v, err := _meta_prepare_responses_request(v_responses_payload, v_request, v_options); if err != nil { return nil, err }; v_responses_payload = v }
 		} else {
-		// empty
+			{ v, err := _openai_responses_apply_prompt_cache_retention(v_responses_payload, v_request, v_options, v_model); if err != nil { return nil, err }; v_responses_payload = v }
 		}
 		{ v, err := openai_responses_apply_astra_caching(v_responses_payload, v_request, v_options); if err != nil { return nil, err }; v_payload = v }
 	} else {
@@ -30855,6 +30855,61 @@ func provider_embed_url(args ...Value) (Value, error) {
 	v_project = coreGet(v_options, "projectId", v_project_snake)
 	v_url = _core_string_format("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", v_base_url, v_project, v_model)
 	return v_url, nil
+}
+
+func _openai_responses_apply_prompt_cache_retention(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_apply_prompt_cache_retention")
+	var v_payload Value
+	var v_request Value
+	var v_options Value
+	var v_model Value
+	var v_config_retention Value
+	var v_config_retention_snake Value
+	var v_empty_map Value
+	var v_has_retention Value
+	var v_is_astra Value
+	var v_model_config Value
+	var v_model_config_snake Value
+	var v_not_astra Value
+	var v_option_retention_snake Value
+	var v_retention Value
+	var v_send Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	if len(args) > 3 { v_model = args[3] }
+	_ = v_model
+	_ = v_config_retention
+	_ = v_config_retention_snake
+	_ = v_empty_map
+	_ = v_has_retention
+	_ = v_is_astra
+	_ = v_model_config
+	_ = v_model_config_snake
+	_ = v_not_astra
+	_ = v_option_retention_snake
+	_ = v_retention
+	_ = v_send
+	v_empty_map = Object()
+	v_model_config_snake = coreGet(v_request, "model_config", v_empty_map)
+	v_model_config = coreGet(v_request, "modelConfig", v_model_config_snake)
+	v_config_retention_snake = coreGet(v_model_config, "prompt_cache_retention", nil)
+	v_config_retention = coreGet(v_model_config, "promptCacheRetention", v_config_retention_snake)
+	v_option_retention_snake = coreGet(v_options, "prompt_cache_retention", v_config_retention)
+	v_retention = coreGet(v_options, "promptCacheRetention", v_option_retention_snake)
+	v_has_retention = _core_truthy(v_retention)
+	{ v, err := _openai_is_gpt6_astra_impl(v_model); if err != nil { return nil, err }; v_is_astra = v }
+	v_not_astra = _core_not(v_is_astra)
+	v_send = _core_and(v_has_retention, v_not_astra)
+	if coreTruthy(v_send) {
+		if err := coreSet(v_payload, "prompt_cache_retention", v_retention); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_payload, nil
 }
 
 func chat_session_mode_enabled(args ...Value) (Value, error) {
@@ -56327,25 +56382,31 @@ func _caching_function_option_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_caching_function_option_impl")
 	var v_gen Value
 	var v_options Value
+	var v_base_options Value
 	var v_cache_fn Value
 	var v_call_options Value
 	var v_control Value
 	var v_controlled Value
 	var v_empty Value
 	var v_no_cache Value
+	var v_run_options Value
 	if len(args) > 0 { v_gen = args[0] }
 	_ = v_gen
 	if len(args) > 1 { v_options = args[1] }
 	_ = v_options
+	_ = v_base_options
 	_ = v_cache_fn
 	_ = v_call_options
 	_ = v_control
 	_ = v_controlled
 	_ = v_empty
 	_ = v_no_cache
+	_ = v_run_options
 	v_empty = Object()
 	v_call_options = _core_map_merge(v_empty, v_options)
-	v_control = coreGet(v_call_options, "control", nil)
+	v_base_options = coreGet(v_gen, "options", v_empty)
+	v_run_options = _core_map_merge(v_base_options, v_call_options)
+	v_control = coreGet(v_run_options, "control", nil)
 	v_controlled = _core_is_not_none(v_control)
 	if coreTruthy(v_controlled) {
 		v_no_cache = _core_none()
@@ -56856,64 +56917,6 @@ func _cache_lookup_option_impl(args ...Value) (Value, error) {
 	return v_lookup, nil
 }
 
-func _apply_control_updates_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_apply_control_updates_impl")
-	var v_gen Value
-	var v_messages Value
-	var v_runtime_options Value
-	var v_updates Value
-	var v_has_steers Value
-	var v_is_steer Value
-	var v_kind Value
-	var v_level Value
-	var v_message Value
-	var v_steer_count Value
-	var v_steers Value
-	var v_text Value
-	var v_update Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_messages = args[1] }
-	_ = v_messages
-	if len(args) > 2 { v_runtime_options = args[2] }
-	_ = v_runtime_options
-	if len(args) > 3 { v_updates = args[3] }
-	_ = v_updates
-	_ = v_has_steers
-	_ = v_is_steer
-	_ = v_kind
-	_ = v_level
-	_ = v_message
-	_ = v_steer_count
-	_ = v_steers
-	_ = v_text
-	_ = v_update
-	v_steers = MutableArray()
-	for _, v_update = range coreIter(v_updates) {
-		v_kind = coreGet(v_update, "type", "")
-		v_is_steer = _core_eq(v_kind, "steer")
-		if coreTruthy(v_is_steer) {
-			v_text = coreGet(v_update, "text", "")
-			v_message = Object()
-			if err := coreSet(v_message, "role", "user"); err != nil { return nil, err }
-			if err := coreSet(v_message, "content", v_text); err != nil { return nil, err }
-			v_messages = coreAppend(v_messages, v_message)
-			v_steers = coreAppend(v_steers, v_message)
-		} else {
-			v_level = coreGet(v_update, "level", nil)
-			if err := coreSet(v_runtime_options, "thinkingTokenBudget", v_level); err != nil { return nil, err }
-		}
-	}
-	v_steer_count = _core_len(v_steers)
-	v_has_steers = _core_gt(v_steer_count, 0)
-	if coreTruthy(v_has_steers) {
-		_core_axgen_memory_add_request(v_gen, v_steers)
-	} else {
-	// empty
-	}
-	return v_messages, nil
-}
-
 func _stream_json_strings_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_json_strings_impl")
 	var v_fields Value
@@ -56983,6 +56986,64 @@ func _stream_json_strings_impl(args ...Value) (Value, error) {
 		}
 	}
 	return nil, nil
+}
+
+func _apply_control_updates_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_apply_control_updates_impl")
+	var v_gen Value
+	var v_messages Value
+	var v_runtime_options Value
+	var v_updates Value
+	var v_has_steers Value
+	var v_is_steer Value
+	var v_kind Value
+	var v_level Value
+	var v_message Value
+	var v_steer_count Value
+	var v_steers Value
+	var v_text Value
+	var v_update Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_messages = args[1] }
+	_ = v_messages
+	if len(args) > 2 { v_runtime_options = args[2] }
+	_ = v_runtime_options
+	if len(args) > 3 { v_updates = args[3] }
+	_ = v_updates
+	_ = v_has_steers
+	_ = v_is_steer
+	_ = v_kind
+	_ = v_level
+	_ = v_message
+	_ = v_steer_count
+	_ = v_steers
+	_ = v_text
+	_ = v_update
+	v_steers = MutableArray()
+	for _, v_update = range coreIter(v_updates) {
+		v_kind = coreGet(v_update, "type", "")
+		v_is_steer = _core_eq(v_kind, "steer")
+		if coreTruthy(v_is_steer) {
+			v_text = coreGet(v_update, "text", "")
+			v_message = Object()
+			if err := coreSet(v_message, "role", "user"); err != nil { return nil, err }
+			if err := coreSet(v_message, "content", v_text); err != nil { return nil, err }
+			v_messages = coreAppend(v_messages, v_message)
+			v_steers = coreAppend(v_steers, v_message)
+		} else {
+			v_level = coreGet(v_update, "level", nil)
+			if err := coreSet(v_runtime_options, "thinkingTokenBudget", v_level); err != nil { return nil, err }
+		}
+	}
+	v_steer_count = _core_len(v_steers)
+	v_has_steers = _core_gt(v_steer_count, 0)
+	if coreTruthy(v_has_steers) {
+		_core_axgen_memory_add_request(v_gen, v_steers)
+	} else {
+	// empty
+	}
+	return v_messages, nil
 }
 
 func _stream_state_impl(args ...Value) (Value, error) {
@@ -91880,6 +91941,16 @@ func (g *AxGen) forward(ctx context.Context, client AIClient, values map[string]
 	return g.forwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
 }
 
+// runOptions are the constructor's options with the call's over them, as
+// TypeScript merges them for every forward: the call wins.
+func (g *AxGen) runOptions(options map[string]Value) map[string]Value {
+	merged := cloneMap(g.Options)
+	for _, key := range orderedKeys(options) {
+		coreSet(merged, key, options[key])
+	}
+	return merged
+}
+
 // cacheLookupFirst reads the cache for a forward before the run opens its
 // span and metrics, as TypeScript does (@cache_lookup_impl). It reports the
 // stored output on a hit; on a miss it returns the options with the lookup
@@ -91941,19 +92012,23 @@ func (g *AxGen) forwardWithHooks(ctx context.Context, client AIClient, values ma
     // Persist state after session closure records unresolved work.
     defer func(){g.Memory=clone.Memory;g.ChatLog=clone.ChatLog;g.FunctionCallTraces=clone.FunctionCallTraces;g.Traces=clone.Traces}()
 	clone.Functions = runtimeScopedTools(ctx, g.Functions)
-    control,_ := coreGet(options,"control",nil).(*AxRunControl)
+	// As in TypeScript, the constructor's options are defaults for every
+	// forward (the call wins): its control, execution path, model and
+	// asyncMode decide the run's control boundary and native session too.
+	runOptions := g.runOptions(options)
+    control,_ := coreGet(runOptions,"control",nil).(*AxRunControl)
     selectionClient := client
     for { bound,ok:=selectionClient.(contextBoundAIClient);if !ok {break};selectionClient=bound.inner }
     opener,_ := selectionClient.(SessionAIClient)
-    model := display(coreGet(options,"model",""))
+    model := display(coreGet(runOptions,"model",""))
     if model == "" { switch provider:=selectionClient.(type) {case *OpenAICompatibleClient:model=display(coreGet(provider.optionsSnapshot(),"model",""));case *OpenAIResponsesClient:model=display(coreGet(provider.optionsSnapshot(),"model",""))} }
-    if !coreTruthy(mustCore(chat_session_mode_enabled(options))) {opener=nil} else if service,ok:=selectionClient.(interface{GetFeatures(string) map[string]Value}); !ok || !coreTruthy(coreGet(service.GetFeatures(model),"asyncTools",false)) {opener=nil}
+    if !coreTruthy(mustCore(chat_session_mode_enabled(runOptions))) {opener=nil} else if service,ok:=selectionClient.(interface{GetFeatures(string) map[string]Value}); !ok || !coreTruthy(coreGet(service.GetFeatures(model),"asyncTools",false)) {opener=nil}
     _, selectable := selectionClient.(chatRunSelector)
-    selectable=selectable && coreTruthy(mustCore(chat_session_mode_enabled(options)))
+    selectable=selectable && coreTruthy(mustCore(chat_session_mode_enabled(runOptions)))
     eligible := control!=nil
     for _,tool:=range clone.Functions { eligible=eligible || ((opener!=nil || selectable) && tool.ExecutionMode=="background") }
     if eligible {
-        sessionClient:=&genSessionClient{AIClient:client,gen:&clone,opener:opener,options:options,control:control,path:display(coreGet(options,"execution_path",coreGet(options,"executionPath","root"))),deliveries:make(chan sessionDelivery,32),results:make(chan sessionToolResult,32)}
+        sessionClient:=&genSessionClient{AIClient:client,gen:&clone,opener:opener,options:runOptions,control:control,path:display(coreGet(runOptions,"execution_path",coreGet(runOptions,"executionPath","root"))),deliveries:make(chan sessionDelivery,32),results:make(chan sessionToolResult,32)}
         client=sessionClient
         if opener!=nil || selectable {options=cloneMap(options);coreSet(options,"infraRetries",0)}
         defer func(){sessionClient.close(err)}()
@@ -92225,11 +92300,13 @@ func (g *AxGen) streamingForwardWith(ctx context.Context, client AIClient, value
 		g.Memory, g.ChatLog, g.FunctionCallTraces, g.Traces = clone.Memory, clone.ChatLog, clone.FunctionCallTraces, clone.Traces
 	}()
 	clone.Functions = runtimeScopedTools(ctx, g.Functions)
-	if control, _ := coreGet(options, "control", nil).(*AxRunControl); control != nil {
-		// As Forward does, a run control applies its updates at each request
-		// and hears the run's lifecycle; a consumer that stops the stream
-		// early ends the run as aborted.
-		sessionClient := &genSessionClient{AIClient: client, gen: &clone, options: options, control: control, path: display(coreGet(options, "execution_path", coreGet(options, "executionPath", "root"))), deliveries: make(chan sessionDelivery, 32), results: make(chan sessionToolResult, 32)}
+	runOptions := g.runOptions(options)
+	if control, _ := coreGet(runOptions, "control", nil).(*AxRunControl); control != nil {
+		// As Forward does, a run control (the call's, else the
+		// constructor's) applies its updates at each request and hears the
+		// run's lifecycle; a consumer that stops the stream early ends the
+		// run as aborted.
+		sessionClient := &genSessionClient{AIClient: client, gen: &clone, options: runOptions, control: control, path: display(coreGet(runOptions, "execution_path", coreGet(runOptions, "executionPath", "root"))), deliveries: make(chan sessionDelivery, 32), results: make(chan sessionToolResult, 32)}
 		client = sessionClient
 		defer func() {
 			sessionClient.finish(err, errors.Is(context.Cause(ctx), errStreamingConsumerStopped))
@@ -98075,6 +98152,12 @@ func conformanceBuildTools(specs Value) ([]Tool, Value) {
 func runConformanceForward(fixture map[string]Value) {
 	tools, calls := conformanceBuildTools(coreGet(fixture, "tools", Array()))
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
+	controlEvents := func() Value { return Array() }
+	if coreTruthy(coreGet(fixture, "constructor_control", false)) {
+		// The run control is a constructor default, not a call option.
+		controlEvents = conformanceAttachControl(fixture, client, options)
+	}
 	gen := NewAx(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 	if spec := coreGet(fixture, "signature_spec", nil); spec != nil {
 		gen.Signature = conformanceSignatureFromSpec(asMap(spec))
@@ -98112,9 +98195,7 @@ func runConformanceForward(fixture map[string]Value) {
 			return int(num(pickerIndex)), nil
 		})
 	}
-	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
 	forwardOptions := asMap(coreGet(fixture, "forward_options", Object()))
-	controlEvents := func() Value { return Array() }
 	if coreTruthy(coreGet(fixture, "control", false)) {
 		forwardOptions = cloneMap(forwardOptions)
 		controlEvents = conformanceAttachControl(fixture, client, forwardOptions)
@@ -98333,7 +98414,14 @@ func conformanceAssertRequestRoles(fixture map[string]Value, client *conformance
 
 func runConformanceStreamingForward(fixture map[string]Value) {
 	tools, calls := conformanceBuildTools(coreGet(fixture, "tools", Array()))
-	gen := NewAx(display(coreGet(fixture, "signature", "question:string -> answer:string")), cloneMap(asMap(coreGet(fixture, "options", Object()))))
+	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
+	controlEvents := func() Value { return Array() }
+	if coreTruthy(coreGet(fixture, "constructor_control", false)) {
+		// The run control is a constructor default, not a call option.
+		controlEvents = conformanceAttachControl(fixture, client, options)
+	}
+	gen := NewAx(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 	if spec := coreGet(fixture, "signature_spec", nil); spec != nil {
 		gen.Signature = conformanceSignatureFromSpec(asMap(spec))
 	}
@@ -98369,9 +98457,7 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	if stops := coreGet(fixture, "stop_functions", coreGet(fixture, "stopFunctions", nil)); stops != nil {
 		gen.StopFunctions = stops
 	}
-	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
 	runOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
-	controlEvents := func() Value { return Array() }
 	if coreTruthy(coreGet(fixture, "control", false)) {
 		controlEvents = conformanceAttachControl(fixture, client, runOptions)
 	}
@@ -98518,6 +98604,9 @@ func runConformanceCacheSequence(fixture map[string]Value) {
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	if cacheIn == "constructor" {
 		options["cachingFunction"] = cachingFunction
+	}
+	if coreTruthy(coreGet(fixture, "constructor_control", false)) {
+		options["control"] = RunControl()
 	}
 	gen := NewAx(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 	if spec := coreGet(fixture, "signature_spec", nil); spec != nil {

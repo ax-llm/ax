@@ -9560,6 +9560,9 @@ final class Core {
       if (Core.truthy(is_meta)) {
         responses_payload = Core._meta_prepare_responses_request(responses_payload, request, options);
       }
+      if (!Core.truthy(is_meta)) {
+        responses_payload = Core._openai_responses_apply_prompt_cache_retention(responses_payload, request, options, model);
+      }
       payload = Core.openai_responses_apply_astra_caching(responses_payload, request, options);
     }
     if (!Core.truthy(is_responses)) {
@@ -15041,6 +15044,25 @@ final class Core {
     Object project = Core.get(options, "projectId", project_snake);
     Object url = Core.stringFormat("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", base_url, project, model);
     return url;
+  }
+
+  static Object _openai_responses_apply_prompt_cache_retention(Object payload, Object request, Object options, Object model) {
+    axirCoverageMark("_openai_responses_apply_prompt_cache_retention");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object model_config_snake = Core.get(request, "model_config", empty_map);
+    Object model_config = Core.get(request, "modelConfig", model_config_snake);
+    Object config_retention_snake = Core.get(model_config, "prompt_cache_retention", null);
+    Object config_retention = Core.get(model_config, "promptCacheRetention", config_retention_snake);
+    Object option_retention_snake = Core.get(options, "prompt_cache_retention", config_retention);
+    Object retention = Core.get(options, "promptCacheRetention", option_retention_snake);
+    Object has_retention = Core.truthyValue(retention);
+    Object is_astra = Core._openai_is_gpt6_astra_impl(model);
+    Object not_astra = Core.not(is_astra);
+    Object send = Core.and(has_retention, not_astra);
+    if (Core.truthy(send)) {
+      Core.set(payload, "prompt_cache_retention", retention);
+    }
+    return payload;
   }
 
   static Object chat_session_mode_enabled(Object options) {
@@ -26817,7 +26839,9 @@ final class Core {
     axirCoverageMark("_caching_function_option_impl");
     Object empty = new java.util.LinkedHashMap<String, Object>();
     Object call_options = Core.mapMerge(empty, options);
-    Object control = Core.get(call_options, "control", null);
+    Object base_options = Core.get(gen, "options", empty);
+    Object run_options = Core.mapMerge(base_options, call_options);
+    Object control = Core.get(run_options, "control", null);
     Object controlled = Core.isNotNone(control);
     if (Core.truthy(controlled)) {
       Object no_cache = Core.none();
@@ -27046,33 +27070,6 @@ final class Core {
     return lookup;
   }
 
-  static Object _apply_control_updates_impl(Object gen, Object messages, Object runtime_options, Object updates) {
-    axirCoverageMark("_apply_control_updates_impl");
-    Object steers = new java.util.ArrayList<Object>();
-    for (Object update : Core.iter(updates)) {
-      Object kind = Core.get(update, "type", "");
-      Object is_steer = Core.eq(kind, "steer");
-      if (Core.truthy(is_steer)) {
-        Object text = Core.get(update, "text", "");
-        Object message = new java.util.LinkedHashMap<String, Object>();
-        Core.set(message, "role", "user");
-        Core.set(message, "content", text);
-        Core.append(messages, message);
-        Core.append(steers, message);
-      }
-      if (!Core.truthy(is_steer)) {
-        Object level = Core.get(update, "level", null);
-        Core.set(runtime_options, "thinkingTokenBudget", level);
-      }
-    }
-    Object steer_count = Core.len(steers);
-    Object has_steers = Core.gt(steer_count, 0);
-    if (Core.truthy(has_steers)) {
-      Core.axgenMemoryAddRequest(gen, steers);
-    }
-    return messages;
-  }
-
   static Object _stream_json_strings_impl(Object fields, Object values, Object partial) {
     axirCoverageMark("_stream_json_strings_impl");
     for (Object field : Core.iter(fields)) {
@@ -27099,6 +27096,33 @@ final class Core {
       }
     }
     return null;
+  }
+
+  static Object _apply_control_updates_impl(Object gen, Object messages, Object runtime_options, Object updates) {
+    axirCoverageMark("_apply_control_updates_impl");
+    Object steers = new java.util.ArrayList<Object>();
+    for (Object update : Core.iter(updates)) {
+      Object kind = Core.get(update, "type", "");
+      Object is_steer = Core.eq(kind, "steer");
+      if (Core.truthy(is_steer)) {
+        Object text = Core.get(update, "text", "");
+        Object message = new java.util.LinkedHashMap<String, Object>();
+        Core.set(message, "role", "user");
+        Core.set(message, "content", text);
+        Core.append(messages, message);
+        Core.append(steers, message);
+      }
+      if (!Core.truthy(is_steer)) {
+        Object level = Core.get(update, "level", null);
+        Core.set(runtime_options, "thinkingTokenBudget", level);
+      }
+    }
+    Object steer_count = Core.len(steers);
+    Object has_steers = Core.gt(steer_count, 0);
+    if (Core.truthy(has_steers)) {
+      Core.axgenMemoryAddRequest(gen, steers);
+    }
+    return messages;
   }
 
   static Object _stream_state_impl(Object index) {

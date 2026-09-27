@@ -6308,10 +6308,19 @@ impl AxGen {
                             Some(state) => state.clone(),
                             None => core_gen_state(self)?,
                         };
+                        // As in TS, the constructor's options are defaults for every forward
+                        // and the call's win: the run's path, asyncMode and maxSteps come
+                        // from both.
+                        let mut run_options = if self.options.is_object() {
+                            self.options.clone()
+                        } else {
+                            json!({})
+                        };
+                        merge_object(&mut run_options, &options);
                         let mut session_run = session::SessionRun::new(
                             state.clone(),
                             self.tools.clone(),
-                            options.clone(),
+                            run_options,
                         );
                         let run_session = session::current_control().is_some()
                             || self.tools.iter().any(|tool| tool.execution == "background");
@@ -23219,6 +23228,11 @@ fn fixture_field_processor(
     }
 }
 
+// Whether a fixture sets the boolean flag `key`.
+fn fixture_flag(fixture: &Value, key: &str) -> bool {
+    fixture.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
 // python: _attach_fixture_control. A fixture's run control, recording its
 // lifecycle events (started, completed, failed, aborted) as {path, type}.
 // With control_steer ({during_request, text}) it records every event, and
@@ -23384,11 +23398,10 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
             .unwrap_or_else(|| json!({})),
     );
     let mut control_events = Arc::new(Mutex::new(Vec::new()));
-    if fixture
-        .get("control")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
+    // constructor_control puts the run control in the AxGen constructor's
+    // options. Rust's AxGen.options is JSON and can't hold an AxRunControl,
+    // so the call gets that control instead, as Rust runs a program under one.
+    if fixture_flag(fixture, "control") || fixture_flag(fixture, "constructor_control") {
         let (control, events) = attach_fixture_control(fixture, &mut client);
         control_events = events;
         options = options.with_control(control);
@@ -23669,6 +23682,10 @@ fn run_cache_sequence_fixture(fixture: &Value) -> AxResult<()> {
     if cache_in == "global" {
         set_caching_function(Some(caching_function.clone()));
     }
+    // constructor_control puts one run control in the AxGen constructor's
+    // options. Rust's AxGen.options is JSON and can't hold an AxRunControl,
+    // so each call gets that control instead, as Rust runs a program under one.
+    let constructor_control = fixture_flag(fixture, "constructor_control").then(run_control);
     let run = (|| -> AxResult<()> {
         for call in fixture
             .get("calls")
@@ -23683,6 +23700,9 @@ fn run_cache_sequence_fixture(fixture: &Value) -> AxResult<()> {
                     .cloned()
                     .unwrap_or_else(|| json!({})),
             );
+            if let Some(control) = &constructor_control {
+                options = options.with_control(control.clone());
+            }
             if call
                 .get("control")
                 .and_then(Value::as_bool)
@@ -23962,17 +23982,17 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
             .cloned()
             .unwrap_or(Value::Null),
     );
-    let control_events = if fixture
-        .get("control")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        let (control, events) = attach_fixture_control(fixture, &mut client);
-        options = options.with_control(control);
-        Some(events)
-    } else {
-        None
-    };
+    // constructor_control puts the run control in the AxGen constructor's
+    // options. Rust's AxGen.options is JSON and can't hold an AxRunControl,
+    // so the call gets that control instead, as Rust runs a program under one.
+    let control_events =
+        if fixture_flag(fixture, "control") || fixture_flag(fixture, "constructor_control") {
+            let (control, events) = attach_fixture_control(fixture, &mut client);
+            options = options.with_control(control);
+            Some(events)
+        } else {
+            None
+        };
     let result = program.forward_with_options(&mut client, input, options);
     // expected_error_cause_contains is not checked: AxError gains its cause
     // (and source()) in the next major version.
@@ -51066,6 +51086,13 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
                 v_request.clone(),
                 v_options.clone(),
             ])?;
+        } else {
+            v_responses_payload = _openai_responses_apply_prompt_cache_retention(&[
+                v_responses_payload.clone(),
+                v_request.clone(),
+                v_options.clone(),
+                v_model.clone(),
+            ])?;
         }
         v_payload = openai_responses_apply_astra_caching(&[
             v_responses_payload.clone(),
@@ -63445,6 +63472,77 @@ fn provider_embed_url(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_model.clone(),
     ])?;
     return Ok(v_url.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_responses_apply_prompt_cache_retention(
+    args: &[CoreValue],
+) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_apply_prompt_cache_retention");
+    let mut v_payload = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_model = core_arg(args, 3);
+    let mut v_config_retention = CoreValue::Null;
+    let mut v_config_retention_snake = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_has_retention = CoreValue::Null;
+    let mut v_is_astra = CoreValue::Null;
+    let mut v_model_config = CoreValue::Null;
+    let mut v_model_config_snake = CoreValue::Null;
+    let mut v_not_astra = CoreValue::Null;
+    let mut v_option_retention_snake = CoreValue::Null;
+    let mut v_retention = CoreValue::Null;
+    let mut v_send = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_model_config_snake = core_get(
+        &v_request,
+        &CoreValue::from("model_config"),
+        v_empty_map.clone(),
+    );
+    v_model_config = core_get(
+        &v_request,
+        &CoreValue::from("modelConfig"),
+        v_model_config_snake.clone(),
+    );
+    v_config_retention_snake = core_get(
+        &v_model_config,
+        &CoreValue::from("prompt_cache_retention"),
+        CoreValue::Null,
+    );
+    v_config_retention = core_get(
+        &v_model_config,
+        &CoreValue::from("promptCacheRetention"),
+        v_config_retention_snake.clone(),
+    );
+    v_option_retention_snake = core_get(
+        &v_options,
+        &CoreValue::from("prompt_cache_retention"),
+        v_config_retention.clone(),
+    );
+    v_retention = core_get(
+        &v_options,
+        &CoreValue::from("promptCacheRetention"),
+        v_option_retention_snake.clone(),
+    );
+    v_has_retention = core_truthy_value(&[v_retention.clone()])?;
+    v_is_astra = _openai_is_gpt6_astra_impl(&[v_model.clone()])?;
+    v_not_astra = core_not(&[v_is_astra.clone()])?;
+    v_send = core_and(&[v_has_retention.clone(), v_not_astra.clone()])?;
+    if core_truthy(&v_send) {
+        core_set(
+            &v_payload,
+            CoreValue::from("prompt_cache_retention"),
+            v_retention.clone(),
+        )?;
+    }
+    return Ok(v_payload.clone());
 }
 
 #[allow(
@@ -86372,19 +86470,19 @@ fn _caching_function_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     axir_coverage_mark("_caching_function_option_impl");
     let mut v_gen = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
+    let mut v_base_options = CoreValue::Null;
     let mut v_cache_fn = CoreValue::Null;
     let mut v_call_options = CoreValue::Null;
     let mut v_control = CoreValue::Null;
     let mut v_controlled = CoreValue::Null;
     let mut v_empty = CoreValue::Null;
     let mut v_no_cache = CoreValue::Null;
+    let mut v_run_options = CoreValue::Null;
     v_empty = CoreValue::new_map();
     v_call_options = core_map_merge(&[v_empty.clone(), v_options.clone()])?;
-    v_control = core_get(
-        &v_call_options,
-        &CoreValue::from("control"),
-        CoreValue::Null,
-    );
+    v_base_options = core_get(&v_gen, &CoreValue::from("options"), v_empty.clone());
+    v_run_options = core_map_merge(&[v_base_options.clone(), v_call_options.clone()])?;
+    v_control = core_get(&v_run_options, &CoreValue::from("control"), CoreValue::Null);
     v_controlled = core_is_not_none(&[v_control.clone()])?;
     if core_truthy(&v_controlled) {
         v_no_cache = core_none(&[])?;
@@ -86873,57 +86971,6 @@ fn _cache_lookup_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _apply_control_updates_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_apply_control_updates_impl");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_messages = core_arg(args, 1);
-    let mut v_runtime_options = core_arg(args, 2);
-    let mut v_updates = core_arg(args, 3);
-    let mut v_has_steers = CoreValue::Null;
-    let mut v_is_steer = CoreValue::Null;
-    let mut v_kind = CoreValue::Null;
-    let mut v_level = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_steer_count = CoreValue::Null;
-    let mut v_steers = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    let mut v_update = CoreValue::Null;
-    v_steers = CoreValue::new_list();
-    for v_update in core_iter(&v_updates)? {
-        let mut v_update = v_update;
-        v_kind = core_get(&v_update, &CoreValue::from("type"), CoreValue::from(""));
-        v_is_steer = core_eq(&[v_kind.clone(), CoreValue::from("steer")])?;
-        if core_truthy(&v_is_steer) {
-            v_text = core_get(&v_update, &CoreValue::from("text"), CoreValue::from(""));
-            v_message = CoreValue::new_map();
-            core_set(&v_message, CoreValue::from("role"), CoreValue::from("user"))?;
-            core_set(&v_message, CoreValue::from("content"), v_text.clone())?;
-            core_append(&v_messages, v_message.clone())?;
-            core_append(&v_steers, v_message.clone())?;
-        } else {
-            v_level = core_get(&v_update, &CoreValue::from("level"), CoreValue::Null);
-            core_set(
-                &v_runtime_options,
-                CoreValue::from("thinkingTokenBudget"),
-                v_level.clone(),
-            )?;
-        }
-    }
-    v_steer_count = core_len(&[v_steers.clone()])?;
-    v_has_steers = core_gt(&[v_steer_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_has_steers) {
-        core_axgen_memory_add_request(&[v_gen.clone(), v_steers.clone()])?;
-    }
-    return Ok(v_messages.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _stream_json_strings_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_json_strings_impl");
     let mut v_fields = core_arg(args, 0);
@@ -86975,6 +87022,57 @@ fn _stream_json_strings_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _apply_control_updates_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_apply_control_updates_impl");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_messages = core_arg(args, 1);
+    let mut v_runtime_options = core_arg(args, 2);
+    let mut v_updates = core_arg(args, 3);
+    let mut v_has_steers = CoreValue::Null;
+    let mut v_is_steer = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_level = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_steer_count = CoreValue::Null;
+    let mut v_steers = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_update = CoreValue::Null;
+    v_steers = CoreValue::new_list();
+    for v_update in core_iter(&v_updates)? {
+        let mut v_update = v_update;
+        v_kind = core_get(&v_update, &CoreValue::from("type"), CoreValue::from(""));
+        v_is_steer = core_eq(&[v_kind.clone(), CoreValue::from("steer")])?;
+        if core_truthy(&v_is_steer) {
+            v_text = core_get(&v_update, &CoreValue::from("text"), CoreValue::from(""));
+            v_message = CoreValue::new_map();
+            core_set(&v_message, CoreValue::from("role"), CoreValue::from("user"))?;
+            core_set(&v_message, CoreValue::from("content"), v_text.clone())?;
+            core_append(&v_messages, v_message.clone())?;
+            core_append(&v_steers, v_message.clone())?;
+        } else {
+            v_level = core_get(&v_update, &CoreValue::from("level"), CoreValue::Null);
+            core_set(
+                &v_runtime_options,
+                CoreValue::from("thinkingTokenBudget"),
+                v_level.clone(),
+            )?;
+        }
+    }
+    v_steer_count = core_len(&[v_steers.clone()])?;
+    v_has_steers = core_gt(&[v_steer_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_steers) {
+        core_axgen_memory_add_request(&[v_gen.clone(), v_steers.clone()])?;
+    }
+    return Ok(v_messages.clone());
 }
 
 #[allow(
@@ -122130,7 +122228,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (898 of 898 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (899 of 899 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

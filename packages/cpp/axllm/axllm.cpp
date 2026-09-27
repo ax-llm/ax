@@ -10966,6 +10966,9 @@ Value Core::provider_build_chat_request(Value profile, Value request, Value opti
     if (Core::truthy(is_meta)) {
       responses_payload = Core::_meta_prepare_responses_request(responses_payload, request, options);
     }
+    if (!Core::truthy(is_meta)) {
+      responses_payload = Core::_openai_responses_apply_prompt_cache_retention(responses_payload, request, options, model);
+    }
     payload = Core::openai_responses_apply_astra_caching(responses_payload, request, options);
   }
   if (!Core::truthy(is_responses)) {
@@ -16451,6 +16454,25 @@ Value Core::provider_embed_url(Value profile, Value model, Value options) {
   Value project = Core::get(options, Value("projectId"), project_snake);
   Value url = Core::string_format(Value("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent"), base_url, project, model);
   return url;
+}
+
+Value Core::_openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model) {
+  axir_coverage_mark("_openai_responses_apply_prompt_cache_retention");
+  Value empty_map = Value::object();
+  Value model_config_snake = Core::get(request, Value("model_config"), empty_map);
+  Value model_config = Core::get(request, Value("modelConfig"), model_config_snake);
+  Value config_retention_snake = Core::get(model_config, Value("prompt_cache_retention"), Value());
+  Value config_retention = Core::get(model_config, Value("promptCacheRetention"), config_retention_snake);
+  Value option_retention_snake = Core::get(options, Value("prompt_cache_retention"), config_retention);
+  Value retention = Core::get(options, Value("promptCacheRetention"), option_retention_snake);
+  Value has_retention = Core::truthy_value(retention);
+  Value is_astra = Core::_openai_is_gpt6_astra_impl(model);
+  Value not_astra = Core::not_(is_astra);
+  Value send = Core::and_(has_retention, not_astra);
+  if (Core::truthy(send)) {
+    Core::set(payload, Value("prompt_cache_retention"), retention);
+  }
+  return payload;
 }
 
 Value Core::chat_session_mode_enabled(Value options) {
@@ -28246,7 +28268,9 @@ Value Core::_caching_function_option_impl(Value gen, Value options) {
   axir_coverage_mark("_caching_function_option_impl");
   Value empty = Value::object();
   Value call_options = Core::map_merge(empty, options);
-  Value control = Core::get(call_options, Value("control"), Value());
+  Value base_options = Core::get(gen, Value("options"), empty);
+  Value run_options = Core::map_merge(base_options, call_options);
+  Value control = Core::get(run_options, Value("control"), Value());
   Value controlled = Core::is_not_none(control);
   if (Core::truthy(controlled)) {
     Value no_cache = Core::none();
@@ -28478,33 +28502,6 @@ Value Core::_cache_lookup_option_impl(Value options) {
   return lookup;
 }
 
-Value Core::_apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates) {
-  axir_coverage_mark("_apply_control_updates_impl");
-  Value steers = Value::array();
-  for (auto update : Core::iter(updates)) {
-    Value kind = Core::get(update, Value("type"), Value(""));
-    Value is_steer = Core::eq(kind, Value("steer"));
-    if (Core::truthy(is_steer)) {
-      Value text = Core::get(update, Value("text"), Value(""));
-      Value message = Value::object();
-      Core::set(message, Value("role"), Value("user"));
-      Core::set(message, Value("content"), text);
-      Core::append(messages, message);
-      Core::append(steers, message);
-    }
-    if (!Core::truthy(is_steer)) {
-      Value level = Core::get(update, Value("level"), Value());
-      Core::set(runtime_options, Value("thinkingTokenBudget"), level);
-    }
-  }
-  Value steer_count = Core::len(steers);
-  Value has_steers = Core::gt(steer_count, Value(0));
-  if (Core::truthy(has_steers)) {
-    Core::axgen_memory_add_request(gen, steers);
-  }
-  return messages;
-}
-
 Value Core::_stream_json_strings_impl(Value fields, Value values, Value partial) {
   axir_coverage_mark("_stream_json_strings_impl");
   for (auto field : Core::iter(fields)) {
@@ -28532,6 +28529,33 @@ Value Core::_stream_json_strings_impl(Value fields, Value values, Value partial)
     }
   }
   return Value();
+}
+
+Value Core::_apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates) {
+  axir_coverage_mark("_apply_control_updates_impl");
+  Value steers = Value::array();
+  for (auto update : Core::iter(updates)) {
+    Value kind = Core::get(update, Value("type"), Value(""));
+    Value is_steer = Core::eq(kind, Value("steer"));
+    if (Core::truthy(is_steer)) {
+      Value text = Core::get(update, Value("text"), Value(""));
+      Value message = Value::object();
+      Core::set(message, Value("role"), Value("user"));
+      Core::set(message, Value("content"), text);
+      Core::append(messages, message);
+      Core::append(steers, message);
+    }
+    if (!Core::truthy(is_steer)) {
+      Value level = Core::get(update, Value("level"), Value());
+      Core::set(runtime_options, Value("thinkingTokenBudget"), level);
+    }
+  }
+  Value steer_count = Core::len(steers);
+  Value has_steers = Core::gt(steer_count, Value(0));
+  if (Core::truthy(has_steers)) {
+    Core::axgen_memory_add_request(gen, steers);
+  }
+  return messages;
 }
 
 Value Core::_stream_state_impl(Value index) {

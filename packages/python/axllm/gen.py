@@ -14110,7 +14110,9 @@ def _caching_function_option_impl(gen: AxGen, options: Any) -> Any:
     _core_coverage_mark("_caching_function_option_impl")
     empty = {}
     call_options = _core_map_merge(empty, options)
-    control = _core_get(call_options, "control", None)
+    base_options = _core_get(gen, "options", empty)
+    run_options = _core_map_merge(base_options, call_options)
+    control = _core_get(run_options, "control", None)
     controlled = _core_is_not_none(control)
     if controlled:
         no_cache = _core_none()
@@ -14344,31 +14346,6 @@ def _cache_lookup_option_impl(options: Any) -> Any:
     return lookup
 
 
-def _apply_control_updates_impl(gen: AxGen, messages: list[Any], runtime_options: Any, updates: Any) -> list[Any]:
-    _core_coverage_mark("_apply_control_updates_impl")
-    steers = []
-    for update in updates:
-        kind = _core_get(update, "type", "")
-        is_steer = _core_eq(kind, "steer")
-        if is_steer:
-            text = _core_get(update, "text", "")
-            message = {}
-            message["role"] = "user"
-            message["content"] = text
-            messages.append(message)
-            steers.append(message)
-        else:
-            level = _core_get(update, "level", None)
-            runtime_options["thinkingTokenBudget"] = level
-    steer_count = _core_len(steers)
-    has_steers = _core_gt(steer_count, 0)
-    if has_steers:
-        _core_axgen_memory_add_request(gen, steers)
-    else:
-        pass
-    return messages
-
-
 def _stream_json_strings_impl(fields: list[Any], values: Any, partial: bool) -> None:
     _core_coverage_mark("_stream_json_strings_impl")
     for field in fields:
@@ -14395,6 +14372,31 @@ def _stream_json_strings_impl(fields: list[Any], values: Any, partial: bool) -> 
                 pass
             _core_map_delete(values, name)
     return None
+
+
+def _apply_control_updates_impl(gen: AxGen, messages: list[Any], runtime_options: Any, updates: Any) -> list[Any]:
+    _core_coverage_mark("_apply_control_updates_impl")
+    steers = []
+    for update in updates:
+        kind = _core_get(update, "type", "")
+        is_steer = _core_eq(kind, "steer")
+        if is_steer:
+            text = _core_get(update, "text", "")
+            message = {}
+            message["role"] = "user"
+            message["content"] = text
+            messages.append(message)
+            steers.append(message)
+        else:
+            level = _core_get(update, "level", None)
+            runtime_options["thinkingTokenBudget"] = level
+    steer_count = _core_len(steers)
+    has_steers = _core_gt(steer_count, 0)
+    if has_steers:
+        _core_axgen_memory_add_request(gen, steers)
+    else:
+        pass
+    return messages
 
 
 def _stream_state_impl(index: int) -> Any:

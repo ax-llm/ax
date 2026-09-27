@@ -791,6 +791,7 @@ struct Core {
   static Value provider_require_expensive_model_confirmation(Value provider, Value model, Value client_options, Value options);
   static Value _gemini_vertex_embed_content_model_impl(Value model);
   static Value provider_embed_url(Value profile, Value model, Value options);
+  static Value _openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model);
   static Value chat_session_mode_enabled(Value options);
   static Value fold_stream(Value events);
   static Value _select_structured_output_rung(Value signature, Value features, Value options);
@@ -1045,8 +1046,8 @@ struct Core {
   static Value _cache_lookup_impl(Value gen, Value values, Value options, Value ignore_read_errors);
   static Value _stream_json_strings_for_fields_impl(Value fields_map, Value values);
   static Value _cache_lookup_option_impl(Value options);
-  static Value _apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates);
   static Value _stream_json_strings_impl(Value fields, Value values, Value partial);
+  static Value _apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates);
   static Value _stream_state_impl(Value index);
   static Value _stream_merge_value_impl(Value base, Value has_base, Value delta);
   static Value _stream_commit_delta_impl(Value committed, Value current, Value delta);
