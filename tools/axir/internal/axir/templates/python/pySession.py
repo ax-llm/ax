@@ -337,22 +337,32 @@ class _ResponsesChatSession:
                     pass
 
 
-def _steer_text(content):
-    # A steer is text: a message's string content, or the text of its text
-    # parts (a field processor's feedback is [{type: "text", text}]).
-    if isinstance(content, list):
-        return "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict) and part.get("type") == "text")
-    return str(content)
-
-
 class _SessionClient:
-    """Bridge one AxGen run to a pinned provider without changing final validation."""
+    """Bridge one AxGen run to a pinned provider without changing final validation.
+
+    As in TS (axRunChatSession), each model request opens its own native
+    session with the whole prompt and closes it once that request's response
+    completes: a correction or a later step opens a fresh session, and each
+    session applies the run's updates again.
+    """
     def __init__(self, gen, client, options):
         self.gen, self.client, self.options = gen, client, options
         self.control = options.get("control")
         self.path = options.get("execution_path", options.get("executionPath", "root"))
         self.session = None
         self.state = None
+        self._tools = {tool.name: tool for tool in gen.functions}
+        self._delta = options.get("_session_delta")
+        self._selected = False
+        self._fallback = False
+        self._fallback_level = None
+        self._fallback_after = 0
+        self._started = False
+        self._reset_session()
+
+    def _reset_session(self):
+        # One session's state: its events, its tool workers' results, and the
+        # run updates it has applied (all of them again, from the start).
         self._queue = queue.Queue()
         self._cancel = threading.Event()
         self._updates_after = 0
@@ -361,11 +371,6 @@ class _SessionClient:
         self._response_text = {}
         self._blocking = False
         self._waiting_calls = []
-        self._tools = {tool.name: tool for tool in gen.functions}
-        self._delta = options.get("_session_delta")
-        self._selected = False
-        self._fallback = False
-        self._fallback_level = None
 
     def get_features(self, model=None):
         return self.client.get_features(model)
@@ -378,15 +383,20 @@ class _SessionClient:
         if self.control:
             self.control._emit({"type": kind, "path": self.path, **fields})
 
-    def _bridge(self):
+    def _emit_started(self):
+        if not self._started:
+            self._started = True
+            self._emit("started")
+
+    def _bridge(self, session, events, cancel):
         try:
-            for event in self.session.events():
-                if self._cancel.is_set():return
-                self._queue.put(("provider", event))
-            if not self._cancel.is_set():
-                self._queue.put(("failure", RuntimeError("Session disconnected; work was not replayed")))
+            for event in session.events():
+                if cancel.is_set():return
+                events.put(("provider", event))
+            if not cancel.is_set():
+                events.put(("failure", RuntimeError("Session disconnected; work was not replayed")))
         except BaseException as error:
-            self._queue.put(("failure", error))
+            events.put(("failure", error))
 
     def _start(self, call):
         from . import gen as core
@@ -419,13 +429,15 @@ class _SessionClient:
         core.chat_session_register_call(self.state, call, tool.execution)
         self._blocking = tool.execution != "background"
         self._emit("tool.started", call_id=call["id"])
-        # A worker owns only the invocation and its result. It cannot alter history.
+        # A worker owns only the invocation and its result. It cannot alter
+        # history, and its result goes to the session that started it.
+        events, cancel = self._queue, self._cancel
         def invoke():
             try:
-                result = core._core_tool_invoke(tool, args, {"signal": self._cancel, "call_id": call["id"]})
-                self._queue.put(("tool", (call, result, None)))
+                result = core._core_tool_invoke(tool, args, {"signal": cancel, "call_id": call["id"]})
+                events.put(("tool", (call, result, None)))
             except BaseException as error:
-                self._queue.put(("tool", (call, None, error)))
+                events.put(("tool", (call, None, error)))
         # Both kinds retain invocation context; blocking handlers remain a
         # continuation barrier even though an owned worker permits cancellation.
         import contextvars
@@ -446,102 +458,158 @@ class _SessionClient:
             else:
                 self._boundary_updates.append(update["id"])
 
-    def chat(self, request, options=None):
+    def _select(self, request):
+        # The run's client is pinned on its first request.
+        if self._selected:
+            return
+        if self.control and self.control.signal.is_set():raise RuntimeError("Run aborted before selecting a provider")
+        visited = set()
+        while callable(getattr(self.client, "_pin_chat_run", None)):
+            if id(self.client) in visited:raise RuntimeError("Cyclic run routing")
+            visited.add(id(self.client))
+            self.client = self.client._pin_chat_run(request, self.options)
+        self._selected = True
+        features = getattr(self.client,"get_features",lambda model=None:{})(request.get("model"))
+        self._fallback = not (features.get("asyncTools") and callable(getattr(self.client,"open_chat_session",None)))
+        if self._fallback:self._emit_started()
+
+    def _fallback_request(self, request):
+        # A pinned client without sessions takes the run's updates at the
+        # request boundary.
         from . import gen as core
-        from .ai import chat_response_to_completion
-        if not self._selected:
-            if self.control and self.control.signal.is_set():raise RuntimeError("Run aborted before selecting a provider")
-            visited = set()
-            while callable(getattr(self.client, "_pin_chat_run", None)):
-                if id(self.client) in visited:raise RuntimeError("Cyclic run routing")
-                visited.add(id(self.client))
-                self.client = self.client._pin_chat_run(request, self.options)
-            self._selected = True
-            features = getattr(self.client,"get_features",lambda model=None:{})(request.get("model"))
-            self._fallback = not (features.get("asyncTools") and callable(getattr(self.client,"open_chat_session",None)))
-            if self._fallback:self._emit("started")
+        if self.control and self.control.signal.is_set():raise RuntimeError("Run aborted before the next model request")
+        updates=self.control._pending(self.path,self._fallback_after) if self.control else []
+        if updates:self._fallback_after=max(int(update["id"]) for update in updates)
+        applied=core.chat_session_apply_boundary_updates(request,updates,self._fallback_level)
+        self._fallback_level=applied["level"]
+        for identifier in applied["applied"]:self._emit("applied",update_id=identifier,timing="next-response")
+        return applied["request"]
+
+    def chat(self, request, options=None):
+        self._select(request)
         if self._fallback:
-            if self.control and self.control.signal.is_set():raise RuntimeError("Run aborted before the next model request")
-            updates=self.control._pending(self.path,self._updates_after) if self.control else []
-            if updates:self._updates_after=max(int(update["id"]) for update in updates)
-            applied=core.chat_session_apply_boundary_updates(request,updates,self._fallback_level)
-            self._fallback_level=applied["level"]
-            for identifier in applied["applied"]:self._emit("applied",update_id=identifier,timing="next-response")
-            return self.client.chat(applied["request"],{**self.options,**(options or {})})
-        if self.session is None:
-            if self.control and self.control.signal.is_set():raise RuntimeError("Run aborted before opening a session")
-            self.session = self.client.open_chat_session(request, {**self.options, **(options or {})})
-            limit = int(self.options.get("max_steps", self.options.get("maxSteps", 10)))
-            self.state = core.chat_session_create_state(getattr(self.session,"model",request.get("model") or getattr(self.client,"model","")), self.path, limit)
-            self._emit("started")
-            threading.Thread(target=self._bridge, daemon=True).start()
-        else:
-            # A validation correction continues the same conversation and cache prefix.
-            correction = request.get("chat_prompt", [])[-1].get("content", "")
-            self.session.steer(_steer_text(correction))
-            self._send_continuation([])
-        while True:
-            if self.control and self.control.signal.is_set():
-                raise RuntimeError(f"Run aborted; unresolved calls: {core.chat_session_unresolved(self.state)}")
-            self._updates()
+            return self.client.chat(self._fallback_request(request),{**self.options,**(options or {})})
+        for kind, item in self._run_session(request, options):
+            if kind == "final":
+                return item
+        raise RuntimeError("Chat session ended without a response")
+
+    def stream(self, request, options=None):
+        # A streamed request yields the session's items for the streaming
+        # forward: each partial response event, each response the session
+        # continues from, and the final response.
+        self._select(request)
+        if self._fallback:
+            handle = _core_ai_stream_open(self.client, self._fallback_request(request), {**self.options, **(options or {})})
             try:
-                kind, event = self._queue.get(timeout=0.02)
-            except queue.Empty:
-                kind, event = None, None
-            if kind == "failure":
-                raise RuntimeError(f"Session failed; unresolved calls: {core.chat_session_unresolved(self.state)}: {event}") from event
-            if kind == "tool":
-                call, result, error = event
-                if error:
-                    message = core._tool_error_message_impl(call, error)
-                    result = message.get("result", str(error))
-                if not core.chat_session_record_result(self.gen, self.state, call, result, error is None):
-                    continue
-                self._emit("tool.completed", call_id=call["id"])
-                if self.state["pending"][call["id"]]["execution"] != "background":
-                    self._blocking = False
-                    queued, self._waiting_calls = self._waiting_calls, []
-                    for queued_call in queued:
-                        self._start(queued_call)
-            if kind == "provider":
-                event_type = event["type"]
-                if event_type == "tool.call":
-                    self._start(event["call"])
-                elif event_type == "response":
-                    output = core.chat_session_observe_output(self.gen, self.state, event)
-                    response = event["response"]
-                    text = "".join(str(r.get("content", "")) for r in response.get("results", []))
-                    response_id = event["response_id"]
-                    self._response_text[response_id] = self._response_text.get(response_id, "") + text
-                    core._core_axgen_run_streaming_assertions(self.gen, self._response_text[response_id])
-                    if self._delta:
-                        self._delta({**response, "version": self.state["version"]})
-                    self._emit("model.output", **output)
-                elif event_type == "steering":
-                    applied = core.chat_session_native_event(self.state, event)
-                    if applied.get("applied_id"):
-                        self._emit("applied", update_id=applied["applied_id"], timing="native")
-                elif event_type == "response.completed":
-                    if core.chat_session_complete_response(self.state, event["response_id"]):
-                        self._last_response = event["response"]
-                        if self._delta and not self._response_text.get(event["response_id"]):
-                            text = "".join(str(r.get("content", "")) for r in self._last_response.get("results", []))
-                            core._core_axgen_run_streaming_assertions(self.gen, text)
-                            if text:
-                                self._delta({**self._last_response, "version": self.state["version"]})
-                        completion = core.chat_session_completion(self._last_response, event["response_id"])
-                        for call in core._response_function_calls_impl(completion):
-                            self._start(call)
-                        if core.chat_session_has_continuation_work(self.state):
-                            core._core_axgen_memory_add_response(self.gen, request, completion)
-                            core._core_axgen_record_chat_log(self.gen, request, completion)
-            action = core.chat_session_boundary_action(self.state)
-            if action["type"] == "submit":
-                self._send_continuation(action["results"])
-            elif action["type"] == "continue":
-                self._send_continuation([])
-            elif action["type"] == "validate" and self._last_response is not None:
-                return core.chat_session_result(self._last_response, self.state["response_id"])
+                while True:
+                    chunk = handle.next()
+                    if chunk is None:
+                        return
+                    yield chunk
+            finally:
+                handle.close()
+            return
+        from . import gen as core
+        for kind, item in self._run_session(request, options):
+            info = {"type": kind, "turns": self.state["turns"]}
+            if kind == "partial":
+                info["response_id"] = item["response_id"]
+                info["calls_started"] = bool(self.state["pending"])
+                info["pending_calls"] = core.chat_session_unresolved(self.state)
+                yield {"session": info, "results": item.get("response", {}).get("results", [])}
+            elif kind == "completed":
+                info["response_id"] = item
+                yield {"session": info}
+            else:
+                info["response_id"] = self.state.get("response_id")
+                final = {key: value for key, value in item.items() if not key.startswith("__session")}
+                yield {**final, "session": info}
+
+    def _run_session(self, request, options=None):
+        # One model request in its own native session: yields ("partial",
+        # event) for each partial response event, ("completed", response_id)
+        # for each response it continues from, then ("final", response).
+        from . import gen as core
+        if self.control and self.control.signal.is_set():raise RuntimeError("Run aborted before opening a session")
+        self._reset_session()
+        session = self.client.open_chat_session(request, {**self.options, **(options or {})})
+        self.session = session
+        limit = int(self.options.get("max_steps", self.options.get("maxSteps", 10)))
+        self.state = core.chat_session_create_state(getattr(session,"model",request.get("model") or getattr(self.client,"model","")), self.path, limit)
+        self._emit_started()
+        threading.Thread(target=self._bridge, args=(session, self._queue, self._cancel), daemon=True).start()
+        try:
+            while True:
+                if self.control and self.control.signal.is_set():
+                    raise RuntimeError(f"Run aborted; unresolved calls: {core.chat_session_unresolved(self.state)}")
+                self._updates()
+                try:
+                    kind, event = self._queue.get(timeout=0.02)
+                except queue.Empty:
+                    kind, event = None, None
+                if kind == "failure":
+                    raise RuntimeError(f"Session failed; unresolved calls: {core.chat_session_unresolved(self.state)}: {event}") from event
+                if kind == "tool":
+                    call, result, error = event
+                    if error:
+                        message = core._tool_error_message_impl(call, error)
+                        result = message.get("result", str(error))
+                    if not core.chat_session_record_result(self.gen, self.state, call, result, error is None):
+                        continue
+                    self._emit("tool.completed", call_id=call["id"])
+                    if self.state["pending"][call["id"]]["execution"] != "background":
+                        self._blocking = False
+                        queued, self._waiting_calls = self._waiting_calls, []
+                        for queued_call in queued:
+                            self._start(queued_call)
+                if kind == "provider":
+                    event_type = event["type"]
+                    if event_type == "tool.call":
+                        self._start(event["call"])
+                    elif event_type == "response":
+                        output = core.chat_session_observe_output(self.gen, self.state, event)
+                        response = event["response"]
+                        text = "".join(str(r.get("content", "")) for r in response.get("results", []))
+                        response_id = event["response_id"]
+                        self._response_text[response_id] = self._response_text.get(response_id, "") + text
+                        if self._delta:
+                            self._delta({**response, "version": self.state["version"]})
+                        self._emit("model.output", **output)
+                        yield "partial", event
+                    elif event_type == "steering":
+                        applied = core.chat_session_native_event(self.state, event)
+                        if applied.get("applied_id"):
+                            self._emit("applied", update_id=applied["applied_id"], timing="native")
+                    elif event_type == "response.completed":
+                        if core.chat_session_complete_response(self.state, event["response_id"]):
+                            self._last_response = event["response"]
+                            if self._delta and not self._response_text.get(event["response_id"]):
+                                text = "".join(str(r.get("content", "")) for r in self._last_response.get("results", []))
+                                if text:
+                                    self._delta({**self._last_response, "version": self.state["version"]})
+                            completion = core.chat_session_completion(self._last_response, event["response_id"])
+                            for call in core._response_function_calls_impl(completion):
+                                self._start(call)
+                            if core.chat_session_has_continuation_work(self.state):
+                                core.chat_session_record_response(self.gen, self.state, request, completion)
+                            yield "completed", event["response_id"]
+                action = core.chat_session_boundary_action(self.state)
+                if action["type"] == "submit":
+                    self._send_continuation(action["results"])
+                elif action["type"] == "continue":
+                    self._send_continuation([])
+                elif action["type"] == "validate" and self._last_response is not None:
+                    yield "final", core.chat_session_final_result(self.state, self._last_response)
+                    return
+        finally:
+            self._close_session()
+
+    def _close_session(self):
+        self._cancel.set()
+        session, self.session = self.session, None
+        if session is not None:
+            session.close()
 
     def _send_continuation(self, results):
         from . import gen as core
@@ -559,14 +627,17 @@ class _SessionClient:
             self._emit("applied", update_id=update_id, timing="next-response")
 
     def close(self, error=None):
-        self._cancel.set()
+        self._close_session()
         pending = []
         if self.state:
             from .gen import chat_session_close_state, chat_session_record_unresolved
             chat_session_record_unresolved(self.gen, self.state)
             pending = chat_session_close_state(self.state)
-        if self.session:
-            self.session.close()
+        if isinstance(error, _StreamingConsumerStopped):
+            # The consumer stopped the run early: it ended on purpose, as
+            # with control.abort().
+            self._emit("aborted")
+            return
         self._emit("failed" if error else "completed", **({"error": str(error), "pending_call_ids": pending} if error else {}))
 
 

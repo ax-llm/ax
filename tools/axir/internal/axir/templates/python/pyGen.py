@@ -738,12 +738,18 @@ class AxGen:
                  (callable(getattr(client, "open_chat_session", None)) and
                   bool(getattr(client, "get_features", lambda model=None: {})(str(run_options.get("model") or getattr(client, "model", "")) or None).get("asyncTools"))))
             and (run_options.get("control") is not None or any(getattr(tool, "execution", "blocking") == "background" for tool in self.functions)))
-        if session_enabled:
-            raise NotImplementedError(
-                "streaming_forward deltas do not cover async run sessions (control or background tools "
-                "on a session-capable client) yet; use forward() or stream_raw()."
-            )
         from .session import _BoundaryClient, _SessionClient
+        if session_enabled and not isinstance(client, (_BoundaryClient, _SessionClient)):
+            # As in forward, a session-capable client pins the run; each
+            # request streams its own native session's items.
+            pinned = _SessionClient(self, client, run_options)
+            try:
+                result = self._streaming_forward_unscoped_with(pinned, values, {**(options or {}), "asyncMode": "off", "async_mode": "off", "infraRetries": 0, "infra_retries": 0}, sink)
+            except BaseException as error:
+                pinned.close(error)
+                raise
+            pinned.close()
+            return result
         if run_options.get("control") is not None and not isinstance(client, (_BoundaryClient, _SessionClient)):
             bounded = _BoundaryClient(client, run_options)
             try:

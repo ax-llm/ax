@@ -458,6 +458,17 @@ module @ax.session version "0.1" {
         }
         core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %result, %ok)
         core.call intrinsic.axgen.record_function_call(%gen, %call, %result, %status)
+        %empty_turns = core.list
+        %turns = core.get %state["turns"] default %empty_turns
+        %message = core.call @tool_result_message_impl(%call, %result)
+        %failed = core.call intrinsic.not(%ok)
+        core.if %failed {
+          // An error result is already the error payload's text.
+          core.set %message["result"] = %text
+          core.set %message["is_error"] = true
+        }
+        core.append %turns, %message
+        core.set %state["turns"] = %turns
       }
       core.return %changed
     }
@@ -469,6 +480,9 @@ module @ax.session version "0.1" {
     attr effect = "throws"
     type signature = "(gen:json, state:json, event:json) -> json throws"
     body @entry(%gen: json, %state: json, %event: json) {
+      // The model.output event for a partial response event. Streaming
+      // assertions do not run here: a forward does not stream, and a stream
+      // checks them as the partial events stream (TS's onSessionDelta).
       %empty_map = core.map
       %empty_list = core.list
       %texts = core.get %state["texts"] default %empty_map
@@ -482,23 +496,6 @@ module @ax.session version "0.1" {
       }
       core.set %texts[%id] = %text
       core.set %state["texts"] = %texts
-      %assertions = core.get %gen["streaming_assertions"] default %empty_list
-      core.for %assertion in %assertions {
-        %is_map = core.type_is %assertion type "object"
-        core.if %is_map {
-          %needle_camel = core.get %assertion["notContains"] default null
-          %needle = core.get %assertion["not_contains"] default %needle_camel
-          %has_needle = core.call intrinsic.is_not_none(%needle)
-          core.if %has_needle {
-            %found = core.call intrinsic.contains(%text, %needle)
-            core.if %found {
-              %message = core.get %assertion["message"] default "streaming assertion failed"
-              %error = core.call intrinsic.error.runtime(%message)
-              core.raise %error
-            }
-          }
-        }
-      }
       %version = core.get %state["version"] default 0
       %output = core.map
       core.set %output["response_id"] = %id
@@ -507,6 +504,7 @@ module @ax.session version "0.1" {
       core.return %output
     }
   }
+
 
   op ax.gen.semantic @chat_session_apply_boundary_updates {
     attr core_kind = "func"
@@ -570,6 +568,11 @@ module @ax.session version "0.1" {
       core.set %state["updates"] = %updates
       core.set %state["boundary"] = false
       core.set %state["terminal"] = false
+      // The session's turns as prompt messages, as TS's memory records them:
+      // each response it continues from, and each tool result. A later
+      // request's prompt includes them.
+      %turns = core.list
+      core.set %state["turns"] = %turns
       core.return %state
     }
   }
@@ -650,6 +653,56 @@ module @ax.session version "0.1" {
       %response = core.call intrinsic.map.merge(%response, %empty)
       core.set %response["__session_response_id"] = %id
       core.return %response
+    }
+  }
+
+  op ax.gen.semantic @chat_session_record_response {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    tag "src/ax/dsp/chatSession.ts"
+    type signature = "(gen:json, state:json, request:json, completion:json) -> void"
+    body @entry(%gen: json, %state: json, %request: json, %completion: json) {
+      // A response the session continues from goes into memory and the chat
+      // log, and into the session's turns: an assistant message with its
+      // text and tool calls. TS keeps no message for an empty response.
+      core.call intrinsic.axgen.memory_add_response(%gen, %request, %completion)
+      core.call intrinsic.axgen.record_chat_log(%gen, %request, %completion)
+      %empty_turns = core.list
+      %turns = core.get %state["turns"] default %empty_turns
+      %calls = core.call @response_function_calls_impl(%completion)
+      %call_count = core.call intrinsic.len(%calls)
+      %has_calls = core.call intrinsic.gt(%call_count, 0)
+      core.if %has_calls {
+        %turns = core.call @append_tool_call_messages_impl(%turns, %completion, %calls)
+      } else {
+        %content = core.get %completion["content"] default ""
+        %has_content = core.call intrinsic.truthy(%content)
+        core.if %has_content {
+          %message = core.map
+          core.set %message["role"] = "assistant"
+          core.set %message["content"] = %content
+          core.append %turns, %message
+        }
+      }
+      core.set %state["turns"] = %turns
+      core.return
+    }
+  }
+
+  op ax.gen.semantic @chat_session_final_result {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    tag "src/ax/dsp/chatSession.ts"
+    type signature = "(state:json, response:json) -> json"
+    body @entry(%state: json, %response: json) {
+      // The session's final response, carrying the turns before it for the
+      // request's prompt.
+      %id = core.get %state["response_id"] default ""
+      %result = core.call @chat_session_result(%response, %id)
+      %empty_turns = core.list
+      %turns = core.get %state["turns"] default %empty_turns
+      core.set %result["__session_turns"] = %turns
+      core.return %result
     }
   }
 
