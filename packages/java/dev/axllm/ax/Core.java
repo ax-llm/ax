@@ -3527,7 +3527,7 @@ final class Core {
     if (Core.truthy(has_min)) {
       Object too_short = Core.lt(length, min_length);
       if (Core.truthy(too_short)) {
-        Object message = Core.stringFormat("Field '{}' failed validation: String must be at least {} characters long.", title, min_length);
+        Object message = Core.stringFormat("Field '{}' failed validation: String must be at least {} characters long. You provided: \"{}\" ({} characters).", title, min_length, value, length);
         Object error = Core.validationError(message);
         throw Core.asRuntime(error);
       }
@@ -3537,7 +3537,7 @@ final class Core {
     if (Core.truthy(has_max)) {
       Object too_long = Core.gt(length, max_length);
       if (Core.truthy(too_long)) {
-        Object message = Core.stringFormat("Field '{}' failed validation: String must be at most {} characters long.", title, max_length);
+        Object message = Core.stringFormat("Field '{}' failed validation: String must be at most {} characters long. You provided: \"{}\" ({} characters).", title, max_length, value, length);
         Object error = Core.validationError(message);
         throw Core.asRuntime(error);
       }
@@ -3548,7 +3548,7 @@ final class Core {
       Object matches = Core.regexMatch(pattern, value);
       Object pattern_failed = Core.not(matches);
       if (Core.truthy(pattern_failed)) {
-        Object message = Core.stringFormat("Field '{}' failed validation: String must match pattern /{}/.", title, pattern);
+        Object message = Core.stringFormat("Field '{}' failed validation: String must match pattern /{}/. You provided: \"{}\".", title, pattern, value);
         Object error = Core.validationError(message);
         throw Core.asRuntime(error);
       }
@@ -3559,7 +3559,7 @@ final class Core {
       Object valid_email = Core.regexMatch("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", value);
       Object invalid_email = Core.not(valid_email);
       if (Core.truthy(invalid_email)) {
-        Object message = Core.stringFormat("Field '{}' failed validation: String must be a valid email address.", title);
+        Object message = Core.stringFormat("Field '{}' failed validation: String must be a valid email address. You provided: \"{}\".", title, value);
         Object error = Core.validationError(message);
         throw Core.asRuntime(error);
       }
@@ -3572,7 +3572,7 @@ final class Core {
       Object valid_url = Core.urlValid(value);
       Object invalid_url = Core.not(valid_url);
       if (Core.truthy(invalid_url)) {
-        Object message = Core.stringFormat("Invalid URL for '{}': Invalid URL format.", title);
+        Object message = Core.stringFormat("Field '{}' failed validation: String must be a valid URL. You provided: \"{}\".", title, value);
         Object error = Core.validationError(message);
         throw Core.asRuntime(error);
       }
@@ -3589,7 +3589,7 @@ final class Core {
     if (Core.truthy(has_minimum)) {
       Object too_small = Core.lt(value, minimum);
       if (Core.truthy(too_small)) {
-        Object message = Core.stringFormat("Field '{}' failed validation: Number must be at least {}.", title, minimum);
+        Object message = Core.stringFormat("Field '{}' failed validation: Number must be at least {}. You provided: {}.", title, minimum, value);
         Object error = Core.validationError(message);
         throw Core.asRuntime(error);
       }
@@ -3599,7 +3599,7 @@ final class Core {
     if (Core.truthy(has_maximum)) {
       Object too_large = Core.gt(value, maximum);
       if (Core.truthy(too_large)) {
-        Object message = Core.stringFormat("Field '{}' failed validation: Number must be at most {}.", title, maximum);
+        Object message = Core.stringFormat("Field '{}' failed validation: Number must be at most {}. You provided: {}.", title, maximum, value);
         Object error = Core.validationError(message);
         throw Core.asRuntime(error);
       }
@@ -3860,7 +3860,7 @@ final class Core {
       Object nested_map = Core.get(typ, "fields", null);
       Object has_nested = Core.truthyValue(nested_map);
       if (Core.truthy(has_nested)) {
-        Object nested_fields = Core.fieldsFromMap(nested_map);
+        Object nested_fields = Core._validate_keyed_fields_impl(nested_map);
         Core._validate_fields_impl(nested_fields, value, path);
       }
       return null;
@@ -4058,6 +4058,30 @@ final class Core {
       }
     }
     return public_values;
+  }
+
+  static Object _validate_keyed_fields_impl(Object fields_map) {
+    axirCoverageMark("_validate_keyed_fields_impl");
+    Object out = new java.util.ArrayList<Object>();
+    Object nested_fields = Core.fieldsFromMap(fields_map);
+    for (Object nested : Core.iter(nested_fields)) {
+      Object name = Core.get(nested, "name", "");
+      Object typ = Core.get(nested, "type", null);
+      Object optional_snake = Core.get(nested, "is_optional", Boolean.FALSE);
+      Object optional_value = Core.get(nested, "isOptional", optional_snake);
+      Object optional = Core.truthyValue(optional_value);
+      Object internal_snake = Core.get(nested, "is_internal", Boolean.FALSE);
+      Object internal_value = Core.get(nested, "isInternal", internal_snake);
+      Object internal = Core.truthyValue(internal_value);
+      Object field = new java.util.LinkedHashMap<String, Object>();
+      Core.set(field, "name", name);
+      Core.set(field, "title", name);
+      Core.set(field, "type", typ);
+      Core.set(field, "is_optional", optional);
+      Core.set(field, "is_internal", internal);
+      Core.append(out, field);
+    }
+    return out;
   }
 
   static Object _schema_to_json_schema_impl(Object fields, Object schema_title, Object options) {

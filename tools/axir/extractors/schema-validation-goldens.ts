@@ -119,12 +119,16 @@ function validateOutputCase(
   });
 }
 
+// exact: the fixture also pins TS's whole message (expected_error_message),
+// which the ports must reproduce character for character: it reaches the model
+// as the correction on a validation retry.
 function validateOutputErrorCase(
   name: string,
   signatureSpec: Json,
   sig: AxSignature,
   values: Record<string, unknown>,
-  expected: string
+  expected: string,
+  exact = false
 ): void {
   try {
     validateStructuredOutputValues(sig, structuredClone(values));
@@ -142,6 +146,7 @@ function validateOutputErrorCase(
       values: values as Json,
       expected_error_category: 'validation',
       expected_error_contains: expected,
+      ...(exact ? { expected_error_message: message } : {}),
       ts_error_name: err instanceof Error ? err.name : 'Error',
       ts_error_message: message,
     });
@@ -463,7 +468,8 @@ validateOutputErrorCase(
     resourceLinks: ['https://axllm.dev', 'not a url'],
     resourceLink: 'https://axllm.dev',
   },
-  "Invalid URL for 'Resource Links': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: not a url."
+  "Invalid URL for 'Resource Links': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: not a url.",
+  true
 );
 validateOutputErrorCase(
   'output-url-scalar-invalid',
@@ -473,7 +479,8 @@ validateOutputErrorCase(
     resourceLinks: ['https://axllm.dev'],
     resourceLink: 'not a url',
   },
-  "Invalid URL for 'Resource Link': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: not a url."
+  "Invalid URL for 'Resource Link': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: not a url.",
+  true
 );
 
 validateOutputCase('output-valid-nested', nestedSpec, nestedSig, {
@@ -505,7 +512,8 @@ validateOutputErrorCase(
   {
     user: { username: 'Al', age: 36 },
   },
-  'at least 3 characters'
+  'at least 3 characters',
+  true
 );
 // TS measures string lengths in UTF-16 code units (String.prototype.length):
 // an emoji counts 2, a precomposed é counts 1.
@@ -519,7 +527,8 @@ validateOutputErrorCase(
   {
     user: { username: '\u{1F600}'.repeat(11), age: 36 },
   },
-  'String must be at most 20 characters long.'
+  'String must be at most 20 characters long.',
+  true
 );
 validateOutputCase(
   'output-string-max-counts-units-not-bytes',
@@ -536,7 +545,8 @@ validateOutputErrorCase(
   {
     user: { username: 'adalovelace', age: 12 },
   },
-  'at least 18'
+  'at least 18',
+  true
 );
 validateOutputErrorCase(
   'output-email-format',
@@ -545,7 +555,86 @@ validateOutputErrorCase(
   {
     user: { username: 'adalovelace', email: 'not-email', age: 36 },
   },
-  'valid email address'
+  'valid email address',
+  true
+);
+
+// Every string and number constraint, as TS's structured-output validation
+// words it: a top-level field by its signature title, a nested one by its key,
+// and an array item by its field's title.
+const constraintValues = {
+  username: 'adalovelace',
+  email: 'ada@example.com',
+  website: 'https://axllm.dev',
+  outputCode: 'AX42',
+  age: 36,
+};
+for (const [name, override, expected] of [
+  ['output-top-string-min', { username: 'Al' }, 'at least 3 characters'],
+  [
+    'output-top-string-max',
+    { username: 'a'.repeat(21) },
+    'at most 20 characters',
+  ],
+  ['output-top-email-format', { email: 'nope' }, 'valid email address'],
+  ['output-top-url-format', { website: 'not a url' }, 'valid URL'],
+  ['output-top-pattern', { outputCode: 'ax-42' }, 'must match pattern'],
+  ['output-top-number-minimum', { age: 12 }, 'at least 18'],
+  ['output-top-number-maximum', { age: 130.5 }, 'at most 120'],
+] as const) {
+  validateOutputErrorCase(
+    name,
+    constraintsSpec,
+    constraintsSig,
+    { ...constraintValues, ...override },
+    expected,
+    true
+  );
+}
+validateOutputErrorCase(
+  'output-string-max',
+  nestedSpec,
+  nestedSig,
+  {
+    user: { username: 'ada-lovelace-countess', age: 36 },
+  },
+  'at most 20 characters',
+  true
+);
+validateOutputErrorCase(
+  'output-number-maximum',
+  nestedSpec,
+  nestedSig,
+  {
+    user: { username: 'adalovelace', age: 121 },
+  },
+  'at most 120',
+  true
+);
+validateOutputErrorCase(
+  'output-array-string-min',
+  arraySpec,
+  arraySig,
+  {
+    tags: ['ok', 'x'],
+    reviews: [{ rating: 5, comment: 'A careful, complete answer.' }],
+  },
+  'at least 2 characters',
+  true
+);
+validateOutputErrorCase(
+  'output-array-object-nested-number',
+  arraySpec,
+  arraySig,
+  {
+    tags: ['ok'],
+    reviews: [
+      { rating: 5, comment: 'A careful, complete answer.' },
+      { rating: 6, comment: 'Better than the scale allows.' },
+    ],
+  },
+  'at most 5',
+  true
 );
 
 stripInternalCase(

@@ -1,7 +1,7 @@
 {
   "target": "python",
   "enforced": true,
-  "emitted_functions": 960,
+  "emitted_functions": 961,
   "files": {
     "axllm/agent.py": {
       "emitted_lines": 9808,
@@ -28,8 +28,8 @@
       "total_lines": 865
     },
     "axllm/schema.py": {
-      "emitted_lines": 918,
-      "total_lines": 1198
+      "emitted_lines": 941,
+      "total_lines": 1221
     },
     "axllm/signature.py": {
       "emitted_lines": 1546,

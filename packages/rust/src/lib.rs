@@ -23580,6 +23580,19 @@ fn expect_validation_result(result: AxResult<()>, fixture: &Value) -> AxResult<(
     if let Some(expected) = expected {
         if let Err(err) = result {
             expect_error_category(&err, fixture)?;
+            // A validation message reaches the model as the retry's
+            // correction, so a fixture can pin TypeScript's whole message.
+            if let Some(message) = fixture
+                .get("expected_error_message")
+                .and_then(Value::as_str)
+            {
+                if err.message != message {
+                    return Err(AxError::new(
+                        "fixture",
+                        format!("expected error message {message:?}, got {:?}", err.message),
+                    ));
+                }
+            }
             if err.message.contains(expected) {
                 return Ok(());
             }
@@ -38946,13 +38959,7 @@ fn _validate_string_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     if core_truthy(&v_has_min) {
         v_too_short = core_lt(&[v_length.clone(), v_min_length.clone()])?;
         if core_truthy(&v_too_short) {
-            v_message = core_string_format(&[
-                CoreValue::from(
-                    "Field '{}' failed validation: String must be at least {} characters long.",
-                ),
-                v_title.clone(),
-                v_min_length.clone(),
-            ])?;
+            v_message = core_string_format(&[CoreValue::from("Field '{}' failed validation: String must be at least {} characters long. You provided: \"{}\" ({} characters)."), v_title.clone(), v_min_length.clone(), v_value.clone(), v_length.clone()])?;
             v_error = core_validation_error(&[v_message.clone()])?;
             return Err(core_as_error(&v_error));
         }
@@ -38962,13 +38969,7 @@ fn _validate_string_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     if core_truthy(&v_has_max) {
         v_too_long = core_gt(&[v_length.clone(), v_max_length.clone()])?;
         if core_truthy(&v_too_long) {
-            v_message = core_string_format(&[
-                CoreValue::from(
-                    "Field '{}' failed validation: String must be at most {} characters long.",
-                ),
-                v_title.clone(),
-                v_max_length.clone(),
-            ])?;
+            v_message = core_string_format(&[CoreValue::from("Field '{}' failed validation: String must be at most {} characters long. You provided: \"{}\" ({} characters)."), v_title.clone(), v_max_length.clone(), v_value.clone(), v_length.clone()])?;
             v_error = core_validation_error(&[v_message.clone()])?;
             return Err(core_as_error(&v_error));
         }
@@ -38979,11 +38980,7 @@ fn _validate_string_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
         v_matches = core_regex_match(v_pattern.clone(), &v_value)?;
         v_pattern_failed = core_not(&[v_matches.clone()])?;
         if core_truthy(&v_pattern_failed) {
-            v_message = core_string_format(&[
-                CoreValue::from("Field '{}' failed validation: String must match pattern /{}/."),
-                v_title.clone(),
-                v_pattern.clone(),
-            ])?;
+            v_message = core_string_format(&[CoreValue::from("Field '{}' failed validation: String must match pattern /{}/. You provided: \"{}\"."), v_title.clone(), v_pattern.clone(), v_value.clone()])?;
             v_error = core_validation_error(&[v_message.clone()])?;
             return Err(core_as_error(&v_error));
         }
@@ -38995,12 +38992,7 @@ fn _validate_string_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
             core_regex_match(CoreValue::from("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"), &v_value)?;
         v_invalid_email = core_not(&[v_valid_email.clone()])?;
         if core_truthy(&v_invalid_email) {
-            v_message = core_string_format(&[
-                CoreValue::from(
-                    "Field '{}' failed validation: String must be a valid email address.",
-                ),
-                v_title.clone(),
-            ])?;
+            v_message = core_string_format(&[CoreValue::from("Field '{}' failed validation: String must be a valid email address. You provided: \"{}\"."), v_title.clone(), v_value.clone()])?;
             v_error = core_validation_error(&[v_message.clone()])?;
             return Err(core_as_error(&v_error));
         }
@@ -39013,10 +39005,7 @@ fn _validate_string_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
         v_valid_url = core_url_valid(&[v_value.clone()])?;
         v_invalid_url = core_not(&[v_valid_url.clone()])?;
         if core_truthy(&v_invalid_url) {
-            v_message = core_string_format(&[
-                CoreValue::from("Invalid URL for '{}': Invalid URL format."),
-                v_title.clone(),
-            ])?;
+            v_message = core_string_format(&[CoreValue::from("Field '{}' failed validation: String must be a valid URL. You provided: \"{}\"."), v_title.clone(), v_value.clone()])?;
             v_error = core_validation_error(&[v_message.clone()])?;
             return Err(core_as_error(&v_error));
         }
@@ -39053,9 +39042,12 @@ fn _validate_number_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
         v_too_small = core_lt(&[v_value.clone(), v_minimum.clone()])?;
         if core_truthy(&v_too_small) {
             v_message = core_string_format(&[
-                CoreValue::from("Field '{}' failed validation: Number must be at least {}."),
+                CoreValue::from(
+                    "Field '{}' failed validation: Number must be at least {}. You provided: {}.",
+                ),
                 v_title.clone(),
                 v_minimum.clone(),
+                v_value.clone(),
             ])?;
             v_error = core_validation_error(&[v_message.clone()])?;
             return Err(core_as_error(&v_error));
@@ -39067,9 +39059,12 @@ fn _validate_number_constraints_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
         v_too_large = core_gt(&[v_value.clone(), v_maximum.clone()])?;
         if core_truthy(&v_too_large) {
             v_message = core_string_format(&[
-                CoreValue::from("Field '{}' failed validation: Number must be at most {}."),
+                CoreValue::from(
+                    "Field '{}' failed validation: Number must be at most {}. You provided: {}.",
+                ),
                 v_title.clone(),
                 v_maximum.clone(),
+                v_value.clone(),
             ])?;
             v_error = core_validation_error(&[v_message.clone()])?;
             return Err(core_as_error(&v_error));
@@ -39488,7 +39483,7 @@ fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_nested_map = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
         v_has_nested = core_truthy_value(&[v_nested_map.clone()])?;
         if core_truthy(&v_has_nested) {
-            v_nested_fields = core_fields_from_map(&[v_nested_map.clone()])?;
+            v_nested_fields = _validate_keyed_fields_impl(&[v_nested_map.clone()])?;
             _validate_fields_impl(&[v_nested_fields.clone(), v_value.clone(), v_path.clone()])?;
         }
         return Ok(CoreValue::Null);
@@ -39923,6 +39918,67 @@ fn _strip_internal_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
         }
     }
     return Ok(v_public_values.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _validate_keyed_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_validate_keyed_fields_impl");
+    let mut v_fields_map = core_arg(args, 0);
+    let mut v_field = CoreValue::Null;
+    let mut v_internal = CoreValue::Null;
+    let mut v_internal_snake = CoreValue::Null;
+    let mut v_internal_value = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_nested = CoreValue::Null;
+    let mut v_nested_fields = CoreValue::Null;
+    let mut v_optional = CoreValue::Null;
+    let mut v_optional_snake = CoreValue::Null;
+    let mut v_optional_value = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    v_out = CoreValue::new_list();
+    v_nested_fields = core_fields_from_map(&[v_fields_map.clone()])?;
+    for v_nested in core_iter(&v_nested_fields)? {
+        let mut v_nested = v_nested;
+        v_name = core_get(&v_nested, &CoreValue::from("name"), CoreValue::from(""));
+        v_typ = core_get(&v_nested, &CoreValue::from("type"), CoreValue::Null);
+        v_optional_snake = core_get(
+            &v_nested,
+            &CoreValue::from("is_optional"),
+            CoreValue::Bool(false),
+        );
+        v_optional_value = core_get(
+            &v_nested,
+            &CoreValue::from("isOptional"),
+            v_optional_snake.clone(),
+        );
+        v_optional = core_truthy_value(&[v_optional_value.clone()])?;
+        v_internal_snake = core_get(
+            &v_nested,
+            &CoreValue::from("is_internal"),
+            CoreValue::Bool(false),
+        );
+        v_internal_value = core_get(
+            &v_nested,
+            &CoreValue::from("isInternal"),
+            v_internal_snake.clone(),
+        );
+        v_internal = core_truthy_value(&[v_internal_value.clone()])?;
+        v_field = CoreValue::new_map();
+        core_set(&v_field, CoreValue::from("name"), v_name.clone())?;
+        core_set(&v_field, CoreValue::from("title"), v_name.clone())?;
+        core_set(&v_field, CoreValue::from("type"), v_typ.clone())?;
+        core_set(&v_field, CoreValue::from("is_optional"), v_optional.clone())?;
+        core_set(&v_field, CoreValue::from("is_internal"), v_internal.clone())?;
+        core_append(&v_out, v_field.clone())?;
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -129126,7 +129182,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (960 of 960 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (961 of 961 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

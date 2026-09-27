@@ -2551,7 +2551,7 @@
     },
     {
       "id": "axir-2026-09-27-match-typescript-s-structured-output-validation-messages-for-str",
-      "status": "open",
+      "status": "done",
       "title": "Match TypeScript's structured-output validation messages for string and number constraints in the ports",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2568,9 +2568,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "736a00c4f",
+      "verification": "validate.axir words string and number constraint failures as TS's createStringConstraintError and createNumberConstraintError do (You provided: \"<value>\" (<n> characters). / You provided: <n>.), titles a nested object's fields by their keys (@validate_keyed_fields_impl, TS's nestedFieldFromType), and words a string field's url/uri format as TS's valid-URL constraint. 17 TS goldens in validation/ pin the whole message as expected_error_message (top-level, nested and array fields); each runner compares it exactly. Before the fix 15 of 30 validation fixtures fail in each of the five ports, and a perturbed expected_error_message fails in all five runners. verify --mode release on ccee3bda2 plus the fix: 1545 fixtures in python, go, java, cpp and rust."
     },
     {
       "id": "axir-2026-09-27-mcp-tool-task-handling-in-the-ports",

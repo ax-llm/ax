@@ -3836,6 +3836,9 @@ public final class Conformance {
       assertErrorCategory(e, fixture);
       String expected = (String) fixture.get("expected_error_contains");
       if (expected != null && !String.valueOf(e.getMessage()).contains(expected)) throw new FixtureError("expected error containing " + expected + ", got " + e);
+      // A validation message reaches the model as the retry's correction, so a
+      // fixture can pin TypeScript's whole message.
+      if (fixture.containsKey("expected_error_message") && !String.valueOf(fixture.get("expected_error_message")).equals(e.getMessage())) throw new FixtureError("expected error message " + fixture.get("expected_error_message") + ", got " + e.getMessage());
       onExpected.accept(e);
       return null;
     }

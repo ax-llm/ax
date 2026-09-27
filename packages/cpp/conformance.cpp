@@ -887,6 +887,10 @@ static Value expect_maybe_error(const std::function<Value()>& fn, Value fixture,
       throw AxError("fixture", std::string("expected error category ") + display(expected_category) + ", got " + e.category);
     }
     if (std::string(e.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + e.what());
+    // A validation message reaches the model as the retry's correction, so a
+    // fixture can pin TypeScript's whole message.
+    Value expected_message = Core::get(fixture, "expected_error_message");
+    if (!expected_message.is_null() && std::string(e.what()) != display(expected_message)) throw AxError("fixture", std::string("expected error message ") + display(expected_message) + ", got " + e.what());
     if (check_cause) assert_error_cause(fixture, e);
     return Value();
   }
