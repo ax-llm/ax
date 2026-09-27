@@ -125,12 +125,13 @@ const providerDataFiles = {
 const samplingSupportFlags = [
   'samplingWithoutReasoning',
   'reasoningOffByDefault',
+  'temperatureOne',
 ];
 
 // The per-provider model names, aliases, isExpensive flags, notSupported
-// sampling parameters and the two supported flags that qualify them
-// (samplingWithoutReasoning, reasoningOffByDefault) from the catalog, in
-// catalog order. The chat path reads this small index on every request (the
+// sampling parameters and the supported flags that qualify them
+// (samplingWithoutReasoning, reasoningOffByDefault, temperatureOne) from the
+// catalog, in catalog order. The chat path reads this small index on every request (the
 // expensive-model gate and the sampling filter), so it doesn't parse the full
 // catalog.
 export function buildProviderModelIndex(catalog) {

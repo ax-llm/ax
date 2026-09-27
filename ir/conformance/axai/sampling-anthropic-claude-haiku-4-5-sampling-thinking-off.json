@@ -1,0 +1,52 @@
+{
+  "expected_transport_json_absent": ["thinking.type"],
+  "expected_transport_request": {
+    "json": {
+      "max_tokens": 40000,
+      "temperature": 0.5,
+      "top_k": 40,
+      "top_p": 0.9
+    }
+  },
+  "expected_warnings": [],
+  "kind": "ai_chat",
+  "model": "claude-haiku-4-5",
+  "name": "sampling-anthropic-claude-haiku-4-5-sampling-thinking-off",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "temperature": 0.5,
+      "topK": 40,
+      "topP": 0.9
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "msg_sampling",
+        "model": "claude-haiku-4-5",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}

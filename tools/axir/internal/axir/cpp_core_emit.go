@@ -527,7 +527,7 @@ func cppLiteral(value interface{}) string {
 func cppName(value string) string {
 	name := strings.TrimPrefix(value, "%")
 	switch name {
-	case "template", "class", "typename", "namespace", "operator", "return", "for", "if", "else", "inline":
+	case "template", "class", "typename", "namespace", "operator", "return", "for", "if", "else", "inline", "explicit":
 		return name + "_"
 	default:
 		return name

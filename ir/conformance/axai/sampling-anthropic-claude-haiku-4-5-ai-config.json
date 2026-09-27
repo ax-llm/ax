@@ -1,5 +1,5 @@
 {
-  "expected_transport_json_absent": ["top_k"],
+  "expected_transport_json_absent": ["top_k", "thinking.type"],
   "expected_transport_request": {
     "json": {
       "max_tokens": 123,

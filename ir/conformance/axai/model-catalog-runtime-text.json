@@ -463,6 +463,7 @@
             "name": "gemini-3.5-flash-lite",
             "notSupported": {
               "temperature": true,
+              "topK": true,
               "topP": true
             },
             "promptTokenCostPer1M": 0.3,
@@ -625,6 +626,7 @@
             "name": "gemini-3.6-flash",
             "notSupported": {
               "temperature": true,
+              "topK": true,
               "topP": true
             },
             "promptTokenCostPer1M": 1.5,
@@ -667,6 +669,7 @@
             "name": "gemini-3.7-flash",
             "notSupported": {
               "temperature": true,
+              "topK": true,
               "topP": true
             },
             "promptTokenCostPer1M": 1.5,
@@ -709,6 +712,7 @@
             "name": "gemini-3.8-flash",
             "notSupported": {
               "temperature": true,
+              "topK": true,
               "topP": true
             },
             "promptTokenCostPer1M": 1.5,
@@ -1582,7 +1586,8 @@
             "promptTokenCostPer1M": 0.05,
             "provider": "openai",
             "supported": {
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -1723,6 +1728,7 @@
             "supported": {
               "samplingWithoutReasoning": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -1755,7 +1761,8 @@
             "supported": {
               "reasoningOffByDefault": true,
               "samplingWithoutReasoning": true,
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -1830,7 +1837,8 @@
             "promptTokenCostPer1M": 0.25,
             "provider": "openai",
             "supported": {
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -1890,7 +1898,8 @@
             "supported": {
               "reasoningOffByDefault": true,
               "samplingWithoutReasoning": true,
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -1950,7 +1959,8 @@
             "promptTokenCostPer1M": 1.1,
             "provider": "openai",
             "supported": {
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -1980,7 +1990,8 @@
             "promptTokenCostPer1M": 1.1,
             "provider": "openai",
             "supported": {
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -2034,7 +2045,8 @@
             "promptTokenCostPer1M": 2,
             "provider": "openai",
             "supported": {
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -2064,7 +2076,8 @@
             "promptTokenCostPer1M": 1.25,
             "provider": "openai",
             "supported": {
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -2180,7 +2193,8 @@
             "supported": {
               "reasoningOffByDefault": true,
               "samplingWithoutReasoning": true,
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -2381,6 +2395,7 @@
             "supported": {
               "samplingWithoutReasoning": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -2413,7 +2428,8 @@
             "supported": {
               "reasoningOffByDefault": true,
               "samplingWithoutReasoning": true,
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -2501,7 +2517,8 @@
             "supported": {
               "reasoningOffByDefault": true,
               "samplingWithoutReasoning": true,
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -2573,6 +2590,7 @@
             "supported": {
               "samplingWithoutReasoning": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -2618,6 +2636,7 @@
             "supported": {
               "samplingWithoutReasoning": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -2711,7 +2730,8 @@
             "promptTokenCostPer1M": 15,
             "provider": "openai",
             "supported": {
-              "structuredOutputs": true
+              "structuredOutputs": true,
+              "temperatureOne": true
             },
             "type": "text"
           },
@@ -2889,6 +2909,7 @@
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -3031,6 +3052,7 @@
               "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -3072,6 +3094,7 @@
               "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -3156,6 +3179,7 @@
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -3234,6 +3258,7 @@
               "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -3312,6 +3337,7 @@
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -3375,6 +3401,7 @@
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -3414,6 +3441,7 @@
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -3566,6 +3594,7 @@
               "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -3795,6 +3824,7 @@
               "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -3836,6 +3866,7 @@
               "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -3951,6 +3982,7 @@
               "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -4024,6 +4056,7 @@
               "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -4070,6 +4103,7 @@
               "samplingWithoutReasoning": true,
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -4172,6 +4206,7 @@
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -5125,7 +5160,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -5135,7 +5170,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 10,
             "contextWindow": 1000000,
@@ -5143,11 +5178,17 @@
             "isDefault": true,
             "maxTokens": 128000,
             "name": "claude-sonnet-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 2,
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -5162,7 +5203,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -5172,7 +5213,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 10,
             "contextWindow": 1000000,
@@ -5180,6 +5221,11 @@
             "isDefault": true,
             "maxTokens": 128000,
             "name": "claude-sonnet-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 2,
             "provider": "anthropic",
             "supported": {
@@ -5612,7 +5658,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -5622,7 +5668,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 20,
             "contextWindow": 1000000,
@@ -5634,12 +5680,18 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-opus-5-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 4,
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
               "structuredOutputModes": ["native"],
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -5654,7 +5706,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -5664,7 +5716,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 20,
             "contextWindow": 1000000,
@@ -5672,6 +5724,11 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-opus-5-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 4,
             "provider": "anthropic",
             "supported": {
@@ -5842,7 +5899,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -5852,7 +5909,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 25,
             "contextWindow": 1000000,
@@ -5864,11 +5921,17 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-opus-4-7",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 5,
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -5883,7 +5946,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -5893,7 +5956,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 25,
             "contextWindow": 1000000,
@@ -5901,6 +5964,11 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-opus-4-7",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 5,
             "provider": "anthropic",
             "supported": {
@@ -5920,7 +5988,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -5930,7 +5998,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 25,
             "contextWindow": 1000000,
@@ -5942,11 +6010,17 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-opus-4-8",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 5,
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -5961,7 +6035,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -5971,7 +6045,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 25,
             "contextWindow": 1000000,
@@ -5979,6 +6053,11 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-opus-4-8",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 5,
             "provider": "anthropic",
             "supported": {
@@ -5998,7 +6077,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -6008,7 +6087,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 25,
             "contextWindow": 1000000,
@@ -6020,11 +6099,17 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-opus-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 5,
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -6039,7 +6124,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -6049,7 +6134,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 25,
             "contextWindow": 1000000,
@@ -6057,6 +6142,11 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-opus-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 5,
             "provider": "anthropic",
             "supported": {
@@ -6100,7 +6190,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -6110,7 +6200,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 50,
             "contextWindow": 1000000,
@@ -6118,11 +6208,17 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-fable-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 10,
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -6137,7 +6233,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -6147,7 +6243,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 50,
             "contextWindow": 1000000,
@@ -6155,6 +6251,11 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-fable-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 10,
             "provider": "anthropic",
             "supported": {
@@ -6174,7 +6275,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -6184,7 +6285,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 50,
             "contextWindow": 1000000,
@@ -6192,12 +6293,18 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-fable-5-1",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 10,
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
               "structuredOutputModes": ["native"],
               "structuredOutputs": true,
+              "temperatureOne": true,
               "thinkingBudget": true
             },
             "type": "text"
@@ -6212,7 +6319,7 @@
               "serviceTiers": [],
               "showThoughts": true,
               "structuredOutputs": true,
-              "temperature": true,
+              "temperature": false,
               "thinkingBudget": true,
               "thinkingLevels": [
                 "none",
@@ -6222,7 +6329,7 @@
                 "high",
                 "highest"
               ],
-              "topP": true
+              "topP": false
             },
             "completionTokenCostPer1M": 50,
             "contextWindow": 1000000,
@@ -6230,6 +6337,11 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-fable-5-1",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
             "promptTokenCostPer1M": 10,
             "provider": "anthropic",
             "supported": {
