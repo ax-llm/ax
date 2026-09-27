@@ -1,0 +1,34 @@
+{
+  "expected_chat_prompt_contains": ["\"Speech: Hello there\\n\""],
+  "expected_output": {
+    "summary": "A greeting"
+  },
+  "expected_request_count": 1,
+  "expected_speak_requests": [],
+  "forward_options": {
+    "renderAudio": true
+  },
+  "input": {
+    "speech": {
+      "audio": "SUQzBAA=",
+      "data": "SUQzBAA=",
+      "format": "mp3",
+      "mimeType": "audio/mpeg",
+      "transcript": "Hello there"
+    }
+  },
+  "kind": "forward",
+  "name": "audio-input-rendered-artifact-as-transcript",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Summary: A greeting",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "speech:audio -> summary:string"
+}

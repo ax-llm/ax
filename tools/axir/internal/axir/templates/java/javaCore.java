@@ -989,6 +989,14 @@ final class Core {
     Object fromGen = cachingFunctionOption(get(gen, "options", null));
     return fromGen != null ? fromGen : AxGlobals.cachingFunction();
   }
+  // TS AxFlow's cachingFunction: the call's (cachingFunction or
+  // caching_function), else the process-wide one; the flow's constructor
+  // takes none. The flow passes its call options to its AxGen nodes, so they
+  // cache through the same function.
+  static Object flowCachingFunction(Object options) {
+    Object fromCall = cachingFunctionOption(options);
+    return fromCall != null ? fromCall : AxGlobals.cachingFunction();
+  }
   private static Object cachingFunctionOption(Object options) {
     if (!(options instanceof Map<?, ?> map)) return null;
     Object value = map.get("cachingFunction");
@@ -1019,6 +1027,16 @@ final class Core {
       if (error instanceof InterruptedException) Thread.currentThread().interrupt();
       throw new RuntimeException(error.getMessage(), error);
     }
+  }
+  // The run control updates pending for this run, which the forward applies
+  // when a step starts, as TypeScript does: a steer, a thinking budget. Only
+  // the run's request boundary (SessionRun without a native chat session)
+  // tracks them; any other client has none.
+  static Object aiControlTakePending(Object client) {
+    return client instanceof SessionRun run ? run.takeControlUpdates() : new ArrayList<>();
+  }
+  static Object aiControlPendingCount(Object client) {
+    return client instanceof SessionRun run ? run.pendingControlCount() : 0;
   }
   static Object aiClientFeatures(Object client, Object model) {
     if (client instanceof SessionRun session) return aiClientFeatures(session.client, model);
@@ -1395,6 +1413,16 @@ final class Core {
     finally{var records=new ArrayList<>(gen.functionCallTraces);gen.functions.clear();gen.functions.addAll(original);gen.baseFunctions.clear();gen.baseFunctions.addAll(base);gen.functionCallTraces.clear();gen.functionCallTraces.addAll(previous);gen.functionCallTraces.addAll(records);_agent_record_native_calls(state,selected,records,options);}
   }
 
+  // Streams the stage's AxGen deltas to sink, each through the agent's
+  // citation handling (hidden citations leave the delta).
+  @SuppressWarnings("unchecked")
+  static Object agentStageStreamingForward(Object stage, Object state, Object client, Object values, Object options, Object sink) {
+    if (!(stage instanceof AxGen program)) throw new RuntimeException("the agent's streamed stage must be an AxGen");
+    if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
+    if (!(sink instanceof java.util.function.Consumer<?> consumer)) throw new IllegalArgumentException("the agent stream has no delta sink");
+    java.util.function.Consumer<Object> deliver = (java.util.function.Consumer<Object>) consumer;
+    return program.streamingForwardWith(ai, asMap(values), asMap(options), envelope -> deliver.accept(_agent_stream_citation_delta(state, envelope)));
+  }
   static Object agentStageForward(Object stage, Object client, Object values, Object options) {
     if (!(stage instanceof AxProgram program)) throw new RuntimeException("agent stage is not AxProgram");
     if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
@@ -1480,6 +1508,19 @@ final class Core {
     if (scripted instanceof List<?>) return scripted;
     return List.of();
   }
+  static Object axgenSpeak(Object client, Object request, Object options) {
+    // Backs intrinsic.axgen.speak: the AxGen audio output renderer calls the
+    // client's speak(), as TS calls ai.speak().
+    if (!(client instanceof AiClient ai)) throw new UnsupportedOperationException("Audio speech not supported by this AI client");
+    try {
+      return ai.speak(asMap(request), asMap(options));
+    } catch (RuntimeException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   static Object agentTranscribe(Object client, Object request, Object options) {
     // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
     // text before the agent loop (the client passes through _agent_forward as a real client).
@@ -1793,13 +1834,27 @@ class PromptRuntime {
 
   static Object userContent(AxSignature sig, Map<String, Object> values) {
     List<Map<String, Object>> parts = new ArrayList<>();
+    boolean audioParts = false;
     for (Field field : inputFieldsForValues(sig, values)) {
       Object value = values.get(field.name);
       if (!provided(value)) {
         if (field.optional || field.internal) continue;
         throw new IllegalArgumentException("Value for input field '" + field.name + "' is required.");
       }
-      if (field.type != null && List.of("image", "audio", "file", "url").contains(field.type.name) && value instanceof Map<?, ?> map) {
+      boolean audio = field.type != null && "audio".equals(field.type.name);
+      // As TS processValue: an audio object with a transcript (what an AxGen
+      // audio output renders to) reaches the model as that text.
+      if (audio && value instanceof Map<?, ?> audioMap && audioMap.get("transcript") instanceof String transcript) value = transcript;
+      if (audio && !(value instanceof String)) {
+        parts.add(new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": \n")));
+        if (field.type.array) {
+          if (!(value instanceof List<?> items)) throw new IllegalArgumentException("Audio field value must be an array.");
+          for (Object item : items) parts.add(audioPart(item));
+        } else {
+          parts.add(audioPart(value));
+        }
+        audioParts = true;
+      } else if (field.type != null && List.of("image", "audio", "file", "url").contains(field.type.name) && value instanceof Map<?, ?> map) {
         parts.add(new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": \n")));
         Map<String, Object> media = new LinkedHashMap<>(Core.asMap(map));
         media.putIfAbsent("type", field.type.name);
@@ -1819,7 +1874,32 @@ class PromptRuntime {
       for (Map<String, Object> part : parts) text.add(String.valueOf(part.getOrDefault("text", "")));
       return String.join("\n", text);
     }
-    return parts;
+    if (!audioParts) return parts;
+    // As TS: consecutive text parts join with a newline.
+    List<Map<String, Object>> combined = new ArrayList<>();
+    for (Map<String, Object> part : parts) {
+      Map<String, Object> previous = combined.isEmpty() ? null : combined.get(combined.size() - 1);
+      if ("text".equals(part.get("type")) && previous != null && "text".equals(previous.get("type"))) {
+        previous.put("text", previous.getOrDefault("text", "") + "\n" + part.getOrDefault("text", ""));
+        if (Boolean.TRUE.equals(part.get("cache"))) previous.put("cache", true);
+      } else {
+        combined.add(part);
+      }
+    }
+    return combined;
+  }
+
+  // TS defaultRenderInField: an audio part carries only its format (wav when
+  // it has none) and its data.
+  static Map<String, Object> audioPart(Object value) {
+    if (!(value instanceof Map<?, ?> map)) throw new IllegalArgumentException("Audio field value must be an object.");
+    if (!map.containsKey("data")) throw new IllegalArgumentException("Audio field must have data");
+    Map<String, Object> part = new LinkedHashMap<>();
+    part.put("type", "audio");
+    Object format = map.get("format");
+    part.put("format", format == null ? "wav" : format);
+    part.put("data", map.get("data"));
+    return part;
   }
 
   static List<Field> inputFieldsForValues(AxSignature sig, Map<String, Object> values) {

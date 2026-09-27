@@ -562,7 +562,8 @@ class AxGen:
         run_options = _strip_runtime_hooks(options) or {}
         lookup = _cache_lookup_impl(self, values, run_options, False)
         if lookup.get("hit"):
-            return lookup.get("value")
+            # A stored output's audio outputs are rendered, as TS does.
+            return _render_audio_outputs_impl(self, client, lookup.get("value"), run_options)
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -716,8 +717,10 @@ class AxGen:
         run_options = _strip_runtime_hooks(options) or {}
         lookup = _cache_lookup_impl(self, values, run_options, True)
         if lookup.get("hit"):
-            sink({"version": 0, "index": 0, "delta": lookup.get("value")})
-            return lookup.get("value")
+            # A stored output's audio outputs are rendered, as TS does.
+            cached = _render_audio_outputs_impl(self, client, lookup.get("value"), run_options)
+            sink({"version": 0, "index": 0, "delta": cached})
+            return cached
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -1085,6 +1088,19 @@ def _core_accepts_options(method):
         return False
 
 
+def _core_ai_control_take_pending(client):
+    # The run control updates queued for this run, which the forward applies
+    # when a step starts, as TS does. Only a request boundary tracks them; a
+    # chat session applies its controls itself.
+    take = getattr(client, "_take_control_updates", None)
+    return take() if callable(take) else []
+
+
+def _core_ai_control_pending_count(client):
+    count = getattr(client, "_pending_control_count", None)
+    return int(count()) if callable(count) else 0
+
+
 def _core_ai_complete_once(client, request, options):
     # As in TS, a streamed forward folds the stream's chunks into one response.
     streaming = bool(((request or {}).get("model_config") or {}).get("stream"))
@@ -1192,6 +1208,15 @@ def _core_axgen_deprecation(key, message):
 def _core_axgen_emit_delta(sink, envelope):
     sink(envelope)
     return None
+
+
+def _core_axgen_speak(client, request, options):
+    # Backs intrinsic.axgen.speak: the AxGen audio output renderer calls the
+    # client's speak(), as TS calls ai.speak().
+    speak = getattr(client, "speak", None)
+    if not callable(speak):
+        raise RuntimeError("Audio speech not supported by this AI client")
+    return speak(request, options or {})
 
 
 def _core_axgen_call_processor(spec, value, context):

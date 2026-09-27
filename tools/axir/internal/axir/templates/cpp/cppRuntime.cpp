@@ -1959,6 +1959,13 @@ Value Core::ai_client_features(Value client, Value model) {
   }
   return object({{"functions", true}, {"structured_outputs", true}});
 }
+Value Core::axgen_speak(Value client, Value request, Value options) {
+  // Backs intrinsic.axgen.speak: the AxGen audio output renderer calls the
+  // client's speak(), as TS calls ai.speak().
+  AIClient* registered = registered_client(str(get_key(client, "__client_id")));
+  if (registered == nullptr) throw AxError("runtime", "Audio speech not supported by this AI client");
+  return registered->speak(request, options);
+}
 Value Core::agent_transcribe(Value client, Value request, Value options) {
   // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
   // text before the agent loop (the client passes through @agent_forward as a real client).
@@ -2009,6 +2016,19 @@ Value Core::agent_native_stage_forward(Value stage,Value state,Value client,Valu
   Value records=gen->get_function_call_traces();set(target,"functions",original);Value combined=parse_json(stringify(previous));for(const auto& record:array_ref(records))append(combined,record);set(target,"function_call_traces",combined);
   _agent_record_native_calls(state,selected,records,options);
   if(failure)std::rethrow_exception(failure);return output;
+}
+
+// Streams the stage's AxGen deltas to sink, each through the agent's
+// citation handling (hidden citations leave the delta).
+Value Core::agent_stage_streaming_forward(Value stage,Value state,Value client,Value values,Value options,Value sink) {
+  auto* gen=dynamic_cast<AxGen*>(registered_stage(str(get_key(stage,"__agent_stage_id"))));
+  auto* ai=registered_client(str(get_key(client,"__client_id")));
+  if(!gen||!ai)throw AxError("runtime","The agent's streamed stage requires an AxGen and an AI client");
+  return gen->streaming_forward(*ai,values,options,[state,sink](const AxGenDelta& delta) {
+    Value envelope=object({{"version",Value(static_cast<double>(delta.version))},{"index",Value(static_cast<double>(delta.index))},{"delta",delta.delta}});
+    Core::axgen_emit_delta(sink,Core::_agent_stream_citation_delta(state,envelope));
+    return true;
+  });
 }
 
 Value Core::agent_stage_forward(Value stage, Value client, Value values, Value options) {
@@ -2700,14 +2720,40 @@ Value Core::prompt_structured(Value signature, Value values, Value functions, Va
   if (!get_key(options, "custom_template").is_null()) { source = str(get_key(options, "custom_template")); context = "inline-template"; }
   return string_trim(render_template_content(source, Value(vars), context));
 }
+// TS's audio part: only the format (wav when there is none) and the data.
+static Value prompt_audio_part(const Value& value) {
+  if (!value.is_object()) throw AxError("runtime", "Audio field value must be an object.");
+  if (object_ref(value).count("data") == 0) throw AxError("runtime", "Audio field must have data");
+  Value format = get_key(value, "format");
+  return Value(Object{{"type", "audio"}, {"format", format.is_null() ? Value("wav") : format}, {"data", get_key(value, "data")}});
+}
 Value Core::prompt_user_content(Value signature, Value values) {
   Array parts;
+  bool audio_parts = false;
   for (const auto& field : prompt_inputs_for_values(signature, values)) {
     std::string name = str(get_key(field, "name"));
     Value value = get_key(values, name);
     if (!prompt_provided(value)) {
       if (truthy(get_key(field, "isOptional")) || truthy(get_key(field, "isInternal"))) continue;
       throw AxError("runtime", "Value for input field '" + name + "' is required.");
+    }
+    Value type = get_key(field, "type");
+    if (str(get_key(type, "name")) == "audio") {
+      // As TS: an audio object with a transcript (what an AxGen audio output
+      // renders to), like a plain string, reaches the model as text; other
+      // audio goes as audio parts.
+      if (value.is_object() && get_key(value, "transcript").is_string()) value = get_key(value, "transcript");
+      if (!value.is_string()) {
+        parts.emplace_back(Value(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": \n"}}));
+        if (truthy(get_key(type, "isArray"))) {
+          if (!value.is_array()) throw AxError("runtime", "Audio field value must be an array.");
+          for (const auto& item : array_ref(value)) parts.emplace_back(prompt_audio_part(item));
+        } else {
+          parts.emplace_back(prompt_audio_part(value));
+        }
+        audio_parts = true;
+        continue;
+      }
     }
     std::string rendered = value.is_string() ? str(value) : pretty_stringify(value);
     Value part(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": " + rendered + "\n"}});
@@ -2716,7 +2762,21 @@ Value Core::prompt_user_content(Value signature, Value values) {
   }
   bool all_text = true;
   for (const auto& part : parts) if (str(get_key(part, "type")) != "text" || truthy(get_key(part, "cache"))) all_text = false;
-  if (!all_text) return Value(parts);
+  if (!all_text && !audio_parts) return Value(parts);
+  if (!all_text) {
+    // As TS: consecutive text parts join with a newline.
+    Array combined;
+    for (const auto& part : parts) {
+      if (str(get_key(part, "type")) == "text" && !combined.empty() && str(get_key(combined.back(), "type")) == "text") {
+        Value& previous = combined.back();
+        Core::set(previous, "text", str(get_key(previous, "text")) + "\n" + str(get_key(part, "text")));
+        if (truthy(get_key(part, "cache"))) Core::set(previous, "cache", true);
+        continue;
+      }
+      combined.push_back(part);
+    }
+    return Value(combined);
+  }
   std::string out;
   for (size_t i = 0; i < parts.size(); ++i) {
     if (i) out += "\n";
@@ -3419,6 +3479,11 @@ Value AIClient::chat(Value request, Value options, const AxCancellationToken* ca
   try { Value response = chat(std::move(request), std::move(options)); if (cancellation) cancellation->throw_if_cancelled(); return response; }
   catch (...) { if(cancellation&&cancellation->is_cancelled())throw AxAIServiceAbortedError(cancellation->reason());throw; }
 }
+Value AIClient::speak(Value request, Value options) {
+  (void)request;
+  (void)options;
+  throw AxError("runtime", "Audio speech not supported by this AI client");
+}
 
 std::string AxAIService::get_id() { return get_name() + "-id"; }
 std::string AxAIService::get_name() { return "ai"; }
@@ -4042,6 +4107,16 @@ Value Core::axgen_caching_function(Value gen, Value options) {
     Value marker = get_key(*source, "caching_function", get_key(*source, "cachingFunction"));
     if (!marker.is_null()) return marker;
   }
+  auto global = global_caching_function();
+  return global ? global->value() : Value();
+}
+
+// TS AxFlow: options.cachingFunction ?? axGlobals.cachingFunction. A flow's
+// constructor takes none; its AxGen nodes get the call's options, so they
+// cache through the same function.
+Value Core::flow_caching_function(Value options) {
+  Value marker = get_key(options, "caching_function", get_key(options, "cachingFunction"));
+  if (!marker.is_null()) return marker;
   auto global = global_caching_function();
   return global ? global->value() : Value();
 }
@@ -7349,7 +7424,8 @@ Value AxGen::forward(AIClient& client, Value values, Value options, const AxRunt
   // records neither; a read error propagates. A miss hands the lookup to the
   // run, which then only stores.
   Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(false));
-  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::get(lookup, "value");
+  // A stored output's audio outputs are rendered, as TS does.
+  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::_render_audio_outputs_impl(state_, Core::client_ref(client), Core::get(lookup, "value"), options);
   options = Core::map_merge(Value::object(), options);
   Core::set(options, "_ax_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
@@ -7433,7 +7509,8 @@ Value AxGen::streaming_forward(AIClient& client, Value values, Value options, Ax
   // telemetry. A miss hands the lookup to the run, which then only stores.
   Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(true));
   if (Core::truthy(Core::get(lookup, "hit", false))) {
-    Value cached = Core::get(lookup, "value");
+    // A stored output's audio outputs are rendered, as TS does.
+    Value cached = Core::_render_audio_outputs_impl(state_, Core::client_ref(client), Core::get(lookup, "value"), options);
     AxGenDelta delta;
     delta.delta = clone_usage_value(cached);
     handler(delta);
@@ -7668,6 +7745,13 @@ Value AxFlow::forward(AIClient& client, Value values, Value options, const AxCan
 }
 
 Value AxFlow::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  // As in TS, the flow reads its cache before its span and metrics, so a hit
+  // records neither (and streaming_forward sends it as its one delta). A miss
+  // hands the lookup to the run, which then only stores.
+  Value lookup = Core::_flow_cache_lookup_impl(state_, values, options);
+  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::get(lookup, "value");
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_ax_flow_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
                          object({{"ax.program.id", Core::get(state_, "program_id", "root.flow")}, {"ax.program.type", "AxFlow"}}));
@@ -7760,9 +7844,24 @@ AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
-  responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
   attach_configured_playbook();
+}
+
+// The responder stage. As in TypeScript, its validation budget is maxRetries
+// unless validation_retries is set, and with citations on it asserts that the
+// cited ids exist in the run's evidence.
+std::unique_ptr<AxGen> AxAgent::make_responder(const Value& options) {
+  Value responder_options = object({{"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}});
+  Value retries = Core::get(options, "validation_retries");
+  if (!retries.is_null()) Core::set(responder_options, "validation_retries", retries);
+  auto responder = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), responder_options);
+  if (Core::truthy(Core::get(Core::get(state_, "citations", Value::object()), "enabled", false))) {
+    Value state = state_;
+    responder->add_assert([state](Value output) { return Core::_agent_citation_assert(state, output); });
+  }
+  return responder;
 }
 
 AxAgent& AxAgent::set_signature(Value signature) {
@@ -7771,7 +7870,7 @@ AxAgent& AxAgent::set_signature(Value signature) {
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
-  responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
   rebind_playbook();
   return *this;
@@ -7800,9 +7899,28 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxCa
 }
 
 Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  return run(client, std::move(values), std::move(options), hooks, Value(), nullptr);
+}
+
+Value AxAgent::streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler) {
+  if (!handler) throw AxError("runtime", "AxAgent::streaming_forward: handler must be callable");
+  AxGenDeltaConsumer consumer(std::move(handler));
+  AxGenSinkRegistration registration([&consumer](Value envelope) { consumer.deliver(envelope); });
+  try {
+    return run(client, std::move(values), std::move(options), AxRuntimeHooks{}, registration.marker(), &consumer.stopped);
+  } catch (...) {
+    if (consumer.error) std::rethrow_exception(consumer.error);
+    if (!consumer.stopped) throw;
+  }
+  return consumer.result();
+}
+
+// forward, and with a sink the streaming forward.
+Value AxAgent::run(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks, Value sink, const bool* consumer_stopped) {
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
-  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_agent_forward", "ax_gen_agent",
-                         object({{"ax.program.id", "root.agent"}, {"ax.program.type", "AxAgent"}}));
+  Value attributes = object({{"ax.program.id", "root.agent"}, {"ax.program.type", "AxAgent"}});
+  if (!sink.is_null()) Core::set(attributes, "ax.streaming", true);
+  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_agent_forward", "ax_gen_agent", attributes);
   auto call_context=execution_context_ ? execution_context_ : detail::MCPRunScope::current();
   detail::MCPRunScope context_scope(call_context);
   if(call_context || Core::truthy(Core::get(state_,"mcp_run_context_active",false))) {
@@ -7847,14 +7965,42 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
       });
     }
   }
-  Value output = Core::_agent_forward(
-      state_,
-      Core::agent_stage_ref(*distiller_),
-      Core::agent_stage_ref(*executor_),
-      Core::agent_stage_ref(*responder_),
-      Core::client_ref(client),
-      std::move(values),
-      std::move(options));
+  // As TypeScript's forward and streamingForward do, a run control hears the
+  // run's own lifecycle at its path; each stage reports at <path>/<stage>.
+  auto control = resolve_control(options);
+  std::string run_path = display(Core::get(options, "execution_path", Core::get(options, "executionPath", "root")));
+  if (control) control->emit(object({{"type", "started"}, {"path", run_path}}));
+  Value output;
+  try {
+    if (sink.is_null()) {
+      output = Core::_agent_forward(
+          state_,
+          Core::agent_stage_ref(*distiller_),
+          Core::agent_stage_ref(*executor_),
+          Core::agent_stage_ref(*responder_),
+          Core::client_ref(client),
+          std::move(values),
+          std::move(options));
+    } else {
+      output = Core::_agent_streaming_forward(
+          state_,
+          Core::agent_stage_ref(*distiller_),
+          Core::agent_stage_ref(*executor_),
+          Core::agent_stage_ref(*responder_),
+          Core::client_ref(client),
+          std::move(values),
+          std::move(options),
+          sink);
+    }
+  } catch (const std::exception& error) {
+    if (control) {
+      // A consumer that stopped the stream early ended the run on purpose, as
+      // control.abort() does.
+      if (consumer_stopped && *consumer_stopped) control->emit(object({{"type", "aborted"}, {"path", run_path}}));
+      else control->emit(object({{"type", "failed"}, {"path", run_path}, {"error", std::string(error.what())}}));
+    }
+    throw;
+  }
   if (citations_observer_) {
     try {
       citations_observer_(Core::get(state_, "last_citations", Value::array()));
@@ -7862,7 +8008,10 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
       // Citation observers are informational and must not fail forward().
     }
   }
-  learn_playbook_failures(output);
+  // TS learns from the responder's answer after forward; a stream has no
+  // single answer to hand the playbook.
+  learn_playbook_failures(sink.is_null() ? output : Value::object());
+  if (control) control->emit(object({{"type", "completed"}, {"path", run_path}}));
   return output;
 }
 
@@ -7918,7 +8067,7 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
-  responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
   rebind_playbook();
   return *this;

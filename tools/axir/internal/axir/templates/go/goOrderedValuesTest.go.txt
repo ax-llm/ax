@@ -85,6 +85,16 @@ func TestForwardReturnsPlainMaps(t *testing.T) {
 	if len(issues) > 0 {
 		t.Fatalf("AxFlow output: %v", issues)
 	}
+	for delta, err := range flow.StreamingForward(context.Background(), orderedValuesReply(orderedValuesPlan), map[string]Value{"question": "q"}, nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		issues = nil
+		orderIssues("flow streaming delta", delta.Delta, true, &issues)
+		if len(issues) > 0 {
+			t.Fatalf("AxFlow streaming delta: %v", issues)
+		}
+	}
 }
 
 // Flow steps, agent stages and optimizers call forward, which keeps the model's

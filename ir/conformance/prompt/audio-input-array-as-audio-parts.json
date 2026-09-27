@@ -1,0 +1,42 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Clips`. Your task is to generate new fields: `Summary`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nClips:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nSummary (wire key: `summary`): (This string field must be included)\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": [
+        {
+          "text": "Clips: \n",
+          "type": "text"
+        },
+        {
+          "data": "SUQzBAA=",
+          "format": "mp3",
+          "type": "audio"
+        },
+        {
+          "data": "UklGRg==",
+          "format": "wav",
+          "type": "audio"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "input": {
+    "clips": [
+      {
+        "data": "SUQzBAA=",
+        "format": "mp3"
+      },
+      {
+        "data": "UklGRg=="
+      }
+    ]
+  },
+  "kind": "prompt",
+  "name": "audio-input-array-as-audio-parts",
+  "signature": "clips:audio[] -> summary:string"
+}

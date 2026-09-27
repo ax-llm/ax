@@ -200,6 +200,8 @@ class SessionRun final:public AIClient {
   ~SessionRun() override{results_->close();if(session_)session_->close();std::lock_guard<std::mutex> lock(client_registry_mutex());client_registry().erase(pointer_id(this));}
   Value complete(Value request) override{Value response=chat(request,options_);return session_?Core::chat_session_completion(response,Core::get(state_,"response_id")):Core::chat_response_to_completion(response);}
   Value features_for_run(Value model) override{if(auto* service=dynamic_cast<AxAIService*>(client_))return service->get_features(model);return client_->features_for_run(model);}
+  // The audio output renderer's speech goes to the wrapped client.
+  Value speak(Value request,Value options) override{return client_->speak(std::move(request),std::move(options));}
   Value chat(Value request,Value options) override {
     try{return chat_impl(std::move(request),std::move(options));}
     catch(const AxError& error){
@@ -215,7 +217,12 @@ class SessionRun final:public AIClient {
     while(true){if(!visited.insert(client_).second)throw AxError("runtime","Cyclic run routing");auto selected=client_->pin_chat_run(request,options_);if(!selected)break;selected_client_=std::move(selected);client_=selected_client_.get();}
     selected_=true;
   }
-  bool wants_native_session(const Value& request){return Core::truthy(Core::chat_session_mode_enabled(options_))&&Core::truthy(Core::get(features_for_run(Core::get(request,"model")),"asyncTools",false));}
+  bool native_session_for(const Value& model){return Core::truthy(Core::chat_session_mode_enabled(options_))&&Core::truthy(Core::get(features_for_run(model),"asyncTools",false));}
+  bool wants_native_session(const Value& request){return native_session_for(Core::get(request,"model"));}
+  // As TS's controlsUseSession: a native chat session applies control updates
+  // itself. Until the first model call opens one or not, the run options and
+  // the model's features predict it, as that call decides.
+  bool controls_use_session(){return session_||(!fallback_started_&&native_session_for(Core::get(options_,"model")));}
   // A model call without a native session: the path's pending control updates
   // go into the request at this response boundary.
   Value boundary_request(Value request){
@@ -224,6 +231,25 @@ class SessionRun final:public AIClient {
     Value applied=Core::chat_session_apply_boundary_updates(request,updates,level_);level_=Core::get(applied,"level");for(const auto& id:array_ref(Core::get(applied,"applied",Value::array())))emit("applied",object({{"update_id",id},{"timing","next-response"}}));return Core::get(applied,"request");
   }
  public:
+  // The path's pending control updates, which the forward applies when a step
+  // starts, as TS does: the cursor moves past them, so the next request
+  // boundary skips them, and each one is applied now. None under a native
+  // chat session, which applies them itself.
+  Value take_control_updates(){
+    Value updates=Value::array();
+    if(!control_||controls_use_session())return updates;
+    if(!fallback_started_){emit("started");fallback_started_=true;}
+    {std::lock_guard<std::mutex> lock(control_->source()->mutex);for(;after_<control_->source()->updates.size();++after_){const Value& update=control_->source()->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))Core::append(updates,clone_usage_value(update));}}
+    for(const auto& update:array_ref(updates)){if(display(Core::get(update,"type"))!="steer")level_=Core::get(update,"level");emit("applied",object({{"update_id",Core::get(update,"id")},{"timing","next-response"}}));}
+    return updates;
+  }
+  // How many of the path's updates are pending, with no side effects.
+  std::size_t pending_control_count(){
+    if(!control_||controls_use_session())return 0;
+    std::lock_guard<std::mutex> lock(control_->source()->mutex);std::size_t count=0;
+    for(std::size_t index=after_;index<control_->source()->updates.size();++index)if(Core::truthy(Core::chat_session_target_matches(Core::get(control_->source()->updates[index],"target"),path_)))++count;
+    return count;
+  }
   // The service a streamed model call goes to, with request rewritten as chat()
   // would send it; null when the call needs a native session or the selected
   // client cannot stream, and chat() answers it instead.
@@ -263,6 +289,18 @@ class SessionRun final:public AIClient {
 static AxAIService* session_stream_service(AIClient* client, Value& request) {
   auto* session = dynamic_cast<SessionRun*>(client);
   return session == nullptr ? nullptr : session->stream_service(request);
+}
+
+// A run control's pending updates reach the forward through the run's request
+// boundary (SessionRun): the forward applies them when a step starts and
+// takes another step while any are pending. Any other client has none.
+Value Core::ai_control_take_pending(Value client) {
+  auto* run = dynamic_cast<SessionRun*>(registered_client(display(get(client, "__client_id"))));
+  return run == nullptr ? Value::array() : run->take_control_updates();
+}
+Value Core::ai_control_pending_count(Value client) {
+  auto* run = dynamic_cast<SessionRun*>(registered_client(display(get(client, "__client_id"))));
+  return Value(static_cast<double>(run == nullptr ? 0 : run->pending_control_count()));
 }
 
 Value Core::flow_dispatch_group(Value flow,Value client,Value plans,Value state,Value options) {

@@ -8,7 +8,7 @@ import threading
 from typing import Any, Callable, Iterator, Protocol
 
 from .ai import _emit_usage_event, _iter_sse_json
-from .gen import _StreamingConsumerStopped, _core_ai_client_features, _core_ai_complete_once, _core_ai_stream_open
+from .gen import _StreamingConsumerStopped, _core_ai_client_features, _core_ai_complete_once, _core_ai_stream_open, _core_axgen_speak
 
 
 class AxChatSession(Protocol):
@@ -101,6 +101,10 @@ class _BoundaryClient:
     def get_features(self, model=None):
         return _core_ai_client_features(self.client, model)
 
+    def speak(self, request, options=None):
+        # The audio output renderer's speech goes to the wrapped client.
+        return _core_axgen_speak(self.client, request, options)
+
     def _apply(self, request):
         from .gen import chat_session_apply_boundary_updates
         if self.control.signal.is_set():
@@ -113,6 +117,19 @@ class _BoundaryClient:
         for update_id in applied["applied"]:
             self.control._emit({"type": "applied", "path": self.path, "update_id": update_id, "timing": "next-response"})
         return applied["request"]
+
+    def _take_control_updates(self):
+        # The forward applies these when a step starts, as TS does, so they
+        # are applied now and the next request boundary skips them.
+        updates = self.control._pending(self.path, self.after)
+        if updates:
+            self.after = max(int(update["id"]) for update in updates)
+        for update in updates:
+            self.control._emit({"type": "applied", "path": self.path, "update_id": update["id"], "timing": "next-response"})
+        return updates
+
+    def _pending_control_count(self):
+        return len(self.control._pending(self.path, self.after))
 
     def complete(self, request):
         return _core_ai_complete_once(self.client, self._apply(request), self.options)
@@ -343,6 +360,10 @@ class _SessionClient:
 
     def get_features(self, model=None):
         return self.client.get_features(model)
+
+    def speak(self, request, options=None):
+        # The audio output renderer's speech goes to the wrapped client.
+        return _core_axgen_speak(self.client, request, options)
 
     def _emit(self, kind, **fields):
         if self.control:

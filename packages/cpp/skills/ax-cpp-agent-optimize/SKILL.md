@@ -34,7 +34,7 @@ auto result = engine.optimize(request, evaluator);
 
 ## Relevant API Surface
 
-- Agents And RLM: `axllm::agent`, `axllm::AxAgent`, `axllm::AxAgent::add_child_agent`
+- Agents And RLM: `axllm::agent`, `axllm::AxAgent`, `axllm::AxAgent::add_child_agent`, `axllm::AxAgent::streaming_forward`
 - Optimizers: `axllm::optimize`, `axllm::playbook`, `axllm::AxPlaybook`, `axllm::AxBootstrapFewShot`, `axllm::AxGEPA`, `axllm::OptimizerEngine`, `axllm::OptimizerEvaluator`
 
 ## Guardrails

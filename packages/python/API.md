@@ -569,6 +569,16 @@ Register an owned child agent for serialized delegation through the parent invoc
 - Returns: `parent agent`
 - Important options: namespace, name, child, independent conversation, child usage
 
+### `AxAgent.streaming_forward`
+
+Run the agent and stream the responder's deltas, as TypeScript's streamingForward does, after the distiller and executor run without streaming.
+
+- Canonical Ax concept: `agent_streaming_forward`
+- Kind: `method`
+- Form: `AxAgent.streaming_forward(client, values, options=None)`
+- Returns: `responder deltas`
+- Important options: deltas, versions, hidden citations, run control
+
 
 ## Flow
 

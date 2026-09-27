@@ -44,6 +44,11 @@ impl AxRunControl {
                 .as_ref()
                 .is_some_and(|parent| parent.is_aborted())
     }
+    // Whether a caller's run control is behind this one: a flow worker's
+    // relay control stands in for its parent's, and has none without one.
+    pub(crate) fn has_caller(&self) -> bool {
+        self.0.relay.is_none() || self.0.parent.as_ref().is_some_and(AxRunControl::has_caller)
+    }
     pub fn on_event(&self, listener: impl Fn(Value) + Send + Sync + 'static) {
         self.0.listeners.lock().unwrap().push(Arc::new(listener));
     }
@@ -78,7 +83,7 @@ impl AxRunControl {
         self.emit(json!({"type":"queued","path":update["target"],"update_id":id}));
         Ok(())
     }
-    fn emit(&self, event: Value) {
+    pub(crate) fn emit(&self, event: Value) {
         if let Some(relay) = &self.0.relay {
             relay(event);
             return;
@@ -717,6 +722,7 @@ pub(crate) fn dispatch_run_route(
         }
         "route_chat" => client.chat_with_options(request, options),
         "route_transcribe" => client.transcribe(request),
+        "route_speak" => client.speak(request),
         _ => Err(AxError::validation("Invalid run route operation")),
     }
 }
@@ -777,6 +783,7 @@ pub(crate) struct SessionRun {
     level: Value,
     fallback_started: bool,
     finished: bool,
+    controls_use_session: Option<bool>,
 }
 impl SessionRun {
     pub(crate) fn new(gen: CoreValue, tools: Vec<Tool>, options: Value) -> Self {
@@ -808,6 +815,7 @@ impl SessionRun {
             level: Value::Null,
             fallback_started: false,
             finished: false,
+            controls_use_session: None,
         }
     }
     fn emit(&self, kind: &str, mut event: Value) {
@@ -949,6 +957,74 @@ impl SessionRun {
     ) -> AxResult<Value> {
         let request = self.boundary_request(request)?;
         client.chat_with_options(request, options)
+    }
+    // TS's controlsUseSession: whether a chat session applies this run's
+    // controls itself. A session is open, or else, decided when the run first
+    // asks, the run may open one (see session_enabled) and its client offers
+    // async tools for the run's model.
+    fn controls_use_session<C: AxAIClient + ?Sized>(
+        &mut self,
+        client: &C,
+        model: Option<&str>,
+    ) -> AxResult<bool> {
+        if self.session.is_some() {
+            return Ok(true);
+        }
+        if let Some(decided) = self.controls_use_session {
+            return Ok(decided);
+        }
+        let decided = self.session_enabled()?
+            && client
+                .get_features(model)
+                .get("asyncTools")
+                .and_then(Value::as_bool)
+                == Some(true);
+        self.controls_use_session = Some(decided);
+        Ok(decided)
+    }
+    // The run control updates queued for this path after the cursor, which
+    // the forward applies when a step starts, as TS does. They count as
+    // applied now, so the next request boundary skips them. None when a chat
+    // session applies the controls.
+    pub(crate) fn take_control_updates<C: AxAIClient + ?Sized>(
+        &mut self,
+        client: &C,
+        model: Option<&str>,
+    ) -> AxResult<Vec<Value>> {
+        let Some(control) = self.control.clone() else {
+            return Ok(Vec::new());
+        };
+        if self.controls_use_session(client, model)? {
+            return Ok(Vec::new());
+        }
+        let (updates, after) = control.pending(&self.path, self.after)?;
+        self.after = after;
+        if !updates.is_empty() && !self.fallback_started {
+            self.emit("started", json!({}));
+            self.fallback_started = true;
+        }
+        for update in &updates {
+            self.emit(
+                "applied",
+                json!({"update_id":update["id"],"timing":"next-response"}),
+            );
+        }
+        Ok(updates)
+    }
+    // How many run control updates are queued for this path after the
+    // cursor, without taking them.
+    pub(crate) fn pending_control_count<C: AxAIClient + ?Sized>(
+        &mut self,
+        client: &C,
+        model: Option<&str>,
+    ) -> AxResult<usize> {
+        let Some(control) = self.control.clone() else {
+            return Ok(0);
+        };
+        if self.controls_use_session(client, model)? {
+            return Ok(0);
+        }
+        Ok(control.pending(&self.path, self.after)?.0.len())
     }
     // Whether the run keeps a chat session when its client opens one.
     fn session_enabled(&self) -> AxResult<bool> {
@@ -3221,6 +3297,76 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert_eq!(unused.load(Ordering::SeqCst), 0);
         assert_eq!(tools.load(Ordering::SeqCst), 1);
+        Ok(())
+    }
+
+    // Agent streams don't cover async run sessions yet: under a run control on
+    // a session-capable client, streaming_forward streams the responder
+    // through the request boundary, as AxGen::streaming_forward does, and the
+    // run reports its lifecycle at root and each stage at root/<stage>.
+    struct AgentStreamTransport {
+        requests: Arc<AtomicUsize>,
+    }
+    impl AgentStreamTransport {
+        fn answer(&self) -> &'static str {
+            match self.requests.fetch_add(1,Ordering::SeqCst)+1 {
+                1=>"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}",
+                2=>"{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"REF-42\"}]}}",
+                3=>"Answer: REF-42",
+                n=>panic!("unexpected request {n}"),
+            }
+        }
+    }
+    impl AxTransport for AgentStreamTransport {
+        fn send(&mut self, _request: Value) -> AxResult<Value> {
+            Ok(completed("stream-response", self.answer())["response"].clone())
+        }
+        fn stream(&mut self, _request: Value) -> AxResult<AxTransportStream> {
+            Ok(AxTransportStream::Buffered(
+                json!({"status":200,"body":String::from_utf8(sse(completed("stream-response",self.answer()))).unwrap()}),
+            ))
+        }
+    }
+    #[test]
+    fn agent_streaming_forward_under_control_streams_through_the_boundary() -> AxResult<()> {
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mut client = ai("openai", json!({"api_key":"test","model":"gpt-6-astra"}))?
+            .with_transport(AgentStreamTransport {
+                requests: requests.clone(),
+            });
+        let control = run_control();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let seen = events.clone();
+        control.on_event(move |event| {
+            if matches!(
+                event["type"].as_str(),
+                Some("started" | "completed" | "failed" | "aborted")
+            ) {
+                seen.lock().unwrap().push(format!(
+                    "{}@{}",
+                    event["type"].as_str().unwrap_or(""),
+                    event["path"].as_str().unwrap_or("")
+                ));
+            }
+        });
+        let mut program =
+            agent_with_options("question -> answer", json!({"directResponse":"off"}))?;
+        let answer = Rc::new(RefCell::new(String::new()));
+        let streamed = answer.clone();
+        program.streaming_forward(
+            &mut client,
+            json!({"question":"Find reference"}),
+            AxForwardOptions::from(json!({})).with_control(control),
+            move |update| {
+                if let Some(text) = update.delta["answer"].as_str() {
+                    streamed.borrow_mut().push_str(text);
+                }
+                Ok(())
+            },
+        )?;
+        assert_eq!(answer.borrow().as_str(), "REF-42");
+        assert_eq!(requests.load(Ordering::SeqCst), 3);
+        assert_eq!(events.lock().unwrap().join(","),"started@root,started@root/distiller,completed@root/distiller,started@root/executor,completed@root/executor,started@root/responder,completed@root/responder,completed@root");
         Ok(())
     }
 }

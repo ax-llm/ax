@@ -463,6 +463,12 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(
       repoRoot,
       tempRoot,
+      'axgen-audio-goldens.ts',
+      'AxGen audio'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
       'date-goldens.ts',
       'AxGen dates'
     );
@@ -473,6 +479,12 @@ async function runSync({ repoRoot, write }) {
       'AxGen cache'
     );
     runConformanceExtractor(repoRoot, tempRoot, 'flow-goldens.ts', 'AxFlow');
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'flow-cache-goldens.ts',
+      'AxFlow cache'
+    );
     runConformanceExtractor(
       repoRoot,
       tempRoot,
@@ -494,6 +506,12 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(repoRoot, tempRoot, 'agent-goldens.ts', 'AxAgent', {
       AXIR_AGENT_PARITY_ONLY: '1',
     });
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'agent-streaming-goldens.ts',
+      'AxAgent streaming'
+    );
     const failures = [
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axai', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'signature', write),

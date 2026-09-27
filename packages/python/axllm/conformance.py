@@ -50,7 +50,6 @@ from .gen import (
 from .flow import (
     _FlowCallable,
     _flow_add_step,
-    _flow_cache_key,
     _flow_condition_from_spec,
     _flow_merge_parallel_results,
     _flow_mapper_from_spec,
@@ -102,19 +101,31 @@ class FixtureError(AssertionError):
 
 
 class ConformanceScriptedAI(AxBaseAI):
-    def __init__(self, responses=None, stream_events=None, transcribe_responses=None, features=None, name="scripted", model="scripted-chat", options=None):
+    def __init__(self, responses=None, stream_events=None, transcribe_responses=None, features=None, name="scripted", model="scripted-chat", options=None, speak_responses=None):
         super().__init__(name=name, model=model, embed_model="scripted-embed", features=features, options=copy.deepcopy(options or {}))
         self.responses = list(responses or [])
         self.stream_events = list(stream_events or [])
         self.transcribe_responses = list(transcribe_responses or [])
+        # A fixture's speak_responses script speak(); its requests are kept
+        # apart from the chat requests.
+        self.speak_responses = None if speak_responses is None else list(speak_responses)
+        self.speak_requests = []
         self.requests = []
         self.chat_options = []
         self.chat_calls = 0
+        # Called with each chat request's 1-based number while it is in
+        # flight, before the scripted answer (a fixture's control_steer).
+        self.on_request = None
+
+    def _note_request(self):
+        if self.on_request is not None:
+            self.on_request(len(self.requests))
 
     def _chat(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.chat_calls += 1
         self.requests.append(copy.deepcopy(request))
         self.chat_options.append(copy.deepcopy(options or {}))
+        self._note_request()
         if not self.responses:
             raise RuntimeError("scripted client exhausted")
         raw = self.responses.pop(0)
@@ -135,6 +146,7 @@ class ConformanceScriptedAI(AxBaseAI):
             self.chat_calls += 1
             self.requests.append(copy.deepcopy(request))
             self.chat_options.append(copy.deepcopy(options or {}))
+            self._note_request()
             raw = self.responses.pop(0)
             for event in raw["stream"]:
                 # An {"error": ...} entry fails the stream at that point.
@@ -156,8 +168,20 @@ class ConformanceScriptedAI(AxBaseAI):
         return {"text": "fixture transcript"}
 
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        self.requests.append(copy.deepcopy(request))
-        return {"audio": "fixture-audio", "format": (request or {}).get("format", "pcm")}
+        self.speak_requests.append(copy.deepcopy(request))
+        if self.speak_responses is None:
+            return {"audio": "fixture-audio", "format": (request or {}).get("format", "pcm")}
+        if not self.speak_responses:
+            raise RuntimeError("scripted speak exhausted")
+        raw = self.speak_responses.pop(0)
+        if isinstance(raw, dict) and "error" in raw:
+            raise _fixture_ai_service_error(raw.get("error") or {})
+        return copy.deepcopy(raw)
+
+
+def _assert_speak_requests(fixture, client):
+    if "expected_speak_requests" in fixture:
+        _assert_equal(client.speak_requests, fixture["expected_speak_requests"], "speak requests")
 
 
 def _scripted_client_kwargs(spec):
@@ -573,6 +597,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_streaming_forward(fixture)
         elif kind == "cache_sequence":
             _run_cache_sequence(fixture)
+        elif kind == "flow_cache_sequence":
+            _run_flow_cache_sequence(fixture)
         elif kind == "ai_session_state":
             _run_ai_session_state(fixture)
         elif kind == "ai_session_events":
@@ -632,6 +658,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
         elif kind == "ai_context_cache":
             _run_ai_context_cache(fixture)
         elif kind == "agent_forward":
+            _run_agent_forward(fixture)
+        elif kind == "agent_streaming_forward":
             _run_agent_forward(fixture)
         elif kind == "agent_playbook_coverage":
             _run_agent_playbook_coverage(fixture)
@@ -1196,9 +1224,14 @@ def _run_forward(fixture):
                 _assert_equal(samples, fixture["expected_picker_samples"], "result picker samples")
             return fixture["result_picker_index"]
         gen.set_result_picker(pick_result)
-    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), **_scripted_client_kwargs(fixture.get("client")))
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), speak_responses=fixture.get("speak_responses"), **_scripted_client_kwargs(fixture.get("client")))
+    forward_options = fixture.get("forward_options")
+    control_events = []
+    if fixture.get("control"):
+        forward_options = dict(forward_options or {})
+        control_events = _attach_fixture_control(fixture, client, forward_options)
     try:
-        output = gen.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
+        output = gen.forward(client, fixture.get("input") or {}, forward_options)
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
@@ -1207,14 +1240,19 @@ def _run_forward(fixture):
                 raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
             if "expected_tool_calls" in fixture:
                 _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
+            _assert_speak_requests(fixture, client)
             return
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected forward to fail")
+    _assert_speak_requests(fixture, client)
     if "expected_processor_calls" in fixture:
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "forward output")
+    if "expected_control_events" in fixture:
+        _assert_equal(control_events, fixture["expected_control_events"], "run control events")
+    _assert_request_roles(fixture, client)
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
     if fixture.get("expect_chat_path", True) and client.chat_calls == 0:
@@ -1315,6 +1353,35 @@ def _fixture_processor(spec, calls):
     return processor
 
 
+def _attach_fixture_control(fixture, client, run_options):
+    # A fixture's run control goes into run_options. Its lifecycle events are
+    # recorded, and with control_steer every event is, and the scripted
+    # client queues the steer while that request is in flight.
+    from .session import run_control
+    events = []
+    control = run_control()
+    steer = fixture.get("control_steer")
+    lifecycle = ("started", "completed", "failed", "aborted")
+    control.on_event(lambda event: events.append({"path": event.get("path"), "type": event.get("type")})
+        if steer or event.get("type") in lifecycle else None)
+    if steer:
+        def on_request(number):
+            if number == steer.get("during_request"):
+                control.steer(steer.get("text") or "")
+        client.on_request = on_request
+    run_options["control"] = control
+    return events
+
+
+def _assert_request_roles(fixture, client):
+    # The message roles of every request, in order.
+    expected = fixture.get("expected_request_roles")
+    if expected is None:
+        return
+    roles = [[message.get("role") for message in request.get("chat_prompt") or []] for request in client.requests]
+    _assert_equal(roles, expected, "request roles")
+
+
 def _assert_error_cause(fixture, exc):
     # "Generate failed: ..." keeps the failure it wraps as its cause.
     expected = fixture.get("expected_error_cause_contains")
@@ -1354,7 +1421,7 @@ def _run_cache_sequence(fixture):
     gen = ax(_build_signature(fixture), options)
     if "result_picker_index" in fixture:
         gen.set_result_picker(lambda samples: fixture["result_picker_index"])
-    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"))
+    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"), speak_responses=fixture.get("speak_responses"))
     previous_global = _snapshot_global_caching_function()
     if cache_in == "global":
         set_caching_function(caching_function)
@@ -1367,14 +1434,17 @@ def _run_cache_sequence(fixture):
                 call_options["caching_function"] = caching_function
             if call.get("control"):
                 call_options["control"] = run_control()
+            call_input = call.get("input") or {}
+            if call.get("reverse_input_keys"):
+                call_input = dict(reversed(list(call_input.items())))
             errors.append(None)
             if call.get("kind") == "streaming_forward":
                 deltas = []
-                outputs.append(gen._streaming_forward_with(client, call.get("input") or {}, call_options, deltas.append))
+                outputs.append(gen._streaming_forward_with(client, call_input, call_options, deltas.append))
                 deltas_per_call.append(deltas)
             else:
                 try:
-                    outputs.append(gen.forward(client, call.get("input") or {}, call_options))
+                    outputs.append(gen.forward(client, call_input, call_options))
                 except Exception as exc:  # noqa: BLE001 - compared with expected_errors
                     errors[-1] = str(exc).split("\n")[0]
                     outputs.append(None)
@@ -1392,6 +1462,75 @@ def _run_cache_sequence(fixture):
     if len(reads) != fixture.get("expected_cache_gets"):
         raise FixtureError(f"expected {fixture.get('expected_cache_gets')} cache reads, got {len(reads)}")
     _assert_equal(writes, fixture.get("expected_cache_sets"), "cache writes")
+    _assert_speak_requests(fixture, client)
+
+
+def _run_flow_cache_sequence(fixture):
+    # Several forward / streaming_forward calls on one AxFlow with one
+    # in-memory cache: each call's output, delta and requests, and every read
+    # and write of the cache, the flow's own entry and its AxGen nodes'.
+    from .session import run_control
+    store = {}
+    reads = []
+    writes = []
+
+    def caching_function(key, value=None):
+        if value is not None:
+            if fixture.get("cache_write_error"):
+                raise RuntimeError(fixture["cache_write_error"])
+            writes.append(copy.deepcopy(value))
+            store[key] = copy.deepcopy(value)
+            return None
+        reads.append(key)
+        if fixture.get("cache_read_error"):
+            raise RuntimeError(fixture["cache_read_error"])
+        hit = store.get(key)
+        return copy.deepcopy(hit) if hit is not None else None
+
+    cache_in = fixture.get("cache_in", "call")
+    fl = _build_flow(fixture)
+    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [])
+    previous_global = _snapshot_global_caching_function()
+    if cache_in == "global":
+        set_caching_function(caching_function)
+    outputs, deltas_per_call, requests, errors = [], [], [], []
+    try:
+        for call in fixture.get("calls") or []:
+            before = len(client.requests)
+            call_options = {}
+            if cache_in == "call":
+                call_options["caching_function"] = caching_function
+            if call.get("control"):
+                call_options["control"] = run_control()
+            call_input = call.get("input") or {}
+            if call.get("reverse_input_keys"):
+                call_input = dict(reversed(list(call_input.items())))
+            errors.append(None)
+            try:
+                if call.get("kind") == "streaming_forward":
+                    deltas = list(fl.streaming_forward(client, call_input, call_options))
+                    outputs.append(deltas[-1]["delta"] if deltas else None)
+                    deltas_per_call.append(deltas)
+                else:
+                    outputs.append(fl.forward(client, call_input, call_options))
+                    deltas_per_call.append(None)
+            except Exception as exc:  # noqa: BLE001 - compared with expected_errors
+                errors[-1] = str(exc).split("\n")[0]
+                outputs.append(None)
+                deltas_per_call.append(None)
+            requests.append(len(client.requests) - before)
+    finally:
+        set_caching_function(previous_global)
+    if any(error is not None for error in errors) or "expected_errors" in fixture:
+        _assert_equal(errors, fixture.get("expected_errors"), "flow cache sequence errors")
+    _assert_equal(outputs, fixture.get("expected_outputs"), "flow cache sequence outputs")
+    _assert_equal(deltas_per_call, fixture.get("expected_deltas"), "flow cache sequence deltas")
+    _assert_equal(requests, fixture.get("expected_requests"), "flow cache sequence requests per call")
+    if len(client.requests) != fixture.get("expected_request_count"):
+        raise FixtureError(f"expected {fixture.get('expected_request_count')} requests, got {len(client.requests)}")
+    if len(reads) != fixture.get("expected_cache_gets"):
+        raise FixtureError(f"expected {fixture.get('expected_cache_gets')} cache reads, got {len(reads)}")
+    _assert_equal(writes, fixture.get("expected_cache_sets"), "flow cache writes")
 
 
 def _run_streaming_forward(fixture):
@@ -1412,15 +1551,11 @@ def _run_streaming_forward(fixture):
         gen.set_result_picker(lambda samples: fixture["result_picker_index"])
     if "stop_functions" in fixture:
         gen.set_stop_functions(fixture.get("stop_functions") or [])
-    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"))
+    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"), speak_responses=fixture.get("speak_responses"))
     run_options = dict(fixture.get("forward_options") or {})
     control_events = []
     if fixture.get("control"):
-        from .session import run_control
-        control = run_control()
-        control.on_event(lambda event: control_events.append({"path": event.get("path"), "type": event.get("type")})
-            if event.get("type") in ("started", "completed", "failed", "aborted") else None)
-        run_options["control"] = control
+        control_events = _attach_fixture_control(fixture, client, run_options)
     deltas = []
     stop_after = fixture.get("stop_after_deltas")
     try:
@@ -1452,8 +1587,10 @@ def _run_streaming_forward(fixture):
             _assert_equal(output, fixture.get("expected_output"), "streaming output")
     if "expected_control_events" in fixture:
         _assert_equal(control_events, fixture["expected_control_events"], "run control events")
+    _assert_request_roles(fixture, client)
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+    _assert_speak_requests(fixture, client)
     if "expected_tool_calls" in fixture:
         _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
     if "expected_processor_calls" in fixture:
@@ -1531,24 +1668,14 @@ def _run_program_contract(fixture):
 def _run_flow(fixture):
     try:
         fl = _build_flow(fixture)
-        if fixture.get("operation") == "cache_key":
-            keys = [_flow_cache_key(item) for item in fixture.get("cache_key_inputs") or []]
-            if fixture.get("expected_cache_keys_equal") and len(set(keys)) != 1:
-                raise FixtureError(f"expected equal flow cache keys, got {keys}")
-            if fixture.get("expected_cache_keys_distinct") and len(set(keys)) != len(keys):
-                raise FixtureError(f"expected distinct flow cache keys, got {keys}")
-            return
         if "expected_plan" in fixture:
             _assert_equal(fl.get_plan(), fixture["expected_plan"], "flow plan")
         if "expected_plan_subset" in fixture:
             _assert_list_subset(fl.get_plan(), fixture["expected_plan_subset"], "flow plan")
         if fixture.get("operation") == "plan":
             return
-        client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
+        client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], speak_responses=fixture.get("speak_responses"))
         forward_options = copy.deepcopy(fixture.get("forward_options") or {})
-        if "cache_seed_value" in fixture:
-            cache_store = forward_options.setdefault("cache_store", {})
-            cache_store[_flow_cache_key(fixture.get("input") or {})] = copy.deepcopy(fixture.get("cache_seed_value"))
         if fixture.get("operation") == "streaming":
             output = list(fl.streaming_forward(client, fixture.get("input") or {}, forward_options))
         else:
@@ -1566,6 +1693,7 @@ def _run_flow(fixture):
         _assert_equal(output, fixture["expected_streaming_output"], "flow streaming output")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+    _assert_speak_requests(fixture, client)
     if "expected_request_contains" in fixture:
         request_text = json.dumps(client.requests, sort_keys=True)
         for item in fixture.get("expected_request_contains") or []:
@@ -1579,12 +1707,6 @@ def _run_flow(fixture):
         _assert_list_subset(fl.get_traces(), fixture["expected_trace_subset"], "flow traces")
     if "expected_usage_subset" in fixture:
         _assert_subset(fl.get_usage(), fixture["expected_usage_subset"], "flow usage")
-    if "expected_cache_store_subset" in fixture:
-        cache_store = forward_options.get("cache_store") or forward_options.get("cacheStore") or {}
-        _assert_subset(cache_store, fixture["expected_cache_store_subset"], "flow cache store")
-    if "expected_cache_value_for_input" in fixture:
-        cache_store = forward_options.get("cache_store") or forward_options.get("cacheStore") or {}
-        _assert_equal(cache_store.get(_flow_cache_key(fixture.get("input") or {})), fixture["expected_cache_value_for_input"], "flow cache value")
     if "expected_components_subset" in fixture:
         _assert_list_subset(fl.get_optimizable_components(), fixture["expected_components_subset"], "flow components")
 
@@ -2225,6 +2347,39 @@ def _run_agent_forward(fixture):
     if "parent" in contexts: agent_options["executionContext"] = contexts["parent"]
     semantic_observer_transcript = []
     semantic_observers_enabled = "expected_observer_transcript" in fixture
+    # Observer calls, each marked with the number of model requests before it,
+    # so the transcript can interleave them with the requests.
+    observer_calls, observer_marks = [], []
+    def _recording_observer(label):
+        def observe(payload):
+            observer_marks.append((len(client.requests), label))
+            observer_calls.append({"callback": label, "payload": copy.deepcopy(payload)})
+        return observe
+    for label in fixture.get("observers") or []:
+        if label == "used_memories":
+            agent_options["onUsedMemories"] = _recording_observer(label)
+        elif label == "used_skills":
+            agent_options["onUsedSkills"] = _recording_observer(label)
+        elif label == "citations":
+            citations = agent_options.get("citations")
+            citations = dict(citations) if isinstance(citations, dict) else {}
+            citations["onCitations"] = _recording_observer(label)
+            agent_options["citations"] = citations
+        elif label == "playbook_update":
+            # The playbook's onUpdate after run-end learning, by its status.
+            playbook_options = agent_options.get("playbook")
+            playbook_options = dict(playbook_options) if isinstance(playbook_options, dict) else {}
+            record_update = _recording_observer(label)
+            playbook_options["onUpdate"] = lambda result, record_update=record_update: record_update({"status": result.get("status")})
+            agent_options["playbook"] = playbook_options
+    control_events = []
+    control_options = {}
+    if fixture.get("control"):
+        # The run lifecycle events, in order, with their paths; with
+        # control_steer every event, and the steer lands during that request.
+        control_events = _attach_fixture_control(fixture, client, control_options)
+    streaming = fixture.get("kind") == "agent_streaming_forward"
+    stream_deltas = []
     def _semantic_observer(label, throws=False):
         def observe(payload):
             semantic_observer_transcript.append({"callback": label, "payload": copy.deepcopy(payload or [])})
@@ -2329,7 +2484,20 @@ def _run_agent_forward(fixture):
                     forward_options["onUsedSkills"] = _semantic_observer("forward.used_skills")
                 if "onUsedMemories" in forward_options:
                     forward_options["onUsedMemories"] = _semantic_observer("forward.used_memories")
-            output = ag.forward(client, fixture.get("input") or {}, forward_options)
+            forward_options.update(control_options)
+            if streaming:
+                stop_after = fixture.get("stop_after_deltas")
+                stream = ag.streaming_forward(client, fixture.get("input") or {}, forward_options)
+                try:
+                    for delta in stream:
+                        stream_deltas.append(delta)
+                        if len(stream_deltas) == stop_after:
+                            break
+                finally:
+                    stream.close()
+                output = ag.state.get("last_output") if stop_after is None else None
+            else:
+                output = ag.forward(client, fixture.get("input") or {}, forward_options)
     except AxAgentClarificationError as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
@@ -2337,6 +2505,7 @@ def _run_agent_forward(fixture):
                 _assert_subset(exc.clarification, fixture["expected_clarification"], "clarification")
             if ag is not None:
                 _assert_agent_trace(ag, fixture)
+            _assert_agent_run_projections(fixture, ag, client, stream_deltas, control_events, observer_calls, observer_marks)
             return
         raise
     except Exception as exc:
@@ -2344,12 +2513,14 @@ def _run_agent_forward(fixture):
         if expected and expected in str(exc):
             if ag is not None:
                 _assert_agent_trace(ag, fixture)
+            _assert_agent_run_projections(fixture, ag, client, stream_deltas, control_events, observer_calls, observer_marks)
             return
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected agent forward to fail")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "agent output")
+    _assert_agent_run_projections(fixture, ag, client, stream_deltas, control_events, observer_calls, observer_marks)
     if "expected_run_state_projections" in fixture:
         _assert_equal(run_state_projections, fixture["expected_run_state_projections"], "agent run state projections")
     if "expected_state_roundtrip_projection" in fixture:
@@ -2497,6 +2668,45 @@ def _run_agent_forward(fixture):
     if runtime is not None and "expected_executed" in fixture:
         _assert_equal(runtime.executed, fixture["expected_executed"], "executed code")
     _assert_agent_trace(ag, fixture)
+
+
+def _agent_request_stage(request):
+    # Which part of the agent run sent a model request, by its system prompt.
+    prompt = request.get("chat_prompt") or request.get("chatPrompt") or []
+    system = ""
+    if prompt and isinstance(prompt[0], dict) and prompt[0].get("role") == "system":
+        system = str(prompt[0].get("content", ""))
+    if "You (`distiller`)" in system:
+        return "distiller"
+    if "You (`executor`)" in system:
+        return "executor"
+    if "`Generator answer`" in system or "`Question context`" in system:
+        return "playbook"
+    if "context-map Distiller" in system or "context-map Cartographer" in system:
+        return "context_map"
+    return "responder"
+
+
+def _assert_agent_run_projections(fixture, ag, client, deltas, control_events, observer_calls, observer_marks):
+    if fixture.get("kind") == "agent_streaming_forward" or "expected_deltas" in fixture:
+        _assert_equal(deltas, fixture.get("expected_deltas") or [], "agent streaming deltas")
+    if "expected_control_events" in fixture:
+        _assert_equal(control_events, fixture["expected_control_events"], "agent run control events")
+    _assert_request_roles(fixture, client)
+    if "expected_observer_calls" in fixture:
+        _assert_equal(observer_calls, fixture["expected_observer_calls"], "agent observer calls")
+    if "expected_transcript" in fixture:
+        marks = list(observer_marks)
+        transcript = []
+        for index, request in enumerate(client.requests):
+            while marks and marks[0][0] <= index:
+                transcript.append(marks.pop(0)[1])
+            transcript.append("request:" + _agent_request_stage(request))
+        transcript.extend(label for _, label in marks)
+        _assert_equal(transcript, fixture["expected_transcript"], "agent run transcript")
+    if "expected_chat_log_shape" in fixture and ag is not None:
+        shape = [{"name": entry.get("name"), "stage": entry.get("stage")} for entry in ag.get_chat_log()]
+        _assert_equal(shape, fixture["expected_chat_log_shape"], "agent chat log shape")
 
 
 def _assert_agent_trace(ag, fixture):

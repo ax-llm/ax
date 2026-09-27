@@ -816,3 +816,121 @@ func TestActorMCPInvocationCancellation(t *testing.T){
  defer func(){failure:=recover();if failure==nil||transport.calls!=1{t.Fatal("expected one aborted invocation",failure,transport.calls)};if _,ok:=failure.(AxAIServiceAbortedError);!ok{t.Fatalf("unexpected invocation failure: %T %v",failure,failure)}}()
  program.InvokeCallable("tools.lookup",Object("query","probe"),Object("context",ctx))
 }
+
+// Agent streams don't cover async run sessions yet: under a run control on a
+// session-capable client, StreamingForward streams the responder through the
+// request boundary, as AxGen.StreamingForward does, and the run reports its
+// lifecycle at root and each stage at root/<stage>.
+func TestAstraAgentStreamingForwardUnderControl(t *testing.T) {
+	answers := []string{
+		`{"completion":{"type":"final","args":["Find reference",{}]}}`,
+		`{"completion":{"type":"final","args":["Report reference",{"answer":"REF-42"}]}}`,
+		"Answer: REF-42",
+	}
+	transport := &sessionTestTransport{}
+	transport.stream = func(_ context.Context, _ Value, n int) (AxHTTPStreamResponse, error) {
+		if n > len(answers) {
+			return AxHTTPStreamResponse{}, fmt.Errorf("unexpected request %d", n)
+		}
+		var data strings.Builder
+		sessionSSE(&data, sessionCompleted(fmt.Sprintf("stream-r%d", n), answers[n-1]))
+		return AxHTTPStreamResponse{Status: 200, Body: io.NopCloser(strings.NewReader(data.String()))}, nil
+	}
+	control := RunControl()
+	var mu sync.Mutex
+	events := []string{}
+	control.OnEvent(func(event map[string]Value) {
+		switch display(event["type"]) {
+		case "started", "completed", "failed", "aborted":
+			mu.Lock()
+			events = append(events, display(event["type"])+"@"+display(event["path"]))
+			mu.Unlock()
+		}
+	})
+	program := NewAgent("question -> answer", Object("directResponse", "off"))
+	client := NewAI("openai", Object("api_key", "test", "model", "gpt-6-astra", "transport", transport))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	answer := ""
+	for delta, err := range program.StreamingForward(ctx, client, Object("question", "Find reference"), Object("control", control)) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text, ok := delta.Delta["answer"].(string); ok {
+			answer += text
+		}
+	}
+	transport.mu.Lock()
+	requests := len(transport.requests)
+	transport.mu.Unlock()
+	if answer != "REF-42" || requests != 3 {
+		t.Fatalf("streamed answer %q after %d requests", answer, requests)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := "started@root,started@root/distiller,completed@root/distiller,started@root/executor,completed@root/executor,started@root/responder,completed@root/responder,completed@root"
+	if strings.Join(events, ",") != want {
+		t.Fatalf("control events %v", events)
+	}
+}
+
+// retainingSteerClient keeps each request as given, as a logging client might,
+// steers the run while its first request is in flight and answers
+// "Answer: reply N".
+type retainingSteerClient struct {
+	control  *AxRunControl
+	requests []map[string]Value
+}
+
+func (c *retainingSteerClient) Chat(_ context.Context, request map[string]Value, _ map[string]Value) (Value, error) {
+	c.requests = append(c.requests, request)
+	if len(c.requests) == 1 {
+		if err := c.control.Steer("Answer in French."); err != nil {
+			return nil, err
+		}
+	}
+	return Object("results", Array(Object("content", fmt.Sprintf("Answer: reply %d", len(c.requests)), "function_calls", Array()))), nil
+}
+func (c *retainingSteerClient) Embed(context.Context, map[string]Value, map[string]Value) (Value, error) {
+	return nil, nil
+}
+func (c *retainingSteerClient) Stream(context.Context, map[string]Value, map[string]Value) ([]Value, error) {
+	return nil, nil
+}
+
+// TestRunControlSteerJoinsLaterSteps: as in TypeScript, a steer queued during
+// a step takes another step and joins the conversation of every later step.
+// The forward keeps adding to its message list, so what already holds a
+// prompt (a client that keeps its requests, the chat log, memory) keeps it as
+// sent.
+func TestRunControlSteerJoinsLaterSteps(t *testing.T) {
+	control := RunControl()
+	client := &retainingSteerClient{control: control}
+	gen := NewAx("question:string -> answer:string", nil)
+	out, err := gen.Forward(context.Background(), client, map[string]Value{"question": "Status?"}, map[string]Value{"control": control})
+	if err != nil || coreGet(out, "answer", nil) != "reply 2" || len(client.requests) != 2 {
+		t.Fatalf("steered forward = %v, %v after %d requests", out, err, len(client.requests))
+	}
+	roles := func(messages Value) string {
+		names := []string{}
+		for _, message := range asSlice(messages) {
+			names = append(names, display(coreGet(message, "role", "")))
+		}
+		return strings.Join(names, ",")
+	}
+	if got := roles(client.requests[0]["chat_prompt"]); got != "system,user" {
+		t.Fatalf("first request as the client kept it = %s, want system,user", got)
+	}
+	second := asSlice(client.requests[1]["chat_prompt"])
+	if got := roles(second); got != "system,user,assistant,user" || coreGet(second[len(second)-1], "content", nil) != "Answer in French." {
+		t.Fatalf("second request = %s, want the steer after the first answer", stableStringify(second))
+	}
+	chatLog := asSlice(gen.ChatLog)
+	if len(chatLog) != 2 || roles(coreGet(chatLog[0], "messages", nil)) != "system,user" {
+		t.Fatalf("chat log = %s, want each request's messages as sent", stableStringify(chatLog))
+	}
+	memory := asSlice(gen.Memory)
+	if len(memory) == 0 || roles(coreGet(memory[0], "messages", nil)) != "system,user" {
+		t.Fatalf("memory = %s, want the first request's messages as sent", stableStringify(memory))
+	}
+}

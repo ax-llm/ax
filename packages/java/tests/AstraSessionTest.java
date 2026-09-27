@@ -332,7 +332,27 @@ public final class AstraSessionTest {
     stalledHttpCancellation();
     mixedBalancer();
     nativeAgent();
+    agentStreamUnderRunSession();
     concurrentNativeMCP();
+  }
+  // Agent streams don't cover async run sessions yet: under a run control on a
+  // session-capable client the stream fails before the distiller runs, with the
+  // error AxGen deltas raise.
+  static void agentStreamUnderRunSession() {
+    var requests=new AtomicInteger();
+    OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
+      public Object call(Map<String,Object> request){requests.incrementAndGet();throw new AssertionError("An agent stream under a run session sent a model request");}
+      public Object stream(Map<String,Object> request){requests.incrementAndGet();throw new AssertionError("An agent stream under a run session sent a model request");}
+    };
+    var program=Ax.agent("question -> answer",Map.of("directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
+    try(var stream=program.streamingForward(client,Map.of("question","Find reference"),Map.of("control",Ax.runControl()))){
+      for(var ignored:stream)throw new AssertionError("An agent stream under a run session yielded a delta");
+      throw new AssertionError("An agent stream under a run session did not fail");
+    }catch(UnsupportedOperationException expected){
+      if(!String.valueOf(expected.getMessage()).contains("do not cover async run sessions"))throw new AssertionError("Unexpected error: "+expected);
+    }
+    if(requests.get()!=0)throw new AssertionError("An agent stream under a run session sent "+requests.get()+" requests");
+    System.out.println("java agent streams under a run session fail before any stage, as AxGen deltas do");
   }
   @SuppressWarnings("unchecked") static void invalidArgumentsAndExhaustion() {
     for(boolean exhausted:List.of(false,true)) for(String rawArguments:List.of("{}", "{\"query\":\"ab\"}")) {

@@ -1,0 +1,34 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Question`, `Speech`. Your task is to generate new fields: `Summary`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nQuestion:\nSpeech:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nSummary (wire key: `summary`): (This string field must be included)\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": [
+        {
+          "text": "Question: What is said?\n\nSpeech: \n",
+          "type": "text"
+        },
+        {
+          "data": "SUQzBAA=",
+          "format": "mp3",
+          "type": "audio"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "input": {
+    "question": "What is said?",
+    "speech": {
+      "data": "SUQzBAA=",
+      "format": "mp3",
+      "mimeType": "audio/mpeg"
+    }
+  },
+  "kind": "prompt",
+  "name": "audio-input-object-as-audio-part",
+  "signature": "question:string, speech:audio -> summary:string"
+}

@@ -956,6 +956,10 @@ Controller-attached runs bypass result caching; provider prompt caching remains 
 HTTP streaming needs no WebSocket dependency. With a configured host
 `options.webSocket`, steering can apply natively during generation; otherwise it
 applies at the next response boundary. Observe the applied event's `timing`.
+An update queued while a request is in flight applies when the next step
+starts. If that request gave the final answer, the run takes one more step to
+apply it, and the answer comes from that step; a steer stays in the
+conversation for the steps after it.
 Reasoning updates use continuation input items, retaining the original prefix.
 Steering that awaits tool input is continued even when its pending notification
 arrives after completion. Duplicate acknowledgements do not apply an update twice.
