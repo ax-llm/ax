@@ -35597,6 +35597,9 @@ final class Core {
       Core.set(out, "context_cache", cache);
       Core.set(out, "contextCache", cache);
     }
+    if (Core.truthy(is_responder)) {
+      out = Core._agent_stage_parse_dates(out, base_options, stage_options, forward_options);
+    }
     return out;
   }
 
@@ -37054,6 +37057,29 @@ final class Core {
     Core.set(state, "active_client", none);
     Core.set(state, "active_forward_options", none);
     return output;
+  }
+
+  static Object _agent_stage_parse_dates(Object out, Object base_options, Object stage_options, Object forward_options) {
+    axirCoverageMark("_agent_stage_parse_dates");
+    Object resolved = Core.none();
+    Object sources = new java.util.ArrayList<Object>();
+    Core.append(sources, base_options);
+    Core.append(sources, stage_options);
+    Core.append(sources, forward_options);
+    for (Object source : Core.iter(sources)) {
+      Object snake = Core.get(source, "parse_dates", null);
+      Object value = Core.get(source, "parseDates", snake);
+      Object chosen = Core.isNotNone(value);
+      if (Core.truthy(chosen)) {
+        resolved = value;
+      }
+    }
+    Object has_choice = Core.isNotNone(resolved);
+    if (Core.truthy(has_choice)) {
+      Core.set(out, "parse_dates", resolved);
+      Core.set(out, "parseDates", resolved);
+    }
+    return out;
   }
 
   static Object _flow_factory(Object options) {

@@ -37032,6 +37032,9 @@ Value Core::_agent_stage_options(Value state, Value stage, Value forward_options
     Core::set(out, Value("context_cache"), cache);
     Core::set(out, Value("contextCache"), cache);
   }
+  if (Core::truthy(is_responder)) {
+    out = Core::_agent_stage_parse_dates(out, base_options, stage_options, forward_options);
+  }
   return out;
 }
 
@@ -38496,6 +38499,29 @@ Value Core::_agent_streaming_forward(Value state, Value distiller, Value executo
   Core::set(state, Value("active_client"), none);
   Core::set(state, Value("active_forward_options"), none);
   return output;
+}
+
+Value Core::_agent_stage_parse_dates(Value out, Value base_options, Value stage_options, Value forward_options) {
+  axir_coverage_mark("_agent_stage_parse_dates");
+  Value resolved = Core::none();
+  Value sources = Value::array();
+  Core::append(sources, base_options);
+  Core::append(sources, stage_options);
+  Core::append(sources, forward_options);
+  for (auto source : Core::iter(sources)) {
+    Value snake = Core::get(source, Value("parse_dates"), Value());
+    Value value = Core::get(source, Value("parseDates"), snake);
+    Value chosen = Core::is_not_none(value);
+    if (Core::truthy(chosen)) {
+      resolved = value;
+    }
+  }
+  Value has_choice = Core::is_not_none(resolved);
+  if (Core::truthy(has_choice)) {
+    Core::set(out, Value("parse_dates"), resolved);
+    Core::set(out, Value("parseDates"), resolved);
+  }
+  return out;
 }
 
 Value Core::_flow_factory(Value options) {

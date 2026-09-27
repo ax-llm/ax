@@ -489,6 +489,21 @@
       "state": "VERIFIED IN ALL FIVE LANGUAGES against TypeScript goldens: the order of model requests and observer callbacks, and run-control events with paths."
     },
     {
+      "capability": "agent.responder.parse_dates",
+      "summary": "The agent's parse_dates opt-in reaches the responder, the forward call's first, then responderOptions', then the agent constructor's, so date-typed output fields come back as TypeScript's JSON of its Dates in forward and streaming; without it they keep the model's text.",
+      "ir_ops": ["@agent_stage_options", "@agent_stage_parse_dates"],
+      "fixtures": [
+        "axagent/agent-forward-parse-dates.json",
+        "axagent/agent-streaming-forward-parse-dates.json",
+        "axagent/agent-forward-parse-dates-call-wins.json",
+        "axagent/agent-forward-keeps-date-text-call-false.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES: TypeScript goldens pin the parsed datetime with parse_dates on the agent constructor (forward and streaming) and on the call over a constructor false; a port-only fixture pins that parse_dates false on the call keeps the model text over a constructor true."
+    },
+    {
       "capability": "agent.failure_signals.run_end_learning",
       "summary": "Repeated runtime errors and dead ends become stable failure signals, and playbook coverage only suppresses signatures backed by retained or deliberately no-op curated feedback.",
       "ir_ops": [

@@ -74912,6 +74912,11 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	if coreTruthy(v_is_responder) {
+		{ v, err := _agent_stage_parse_dates(v_out, v_base_options, v_stage_options, v_forward_options); if err != nil { return nil, err }; v_out = v }
+	} else {
+	// empty
+	}
 	return v_out, nil
 }
 
@@ -78054,6 +78059,59 @@ func _agent_streaming_forward(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "active_client", v_none); err != nil { return nil, err }
 	if err := coreSet(v_state, "active_forward_options", v_none); err != nil { return nil, err }
 	return v_output, nil
+}
+
+func _agent_stage_parse_dates(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_stage_parse_dates")
+	var v_out Value
+	var v_base_options Value
+	var v_stage_options Value
+	var v_forward_options Value
+	var v_chosen Value
+	var v_has_choice Value
+	var v_resolved Value
+	var v_snake Value
+	var v_source Value
+	var v_sources Value
+	var v_value Value
+	if len(args) > 0 { v_out = args[0] }
+	_ = v_out
+	if len(args) > 1 { v_base_options = args[1] }
+	_ = v_base_options
+	if len(args) > 2 { v_stage_options = args[2] }
+	_ = v_stage_options
+	if len(args) > 3 { v_forward_options = args[3] }
+	_ = v_forward_options
+	_ = v_chosen
+	_ = v_has_choice
+	_ = v_resolved
+	_ = v_snake
+	_ = v_source
+	_ = v_sources
+	_ = v_value
+	v_resolved = _core_none()
+	v_sources = MutableArray()
+	v_sources = coreAppend(v_sources, v_base_options)
+	v_sources = coreAppend(v_sources, v_stage_options)
+	v_sources = coreAppend(v_sources, v_forward_options)
+	for _, v_source = range coreIter(v_sources) {
+		v_snake = coreGet(v_source, "parse_dates", nil)
+		v_value = coreGet(v_source, "parseDates", v_snake)
+		v_chosen = _core_is_not_none(v_value)
+		if coreTruthy(v_chosen) {
+			v_resolved = v_value
+		} else {
+		// empty
+		}
+	}
+	v_has_choice = _core_is_not_none(v_resolved)
+	if coreTruthy(v_has_choice) {
+		if err := coreSet(v_out, "parse_dates", v_resolved); err != nil { return nil, err }
+		if err := coreSet(v_out, "parseDates", v_resolved); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func _flow_factory(args ...Value) (Value, error) {

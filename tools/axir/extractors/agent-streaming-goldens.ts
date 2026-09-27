@@ -220,7 +220,14 @@ type Case = {
   chat_log_shape?: boolean;
   // Substrings every port's request JSON must contain (ASCII only).
   request_contains?: string[];
+  // Port-only: the ports keep the model's text for date fields without
+  // parse_dates, where TS always parses them. TS runs the same case with the
+  // date fields typed as strings, which gives that text; the fixture keeps the
+  // date-typed signature and says why in its description.
+  keeps_date_text?: string;
 };
+
+const DATE_TYPES = /:(datetimeRange|dateRange|datetime|date)\b/g;
 
 async function record(name: string, spec: Case): Promise<void> {
   const kind = spec.kind ?? 'agent_streaming_forward';
@@ -264,7 +271,10 @@ async function record(name: string, spec: Case): Promise<void> {
       };
     }
   }
-  const ag = agent(signature, {
+  const tsSignature = spec.keeps_date_text
+    ? signature.replace(DATE_TYPES, ':string')
+    : signature;
+  const ag = agent(tsSignature, {
     ...(options as object),
     ai,
     runtime: scriptedRuntime(spec.runtime_script),
@@ -323,6 +333,12 @@ async function record(name: string, spec: Case): Promise<void> {
     expected_request_count: calls(),
     expected_transcript: transcript,
   };
+  if (spec.keeps_date_text) {
+    if (kind !== 'agent_forward') {
+      throw new Error(`${name}: keeps_date_text supports agent_forward only`);
+    }
+    fixture.description = spec.keeps_date_text;
+  }
   for (const key of [
     'forward_options',
     'observers',
@@ -471,6 +487,20 @@ const playbookTeacher = (): ResponseSpec[] => [
   },
 ];
 
+// A datetime output: TS parses it into a Date, which JSON gives as an ISO
+// string; the ports do the same with parse_dates on the agent or the call.
+const DATED = 'question:string -> answer:string, when:datetime';
+const datedAnswer = (): ResponseSpec => ({
+  content:
+    'Answer: Refunds take 30 days.\nWhen: 2024-05-09 14:30 America/New_York',
+});
+const datedStream = (): ResponseSpec =>
+  streamed(
+    text('Answer: Refunds '),
+    text('take 30 days.\nWhen: 2024-05-09 '),
+    text('14:30 America/New_York', true)
+  );
+
 mkdirSync(outDir, { recursive: true });
 
 const cases: Record<string, Case> = {
@@ -566,6 +596,12 @@ const cases: Record<string, Case> = {
     observers: ['playbook_update'],
     responses: [...playbookActors(), answerStream(), ...playbookTeacher()],
     runtime_script: playbookRuntime(),
+  },
+  'agent-streaming-forward-parse-dates': {
+    signature: DATED,
+    options: { directResponse: 'off', parse_dates: true },
+    responses: [...baseActors(), datedStream()],
+    runtime_script: baseRuntime(),
   },
   // ----- forward -----
   'agent-forward-citations-retry': {
@@ -666,6 +702,31 @@ const cases: Record<string, Case> = {
       ...playbookTeacher(),
     ],
     runtime_script: playbookRuntime(),
+  },
+  'agent-forward-parse-dates': {
+    kind: 'agent_forward',
+    signature: DATED,
+    options: { directResponse: 'off', parse_dates: true },
+    responses: [...baseActors(), datedAnswer()],
+    runtime_script: baseRuntime(),
+  },
+  'agent-forward-parse-dates-call-wins': {
+    kind: 'agent_forward',
+    signature: DATED,
+    options: { directResponse: 'off', parse_dates: false },
+    forward_options: { parse_dates: true },
+    responses: [...baseActors(), datedAnswer()],
+    runtime_script: baseRuntime(),
+  },
+  'agent-forward-keeps-date-text-call-false': {
+    kind: 'agent_forward',
+    signature: DATED,
+    options: { directResponse: 'off', parse_dates: true },
+    forward_options: { parse_dates: false },
+    responses: [...baseActors(), datedAnswer()],
+    runtime_script: baseRuntime(),
+    keeps_date_text:
+      'Port-only: parse_dates false on the forward call wins over the agent constructor, so the responder keeps the model text of the date field; TS always parses it.',
   },
 };
 

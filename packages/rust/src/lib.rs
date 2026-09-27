@@ -107606,6 +107606,14 @@ fn _agent_stage_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         core_set(&v_out, CoreValue::from("context_cache"), v_cache.clone())?;
         core_set(&v_out, CoreValue::from("contextCache"), v_cache.clone())?;
     }
+    if core_truthy(&v_is_responder) {
+        v_out = _agent_stage_parse_dates(&[
+            v_out.clone(),
+            v_base_options.clone(),
+            v_stage_options.clone(),
+            v_forward_options.clone(),
+        ])?;
+    }
     return Ok(v_out.clone());
 }
 
@@ -111450,6 +111458,48 @@ fn _agent_streaming_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_none.clone(),
     )?;
     return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_stage_parse_dates(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_stage_parse_dates");
+    let mut v_out = core_arg(args, 0);
+    let mut v_base_options = core_arg(args, 1);
+    let mut v_stage_options = core_arg(args, 2);
+    let mut v_forward_options = core_arg(args, 3);
+    let mut v_chosen = CoreValue::Null;
+    let mut v_has_choice = CoreValue::Null;
+    let mut v_resolved = CoreValue::Null;
+    let mut v_snake = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
+    let mut v_sources = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_resolved = core_none(&[])?;
+    v_sources = CoreValue::new_list();
+    core_append(&v_sources, v_base_options.clone())?;
+    core_append(&v_sources, v_stage_options.clone())?;
+    core_append(&v_sources, v_forward_options.clone())?;
+    for v_source in core_iter(&v_sources)? {
+        let mut v_source = v_source;
+        v_snake = core_get(&v_source, &CoreValue::from("parse_dates"), CoreValue::Null);
+        v_value = core_get(&v_source, &CoreValue::from("parseDates"), v_snake.clone());
+        v_chosen = core_is_not_none(&[v_value.clone()])?;
+        if core_truthy(&v_chosen) {
+            v_resolved = v_value.clone();
+        }
+    }
+    v_has_choice = core_is_not_none(&[v_resolved.clone()])?;
+    if core_truthy(&v_has_choice) {
+        core_set(&v_out, CoreValue::from("parse_dates"), v_resolved.clone())?;
+        core_set(&v_out, CoreValue::from("parseDates"), v_resolved.clone())?;
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -121194,7 +121244,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (895 of 895 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (896 of 896 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

@@ -10455,6 +10455,10 @@ def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
         out["contextCache"] = cache
     else:
         pass
+    if is_responder:
+        out = _agent_stage_parse_dates(out, base_options, stage_options, forward_options)
+    else:
+        pass
     return out
 
 
@@ -11909,5 +11913,29 @@ def _agent_streaming_forward(state: Any, distiller: Any, executor: Any, responde
     state["active_client"] = none
     state["active_forward_options"] = none
     return output
+
+
+def _agent_stage_parse_dates(out: Any, base_options: Any, stage_options: Any, forward_options: Any) -> Any:
+    _core_coverage_mark("_agent_stage_parse_dates")
+    resolved = _core_none()
+    sources = []
+    sources.append(base_options)
+    sources.append(stage_options)
+    sources.append(forward_options)
+    for source in sources:
+        snake = _core_get(source, "parse_dates", None)
+        value = _core_get(source, "parseDates", snake)
+        chosen = _core_is_not_none(value)
+        if chosen:
+            resolved = value
+        else:
+            pass
+    has_choice = _core_is_not_none(resolved)
+    if has_choice:
+        out["parse_dates"] = resolved
+        out["parseDates"] = resolved
+    else:
+        pass
+    return out
 
 # END AXIR CORE EMITTED FUNCTIONS

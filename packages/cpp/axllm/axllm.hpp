@@ -1280,6 +1280,7 @@ struct Core {
   static Value _agent_controlled_stage_streaming_forward(Value stage, Value state, Value client, Value values, Value options, Value sink);
   static Value _agent_streaming_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink);
   static Value _agent_streaming_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink);
+  static Value _agent_stage_parse_dates(Value out, Value base_options, Value stage_options, Value forward_options);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);
