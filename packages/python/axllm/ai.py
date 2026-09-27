@@ -5705,6 +5705,12 @@ def chat_response_to_completion(response: AxChatResponse) -> Any:
         out["remote_id"] = session_id
     else:
         pass
+    session_turns = _core_get(response, "__session_turns", None)
+    has_session_turns = _core_is_not_none(session_turns)
+    if has_session_turns:
+        out["session_turns"] = session_turns
+    else:
+        pass
     images = _core_get(first, "images", None)
     has_images = _core_is_not_none(images)
     if has_images:
@@ -5977,73 +5983,6 @@ def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_regi
     return out
 
 
-def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, model: str, create_body: Any, options: Any) -> Any:
-    _core_coverage_mark("ai_gemini_cache_ops")
-    ttl = _core_string_format("{}s", ttl_seconds)
-    descriptor = provider_resolve_descriptor("google-gemini", options)
-    is_vertex = _core_get(descriptor, "vertex", False)
-    create_path = "/cachedContents"
-    update_path = _core_string_format("/{}?updateMask=ttl", cache_name)
-    delete_path = _core_string_format("/{}", cache_name)
-    if is_vertex:
-        parent = _core_get(descriptor, "vertexParent", "")
-        create_path = _core_string_format("/{}/cachedContents", parent)
-        update_path = _core_string_format("/{}?updateMask=ttl", cache_name)
-        delete_path = _core_string_format("/{}", cache_name)
-    else:
-        pass
-    create_request = {}
-    create_is_object = _core_type_is(create_body, "object")
-    if create_is_object:
-        empty = {}
-        create_copy = _core_map_merge(create_body, empty)
-        create_request = create_copy
-    else:
-        pass
-    model_resource = _core_string_format("models/{}", model)
-    if is_vertex:
-        parent = _core_get(descriptor, "vertexParent", "")
-        model_resource = _core_string_format("{}/publishers/google/models/{}", parent, model)
-    else:
-        pass
-    create_request["model"] = model_resource
-    create_request["ttl"] = ttl
-    update_request = {}
-    update_request["ttl"] = ttl
-    empty_request = {}
-    create = {}
-    create["method"] = "POST"
-    create["path"] = create_path
-    create["request"] = create_request
-    cache_base_url = _core_get(descriptor, "vertexCacheBaseUrl", None)
-    has_cache_base_url = _core_truthy(cache_base_url)
-    if has_cache_base_url:
-        create["base_url"] = cache_base_url
-    else:
-        pass
-    update = {}
-    update["method"] = "PATCH"
-    update["path"] = update_path
-    update["request"] = update_request
-    if has_cache_base_url:
-        update["base_url"] = cache_base_url
-    else:
-        pass
-    delete_op = {}
-    delete_op["method"] = "DELETE"
-    delete_op["path"] = delete_path
-    delete_op["request"] = empty_request
-    if has_cache_base_url:
-        delete_op["base_url"] = cache_base_url
-    else:
-        pass
-    out = {}
-    out["create"] = create
-    out["update"] = update
-    out["delete"] = delete_op
-    return out
-
-
 def _openai_stream_choice_impl(choice: Any, index_ids: Any, reasoning_content_mode: str, reasoning_details_mode: str) -> Any:
     _core_coverage_mark("_openai_stream_choice_impl")
     empty_delta = {}
@@ -6125,6 +6064,73 @@ def _openai_stream_choice_impl(choice: Any, index_ids: Any, reasoning_content_mo
         pass
     out["function_calls"] = calls
     out["finish_reason"] = finish_reason
+    return out
+
+
+def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, model: str, create_body: Any, options: Any) -> Any:
+    _core_coverage_mark("ai_gemini_cache_ops")
+    ttl = _core_string_format("{}s", ttl_seconds)
+    descriptor = provider_resolve_descriptor("google-gemini", options)
+    is_vertex = _core_get(descriptor, "vertex", False)
+    create_path = "/cachedContents"
+    update_path = _core_string_format("/{}?updateMask=ttl", cache_name)
+    delete_path = _core_string_format("/{}", cache_name)
+    if is_vertex:
+        parent = _core_get(descriptor, "vertexParent", "")
+        create_path = _core_string_format("/{}/cachedContents", parent)
+        update_path = _core_string_format("/{}?updateMask=ttl", cache_name)
+        delete_path = _core_string_format("/{}", cache_name)
+    else:
+        pass
+    create_request = {}
+    create_is_object = _core_type_is(create_body, "object")
+    if create_is_object:
+        empty = {}
+        create_copy = _core_map_merge(create_body, empty)
+        create_request = create_copy
+    else:
+        pass
+    model_resource = _core_string_format("models/{}", model)
+    if is_vertex:
+        parent = _core_get(descriptor, "vertexParent", "")
+        model_resource = _core_string_format("{}/publishers/google/models/{}", parent, model)
+    else:
+        pass
+    create_request["model"] = model_resource
+    create_request["ttl"] = ttl
+    update_request = {}
+    update_request["ttl"] = ttl
+    empty_request = {}
+    create = {}
+    create["method"] = "POST"
+    create["path"] = create_path
+    create["request"] = create_request
+    cache_base_url = _core_get(descriptor, "vertexCacheBaseUrl", None)
+    has_cache_base_url = _core_truthy(cache_base_url)
+    if has_cache_base_url:
+        create["base_url"] = cache_base_url
+    else:
+        pass
+    update = {}
+    update["method"] = "PATCH"
+    update["path"] = update_path
+    update["request"] = update_request
+    if has_cache_base_url:
+        update["base_url"] = cache_base_url
+    else:
+        pass
+    delete_op = {}
+    delete_op["method"] = "DELETE"
+    delete_op["path"] = delete_path
+    delete_op["request"] = empty_request
+    if has_cache_base_url:
+        delete_op["base_url"] = cache_base_url
+    else:
+        pass
+    out = {}
+    out["create"] = create
+    out["update"] = update
+    out["delete"] = delete_op
     return out
 
 

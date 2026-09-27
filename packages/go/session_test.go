@@ -848,31 +848,6 @@ func (c *sessionRoutingClient) Stream(context.Context, map[string]Value, map[str
 	return nil, nil
 }
 
-// steerRecordingSession records the steers an open native session gets and
-// stops the run at the first.
-type steerRecordingSession struct{ steered []Value }
-
-func (s *steerRecordingSession) Next(context.Context) (Value, error) { return nil, io.EOF }
-func (s *steerRecordingSession) Submit([]Value) error                { return nil }
-func (s *steerRecordingSession) Update(update map[string]Value) (string, error) {
-	s.steered = append(s.steered, update["text"])
-	return "", fmt.Errorf("stop after the steer")
-}
-func (s *steerRecordingSession) Close() error { return nil }
-
-// TestNativeSessionSteersListFeedbackAsText: a correction that continues an
-// open native session steers it with text. A field processor's feedback is
-// list content, [{type: "text", text}], and the steer carries the parts' text.
-func TestNativeSessionSteersListFeedbackAsText(t *testing.T) {
-	session := &steerRecordingSession{}
-	run := &genSessionClient{selected: true, opener: &sessionRoutingClient{}, session: session, gen: NewAx("question:string -> answer:string", nil), options: Object(), path: "root"}
-	feedback := Array(Object("type", "text", "text", "Check it."), Object("type", "text", "text", "Then answer."))
-	_, err := run.Chat(context.Background(), Object("chat_prompt", Array(Object("role", "system", "content", "sys"), Object("role", "user", "content", feedback))), Object())
-	if err == nil || len(session.steered) != 1 || session.steered[0] != "Check it.\nThen answer." {
-		t.Fatalf("steers = %#v (err %v), want the feedback's text", session.steered, err)
-	}
-}
-
 // TestConstructorOptionsChooseTheNativeSession: as in TypeScript, the AxGen
 // constructor's asyncMode and model are defaults for every forward, so they
 // decide, as the call's do, whether a run with a background tool uses the
@@ -906,10 +881,164 @@ func TestConstructorOptionsChooseTheNativeSession(t *testing.T) {
 	}
 }
 
-// Agent streams don't cover async run sessions yet: under a run control on a
-// session-capable client, StreamingForward streams the responder through the
-// request boundary, as AxGen.StreamingForward does, and the run reports its
-// lifecycle at root and each stage at root/<stage>.
+// TestStreamingForwardSessionAppliesAQueuedSteerOnce: as Forward does, a
+// streamed run on a client with native chat sessions leaves the run's updates
+// to its sessions: a steer queued before the run reaches the session, not
+// also the request's prompt.
+func TestStreamingForwardSessionAppliesAQueuedSteerOnce(t *testing.T) {
+	control := RunControl()
+	if err := control.Steer("Be brief."); err != nil {
+		t.Fatal(err)
+	}
+	client := &conformanceScriptedAI{SessionScripted: true, NativeSessions: asSlice(parseJSON(`[[
+		[{"type":"response.completed","response_id":"r1","results":[{"index":0,"content":"Answer: a long reply","finish_reason":"stop"}]}],
+		[{"type":"response.completed","response_id":"r2","results":[{"index":0,"content":"Answer: ok","finish_reason":"stop"}]}]
+	]]`))}
+	gen := NewAx("question:string -> answer:string", nil)
+	answer, version := "", -1
+	for delta, err := range gen.StreamingForward(context.Background(), client, Object("question", "Status?"), Object("control", control)) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if delta.Version != version {
+			answer, version = "", delta.Version
+		}
+		if text, ok := delta.Delta["answer"].(string); ok {
+			answer += text
+		}
+	}
+	roles := []string{}
+	if len(client.Requests) == 1 {
+		for _, message := range asSlice(client.Requests[0]["chat_prompt"]) {
+			roles = append(roles, display(coreGet(message, "role", "")))
+		}
+	}
+	log := stableStringify(client.SessionLog)
+	if answer != "ok" || strings.Join(roles, ",") != "system,user" || log != `[{"op":"open"},{"op":"steer","text":"Be brief."},{"call_ids":[],"op":"continue"},{"op":"close"}]` {
+		t.Fatalf("answer %q, request roles %v, session log %s: want the steer in the session only", answer, roles, log)
+	}
+}
+
+// unavailableSessionClient is a session-capable client whose sessions do not
+// open: each open answers 503.
+type unavailableSessionClient struct{ opens int }
+
+func (c *unavailableSessionClient) GetFeatures(string) map[string]Value {
+	return Object("functions", true, "structured_outputs", true, "asyncTools", true)
+}
+func (c *unavailableSessionClient) OpenChatSession(context.Context, map[string]Value, map[string]Value) (AxChatSession, error) {
+	c.opens++
+	return nil, AIServiceError{AxError{Category: "ai", Type: "AxAIServiceStatusError", Message: "Service Unavailable", Status: 503, Retryable: true}}
+}
+func (c *unavailableSessionClient) Chat(context.Context, map[string]Value, map[string]Value) (Value, error) {
+	return nil, fmt.Errorf("chat used instead of a session")
+}
+func (c *unavailableSessionClient) Embed(context.Context, map[string]Value, map[string]Value) (Value, error) {
+	return nil, nil
+}
+func (c *unavailableSessionClient) Stream(context.Context, map[string]Value, map[string]Value) ([]Value, error) {
+	return nil, nil
+}
+
+// TestStreamingForwardSessionRequestsAreNotRetried: as in a forward, a
+// streamed session run does not retry its requests.
+func TestStreamingForwardSessionRequestsAreNotRetried(t *testing.T) {
+	client := &unavailableSessionClient{}
+	gen := NewAx("question:string -> answer:string", nil)
+	var failure error
+	for _, err := range gen.StreamingForward(context.Background(), client, Object("question", "Status?"), Object("control", RunControl())) {
+		if err != nil {
+			failure = err
+		}
+	}
+	if failure == nil || !strings.Contains(failure.Error(), "Service Unavailable") || client.opens != 1 {
+		t.Fatalf("streamed session run = %v after %d opens, want the 503 without a retry", failure, client.opens)
+	}
+}
+
+// failingToolSession answers with a background tool call and fails once the
+// tool has started.
+type failingToolSession struct {
+	sent    bool
+	started <-chan struct{}
+}
+
+func (s *failingToolSession) Next(ctx context.Context) (Value, error) {
+	if !s.sent {
+		s.sent = true
+		return Object("type", "response.completed", "response_id", "r1", "response", Object("results", Array(Object("index", 0, "function_calls", Array(Object("id", "c1", "type", "function", "function", Object("name", "slow", "params", "{}"))))))), nil
+	}
+	select {
+	case <-s.started:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return nil, fmt.Errorf("connection lost")
+}
+func (s *failingToolSession) Submit([]Value) error { return nil }
+func (s *failingToolSession) Update(map[string]Value) (string, error) {
+	return "next-response", nil
+}
+func (s *failingToolSession) Close() error { return nil }
+
+// toolHandoffClient opens a failingToolSession, then scripted sessions.
+type toolHandoffClient struct {
+	*conformanceScriptedAI
+	opened  bool
+	started chan struct{}
+}
+
+func (c *toolHandoffClient) OpenChatSession(ctx context.Context, request, options map[string]Value) (AxChatSession, error) {
+	if !c.opened {
+		c.opened = true
+		return &failingToolSession{started: c.started}, nil
+	}
+	return c.conformanceScriptedAI.OpenChatSession(ctx, request, options)
+}
+
+// TestSessionToolWorkerStaysWithItsSession: each request's native session
+// has its own tool workers. A background tool still running when its session
+// fails is cancelled with that session, and its late result goes to that
+// session, not the next request's (run it with -race).
+func TestSessionToolWorkerStaysWithItsSession(t *testing.T) {
+	started, returned := make(chan struct{}), make(chan error, 1)
+	gen := NewAx("question:string -> answer:string", nil)
+	gen.Functions = []Tool{Fn("slow").Execution("background").WithContextHandler(func(ctx context.Context, _ map[string]Value) (Value, error) {
+		close(started)
+		<-ctx.Done()
+		returned <- ctx.Err()
+		return "late", nil
+	})}
+	scripted := &conformanceScriptedAI{SessionScripted: true, NativeSessions: asSlice(parseJSON(`[[
+		[{"type":"response.completed","response_id":"r2","results":[{"index":0,"content":"Answer: ok","finish_reason":"stop"}]}]
+	]]`))}
+	client := &toolHandoffClient{conformanceScriptedAI: scripted, started: started}
+	run := &genSessionClient{AIClient: client, gen: gen, opener: client, selected: true, options: Object(), path: "root"}
+	request := Object("chat_prompt", Array(Object("role", "user", "content", "Status?")))
+	if _, err := run.Chat(context.Background(), request, Object()); err == nil || !strings.Contains(err.Error(), "connection lost") {
+		t.Fatalf("first request = %v, want the session failure", err)
+	}
+	select {
+	case err := <-returned:
+		if err == nil {
+			t.Fatal("the tool's context was not cancelled with its session")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the tool outlived its failed session")
+	}
+	response, err := run.Chat(context.Background(), request, Object())
+	if err != nil || display(coreGet(coreGet(coreGet(response, "results", Array()), 0, Object()), "content", "")) != "Answer: ok" {
+		t.Fatalf("second request = %v, %v, want its own session's answer", response, err)
+	}
+	// Let the late worker finish its delivery.
+	time.Sleep(20 * time.Millisecond)
+	run.finish(nil, false)
+}
+
+// Under a run control on a session-capable client, an agent stream runs each
+// stage's requests in native sessions, and the responder's deltas stream from
+// its session's partial response events, as AxGen.StreamingForward's do. The
+// run reports its lifecycle at root and each stage at root/<stage>.
 func TestAstraAgentStreamingForwardUnderControl(t *testing.T) {
 	answers := []string{
 		`{"completion":{"type":"final","args":["Find reference",{}]}}`,
@@ -922,7 +1051,14 @@ func TestAstraAgentStreamingForwardUnderControl(t *testing.T) {
 			return AxHTTPStreamResponse{}, fmt.Errorf("unexpected request %d", n)
 		}
 		var data strings.Builder
-		sessionSSE(&data, sessionCompleted(fmt.Sprintf("stream-r%d", n), answers[n-1]))
+		id := fmt.Sprintf("stream-r%d", n)
+		if n == len(answers) {
+			// The responder's answer streams as text before it completes.
+			sessionSSE(&data, Object("type", "response.created", "response", Object("id", id)))
+			sessionSSE(&data, Object("type", "response.output_text.delta", "delta", "Answer: RE"))
+			sessionSSE(&data, Object("type", "response.output_text.delta", "delta", "F-42"))
+		}
+		sessionSSE(&data, sessionCompleted(id, answers[n-1]))
 		return AxHTTPStreamResponse{Status: 200, Body: io.NopCloser(strings.NewReader(data.String()))}, nil
 	}
 	control := RunControl()
@@ -940,20 +1076,20 @@ func TestAstraAgentStreamingForwardUnderControl(t *testing.T) {
 	client := NewAI("openai", Object("api_key", "test", "model", "gpt-6-astra", "transport", transport))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	answer := ""
+	pieces := []string{}
 	for delta, err := range program.StreamingForward(ctx, client, Object("question", "Find reference"), Object("control", control)) {
 		if err != nil {
 			t.Fatal(err)
 		}
 		if text, ok := delta.Delta["answer"].(string); ok {
-			answer += text
+			pieces = append(pieces, text)
 		}
 	}
 	transport.mu.Lock()
 	requests := len(transport.requests)
 	transport.mu.Unlock()
-	if answer != "REF-42" || requests != 3 {
-		t.Fatalf("streamed answer %q after %d requests", answer, requests)
+	if strings.Join(pieces, "|") != "RE|F-42" || requests != 3 {
+		t.Fatalf("streamed answer deltas %q after %d requests, want RE|F-42 from the responder's partial events", pieces, requests)
 	}
 	mu.Lock()
 	defer mu.Unlock()

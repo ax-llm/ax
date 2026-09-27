@@ -1,0 +1,154 @@
+{
+  "assertions": [
+    {
+      "contains": "Paris",
+      "field": "answer",
+      "message": "The answer must be Paris."
+    }
+  ],
+  "control": true,
+  "control_steer": {
+    "during_request": 1,
+    "text": "Be brief."
+  },
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "queued"
+    },
+    {
+      "path": "root",
+      "type": "applied"
+    },
+    {
+      "path": "root",
+      "type": "applied"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_last_request_tail": [
+    {
+      "content": "Answer: Lyon",
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "text": "Follow these instructions: The answer must be Paris.",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_count": 2,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "assistant", "user"]
+  ],
+  "expected_session_log": [
+    {
+      "op": "open"
+    },
+    {
+      "op": "steer",
+      "text": "Be brief."
+    },
+    {
+      "call_ids": [],
+      "op": "continue"
+    },
+    {
+      "op": "close"
+    },
+    {
+      "op": "open"
+    },
+    {
+      "op": "steer",
+      "text": "Be brief."
+    },
+    {
+      "call_ids": [],
+      "op": "continue"
+    },
+    {
+      "op": "close"
+    }
+  ],
+  "input": {
+    "question": "Capital of France?"
+  },
+  "kind": "forward",
+  "name": "forward-native-session-steer-each-session",
+  "native_session": [
+    [
+      [
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "Answer: Lyon",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r1b",
+          "results": [
+            {
+              "content": "Answer: Lyon",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ],
+    [
+      [
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "content": "Answer: Paris",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r2b",
+          "results": [
+            {
+              "content": "Answer: Paris",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ]
+  ],
+  "responses": [],
+  "signature": "question:string -> answer:string"
+}

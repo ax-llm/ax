@@ -3509,21 +3509,39 @@ module @ax.stream version "0.1" {
     type signature = "(json, i64, list<json>) -> void throws"
     body @entry(%ctx: json, %index: i64, %deltas: list<json>) {
       // Diffs each delta against what consumers hold for this sample and
-      // yields the rest at the attempt's version.
+      // yields the rest at the attempt's version. In a native chat session
+      // the completed response's deltas first drop what the partial events
+      // sent, and a new session version starts a new version.
       %index_key = core.call intrinsic.string.format("{}", %index)
-      %empty_all = core.map
-      %committed_all = core.get %ctx["committed"] default %empty_all
-      %current_all = core.get %ctx["current"] default %empty_all
-      %empty_committed = core.map
-      %committed = core.get %committed_all[%index_key] default %empty_committed
-      core.set %committed_all[%index_key] = %committed
-      %empty_current = core.map
-      %current = core.get %current_all[%index_key] default %empty_current
-      core.set %current_all[%index_key] = %current
       %run = core.get %ctx["run"]
-      %version = core.get %ctx["version"] default 0
+      %session = core.get %ctx["session"]
+      %in_session = core.call intrinsic.is_not_none(%session)
+      %final_pass = core.let false
+      %session_started = core.let false
+      core.if %in_session {
+        %final_pass = core.get %session["final"] default false
+        %session_version = core.get %session["version"] default -1
+        %session_started = core.call intrinsic.gte(%session_version, 0)
+      }
       core.for %delta in %deltas {
-        %effective = core.call @stream_commit_delta_impl(%committed, %current, %delta)
+        %out_delta = core.let %delta
+        core.if %final_pass {
+          %out_delta = core.call @stream_session_versioned_impl(%ctx, %delta)
+        }
+        core.if %session_started {
+          core.call @stream_session_sync_version_impl(%ctx)
+        }
+        %empty_all = core.map
+        %committed_all = core.get %ctx["committed"] default %empty_all
+        %current_all = core.get %ctx["current"] default %empty_all
+        %empty_committed = core.map
+        %committed = core.get %committed_all[%index_key] default %empty_committed
+        core.set %committed_all[%index_key] = %committed
+        %empty_current = core.map
+        %current = core.get %current_all[%index_key] default %empty_current
+        core.set %current_all[%index_key] = %current
+        %version = core.get %ctx["version"] default 0
+        %effective = core.call @stream_commit_delta_impl(%committed, %current, %out_delta)
         %count = core.call intrinsic.len(%effective)
         %has_effective = core.call intrinsic.gt(%count, 0)
         core.if %has_effective {
@@ -3533,6 +3551,7 @@ module @ax.stream version "0.1" {
       core.return
     }
   }
+
 
   op ax.stream.semantic @stream_held_fields_impl {
     attr core_kind = "func"
@@ -3666,7 +3685,14 @@ module @ax.stream version "0.1" {
         core.set %state["fatal_error"] = %assertion_thrown
         core.return %deltas
       }
-      %feedback = core.call @stream_run_processors_impl(%gen, "streaming", %state, %content, false)
+      // A session's partial events stream without the streaming field
+      // processors, which see the completed response.
+      %session_partial = core.get %config["session_partial"] default false
+      %run_processors = core.call intrinsic.not(%session_partial)
+      %feedback = core.list
+      core.if %run_processors {
+        %feedback = core.call @stream_run_processors_impl(%gen, "streaming", %state, %content, false)
+      }
       %processor_failure = core.get %state["fatal_error"]
       %processor_failed = core.call intrinsic.is_not_none(%processor_failure)
       core.if %processor_failed {
@@ -4125,6 +4151,336 @@ module @ax.stream version "0.1" {
         core.raise %error
       }
       core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_session_state_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(list<json>, string) -> json"
+    body @entry(%fields: list<json>, %thought_field: string) {
+      // A native chat session's stream for one model request (TS's
+      // forwardCore session state): the response it is on and that
+      // response's version, the response's own streaming state (its partial
+      // events stream on it), what they sent, the completed response's
+      // values, and the session's turns so far.
+      %session = core.map
+      core.set %session["version"] = -1
+      core.set %session["last_version"] = 0
+      %none = core.call intrinsic.none()
+      core.set %session["response_id"] = %none
+      core.set %session["shadow"] = %none
+      %provisional = core.map
+      core.set %session["provisional"] = %provisional
+      %final_values = core.map
+      core.set %session["final_values"] = %final_values
+      core.set %session["final"] = false
+      core.set %session["fields"] = %fields
+      core.set %session["thought_field"] = %thought_field
+      %turns = core.list
+      core.set %session["turns"] = %turns
+      core.set %session["turns_added"] = false
+      core.return %session
+    }
+  }
+
+  op ax.stream.semantic @stream_session_select_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, json) -> bool"
+    body @entry(%ctx: json, %response_id: json) {
+      // selectResponse: a response the session has not streamed yet starts
+      // the next version, with its own streaming state. Returns whether it is
+      // new.
+      %session = core.get %ctx["session"]
+      %current = core.get %session["response_id"]
+      %has_current = core.call intrinsic.is_not_none(%current)
+      %same_id = core.call intrinsic.eq(%current, %response_id)
+      %same = core.call intrinsic.and(%has_current, %same_id)
+      core.if %same {
+        core.return false
+      }
+      core.set %session["response_id"] = %response_id
+      %version = core.get %session["version"] default -1
+      %next = core.call intrinsic.add(%version, 1)
+      core.set %session["version"] = %next
+      %shadow = core.call @stream_state_impl(0)
+      core.set %session["shadow"] = %shadow
+      %provisional = core.map
+      core.set %session["provisional"] = %provisional
+      core.return true
+    }
+  }
+
+  op ax.stream.semantic @stream_session_sync_version_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json) -> void"
+    body @entry(%ctx: json) {
+      // A delta from a new session version starts a new version, as TS's
+      // forward does when a result's session version changes: consumers
+      // discard what they merged, and what they hold starts over. TS takes
+      // max(controlVersion, currentVersion - errCount) + 1, which is the
+      // attempt's control version plus one: the run's current version never
+      // passes the attempt's.
+      %session = core.get %ctx["session"]
+      %version = core.get %session["version"] default -1
+      %last = core.get %session["last_version"] default 0
+      %moved = core.call intrinsic.ne(%version, %last)
+      %not_moved = core.call intrinsic.not(%moved)
+      core.if %not_moved {
+        core.return
+      }
+      core.set %session["last_version"] = %version
+      %control_version = core.get %ctx["control_version"] default 0
+      %next_control = core.call intrinsic.add(%control_version, 1)
+      core.set %ctx["control_version"] = %next_control
+      %attempt_version = core.get %ctx["version"] default 0
+      %next_version = core.call intrinsic.add(%attempt_version, 1)
+      core.set %ctx["version"] = %next_version
+      %empty_all = core.map
+      %committed_all = core.get %ctx["committed"] default %empty_all
+      %committed_keys = core.call intrinsic.map.keys(%committed_all)
+      core.for %committed_key in %committed_keys {
+        %cleared_committed = core.map
+        core.set %committed_all[%committed_key] = %cleared_committed
+      }
+      %current_all = core.get %ctx["current"] default %empty_all
+      %current_keys = core.call intrinsic.map.keys(%current_all)
+      core.for %current_key in %current_keys {
+        %cleared_current = core.map
+        core.set %current_all[%current_key] = %cleared_current
+      }
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_session_merge_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, json) -> void"
+    body @entry(%values: json, %delta: json) {
+      // mergeDeltaValues: a delta merged as a consumer merges it.
+      %keys = core.call intrinsic.map.keys(%delta)
+      core.for %key in %keys {
+        %value = core.get %delta[%key]
+        %has_base = core.call intrinsic.map.contains(%values, %key)
+        %base = core.get %values[%key]
+        %merged = core.call @stream_merge_value_impl(%base, %has_base, %value)
+        core.set %values[%key] = %merged
+      }
+      core.return
+    }
+  }
+
+  op ax.stream.semantic @stream_session_failure_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/chatSession.ts"
+    type signature = "(json, error) -> error"
+    body @entry(%info: json, %error: error) {
+      // axRunChatSession's failure: the error and the calls still running.
+      %message = core.call intrinsic.exception.message(%error)
+      %empty_pending = core.list
+      %pending = core.get %info["pending_calls"] default %empty_pending
+      %unresolved = core.call intrinsic.string.join(", ", %pending)
+      %none_pending = core.call intrinsic.eq(%unresolved, "")
+      core.if %none_pending {
+        %unresolved = core.let "none"
+      }
+      %text = core.call intrinsic.string.format("Chat session failed: {}; unresolved calls: {}", %message, %unresolved)
+      %failure = core.call intrinsic.error.runtime(%text)
+      core.return %failure
+    }
+  }
+
+  op ax.stream.semantic @stream_session_partial_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(AxGen, json, json, json) -> json throws"
+    body @entry(%gen: AxGen, %config: json, %ctx: json, %item: json) {
+      // onSessionDelta: a partial event streams through the plain extraction
+      // on its response's own state, without memory or the streaming field
+      // processors, and goes out at the response's version. A failed
+      // streaming assertion raises for a retry in a fresh session, unless the
+      // session has started a tool: then the run fails instead of replaying
+      // it, and so does an error an assertion itself raises. A partial that
+      // does not parse yet ends this response's stream; the completed
+      // response is validated. Returns {fatal} for the caller to raise.
+      %out = core.map
+      %none = core.call intrinsic.none()
+      core.set %out["fatal"] = %none
+      %session = core.get %ctx["session"]
+      %shadow = core.get %session["shadow"]
+      %stopped = core.call intrinsic.is_none(%shadow)
+      core.if %stopped {
+        core.return %out
+      }
+      %empty_info = core.map
+      %info = core.get %item["session"] default %empty_info
+      %shadow_config = core.call intrinsic.map.merge(%config, %empty_info)
+      core.set %shadow_config["session_partial"] = true
+      %thought_field = core.get %config["thought_field"] default "thought"
+      %provisional = core.get %session["provisional"]
+      %empty_results = core.list
+      %results = core.get %item["results"] default %empty_results
+      core.for %result in %results {
+        %index = core.get %result["index"] default 0
+        %other_index = core.call intrinsic.ne(%index, 0)
+        core.if %other_index {
+          core.continue
+        }
+        %thought = core.get %result["thought"] default ""
+        %thought_is_text = core.type_is %thought type "string"
+        %has_thought = core.call intrinsic.truthy(%thought)
+        %thought_chunk = core.call intrinsic.and(%thought_is_text, %has_thought)
+        core.if %thought_chunk {
+          %thought_delta = core.map
+          core.set %thought_delta[%thought_field] = %thought
+          core.call @stream_session_merge_impl(%provisional, %thought_delta)
+          %thought_deltas = core.list
+          core.append %thought_deltas, %thought_delta
+          core.call @stream_emit_deltas_impl(%ctx, 0, %thought_deltas)
+        }
+        %content_deltas = core.list
+        core.try {
+          %content_deltas = core.call @stream_chunk_content_impl(%gen, %shadow_config, %shadow, %result)
+        } catch %partial_error {
+          %empty_xstate = core.map
+          %xstate = core.get %shadow["xstate"] default %empty_xstate
+          %assertion_failed = core.get %xstate["assertion_failed"] default false
+          core.if %assertion_failed {
+            %calls_started = core.get %info["calls_started"] default false
+            core.if %calls_started {
+              %started_failure = core.call @stream_session_failure_impl(%info, %partial_error)
+              core.set %out["fatal"] = %started_failure
+              core.return %out
+            }
+            core.raise %partial_error
+          }
+          core.set %session["shadow"] = %none
+          core.return %out
+        }
+        %assertion_error = core.get %shadow["fatal_error"]
+        %assertion_threw = core.call intrinsic.is_not_none(%assertion_error)
+        core.if %assertion_threw {
+          %thrown_failure = core.call @stream_session_failure_impl(%info, %assertion_error)
+          core.set %out["fatal"] = %thrown_failure
+          core.return %out
+        }
+        core.for %content_delta in %content_deltas {
+          core.call @stream_session_merge_impl(%provisional, %content_delta)
+        }
+        core.call @stream_emit_deltas_impl(%ctx, 0, %content_deltas)
+      }
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_session_versioned_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, json) -> json"
+    body @entry(%ctx: json, %delta: json) {
+      // The final pass (TS's versioned): the completed response streams as
+      // one chunk, and only what the partial events did not send goes out,
+      // the thought included. A completed response that does not extend what
+      // they sent starts the next version.
+      %session = core.get %ctx["session"]
+      %final_values = core.get %session["final_values"]
+      core.call @stream_session_merge_impl(%final_values, %delta)
+      %provisional = core.get %session["provisional"]
+      %diverged = core.let false
+      %final_keys = core.call intrinsic.map.keys(%final_values)
+      core.for %final_key in %final_keys {
+        %final_value = core.get %final_values[%final_key]
+        %sent = core.get %provisional[%final_key]
+        %final_is_text = core.type_is %final_value type "string"
+        %sent_is_text = core.type_is %sent type "string"
+        %both_text = core.call intrinsic.and(%final_is_text, %sent_is_text)
+        core.if %both_text {
+          %extends_sent = core.call intrinsic.string.starts_with(%final_value, %sent)
+          %taken_back = core.call intrinsic.not(%extends_sent)
+          core.if %taken_back {
+            %diverged = core.let true
+          }
+        }
+      }
+      core.if %diverged {
+        %version = core.get %session["version"] default 0
+        %next = core.call intrinsic.add(%version, 1)
+        core.set %session["version"] = %next
+        %provisional = core.map
+        core.set %session["provisional"] = %provisional
+      }
+      %empty_fields = core.list
+      %fields = core.get %session["fields"] default %empty_fields
+      %result = core.call @stream_structured_delta(%fields, %final_values, %provisional, false)
+      %empty_out = core.map
+      %out = core.get %result["delta"] default %empty_out
+      %empty_full = core.map
+      %full = core.get %result["full_values"] default %empty_full
+      %thought_field = core.get %session["thought_field"] default "thought"
+      %thought = core.get %final_values[%thought_field]
+      %thought_is_text = core.type_is %thought type "string"
+      core.if %thought_is_text {
+        %sent_thought = core.get %provisional[%thought_field]
+        %sent_thought_is_text = core.type_is %sent_thought type "string"
+        %sent_length = core.let 0
+        core.if %sent_thought_is_text {
+          %sent_length = core.call intrinsic.len(%sent_thought)
+        }
+        %rest = core.call intrinsic.string.slice(%thought, %sent_length)
+        %has_rest = core.call intrinsic.ne(%rest, "")
+        core.if %has_rest {
+          core.set %out[%thought_field] = %rest
+        }
+        core.set %full[%thought_field] = %thought
+      }
+      // The consumer keeps the fields this pass has not reached yet.
+      %full_keys = core.call intrinsic.map.keys(%full)
+      core.for %full_key in %full_keys {
+        %full_value = core.get %full[%full_key]
+        core.set %provisional[%full_key] = %full_value
+      }
+      core.return %out
+    }
+  }
+
+  op ax.stream.semantic @stream_session_add_turns_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/chatSession.ts"
+    type signature = "(list<json>, json) -> list<json>"
+    body @entry(%messages: list<json>, %session: json) {
+      // A native chat session's turns before its final (or failed) response
+      // join the prompt of any later request once, as TS's memory keeps them.
+      %added = core.get %session["turns_added"] default false
+      core.if %added {
+        core.return %messages
+      }
+      core.set %session["turns_added"] = true
+      %empty_turns = core.list
+      %turns = core.get %session["turns"] default %empty_turns
+      core.for %turn in %turns {
+        core.append %messages, %turn
+      }
+      core.return %messages
     }
   }
 }

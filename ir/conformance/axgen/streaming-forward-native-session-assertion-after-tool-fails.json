@@ -1,0 +1,130 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "failed"
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "BA"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_error_cause_contains": "Chat session failed: No BAD.; unresolved calls: none",
+  "expected_error_contains": "Generate failed: Chat session failed: No BAD.; unresolved calls: none",
+  "expected_request_count": 1,
+  "expected_request_roles": [["system", "user"]],
+  "expected_session_log": [
+    {
+      "op": "open"
+    },
+    {
+      "call_ids": ["c1"],
+      "op": "continue"
+    },
+    {
+      "op": "close"
+    }
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-native-session-assertion-after-tool-fails",
+  "native_session": [
+    [
+      [
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "content": "Answer: BA",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "content": "D",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "content": "Answer: BAD",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ]
+  ],
+  "responses": [],
+  "signature": "question:string -> answer:string",
+  "streaming_assertions": [
+    {
+      "field": "answer",
+      "message": "No BAD.",
+      "not_contains": "BAD"
+    }
+  ],
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

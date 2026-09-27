@@ -4119,6 +4119,11 @@ struct AxChatStream {
   std::shared_ptr<AxCancellationToken> cancellation;
   AxCancellationToken::Subscription caller_cancellation;
   std::thread worker;
+  // A run session's native chat session streams without a worker: next()
+  // pulls its next item on the caller's thread, as the session produces it,
+  // and closing closes the session.
+  std::function<Value()> pull;
+  std::function<void()> pull_close;
 
   ~AxChatStream() { close(); }
 
@@ -4134,6 +4139,15 @@ struct AxChatStream {
       else worker.join();
     }
     caller_cancellation.reset();
+    if (pull_close) {
+      auto close_source = std::move(pull_close);
+      pull_close = nullptr;
+      try {
+        close_source();
+      } catch (...) {
+        // Closing an abandoned session is best effort.
+      }
+    }
   }
 };
 
@@ -4201,24 +4215,39 @@ void append_axgen_field_processor(Value& state, const std::string& key, std::str
 
 }  // namespace
 
-// Defined with the run session (session.inc).
-static AxAIService* session_stream_service(AIClient* client, Value& request);
+// How a run session streams a model call (session.inc): under a native chat
+// session, pull yields the session's items (null at the end) and close closes
+// it; otherwise the call streams from service, or, with neither, the session
+// answers it as one chunk through pull.
+struct SessionStreamSource {
+  AxAIService* service = nullptr;
+  std::function<Value()> pull;
+  std::function<void()> close;
+};
+static SessionStreamSource session_stream_source(AIClient* client, Value& request, const Value& options);
 
 // Opens the client's provider stream as a pull handle. An AxAIService streams
 // on a worker thread that inherits the caller's cancellation (through a linked
 // token that closing can cancel alone), runtime hook frames and MCP context;
 // request and options are copied so the worker shares no mutable state with
-// the caller. A run session streams from its selected service through its
-// response boundary. Other clients answer with their chat response as one
-// chunk.
+// the caller. A run session streams its native session's items as they
+// happen, or from its selected service through its response boundary. Other
+// clients answer with their chat response as one chunk.
 Value Core::ai_stream_open(Value client, Value request, Value options) {
   AIClient* registered = registered_client(str(get_key(client, "__client_id")));
   if (registered == nullptr) throw AxError("runtime", "client does not implement AIClient");
   auto stream = std::make_shared<AxChatStream>();
   auto channel = stream->channel;
   AxAIService* service = dynamic_cast<AxAIService*>(registered);
-  if (service == nullptr) service = session_stream_service(registered, request);
-  if (service != nullptr) {
+  if (service == nullptr) {
+    SessionStreamSource source = session_stream_source(registered, request, options);
+    service = source.service;
+    stream->pull = std::move(source.pull);
+    stream->pull_close = std::move(source.close);
+  }
+  if (stream->pull) {
+    // Pulled by ai_stream_next.
+  } else if (service != nullptr) {
     auto cancellation = std::make_shared<AxCancellationToken>();
     stream->cancellation = cancellation;
     if (const AxCancellationToken* caller = current_cancellation_token()) {
@@ -4272,6 +4301,7 @@ Value Core::ai_stream_open(Value client, Value request, Value options) {
 Value Core::ai_stream_next(Value handle) {
   auto stream = registered_ai_stream(handle);
   if (!stream) return Value();
+  if (stream->pull) return stream->pull();
   auto channel = stream->channel;
   std::exception_ptr error;
   {

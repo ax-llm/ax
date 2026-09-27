@@ -1,0 +1,184 @@
+{
+  "assertions": [
+    {
+      "contains": "Paris",
+      "field": "answer",
+      "message": "The answer must be Paris."
+    }
+  ],
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "Ly"
+      },
+      "index": 0,
+      "version": 1
+    },
+    {
+      "delta": {
+        "answer": "on"
+      },
+      "index": 0,
+      "version": 1
+    },
+    {
+      "delta": {
+        "answer": "Paris"
+      },
+      "index": 0,
+      "version": 2
+    }
+  ],
+  "expected_last_request_tail": [
+    {
+      "content": "Answer: Lyon",
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "text": "Follow these instructions: The answer must be Paris.",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_count": 2,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "function", "assistant", "user"]
+  ],
+  "expected_session_log": [
+    {
+      "op": "open"
+    },
+    {
+      "call_ids": ["c1"],
+      "op": "continue"
+    },
+    {
+      "op": "close"
+    },
+    {
+      "op": "open"
+    },
+    {
+      "op": "close"
+    }
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    }
+  ],
+  "input": {
+    "question": "Capital of France?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-native-session-tool-then-correction",
+  "native_session": [
+    [
+      [
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "content": "Answer: Ly",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "content": "on",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "content": "Answer: Lyon",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ],
+    [
+      [
+        {
+          "response_id": "r3",
+          "results": [
+            {
+              "content": "Answer: Paris",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ]
+  ],
+  "responses": [],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

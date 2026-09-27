@@ -1,0 +1,136 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "Ly"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "Paris"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_last_request_tail": [
+    {
+      "content": "Question: Capital of France?\n",
+      "role": "user"
+    },
+    {
+      "content": "Answer: Lyon BAD",
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "text": "Follow these instructions: No BAD.",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_count": 2,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "user"]
+  ],
+  "expected_session_log": [
+    {
+      "op": "open"
+    },
+    {
+      "op": "close"
+    },
+    {
+      "op": "open"
+    },
+    {
+      "op": "close"
+    }
+  ],
+  "input": {
+    "question": "Capital of France?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-native-session-streaming-assertion-retry",
+  "native_session": [
+    [
+      [
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "Answer: Ly",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "on BAD",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "Answer: Lyon BAD",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ],
+    [
+      [
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "content": "Answer: Paris",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ]
+  ],
+  "responses": [],
+  "signature": "question:string -> answer:string",
+  "streaming_assertions": [
+    {
+      "field": "answer",
+      "message": "No BAD.",
+      "not_contains": "BAD"
+    }
+  ]
+}

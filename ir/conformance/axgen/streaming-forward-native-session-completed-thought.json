@@ -1,0 +1,68 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "thought": "Thinking"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "Paris"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris",
+    "thought": "Thinking"
+  },
+  "expected_request_count": 1,
+  "expected_request_roles": [["system", "user"]],
+  "expected_session_log": [
+    {
+      "op": "open"
+    },
+    {
+      "op": "close"
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-native-session-completed-thought",
+  "native_session": [
+    [
+      [
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "Answer: Paris",
+              "finish_reason": "stop",
+              "index": 0,
+              "thought": "Thinking"
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ]
+  ],
+  "responses": [],
+  "signature": "question:string -> answer:string"
+}

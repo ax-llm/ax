@@ -110,33 +110,41 @@ void native_agent(){
   Value duplicate=program.invoke_callable("tools.lookup",object({{"query","REF-42"}}));if(stringify(Core::get(duplicate,"status"))!="\"error\""||gate->calls.load()!=1)throw std::runtime_error("Native call replayed through actor machinery");
   std::cout<<"cpp native agent tools, authority boundaries, action logs, and duplicate prevention passed\n";
 }
-// Agent streams don't cover async run sessions yet: under a run control on a
-// session-capable client, streaming_forward streams the responder through the
-// request boundary, as AxGen::streaming_forward does, and the run reports its
-// lifecycle at root and each stage at root/<stage>.
+// An agent stream under a run control on a session-capable client runs each
+// stage in its own native session; the responder streams its session's partial
+// output as deltas, and the run reports its lifecycle at root and each stage
+// at root/<stage>.
 class AgentStreamTransport final:public Transport {
  public:
   std::atomic<int> requests{0};
-  std::string answer(){
-    int number=++requests;
+  std::string answer(int number){
     if(number==1)return "{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}";
     if(number==2)return "{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"REF-42\"}]}}";
     if(number==3)return "Answer: REF-42";
     throw std::runtime_error("Unexpected agent stream request "+std::to_string(number));
   }
-  Value call(Value)override{return Core::get(completed("stream-response",answer()),"response");}
-  void stream(Value,AxTransportStreamHandler handler)override{handler(completed("stream-response",answer()));}
+  Value call(Value)override{return Core::get(completed("stream-response",answer(++requests)),"response");}
+  void stream(Value,AxTransportStreamHandler handler)override{
+    int number=++requests;
+    if(number==3){
+      handler(object({{"type","response.created"},{"response",object({{"id","responder"}})}}));
+      handler(object({{"type","response.output_text.delta"},{"delta","Answer: REF"}}));
+      handler(object({{"type","response.output_text.delta"},{"delta","-42"}}));
+    }
+    handler(completed(number==3?"responder":"stream-response",answer(number)));
+  }
 };
 void agent_stream_under_control(){
   auto transport=std::make_shared<AgentStreamTransport>();auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);
   auto control=run_control();std::vector<std::string> events;std::mutex events_mutex;
   control.on_event([&](Value event){std::string type=display(Core::get(event,"type"));if(type!="started"&&type!="completed"&&type!="failed"&&type!="aborted")return;std::lock_guard<std::mutex> lock(events_mutex);events.push_back(type+"@"+display(Core::get(event,"path")));});
-  auto program=agent("question -> answer",object({{"directResponse","off"}}));std::string answer;
-  program.streaming_forward(*client,object({{"question","Find reference"}}),object({{"control",control.value()}}),[&](const AxGenDelta& delta){Value text=Core::get(delta.delta,"answer");if(text.is_string())answer+=display(text);return true;});
-  if(answer!="REF-42"||transport->requests.load()!=3)throw std::runtime_error("Invalid agent stream under a run control: "+answer);
+  auto program=agent("question -> answer",object({{"directResponse","off"}}));std::vector<std::string> pieces;
+  program.streaming_forward(*client,object({{"question","Find reference"}}),object({{"control",control.value()}}),[&](const AxGenDelta& delta){Value text=Core::get(delta.delta,"answer");if(text.is_string())pieces.push_back(display(text));return true;});
+  std::string answer;for(const auto& piece:pieces)answer+=piece;
+  if(answer!="REF-42"||pieces.size()<2||transport->requests.load()!=3)throw std::runtime_error("Invalid agent stream under a run control: "+answer+" in "+std::to_string(pieces.size())+" deltas");
   std::string joined;for(const auto& event:events)joined+=(joined.empty()?"":",")+event;
   if(joined!="started@root,started@root/distiller,completed@root/distiller,started@root/executor,completed@root/executor,started@root/responder,completed@root/responder,completed@root")throw std::runtime_error("Agent stream control events: "+joined);
-  std::cout<<"cpp agent streams under a run control stream through the request boundary\n";
+  std::cout<<"cpp agent streams under a run control stream the responder session's partial output\n";
 }
 void cancellation(){
   auto socket=std::make_shared<SteeringSocket>();socket->pending=true;auto control=run_control();auto settled=std::make_shared<std::atomic<bool>>(false);auto interrupted_at=std::make_shared<std::atomic<long long>>(0);
@@ -200,14 +208,14 @@ void native_steering(){
   Value logs=program.get_chat_log();if(stringify(Core::get(Core::get(logs,0),"remote_id"))!="\"parent\"" || stringify(Core::get(Core::get(logs,1),"remote_id"))!="\"successor\"")throw std::runtime_error("Lost response accounting");
   std::cout<<"cpp native steering, successor accounting, and closure passed\n";
 }
-// Answers each response.create with a completed response: the first answer
-// gets a field processor's feedback, which continues the open session.
-class FeedbackSessionSocket final:public RealtimeTransport {
+// One session's socket: it answers its response.create with a completed
+// response named after the session.
+class AnswerSocket final:public RealtimeTransport {
  public:
-  std::mutex mutex;std::condition_variable ready;std::deque<Value> incoming;std::vector<Value> sent;bool closed=false;
+  std::mutex mutex;std::condition_variable ready;std::deque<Value> incoming;std::vector<Value> sent;bool closed=false;std::string id;
+  explicit AnswerSocket(std::string id):id(std::move(id)){}
   void send(const Value& event)override{
     std::lock_guard<std::mutex> lock(mutex);sent.push_back(event);
-    std::string id=sent.size()==1?"first":"second";
     incoming.push_back(object({{"type","response.created"},{"response",object({{"id",id}})}}));
     incoming.push_back(completed(id,"Answer: "+id));
     ready.notify_all();
@@ -215,19 +223,56 @@ class FeedbackSessionSocket final:public RealtimeTransport {
   bool recv(Value& out)override{std::unique_lock<std::mutex> lock(mutex);if(!ready.wait_for(lock,std::chrono::seconds(5),[&]{return closed||!incoming.empty();})||closed)return false;out=incoming.front();incoming.pop_front();return true;}
   void close()override{std::lock_guard<std::mutex> lock(mutex);closed=true;ready.notify_all();}
 };
-// A processor's feedback is a user message with [{type: text, text}] content;
-// an open native session gets its text as the next response's input_text.
-void native_session_feedback_text(){
-  auto socket=std::make_shared<FeedbackSessionSocket>();auto control=run_control();
+// As in TS, each model request runs in its own native session: a field
+// processor's feedback opens a fresh session with the whole prompt, after the
+// first one closed once its response completed.
+void native_session_per_request(){
+  std::vector<std::shared_ptr<AnswerSocket>> sockets;std::mutex sockets_mutex;bool first_open=false;
   auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));
-  dynamic_cast<OpenAICompatibleClient&>(*client).session_web_socket_factory([socket](const std::string&,Value){return socket;});
-  auto program=ax("question -> answer");int calls=0;
+  dynamic_cast<OpenAICompatibleClient&>(*client).session_web_socket_factory([&](const std::string&,Value){
+    std::lock_guard<std::mutex> lock(sockets_mutex);
+    if(!sockets.empty()){std::lock_guard<std::mutex> socket_lock(sockets.back()->mutex);first_open=!sockets.back()->closed;}
+    auto socket=std::make_shared<AnswerSocket>(sockets.empty()?"first":"second");sockets.push_back(socket);return socket;
+  });
+  auto control=run_control();auto program=ax("question -> answer");int calls=0;
   program.add_field_processor("answer",[&calls](const Value&,const AxFieldProcessorContext&)->Value{return ++calls==1?Value("Check it."):Value();},AxFieldProcessorMode::Feedback);
   Value result=program.forward(*client,object({{"question","Status?"}}),object({{"control",control.value()}}));
-  Value second;{std::lock_guard<std::mutex> lock(socket->mutex);if(socket->sent.size()!=2)throw std::runtime_error("Feedback did not continue the native session");second=socket->sent[1];}
-  Value text=Core::get(Core::get(Core::get(Core::get(Core::get(second,"input"),0),"content"),0),"text");
-  if(!text.is_string()||display(text)!="Check it."||display(Core::get(result,"answer"))!="second")throw std::runtime_error("Native session feedback was not sent as text: "+stringify(second));
-  std::cout<<"cpp native session feedback continues as input text\n";
+  std::lock_guard<std::mutex> lock(sockets_mutex);
+  if(sockets.size()!=2||first_open)throw std::runtime_error("Feedback did not open a fresh native session after the first closed");
+  for(const auto& socket:sockets){std::lock_guard<std::mutex> socket_lock(socket->mutex);if(socket->sent.size()!=1||!socket->closed)throw std::runtime_error("A native session was continued or left open");}
+  Value second=sockets[1]->sent[0];
+  if(!Core::get(second,"previous_response_id").is_null()||stringify(Core::get(second,"input")).find("Check it.")==std::string::npos||display(Core::get(result,"answer"))!="second")throw std::runtime_error("The fresh session lacks the whole prompt: "+stringify(second));
+  std::cout<<"cpp feedback opens a fresh native session with the whole prompt\n";
+}
+// A streamed response that starts a tool and then fails a streaming assertion.
+class StartedToolSocket final:public RealtimeTransport {
+ public:
+  std::mutex mutex;std::condition_variable ready;std::deque<Value> incoming;std::vector<Value> sent;bool closed=false;
+  void send(const Value& event)override{
+    std::lock_guard<std::mutex> lock(mutex);sent.push_back(event);
+    incoming.push_back(object({{"type","response.created"},{"response",object({{"id","started"}})}}));
+    incoming.push_back(object({{"type","response.output_item.done"},{"item",object({{"type","function_call"},{"id","item"},{"call_id","slow-call"},{"name","lookup"},{"arguments","{}"}})}}));
+    incoming.push_back(object({{"type","response.output_text.delta"},{"delta","Answer: BAD"}}));
+    ready.notify_all();
+  }
+  bool recv(Value& out)override{std::unique_lock<std::mutex> lock(mutex);if(!ready.wait_for(lock,std::chrono::seconds(5),[&]{return closed||!incoming.empty();})||closed)return false;out=incoming.front();incoming.pop_front();return true;}
+  void close()override{std::lock_guard<std::mutex> lock(mutex);closed=true;ready.notify_all();}
+};
+// A streaming assertion that fails on a session's partial output after the
+// session started a tool fails the run, naming the call still running, rather
+// than retrying in a fresh session that would replay it.
+void streaming_assertion_after_started_tool(){
+  auto socket=std::make_shared<StartedToolSocket>();auto calls=std::make_shared<std::atomic<int>>(0);auto cancelled=std::make_shared<std::atomic<bool>>(false);
+  auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));
+  dynamic_cast<OpenAICompatibleClient&>(*client).session_web_socket_factory([socket](const std::string&,Value){return socket;});
+  Tool lookup("lookup","Lookup");lookup.execution("background").context_handler([calls,cancelled](Value,const AxToolContext& context){++*calls;auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);while(!context.is_cancelled()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));cancelled->store(context.is_cancelled());return Value("late");});
+  auto program=ax("question -> answer");program.add_tool(lookup);program.add_streaming_assert("answer","BAD","No BAD.");
+  auto control=run_control();std::string error;
+  try{program.streaming_forward(*client,object({{"question","Status?"}}),object({{"control",control.value()}}),[](const AxGenDelta&){return true;});}catch(const std::exception& caught){error=caught.what();}
+  auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);while(!cancelled->load()&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  std::lock_guard<std::mutex> lock(socket->mutex);
+  if(error.find("Chat session failed: No BAD.; unresolved calls: slow-call")==std::string::npos||calls->load()!=1||socket->sent.size()!=1||!socket->closed||!cancelled->load())throw std::runtime_error("A streaming assertion after a started tool did not fail the run with its running call: "+error);
+  std::cout<<"cpp streaming assertion after a started tool fails the run with its running call\n";
 }
 void flow_isolation(){
   auto transport=std::make_shared<FlowTransport>();auto calls=std::make_shared<std::atomic<int>>(0);
@@ -822,5 +867,5 @@ int main(int argc,char** argv){
   Value result=program.forward(routed,object({{"question","Find reference"}}));
   if(stringify(Core::get(result,"answer"))!="\"REF-42\""||gate->calls.load()!=1)throw std::runtime_error("Provisional output escaped");
   std::cout<<"cpp high-level async overlap and final incorporation passed\n";
-  invalid_arguments_and_exhaustion();flow_isolation();native_steering();native_session_feedback_text();buffered_steering_boundary();cancellation();disconnect_pending();noncooperative_cancellation();native_agent();agent_stream_under_control();concurrent_native_mcp();mixed_balancer();
+  invalid_arguments_and_exhaustion();flow_isolation();native_steering();native_session_per_request();streaming_assertion_after_started_tool();buffered_steering_boundary();cancellation();disconnect_pending();noncooperative_cancellation();native_agent();agent_stream_under_control();concurrent_native_mcp();mixed_balancer();
 }

@@ -549,35 +549,48 @@ fn pinned_run_client<'a>(client:&'a mut dyn AxAIClient,request:&mut Value,option
     if let Some(route)=route {*request=client.preprocess_pinned_chat_run(&route,std::mem::take(request))?;pinned_run_client(client.pinned_chat_run_client(&route)?,request,options,routes,depth+1,selected)} else {Ok(client)}
 }
 
-// A steer is text: a message's string content, or the text of its text parts
-// joined by newlines (a field processor's feedback is [{type: "text", text}]).
-fn steer_text(content: &Value) -> Value {
-    let Value::Array(parts) = content else {
-        return content.clone();
-    };
-    let texts = parts
-        .iter()
-        .filter(|part| part["type"] == "text")
-        .map(|part| match &part["text"] {
-            Value::String(text) => text.clone(),
-            Value::Null => String::new(),
-            other => other.to_string(),
-        })
-        .collect::<Vec<_>>();
-    Value::String(texts.join("\n"))
+// One item of a model request's native session (python: _run_session): a
+// partial response event, the ID of a response the session continues from,
+// or the final response.
+enum SessionItem {
+    Partial(Value),
+    Completed(Value),
+    Final(Value),
 }
 
+// Each run has its own ID, so a session stream reads only its own run.
+static NEXT_SESSION_RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+// Bridges one AxGen run to its pinned client. As in TS (axRunChatSession),
+// each model request opens its own native session with the whole prompt, and
+// the session closes once that request's response completes: a correction or
+// a later step opens a fresh one, which applies the run's updates again.
 pub(crate) struct SessionRun {
+    // The run's: its ID, its pinned client's routes, whether that client
+    // opens native sessions (decided on the run's first request), and, for
+    // plain model calls, the update cursor and thinking level.
+    id: u64,
     routes: Vec<String>,
     route_selected: bool,
-    session: Option<Box<dyn AxChatSession>>,
-    state: CoreValue,
+    native_sessions: Option<bool>,
     gen: CoreValue,
     tools: Vec<Tool>,
     options: Value,
     control: Option<AxRunControl>,
     path: String,
     after: usize,
+    level: Value,
+    started: bool,
+    finished: bool,
+    controls_use_session: Option<bool>,
+    // The open session's, reset for each model request: its state (kept
+    // after it closes, for the run's end), its update cursor and the updates
+    // it applies at its next response, its tool workers' results and cancel
+    // flag, the calls waiting on a blocking one, its last completed response,
+    // and whether its loop picks up at the boundary after an item.
+    session: Option<Box<dyn AxChatSession>>,
+    state: CoreValue,
+    session_after: usize,
     applied: Vec<String>,
     last: Option<Value>,
     results: mpsc::Receiver<ToolResult>,
@@ -585,10 +598,10 @@ pub(crate) struct SessionRun {
     cancelled: Arc<AtomicBool>,
     blocking: bool,
     waiting: Vec<Value>,
-    level: Value,
-    fallback_started: bool,
-    finished: bool,
-    controls_use_session: Option<bool>,
+    resume: bool,
+    // The streamed request and its options, while its session's items are
+    // read.
+    streamed: Option<(Value, Value)>,
 }
 impl SessionRun {
     // `options` are the run's: the program's merged with the call's, which
@@ -603,16 +616,23 @@ impl SessionRun {
             .unwrap_or("root")
             .to_string();
         Self {
+            id: NEXT_SESSION_RUN.fetch_add(1, Ordering::SeqCst),
             routes: Vec::new(),
             route_selected: false,
-            session: None,
-            state: CoreValue::Null,
+            native_sessions: None,
             gen,
             tools,
             options,
             control: current_control(),
             path,
             after: 0,
+            level: Value::Null,
+            started: false,
+            finished: false,
+            controls_use_session: None,
+            session: None,
+            state: CoreValue::Null,
+            session_after: 0,
             applied: Vec::new(),
             last: None,
             results,
@@ -620,10 +640,8 @@ impl SessionRun {
             cancelled: Arc::new(AtomicBool::new(false)),
             blocking: false,
             waiting: Vec::new(),
-            level: Value::Null,
-            fallback_started: false,
-            finished: false,
-            controls_use_session: None,
+            resume: false,
+            streamed: None,
         }
     }
     fn emit(&self, kind: &str, mut event: Value) {
@@ -631,6 +649,13 @@ impl SessionRun {
             event["type"] = json!(kind);
             event["path"] = json!(self.path);
             control.emit(event);
+        }
+    }
+    // As in TS, the run has started before its first request goes out.
+    fn emit_started(&mut self) {
+        if !self.started {
+            self.started = true;
+            self.emit("started", json!({}));
         }
     }
     fn start(&mut self, call: Value) -> AxResult<()> {
@@ -691,6 +716,8 @@ impl SessionRun {
         self.blocking = execution != "background";
         self.emit("tool.started", json!({"call_id":id}));
         let tool = tool.unwrap();
+        // A worker owns only the invocation and its result, which goes to the
+        // session that started it, never to a later one.
         let sender = self.sender.clone();
         let cancelled = self.cancelled.clone();
         let inherited=RUNTIME_HOOK_FRAMES.with(|frames|frames.borrow().clone());
@@ -716,10 +743,7 @@ impl SessionRun {
                 "Run aborted before the next model request",
             ));
         }
-        if !self.fallback_started {
-            self.emit("started", json!({}));
-            self.fallback_started = true;
-        }
+        self.emit_started();
         let (updates, after) = control.pending(&self.path, self.after)?;
         self.after = after;
         let request = CORE_REQUEST_STACK
@@ -773,9 +797,8 @@ impl SessionRun {
         }
         let (updates, after) = control.pending(&self.path, self.after)?;
         self.after = after;
-        if !updates.is_empty() && !self.fallback_started {
-            self.emit("started", json!({}));
-            self.fallback_started = true;
+        if !updates.is_empty() {
+            self.emit_started();
         }
         for update in &updates {
             self.emit("applied", json!({"update_id":update["id"],"timing":"next-response"}));
@@ -807,187 +830,242 @@ impl SessionRun {
         }
         error
     }
+    // The run's client for a request (python: _select): pinned on the run's
+    // first request, which the run has started before. The pinned route
+    // preprocesses each request.
+    fn select<'a>(&mut self, client: &'a mut dyn AxAIClient, request: &mut Value, options: &Value) -> AxResult<&'a mut dyn AxAIClient> {
+        self.emit_started();
+        if self.control.as_ref().is_some_and(AxRunControl::is_aborted) {
+            return Err(AxError::runtime("Run aborted before selecting a provider"));
+        }
+        let client = pinned_run_client(client, request, options, &mut self.routes, 0, self.route_selected)?;
+        self.route_selected = true;
+        Ok(client)
+    }
+    // Opens the request's native session when the run's client opens them.
+    // A client that opens none on the run's first request makes plain model
+    // calls for the whole run.
+    fn open_native_session(&mut self, client: &mut dyn AxAIClient, request: &Value, options: &Value) -> AxResult<bool> {
+        if self.native_sessions == Some(false) {
+            return Ok(false);
+        }
+        let opened = self.open_session(client, request, options)?;
+        self.native_sessions.get_or_insert(opened);
+        Ok(opened)
+    }
+    // A fresh native session for one model request (python: _reset_session):
+    // its state starts over, and it applies all of the run's updates again,
+    // from the first. False when the client opens none.
+    fn open_session(&mut self, client: &mut dyn AxAIClient, request: &Value, options: &Value) -> AxResult<bool> {
+        self.close_session();
+        if self.control.as_ref().is_some_and(AxRunControl::is_aborted) {
+            return Err(AxError::runtime("Run aborted before opening a session"));
+        }
+        let (sender, results) = mpsc::channel();
+        self.sender = sender;
+        self.results = results;
+        self.cancelled = Arc::new(AtomicBool::new(false));
+        self.session_after = 0;
+        self.applied.clear();
+        self.last = None;
+        self.blocking = false;
+        self.waiting.clear();
+        self.resume = false;
+        let Some(session) = client.open_chat_session(request.clone(), options.clone())? else {
+            return Ok(false);
+        };
+        self.session = Some(session);
+        self.state = chat_session_create_state(&[
+            core_value_from_json(&request["model"]),
+            CoreValue::from(self.path.as_str()),
+            core_value_from_json(
+                self.options
+                    .get("maxSteps")
+                    .or_else(|| self.options.get("max_steps"))
+                    .unwrap_or(&json!(10)),
+            ),
+        ])?;
+        Ok(true)
+    }
+    // Closes the open session (python: _close_session). Its tool workers are
+    // cancelled, and their late results go nowhere. Its state stays for the
+    // run's end.
+    fn close_session(&mut self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+        self.streamed = None;
+        if let Some(mut session) = self.session.take() {
+            session.close();
+        }
+    }
     pub(crate) fn chat<C: AxAIClient>(&mut self,client:&mut C,mut request:Value,options:Value)->AxResult<Value> {
-        if self.control.as_ref().is_some_and(AxRunControl::is_aborted){return Err(AxError::runtime("Run aborted before selecting a provider"));}
-        if !self.session_enabled()? {return self.legacy_chat(client,request,options);}
-        let client=pinned_run_client(client,&mut request,&options,&mut self.routes,0,self.route_selected)?;
-        self.route_selected=true;
-        let result=self.chat_selected(client,request,options);
-        result.map_err(|error| self.with_unresolved(error))
+        if !self.session_enabled()? {
+            if self.control.as_ref().is_some_and(AxRunControl::is_aborted){return Err(AxError::runtime("Run aborted before selecting a provider"));}
+            return self.legacy_chat(client,request,options);
+        }
+        let client=self.select(client,&mut request,&options)?;
+        if !self.open_native_session(client,&request,&options)? {
+            return self.legacy_chat(client,request,options);
+        }
+        // The session's partial events and continued responses are for a
+        // stream; a forward takes its final response.
+        let result = loop {
+            match self.next_item(client,&request,&options) {
+                Ok(SessionItem::Final(response)) => break Ok(response),
+                Ok(_) => {}
+                Err(error) => break Err(self.with_unresolved(error)),
+            }
+        };
+        self.close_session();
+        result
     }
     // A streamed model request through the run boundary. Without a chat
     // session it applies the run's pending updates, as legacy_chat does, and
-    // streams from the run's client chunk by chunk; a chat session answers
-    // with its final response as one chunk.
+    // streams from the run's client chunk by chunk. A chat session's stream
+    // yields its items as its events arrive (see SessionItemStream).
     pub(crate) fn stream_open<C: AxAIClient>(&mut self,client:&mut C,mut request:Value,options:Value)->AxResult<AxChatStream> {
-        if self.control.as_ref().is_some_and(AxRunControl::is_aborted){return Err(AxError::runtime("Run aborted before selecting a provider"));}
         if !self.session_enabled()? {
+            if self.control.as_ref().is_some_and(AxRunControl::is_aborted){return Err(AxError::runtime("Run aborted before selecting a provider"));}
             let request=self.boundary_request(request)?;
             return client.stream_iter_with_options(request,options);
         }
-        let client=pinned_run_client(client,&mut request,&options,&mut self.routes,0,self.route_selected)?;
-        self.route_selected=true;
-        match self.enter_session(client,&request,&options) {
-            Ok(false) => {
-                let request=self.boundary_request(request)?;
-                client.stream_iter_with_options(request,options)
+        let client=self.select(client,&mut request,&options)?;
+        if !self.open_native_session(client,&request,&options)? {
+            let request=self.boundary_request(request)?;
+            return client.stream_iter_with_options(request,options);
+        }
+        self.streamed=Some((request,options));
+        Ok(AxChatStream::new(SessionItemStream{run:self.id,done:false},None))
+    }
+    // The streamed request's next session item, read through the run's
+    // request boundary (see SessionItemStream); null once its final response
+    // has gone out. The session closes after its final response or an error.
+    pub(crate) fn stream_next<C: AxAIClient>(&mut self,client:&mut C,run:&Value)->AxResult<Value> {
+        if run.as_u64()!=Some(self.id) {return Err(AxError::runtime("A session stream was read outside its run"));}
+        let Some((request,options))=self.streamed.take() else {return Ok(Value::Null)};
+        let mut client:&mut dyn AxAIClient=client;
+        for route in &self.routes {client=client.pinned_chat_run_client(route)?;}
+        match self.next_item(client,&request,&options) {
+            Ok(SessionItem::Final(response)) => {
+                let item=self.stream_item(SessionItem::Final(response));
+                self.close_session();
+                item
             }
-            Ok(true) => {
-                let response=self.session_response(client,request,options);
-                let response=response.map_err(|error| self.with_unresolved(error))?;
-                Ok(AxChatStream::from_values(vec![response]))
+            Ok(item) => {
+                let item=self.stream_item(item);
+                self.streamed=Some((request,options));
+                item
             }
-            Err(error) => Err(self.with_unresolved(error)),
+            Err(error) => {
+                let error=self.with_unresolved(error);
+                self.close_session();
+                Err(error)
+            }
         }
     }
-    fn chat_selected<C: AxAIClient + ?Sized>(
-        &mut self,
-        client: &mut C,
-        request: Value,
-        options: Value,
-    ) -> AxResult<Value> {
-        if !self.session_enabled()? || !self.enter_session(client, &request, &options)? {
-            return self.legacy_chat(client, request, options);
-        }
-        self.session_response(client, request, options)
+    // A session stream the run closed early (a retry, or a consumer stop)
+    // closes its session.
+    pub(crate) fn stream_close(&mut self,run:&Value) {
+        if run.as_u64()==Some(self.id) && self.streamed.is_some() {self.close_session();}
     }
-    // Opens the run's chat session with its first request, or sends a later
-    // request into the open session. False when the client opens none: the
-    // run then makes plain model calls.
-    fn enter_session<C: AxAIClient + ?Sized>(
-        &mut self,
-        client: &mut C,
-        request: &Value,
-        options: &Value,
-    ) -> AxResult<bool> {
-        if self.session.is_none() {
-            if self.control.as_ref().map(AxRunControl::is_aborted).unwrap_or(false) {return Err(AxError::runtime("Run aborted before opening a session"));}
-            self.session = client.open_chat_session(request.clone(), options.clone())?;
-            if self.session.is_none() {
-                return Ok(false);
+    // A session item as the streaming forward reads it (python: stream):
+    // {session: {type, response_id, turns, ...}} beside a partial event's
+    // results, or beside the final response's fields.
+    fn stream_item(&self, item: SessionItem) -> AxResult<Value> {
+        let state = core_value_to_json(&self.state);
+        let turns = state.get("turns").cloned().unwrap_or_else(|| json!([]));
+        Ok(match item {
+            SessionItem::Partial(event) => json!({
+                "session": {
+                    "type": "partial",
+                    "response_id": event["response_id"],
+                    "calls_started": state["pending"].as_object().is_some_and(|pending| !pending.is_empty()),
+                    "pending_calls": core_value_to_json(&chat_session_unresolved(&[self.state.clone()])?),
+                    "turns": turns,
+                },
+                "results": event["response"].get("results").cloned().unwrap_or_else(|| json!([])),
+            }),
+            SessionItem::Completed(id) => json!({"session": {"type": "completed", "response_id": id, "turns": turns}}),
+            SessionItem::Final(response) => {
+                let mut item = serde_json::Map::new();
+                if let Value::Object(fields) = response {
+                    for (key, value) in fields {
+                        if !key.starts_with("__session") {
+                            item.insert(key, value);
+                        }
+                    }
+                }
+                item.insert("session".into(), json!({"type": "final", "response_id": state["response_id"], "turns": turns}));
+                Value::Object(item)
             }
-            self.state = chat_session_create_state(&[
-                core_value_from_json(&request["model"]),
-                CoreValue::from(self.path.as_str()),
-                core_value_from_json(
-                    self.options
-                        .get("maxSteps")
-                        .or_else(|| self.options.get("max_steps"))
-                        .unwrap_or(&json!(10)),
-                ),
-            ])?;
-            self.emit("started", json!({}));
-        } else {
-            if let Some(message) = request["chat_prompt"].as_array().and_then(|v| v.last()) {
-                self.session
-                    .as_mut()
-                    .unwrap()
-                    .update(&json!({"type":"steer","text":steer_text(&message["content"])}))?;
-            }
-            self.submit(Vec::new())?;
-        }
-        Ok(true)
+        })
     }
-    // Drives the open chat session until the model's final response to
-    // `request`, starting tools and applying updates as they arrive.
-    fn session_response<C: AxAIClient + ?Sized>(
-        &mut self,
-        client: &mut C,
-        request: Value,
-        options: Value,
-    ) -> AxResult<Value> {
+    // The run's updates for this path the session has not applied (python:
+    // _updates): a native one applies now, the others at the session's next
+    // response.
+    fn apply_session_updates(&mut self) -> AxResult<()> {
+        let Some(control) = self.control.clone() else {
+            return Ok(());
+        };
+        let (updates, after) = control.pending(&self.path, self.session_after)?;
+        self.session_after = after;
+        for update in updates {
+            if !core_truthy(&chat_session_queue_update(&[self.state.clone(), core_value_from_json(&update)])?) {
+                continue;
+            }
+            let session = self.session.as_mut().ok_or_else(|| AxError::runtime("Session closed"))?;
+            if session.update(&update)? == "native" {
+                chat_session_native_update(&[self.state.clone(), core_value_from_json(&update["id"])])?;
+            } else {
+                self.applied.push(update["id"].as_str().unwrap_or("").to_string());
+            }
+        }
+        Ok(())
+    }
+    // The results the session's tool workers have delivered: each is
+    // recorded, and a finished blocking call starts the calls waiting on it.
+    fn deliver_tool_results(&mut self) -> AxResult<()> {
+        while let Ok(delivery) = self.results.try_recv() {
+            let id = delivery.call["id"].as_str().unwrap_or("");
+            let ok = delivery.result.is_ok();
+            let result = match delivery.result {
+                Ok(value) => value,
+                Err(error) => core_value_to_json(&_tool_error_message_impl(&[
+                    core_value_from_json(&delivery.call),
+                    CoreValue::Error(Rc::new(error)),
+                ])?)["result"]
+                    .clone(),
+            };
+            if !core_truthy(&chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&delivery.call),core_value_from_json(&result),CoreValue::Bool(ok)])?){continue;}
+            self.emit("tool.completed", json!({"call_id":id}));
+            if core_value_to_json(&self.state)["pending"][id]["execution"] != "background" {
+                self.blocking = false;
+                for call in std::mem::take(&mut self.waiting) {
+                    self.start(call)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    // Drives the open session to its next item for `request` (python:
+    // _run_session), starting tools and applying updates as they arrive. The
+    // final response comes once the boundary says validate.
+    fn next_item(&mut self, client: &mut dyn AxAIClient, request: &Value, options: &Value) -> AxResult<SessionItem> {
         loop {
-            if self.control.as_ref().is_some_and(AxRunControl::is_aborted) {
-                return Err(AxError::runtime(format!(
-                    "Run aborted; unresolved calls: {}",
-                    core_value_to_json(&chat_session_unresolved(&[self.state.clone()])?)
-                )));
-            }
-            if let Some(control) = &self.control {
-                let (updates, after) = control.pending(&self.path, self.after)?;
-                self.after = after;
-                for update in updates {
-                    chat_session_queue_update(&[
-                        self.state.clone(),
-                        core_value_from_json(&update),
-                    ])?;
-                    if self.session.as_mut().unwrap().update(&update)?=="native" {chat_session_native_update(&[self.state.clone(),core_value_from_json(&update["id"])])?;} else {self.applied.push(update["id"].as_str().unwrap_or("").to_string());}
+            if !std::mem::take(&mut self.resume) {
+                if self.control.as_ref().is_some_and(AxRunControl::is_aborted) {
+                    return Err(AxError::runtime(format!(
+                        "Run aborted; unresolved calls: {}",
+                        core_value_to_json(&chat_session_unresolved(&[self.state.clone()])?)
+                    )));
                 }
-            }
-            while let Ok(delivery) = self.results.try_recv() {
-                let id = delivery.call["id"].as_str().unwrap_or("");
-                let ok = delivery.result.is_ok();
-                let result = match delivery.result {
-                    Ok(value) => value,
-                    Err(error) => core_value_to_json(&_tool_error_message_impl(&[
-                        core_value_from_json(&delivery.call),
-                        CoreValue::Error(Rc::new(error)),
-                    ])?)["result"]
-                        .clone(),
-                };
-                if !core_truthy(&chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&delivery.call),core_value_from_json(&result),CoreValue::Bool(ok)])?){continue;}
-                self.emit("tool.completed", json!({"call_id":id}));
-                if core_value_to_json(&self.state)["pending"][id]["execution"] != "background" {
-                    self.blocking = false;
-                    for call in std::mem::take(&mut self.waiting) {
-                        self.start(call)?;
+                self.apply_session_updates()?;
+                self.deliver_tool_results()?;
+                let session = self.session.as_mut().ok_or_else(|| AxError::runtime("Session closed"))?;
+                if let Some(event) = session.next(Duration::from_millis(10))? {
+                    if let Some(item) = self.session_event(client, request, options, event)? {
+                        self.resume = true;
+                        return Ok(item);
                     }
-                }
-            }
-            if let Some(event) = self
-                .session
-                .as_mut()
-                .unwrap()
-                .next(Duration::from_millis(10))?
-            {
-                if event["type"] == "response" {
-                    let output = chat_session_observe_output(&[
-                        self.gen.clone(),
-                        self.state.clone(),
-                        core_value_from_json(&event),
-                    ])?;
-                    core_axgen_run_streaming_assertions(&[
-                        self.gen.clone(),
-                        core_value_from_json(&core_value_to_json(&output)["text"]),
-                    ])?;
-                    self.emit("model.output", core_value_to_json(&output));
-                }
-                if event["type"]=="steering" {let result=core_value_to_json(&chat_session_native_event(&[self.state.clone(),core_value_from_json(&event)])?);if !result["applied_id"].is_null(){self.emit("applied",json!({"update_id":result["applied_id"],"timing":"native"}));}}
-                if event["type"] == "tool.call" {
-                    self.start(event["call"].clone())?;
-                }
-                if event["type"] == "response.completed"
-                    && core_truthy(&chat_session_complete_response(&[
-                        self.state.clone(),
-                        core_value_from_json(&event["response_id"]),
-                    ])?)
-                {
-                    let response = event["response"].clone();
-                    client.observe_chat_session_response(&response, &options);
-                    let completion =
-                        chat_session_completion(&[core_value_from_json(&response),core_value_from_json(&event["response_id"])])?;
-                    for call in
-                        core_value_to_json(&_response_function_calls_impl(&[completion.clone()])?)
-                            .as_array()
-                            .cloned()
-                            .unwrap_or_default()
-                    {
-                        self.start(call)?;
-                    }
-                    if core_truthy(&chat_session_has_continuation_work(&[self.state.clone()])?)
-                    {
-                        core_axgen_memory_add_response(&[
-                            self.gen.clone(),
-                            core_value_from_json(&request),
-                            completion.clone(),
-                        ])?;
-                        core_axgen_record_chat_log(&[
-                            self.gen.clone(),
-                            core_value_from_json(&request),
-                            completion,
-                        ])?;
-                    }
-                    self.last = Some(response);
                 }
             }
             let action = core_value_to_json(&chat_session_boundary_action(&[self.state.clone()])?);
@@ -998,11 +1076,56 @@ impl SessionRun {
                 "continue" => self.submit(Vec::new())?,
                 "validate" => {
                     if let Some(response) = &self.last {
-                        return Ok(core_value_to_json(&chat_session_result(&[core_value_from_json(response),core_value_from_json(&core_value_to_json(&self.state)["response_id"])])?));
+                        let result = chat_session_final_result(&[self.state.clone(), core_value_from_json(response)])?;
+                        return Ok(SessionItem::Final(core_value_to_json(&result)));
                     }
                 }
                 _ => {}
             }
+        }
+    }
+    // One session event: a partial response event and a completed response
+    // the session accepts are items; a tool call starts its tool, and a
+    // steering event records its update as applied.
+    fn session_event(&mut self, client: &mut dyn AxAIClient, request: &Value, options: &Value, event: Value) -> AxResult<Option<SessionItem>> {
+        match event["type"].as_str().unwrap_or("") {
+            "response" => {
+                let output = chat_session_observe_output(&[
+                    self.gen.clone(),
+                    self.state.clone(),
+                    core_value_from_json(&event),
+                ])?;
+                self.emit("model.output", core_value_to_json(&output));
+                Ok(Some(SessionItem::Partial(event)))
+            }
+            "steering" => {
+                let result=core_value_to_json(&chat_session_native_event(&[self.state.clone(),core_value_from_json(&event)])?);
+                if !result["applied_id"].is_null(){self.emit("applied",json!({"update_id":result["applied_id"],"timing":"native"}));}
+                Ok(None)
+            }
+            "tool.call" => {
+                self.start(event["call"].clone())?;
+                Ok(None)
+            }
+            "response.completed" => {
+                if !core_truthy(&chat_session_complete_response(&[self.state.clone(),core_value_from_json(&event["response_id"])])?) {
+                    return Ok(None);
+                }
+                let response = event["response"].clone();
+                client.observe_chat_session_response(&response, options);
+                let completion = chat_session_completion(&[core_value_from_json(&response),core_value_from_json(&event["response_id"])])?;
+                for call in core_value_to_json(&_response_function_calls_impl(&[completion.clone()])?).as_array().cloned().unwrap_or_default() {
+                    self.start(call)?;
+                }
+                // A response the session continues from goes into memory, the
+                // chat log and the session's turns.
+                if core_truthy(&chat_session_has_continuation_work(&[self.state.clone()])?) {
+                    chat_session_record_response(&[self.gen.clone(),self.state.clone(),core_value_from_json(request),completion])?;
+                }
+                self.last = Some(response);
+                Ok(Some(SessionItem::Completed(event["response_id"].clone())))
+            }
+            _ => Ok(None),
         }
     }
     fn submit(&mut self, results: Vec<Value>) -> AxResult<()> {
@@ -1012,7 +1135,7 @@ impl SessionRun {
                 "Maximum model steps exhausted before final completion",
             ));
         }
-        self.session.as_mut().unwrap().submit(results.clone())?;
+        self.session.as_mut().ok_or_else(|| AxError::runtime("Session closed"))?.submit(results.clone())?;
         let ids: Vec<Value> = results
             .iter()
             .map(|result| result["function_id"].clone())
@@ -1027,17 +1150,20 @@ impl SessionRun {
         }
         Ok(())
     }
-    // Ends the run. A run the streaming consumer stopped early ends with an
-    // aborted event rather than failed; any other run as failed or completed.
+    // Ends the run. It closes a session still open after an error, and names
+    // the calls the last session left unresolved. A run the streaming
+    // consumer stopped early ends with an aborted event rather than failed;
+    // any other run as failed or completed.
     pub(crate) fn finish(&mut self, error: Option<&AxError>, consumer_stopped: bool) {
         if self.finished { return; }
         self.finished = true;
-        self.cancelled.store(true, Ordering::SeqCst);
-        let pending = if let Some(session) = &mut self.session {
-            session.close();
+        self.close_session();
+        let pending = if self.state.is_null() {
+            json!([])
+        } else {
             let _=chat_session_record_unresolved(&[self.gen.clone(),self.state.clone()]);
             chat_session_close_state(&[self.state.clone()]).map(|v| core_value_to_json(&v)).unwrap_or(Value::Null)
-        } else { json!([]) };
+        };
         if consumer_stopped {
             self.emit("aborted", json!({}));
         } else if let Some(error) = error {
@@ -1050,9 +1176,45 @@ impl SessionRun {
 }
 impl Drop for SessionRun {
     fn drop(&mut self) {
-        self.cancelled.store(true, Ordering::SeqCst);
-        if let Some(session) = &mut self.session {
-            session.close();
+        self.close_session();
+    }
+}
+
+// A streamed request's native session items (python: the stream generator),
+// one per read: each read asks the AxGen run's request boundary for the next
+// item, which drives the session until one is ready, so items go out as
+// their session events arrive. Closing the stream early closes the session.
+struct SessionItemStream {
+    run: u64,
+    done: bool,
+}
+impl Iterator for SessionItemStream {
+    type Item = AxResult<Value>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        match core_run_boundary_call("session_stream_next", json!(self.run)) {
+            Ok(Some(Value::Null)) => {
+                self.done = true;
+                None
+            }
+            Ok(Some(item)) => Some(Ok(item)),
+            Ok(None) => {
+                self.done = true;
+                Some(Err(AxError::runtime("A session stream was read outside its run")))
+            }
+            Err(error) => {
+                self.done = true;
+                Some(Err(error))
+            }
+        }
+    }
+}
+impl Drop for SessionItemStream {
+    fn drop(&mut self) {
+        if !self.done {
+            let _ = core_run_boundary_call("session_stream_close", json!(self.run));
         }
     }
 }
@@ -1264,37 +1426,6 @@ mod tests {
         };
         Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()})))
       }
-    }
-    // Answers "Answer: first", then, once the feedback has steered the open
-    // session with its text, "Answer: second".
-    struct FeedbackSteerTransport(Arc<AtomicUsize>);
-    impl AxTransport for FeedbackSteerTransport {
-        fn send(&mut self, _: Value) -> AxResult<Value> {Err(AxError::runtime("Expected streaming"))}
-        fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
-            let n=self.0.fetch_add(1,Ordering::SeqCst)+1;
-            let event=if n==1 {completed("first","Answer: first")} else {
-                let body=&request["json"];
-                assert_eq!(body["previous_response_id"],"first");
-                assert_eq!(body["input"],json!([{"role":"user","content":[{"type":"input_text","text":"Check it."}]}]));
-                completed("second","Answer: second")
-            };
-            Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()})))
-        }
-    }
-    #[test]
-    fn list_content_feedback_steers_an_open_session_as_text()->AxResult<()> {
-        // A field processor's feedback is a user message with a text part,
-        // [{type: "text", text}]. The next step steers the open native
-        // session with that text, not the list.
-        let requests=Arc::new(AtomicUsize::new(0));
-        let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(FeedbackSteerTransport(requests.clone()));
-        let mut program=ax("question -> answer")?;
-        let given=Arc::new(AtomicUsize::new(0));
-        program.add_field_processor("answer",move |_,_|Ok((given.fetch_add(1,Ordering::SeqCst)==0).then(||json!("Check it."))))?;
-        let options=AxForwardOptions::from(json!({})).with_control(run_control());
-        assert_eq!(program.forward_with_options(&mut client,json!({"question":"Status?"}),options)?,json!({"answer":"second"}));
-        assert_eq!(requests.load(Ordering::SeqCst),2);
-        Ok(())
     }
     #[test]
     fn invalid_arguments_correction_and_step_exhaustion()->AxResult<()> {
@@ -1776,10 +1907,10 @@ mod tests {
         assert_eq!(opened.load(Ordering::SeqCst),2);Ok(())
     }
 
-    // Agent streams don't cover async run sessions yet: under a run control on
-    // a session-capable client, streaming_forward streams the responder
-    // through the request boundary, as AxGen::streaming_forward does, and the
-    // run reports its lifecycle at root and each stage at root/<stage>.
+    // Under a run control on a session-capable client, each stage's model
+    // request opens its own native session, and streaming_forward streams the
+    // responder's session as AxGen::streaming_forward does. The run reports
+    // its lifecycle at root and each stage at root/<stage>.
     struct AgentStreamTransport {requests:Arc<AtomicUsize>}
     impl AgentStreamTransport {
         fn answer(&self)->&'static str {
@@ -1808,6 +1939,49 @@ mod tests {
         program.streaming_forward(&mut client,json!({"question":"Find reference"}),AxForwardOptions::from(json!({})).with_control(control),move |update|{if let Some(text)=update.delta["answer"].as_str(){streamed.borrow_mut().push_str(text);}Ok(())})?;
         assert_eq!(answer.borrow().as_str(),"REF-42");assert_eq!(requests.load(Ordering::SeqCst),3);
         assert_eq!(events.lock().unwrap().join(","),"started@root,started@root/distiller,completed@root/distiller,started@root/executor,completed@root/executor,started@root/responder,completed@root/responder,completed@root");
+        Ok(())
+    }
+
+    // A native session whose events come one per poll, noting each one as it
+    // goes out, and when it closes.
+    struct NotedSession {events:std::collections::VecDeque<Value>,log:Rc<RefCell<Vec<String>>>,closed:bool}
+    impl AxChatSession for NotedSession {
+        fn next(&mut self,timeout:Duration)->AxResult<Option<Value>> {
+            let Some(event)=self.events.pop_front() else {std::thread::sleep(timeout);return Ok(None)};
+            self.log.borrow_mut().push(format!("event {}",event["type"].as_str().unwrap_or("")));
+            Ok(Some(event))
+        }
+        fn submit(&mut self,_results:Vec<Value>)->AxResult<()> {Err(AxError::runtime("unexpected continuation"))}
+        fn update(&mut self,_update:&Value)->AxResult<&'static str> {Ok("next-response")}
+        fn close(&mut self) {if !self.closed {self.closed=true;self.log.borrow_mut().push("close".into());}}
+    }
+    // Opens a NotedSession streaming "Answer: Pa", "ris", then "Answer: Paris".
+    struct NotedSessionClient {log:Rc<RefCell<Vec<String>>>}
+    impl AxAIClient for NotedSessionClient {
+        fn chat(&mut self,_request:Value)->AxResult<Value> {Err(AxError::runtime("expected a native session"))}
+        fn get_features(&self,_model:Option<&str>)->Value {json!({"functions":true,"streaming":true,"asyncTools":true})}
+        fn open_chat_session(&mut self,_request:Value,_options:Value)->AxResult<Option<Box<dyn AxChatSession>>> {
+            let partial=|text:&str|json!({"type":"response","response_id":"r1","response":{"results":[{"index":0,"content":text}]}});
+            let completed=json!({"type":"response.completed","response_id":"r1","response":{"results":[{"index":0,"content":"Answer: Paris","finish_reason":"stop"}]}});
+            Ok(Some(Box::new(NotedSession{events:vec![partial("Answer: Pa"),partial("ris"),completed].into(),log:self.log.clone(),closed:false})))
+        }
+    }
+    #[test]
+    fn a_session_stream_delivers_each_item_as_its_event_arrives()->AxResult<()> {
+        // A partial event goes out as a delta before the session's next event
+        // is read, not once the session ends, and the session closes with its
+        // final response.
+        let log=Rc::new(RefCell::new(Vec::new()));
+        let mut client=NotedSessionClient{log:log.clone()};
+        let mut program=ax("question:string -> answer:string")?;
+        let deltas=log.clone();
+        let options=AxForwardOptions::from(json!({})).with_control(run_control());
+        let output=program.streaming_forward(&mut client,json!({"question":"Capital of France?"}),options,move |update|{
+            deltas.borrow_mut().push(format!("delta {}",update.delta["answer"].as_str().unwrap_or("")));
+            Ok(())
+        })?;
+        assert_eq!(output,json!({"answer":"Paris"}));
+        assert_eq!(*log.borrow(),["event response","delta Pa","event response","delta ris","event response.completed","close"]);
         Ok(())
     }
 

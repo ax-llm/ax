@@ -1,6 +1,7 @@
 {
   "expected_error_category": "validation",
   "expected_error_contains": "valid email address",
+  "expected_error_message": "Field 'email' failed validation: String must be a valid email address. You provided: \"not-email\".",
   "kind": "validate_output",
   "name": "output-email-format",
   "signature_spec": {

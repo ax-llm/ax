@@ -5031,10 +5031,19 @@ impl AxGen {
             if method == "stream" && !run_session {
                 return client.stream(request).map(Value::Array);
             }
+            // A native session's stream reads its next item, or closes early,
+            // through here (session::SessionItemStream).
+            if method == "session_stream_next" {
+                return session_run.stream_next(client, &request);
+            }
+            if method == "session_stream_close" {
+                session_run.stream_close(&request);
+                return Ok(Value::Null);
+            }
             // The streaming forward pulls the provider's chunks one at a time.
             // A run under control or with background tools opens the stream
-            // through its boundary, where a chat session answers with one
-            // chunk.
+            // through its boundary, where a native chat session yields its
+            // items as they arrive.
             if method == "stream_open" {
                 let stream = if run_session {
                     session_run.stream_open(client, request, options)?
@@ -16947,6 +16956,13 @@ fn expect_validation_result(result: AxResult<()>, fixture: &Value) -> AxResult<(
     if let Some(expected) = expected {
         if let Err(err) = result {
             expect_error_category(&err, fixture)?;
+            // A validation message reaches the model as the retry's
+            // correction, so a fixture can pin TypeScript's whole message.
+            if let Some(message) = fixture.get("expected_error_message").and_then(Value::as_str) {
+                if err.message != message {
+                    return Err(AxError::new("fixture", format!("expected error message {message:?}, got {:?}", err.message)));
+                }
+            }
             if err.message.contains(expected) {
                 return Ok(());
             }
@@ -17068,11 +17084,38 @@ struct FixtureClient {
     // before the scripted answer (a fixture's control_steer).
     on_request: Option<Box<dyn FnMut(usize) -> AxResult<()>>>,
     chat_requests: usize,
+    // A fixture's native_session script: the client opens a native chat
+    // session for each model request, playing the next session's script
+    // (ScriptedChatSession).
+    native_sessions: Option<VecDeque<Value>>,
+    // What the run did to its sessions: open, steer, thinking, continue (with
+    // the IDs of the tool results it submitted) and close.
+    session_log: Rc<RefCell<Vec<Value>>>,
 }
 
 impl AxAIClient for FixtureClient {
     fn get_features(&self, _model: Option<&str>) -> Value {
         self.features.clone()
+    }
+
+    // python: ConformanceScriptedAI.open_chat_session. Each opened session
+    // is one model request: it is recorded and counted as a chat request,
+    // and the control_steer hook runs for it.
+    fn open_chat_session(&mut self, request: Value, options: Value) -> AxResult<Option<Box<dyn AxChatSession>>> {
+        if self.native_sessions.is_none() {
+            return Ok(None);
+        }
+        self.requests.push(request);
+        FIXTURE_CLIENT_REQUESTS.with(|count| count.set(self.requests.len()));
+        self.chat_options.push(options);
+        self.session_log.borrow_mut().push(json!({"op": "open"}));
+        self.note_chat_request()?;
+        let script = self
+            .native_sessions
+            .as_mut()
+            .and_then(VecDeque::pop_front)
+            .ok_or_else(|| AxError::runtime("scripted sessions exhausted"))?;
+        Ok(Some(Box::new(ScriptedChatSession::new(self.session_log.clone(), script)?)))
     }
     fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
@@ -17206,7 +17249,22 @@ impl FixtureClient {
             speak_requests: Vec::new(),
             on_request: None,
             chat_requests: 0,
+            native_sessions: None,
+            session_log: Rc::new(RefCell::new(Vec::new())),
         }
+    }
+
+    // A fixture's native_session script: the client reports asyncTools and
+    // opens a native chat session for each model request.
+    fn with_native_session(mut self, fixture: &Value) -> Self {
+        if let Some(sessions) = fixture.get("native_session").and_then(Value::as_array) {
+            self.native_sessions = Some(sessions.iter().cloned().collect());
+            if !self.features.is_object() {
+                self.features = json!({});
+            }
+            self.features["asyncTools"] = json!(true);
+        }
+        self
     }
 
     // Scripts speak() from the fixture's speak_responses.
@@ -17242,6 +17300,87 @@ impl FixtureClient {
 fn expect_fixture_speak_requests(fixture: &Value, requests: &[Value]) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_speak_requests") {
         expect_json_equal("speak requests", &Value::Array(requests.to_vec()), expected)?;
+    }
+    Ok(())
+}
+
+// python: _ScriptedChatSession. A native chat session playing a fixture
+// script: its first response when it opens, the next one each time the run
+// continues it. A response is a list of {type, response_id, results} events,
+// delivered as {type, response_id, response: {results}}.
+struct ScriptedChatSession {
+    log: Rc<RefCell<Vec<Value>>>,
+    script: VecDeque<Value>,
+    events: VecDeque<Value>,
+    closed: bool,
+}
+
+impl ScriptedChatSession {
+    fn new(log: Rc<RefCell<Vec<Value>>>, script: Value) -> AxResult<Self> {
+        let script = script.as_array().cloned().unwrap_or_default().into();
+        let mut session = Self { log, script, events: VecDeque::new(), closed: false };
+        session.play()?;
+        Ok(session)
+    }
+
+    fn play(&mut self) -> AxResult<()> {
+        let response = self.script.pop_front().ok_or_else(|| AxError::runtime("scripted session exhausted"))?;
+        for event in response.as_array().cloned().unwrap_or_default() {
+            self.events.push_back(json!({
+                "type": event["type"],
+                "response_id": event["response_id"],
+                "response": {"results": event.get("results").cloned().unwrap_or_else(|| json!([]))},
+            }));
+        }
+        Ok(())
+    }
+}
+
+impl AxChatSession for ScriptedChatSession {
+    // Waits out the timeout when no event is due, as a provider session does.
+    fn next(&mut self, timeout: Duration) -> AxResult<Option<Value>> {
+        if self.closed {
+            return Ok(None);
+        }
+        let event = self.events.pop_front();
+        if event.is_none() {
+            std::thread::sleep(timeout);
+        }
+        Ok(event)
+    }
+
+    // Submitting the run's tool results (none for a plain continue) starts
+    // the next response.
+    fn submit(&mut self, results: Vec<Value>) -> AxResult<()> {
+        let ids = results.iter().map(|result| result.get("function_id").cloned().unwrap_or(Value::Null)).collect::<Vec<_>>();
+        self.log.borrow_mut().push(json!({"op": "continue", "call_ids": ids}));
+        self.play()
+    }
+
+    fn update(&mut self, update: &Value) -> AxResult<&'static str> {
+        let entry = if update["type"] == "steer" {
+            json!({"op": "steer", "text": update["text"]})
+        } else {
+            json!({"op": "thinking", "level": update["level"]})
+        };
+        self.log.borrow_mut().push(entry);
+        Ok("next-response")
+    }
+
+    fn close(&mut self) {
+        if self.closed {
+            return;
+        }
+        self.closed = true;
+        self.log.borrow_mut().push(json!({"op": "close"}));
+    }
+}
+
+// python: _assert_session_log. expected_session_log is what the run did to
+// its native sessions, in order.
+fn expect_fixture_session_log(fixture: &Value, client: &FixtureClient) -> AxResult<()> {
+    if let Some(expected) = fixture.get("expected_session_log") {
+        expect_json_equal("native session log", &Value::Array(client.session_log.borrow().clone()), expected)?;
     }
     Ok(())
 }
@@ -17481,7 +17620,8 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
         fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default(),
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
     )
-    .with_speak_responses(fixture);
+    .with_speak_responses(fixture)
+    .with_native_session(fixture);
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
     let mut options = AxForwardOptions::from(fixture.get("forward_options").cloned().unwrap_or_else(|| json!({})));
     let mut control_events = Arc::new(Mutex::new(Vec::new()));
@@ -17541,6 +17681,7 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
         let actual = Value::Array(control_events.lock().unwrap().clone());
         expect_json_equal("run control events", &actual, expected)?;
     }
+    expect_fixture_session_log(fixture, &client)?;
     expect_fixture_request_roles(fixture, &client)?;
     expect_fixture_last_request_tail(fixture, &client)?;
     expect_fixture_chat_prompt(fixture, &client)?;
@@ -17829,6 +17970,9 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    for spec in fixture.get("streaming_assertions").and_then(Value::as_array).into_iter().flatten() {
+        program.add_streaming_assert_spec(spec.clone());
+    }
     program.field_processors = fixture_field_transforms(fixture);
     program.stop_functions = fixture
         .get("stop_functions")
@@ -17874,7 +18018,8 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
     )
     .with_client_spec(fixture.get("client"))
-    .with_speak_responses(fixture);
+    .with_speak_responses(fixture)
+    .with_native_session(fixture);
     let mut options = AxForwardOptions::from(fixture.get("forward_options").cloned().unwrap_or(Value::Null));
     // constructor_control gives the program the run control, as the AxGen
     // constructor's control option does; control gives it to the call.
@@ -17911,9 +18056,11 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
             expect_json_equal("field processor calls", &actual, expected)?;
         }
         expect_fixture_speak_requests(fixture, &client.speak_requests)?;
+        expect_fixture_session_log(fixture, &client)?;
         return Ok(());
     }
     let output = result?;
+    expect_fixture_session_log(fixture, &client)?;
     expect_fixture_speak_requests(fixture, &client.speak_requests)?;
     if let Some(expected) = fixture.get("expected_processor_calls") {
         let actual = Value::Array(processor_calls.lock().unwrap().clone());
@@ -22729,6 +22876,13 @@ pub(crate) fn with_core_boundary_client<R>(
 // Asks the innermost client callback for its run's control updates, when it
 // is an AxGen run's request boundary; None for any other callback.
 fn core_control_boundary_call(method: &str) -> AxResult<Option<Value>> {
+    core_run_boundary_call(method, Value::Null)
+}
+
+// Calls the innermost client callback with `request` when it is an AxGen
+// run's request boundary; None for any other callback (a native session's
+// stream reads its items this way, see session::SessionItemStream).
+pub(crate) fn core_run_boundary_call(method: &str, request: Value) -> AxResult<Option<Value>> {
     let depth = CORE_CLIENT_STACK.with(|stack| stack.borrow().len());
     let boundary = CORE_CONTROL_BOUNDARIES.with(|boundaries| boundaries.borrow().last() == Some(&depth));
     let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
@@ -22737,7 +22891,7 @@ fn core_control_boundary_call(method: &str) -> AxResult<Option<Value>> {
     };
     // SAFETY: as in core_ai_complete_once.
     let chat = unsafe { &mut *ptr };
-    chat(method, Value::Null, Value::Null).map(Some)
+    chat(method, request, Value::Null).map(Some)
 }
 
 // python: _core_ai_control_take_pending(client). The run control updates

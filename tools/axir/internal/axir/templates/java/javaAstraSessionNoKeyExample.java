@@ -326,7 +326,7 @@ public final class AstraSessionTest {
     System.out.println("java high-level async overlap and final incorporation passed");
     invalidArgumentsAndExhaustion();
     flowIsolation();
-    nativeSteering();nativeSessionFeedbackSteer();bufferedSteeringBoundary();
+    nativeSteering();bufferedSteeringBoundary();
     cancellation();
     noncooperativeCancellation();
     stalledHttpCancellation();
@@ -335,24 +335,39 @@ public final class AstraSessionTest {
     agentStreamUnderRunSession();
     concurrentNativeMCP();
   }
-  // Agent streams don't cover async run sessions yet: under a run control on a
-  // session-capable client the stream fails before the distiller runs, with the
-  // error AxGen deltas raise.
-  static void agentStreamUnderRunSession() {
-    var requests=new AtomicInteger();
+  // An agent stream under a run control on a session-capable client runs each
+  // stage in its own native session; the responder streams its session's
+  // partial output as AxGen deltas, as the session produces it.
+  static void agentStreamUnderRunSession() throws Exception {
+    var requests=new AtomicInteger();var firstDelta=new CountDownLatch(1);var buffered=new AtomicBoolean();
     OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
-      public Object call(Map<String,Object> request){requests.incrementAndGet();throw new AssertionError("An agent stream under a run session sent a model request");}
-      public Object stream(Map<String,Object> request){requests.incrementAndGet();throw new AssertionError("An agent stream under a run session sent a model request");}
+      public Object call(Map<String,Object> request){throw new AssertionError("Expected streaming");}
+      public Object stream(Map<String,Object> request) throws Exception {
+        int number=requests.incrementAndGet();
+        if(number==1)return "data: "+Json.stringify(completed("stage1","{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"))+"\n\n";
+        if(number==2)return "data: "+Json.stringify(completed("stage2","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"REF-42\"}]}}"))+"\n\n";
+        if(number!=3)throw new AssertionError("An agent stream sent more requests than its three stages");
+        var input=new PipedInputStream(8192);var output=new PipedOutputStream(input);
+        Thread writer=new Thread(()->{try(output){
+          emit(output,Map.of("type","response.created","response",Map.of("id","responder","model","gpt-6-astra","output",List.of())));
+          emit(output,Map.of("type","response.output_text.delta","delta","Answer: REF"));
+          // The rest of the response waits for the consumer to get the first delta.
+          if(!firstDelta.await(5,TimeUnit.SECONDS))buffered.set(true);
+          emit(output,Map.of("type","response.output_text.delta","delta","-42"));
+          emit(output,completed("responder","Answer: REF-42"));
+        }catch(Exception error){throw new RuntimeException(error);}});
+        writer.setDaemon(true);writer.start();return input;
+      }
     };
     var program=Ax.agent("question -> answer",Map.of("directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
+    var answer=new StringBuilder();
     try(var stream=program.streamingForward(client,Map.of("question","Find reference"),Map.of("control",Ax.runControl()))){
-      for(var ignored:stream)throw new AssertionError("An agent stream under a run session yielded a delta");
-      throw new AssertionError("An agent stream under a run session did not fail");
-    }catch(UnsupportedOperationException expected){
-      if(!String.valueOf(expected.getMessage()).contains("do not cover async run sessions"))throw new AssertionError("Unexpected error: "+expected);
+      for(var delta:stream){answer.append(String.valueOf(delta.delta().getOrDefault("answer","")));firstDelta.countDown();}
     }
-    if(requests.get()!=0)throw new AssertionError("An agent stream under a run session sent "+requests.get()+" requests");
-    System.out.println("java agent streams under a run session fail before any stage, as AxGen deltas do");
+    if(!"REF-42".equals(answer.toString()))throw new AssertionError("The responder session's deltas did not stream: "+answer);
+    if(buffered.get())throw new AssertionError("The responder's first delta waited for the rest of its session's response");
+    if(requests.get()!=3)throw new AssertionError("An agent stream under a run session sent "+requests.get()+" requests");
+    System.out.println("java agent streams under a run session stream the responder session as it produces output");
   }
   @SuppressWarnings("unchecked") static void invalidArgumentsAndExhaustion() {
     for(boolean exhausted:List.of(false,true)) for(String rawArguments:List.of("{}", "{\"query\":\"ab\"}")) {
@@ -475,36 +490,6 @@ public final class AstraSessionTest {
     var ids=program.getChatLog().stream().map(entry->entry.get("remote_id")).toList();
     if(!ids.equals(List.of("parent","successor")))throw new AssertionError("Lost response accounting: "+ids);
     System.out.println("java native steering, successor accounting, and closure passed");
-  }
-  // A field processor's feedback continues a native session run: the open
-  // session gets it as a steer of plain text, though the feedback message's
-  // content is a list of text parts.
-  static void nativeSessionFeedbackSteer() throws Exception {
-    var steers=new CopyOnWriteArrayList<Object>();
-    class Session implements AxChatSession {
-      final BlockingQueue<Map<String,Object>> events=new LinkedBlockingQueue<>();
-      final List<String> replies=List.of("Answer: first","Answer: second");int turn;
-      Session(){reply();}
-      void reply(){if(turn<replies.size())events.add(Map.of("type","response.completed","response_id","turn-"+turn,"response",Map.of("results",List.of(Map.of("index",0,"content",replies.get(turn))))));turn++;}
-      public Map<String,Object> next() throws Exception{return events.take();}
-      public void submit(List<Object> results){reply();}
-      public String update(Map<String,Object> update){steers.add(update.get("text"));return "queued";}
-      public void close(){}
-    }
-    class SessionAI extends AxBaseAI implements AxChatSession.Provider {
-      final Session session=new Session();
-      SessionAI(){super("scripted","scripted-chat","scripted-embed",Map.of(),Map.of());}
-      @Override public Map<String,Object> getFeatures(String model){var features=new LinkedHashMap<>(super.getFeatures(model));features.put("asyncTools",true);return features;}
-      protected Map<String,Object> doChat(Map<String,Object> request,Map<String,Object> options){throw new AssertionError("The run did not use its native session");}
-      protected Map<String,Object> doEmbed(Map<String,Object> request,Map<String,Object> options){throw new AssertionError("Unexpected embedding");}
-      public Map<String,Object> transcribe(Map<String,Object> request){throw new AssertionError("Unexpected transcription");}
-      public Map<String,Object> speak(Map<String,Object> request){throw new AssertionError("Unexpected speech");}
-      public AxChatSession openChatSession(Map<String,Object> request,Map<String,Object> options){return session;}
-    }
-    var program=Ax.ax("question -> answer").addFieldProcessor("answer",(value,context)->"first".equals(value)?"Check it.":null,AxFieldProcessorMode.FEEDBACK);
-    var result=program.forward(new SessionAI(),Map.of("question","Status?"),Map.of("control",Ax.runControl()));
-    if(!"second".equals(result.get("answer")) || !List.of("Check it.").equals(steers))throw new AssertionError("Feedback did not steer the native session with its text: "+steers+" "+result);
-    System.out.println("java native session feedback steers with plain text passed");
   }
   @SuppressWarnings("unchecked") static void flowIsolation() throws Exception {
     AtomicInteger requests=new AtomicInteger(),calls=new AtomicInteger();

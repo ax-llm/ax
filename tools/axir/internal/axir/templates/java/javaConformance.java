@@ -22,7 +22,7 @@ public final class Conformance {
   static void fixtureSleep(long milliseconds) { try { Thread.sleep(milliseconds); } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new FixtureError("fixture sleep interrupted"); } }
   static void fixtureJoin(Thread thread,long milliseconds) { try { thread.join(milliseconds); } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new FixtureError("fixture join interrupted"); } }
 
-  static final class ConformanceScriptedAI extends AxBaseAI {
+  static class ConformanceScriptedAI extends AxBaseAI {
     final List<Object> responses;
     final List<Object> streamEvents;
     final List<Object> transcribeResponses = new ArrayList<>();
@@ -90,7 +90,7 @@ public final class Conformance {
       return sent;
     }
 
-    private void noteRequest() {
+    void noteRequest() {
       if (onRequest != null) onRequest.accept(requests.size());
     }
 
@@ -153,6 +153,140 @@ public final class Conformance {
       if (raw.containsKey("error")) throw fixtureAIServiceError(Core.asMap(raw.get("error")));
       return Core.asMap(Core.ownedCopy(raw));
     }
+  }
+
+  // A fixture's native_session script makes the client open native chat
+  // sessions (asyncTools), each playing the next session's script.
+  static final class ConformanceSessionAI extends ConformanceScriptedAI implements AxChatSession.Provider {
+    final List<Object> sessions;
+    // What the run did to its sessions: open, steer, continue (with the IDs
+    // of the tool results it submitted) and close.
+    final List<Object> sessionLog = Collections.synchronizedList(new ArrayList<>());
+
+    ConformanceSessionAI(List<Object> responses, List<Object> streamEvents, Map<String, Object> features, Map<String, Object> client, List<Object> sessions) {
+      super(responses, streamEvents, withAsyncTools(features), client);
+      this.sessions = new ArrayList<>(Core.asList(Core.ownedCopy(sessions)));
+    }
+
+    static Map<String, Object> withAsyncTools(Map<String, Object> features) {
+      Map<String, Object> out = new LinkedHashMap<>(features);
+      out.put("asyncTools", true);
+      return out;
+    }
+
+    // Each opened session is one model request.
+    @Override
+    public AxChatSession openChatSession(Map<String, Object> request, Map<String, Object> options) {
+      chatCalls++;
+      requests.add(sentRequest(request));
+      chatOptions.add(new LinkedHashMap<>(options == null ? Map.of() : options));
+      sessionLog.add(logEntry("open"));
+      noteRequest();
+      if (sessions.isEmpty()) throw new RuntimeException("scripted sessions exhausted");
+      return new ScriptedChatSession(sessionLog, Core.asList(sessions.remove(0)));
+    }
+  }
+
+  static Map<String, Object> logEntry(String op) {
+    Map<String, Object> entry = new LinkedHashMap<>();
+    entry.put("op", op);
+    return entry;
+  }
+
+  // A native chat session playing a fixture script: its first response when
+  // it opens, the next one each time the run continues it. Each response is a
+  // list of {type, response_id, results} events.
+  static final class ScriptedChatSession implements AxChatSession {
+    private static final Map<String, Object> END = new LinkedHashMap<>();
+    private final List<Object> log;
+    private final List<Object> script;
+    private final java.util.concurrent.BlockingQueue<Map<String, Object>> events = new java.util.concurrent.LinkedBlockingQueue<>();
+    private boolean closed;
+
+    ScriptedChatSession(List<Object> log, List<Object> script) {
+      this.log = log;
+      this.script = new ArrayList<>(script);
+      play();
+    }
+
+    private void play() {
+      if (script.isEmpty()) throw new RuntimeException("scripted session exhausted");
+      for (Object raw : Core.asList(script.remove(0))) {
+        Map<String, Object> spec = Core.asMap(raw);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("results", Core.ownedCopy(spec.getOrDefault("results", List.of())));
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("type", spec.get("type"));
+        event.put("response_id", spec.get("response_id"));
+        event.put("response", response);
+        events.add(event);
+      }
+    }
+
+    // Blocks until the next event; null once the session is closed.
+    @Override
+    public Map<String, Object> next() throws Exception {
+      synchronized (this) {
+        if (closed) return null;
+      }
+      Map<String, Object> event = events.take();
+      return event == END ? null : event;
+    }
+
+    // Submitting tool results (none for a plain continue) continues the
+    // session with its next response.
+    @Override
+    public void submit(List<Object> results) {
+      List<Object> ids = new ArrayList<>();
+      for (Object result : results) ids.add(Core.get(result, "function_id", null));
+      Map<String, Object> entry = logEntry("continue");
+      entry.put("call_ids", ids);
+      log.add(entry);
+      play();
+    }
+
+    @Override
+    public String update(Map<String, Object> update) {
+      Map<String, Object> entry;
+      if ("steer".equals(update.get("type"))) {
+        entry = logEntry("steer");
+        entry.put("text", update.get("text"));
+      } else {
+        entry = logEntry("thinking");
+        entry.put("level", update.get("level"));
+      }
+      log.add(entry);
+      return "next-response";
+    }
+
+    // Logs once, and unblocks next().
+    @Override
+    public void close() {
+      synchronized (this) {
+        if (closed) return;
+        closed = true;
+      }
+      log.add(logEntry("close"));
+      events.add(END);
+    }
+  }
+
+  // The fixture's scripted client: a native-session client with a
+  // native_session script, otherwise the plain scripted client.
+  static ConformanceScriptedAI fixtureClient(Map<String, Object> fixture, List<Object> streamEvents, Map<String, Object> clientSpec) {
+    List<Object> responses = Core.asList(fixture.getOrDefault("responses", List.of()));
+    Map<String, Object> features = Core.asMap(fixture.getOrDefault("features", Map.of()));
+    ConformanceScriptedAI client = fixture.get("native_session") instanceof List<?> sessions
+        ? new ConformanceSessionAI(responses, streamEvents, features, clientSpec, Core.asList(sessions))
+        : new ConformanceScriptedAI(responses, streamEvents, features, clientSpec);
+    return client.scriptSpeak(fixture);
+  }
+
+  // expected_session_log: what the run did to its native sessions, in order.
+  static void assertSessionLog(Map<String, Object> fixture, ConformanceScriptedAI client) {
+    if (!fixture.containsKey("expected_session_log")) return;
+    List<Object> log = client instanceof ConformanceSessionAI session ? new ArrayList<>(session.sessionLog) : List.of();
+    assertEqual(log, fixture.get("expected_session_log"), "native session log");
   }
 
   static void assertSpeakRequests(Map<String, Object> fixture, ConformanceScriptedAI client) {
@@ -1084,12 +1218,13 @@ public final class Conformance {
     ToolBuild toolBuild = buildTools(Core.asList(fixture.getOrDefault("tools", List.of())));
     Map<String, Object> options = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
     options.put("functions", toolBuild.tools);
-    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())), Core.asMap(fixture.get("client"))).scriptSpeak(fixture);
+    ConformanceScriptedAI client = fixtureClient(fixture, Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.get("client")));
     List<Object> constructorEvents = attachConstructorControl(fixture, client, options);
     AxGen gen = new AxGen(sig, options);
     if (fixture.containsKey("examples")) gen.setExamples(Core.asMapList(fixture.get("examples")));
     if (fixture.containsKey("demos")) gen.setDemos(Core.asMapList(fixture.get("demos")));
     for (Object item : Core.asList(fixture.getOrDefault("assertions", List.of()))) gen.addAssert(Core.asMap(item));
+    for (Object item : Core.asList(fixture.getOrDefault("streaming_assertions", List.of()))) gen.addStreamingAssert(new LinkedHashMap<>(Core.asMap(item)));
     addFixtureTransforms(gen, fixture);
     List<Object> processorCalls = new ArrayList<>();
     for (Object item : Core.asList(fixture.getOrDefault("feedback_processors", List.of()))) {
@@ -1112,6 +1247,7 @@ public final class Conformance {
     List<Object> controlEvents = Core.truthy(fixture.get("control")) ? callEvents : constructorEvents;
     Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions), fixture, error -> assertErrorCause(error, fixture));
     assertSpeakRequests(fixture, client);
+    assertSessionLog(fixture, client);
     if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");
     if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "run control events");
@@ -1222,7 +1358,7 @@ public final class Conformance {
   }
 
   static ConformanceScriptedAI streamingFixtureClient(Map<String, Object> fixture) {
-    return new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), List.of(), Core.asMap(fixture.getOrDefault("features", Map.of()))).scriptSpeak(fixture);
+    return fixtureClient(fixture, List.of(), Map.of());
   }
 
   // control: true attaches a run control and records its lifecycle events as
@@ -1338,6 +1474,7 @@ public final class Conformance {
       if (stopAfter == null) assertEqual(output, fixture.get("expected_output"), "streaming output");
     }
     if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "run control events");
+    assertSessionLog(fixture, client);
     assertRequestRoles(fixture, client);
     assertLastRequestTail(fixture, client);
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) {
@@ -1390,6 +1527,7 @@ public final class Conformance {
     assertEqual(toolBuild.calls, expectedToolCalls, "public streamingForward tool calls");
     assertEqual(processorCalls, expectedProcessorCalls, "public streamingForward field processor calls");
     if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "public streamingForward run control events");
+    assertSessionLog(fixture, client);
   }
 
   // Several forward / streaming_forward calls on one AxGen with one in-memory
@@ -3698,6 +3836,9 @@ public final class Conformance {
       assertErrorCategory(e, fixture);
       String expected = (String) fixture.get("expected_error_contains");
       if (expected != null && !String.valueOf(e.getMessage()).contains(expected)) throw new FixtureError("expected error containing " + expected + ", got " + e);
+      // A validation message reaches the model as the retry's correction, so a
+      // fixture can pin TypeScript's whole message.
+      if (fixture.containsKey("expected_error_message") && !String.valueOf(fixture.get("expected_error_message")).equals(e.getMessage())) throw new FixtureError("expected error message " + fixture.get("expected_error_message") + ", got " + e.getMessage());
       onExpected.accept(e);
       return null;
     }

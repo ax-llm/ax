@@ -103,8 +103,16 @@ class FixtureError(AssertionError):
 
 
 class ConformanceScriptedAI(AxBaseAI):
-    def __init__(self, responses=None, stream_events=None, transcribe_responses=None, features=None, name="scripted", model="scripted-chat", options=None, speak_responses=None):
+    def __init__(self, responses=None, stream_events=None, transcribe_responses=None, features=None, name="scripted", model="scripted-chat", options=None, speak_responses=None, native_session=None):
+        # A fixture's native_session script makes the client open native chat
+        # sessions (asyncTools), each playing the next session's script.
+        if native_session is not None:
+            features = {**(features or {}), "asyncTools": True}
         super().__init__(name=name, model=model, embed_model="scripted-embed", features=features, options=copy.deepcopy(options or {}))
+        self.native_sessions = None if native_session is None else copy.deepcopy(native_session)
+        # What the run did to its sessions: open, steer, continue (with the
+        # IDs of the tool results it submitted) and close.
+        self.session_log = []
         self.responses = list(responses or [])
         self.stream_events = list(stream_events or [])
         self.transcribe_responses = list(transcribe_responses or [])
@@ -134,6 +142,19 @@ class ConformanceScriptedAI(AxBaseAI):
         if isinstance(raw, dict) and "error" in raw:
             raise _fixture_ai_service_error(raw.get("error") or {})
         return _legacy_response_to_chat_response(copy.deepcopy(raw))
+
+    def open_chat_session(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        # Each opened session is one model request.
+        if self.native_sessions is None:
+            raise RuntimeError("scripted client has no native sessions")
+        self.chat_calls += 1
+        self.requests.append(copy.deepcopy(request))
+        self.chat_options.append(copy.deepcopy(options or {}))
+        self.session_log.append({"op": "open"})
+        self._note_request()
+        if not self.native_sessions:
+            raise RuntimeError("scripted sessions exhausted")
+        return _ScriptedChatSession(self.session_log, self.native_sessions.pop(0))
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.requests.append(copy.deepcopy(request))
@@ -179,6 +200,66 @@ class ConformanceScriptedAI(AxBaseAI):
         if isinstance(raw, dict) and "error" in raw:
             raise _fixture_ai_service_error(raw.get("error") or {})
         return copy.deepcopy(raw)
+
+
+class _ScriptedChatSession:
+    """A native chat session playing a fixture script: its first response when
+    it opens, the next one each time the run continues it."""
+
+    model = "scripted-session"
+
+    def __init__(self, log, script):
+        import queue
+        self._log = log
+        self._script = list(script)
+        self._events = queue.Queue()
+        self._closed = False
+        self._play()
+
+    def _play(self):
+        if not self._script:
+            raise RuntimeError("scripted session exhausted")
+        for event in self._script.pop(0):
+            self._events.put({
+                "type": event["type"],
+                "response_id": event["response_id"],
+                "response": {"results": copy.deepcopy(event.get("results") or [])},
+            })
+
+    def events(self):
+        while True:
+            event = self._events.get()
+            if event is None:
+                return
+            yield event
+
+    def submit_tool_results(self, results):
+        self._log.append({"op": "continue", "call_ids": [result.get("function_id") for result in results]})
+        self._play()
+
+    def continue_response(self):
+        self._log.append({"op": "continue", "call_ids": []})
+        self._play()
+
+    def steer(self, text):
+        self._log.append({"op": "steer", "text": text})
+        return "next-response"
+
+    def set_thinking_token_budget(self, level):
+        self._log.append({"op": "thinking", "level": level})
+        return "next-response"
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._log.append({"op": "close"})
+        self._events.put(None)
+
+
+def _assert_session_log(fixture, client):
+    if "expected_session_log" in fixture:
+        _assert_equal(client.session_log, fixture["expected_session_log"], "native session log")
 
 
 def _assert_speak_requests(fixture, client):
@@ -1271,7 +1352,7 @@ def _run_forward(fixture):
     sig = _build_signature(fixture)
     tools, tool_calls = _build_tools(fixture.get("tools") or [])
     options = {"functions": tools, **(fixture.get("options") or {})}
-    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), speak_responses=fixture.get("speak_responses"), **_scripted_client_kwargs(fixture.get("client")))
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), speak_responses=fixture.get("speak_responses"), native_session=fixture.get("native_session"), **_scripted_client_kwargs(fixture.get("client")))
     control_events = []
     if fixture.get("constructor_control"):
         # The run control is a constructor default, not a call option.
@@ -1283,6 +1364,8 @@ def _run_forward(fixture):
         gen.set_demos(fixture.get("demos") or [])
     for assertion in fixture.get("assertions") or []:
         gen.add_assert(assertion)
+    for assertion in fixture.get("streaming_assertions") or []:
+        gen.add_streaming_assert(assertion)
     _add_fixture_transforms(gen, fixture)
     processor_calls = []
     for spec in fixture.get("feedback_processors") or []:
@@ -1310,10 +1393,12 @@ def _run_forward(fixture):
             if "expected_tool_calls" in fixture:
                 _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
             _assert_speak_requests(fixture, client)
+            _assert_session_log(fixture, client)
             return
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected forward to fail")
+    _assert_session_log(fixture, client)
     _assert_last_request_tail(fixture, client)
     _assert_speak_requests(fixture, client)
     if "expected_processor_calls" in fixture:
@@ -1620,7 +1705,7 @@ def _run_streaming_forward(fixture):
     sig = _build_signature(fixture)
     tools, tool_calls = _build_tools(fixture.get("tools") or [])
     options = {"functions": tools, **(fixture.get("options") or {})}
-    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"), speak_responses=fixture.get("speak_responses"))
+    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"), speak_responses=fixture.get("speak_responses"), native_session=fixture.get("native_session"))
     control_events = []
     if fixture.get("constructor_control"):
         # The run control is a constructor default, not a call option.
@@ -1674,6 +1759,7 @@ def _run_streaming_forward(fixture):
             _assert_equal(output, fixture.get("expected_output"), "streaming output")
     if "expected_control_events" in fixture:
         _assert_equal(control_events, fixture["expected_control_events"], "run control events")
+    _assert_session_log(fixture, client)
     _assert_request_roles(fixture, client)
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
@@ -3973,6 +4059,11 @@ def _assert_expected_error(exc, fixture):
     expected = fixture.get("expected_error_contains")
     if expected and expected not in str(exc):
         raise FixtureError(f"expected error containing {expected!r}, got {exc!r}")
+    # A validation message reaches the model as the retry's correction, so a
+    # fixture can pin TypeScript's whole message.
+    expected_message = fixture.get("expected_error_message")
+    if expected_message is not None and str(exc) != expected_message:
+        raise FixtureError(f"expected error message {expected_message!r}, got {str(exc)!r}")
 
 
 def _error_category(exc):

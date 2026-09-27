@@ -199,9 +199,9 @@ public final class AxAgent implements AxProgram {
    * out the citation field, and {@code onCitations} gets the streamed citations after the stream.
    * The run works on a worker thread that starts when iteration starts and waits while the caller
    * handles each update; closing the stream stops the run, and with a run {@code control} the run
-   * then ends with an aborted event. A run control on a client that opens async model sessions is
-   * not covered yet and throws {@link UnsupportedOperationException} before any stage runs, as
-   * AxGen deltas do.
+   * then ends with an aborted event. On a client that opens native chat sessions, each stage
+   * request opens its own session, and the responder streams its session's output as AxGen deltas
+   * do.
    */
   public AxGenDeltaStream streamingForward(AiClient client, Map<String, Object> values, Map<String, Object> options, AxCancellationToken cancellation) {
     Map<String, Object> runOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
@@ -233,23 +233,8 @@ public final class AxAgent implements AxProgram {
     }
   }
 
-  // Until AxGen deltas cover async run sessions, an agent stream that would
-  // stream its responder through one fails before any stage runs, with the
-  // error AxGen deltas raise.
-  private void checkStreamRunSession(AiClient client, Map<String, Object> callOptions) {
-    Map<String, Object> runOptions = new LinkedHashMap<>(responder.options);
-    runOptions.putAll(Core.asMap(Core._agent_stage_options(state, "responder", callOptions)));
-    boolean controlled = runOptions.get("control") instanceof AxRunControl;
-    boolean sessionCapable = Core.truthy(Core.chat_session_mode_enabled(runOptions))
-        && (client instanceof ChatRunSelector || (client instanceof AxChatSession.Provider && Core.truthy(Core.get(Core.aiClientFeatures(client, runOptions.get("model")), "asyncTools", false))));
-    if (sessionCapable && (controlled || responder.functions.stream().anyMatch(tool -> "background".equals(tool.execution)))) {
-      throw new UnsupportedOperationException("streaming_forward deltas do not cover async run sessions (control or background tools on a session-capable client) yet; use forward()");
-    }
-  }
-
   private Map<String, Object> forwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions, java.util.function.Consumer<Map<String, Object>> sink) {
     Map<String, Object> callOptions = new LinkedHashMap<>(forwardOptions == null ? Map.of() : forwardOptions);
-    if (sink != null) checkStreamRunSession(client, callOptions);
     if (callOptions.get("cancellation") instanceof AxCancellationToken cancellation) cancellation.throwIfCancelled();
     useStageMode(callOptions);
     AxExecutionContext callContext = AxExecutionContext.resolve(callOptions, executionContext);

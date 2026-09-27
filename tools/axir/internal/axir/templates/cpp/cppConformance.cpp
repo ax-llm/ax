@@ -43,6 +43,79 @@ static Value scripted_client_options(Value spec) {
   return Core::truthy(options) ? parse_json(stringify(options)) : Value::object();
 }
 
+// What a run did to its fixture's native chat sessions, in order: open, steer,
+// thinking, continue (with the IDs of the tool results it submitted) and close.
+struct ScriptedSessionLog {
+  std::mutex mutex;
+  Value entries = Value::array();
+
+  void add(Value entry) {
+    std::lock_guard<std::mutex> lock(mutex);
+    Core::append(entries, std::move(entry));
+  }
+};
+
+// A native chat session playing a fixture script: its first response when it
+// opens, and the next one each time the run continues it. A response is a
+// list of {type: response | response.completed, response_id, results} events.
+class ScriptedChatSession final : public AxChatSession {
+ public:
+  ScriptedChatSession(std::shared_ptr<ScriptedSessionLog> log, Value script) : log_(std::move(log)), script_(as_array(std::move(script))) { play(); }
+
+  Value next(std::chrono::milliseconds timeout) override {
+    std::unique_lock<std::mutex> lock(mutex_);
+    ready_.wait_for(lock, timeout, [&] { return closed_ || !events_.empty(); });
+    if (closed_ || events_.empty()) return Value();
+    Value event = events_.front();
+    events_.pop_front();
+    return event;
+  }
+
+  // Submitting tool results, or none, continues the session.
+  void submit(Value results) override {
+    Value call_ids = Value::array();
+    for (const auto& result : Core::iter(results)) Core::append(call_ids, Core::get(result, "function_id"));
+    log_->add(object({{"op", "continue"}, {"call_ids", call_ids}}));
+    play();
+  }
+
+  std::string update(Value update) override {
+    if (display(Core::get(update, "type")) == "steer") log_->add(object({{"op", "steer"}, {"text", Core::get(update, "text")}}));
+    else log_->add(object({{"op", "thinking"}, {"level", Core::get(update, "level")}}));
+    return "next-response";
+  }
+
+  void close() override {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (closed_) return;
+      closed_ = true;
+    }
+    log_->add(object({{"op", "close"}}));
+    ready_.notify_all();
+  }
+
+ private:
+  void play() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (script_.empty()) throw AxError("runtime", "scripted session exhausted");
+    Value response = script_.front();
+    script_.erase(script_.begin());
+    for (const auto& event : Core::iter(response)) {
+      Value results = parse_json(stringify(Core::get(event, "results", Value::array())));
+      events_.push_back(object({{"type", Core::get(event, "type")}, {"response_id", Core::get(event, "response_id")}, {"response", object({{"results", results}})}}));
+    }
+    ready_.notify_all();
+  }
+
+  std::shared_ptr<ScriptedSessionLog> log_;
+  Array script_;
+  std::deque<Value> events_;
+  bool closed_ = false;
+  std::mutex mutex_;
+  std::condition_variable ready_;
+};
+
 struct ConformanceScriptedAI : AxBaseAI {
   Array responses;
   Array transcribe_responses;
@@ -62,6 +135,11 @@ struct ConformanceScriptedAI : AxBaseAI {
   // Called with each chat request's 1-based number while it is in flight,
   // before the scripted answer (a fixture's control_steer).
   std::function<void(int)> on_request;
+  // A fixture's native_session script: the client opens native chat sessions
+  // (asyncTools), each playing the next session's script.
+  bool native_sessions_scripted = false;
+  std::deque<Value> native_sessions;
+  std::shared_ptr<ScriptedSessionLog> session_log = std::make_shared<ScriptedSessionLog>();
 
   explicit ConformanceScriptedAI(Value values, Value feature_values = Value(), Value client_spec = Value())
       : AxBaseAI(scripted_client_text(client_spec, "name", "scripted"),
@@ -168,9 +246,44 @@ struct ConformanceScriptedAI : AxBaseAI {
     }
     return *this;
   }
+
+  // Scripts native chat sessions from the fixture's native_session: the
+  // client then reports asyncTools beside its features.
+  ConformanceScriptedAI& script_native_sessions(const Value& fixture) {
+    Value scripted = Core::get(fixture, "native_session");
+    if (scripted.is_null()) return *this;
+    native_sessions_scripted = true;
+    for (const auto& session : Core::iter(scripted)) native_sessions.push_back(parse_json(stringify(session)));
+    Value reported = parse_json(stringify(features.is_null() ? AxBaseAI::get_features(Value()) : features));
+    Core::set(reported, "asyncTools", true);
+    features = reported;
+    return *this;
+  }
+
+  // Each opened session is one model request.
+  std::shared_ptr<AxChatSession> open_chat_session(Value request, Value options) override {
+    if (!native_sessions_scripted) return {};
+    ++chat_calls;
+    requests.push_back(parse_json(stringify(request)));
+    chat_options.push_back(options);
+    session_log->add(object({{"op", "open"}}));
+    note_request(request);
+    if (native_sessions.empty()) throw AxError("runtime", "scripted sessions exhausted");
+    Value script = native_sessions.front();
+    native_sessions.pop_front();
+    return std::make_shared<ScriptedChatSession>(session_log, script);
+  }
 };
 
 static void assert_equal(Value actual, Value expected, const std::string& label);
+
+// The fixture's native session log, compared exactly.
+static void assert_session_log(Value fixture, const ConformanceScriptedAI& client) {
+  Value expected = Core::get(fixture, "expected_session_log");
+  if (expected.is_null()) return;
+  std::lock_guard<std::mutex> lock(client.session_log->mutex);
+  assert_equal(client.session_log->entries, expected, "native session log");
+}
 
 static void assert_speak_requests(Value fixture, const ConformanceScriptedAI& client) {
   Value expected = Core::get(fixture, "expected_speak_requests");
@@ -774,6 +887,10 @@ static Value expect_maybe_error(const std::function<Value()>& fn, Value fixture,
       throw AxError("fixture", std::string("expected error category ") + display(expected_category) + ", got " + e.category);
     }
     if (std::string(e.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + e.what());
+    // A validation message reaches the model as the retry's correction, so a
+    // fixture can pin TypeScript's whole message.
+    Value expected_message = Core::get(fixture, "expected_error_message");
+    if (!expected_message.is_null() && std::string(e.what()) != display(expected_message)) throw AxError("fixture", std::string("expected error message ") + display(expected_message) + ", got " + e.what());
     if (check_cause) assert_error_cause(fixture, e);
     return Value();
   }
@@ -924,6 +1041,7 @@ static void run_forward(Value fixture) {
   Value options = Core::map_merge(Core::get(fixture, "options", Value::object()), Value(Object{{"functions", tool_build.values}}));
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
   client.script_speak(fixture);
+  client.script_native_sessions(fixture);
   auto control_events = std::make_shared<FixtureControlEvents>();
   // constructor_control: the run control is a constructor default, not a
   // call option.
@@ -933,6 +1051,8 @@ static void run_forward(Value fixture) {
   if (!Core::get(fixture, "examples").is_null()) gen.set_examples(Core::get(fixture, "examples"));
   if (!Core::get(fixture, "demos").is_null()) gen.set_demos(Core::get(fixture, "demos"));
   for (const auto& assertion : Core::iter(Core::get(fixture, "assertions", Value::array()))) gen.add_assert(assertion);
+  // A forward does not stream, so its streaming assertions do not run.
+  for (const auto& assertion : Core::iter(Core::get(fixture, "streaming_assertions", Value::array()))) gen.add_streaming_assert(assertion);
   add_fixture_transforms(gen, fixture);
   Value processor_calls = Value::array();
   for (const auto& spec : Core::iter(Core::get(fixture, "feedback_processors", Value::array()))) {
@@ -959,6 +1079,7 @@ static void run_forward(Value fixture) {
   Value output = expect_maybe_error([&] { return gen.forward(client, input, forward_options); }, fixture, true);
   bool expected_error = !Core::get(fixture, "expected_error_contains").is_null();
   assert_speak_requests(fixture, client);
+  assert_session_log(fixture, client);
   if (!expected_error && !Core::get(fixture, "expected_processor_calls").is_null()) {
     assert_equal(processor_calls, Core::get(fixture, "expected_processor_calls"), "field processor calls");
   }
@@ -1052,6 +1173,7 @@ static void run_streaming_forward(Value fixture) {
   Value options = Core::map_merge(Core::get(fixture, "options", Value::object()), Value(Object{{"functions", tool_build.values}}));
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
   client.script_speak(fixture);
+  client.script_native_sessions(fixture);
   auto control_events = std::make_shared<FixtureControlEvents>();
   // constructor_control: the run control is a constructor default, not a
   // call option.
@@ -1102,6 +1224,7 @@ static void run_streaming_forward(Value fixture) {
     if (stop_after.is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "streaming output");
   }
   assert_control_events(fixture, control_events);
+  assert_session_log(fixture, client);
   assert_request_roles(fixture, client);
   assert_last_request_tail(fixture, client);
   Value expected_count = Core::get(fixture, "expected_request_count");
