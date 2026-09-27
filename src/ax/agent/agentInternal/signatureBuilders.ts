@@ -1,4 +1,4 @@
-import { AxGen } from '../../dsp/generate.js';
+import { AxGen, withoutRunScopedOptions } from '../../dsp/generate.js';
 import { type AxIField, f } from '../../dsp/sig.js';
 import {
   DEFAULT_RLM_MAX_LLM_CALLS,
@@ -348,10 +348,13 @@ export function buildSplitPrograms(self: any): void {
     s.actorProgram.setSignature(actorSig);
     s.actorProgram.setDescription(actorDef);
   } else {
-    s.actorProgram = new AxGen(actorSig, {
-      ...s._genOptions,
-      description: actorDef,
-      includeOptionalInputFieldsInSystemPrompt: true,
-    });
+    s.actorProgram = new AxGen(
+      actorSig,
+      withoutRunScopedOptions({
+        ...s._genOptions,
+        description: actorDef,
+        includeOptionalInputFieldsInSystemPrompt: true,
+      })
+    );
   }
 }

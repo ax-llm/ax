@@ -798,6 +798,7 @@ struct Core {
   static Value provider_require_expensive_model_confirmation(Value provider, Value model, Value client_options, Value options);
   static Value _gemini_vertex_embed_content_model_impl(Value model);
   static Value provider_embed_url(Value profile, Value model, Value options);
+  static Value _openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model);
   static Value chat_session_mode_enabled(Value options);
   static Value fold_stream(Value events);
   static Value _render_audio_outputs_impl(Value gen, Value client, Value values, Value options);

@@ -14241,7 +14241,9 @@ def _caching_function_option_impl(gen: AxGen, options: Any) -> Any:
     _core_coverage_mark("_caching_function_option_impl")
     empty = {}
     call_options = _core_map_merge(empty, options)
-    control = _core_get(call_options, "control", None)
+    base_options = _core_get(gen, "options", empty)
+    run_options = _core_map_merge(base_options, call_options)
+    control = _core_get(run_options, "control", None)
     controlled = _core_is_not_none(control)
     if controlled:
         no_cache = _core_none()

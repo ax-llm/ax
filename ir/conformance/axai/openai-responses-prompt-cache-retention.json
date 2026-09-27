@@ -1,0 +1,52 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "prompt_cache_retention": "24h"
+    }
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5.4-mini",
+  "name": "openai-responses-prompt-cache-retention",
+  "options": {
+    "promptCacheRetention": "24h"
+  },
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "r1",
+        "model": "gpt-5.4-mini",
+        "output": [
+          {
+            "content": [
+              {
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "m1",
+            "role": "assistant",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}
