@@ -27,6 +27,7 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicAgentRuntimeExport:      true,
 	IntrinsicAgentRuntimeRestore:     true,
 	IntrinsicPromptStructured:        true,
+	IntrinsicPromptUserContent:       true,
 	IntrinsicStringFindQuoted:        true,
 	IntrinsicStringSplitQuoted:       true,
 	IntrinsicStringSplitTopLevel:     true,

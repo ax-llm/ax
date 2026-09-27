@@ -496,8 +496,8 @@ struct Core {
   static Value strip_internal(Value fields, Value values);
   static Value _validate_fields_impl(Value fields, Value values, Value context);
   static Value _schema_json_type_impl(Value type_name);
-  static Value _validate_output_impl(Value fields, Value values);
   static Value _schema_enhance_description_impl(Value base, Value typ);
+  static Value _validate_output_impl(Value fields, Value values);
   static Value _validate_string_constraints_impl(Value value, Value field);
   static Value _validate_number_constraints_impl(Value value, Value field);
   static Value _schema_apply_constraints_impl(Value schema, Value typ);

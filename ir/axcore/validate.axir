@@ -87,6 +87,14 @@ module @ax.validate version "0.1" {
         core.if %missing_or_null {
           %required_missing = core.call intrinsic.not(%is_optional)
           core.if %required_missing {
+            // A forward's inputs fail as TS fails rendering them
+            // (src/ax/dsp/prompt.ts), by field name.
+            %is_input = core.call intrinsic.eq(%context, "input")
+            core.if %is_input {
+              %input_message = core.call intrinsic.string.format("Value for input field '{}' is required.", %field_name)
+              %input_error = core.call intrinsic.error.validation(%input_message)
+              core.raise %input_error
+            }
             %message = core.call intrinsic.string.format("Required field is missing: '{}'", %field_title)
             %error = core.call intrinsic.error.validation(%message)
             core.raise %error

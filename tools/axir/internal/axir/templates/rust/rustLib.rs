@@ -988,32 +988,30 @@ impl SignatureBuilder {
     }
 }
 
+// A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts): each
+// underscore becomes a space, a space goes before each capital letter A-Z and
+// each run of digits, and the trimmed result starts with a capital letter.
+// "generator_answer" is "Generator answer", "keyInsight" "Key Insight" and
+// "item12" "Item 12".
 fn title_case(name: &str) -> String {
-    let mut out = String::new();
-    let mut upper = true;
-    let mut prev_lower_or_digit = false;
+    let mut spaced = String::with_capacity(name.len() + 4);
+    let mut in_digits = false;
     for ch in name.chars() {
-        if ch == '_' || ch == '-' {
-            out.push(' ');
-            upper = true;
-            prev_lower_or_digit = false;
-        } else if ch.is_uppercase() && prev_lower_or_digit {
-            out.push(' ');
-            out.push(ch);
-            upper = false;
-            prev_lower_or_digit = false;
-        } else if upper {
-            for c in ch.to_uppercase() {
-                out.push(c);
-            }
-            upper = false;
-            prev_lower_or_digit = ch.is_lowercase() || ch.is_ascii_digit();
+        if ch == '_' {
+            spaced.push(' ');
+        } else if ch.is_ascii_uppercase() || (ch.is_ascii_digit() && !in_digits) {
+            spaced.push(' ');
+            spaced.push(ch);
         } else {
-            out.push(ch);
-            prev_lower_or_digit = ch.is_lowercase() || ch.is_ascii_digit();
+            spaced.push(ch);
         }
+        in_digits = ch.is_ascii_digit();
     }
-    out
+    let mut chars = spaced.trim().chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 
 fn field_from_payload(name: &str, raw: &Value) -> Field {
@@ -5314,11 +5312,16 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         let seed = config.get("seed").cloned().or_else(|| {
             if config.contains_key("playbook") || config.contains_key("artifact") { Some(playbook_config.clone()) } else { config.get("initialPlaybook").cloned().or_else(|| config.get("initial_playbook").cloned()) }
         });
-        playbook_snapshot = match seed {
-            Some(value) if value.get("playbook").is_some() => value,
-            Some(value) => json!({"playbook": value}),
-            None => json!({"playbook": core_value_to_json(&_ace_empty_playbook(&[CoreValue::Null, CoreValue::from("")])?)}),
-        };
+        // As TS's handle.getState() after loading the seed: the engine's playbook
+        // and artifact. Without a seed the playbook is empty and stamped with the
+        // engine clock (the config's `now`, as the other ports read it).
+        let mut engine = AxACE::new(playbook_engine_clock(&config));
+        match seed {
+            Some(value) if value.get("playbook").is_some() => engine.hydrate(&value),
+            Some(value) => engine.hydrate(&json!({"playbook": value})),
+            None => {}
+        }
+        playbook_snapshot = json!({"playbook": engine.get_playbook(), "artifact": engine.get_artifact()});
         let rendered = core_value_to_json(&_ace_render_playbook(&[core_value_from_json(playbook_snapshot.get("playbook").unwrap_or(&Value::Null))])?)
             .as_str().unwrap_or_default().to_string();
         if config.get("apply").and_then(Value::as_bool) != Some(false) {
@@ -5641,17 +5644,18 @@ impl AxAgent {
             let curator_inputs = inputs.clone();
             let reflector: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
                 let request = playbook_reflector_request(payload, &reflector_live.borrow(), &inputs, &outputs);
-                playbook_scoped_forward(&reflector_slot, ACE_REFLECTOR_SIGNATURE, request, &reflector_options)
+                playbook_scoped_forward(&reflector_slot, ace_reflector_signature, request, &reflector_options)
             });
             let curator_slot = curator_program.clone();
             let curator_live = live_state.clone();
             let curator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
                 let request = playbook_curator_request(payload, &curator_live.borrow(), &curator_inputs);
-                playbook_scoped_forward(&curator_slot, ACE_CURATOR_SIGNATURE, request, &teacher_options)
+                playbook_scoped_forward(&curator_slot, ace_curator_signature, request, &teacher_options)
             });
             let output_for_generator = output.clone();
             let generator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |_| output_for_generator.clone());
-            let mut engine_options = Map::new();
+            // The engine keeps the seed's clock: updates stamp the config's `now`.
+            let mut engine_options = playbook_engine_clock(&config).as_object().cloned().unwrap_or_default();
             for key in ["maxReflectorRounds", "maxSectionSize", "allowDynamicSections"] {
                 if let Some(value) = config.get(key).filter(|value| !value.is_null()) {
                     engine_options.insert(key.into(), value.clone());
@@ -7793,28 +7797,60 @@ impl AxACE {
     }
 }
 
-const ACE_REFLECTOR_SIGNATURE: &str =
-    "question:string \"Original task input serialized as JSON\", \
-generator_answer:string \"Generator output serialized as JSON\", \
-generator_reasoning?:string \"Generator reasoning trace\", \
-playbook:string \"Current context playbook rendered as markdown\", \
-expected_answer?:string \"Expected output when ground truth is available\", \
-feedback?:string \"External feedback or reward signal\", \
-previous_reflection?:string \"Most recent reflection JSON when running multi-round refinement\" \
--> reasoning:string \"Step-by-step analysis of generator performance\", \
-errorIdentification:string \"Specific mistakes detected\", \
-rootCauseAnalysis:string \"Underlying cause of the error\", \
-correctApproach:string \"What the generator should do differently\", \
-keyInsight:string \"Reusable insight to remember\", \
-bulletTags:json \"Array of {id, tag} entries referencing playbook bullets\"";
+// The reflector and curator signatures TS builds (src/ax/dsp/optimizers/ace.ts),
+// assembled from fields: a signature string cannot carry a description with
+// double quotes, as the curator's operations description has.
+fn ace_field(name: &str, field_type: FieldType, description: &str, optional: bool) -> Field {
+    let mut field = Field::new(name, field_type);
+    field.description = Some(description.to_string());
+    field.is_optional = optional;
+    field
+}
 
-const ACE_CURATOR_SIGNATURE: &str =
-    "playbook:string \"Current playbook serialized as JSON\", \
-reflection:string \"Latest reflection output serialized as JSON\", \
-question_context:string \"Original task input serialized as JSON\", \
-token_budget?:number \"Approximate token budget for curator response\" \
--> reasoning:string \"Justification for the proposed updates\", \
-operations:json \"List of operations with type/section/content fields\"";
+fn ace_reflector_signature() -> AxSignature {
+    AxSignature {
+        description: None,
+        inputs: vec![
+            ace_field("question", FieldType::string(), "Original task input serialized as JSON", false),
+            ace_field("generator_answer", FieldType::string(), "Generator output serialized as JSON", false),
+            ace_field("generator_reasoning", FieldType::string(), "Generator reasoning trace", true),
+            ace_field("playbook", FieldType::string(), "Current context playbook rendered as markdown", false),
+            ace_field("expected_answer", FieldType::string(), "Expected output when ground truth is available", true),
+            ace_field("feedback", FieldType::string(), "External feedback or reward signal", true),
+            ace_field("previous_reflection", FieldType::string(), "Most recent reflection JSON when running multi-round refinement", true),
+        ],
+        outputs: vec![
+            ace_field("reasoning", FieldType::string(), "Step-by-step analysis of generator performance", false),
+            ace_field("errorIdentification", FieldType::string(), "Specific mistakes detected", false),
+            ace_field("rootCauseAnalysis", FieldType::string(), "Underlying cause of the error", false),
+            ace_field("correctApproach", FieldType::string(), "What the generator should do differently", false),
+            ace_field("keyInsight", FieldType::string(), "Reusable insight to remember", false),
+            ace_field("bulletTags", FieldType::new("json"), "Array of {id, tag} entries referencing playbook bullets", false),
+        ],
+    }
+}
+
+const ACE_CURATOR_OPERATIONS_DESCRIPTION: &str = "List of operations, each {type: \"ADD\"|\"UPDATE\"|\"REMOVE\", section, content}. \
+Emit an operation ONLY when the playbook should actually change. \
+If nothing should change, return an empty array \u{2014} never emit an ADD whose content \
+just acknowledges that no change is needed (e.g. \"No update required\", \"Keep the existing rule unchanged\"). \
+Each ADD content must be a standalone, reusable rule.";
+
+fn ace_curator_signature() -> AxSignature {
+    AxSignature {
+        description: None,
+        inputs: vec![
+            ace_field("playbook", FieldType::string(), "Current playbook serialized as JSON", false),
+            ace_field("reflection", FieldType::string(), "Latest reflection output serialized as JSON", false),
+            ace_field("question_context", FieldType::string(), "Original task input serialized as JSON", false),
+            ace_field("token_budget", FieldType::number(), "Approximate token budget for curator response", true),
+        ],
+        outputs: vec![
+            ace_field("reasoning", FieldType::string(), "Justification for the proposed updates", false),
+            ace_field("operations", FieldType::new("json"), ACE_CURATOR_OPERATIONS_DESCRIPTION, false),
+        ],
+    }
+}
 
 const AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE: &str =
     "clusterSignature:string \"Shared error signature of the cluster\", \
@@ -8150,17 +8186,23 @@ fn playbook_teacher_forward_options(teacher_options: Option<&Value>) -> Value {
     }
 }
 
+// The ACE engine options that carry an agent playbook config's clock (`now`).
+fn playbook_engine_clock(config: &Map<String, Value>) -> Value {
+    let mut options = Map::new();
+    if let Some(now) = config.get("now").filter(|now| now.is_string()) {
+        options.insert("now".into(), now.clone());
+    }
+    Value::Object(options)
+}
+
 fn playbook_scoped_forward(
     slot: &Rc<RefCell<Option<AxGen>>>,
-    signature: &str,
+    signature: fn() -> AxSignature,
     request: Value,
     options: &Value,
 ) -> Value {
     if slot.borrow().is_none() {
-        match AxGen::new(signature) {
-            Ok(gen) => *slot.borrow_mut() = Some(gen),
-            Err(_) => return Value::Null,
-        }
+        *slot.borrow_mut() = Some(AxGen::with_signature(signature()));
     }
     let mut borrowed = slot.borrow_mut();
     let Some(gen) = borrowed.as_mut() else {
@@ -8299,10 +8341,7 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
         let reflect_live = live_state.clone();
         let reflector: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
             if reflect_prog.borrow().is_none() {
-                match AxGen::new(ACE_REFLECTOR_SIGNATURE) {
-                    Ok(gen) => *reflect_prog.borrow_mut() = Some(gen),
-                    Err(_) => return Value::Null,
-                }
+                *reflect_prog.borrow_mut() = Some(AxGen::with_signature(ace_reflector_signature()));
             }
             let (inputs, outputs) = playbook_program_fields(&reflect_program);
             let request = playbook_reflector_request(payload, &reflect_live.borrow(), &inputs, &outputs);
@@ -8331,10 +8370,7 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
         let curate_live = live_state.clone();
         let curator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
             if curate_prog.borrow().is_none() {
-                match AxGen::new(ACE_CURATOR_SIGNATURE) {
-                    Ok(gen) => *curate_prog.borrow_mut() = Some(gen),
-                    Err(_) => return Value::Null,
-                }
+                *curate_prog.borrow_mut() = Some(AxGen::with_signature(ace_curator_signature()));
             }
             let (inputs, _) = playbook_program_fields(&curate_program);
             let request = playbook_curator_request(payload, &curate_live.borrow(), &inputs);
@@ -12754,6 +12790,9 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_state") {
         expect_json_subset("agent state", &agent.get_state()?, expected)?;
     }
+    if let Some(expected) = fixture.get("expected_playbook_state") {
+        expect_json_equal("agent playbook state", &agent.get_playbook_state().unwrap_or(Value::Null), expected)?;
+    }
     let exported = agent.export_runtime_state()?;
     if let Some(expected) = fixture.get("expected_runtime_contract_subset") {
         expect_json_subset("runtime contract", &agent.get_runtime_contract(), expected)?;
@@ -15428,6 +15467,18 @@ fn run_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
                 return Err(AxError::new("fixture", format!("teacher requests missing {needle:?}")));
             }
         }
+    }
+    if let Some(expected) = fixture.get("expected_teacher_system_prompts") {
+        // Each teacher request's system prompt, in call order, byte for byte.
+        let prompts = teacher
+            .borrow()
+            .requests
+            .iter()
+            .flat_map(|request| request.get("chat_prompt").and_then(Value::as_array).cloned().unwrap_or_default())
+            .filter(|message| message.get("role").and_then(Value::as_str) == Some("system"))
+            .map(|message| message.get("content").cloned().unwrap_or(Value::Null))
+            .collect::<Vec<_>>();
+        expect_json_equal("teacher system prompts", &Value::Array(prompts), expected)?;
     }
     Ok(())
 }

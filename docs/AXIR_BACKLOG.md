@@ -24,6 +24,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.structuredTypes.test.ts`, `src/ax/dsp/generate.streamParity.test.ts`
   - Impact: TypeScript now type-checks structured JSON output values: a numeric string becomes a number through Number() and a true or false string a boolean, as the text contract does, and any other type mismatch is a validation error that the model retries. The ports reject those strings. TypeScript streamingForward also stores the finished result through cachingFunction with or without a result picker, and the ports have no cachingFunction yet.
   - Suggested AxIR work: Coerce numeric and boolean strings in the IR structured output validation and add TS-golden fixtures; Store the merged streamed result through cachingFunction when the ports add it
+- `axir-2026-09-27-match-typescript-ace-prompts-required-inputs-titles-and-agent-seed` [axgen] Match TypeScript's ACE teacher prompts, required-input errors, field titles and agent playbook seed in the ports
+  - Status: open
+  - Source commit: `a88d66ffa9e2ff01cfab4530a32b889d588e67e7`
+  - TS paths: `src/ax/dsp/optimizers/ace.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/optimizers/acePlaybook.ts`
+  - Impact: The ports' ACE curator prompt carried a short operations description (a signature string cannot hold TS's quoted text); a missing or null required input failed with 'Required field is missing' where TS says Value for input field is required, and Go accepted an empty-string or empty-array required input; Go asked for a JSON object for json and scalar-array outputs; Rust titled snake_case fields Generator Answer; and the Rust agent's construction-time playbook had an empty updatedAt and no artifact.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

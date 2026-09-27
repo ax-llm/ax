@@ -50,7 +50,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .mcp import resolve_execution_context
-from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature
+from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature, f as _signature_builder
 # AXIR_CORE_IMPORTS
 
 
@@ -1003,30 +1003,50 @@ class AxACE:
         return curator_result
 
 
-_ACE_REFLECTOR_SIGNATURE = (
-    'question:string "Original task input serialized as JSON", '
-    'generator_answer:string "Generator output serialized as JSON", '
-    'generator_reasoning?:string "Generator reasoning trace", '
-    'playbook:string "Current context playbook rendered as markdown", '
-    'expected_answer?:string "Expected output when ground truth is available", '
-    'feedback?:string "External feedback or reward signal", '
-    'previous_reflection?:string "Most recent reflection JSON when running multi-round refinement" '
-    '-> reasoning:string "Step-by-step analysis of generator performance", '
-    'errorIdentification:string "Specific mistakes detected", '
-    'rootCauseAnalysis:string "Underlying cause of the error", '
-    'correctApproach:string "What the generator should do differently", '
-    'keyInsight:string "Reusable insight to remember", '
-    'bulletTags:json "Array of {id, tag} entries referencing playbook bullets"'
+# The reflector and curator signatures TS builds (src/ax/dsp/optimizers/ace.ts),
+# built with the field builder: a signature string cannot carry a description
+# with double quotes, as the curator's operations description has.
+def _ace_reflector_signature():
+    return (
+        _signature_builder()
+        .input("question", _signature_builder.string("Original task input serialized as JSON"))
+        .input("generator_answer", _signature_builder.string("Generator output serialized as JSON"))
+        .input("generator_reasoning", _signature_builder.string("Generator reasoning trace").optional())
+        .input("playbook", _signature_builder.string("Current context playbook rendered as markdown"))
+        .input("expected_answer", _signature_builder.string("Expected output when ground truth is available").optional())
+        .input("feedback", _signature_builder.string("External feedback or reward signal").optional())
+        .input("previous_reflection", _signature_builder.string("Most recent reflection JSON when running multi-round refinement").optional())
+        .output("reasoning", _signature_builder.string("Step-by-step analysis of generator performance"))
+        .output("errorIdentification", _signature_builder.string("Specific mistakes detected"))
+        .output("rootCauseAnalysis", _signature_builder.string("Underlying cause of the error"))
+        .output("correctApproach", _signature_builder.string("What the generator should do differently"))
+        .output("keyInsight", _signature_builder.string("Reusable insight to remember"))
+        .output("bulletTags", _signature_builder.json("Array of {id, tag} entries referencing playbook bullets"))
+        .build()
+    )
+
+
+_ACE_CURATOR_OPERATIONS_DESCRIPTION = (
+    'List of operations, each {type: "ADD"|"UPDATE"|"REMOVE", section, content}. '
+    "Emit an operation ONLY when the playbook should actually change. "
+    "If nothing should change, return an empty array — never emit an ADD whose content "
+    'just acknowledges that no change is needed (e.g. "No update required", '
+    '"Keep the existing rule unchanged"). '
+    "Each ADD content must be a standalone, reusable rule."
 )
 
-_ACE_CURATOR_SIGNATURE = (
-    'playbook:string "Current playbook serialized as JSON", '
-    'reflection:string "Latest reflection output serialized as JSON", '
-    'question_context:string "Original task input serialized as JSON", '
-    'token_budget?:number "Approximate token budget for curator response" '
-    '-> reasoning:string "Justification for the proposed updates", '
-    'operations:json "List of operations with type/section/content fields"'
-)
+
+def _ace_curator_signature():
+    return (
+        _signature_builder()
+        .input("playbook", _signature_builder.string("Current playbook serialized as JSON"))
+        .input("reflection", _signature_builder.string("Latest reflection output serialized as JSON"))
+        .input("question_context", _signature_builder.string("Original task input serialized as JSON"))
+        .input("token_budget", _signature_builder.number("Approximate token budget for curator response").optional())
+        .output("reasoning", _signature_builder.string("Justification for the proposed updates"))
+        .output("operations", _signature_builder.json(_ACE_CURATOR_OPERATIONS_DESCRIPTION))
+        .build()
+    )
 
 _AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE = (
     'clusterSignature:string "Shared error signature of the cluster", '
@@ -1166,12 +1186,12 @@ class AxPlaybook:
 
     def _get_reflector_program(self):
         if self._reflector_program is None:
-            self._reflector_program = AxGen(_ACE_REFLECTOR_SIGNATURE, {"validation_retries": 1, "id": "ace.reflector"})
+            self._reflector_program = AxGen(_ace_reflector_signature(), {"validation_retries": 1, "id": "ace.reflector"})
         return self._reflector_program
 
     def _get_curator_program(self):
         if self._curator_program is None:
-            self._curator_program = AxGen(_ACE_CURATOR_SIGNATURE, {"validation_retries": 1, "id": "ace.curator"})
+            self._curator_program = AxGen(_ace_curator_signature(), {"validation_retries": 1, "id": "ace.curator"})
         return self._curator_program
 
     def _program_fields(self):

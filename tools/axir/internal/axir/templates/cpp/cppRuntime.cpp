@@ -6060,28 +6060,56 @@ Value AxACE::apply_online_update(Value args) {
   return curator_result;
 }
 
-static const char* kAceReflectorSignature =
-    "question:string \"Original task input serialized as JSON\", "
-    "generator_answer:string \"Generator output serialized as JSON\", "
-    "generator_reasoning?:string \"Generator reasoning trace\", "
-    "playbook:string \"Current context playbook rendered as markdown\", "
-    "expected_answer?:string \"Expected output when ground truth is available\", "
-    "feedback?:string \"External feedback or reward signal\", "
-    "previous_reflection?:string \"Most recent reflection JSON when running multi-round refinement\" "
-    "-> reasoning:string \"Step-by-step analysis of generator performance\", "
-    "errorIdentification:string \"Specific mistakes detected\", "
-    "rootCauseAnalysis:string \"Underlying cause of the error\", "
-    "correctApproach:string \"What the generator should do differently\", "
-    "keyInsight:string \"Reusable insight to remember\", "
-    "bulletTags:json \"Array of {id, tag} entries referencing playbook bullets\"";
+// The reflector and curator signatures TS builds (src/ax/dsp/optimizers/ace.ts),
+// assembled from Field records: a signature string cannot carry a description
+// with double quotes, as the curator's operations description has.
+static Value ace_field(const std::string& name, const std::string& type, const std::string& description, bool optional = false) {
+  return Core::record_new("Field", Value(Object{{"name", name},
+                                                {"type", Core::record_new("FieldType", Value(Object{{"name", type}}))},
+                                                {"description", description},
+                                                {"isOptional", optional}}));
+}
 
-static const char* kAceCuratorSignature =
-    "playbook:string \"Current playbook serialized as JSON\", "
-    "reflection:string \"Latest reflection output serialized as JSON\", "
-    "question_context:string \"Original task input serialized as JSON\", "
-    "token_budget?:number \"Approximate token budget for curator response\" "
-    "-> reasoning:string \"Justification for the proposed updates\", "
-    "operations:json \"List of operations with type/section/content fields\"";
+static Value ace_signature(Array inputs, Array outputs) {
+  Value sig(Object{{"description", Value()}, {"inputs", Value(std::move(inputs))}, {"outputs", Value(std::move(outputs))}});
+  Core::validate_signature(sig);
+  return sig;
+}
+
+static Value ace_reflector_signature() {
+  return ace_signature(
+      {ace_field("question", "string", "Original task input serialized as JSON"),
+       ace_field("generator_answer", "string", "Generator output serialized as JSON"),
+       ace_field("generator_reasoning", "string", "Generator reasoning trace", true),
+       ace_field("playbook", "string", "Current context playbook rendered as markdown"),
+       ace_field("expected_answer", "string", "Expected output when ground truth is available", true),
+       ace_field("feedback", "string", "External feedback or reward signal", true),
+       ace_field("previous_reflection", "string", "Most recent reflection JSON when running multi-round refinement", true)},
+      {ace_field("reasoning", "string", "Step-by-step analysis of generator performance"),
+       ace_field("errorIdentification", "string", "Specific mistakes detected"),
+       ace_field("rootCauseAnalysis", "string", "Underlying cause of the error"),
+       ace_field("correctApproach", "string", "What the generator should do differently"),
+       ace_field("keyInsight", "string", "Reusable insight to remember"),
+       ace_field("bulletTags", "json", "Array of {id, tag} entries referencing playbook bullets")});
+}
+
+static const char* kAceCuratorOperationsDescription =
+    "List of operations, each {type: \"ADD\"|\"UPDATE\"|\"REMOVE\", section, content}. "
+    "Emit an operation ONLY when the playbook should actually change. "
+    "If nothing should change, return an empty array \xE2\x80\x94 never emit an ADD whose content "
+    "just acknowledges that no change is needed (e.g. \"No update required\", "
+    "\"Keep the existing rule unchanged\"). "
+    "Each ADD content must be a standalone, reusable rule.";
+
+static Value ace_curator_signature() {
+  return ace_signature(
+      {ace_field("playbook", "string", "Current playbook serialized as JSON"),
+       ace_field("reflection", "string", "Latest reflection output serialized as JSON"),
+       ace_field("question_context", "string", "Original task input serialized as JSON"),
+       ace_field("token_budget", "number", "Approximate token budget for curator response", true)},
+      {ace_field("reasoning", "string", "Justification for the proposed updates"),
+       ace_field("operations", "json", kAceCuratorOperationsDescription)});
+}
 
 static const char* kAgentPlaybookWeaknessMinerSignature =
     "clusterSignature:string \"Shared error signature of the cluster\", "
@@ -6320,7 +6348,7 @@ Value AxPlaybook::run_generator(const Value& example) {
 // As in TS, the question holds the example's input fields and the expected
 // answer its output fields.
 Value AxPlaybook::run_reflector(const Value& payload) {
-  if (!reflector_program_) reflector_program_ = std::make_unique<AxGen>(s(kAceReflectorSignature));
+  if (!reflector_program_) reflector_program_ = std::make_unique<AxGen>(ace_reflector_signature());
   size_t max_chars = playbook_max_serialized_chars(engine_);
   Value example = Core::get(payload, "question");
   Value request = Value::object();
@@ -6345,7 +6373,7 @@ Value AxPlaybook::run_reflector(const Value& payload) {
 
 // The real LLM curator: a focused AxGen sub-program driven by the teacher.
 Value AxPlaybook::run_curator(const Value& payload) {
-  if (!curator_program_) curator_program_ = std::make_unique<AxGen>(s(kAceCuratorSignature));
+  if (!curator_program_) curator_program_ = std::make_unique<AxGen>(ace_curator_signature());
   Value question_context = playbook_field_values(Core::get(payload, "question_context"), program_, "inputs");
   Value request = Value::object();
   Core::set(request, "playbook", Value(playbook_input(Core::get(payload, "playbook", Value("")), engine_.get_playbook())));
