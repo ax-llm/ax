@@ -2556,7 +2556,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/signature_schema.cpp`: signature parsing and JSON schema generation",
 				"- `examples/model_catalog.cpp`: model catalog, named profiles, thinking levels, and service tiers",
 				"- `examples/axgen_scripted_client_tool.cpp`: AxGen with a scripted client and tool",
-				"- `examples/axgen_streaming_no_key.cpp`: `streaming_forward` field deltas with a streaming assertion, feedback, streaming and transform field processors, stopping, cancellation, and run control through a scripted SSE transport",
+				"- `examples/axgen_streaming_no_key.cpp`: `streaming_forward` field deltas with a streaming assertion, feedback, streaming and transform field processors, stopping, cancellation, and run control through a scripted SSE transport, and `AxCachingFunction` hits from the generator, a per-call `caching_function` handle and `set_caching_function`",
 				"- `examples/provider_mapping_no_key.cpp`: provider mapping through a scripted transport",
 				"- `examples/runtime_hooks_no_key.cpp`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `examples/adaptive_balancer_no_key.cpp`: adaptive balancer state, scoring, and stable route keys without a provider key",
