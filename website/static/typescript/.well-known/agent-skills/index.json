@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.",
       "url": "ax-flow/SKILL.md",
-      "digest": "sha256:dd5b89fd8b636489b1f1af0373f13c4712837c755323b88daa66d2108b344e29"
+      "digest": "sha256:10128ea1cd5ea0a837cd1dd9659a73d29beb1daf5234a9831086f7583c624d15"
     },
     {
       "name": "ax-agent",

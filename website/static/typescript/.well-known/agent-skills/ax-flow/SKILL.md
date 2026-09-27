@@ -425,6 +425,28 @@ for (const entry of log) {
 }
 ```
 
+## Result Caching
+
+Pass `cachingFunction` in `forward()` options, or set
+`axGlobals.cachingFunction`; the flow's factory options take none. The flow
+stores its returned output under a key of its signature and input values, and
+a stored output comes back without running any node. The flow ignores errors
+from its own cache reads and writes. The same function reaches AxGen nodes
+through the forward options, so each node caches its own output too, and a
+node's read error fails the run as AxGen `forward` does. A run with a
+`control` bypasses the cache. `streamingForward` returns a stored output as
+its single update.
+
+```typescript
+const cache = new Map<string, unknown>();
+const result = await wf.forward(llm, input, {
+  cachingFunction: async (key, value) => {
+    if (value === undefined) return cache.get(key);
+    cache.set(key, value);
+  },
+});
+```
+
 ## Error Handling
 
 ```typescript

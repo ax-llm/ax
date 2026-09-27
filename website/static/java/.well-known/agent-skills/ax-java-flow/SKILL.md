@@ -89,6 +89,17 @@ Forward accepts the provider client and the public flow inputs.
 var output = parallelFlow.forward(client, Map.of("topicText", "Typed LLM workflows"));
 ```
 
+### Cache a flow
+
+An `AxCachingFunction` under `cachingFunction` in the `forward` or `streamingForward` options, or `AxGlobals.setCachingFunction(fn)` for the process, caches the flow's output as TypeScript does: a hit runs no node and records no span or metric, and a run `control` skips it. The `AxFlow` constructor takes none; the function also reaches the flow's AxGen nodes, which cache their own outputs.
+
+```java
+var output = parallelFlow.forward(
+    client,
+    Map.of("topicText", "Typed LLM workflows"),
+    Map.of("cachingFunction", cache));
+```
+
 Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/java/subsystems/flow/.
 
 ## Astra Session Work

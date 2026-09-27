@@ -107,6 +107,19 @@ let updates = parallel_flow.streaming_forward(
 let output = &updates[0].delta;
 ```
 
+### Cache a flow
+
+For one call, `forward_with_caching_function(&mut client, input, options, f)` or `streaming_forward_with_caching_function(&mut client, input, options, f)` caches the flow's output as TypeScript does; `set_caching_function(Some(f))` covers the process. A hit runs no node and records no span or metric, and a run control skips it. A flow's constructor takes none; the flow's AxGen nodes use the same function and cache their own outputs.
+
+```rust
+let output = parallel_flow.forward_with_caching_function(
+    &mut client,
+    json!({"topicText": "Typed LLM workflows"}),
+    json!({}),
+    cache.clone(),
+)?;
+```
+
 Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/rust/subsystems/flow/.
 
 ## Astra Session Work

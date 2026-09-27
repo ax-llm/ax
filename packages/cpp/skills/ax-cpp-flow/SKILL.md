@@ -92,6 +92,18 @@ auto output = parallel_flow.forward(
     axllm::object({{"topicText", "Typed LLM workflows"}}));
 ```
 
+### Cache a flow
+
+Put an `axllm::caching_function(fn)` handle's `value()` under `"caching_function"` in the `forward` or `streaming_forward` options, keeping the handle alive for the call, or set one process-wide with `axllm::set_caching_function(fn)`. As in TypeScript, a hit runs no node and records no span or metric, and a run `control` skips it. An `AxFlow` takes none in its constructor; the flow's AxGen nodes use the same function and cache their own outputs.
+
+```cpp
+auto cache = axllm::caching_function(fn);
+auto output = parallel_flow.forward(
+    client,
+    axllm::object({{"topicText", "Typed LLM workflows"}}),
+    axllm::object({{"caching_function", cache.value()}}));
+```
+
 Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/cpp/subsystems/flow/.
 
 ## Astra Session Work

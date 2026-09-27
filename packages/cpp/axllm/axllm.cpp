@@ -38613,71 +38613,74 @@ Value Core::_flow_plan(Value flow) {
   return plan;
 }
 
-Value Core::_flow_cache_key(Value values) {
+Value Core::_flow_cache_key(Value flow, Value values) {
   axir_coverage_mark("_flow_cache_key");
-  Value key = Core::json_stable_stringify(values);
+  Value plan = Core::_flow_plan(flow);
+  Value plan_text = Core::json_stable_stringify(plan);
+  Value values_text = Core::json_stable_stringify(values);
+  Value parts = Value::array();
+  Core::append(parts, Value("axflow"));
+  Core::append(parts, plan_text);
+  Core::append(parts, values_text);
+  Value text = Core::string_join(Value("\n"), parts);
+  Value key = Core::crypto_sha256_hex(text);
   return key;
 }
 
-Value Core::_flow_cache_read_write(Value flow, Value values, Value options, Value mode, Value cached_value) {
-  axir_coverage_mark("_flow_cache_read_write");
+Value Core::_flow_cache_lookup_impl(Value flow, Value values, Value options) {
+  axir_coverage_mark("_flow_cache_lookup_impl");
   Value empty_map = Value::object();
   Value opts_missing = Core::is_none(options);
   Value opts = options;
   if (Core::truthy(opts_missing)) {
     opts = empty_map;
   }
-  Value key = Core::_flow_cache_key(values);
-  Value store_snake = Core::get(opts, Value("cache_store"), Value());
-  Value store = Core::get(opts, Value("cacheStore"), store_snake);
-  Value has_store = Core::is_not_none(store);
-  Value read_error_snake = Core::get(opts, Value("cache_read_error"), Value(false));
-  Value read_error = Core::get(opts, Value("cacheReadError"), read_error_snake);
-  Value write_error_snake = Core::get(opts, Value("cache_write_error"), Value(false));
-  Value write_error = Core::get(opts, Value("cacheWriteError"), write_error_snake);
-  Value is_read = Core::eq(mode, Value("read"));
-  Value is_write = Core::eq(mode, Value("write"));
   Value none = Core::none();
-  Value result = Value::object();
-  Core::set(result, Value("key"), key);
-  Core::set(result, Value("hit"), Value(false));
-  Core::set(result, Value("value"), none);
+  Value lookup = Value::object();
+  Core::set(lookup, Value("fn"), none);
+  Core::set(lookup, Value("key"), Value(""));
+  Core::set(lookup, Value("hit"), Value(false));
   Value controller = Core::get(opts, Value("control"), Value());
   Value controlled = Core::is_not_none(controller);
   if (Core::truthy(controlled)) {
-    return result;
+    return lookup;
   }
-  if (Core::truthy(is_read)) {
-    Value can_read_store = Core::and_(has_store, read_error);
-    Value skip_read = Core::truthy_value(can_read_store);
-    if (Core::truthy(skip_read)) {
-      // empty
-    }
-    if (!Core::truthy(skip_read)) {
-      if (Core::truthy(has_store)) {
-        Value cached = Core::get(store, key, Value());
-        Value hit = Core::is_not_none(cached);
-        if (Core::truthy(hit)) {
-          Core::set(result, Value("hit"), Value(true));
-          Core::set(result, Value("value"), cached);
-        }
-      }
-    }
+  Value cache_fn = Core::flow_caching_function(opts);
+  Value no_cache = Core::is_none(cache_fn);
+  if (Core::truthy(no_cache)) {
+    return lookup;
   }
-  if (Core::truthy(is_write)) {
-    Value can_write_store = Core::and_(has_store, write_error);
-    Value skip_write = Core::truthy_value(can_write_store);
-    if (Core::truthy(skip_write)) {
-      // empty
-    }
-    if (!Core::truthy(skip_write)) {
-      if (Core::truthy(has_store)) {
-        Core::set(store, key, cached_value);
-        Core::set(result, Value("value"), cached_value);
-      }
-    }
+  Value key = Core::_flow_cache_key(flow, values);
+  Core::set(lookup, Value("fn"), cache_fn);
+  Core::set(lookup, Value("key"), key);
+  Value cached = Core::none();
+  try {
+    cached = Core::axgen_cache_read(cache_fn, key);
+  } catch (const std::exception& e) {
+    Value read_error = Core::exception_value(e);
+    // empty
   }
-  return result;
+  Value hit = Core::is_not_none(cached);
+  if (Core::truthy(hit)) {
+    Core::set(lookup, Value("hit"), Value(true));
+    Core::set(lookup, Value("value"), cached);
+  }
+  return lookup;
+}
+
+Value Core::_flow_cache_store_impl(Value cache_fn, Value key, Value output) {
+  axir_coverage_mark("_flow_cache_store_impl");
+  Value no_cache = Core::is_none(cache_fn);
+  if (Core::truthy(no_cache)) {
+    return Value();
+  }
+  try {
+    Core::axgen_cache_write(cache_fn, key, output);
+  } catch (const std::exception& e) {
+    Value write_error = Core::exception_value(e);
+    // empty
+  }
+  return Value();
 }
 
 Value Core::_flow_check_abort(Value options, Value location) {
@@ -39262,12 +39265,26 @@ Value Core::_flow_forward(Value flow, Value client, Value values, Value options)
   if (Core::truthy(opts_missing)) {
     opts = empty_map;
   }
-  Value cache_read = Core::_flow_cache_read_write(flow, values, opts, Value("read"), Value());
-  Value cache_hit = Core::get(cache_read, Value("hit"), Value(false));
-  if (Core::truthy(cache_hit)) {
-    Value cached_value = Core::get(cache_read, Value("value"), Value());
-    return cached_value;
+  opts = Core::map_merge(empty_map, opts);
+  Value cache_fn = Core::none();
+  Value flow_cache_key = Value("");
+  Value host_lookup = Core::get(opts, Value("_ax_flow_cache_lookup"), Value());
+  Value looked_up = Core::is_not_none(host_lookup);
+  if (Core::truthy(looked_up)) {
+    cache_fn = Core::get(host_lookup, Value("fn"), Value());
+    flow_cache_key = Core::get(host_lookup, Value("key"), Value(""));
   }
+  if (!Core::truthy(looked_up)) {
+    Value cache_read = Core::_flow_cache_lookup_impl(flow, values, opts);
+    Value cache_hit = Core::get(cache_read, Value("hit"), Value(false));
+    if (Core::truthy(cache_hit)) {
+      Value cached_value = Core::get(cache_read, Value("value"), Value());
+      return cached_value;
+    }
+    cache_fn = Core::get(cache_read, Value("fn"), Value());
+    flow_cache_key = Core::get(cache_read, Value("key"), Value(""));
+  }
+  Core::map_delete(opts, Value("_ax_flow_cache_lookup"));
   Value fresh_traces = Value::array();
   Value fresh_chat_log = Value::array();
   Value fresh_usage = Value::object();
@@ -39277,13 +39294,13 @@ Value Core::_flow_forward(Value flow, Value client, Value values, Value options)
   Value state = Core::map_merge(empty_map, values);
   Value traces = Core::get(flow, Value("traces"), Value());
   Value program_id = Core::get(flow, Value("program_id"), Value("root.flow"));
-  Value cache_key = Core::_flow_cache_key(values);
+  Value cache_key = Core::_flow_cache_key(flow, values);
   Value begin = Core::_program_trace_event(program_id, Value("flow_start"), state);
   Core::append(traces, begin);
   state = Core::_flow_execute_steps(flow, client, state, opts);
   Value returns = Core::get(flow, Value("returns"), empty_map);
   Value output = Core::_flow_project_returns(state, returns);
-  Core::_flow_cache_read_write(flow, values, opts, Value("write"), output);
+  Core::_flow_cache_store_impl(cache_fn, flow_cache_key, output);
   Value done_payload = Value::object();
   Core::set(done_payload, Value("cache_key"), cache_key);
   Core::set(done_payload, Value("output"), output);
@@ -44056,6 +44073,16 @@ Value Core::axgen_caching_function(Value gen, Value options) {
   return global ? global->value() : Value();
 }
 
+// TS AxFlow: options.cachingFunction ?? axGlobals.cachingFunction. A flow's
+// constructor takes none; its AxGen nodes get the call's options, so they
+// cache through the same function.
+Value Core::flow_caching_function(Value options) {
+  Value marker = get_key(options, "caching_function", get_key(options, "cachingFunction"));
+  if (!marker.is_null()) return marker;
+  auto global = global_caching_function();
+  return global ? global->value() : Value();
+}
+
 // fn(key) returns the stored output, or nothing for a miss. A copy comes back,
 // so the caller's output does not share state with the cache.
 Value Core::axgen_cache_read(Value fn, Value key) {
@@ -47731,6 +47758,13 @@ Value AxFlow::forward(AIClient& client, Value values, Value options, const AxCan
 }
 
 Value AxFlow::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  // As in TS, the flow reads its cache before its span and metrics, so a hit
+  // records neither (and streaming_forward sends it as its one delta). A miss
+  // hands the lookup to the run, which then only stores.
+  Value lookup = Core::_flow_cache_lookup_impl(state_, values, options);
+  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::get(lookup, "value");
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_ax_flow_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
                          object({{"ax.program.id", Core::get(state_, "program_id", "root.flow")}, {"ax.program.type", "AxFlow"}}));
