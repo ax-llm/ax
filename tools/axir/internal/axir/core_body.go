@@ -151,6 +151,7 @@ const (
 	IntrinsicFlowCachingFunction       CoreIntrinsic = "intrinsic.flow.caching_function"
 	IntrinsicAgentStageForward         CoreIntrinsic = "intrinsic.agent.stage_forward"
 	IntrinsicAgentNativeStageForward   CoreIntrinsic = "intrinsic.agent.native_stage_forward"
+	IntrinsicAgentStageStreamForward   CoreIntrinsic = "intrinsic.agent.stage_streaming_forward"
 	IntrinsicAgentStageChatLog         CoreIntrinsic = "intrinsic.agent.stage_chat_log"
 	IntrinsicAgentStageUsage           CoreIntrinsic = "intrinsic.agent.stage_usage"
 	IntrinsicAgentStageTraces          CoreIntrinsic = "intrinsic.agent.stage_traces"
@@ -309,6 +310,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicFlowCachingFunction:       "_core_flow_caching_function",
 	IntrinsicAgentStageForward:         "_core_agent_stage_forward",
 	IntrinsicAgentNativeStageForward:   "_core_agent_native_stage_forward",
+	IntrinsicAgentStageStreamForward:   "_core_agent_stage_streaming_forward",
 	IntrinsicAgentStageChatLog:         "_core_agent_stage_chat_log",
 	IntrinsicAgentStageUsage:           "_core_agent_stage_usage",
 	IntrinsicAgentStageTraces:          "_core_agent_stage_traces",
@@ -491,6 +493,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.flow.caching_function":                 true,
 	"intrinsic.agent.stage_forward":                   true,
 	"intrinsic.agent.native_stage_forward":            true,
+	"intrinsic.agent.stage_streaming_forward":         true,
 	"intrinsic.agent.stage_chat_log":                  true,
 	"intrinsic.agent.stage_usage":                     true,
 	"intrinsic.agent.stage_traces":                    true,
@@ -788,6 +791,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.flow.caching_function":           intrinsicInfo("intrinsic.flow.caching_function", 1, 1, true, "json"),
 	"intrinsic.agent.stage_forward":             intrinsicInfo("intrinsic.agent.stage_forward", 4, 4, true, "json"),
 	"intrinsic.agent.native_stage_forward":      intrinsicInfo("intrinsic.agent.native_stage_forward", 6, 6, true, "json"),
+	"intrinsic.agent.stage_streaming_forward":   intrinsicInfo("intrinsic.agent.stage_streaming_forward", 6, 6, true, "json"),
 	"intrinsic.agent.stage_chat_log":            intrinsicInfo("intrinsic.agent.stage_chat_log", 1, 1, true, "list<json>"),
 	"intrinsic.agent.stage_usage":               intrinsicInfo("intrinsic.agent.stage_usage", 1, 1, true, "json"),
 	"intrinsic.agent.stage_traces":              intrinsicInfo("intrinsic.agent.stage_traces", 1, 1, true, "list<json>"),

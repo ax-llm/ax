@@ -33,7 +33,7 @@ let out = helper.forward(&llm, inputs, None)?;
 
 ## Relevant API Surface
 
-- Agents And RLM: `agent`, `AxAgent`, `AxAgent::with_child_agent`
+- Agents And RLM: `agent`, `AxAgent`, `AxAgent::with_child_agent`, `AxAgent::streaming_forward`
 - Runtime Profiles: `ProcessCodeRuntime`, `RuntimeCapabilities`, `RuntimeEnvelope`, `javascript-quickjs`
 - Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
 

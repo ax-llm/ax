@@ -417,6 +417,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicFlowCachingFunction:       "Core.flowCachingFunction",
 	IntrinsicAgentStageForward:         "Core.agentStageForward",
 	IntrinsicAgentNativeStageForward:   "Core.agentNativeStageForward",
+	IntrinsicAgentStageStreamForward:   "Core.agentStageStreamingForward",
 	IntrinsicAgentStageChatLog:         "Core.agentStageChatLog",
 	IntrinsicAgentStageUsage:           "Core.agentStageUsage",
 	IntrinsicAgentStageTraces:          "Core.agentStageTraces",

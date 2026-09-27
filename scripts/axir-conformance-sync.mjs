@@ -520,6 +520,12 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(repoRoot, tempRoot, 'agent-goldens.ts', 'AxAgent', {
       AXIR_AGENT_PARITY_ONLY: '1',
     });
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'agent-streaming-goldens.ts',
+      'AxAgent streaming'
+    );
     const failures = [
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axai', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'signature', write),

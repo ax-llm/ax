@@ -400,6 +400,37 @@
           "// The example computes the same answer in plain code and asserts the",
           "// agent matched it: total to the cent, count, and the exact id list."
         ]
+      },
+      "streaming": {
+        "sourcePath": "src/examples/typescript/short-agents/streaming-agent.ts",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "// The handbook stays in the agent's runtime, out of the prompt. With citations",
+          "// on, the answer cites the evidence it used, and ids the run never gathered are",
+          "// sent back to the model for a correction.",
+          "const assistant = agent('question:string, handbook:string -> answer:string', {",
+          "  contextFields: ['handbook'],",
+          "  citations: { onCitations: (ids) => console.log('\\ncited:', ids) },",
+          "  maxTurns: 12,",
+          "});",
+          "",
+          "// The distiller and the executor run first; then the responder's answer",
+          "// streams. Merge each delta and start over when the version changes (a retry).",
+          "let version = 0;",
+          "for await (const chunk of assistant.streamingForward(llm, {",
+          "  question:",
+          "    'I downgraded today. When does it take effect, and is my data safe if I delete the workspace?',",
+          "  handbook,",
+          "})) {",
+          "  if (chunk.version !== version) {",
+          "    version = chunk.version;",
+          "    console.log('\\n[retry: starting over]');",
+          "  }",
+          "  if (chunk.delta.answer) process.stdout.write(chunk.delta.answer);",
+          "}",
+          "console.log();"
+        ]
       }
     },
     "signatures": {
