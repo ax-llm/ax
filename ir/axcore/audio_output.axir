@@ -76,4 +76,37 @@ module @ax.audio_output version "0.1" {
       core.return %out
     }
   }
+
+  op ax.gen.semantic @render_stream_result_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%run: json, %output: json) {
+      // TS renders the audio outputs of a streaming run's result where a
+      // result picker buffered the run, before its one delta goes out, and
+      // where forward streamed it; deltas a consumer reads as the model
+      // streams stay text. The run carries what rendering needs under
+      // "render_audio".
+      %render = core.get %run["render_audio"]
+      %no_render = core.call intrinsic.is_none(%render)
+      core.if %no_render {
+        core.return %output
+      }
+      %buffered = core.get %run["buffered"] default false
+      %sink = core.get %run["sink"]
+      %no_sink = core.call intrinsic.is_none(%sink)
+      %renders = core.call intrinsic.or(%buffered, %no_sink)
+      core.if %renders {
+        %gen = core.get %render["gen"]
+        %client = core.get %render["client"]
+        %options = core.get %render["options"]
+        %rendered = core.call @render_audio_outputs_impl(%gen, %client, %output, %options)
+        core.return %rendered
+      }
+      core.return %output
+    }
+  }
 }

@@ -6439,13 +6439,27 @@ func (g *AxGen) cacheLookupFirst(values map[string]Value, options map[string]Val
 	return options, nil, false, nil
 }
 
+// renderCachedAudio renders a stored output's audio outputs, as TypeScript
+// does on a cache hit (@render_audio_outputs_impl).
+func (g *AxGen) renderCachedAudio(ctx context.Context, client AIClient, cached Value, options map[string]Value) (Value, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return safeValue(func() Value {
+		return mustCore(_render_audio_outputs_impl(g, bindAIClientContext(ctx, client), cached, options))
+	})
+}
+
 func (g *AxGen) forwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
 	options = stripRuntimeHooks(options)
 	// As in TypeScript, the cache is read before the run's span and metrics:
 	// a hit, or a read error, records neither.
 	options, cached, hit, err := g.cacheLookupFirst(values, options, false)
-	if err != nil || hit {
-		return cached, err
+	if err != nil {
+		return nil, err
+	}
+	if hit {
+		return g.renderCachedAudio(ctx, client, cached, options)
 	}
 	attributes := Object("ax.program.id", g.ProgramID, "ax.program.type", "AxGen")
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes)
@@ -6690,6 +6704,9 @@ func (g *AxGen) streamingForwardWith(ctx context.Context, client AIClient, value
 			return nil, err
 		}
 		if hit {
+			if cached, err = g.renderCachedAudio(ctx, client, cached, options); err != nil {
+				return nil, err
+			}
 			if _, err := _core_axgen_emit_delta(sink, Object("version", 0, "index", 0, "delta", cached)); err != nil {
 				return nil, err
 			}
@@ -12643,7 +12660,7 @@ func runConformanceCacheSequence(fixture map[string]Value) {
 	if pickerIndex := coreGet(fixture, "result_picker_index", nil); pickerIndex != nil {
 		gen.SetResultPicker(func([]AxResultPickerSample) (int, error) { return int(num(pickerIndex)), nil })
 	}
-	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
+	client := conformanceScriptSpeak(conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil)), fixture)
 	defer SetCachingFunction(snapshotGlobalCachingFunction())
 	if cacheIn == "global" {
 		SetCachingFunction(cachingFunction)
@@ -12694,6 +12711,7 @@ func runConformanceCacheSequence(fixture map[string]Value) {
 	assertEqual(len(client.Requests), coreGet(fixture, "expected_request_count", nil), "cache sequence request count")
 	assertEqual(reads, coreGet(fixture, "expected_cache_gets", nil), "cache reads")
 	assertEqual(writes, coreGet(fixture, "expected_cache_sets", nil), "cache writes")
+	conformanceAssertSpeakRequests(fixture, client)
 }
 
 func runConformanceStream(fixture map[string]Value) {

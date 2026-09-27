@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-python-audio/SKILL.md",
-      "digest": "sha256:eb298ee1bc058c57f86152c9337b02e63bd3d6a711061495d19a9bce659ecd00"
+      "digest": "sha256:7ea369dd1731975689c730706dc1e68c6bba34bc9b84efae34a9876750d64ccd"
     },
     {
       "name": "ax-python-signature",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-python-gen/SKILL.md",
-      "digest": "sha256:87edfd51dc5bd7f4881c3552a01da00a38296421cd88fe19f8bbd1f07bba68e7"
+      "digest": "sha256:7ee0edc9fed41857059270a9b079d28989c4b20c2b891a1c92031f700b16fe5c"
     },
     {
       "name": "ax-python-flow",

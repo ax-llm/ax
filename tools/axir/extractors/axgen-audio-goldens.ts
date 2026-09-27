@@ -620,6 +620,17 @@ for (const [name, spec] of Object.entries({ ...cases, ...offCases })) {
     }))
     .returns((state) => ({ summary: state.summarizerResult.summary }));
   const input = { question: 'Say hi' };
+  // Each port step reads and writes what TS's plan says it does.
+  const planSteps = wf.getExecutionPlan().steps ?? [];
+  const stepOptions = (name: string): JsonMap => {
+    const step = planSteps.find((item) => item.nodeName === name);
+    if (!step) throw new Error(`flow: no plan step for ${name}`);
+    return {
+      reads: [...step.dependencies],
+      writes: [...step.produces],
+      isBarrier: step.isBarrier ?? false,
+    };
+  };
   const output = clone(await wf.forward(ai, input)) as Json;
   const summarizerUser = (prompts()[1] as { role: string; content: Json }[]).at(
     -1
@@ -631,17 +642,20 @@ for (const [name, spec] of Object.entries({ ...cases, ...offCases })) {
   }
   writeFixture(flowDir, 'audio-output-flow-speaker-to-summarizer', {
     kind: 'flow',
+    flow_options: { autoParallel: false },
     input,
     steps: [
       {
         kind: 'execute',
         name: 'speaker',
         signature: 'question:string -> speech:audio',
+        options: stepOptions('speaker'),
       },
       {
         kind: 'execute',
         name: 'summarizer',
         signature: 'speech:audio -> summary:string',
+        options: stepOptions('summarizer'),
       },
     ],
     returns: { summary: 'summary' },

@@ -1047,6 +1047,7 @@ static void run_cache_sequence(Value fixture) {
     gen.set_result_picker([index](const Value&) { return index; });
   }
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"));
+  client.script_speak(fixture);
   AxCachingFunctionHandle call_cache = caching_function(fn);
   // No other fixture sets a process-wide caching function, so clearing it
   // restores it, however the sequence ends.
@@ -1108,6 +1109,7 @@ static void run_cache_sequence(Value fixture) {
     throw AxError("fixture", "expected " + display(Core::get(fixture, "expected_cache_gets")) + " cache reads, got " + std::to_string(cache->reads));
   }
   assert_equal(cache->writes, Core::get(fixture, "expected_cache_sets"), "cache writes");
+  assert_speak_requests(fixture, client);
 }
 
 static void run_stream(Value fixture) {

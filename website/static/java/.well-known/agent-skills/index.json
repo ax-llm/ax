@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-java-audio/SKILL.md",
-      "digest": "sha256:b156a6c916e0f27f816abc99b167149ede5a42e4aa233091f526effc8a4142d3"
+      "digest": "sha256:0873e65fd7bdfc97f893178921258b41ef19f32ff55be2174edb325d8f846fa0"
     },
     {
       "name": "ax-java-signature",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-java-gen/SKILL.md",
-      "digest": "sha256:1f02b5e99d52872b952d27bc3b4e12b350cd27fc37f89415e88313fb4f2170c9"
+      "digest": "sha256:c7e2b6f14670de74e213a5296242058a12d5dbe818ec80ab9b86b3d66f31eca4"
     },
     {
       "name": "ax-java-flow",

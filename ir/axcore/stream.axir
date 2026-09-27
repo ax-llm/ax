@@ -3833,7 +3833,8 @@ module @ax.stream version "0.1" {
         core.return %empty_output
       }
       %empty_delta = core.map
-      %output = core.get %picked["delta"] default %empty_delta
+      %picked_delta = core.get %picked["delta"] default %empty_delta
+      %output = core.call @render_stream_result_impl(%run, %picked_delta)
       %sink = core.get %run["sink"]
       %has_sink = core.call intrinsic.is_not_none(%sink)
       %send_picked = core.call intrinsic.and(%buffered, %has_sink)

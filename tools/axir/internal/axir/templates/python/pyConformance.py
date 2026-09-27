@@ -1315,7 +1315,7 @@ def _run_cache_sequence(fixture):
     gen = ax(_build_signature(fixture), options)
     if "result_picker_index" in fixture:
         gen.set_result_picker(lambda samples: fixture["result_picker_index"])
-    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"))
+    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"), speak_responses=fixture.get("speak_responses"))
     previous_global = _snapshot_global_caching_function()
     if cache_in == "global":
         set_caching_function(caching_function)
@@ -1353,6 +1353,7 @@ def _run_cache_sequence(fixture):
     if len(reads) != fixture.get("expected_cache_gets"):
         raise FixtureError(f"expected {fixture.get('expected_cache_gets')} cache reads, got {len(reads)}")
     _assert_equal(writes, fixture.get("expected_cache_sets"), "cache writes")
+    _assert_speak_requests(fixture, client)
 
 
 def _run_streaming_forward(fixture):

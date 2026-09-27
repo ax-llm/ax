@@ -1,0 +1,27 @@
+{
+  "expected_output": {
+    "summary": "Nothing to say"
+  },
+  "expected_request_count": 1,
+  "expected_speak_requests": [],
+  "forward_options": {
+    "renderAudio": true
+  },
+  "input": {
+    "question": "Say hi"
+  },
+  "kind": "forward",
+  "name": "audio-output-forward-optional-absent",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Summary: Nothing to say",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> speech?:audio, summary:string"
+}

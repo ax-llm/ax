@@ -1227,6 +1227,7 @@ public final class Conformance {
     if (client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected " + fixture.get("expected_request_count") + " requests, got " + client.requests.size());
     if (reads.size() != Core.asInt(fixture.get("expected_cache_gets"))) throw new FixtureError("expected " + fixture.get("expected_cache_gets") + " cache reads, got " + reads.size());
     assertEqual(writes, fixture.get("expected_cache_sets"), "cache writes");
+    assertSpeakRequests(fixture, client);
   }
 
   static Object flowStateValue(Map<String, Object> state, Object field, Object fallback) {

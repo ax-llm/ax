@@ -7073,7 +7073,8 @@ Value AxGen::forward(AIClient& client, Value values, Value options, const AxRunt
   // records neither; a read error propagates. A miss hands the lookup to the
   // run, which then only stores.
   Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(false));
-  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::get(lookup, "value");
+  // A stored output's audio outputs are rendered, as TS does.
+  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::_render_audio_outputs_impl(state_, Core::client_ref(client), Core::get(lookup, "value"), options);
   options = Core::map_merge(Value::object(), options);
   Core::set(options, "_ax_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
@@ -7157,7 +7158,8 @@ Value AxGen::streaming_forward(AIClient& client, Value values, Value options, Ax
   // telemetry. A miss hands the lookup to the run, which then only stores.
   Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(true));
   if (Core::truthy(Core::get(lookup, "hit", false))) {
-    Value cached = Core::get(lookup, "value");
+    // A stored output's audio outputs are rendered, as TS does.
+    Value cached = Core::_render_audio_outputs_impl(state_, Core::client_ref(client), Core::get(lookup, "value"), options);
     AxGenDelta delta;
     delta.delta = clone_usage_value(cached);
     handler(delta);

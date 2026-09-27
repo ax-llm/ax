@@ -4677,7 +4677,25 @@ impl AxGen {
             None => CoreValue::Null,
         };
         if core_truthy(&core_get(&lookup, &CoreValue::from("hit"), CoreValue::Null)) {
-            let cached = core_get(&lookup, &CoreValue::from("value"), CoreValue::Null);
+            // A stored output's audio outputs are rendered, as TS does; the
+            // renderer reaches the client only through speak().
+            let stored = core_get(&lookup, &CoreValue::from("value"), CoreValue::Null);
+            let render_options = core_forward_options(&options, caching_function.as_ref())?;
+            let mut speak = |method: &str, request: Value, _options: Value| -> AxResult<Value> {
+                if method == "speak" {
+                    client.speak(request)
+                } else {
+                    Err(AxError::runtime(format!("a stored output made a {method} call")))
+                }
+            };
+            let cached = with_core_client(&mut speak, || {
+                _render_audio_outputs_impl(&[
+                    prepared.clone().unwrap_or(CoreValue::Null),
+                    CoreValue::Null,
+                    stored,
+                    render_options,
+                ])
+            })?;
             if let Some(sink) = &sink {
                 let envelope = core_axgen_map_from(&[
                     ("version", CoreValue::Num(0.0)),
@@ -10384,15 +10402,17 @@ fn run_validate_output_fixture(fixture: &Value) -> AxResult<()> {
 }
 
 fn run_validate_value_fixture(fixture: &Value) -> AxResult<()> {
+    // The field is named as the fixture says, since errors quote the name.
+    let name = fixture.get("field_name").and_then(Value::as_str).unwrap_or("value");
     let field = fixture
         .get("field")
-        .map(|raw| field_from_spec("value", raw))
+        .map(|raw| field_from_spec(name, raw))
         .or_else(|| {
             fixture
                 .get("field_spec")
-                .map(|raw| field_from_spec("value", raw))
+                .map(|raw| field_from_spec(name, raw))
         })
-        .unwrap_or_else(|| Field::new("value", FieldType::string()));
+        .unwrap_or_else(|| Field::new(name, FieldType::string()));
     let value = fixture.get("value").cloned().unwrap_or(Value::Null);
     let result = validate_field_value_native(&field, &value);
     expect_validation_result(result, fixture)
@@ -16402,7 +16422,8 @@ fn run_cache_sequence_fixture(fixture: &Value) -> AxResult<()> {
     let mut client = FixtureClient::scripted(
         fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default(),
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
-    );
+    )
+    .with_speak_responses(fixture);
     let (mut outputs, mut deltas_per_call, mut requests, mut errors) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let previous_global = global_caching_function();
     if cache_in == "global" {
@@ -16472,7 +16493,8 @@ fn run_cache_sequence_fixture(fixture: &Value) -> AxResult<()> {
         return Err(AxError::new("fixture", format!("expected {expected_cache_gets} cache reads, got {cache_gets}")));
     }
     let cache_sets = Value::Array(writes.lock().unwrap().clone());
-    expect_json_equal("cache writes", &cache_sets, fixture.get("expected_cache_sets").unwrap_or(&Value::Null))
+    expect_json_equal("cache writes", &cache_sets, fixture.get("expected_cache_sets").unwrap_or(&Value::Null))?;
+    expect_fixture_speak_requests(fixture, &client.speak_requests)
 }
 
 fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
