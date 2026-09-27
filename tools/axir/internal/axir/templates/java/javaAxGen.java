@@ -643,22 +643,28 @@ public final class AxGen implements AxProgram {
       Map<String, Object> runOptions = new LinkedHashMap<>(this.options);
       runOptions.putAll(options);
       boolean controlled = runOptions.get("control") instanceof AxRunControl;
-      boolean sessionCapable = Core.truthy(Core.chat_session_mode_enabled(runOptions))
-          && (client instanceof ChatRunSelector || (client instanceof AxChatSession.Provider && Core.truthy(Core.get(Core.aiClientFeatures(client, runOptions.get("model")), "asyncTools", false))));
-      if (sessionCapable && (controlled || functions.stream().anyMatch(tool -> "background".equals(tool.execution)))) {
-        throw new UnsupportedOperationException("streaming_forward deltas do not cover async run sessions (control or background tools on a session-capable client) yet; use forward()");
-      }
-      // Run controls apply at each request boundary, as in forward().
-      if (controlled) {
-        SessionRun bounded = new SessionRun(this, client, null, runOptions);
+      boolean sessionMode = Core.truthy(Core.chat_session_mode_enabled(runOptions));
+      AxChatSession.Provider opener = null;
+      if (client instanceof AxChatSession.Provider provider && sessionMode && Core.truthy(Core.get(Core.aiClientFeatures(client, runOptions.get("model")), "asyncTools", false))) opener = provider;
+      boolean sessionCapable = opener != null || (client instanceof ChatRunSelector && sessionMode);
+      // As in forward(), run controls apply at each request boundary, and a
+      // session-capable client pins the run: each request streams its own
+      // native session's items.
+      if (controlled || (sessionCapable && functions.stream().anyMatch(tool -> "background".equals(tool.execution)))) {
+        SessionRun run = new SessionRun(this, client, opener, runOptions);
+        Map<String, Object> runCallOptions = options;
+        if (sessionCapable) {
+          runCallOptions = new LinkedHashMap<>(options);
+          runCallOptions.put("infraRetries", 0);
+        }
         try {
-          Map<String, Object> output = streamingForwardUnscoped(bounded, values, options, emit);
-          bounded.finish(null);
+          Map<String, Object> output = streamingForwardUnscoped(run, values, runCallOptions, emit);
+          run.finish(null);
           return output;
         } catch (RuntimeException | Error error) {
           // A run the streamingForward() consumer stopped early ends with an
           // aborted event rather than failed.
-          bounded.finish(error, runOptions.get("cancellation") instanceof AxGenDeltaStream.StopToken stop && stop.consumerStopped());
+          run.finish(error, runOptions.get("cancellation") instanceof AxGenDeltaStream.StopToken stop && stop.consumerStopped());
           throw error;
         }
       }

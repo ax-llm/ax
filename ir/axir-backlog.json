@@ -2390,6 +2390,25 @@
       "verification": "@agent_eval_marks and @build_agent_run_prediction build every port's evaluated prediction (final, askClarification and the ports' error prediction) from the run's own share of the logs, with TS-shaped functionCalls, toolErrors, failure signals and turn count; @agent_playbook_action_log_text renders the distiller's steps when the executor did not run. TS goldens axoptimize/eval-prediction-function-calls and -clarification-function-calls (TS's forwardPipelineForEvaluation through a scripted tool runtime; new runner keys runtime_script for optimize eval and expected_prediction_fields for exact fields, in all five runners) and axagent/agent-playbook-evolve-miner-function-calls (two tasks) and -miner-direct-respond (TS's mineWeakness over TS's evaluated predictions) fail on main in all five ports and pass in all five; 10 negative copies fail in all five (50 of 50). The Rust runner's eval operation now runs the agent. Full suites 1229/1229 in python, go, java, cpp and rust."
     },
     {
+      "id": "axir-2026-09-27-give-a-native-chat-session-typescript-s-response-budget-in-the-p",
+      "status": "open",
+      "title": "Give a native chat session TypeScript's response budget in the ports: maxSteps (default 25) minus the step index, with TypeScript's error",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "a0db9f007391c0cabc498eeafcaa308341032a2d",
+      "tsPaths": ["src/ax/dsp/chatSession.ts", "src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript's axRunChatSession lets one model request's native session make (maxSteps ?? 25) - stepIndex responses (generate.ts maxResponses) and then fails with 'Chat session failed: Maximum steps reached with unincorporated tool results (N); unresolved calls: ...'. The ports cap a session at the max_steps option or 10, without the step index, and fail with 'Maximum model steps exhausted before final completion'. Reproduced with a scripted session of 10 sequential tool-call responses and a final answer (11 responses): TypeScript completes with {answer: done} after 10 continues; Python on the 3b-2 branch fails with 'Generate failed: Maximum model steps exhausted before final completion'. At 26 responses TypeScript fails with its message. Go, Java, Rust and C++ create the session state with the same max_steps default of 10 (read, not run). Affects session-capable providers only, for a request whose session makes 11 to 25 responses.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-27-js-text-for-string-format-chat-message-and-nameless-call-checks",
       "status": "done",
       "title": "string.format and string.str write JavaScript's text in the ports; chat messages and nameless function calls fail with TypeScript's checks",
@@ -2622,7 +2641,7 @@
     },
     {
       "id": "axir-2026-09-27-open-a-fresh-native-chat-session-for-each-axgen-request-in-the-p",
-      "status": "open",
+      "status": "done",
       "title": "Open a fresh native chat session for each AxGen request in the ports, as TypeScript does, instead of steering the open session with a correction",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2635,9 +2654,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "39c623f436c91b14d2c1ef1ca647a6c1200f324f",
+      "verification": "TS-derived *native-session* goldens (session log, prompts, control events, output) pass in all five ports: a correction, a feedback step and a correction after a tool loop open a fresh session whose prompt holds the earlier turns; each session applies the run's updates again; a forward runs no streaming assertions. Five-port dev verify, host session tests per port."
     },
     {
       "id": "axir-2026-09-27-openai-image-detail-pcm-and-input-audio-wire",
@@ -2914,7 +2933,7 @@
     },
     {
       "id": "axir-2026-09-27-stream-axgen-deltas-under-native-chat-sessions-in-the-ports-as-t",
-      "status": "open",
+      "status": "done",
       "title": "Stream AxGen deltas under native chat sessions in the ports as TypeScript does: each session response through the plain-stream extraction, with a new version per response",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2931,9 +2950,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "39c623f436c91b14d2c1ef1ca647a6c1200f324f",
+      "verification": "TS-derived streaming *native-session* goldens (deltas, versions, output, session log, prompts) pass in all five ports: partial events stream like a plain stream, a later response starts a new version, the completed response adds only what was not sent, a streaming-assertion retry keeps the partial answer, and after a started tool it fails the run. Agent streams under a run session stream the responder's session in every port. Five-port dev verify."
     },
     {
       "id": "axir-2026-09-27-transport-error-classification",

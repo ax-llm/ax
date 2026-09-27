@@ -64,6 +64,17 @@ type ResponseSpec =
   | { error: ErrorSpec }
   | { results: JsonMap[] };
 
+// A native chat session's script: one entry per opened session, each a list
+// of responses. A session plays its first response when it opens and the
+// next one each time the run continues it. A response is its events: partial
+// `response` events, then `response.completed` with the whole response.
+type SessionEventSpec = {
+  type: 'response' | 'response.completed';
+  response_id: string;
+  results: JsonMap[];
+};
+type SessionScript = SessionEventSpec[][][];
+
 function tsError(spec: ErrorSpec): Error {
   const message = spec.message ?? 'fixture error';
   switch (spec.type ?? 'network') {
@@ -114,9 +125,15 @@ function scriptedAI(
   responses: ResponseSpec[],
   features: JsonMap | undefined,
   // Runs inside each request (1-based) before the scripted answer.
-  onRequest?: (request: number) => void
+  onRequest?: (request: number) => void,
+  // With a session script the client opens native chat sessions.
+  sessions?: SessionScript
 ) {
   const queue = clone(responses);
+  const sessionQueue = clone(sessions ?? []);
+  // What the run did to its sessions, in order: open, steer, continue (with
+  // the IDs of the tool results it submitted) and close.
+  const sessionLog: JsonMap[] = [];
   let calls = 0;
   // The chat prompt of each request, in call order.
   const prompts: Json[][] = [];
@@ -181,11 +198,82 @@ function scriptedAI(
         : {}),
     });
   }
+  if (sessions) {
+    const baseFeatures = ai.getFeatures.bind(ai);
+    ai.getFeatures = (model) => ({ ...baseFeatures(model), asyncTools: true });
+    Object.assign(ai, {
+      async openChatSession(request: {
+        chatPrompt: unknown[];
+        responseFormat?: { type?: string };
+      }) {
+        calls++;
+        prompts.push(clone(request.chatPrompt) as unknown as Json[]);
+        formats.push(request.responseFormat?.type ?? null);
+        sessionLog.push({ op: 'open' });
+        onRequest?.(calls);
+        const script = sessionQueue.shift();
+        if (!script) throw new Error('scripted sessions exhausted');
+        const pending: SessionEventSpec[][] = [];
+        const submitted: string[] = [];
+        let wake: (() => void) | undefined;
+        let closed = false;
+        const play = () => {
+          const next = script.shift();
+          if (!next) throw new Error('scripted session exhausted');
+          pending.push(next);
+          wake?.();
+        };
+        play();
+        return {
+          model: 'scripted-session',
+          async *events() {
+            while (!closed) {
+              const events = pending.shift();
+              if (!events) {
+                await new Promise<void>((resolve) => {
+                  wake = resolve;
+                });
+                continue;
+              }
+              for (const event of events)
+                yield {
+                  type: event.type,
+                  responseId: event.response_id,
+                  response: { results: event.results.map(tsResult) },
+                };
+            }
+          },
+          async submitToolResults(results: { functionId: string }[]) {
+            submitted.push(...results.map((result) => result.functionId));
+          },
+          async continue() {
+            sessionLog.push({ op: 'continue', call_ids: submitted.splice(0) });
+            play();
+          },
+          async steer(text: string) {
+            sessionLog.push({ op: 'steer', text });
+            return 'next-response' as const;
+          },
+          async setThinkingTokenBudget(level: string) {
+            sessionLog.push({ op: 'thinking', level });
+            return 'next-response' as const;
+          },
+          close() {
+            if (closed) return;
+            closed = true;
+            sessionLog.push({ op: 'close' });
+            wake?.();
+          },
+        };
+      },
+    });
+  }
   return {
     ai,
     calls: () => calls,
     prompts: () => prompts,
     formats: () => formats,
+    sessionLog: () => sessionLog,
   };
 }
 
@@ -345,6 +433,10 @@ type Case = {
   // Pin the request layout: the first request's whole chat prompt, and each
   // request's message roles.
   pin_request_layout?: boolean;
+  // The client opens native chat sessions that play this script (see
+  // SessionScript); each opened session is one request. The fixture pins
+  // the session log and each request's message roles.
+  native_session?: SessionScript;
   // Port-only forward options, added to the fixture's forward_options but
   // not passed to TS: a port's opt-in to what TS always does.
   port_forward_options?: JsonMap;
@@ -358,14 +450,15 @@ async function record(name: string, spec: Case): Promise<void> {
   const control =
     spec.control || spec.constructor_control ? runControl() : undefined;
   const steer = spec.control_steer;
-  const { ai, calls, prompts, formats } = scriptedAI(
+  const { ai, calls, prompts, formats, sessionLog } = scriptedAI(
     spec.responses,
     spec.features,
     (request) => {
       if (steer && control && request === steer.during_request) {
         control.steer(steer.text);
       }
-    }
+    },
+    spec.native_session
   );
   const gen = new AxGen(spec.signature, {
     ...tsOptions(spec.options),
@@ -469,8 +562,15 @@ async function record(name: string, spec: Case): Promise<void> {
     'constructor_control',
     'control_steer',
     'stop_after_deltas',
+    'native_session',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
+  }
+  if (spec.native_session) {
+    fixture.expected_session_log = sessionLog();
+    fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
+      prompt.map((message) => message.role as Json)
+    );
   }
   if (spec.port_forward_options) {
     fixture.forward_options = {
@@ -480,16 +580,19 @@ async function record(name: string, spec: Case): Promise<void> {
   }
   if (control) fixture.expected_control_events = controlEvents;
   if (steer) {
-    fixture.expected_request_contains = [steer.text];
+    // A native session takes the steer itself (the session log pins it);
+    // otherwise it goes into the next request.
+    if (!spec.native_session) fixture.expected_request_contains = [steer.text];
     fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
       prompt.map((message) => message.role as Json)
     );
   }
   if (spec.tools) fixture.expected_tool_calls = toolCalls;
   if (spec.request_tail !== undefined) {
-    fixture.expected_last_request_tail = (prompts().at(-1) ?? []).slice(
-      -spec.request_tail
-    );
+    // The runners compare each message's role and content.
+    fixture.expected_last_request_tail = ((prompts().at(-1) ?? []) as JsonMap[])
+      .slice(-spec.request_tail)
+      .map(({ role, content }) => ({ role, content }));
   }
   if (spec.feedback_processors || spec.streaming_processors)
     fixture.expected_processor_calls = processorCalls;
@@ -2208,6 +2311,359 @@ const inputCases: Record<string, Case> = {
 };
 
 for (const [name, spec] of Object.entries(inputCases)) {
+  await record(name, spec);
+}
+
+// ----- native chat sessions -----
+// A session-capable client (asyncTools with openChatSession) under a run
+// control. TS opens a fresh session for each model request and closes it once
+// that request's response completes: a correction or a feedback step opens a
+// new session with the whole prompt, and each session applies the run's
+// updates again. A session's partial `response` events stream like a plain
+// stream on their own state; a later response starts a new version, and the
+// completed response adds what the partial events did not.
+const sessionPartial = (id: string, fields: JsonMap): SessionEventSpec => ({
+  type: 'response',
+  response_id: id,
+  results: [{ index: 0, ...fields }],
+});
+const sessionCompleted = (id: string, fields: JsonMap): SessionEventSpec => ({
+  type: 'response.completed',
+  response_id: id,
+  results: [{ index: 0, ...fields }],
+});
+const sessionAnswer = (id: string, content: string): SessionEventSpec =>
+  sessionCompleted(id, { content, finish_reason: 'stop' });
+const mustBeParis: AssertSpec = {
+  field: 'answer',
+  contains: 'Paris',
+  message: 'The answer must be Paris.',
+};
+const lookupCall = sessionCompleted('r1', {
+  function_calls: [call('c1', 'lookup', '{"key":"status"}')],
+});
+
+const sessionCases: Record<string, Case> = {
+  'forward-native-session-correction-opens-fresh-session': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    input: { question: 'Capital of France?' },
+    control: true,
+    assertions: [mustBeParis],
+    native_session: [
+      [[sessionAnswer('r1', 'Answer: Lyon')]],
+      [[sessionAnswer('r2', 'Answer: Paris')]],
+    ],
+    responses: [],
+    request_tail: 2,
+  },
+  'forward-native-session-feedback-opens-fresh-session': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    input: { question: 'Capital of France?' },
+    control: true,
+    feedback_processors: [{ field: 'answer', returns: 'Check it.', times: 1 }],
+    native_session: [
+      [[sessionAnswer('r1', 'Answer: Lyon')]],
+      [[sessionAnswer('r2', 'Answer: Paris')]],
+    ],
+    responses: [],
+    request_tail: 2,
+  },
+  'forward-native-session-tool-stays-in-session': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [lookupTool],
+    native_session: [[[lookupCall], [sessionAnswer('r2', 'Answer: green')]]],
+    responses: [],
+  },
+  // A correction's fresh session gets the whole conversation, the first
+  // session's tool call and result included.
+  'forward-native-session-tool-then-correction': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    input: { question: 'Capital of France?' },
+    control: true,
+    tools: [lookupTool],
+    assertions: [mustBeParis],
+    native_session: [
+      [[lookupCall], [sessionAnswer('r2', 'Answer: Lyon')]],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+    request_tail: 2,
+  },
+  'forward-native-session-steer-each-session': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    input: { question: 'Capital of France?' },
+    control: true,
+    control_steer: { during_request: 1, text: 'Be brief.' },
+    assertions: [mustBeParis],
+    native_session: [
+      [
+        [sessionAnswer('r1', 'Answer: Lyon')],
+        [sessionAnswer('r1b', 'Answer: Lyon')],
+      ],
+      [
+        [sessionAnswer('r2', 'Answer: Paris')],
+        [sessionAnswer('r2b', 'Answer: Paris')],
+      ],
+    ],
+    responses: [],
+    request_tail: 2,
+  },
+  // A forward with stream: true returns the completed response's output
+  // once, however the session's partial events split it.
+  'forward-native-session-stream-option': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, reason:string',
+    control: true,
+    forward_options: { stream: true },
+    native_session: [
+      [
+        [
+          sessionPartial('r1', { content: 'Answer: Pa' }),
+          sessionPartial('r1', { content: 'ris\nRea' }),
+          sessionPartial('r1', { content: 'son: big ' }),
+          sessionPartial('r1', { content: 'city' }),
+          sessionAnswer('r1', 'Answer: Paris\nReason: big city'),
+        ],
+      ],
+    ],
+    responses: [],
+  },
+  // A forward does not stream, so streaming assertions do not apply.
+  'forward-native-session-no-streaming-assertions': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    streaming_assertions: [
+      { field: 'answer', not_contains: 'BAD', message: 'No BAD.' },
+    ],
+    native_session: [
+      [
+        [
+          sessionPartial('r1', { content: 'Answer: BA' }),
+          sessionPartial('r1', { content: 'D' }),
+          sessionAnswer('r1', 'Answer: BAD'),
+        ],
+      ],
+    ],
+    responses: [],
+  },
+  'streaming-forward-native-session-partials-correction': {
+    signature: 'question:string -> answer:string',
+    input: { question: 'Capital of France?' },
+    control: true,
+    assertions: [mustBeParis],
+    native_session: [
+      [
+        [
+          sessionPartial('r1', { content: 'Answer: Ly' }),
+          sessionPartial('r1', { content: 'on' }),
+          sessionAnswer('r1', 'Answer: Lyon'),
+        ],
+      ],
+      [
+        [
+          sessionPartial('r2', { content: 'Answer: Pa' }),
+          sessionPartial('r2', { content: 'ris' }),
+          sessionAnswer('r2', 'Answer: Paris'),
+        ],
+      ],
+    ],
+    responses: [],
+    request_tail: 2,
+  },
+  'streaming-forward-native-session-completed-only-correction': {
+    signature: 'question:string -> answer:string',
+    input: { question: 'Capital of France?' },
+    control: true,
+    assertions: [mustBeParis],
+    native_session: [
+      [[sessionAnswer('r1', 'Answer: Lyon')]],
+      [[sessionAnswer('r2', 'Answer: Paris')]],
+    ],
+    responses: [],
+  },
+  'streaming-forward-native-session-tool-response-new-version': {
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [lookupTool],
+    native_session: [[[lookupCall], [sessionAnswer('r2', 'Answer: green')]]],
+    responses: [],
+  },
+  'streaming-forward-native-session-provisional-then-final': {
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [lookupTool],
+    native_session: [
+      [
+        [
+          sessionPartial('r1', { content: 'Answer: Work' }),
+          sessionPartial('r1', { content: 'ing' }),
+          sessionCompleted('r1', {
+            content: 'Answer: Working',
+            function_calls: [call('c1', 'lookup', '{"key":"status"}')],
+          }),
+        ],
+        [
+          sessionPartial('r2', { content: 'Answer: gr' }),
+          sessionPartial('r2', { content: 'een' }),
+          sessionAnswer('r2', 'Answer: green'),
+        ],
+      ],
+    ],
+    responses: [],
+  },
+  // A streamed correction's fresh session gets the first session's tool call
+  // and result too.
+  'streaming-forward-native-session-tool-then-correction': {
+    signature: 'question:string -> answer:string',
+    input: { question: 'Capital of France?' },
+    control: true,
+    tools: [lookupTool],
+    assertions: [mustBeParis],
+    native_session: [
+      [
+        [lookupCall],
+        [
+          sessionPartial('r2', { content: 'Answer: Ly' }),
+          sessionPartial('r2', { content: 'on' }),
+          sessionAnswer('r2', 'Answer: Lyon'),
+        ],
+      ],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+    request_tail: 2,
+  },
+  'streaming-forward-native-session-label-split': {
+    signature: 'question:string -> answer:string, reason:string',
+    control: true,
+    native_session: [
+      [
+        [
+          sessionPartial('r1', { content: 'Answer: Pa' }),
+          sessionPartial('r1', { content: 'ris\nRea' }),
+          sessionPartial('r1', { content: 'son: big ' }),
+          sessionPartial('r1', { content: 'city' }),
+          sessionAnswer('r1', 'Answer: Paris\nReason: big city'),
+        ],
+      ],
+    ],
+    responses: [],
+  },
+  'streaming-forward-native-session-thought-first': {
+    signature: 'question:string -> answer:string',
+    control: true,
+    native_session: [
+      [
+        [
+          sessionPartial('r1', { thought: 'Think' }),
+          sessionPartial('r1', { thought: 'ing', content: 'Answer: Pa' }),
+          sessionPartial('r1', { content: 'ris' }),
+          sessionCompleted('r1', {
+            thought: 'Thinking',
+            content: 'Answer: Paris',
+            finish_reason: 'stop',
+          }),
+        ],
+      ],
+    ],
+    responses: [],
+  },
+  'streaming-forward-native-session-completed-thought': {
+    signature: 'question:string -> answer:string',
+    control: true,
+    native_session: [
+      [
+        [
+          sessionCompleted('r1', {
+            thought: 'Thinking',
+            content: 'Answer: Paris',
+            finish_reason: 'stop',
+          }),
+        ],
+      ],
+    ],
+    responses: [],
+  },
+  'streaming-forward-native-session-divergent-completion': {
+    signature: 'question:string -> answer:string',
+    control: true,
+    native_session: [
+      [
+        [
+          sessionPartial('r1', { content: 'Answer: Lyon' }),
+          sessionAnswer('r1', 'Answer: Paris'),
+        ],
+      ],
+    ],
+    responses: [],
+  },
+  'streaming-forward-native-session-streaming-assertion-retry': {
+    signature: 'question:string -> answer:string',
+    input: { question: 'Capital of France?' },
+    control: true,
+    streaming_assertions: [
+      { field: 'answer', not_contains: 'BAD', message: 'No BAD.' },
+    ],
+    native_session: [
+      [
+        [
+          sessionPartial('r1', { content: 'Answer: Ly' }),
+          sessionPartial('r1', { content: 'on BAD' }),
+          sessionAnswer('r1', 'Answer: Lyon BAD'),
+        ],
+      ],
+      [[sessionAnswer('r2', 'Answer: Paris')]],
+    ],
+    responses: [],
+    request_tail: 3,
+  },
+  // Once a tool has run in the session, a failed streaming assertion fails
+  // the run instead of replaying the tool in a fresh session.
+  'streaming-forward-native-session-assertion-after-tool-fails': {
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [lookupTool],
+    streaming_assertions: [
+      { field: 'answer', not_contains: 'BAD', message: 'No BAD.' },
+    ],
+    native_session: [
+      [
+        [lookupCall],
+        [
+          sessionPartial('r2', { content: 'Answer: BA' }),
+          sessionPartial('r2', { content: 'D' }),
+          sessionAnswer('r2', 'Answer: BAD'),
+        ],
+      ],
+    ],
+    responses: [],
+  },
+  'streaming-forward-native-session-structured': {
+    signature: 'question:string -> user:object{name:string}, tags:string[]',
+    features: nativeFeatures,
+    control: true,
+    native_session: [
+      [
+        [
+          sessionPartial('r1', { content: '{"user":{"na' }),
+          sessionPartial('r1', { content: 'me":"Ada"},"tags":["a"' }),
+          sessionPartial('r1', { content: ',"b"]}' }),
+          sessionAnswer('r1', '{"user":{"name":"Ada"},"tags":["a","b"]}'),
+        ],
+      ],
+    ],
+    responses: [],
+  },
+};
+
+for (const [name, spec] of Object.entries(sessionCases)) {
   await record(name, spec);
 }
 

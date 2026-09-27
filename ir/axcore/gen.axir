@@ -771,6 +771,17 @@ module @ax.gen version "0.1" {
           %unnamed_call_failure = core.call @generate_failed_impl(%unnamed_call_error)
           core.raise %unnamed_call_failure
         }
+        // A native chat session's turns before its final response (tool
+        // calls and results, continued responses) belong in the prompt of any
+        // later request, as they do in TS's memory.
+        %session_turns = core.get %response["session_turns"]
+        %has_session_turns = core.call intrinsic.is_not_none(%session_turns)
+        core.if %has_session_turns {
+          core.call intrinsic.map.delete(%response, "session_turns")
+          core.for %session_turn in %session_turns {
+            core.append %messages, %session_turn
+          }
+        }
         core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
         core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
         %calls = core.call @response_function_calls_impl(%response)
@@ -2087,6 +2098,12 @@ module @ax.gen version "0.1" {
             core.set %ctx["committed"] = %committed
             core.set %ctx["current"] = %current
             core.set %ctx["version"] = %version
+            core.set %ctx["control_version"] = %control_version
+            core.set %ctx["attempt"] = %attempt
+            // A native chat session's partial events and completed response
+            // (session items from the client's stream) keep their state here.
+            %session_stream = core.call @stream_session_state_impl(%output_fields, %thought_field)
+            core.set %ctx["session"] = %session_stream
             %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
             %events = core.list
             %stage = core.let "provider"
@@ -2104,6 +2121,45 @@ module @ax.gen version "0.1" {
                 %exhausted = core.call intrinsic.is_none(%event)
                 core.if %exhausted {
                   core.break
+                }
+                // A native chat session streams items: a response's partial
+                // events, a response it continued from, and its final
+                // response, which streams as one chunk on the attempt's
+                // states and sends only what the partial events did not.
+                %session_item = core.get %event["session"]
+                %is_session_item = core.call intrinsic.is_not_none(%session_item)
+                core.if %is_session_item {
+                  %session_kind = core.get %session_item["type"] default ""
+                  %session_response_id = core.get %session_item["response_id"] default ""
+                  %empty_session_turns = core.list
+                  %item_turns = core.get %session_item["turns"] default %empty_session_turns
+                  core.set %session_stream["turns"] = %item_turns
+                  %new_session_response = core.call @stream_session_select_impl(%ctx, %session_response_id)
+                  core.if %new_session_response {
+                    // A retry's prompt shows the response the correction is
+                    // about, not an earlier one.
+                    %events = core.list
+                  }
+                  %is_session_partial = core.call intrinsic.eq(%session_kind, "partial")
+                  core.if %is_session_partial {
+                    core.append %events, %event
+                    %stage = core.let "validation"
+                    %partial_outcome = core.call @stream_session_partial_impl(%gen, %config, %ctx, %event)
+                    %partial_fatal = core.get %partial_outcome["fatal"]
+                    %has_partial_fatal = core.call intrinsic.is_not_none(%partial_fatal)
+                    core.if %has_partial_fatal {
+                      %stage = core.let "fatal"
+                      core.raise %partial_fatal
+                    }
+                    core.continue
+                  }
+                  %is_session_final = core.call intrinsic.eq(%session_kind, "final")
+                  %not_session_final = core.call intrinsic.not(%is_session_final)
+                  core.if %not_session_final {
+                    core.continue
+                  }
+                  %events = core.list
+                  core.set %session_stream["final"] = true
                 }
                 core.append %events, %event
                 %stage = core.let "validation"
@@ -2198,6 +2254,7 @@ module @ax.gen version "0.1" {
                 }
               }
               %stage = core.let "validation"
+              %messages = core.call @stream_session_add_turns_impl(%messages, %session_stream)
               %folded = core.call @fold_chat_response_stream(%events)
               %response = core.call @chat_response_to_completion(%folded)
               // The merged calls get the forward's check: with
@@ -2253,7 +2310,8 @@ module @ax.gen version "0.1" {
                     core.if %add_thought {
                       core.set %structured_delta[%thought_field] = %response_thought
                     }
-                    core.call @stream_yield_impl(%run, %version, %structured_index, %structured_delta)
+                    %structured_version = core.get %ctx["version"] default %version
+                    core.call @stream_yield_impl(%run, %structured_version, %structured_index, %structured_delta)
                   }
                   core.set %outcome["kind"] = "done"
                 } else {
@@ -2290,6 +2348,7 @@ module @ax.gen version "0.1" {
                 core.call intrinsic.ai.stream_close(%handle)
               }
             } catch %attempt_error {
+              %control_version = core.get %ctx["control_version"] default %control_version
               %close_handle = core.call intrinsic.is_not_none(%handle)
               core.if %close_handle {
                 core.try {
@@ -2354,6 +2413,7 @@ module @ax.gen version "0.1" {
                 core.raise %stream_exhausted
               }
               %attempt = core.call intrinsic.add(%attempt, 1)
+              %messages = core.call @stream_session_add_turns_impl(%messages, %session_stream)
               %not_recorded = core.call intrinsic.not(%recorded)
               core.if %not_recorded {
                 %partial_folded = core.call @fold_chat_response_stream(%events)
@@ -2372,6 +2432,7 @@ module @ax.gen version "0.1" {
               core.call intrinsic.axgen.memory_add_correction(%gen, %response, %attempt_error)
               core.continue
             }
+            %control_version = core.get %ctx["control_version"] default %control_version
             %kind = core.get %outcome["kind"] default "done"
             %is_tools = core.call intrinsic.eq(%kind, "tools")
             core.if %is_tools {

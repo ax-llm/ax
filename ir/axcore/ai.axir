@@ -995,6 +995,13 @@ module @ax.ai version "0.1" {
       core.if %has_session_id {
         core.set %out["remote_id"] = %session_id
       }
+      // A native chat session's turns before its final response, for the
+      // request's prompt (see @chat_session_final_result).
+      %session_turns = core.get %response["__session_turns"]
+      %has_session_turns = core.call intrinsic.is_not_none(%session_turns)
+      core.if %has_session_turns {
+        core.set %out["session_turns"] = %session_turns
+      }
       %images = core.get %first["images"]
       %has_images = core.call intrinsic.is_not_none(%images)
       core.if %has_images {

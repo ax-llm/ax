@@ -1,0 +1,94 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris",
+    "reason": "big city"
+  },
+  "expected_request_count": 1,
+  "expected_request_roles": [["system", "user"]],
+  "expected_session_log": [
+    {
+      "op": "open"
+    },
+    {
+      "op": "close"
+    }
+  ],
+  "forward_options": {
+    "stream": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-native-session-stream-option",
+  "native_session": [
+    [
+      [
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "Answer: Pa",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "ris\nRea",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "son: big ",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "city",
+              "index": 0
+            }
+          ],
+          "type": "response"
+        },
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "content": "Answer: Paris\nReason: big city",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ]
+  ],
+  "responses": [],
+  "signature": "question:string -> answer:string, reason:string"
+}

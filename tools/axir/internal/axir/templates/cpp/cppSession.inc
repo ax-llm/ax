@@ -147,31 +147,46 @@ std::shared_ptr<AxChatSession> OpenAICompatibleClient::open_chat_session(Value r
   if((profile_!="openai"&&profile_!="openai-responses")||model.rfind("gpt-6-astra",0)!=0||(!owned_transport_&&!session_socket_factory_))return {};
   return std::make_shared<ResponsesChatSession>(*this,std::move(request),std::move(options));
 }
-// A steer is text: a message's string content, or the text of its text parts
-// (a field processor's feedback is [{type: text, text}]).
-static Value session_steer_text(const Value& content){
-  if(!content.is_array())return content;
-  std::string text;bool first=true;
-  for(const auto& part:array_ref(content))if(display(Core::get(part,"type"))=="text"){if(!first)text+="\n";text+=display(Core::get(part,"text",""));first=false;}
-  return Value(text);
-}
+// Runs one AxGen run through its pinned client. As in TS (axRunChatSession),
+// each model request on a session-capable client opens its own native chat
+// session with the request's whole prompt and closes it once that request's
+// response completes: a correction or a later step opens a fresh session, and
+// every session applies the run's updates again. A client without sessions
+// takes the run's updates at each request boundary.
 class SessionRun final:public AIClient {
-  Value gen_,options_,state_,last_;
+  Value gen_,options_,state_,last_,request_;
   AIClient* client_;
   std::shared_ptr<AIClient> selected_client_;
   bool selected_=false;
+  // The request's open native session.
   std::shared_ptr<AxChatSession> session_;
+  // Whether this run's requests open native sessions, which then apply the
+  // run's control updates themselves.
+  bool native_opened_=false;
+  // Numbers the opened sessions, so a stream closes only its own.
+  std::uint64_t session_number_=0;
   std::shared_ptr<AxRunControl::State> control_;
+  // The open session's tool results: a worker delivers to the session that
+  // started it, and closing that session cancels its workers.
   std::shared_ptr<SessionQueue> results_=std::make_shared<SessionQueue>();
+  // Items the open session has produced and not handed out (see next_item).
+  std::deque<Value> items_;
+  // Held while the run exists; a stream handle that outlives it does nothing.
+  std::shared_ptr<char> alive_=std::make_shared<char>(0);
   std::string path_;
-  std::size_t after_=0;
+  // The fallback's cursor into the run's updates, and the open session's,
+  // which starts over with each session.
+  std::size_t after_=0,session_after_=0;
   std::vector<std::string> applied_;
   std::vector<Value> waiting_;
   bool blocking_=false;
   Value level_;
+  bool started_=false;
   bool fallback_started_=false;
   bool finished_=false;
   void emit(std::string kind,Value event=Value::object()){if(control_){Core::set(event,"type",kind);Core::set(event,"path",path_);control_->emit(event);}}
+  // As in TS, the run has started before its first request goes out.
+  void emit_started(){if(started_)return;started_=true;emit("started");}
   void start(Value call){
     call=Core::chat_session_normalize_call(call);
     std::string id=display(Core::get(call,"id")),name=display(Core::get(Core::get(call,"function"),"name"));
@@ -205,21 +220,27 @@ class SessionRun final:public AIClient {
   }
  public:
   SessionRun(Value gen,AIClient& client,Value options):gen_(gen),options_(options),client_(&client),control_(resolve_control(options)),path_(display(Core::get(options,"execution_path",Core::get(options,"executionPath","root")))){}
-  ~SessionRun() override{results_->close();if(session_)session_->close();std::lock_guard<std::mutex> lock(client_registry_mutex());client_registry().erase(pointer_id(this));}
-  Value complete(Value request) override{Value response=chat(request,options_);return session_?Core::chat_session_completion(response,Core::get(state_,"response_id")):Core::chat_response_to_completion(response);}
+  ~SessionRun() override{alive_.reset();close_session();std::lock_guard<std::mutex> lock(client_registry_mutex());client_registry().erase(pointer_id(this));}
+  Value complete(Value request) override{return Core::chat_response_to_completion(chat(request,options_));}
   Value features_for_run(Value model) override{if(auto* service=dynamic_cast<AxAIService*>(client_))return service->get_features(model);return client_->features_for_run(model);}
   // The audio output renderer's speech goes to the wrapped client.
   Value speak(Value request,Value options) override{return client_->speak(std::move(request),std::move(options));}
+  // One model request: in its own native session, returning the session's
+  // final response, or through the fallback's request boundary.
   Value chat(Value request,Value options) override {
-    try{return chat_impl(std::move(request),std::move(options));}
-    catch(const AxError& error){
-      if(!session_||std::string(error.what()).find("unresolved calls:")!=std::string::npos)throw;
-      throw AxError(error.category,std::string(error.what())+"; unresolved calls: "+stringify(Core::chat_session_unresolved(state_)),error.type,error.status,error.code,error.retryable,error.response_body);
+    select_client(request);
+    if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before opening a session");
+    if(!wants_native_session(request)||!open_session(request,options))return client_->chat(boundary_request(std::move(request)),options);
+    while(true){
+      Value item=next_item();
+      if(item.is_null())throw AxError("runtime","Chat session ended without a response");
+      if(display(Core::get(item,"kind"))=="final")return Core::get(item,"response");
     }
   }
  private:
   void select_client(const Value& request){
     if(selected_)return;
+    emit_started();
     if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before selecting a provider");
     std::set<AIClient*> visited;
     while(true){if(!visited.insert(client_).second)throw AxError("runtime","Cyclic run routing");auto selected=client_->pin_chat_run(request,options_);if(!selected)break;selected_client_=std::move(selected);client_=selected_client_.get();}
@@ -230,13 +251,84 @@ class SessionRun final:public AIClient {
   // As TS's controlsUseSession: a native chat session applies control updates
   // itself. Until the first model call opens one or not, the run options and
   // the model's features predict it, as that call decides.
-  bool controls_use_session(){return session_||(!fallback_started_&&native_session_for(Core::get(options_,"model")));}
+  bool controls_use_session(){return native_opened_||(!fallback_started_&&native_session_for(Core::get(options_,"model")));}
   // A model call without a native session: the path's pending control updates
   // go into the request at this response boundary.
   Value boundary_request(Value request){
-    if(!fallback_started_){emit("started");fallback_started_=true;}Value updates=Value::array();
+    emit_started();fallback_started_=true;Value updates=Value::array();
     if(control_){if(control_->is_aborted())throw AxError("runtime","Run aborted before the next model request");std::lock_guard<std::mutex> lock(control_->source()->mutex);for(;after_<control_->source()->updates.size();++after_){Value update=control_->source()->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))Core::append(updates,update);}}
     Value applied=Core::chat_session_apply_boundary_updates(request,updates,level_);level_=Core::get(applied,"level");for(const auto& id:array_ref(Core::get(applied,"applied",Value::array())))emit("applied",object({{"update_id",id},{"timing","next-response"}}));return Core::get(applied,"request");
+  }
+  // Opens a fresh native session for one model request (TS's
+  // axRunChatSession) with the request's whole prompt. Its state, tool
+  // results, cursor into the run's updates (every session applies all of them
+  // again), pending updates, waiting calls and last response start over.
+  // False when the client opens none.
+  bool open_session(const Value& request,const Value& options){
+    auto session=client_->open_chat_session(request,options);
+    if(!session)return false;
+    results_=std::make_shared<SessionQueue>();items_.clear();session_after_=0;applied_.clear();waiting_.clear();blocking_=false;last_=Value();
+    session_=std::move(session);native_opened_=true;++session_number_;request_=request;
+    state_=Core::chat_session_create_state(Core::get(request,"model",""),path_,Core::get(options_,"maxSteps",Core::get(options_,"max_steps",10)));
+    return true;
+  }
+  // Closes the open session. Its tool workers are cancelled, and what they
+  // still deliver goes nowhere.
+  void close_session(){
+    items_.clear();results_->close();
+    if(auto session=std::move(session_)){session_.reset();session->close();}
+  }
+  // Runs the open session until its next item (TS's axRunChatSession loop):
+  // {kind: partial} for a partial response event, {kind: completed} for a
+  // response it continues from, and {kind: final, response} for its final
+  // response, after which the session closes; null once it has. An error
+  // closes the session and names its unresolved calls.
+  Value next_item(){
+    if(items_.empty()&&!session_)return {};
+    try{while(items_.empty())step();}
+    catch(const AxError& error){
+      std::string message=error.what();Value unresolved=Core::chat_session_unresolved(state_);close_session();
+      if(message.find("unresolved calls:")!=std::string::npos)throw;
+      throw AxError(error.category,message+"; unresolved calls: "+stringify(unresolved),error.type,error.status,error.code,error.retryable,error.response_body);
+    }
+    catch(...){close_session();throw;}
+    Value item=items_.front();items_.pop_front();
+    if(display(Core::get(item,"kind"))=="final")close_session();
+    return item;
+  }
+  // One pass of the session loop: the run's new updates, a tool result, a
+  // session event, then the boundary decision.
+  void step(){
+    if(control_){if(control_->is_aborted())throw AxError("runtime","Run aborted; unresolved calls: "+stringify(Core::chat_session_unresolved(state_)));std::vector<Value> updates;{std::lock_guard<std::mutex> lock(control_->source()->mutex);for(;session_after_<control_->source()->updates.size();++session_after_){const auto& update=control_->source()->updates[session_after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))updates.push_back(update);}}
+      for(const auto& update:updates){Core::chat_session_queue_update(state_,update);if(session_->update(update)=="native")Core::chat_session_native_update(state_,Core::get(update,"id"));else applied_.push_back(display(Core::get(update,"id")));}}
+    Value result=results_->pop(std::chrono::milliseconds(0));
+    if(!result.is_null()){Value call=Core::get(result,"call"),output=Core::get(result,"result");std::string id=display(Core::get(call,"id"));bool ok=Core::truthy(Core::get(result,"ok"));if(!ok)output=Core::get(Core::_tool_error_message_impl(call,object({{"message",Core::get(result,"error")}})),"result");
+      if(!Core::truthy(Core::chat_session_record_result(gen_,state_,call,output,ok)))return;emit("tool.completed",object({{"call_id",id}}));
+      if(display(Core::get(Core::get(Core::get(state_,"pending"),id),"execution"))!="background"){blocking_=false;auto waiting=std::move(waiting_);waiting_.clear();for(const auto& call:waiting)start(call);}}
+    Value event=session_->next(std::chrono::milliseconds(10));
+    if(!event.is_null()){std::string type=display(Core::get(event,"type"));
+      if(type=="response"){emit("model.output",Core::chat_session_observe_output(gen_,state_,event));
+        // A streamed request's partial event (see stream_source): whether the
+        // session has started a tool, its unresolved calls and its turns.
+        Value info=object({{"type","partial"},{"response_id",Core::get(event,"response_id")},{"calls_started",!Core::iter(Core::get(state_,"pending",Value::object())).empty()},{"pending_calls",Core::chat_session_unresolved(state_)},{"turns",Core::get(state_,"turns",Value::array())}});
+        items_.push_back(object({{"kind","partial"},{"chunk",object({{"session",info},{"results",Core::get(Core::get(event,"response"),"results",Value::array())}})}}));}
+      if(type=="steering"){Value applied=Core::chat_session_native_event(state_,event);Value id=Core::get(applied,"applied_id");if(!id.is_null())emit("applied",object({{"update_id",id},{"timing","native"}}));}
+      if(type=="tool.call")start(Core::get(event,"call"));
+      if(type=="response.completed"&&Core::truthy(Core::chat_session_complete_response(state_,Core::get(event,"response_id")))){last_=Core::get(event,"response");Value completion=Core::chat_session_completion(last_,Core::get(event,"response_id"));for(const auto& call:array_ref(Core::_response_function_calls_impl(completion)))start(call);
+        // A response the session continues from goes into memory, the chat
+        // log and the session's turns.
+        if(Core::truthy(Core::chat_session_has_continuation_work(state_)))Core::chat_session_record_response(gen_,state_,request_,completion);
+        Value info=object({{"type","completed"},{"response_id",Core::get(event,"response_id")},{"turns",Core::get(state_,"turns",Value::array())}});
+        items_.push_back(object({{"kind","completed"},{"chunk",object({{"session",info}})}}));}}
+    Value action=Core::chat_session_boundary_action(state_);std::string type=display(Core::get(action,"type"));if(type=="submit")submit(Core::get(action,"results",Value::array()));else if(type=="continue")submit(Value::array());
+    else if(type=="validate"&&!last_.is_null()){
+      // The final response carries the session's turns for the request's
+      // prompt; streamed, it goes out without the __session keys.
+      Value response=Core::chat_session_final_result(state_,last_),chunk=Value::object();
+      for(const auto& key:Core::iter(response)){std::string name=display(key);if(name.rfind("__session",0)!=0)Core::set(chunk,name,Core::get(response,name));}
+      Core::set(chunk,"session",object({{"type","final"},{"response_id",Core::get(state_,"response_id")},{"turns",Core::get(state_,"turns",Value::array())}}));
+      items_.push_back(object({{"kind","final"},{"response",response},{"chunk",chunk}}));
+    }
   }
  public:
   // The path's pending control updates, which the forward applies when a step
@@ -246,7 +338,7 @@ class SessionRun final:public AIClient {
   Value take_control_updates(){
     Value updates=Value::array();
     if(!control_||controls_use_session())return updates;
-    if(!fallback_started_){emit("started");fallback_started_=true;}
+    emit_started();fallback_started_=true;
     {std::lock_guard<std::mutex> lock(control_->source()->mutex);for(;after_<control_->source()->updates.size();++after_){const Value& update=control_->source()->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))Core::append(updates,clone_usage_value(update));}}
     for(const auto& update:array_ref(updates)){if(display(Core::get(update,"type"))!="steer")level_=Core::get(update,"level");emit("applied",object({{"update_id",Core::get(update,"id")},{"timing","next-response"}}));}
     return updates;
@@ -258,45 +350,44 @@ class SessionRun final:public AIClient {
     for(std::size_t index=after_;index<control_->source()->updates.size();++index)if(Core::truthy(Core::chat_session_target_matches(Core::get(control_->source()->updates[index],"target"),path_)))++count;
     return count;
   }
-  // The service a streamed model call goes to, with request rewritten as chat()
-  // would send it; null when the call needs a native session or the selected
-  // client cannot stream, and chat() answers it instead.
-  AxAIService* stream_service(Value& request){
+  // How a streamed model call goes out (see ai_stream_open). In its own native
+  // session it yields the session's items as they happen, shaped for the
+  // streaming forward: each partial response event with its results, each
+  // response the session continues from, and the final response; closing the
+  // stream closes the session. Otherwise it streams from the selected service
+  // with request rewritten as chat() would send it, or, when no service can
+  // or no session opened, chat() answers it as one chunk.
+  SessionStreamSource stream_source(Value& request,const Value& options){
     select_client(request);
-    if(session_)return nullptr;
     if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before opening a session");
-    auto* service=dynamic_cast<AxAIService*>(client_);
-    if(service==nullptr||wants_native_session(request))return nullptr;
-    request=boundary_request(std::move(request));
-    return service;
-  }
-  Value chat_impl(Value request,Value options) {
-    select_client(request);
-    if(!session_){if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before opening a session");if(wants_native_session(request))session_=client_->open_chat_session(request,options);if(!session_)return client_->chat(boundary_request(std::move(request)),options);state_=Core::chat_session_create_state(Core::get(request,"model",""),path_,Core::get(options_,"maxSteps",Core::get(options_,"max_steps",10)));emit("started");}
-    else{const auto& messages=array_ref(Core::get(request,"chat_prompt",Value::array()));if(!messages.empty())session_->update(object({{"type","steer"},{"text",session_steer_text(Core::get(messages.back(),"content",""))}}));submit(Value::array());}
-    while(true){
-      if(control_){if(control_->is_aborted())throw AxError("runtime","Run aborted; unresolved calls: "+stringify(Core::chat_session_unresolved(state_)));std::vector<Value> updates;{std::lock_guard<std::mutex> lock(control_->source()->mutex);for(;after_<control_->source()->updates.size();++after_){const auto& update=control_->source()->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))updates.push_back(update);}}
-        for(const auto& update:updates){Core::chat_session_queue_update(state_,update);if(session_->update(update)=="native")Core::chat_session_native_update(state_,Core::get(update,"id"));else applied_.push_back(display(Core::get(update,"id")));}}
-      Value result=results_->pop(std::chrono::milliseconds(0));
-      if(!result.is_null()){Value call=Core::get(result,"call"),output=Core::get(result,"result");std::string id=display(Core::get(call,"id"));bool ok=Core::truthy(Core::get(result,"ok"));if(!ok)output=Core::get(Core::_tool_error_message_impl(call,object({{"message",Core::get(result,"error")}})),"result");
-        if(!Core::truthy(Core::chat_session_record_result(gen_,state_,call,output,ok)))continue;emit("tool.completed",object({{"call_id",id}}));
-        if(display(Core::get(Core::get(Core::get(state_,"pending"),id),"execution"))!="background"){blocking_=false;auto waiting=std::move(waiting_);waiting_.clear();for(const auto& call:waiting)start(call);}}
-      Value event=session_->next(std::chrono::milliseconds(10));
-      if(!event.is_null()){std::string type=display(Core::get(event,"type"));if(type=="response")emit("model.output",Core::chat_session_observe_output(gen_,state_,event));if(type=="steering"){Value applied=Core::chat_session_native_event(state_,event);Value id=Core::get(applied,"applied_id");if(!id.is_null())emit("applied",object({{"update_id",id},{"timing","native"}}));}if(type=="tool.call")start(Core::get(event,"call"));
-        if(type=="response.completed"&&Core::truthy(Core::chat_session_complete_response(state_,Core::get(event,"response_id")))){last_=Core::get(event,"response");Value completion=Core::chat_session_completion(last_,Core::get(event,"response_id"));for(const auto& call:array_ref(Core::_response_function_calls_impl(completion)))start(call);if(Core::truthy(Core::chat_session_has_continuation_work(state_))){Core::axgen_memory_add_response(gen_,request,completion);Core::axgen_record_chat_log(gen_,request,completion);}}}
-      Value action=Core::chat_session_boundary_action(state_);std::string type=display(Core::get(action,"type"));if(type=="submit")submit(Core::get(action,"results",Value::array()));else if(type=="continue")submit(Value::array());else if(type=="validate"&&!last_.is_null())return Core::chat_session_result(last_,Core::get(state_,"response_id"));
+    bool native=wants_native_session(request);
+    if(native&&open_session(request,options)){
+      std::weak_ptr<char> alive=alive_;std::uint64_t number=session_number_;
+      auto pull=[this,alive,number]()->Value{
+        if(!alive.lock()||number!=session_number_)return {};
+        Value item=next_item();
+        return item.is_null()?item:Core::get(item,"chunk");
+      };
+      auto close=[this,alive,number]{if(alive.lock()&&number==session_number_)close_session();};
+      return {nullptr,pull,close};
     }
+    auto* service=dynamic_cast<AxAIService*>(client_);
+    if(!native&&service!=nullptr){request=boundary_request(std::move(request));return {service,{},{}};}
+    auto answer=std::make_shared<Value>(client_->chat(boundary_request(std::move(request)),options));
+    return {nullptr,[answer]{Value chunk=*answer;*answer=Value();return chunk;},{}};
   }
-  // Ends the run. A run its streaming consumer stopped early ends with an
-  // aborted event rather than failed; any other run as failed or completed.
-  void finish(std::optional<std::string> error=std::nullopt,bool consumer_stopped=false){if(finished_)return;finished_=true;results_->close();Value pending=Value::array();if(session_){Core::chat_session_record_unresolved(gen_,state_);pending=Core::chat_session_close_state(state_);session_->close();}if(consumer_stopped)emit("aborted");else if(!error)emit("completed");else emit("failed",object({{"error",*error},{"pending_call_ids",pending}}));}
+  // Ends the run: closes a session still open, records the unresolved calls
+  // of the last session's state, and reports the run. A run its streaming
+  // consumer stopped early ends with an aborted event rather than failed; any
+  // other run as failed or completed.
+  void finish(std::optional<std::string> error=std::nullopt,bool consumer_stopped=false){if(finished_)return;finished_=true;close_session();Value pending=Value::array();if(!state_.is_null()){Core::chat_session_record_unresolved(gen_,state_);pending=Core::chat_session_close_state(state_);}if(consumer_stopped)emit("aborted");else if(!error)emit("completed");else emit("failed",object({{"error",*error},{"pending_call_ids",pending}}));}
 };
 
-// A streamed model call in a run session streams from the session's selected
-// service through the boundary chat() uses (see ai_stream_open).
-static AxAIService* session_stream_service(AIClient* client, Value& request) {
+// A streamed model call in a run session goes out as the session decides (see
+// SessionRun::stream_source); any other client streams on its own.
+static SessionStreamSource session_stream_source(AIClient* client, Value& request, const Value& options) {
   auto* session = dynamic_cast<SessionRun*>(client);
-  return session == nullptr ? nullptr : session->stream_service(request);
+  return session == nullptr ? SessionStreamSource{} : session->stream_source(request, options);
 }
 
 // A run control's pending updates reach the forward through the run's request

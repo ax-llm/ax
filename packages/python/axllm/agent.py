@@ -32,7 +32,6 @@ from .session import _core_run_control_aborted
 from .gen import (
     AxGen,
     _StreamingConsumerStopped,
-    chat_session_mode_enabled,
     _core_ai_complete_once,
     _core_ai_client_features,
     _core_axgen_deprecation,
@@ -63,6 +62,7 @@ from .gen import (
 from .mcp import resolve_execution_context
 from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature, f as _signature_builder, _js_format
 from .gen import (
+    chat_session_mode_enabled,
     chat_session_validate_required_arguments,
 )
 from .prompt import (
@@ -1868,9 +1868,9 @@ class AxAgent:
         ``onCitations`` gets the streamed citations after the stream. The run
         works on a worker thread that waits while you handle each delta;
         closing the generator stops the run, and with a run ``control`` the run
-        then ends with an ``aborted`` event. A run ``control`` on a client that
-        opens async model sessions is not covered yet and raises
-        ``NotImplementedError``, as AxGen deltas do.
+        then ends with an ``aborted`` event. On a client that opens native chat
+        sessions, each stage request opens its own session, and the responder
+        streams its session's output as AxGen deltas do.
         """
         return self._streaming_deltas(client, values, dict(options or {}), hooks)
 
@@ -1930,8 +1930,6 @@ class AxAgent:
 
     def _forward_unscoped(self, client, values: dict[str, Any], options: dict[str, Any] | None = None, sink=None):
         options = dict(options or {})
-        if sink is not None:
-            _agent_check_stream_run_session(self, client, options)
         self._use_stage_mode(options)
         call_context = resolve_execution_context(options, self.execution_context)
         if call_context is not None or self.state.get("mcp_run_context_active"):
@@ -2593,27 +2591,6 @@ def _core_agent_stage_streaming_forward(stage, state, client, values, options, s
         sink(_agent_stream_citation_delta(state, envelope))
 
     return stage._streaming_forward_with(client, values or {}, options or {}, emit)
-
-
-def _agent_check_stream_run_session(agent, client, options):
-    # Until AxGen deltas cover async run sessions, an agent stream that would
-    # stream its responder through one fails before any stage runs, with the
-    # error AxGen deltas raise.
-    responder = agent.responder
-    run_options = {**responder.options, **_agent_stage_options(agent.state, "responder", options)}
-    model = str(run_options.get("model") or getattr(client, "model", "")) or None
-    session_capable = callable(getattr(client, "_pin_chat_run", None)) or (
-        callable(getattr(client, "open_chat_session", None))
-        and bool(getattr(client, "get_features", lambda model=None: {})(model).get("asyncTools"))
-    )
-    needs_session = run_options.get("control") is not None or any(
-        getattr(tool, "execution", "blocking") == "background" for tool in responder.functions
-    )
-    if chat_session_mode_enabled(run_options) and session_capable and needs_session:
-        raise NotImplementedError(
-            "streaming_forward deltas do not cover async run sessions (control or background tools "
-            "on a session-capable client) yet; use forward()."
-        )
 
 
 def _core_agent_stage_forward(stage, client, values, options):

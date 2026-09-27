@@ -14,6 +14,19 @@ separate nodes do not collide. Host adapters own transport and tool workers.
 Workers deliver results to the run dispatcher; they do not mutate Core state,
 conversation history, memory, or action logs.
 
+Each AxGen model request runs in its own native session, as in TypeScript:
+the session opens with the request's whole prompt and closes once its response
+completes. A correction or a later step opens a fresh session. Its prompt
+includes the earlier sessions' turns (continued responses and tool results),
+which the state records for the request that follows. Every session applies the
+run's updates again. A forward does not run streaming assertions; a streamed
+request passes the session's partial events, continued responses and final
+response to the streaming forward, which extracts each response as a plain
+stream does, starts a new version for each later response, and sends only what
+the partial events did not. A streaming assertion that fails on a partial event
+retries in a fresh session with the partial answer in its prompt, unless the
+session has started a tool; then the run fails instead of replaying it.
+
 A boundary decision is `wait`, `submit`, `continue`, `validate`, or `closed`.
 `submit` carries ready results without acknowledging them. The adapter records
 submission only after transport acceptance. Intermediate answers remain
