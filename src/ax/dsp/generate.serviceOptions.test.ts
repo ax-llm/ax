@@ -90,6 +90,43 @@ describe('AxGen service options reach the provider request', () => {
     ]);
   });
 
+  it('sends a chat through a per-call fetch, else the service one', async () => {
+    const service = recordingFetch();
+    const call = recordingFetch();
+    const provider = ai({
+      name: 'openai',
+      apiKey: 'test',
+      config: { model: 'gpt-5.4-mini' },
+      options: { fetch: service.fetchFn },
+    });
+    const request = { chatPrompt: [{ role: 'user' as const, content: 'hi' }] };
+    await provider.chat(request, { stream: false });
+    await provider.chat(request, { stream: false, fetch: call.fetchFn });
+    expect([service.urls.length, call.urls.length]).toEqual([1, 1]);
+  });
+
+  it('times a chat out with a per-call timeout', async () => {
+    // The request never answers; only an abort ends it.
+    const hanging = (async (_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(init.signal?.reason ?? new Error('aborted'))
+        );
+      })) as typeof fetch;
+    const provider = ai({
+      name: 'openai',
+      apiKey: 'test',
+      config: { model: 'gpt-5.4-mini' },
+      options: { fetch: hanging },
+    });
+    await expect(
+      provider.chat(
+        { chatPrompt: [{ role: 'user', content: 'hi' }] },
+        { stream: false, timeout: 20, retry: { maxRetries: 0 } }
+      )
+    ).rejects.toThrow();
+  }, 2000);
+
   it('routes an AxGen forward through the constructor corsProxy', async () => {
     const { fetchFn, urls } = recordingFetch();
     const service = ai({
