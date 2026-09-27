@@ -4,7 +4,7 @@ import os
 import copy
 import re
 from typing import Any
-from .signature import _js_number_text
+from .signature import _js_date_millis, _js_number_text
 # AXIR_CORE_IMPORTS
 
 
@@ -117,6 +117,10 @@ def _core_type_is(value, type_name):
         return value is None
     if type_name == "json":
         return value is None or isinstance(value, (dict, list, str, int, float, bool))
+    if type_name == "date":
+        # A native date or time value, which a date or datetime field takes
+        # where TypeScript takes a Date.
+        return _js_date_millis(value) is not None
     return False
 
 

@@ -1,0 +1,100 @@
+{
+  "description": "Port-only: without parse_dates streaming deltas carry the model text of each date field, sent whole once the field is complete, as the ports do today.",
+  "expected_deltas": [
+    {
+      "delta": {
+        "note": "all"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "due": "2024-05-09"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "when": "2024-05-09T14:30:00+05:30"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "span": "2024-05-09 to 2024-05-12"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "window": "2024-05-09T14:30:00Z/2024-05-09T15:30:00Z"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "note": " set"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "note": "all set",
+    "due": "2024-05-09",
+    "when": "2024-05-09T14:30:00+05:30",
+    "span": "2024-05-09 to 2024-05-12",
+    "window": "2024-05-09T14:30:00Z/2024-05-09T15:30:00Z"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "date-streaming-forward-keeps-text-by-default",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Due: 2024-05",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "-09\nWhen: 2024-05-09T14:30:00+05:30\nSpan: 2024-05-09 to 2024-05-12\n",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Window: 2024-05-09T14:30:00Z/2024-05-09T15:30:00Z\nNote: all ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "set",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> due:date, when:datetime, span:dateRange, window:datetimeRange, note:string"
+}

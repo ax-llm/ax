@@ -1,0 +1,39 @@
+{
+  "expected_output": {
+    "due": "2024-02-29T00:00:00.000Z"
+  },
+  "expected_request_contains": [
+    "Field 'Due' has an invalid value '2024-02-30': Invalid date for 'Due': Invalid date format. Please provide the date in ",
+    "Use the exact format YYYY-MM-DD (e.g., 2024-05-09). You provided: 2024-02-30.. Provide a date (YYYY-MM-DD, e.g. 2024-05-09). Ensure formatting exactly matches the expected type."
+  ],
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "date-forward-parse-dates-retry",
+  "options": {
+    "parse_dates": true
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Due: 2024-02-30",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Due: 2024-02-29",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> due:date"
+}

@@ -1,0 +1,114 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "note": "all"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "due": "2024-05-09T00:00:00.000Z"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "when": "2024-05-09T09:00:00.000Z"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "span": {
+          "end": "2024-05-12T00:00:00.000Z",
+          "start": "2024-05-09T00:00:00.000Z"
+        }
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "window": {
+          "end": "2024-05-09T15:30:00.000Z",
+          "start": "2024-05-09T14:30:00.000Z"
+        }
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "note": " set"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "note": "all set",
+    "due": "2024-05-09T00:00:00.000Z",
+    "when": "2024-05-09T09:00:00.000Z",
+    "span": {
+      "end": "2024-05-12T00:00:00.000Z",
+      "start": "2024-05-09T00:00:00.000Z"
+    },
+    "window": {
+      "end": "2024-05-09T15:30:00.000Z",
+      "start": "2024-05-09T14:30:00.000Z"
+    }
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "parse_dates": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "date-streaming-forward-parse-dates-forward-option",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Due: 2024-05",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "-09\nWhen: 2024-05-09T14:30:00+05:30\nSpan: 2024-05-09 to 2024-05-12\n",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "Window: 2024-05-09T14:30:00Z/2024-05-09T15:30:00Z\nNote: all ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "set",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> due:date, when:datetime, span:dateRange, window:datetimeRange, note:string"
+}

@@ -320,6 +320,7 @@ struct Core {
   static Value math_abs(Value value);
   static Value string_codepoint_length(Value value);
   static Value string_utf16_units(Value value);
+  static Value date_zone_offset(Value name, Value epoch_ms);
   static Value math_is_finite(Value value);
   static Value math_floor(Value value);
   static Value math_log(Value value);

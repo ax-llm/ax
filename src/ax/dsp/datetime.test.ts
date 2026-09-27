@@ -107,6 +107,56 @@ describe('datetime parsing', () => {
   });
 });
 
+describe('time-zone abbreviations', () => {
+  const iso = (value: string) =>
+    parseLLMFriendlyDateTime(field, value)?.toISOString();
+
+  it('reads PST at -08:00 in July, not as America/Los_Angeles', () => {
+    expect(iso('2024-07-01 12:00 PST')).toBe('2024-07-01T20:00:00.000Z');
+    expect(iso('2024-01-15 12:00 PST')).toBe('2024-01-15T20:00:00.000Z');
+  });
+
+  it('reads daylight abbreviations such as EDT at their own offset', () => {
+    expect(iso('2024-07-01 12:00 EDT')).toBe('2024-07-01T16:00:00.000Z');
+    expect(iso('2024-07-01 12:00 CEST')).toBe('2024-07-01T10:00:00.000Z');
+    expect(iso('2024-01-15 12:00 NDT')).toBe('2024-01-15T14:30:00.000Z');
+  });
+
+  it('reads CET at +01:00 in July', () => {
+    expect(iso('2024-07-01 12:00 CET')).toBe('2024-07-01T11:00:00.000Z');
+  });
+
+  it('reads ART as Argentina time, not ICU Africa/Cairo', () => {
+    expect(iso('2024-07-01 12:00 ART')).toBe('2024-07-01T15:00:00.000Z');
+  });
+
+  it('matches abbreviations case-insensitively', () => {
+    expect(iso('2024-07-01 12:00 pst')).toBe('2024-07-01T20:00:00.000Z');
+    expect(iso('2024-07-01 12:00 Est')).toBe('2024-07-01T17:00:00.000Z');
+  });
+
+  it('rejects ambiguous abbreviations that ICU maps silently', () => {
+    for (const abbreviation of ['BST', 'AST', 'IST', 'cst', 'GST']) {
+      expect(() =>
+        parseLLMFriendlyDateTime(field, `2024-07-01 12:00 ${abbreviation}`)
+      ).toThrow(
+        `Ambiguous or unsupported time zone abbreviation "${abbreviation}". Please provide an IANA time zone name or a UTC offset. For example, "Europe/London" or "+01:00".`
+      );
+    }
+  });
+
+  it('rejects ICU legacy short IDs', () => {
+    expect(() =>
+      parseLLMFriendlyDateTime(field, '2024-07-01 12:00 VST')
+    ).toThrow('Ambiguous or unsupported time zone abbreviation "VST"');
+  });
+
+  it('keeps IANA names that are only letters on the Intl path', () => {
+    expect(iso('2024-07-01 12:00 Japan')).toBe('2024-07-01T03:00:00.000Z');
+    expect(iso('2024-07-01 12:00 EST5EDT')).toBe('2024-07-01T16:00:00.000Z');
+  });
+});
+
 describe('Temporal integration', () => {
   it('should use Temporal.Instant for ISO datetime when available', () => {
     let input = '';

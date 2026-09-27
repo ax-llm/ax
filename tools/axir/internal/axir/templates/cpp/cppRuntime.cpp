@@ -758,6 +758,329 @@ Value Core::string_utf16_units(Value value) {
   return Value(units);
 }
 Value Core::string_codepoint_length(Value value) { size_t count = 0; for (unsigned char byte : str(value)) if ((byte & 0xc0) != 0x80) ++count; return Value(static_cast<double>(count)); }
+
+// ----- intrinsic.date.zone_offset: the platform tz database -----
+// A std-only reader for TZif files (RFC 8536): $TZDIR, then the usual
+// zoneinfo directories. Past the last transition the POSIX TZ footer rule
+// decides; before the first, the zone's first local time type.
+namespace {
+
+struct DateTzRuleDate {
+  char kind = 'n';  // 'J' (1-365, no Feb 29), 'n' (0-365), 'M' (month.week.day)
+  long long day = 0, week = 0, month = 0, time = 7200;
+};
+
+struct DateTzRule {
+  long long std_offset = 0;
+  bool has_dst = false;
+  long long dst_offset = 0;
+  DateTzRuleDate start, end;
+};
+
+struct DateTzZone {
+  std::vector<long long> transitions;
+  std::vector<size_t> transition_types;
+  std::vector<long long> offsets;
+  bool has_footer = false;
+  DateTzRule footer;
+};
+
+long long date_floor_div(long long value, long long divisor) {
+  long long quotient = value / divisor;
+  if ((value % divisor != 0) && ((value < 0) != (divisor < 0))) --quotient;
+  return quotient;
+}
+
+long long date_days_from_civil(long long year, long long month, long long day) {
+  long long y = month <= 2 ? year - 1 : year;
+  long long era = date_floor_div(y, 400);
+  long long yoe = y - era * 400;
+  long long mp = (month + 9) % 12;
+  long long doy = (153 * mp + 2) / 5 + day - 1;
+  long long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + doe - 719468;
+}
+
+long long date_year_of_days(long long days) {
+  long long z = days + 719468;
+  long long era = date_floor_div(z, 146097);
+  long long doe = z - era * 146097;
+  long long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  long long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  long long mp = (5 * doy + 2) / 153;
+  long long month = mp < 10 ? mp + 3 : mp - 9;
+  return yoe + era * 400 + (month <= 2 ? 1 : 0);
+}
+
+bool date_is_leap(long long year) { return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0; }
+
+// The UTC second of a rule date's local time in `year`, for a zone at
+// `offset` seconds east of UTC.
+long long date_rule_instant(long long year, const DateTzRuleDate& rule, long long offset) {
+  long long first = date_days_from_civil(year, 1, 1);
+  long long day = 0;
+  if (rule.kind == 'J') {
+    day = first + rule.day - 1 + ((date_is_leap(year) && rule.day >= 60) ? 1 : 0);
+  } else if (rule.kind == 'n') {
+    day = first + rule.day;
+  } else {
+    long long month_first = date_days_from_civil(year, rule.month, 1);
+    // 1970-01-01 was a Thursday (4).
+    long long weekday = ((month_first + 4) % 7 + 7) % 7;
+    day = month_first + ((rule.day - weekday) % 7 + 7) % 7 + (rule.week - 1) * 7;
+    long long next_month = rule.month == 12 ? date_days_from_civil(year + 1, 1, 1) : date_days_from_civil(year, rule.month + 1, 1);
+    while (day >= next_month) day -= 7;
+  }
+  return day * 86400 + rule.time - offset;
+}
+
+long long date_rule_offset(const DateTzRule& rule, long long seconds) {
+  if (!rule.has_dst) return rule.std_offset;
+  long long year = date_year_of_days(date_floor_div(seconds + rule.std_offset, 86400));
+  // The latest DST start or end at or before the instant, over the
+  // neighbouring years, decides. Of two at the same instant the later one in
+  // the sequence wins: a permanent-DST footer such as
+  // "XXX-2<+01>-1,0/0,J365/23" ends one year where the next begins.
+  bool found = false, dst = false;
+  long long best = 0;
+  for (long long y = year - 1; y <= year + 1; ++y) {
+    const long long begins = date_rule_instant(y, rule.start, rule.std_offset);
+    const long long ends = date_rule_instant(y, rule.end, rule.dst_offset);
+    for (int pick = 0; pick < 2; ++pick) {
+      const long long at = pick == 0 ? begins : ends;
+      if (at <= seconds && (!found || at >= best)) {
+        found = true;
+        best = at;
+        dst = pick == 0;
+      }
+    }
+  }
+  return found && dst ? rule.dst_offset : rule.std_offset;
+}
+
+// [+-]hh[:mm[:ss]] as seconds.
+bool date_tz_parse_seconds(const std::string& text, size_t& at, long long& out) {
+  long long sign = 1;
+  if (at < text.size() && (text[at] == '+' || text[at] == '-')) {
+    if (text[at] == '-') sign = -1;
+    ++at;
+  }
+  long long parts[3] = {0, 0, 0};
+  for (int index = 0; index < 3; ++index) {
+    if (index > 0) {
+      if (at < text.size() && text[at] == ':') ++at;
+      else break;
+    }
+    const size_t start = at;
+    while (at < text.size() && std::isdigit(static_cast<unsigned char>(text[at]))) parts[index] = parts[index] * 10 + (text[at++] - '0');
+    if (at == start) return false;
+  }
+  out = sign * (parts[0] * 3600 + parts[1] * 60 + parts[2]);
+  return true;
+}
+
+bool date_tz_parse_name(const std::string& text, size_t& at) {
+  if (at < text.size() && text[at] == '<') {
+    while (at < text.size() && text[at] != '>') ++at;
+    if (at >= text.size()) return false;
+    ++at;
+    return true;
+  }
+  const size_t start = at;
+  while (at < text.size() && std::isalpha(static_cast<unsigned char>(text[at]))) ++at;
+  return at > start;
+}
+
+bool date_tz_parse_number(const std::string& text, size_t& at, long long& out) {
+  const size_t start = at;
+  out = 0;
+  while (at < text.size() && std::isdigit(static_cast<unsigned char>(text[at]))) out = out * 10 + (text[at++] - '0');
+  return at > start;
+}
+
+bool date_tz_parse_rule_date(const std::string& text, size_t& at, DateTzRuleDate& date) {
+  if (at < text.size() && text[at] == 'J') {
+    ++at;
+    date.kind = 'J';
+    if (!date_tz_parse_number(text, at, date.day)) return false;
+  } else if (at < text.size() && text[at] == 'M') {
+    ++at;
+    date.kind = 'M';
+    if (!date_tz_parse_number(text, at, date.month) || at >= text.size() || text[at] != '.') return false;
+    ++at;
+    if (!date_tz_parse_number(text, at, date.week) || at >= text.size() || text[at] != '.') return false;
+    ++at;
+    if (!date_tz_parse_number(text, at, date.day)) return false;
+    if (date.month < 1 || date.month > 12 || date.week < 1 || date.week > 5 || date.day > 6) return false;
+  } else {
+    date.kind = 'n';
+    if (!date_tz_parse_number(text, at, date.day)) return false;
+  }
+  if (at < text.size() && text[at] == '/') {
+    ++at;
+    if (!date_tz_parse_seconds(text, at, date.time)) return false;
+  }
+  return true;
+}
+
+// A POSIX TZ string such as "EST5EDT,M3.2.0,M11.1.0" or "<+0530>-5:30".
+bool date_tz_parse_rule(const std::string& text, DateTzRule& rule) {
+  size_t at = 0;
+  long long value = 0;
+  if (!date_tz_parse_name(text, at) || !date_tz_parse_seconds(text, at, value)) return false;
+  rule.std_offset = -value;
+  if (at >= text.size()) return true;
+  if (!date_tz_parse_name(text, at)) return false;
+  rule.has_dst = true;
+  rule.dst_offset = rule.std_offset + 3600;
+  if (at < text.size() && text[at] != ',') {
+    if (!date_tz_parse_seconds(text, at, value)) return false;
+    rule.dst_offset = -value;
+  }
+  if (at >= text.size()) {
+    // POSIX leaves the rule to the implementation; this is the US one.
+    rule.start = DateTzRuleDate{'M', 0, 2, 3, 7200};
+    rule.end = DateTzRuleDate{'M', 0, 1, 11, 7200};
+    return true;
+  }
+  if (text[at] != ',') return false;
+  ++at;
+  if (!date_tz_parse_rule_date(text, at, rule.start) || at >= text.size() || text[at] != ',') return false;
+  ++at;
+  if (!date_tz_parse_rule_date(text, at, rule.end)) return false;
+  return at == text.size();
+}
+
+bool date_tzif_u32(const std::string& data, size_t at, unsigned long& out) {
+  if (at + 4 > data.size()) return false;
+  out = (static_cast<unsigned long>(static_cast<unsigned char>(data[at])) << 24) |
+        (static_cast<unsigned long>(static_cast<unsigned char>(data[at + 1])) << 16) |
+        (static_cast<unsigned long>(static_cast<unsigned char>(data[at + 2])) << 8) |
+        static_cast<unsigned long>(static_cast<unsigned char>(data[at + 3]));
+  return true;
+}
+
+bool date_tzif_counts(const std::string& data, size_t at, size_t counts[6]) {
+  for (int index = 0; index < 6; ++index) {
+    unsigned long value = 0;
+    if (!date_tzif_u32(data, at + 20 + index * 4, value)) return false;
+    counts[index] = static_cast<size_t>(value);
+  }
+  return true;
+}
+
+bool date_parse_tzif(const std::string& data, DateTzZone& zone) {
+  if (data.size() < 44 || data.compare(0, 4, "TZif") != 0) return false;
+  const char version = data[4];
+  size_t counts[6];
+  if (!date_tzif_counts(data, 0, counts)) return false;
+  size_t at = 44;
+  size_t time_size = 4;
+  if (version >= '2') {
+    const size_t v1_size = counts[3] * 5 + counts[4] * 6 + counts[5] + counts[2] * 8 + counts[1] + counts[0];
+    const size_t second = 44 + v1_size;
+    if (second + 44 > data.size() || data.compare(second, 4, "TZif") != 0 || !date_tzif_counts(data, second, counts)) return false;
+    at = second + 44;
+    time_size = 8;
+  }
+  const size_t isut = counts[0], isstd = counts[1], leap = counts[2], time = counts[3], typ = counts[4], chars = counts[5];
+  const size_t data_size = time * time_size + time + typ * 6 + chars + leap * (time_size + 4) + isstd + isut;
+  if (at + data_size > data.size() || typ == 0) return false;
+  for (size_t index = 0; index < time; ++index) {
+    const size_t offset = at + index * time_size;
+    if (time_size == 8) {
+      unsigned long high = 0, low = 0;
+      date_tzif_u32(data, offset, high);
+      date_tzif_u32(data, offset + 4, low);
+      const unsigned long long bits = (static_cast<unsigned long long>(high) << 32) | low;
+      zone.transitions.push_back(static_cast<long long>(bits));
+    } else {
+      unsigned long value = 0;
+      date_tzif_u32(data, offset, value);
+      zone.transitions.push_back(static_cast<long long>(static_cast<int32_t>(static_cast<uint32_t>(value))));
+    }
+  }
+  at += time * time_size;
+  for (size_t index = 0; index < time; ++index) {
+    const size_t type_index = static_cast<unsigned char>(data[at + index]);
+    if (type_index >= typ) return false;
+    zone.transition_types.push_back(type_index);
+  }
+  at += time;
+  for (size_t index = 0; index < typ; ++index) {
+    unsigned long value = 0;
+    date_tzif_u32(data, at + index * 6, value);
+    zone.offsets.push_back(static_cast<long long>(static_cast<int32_t>(static_cast<uint32_t>(value))));
+  }
+  at += typ * 6 + chars + leap * (time_size + 4) + isstd + isut;
+  if (version >= '2' && at < data.size() && data[at] == '\n') {
+    const size_t end = data.find('\n', at + 1);
+    if (end != std::string::npos && end > at + 1) {
+      zone.has_footer = date_tz_parse_rule(data.substr(at + 1, end - at - 1), zone.footer);
+    }
+  }
+  return true;
+}
+
+long long date_zone_offset_at(const DateTzZone& zone, long long seconds) {
+  if (zone.transitions.empty()) return zone.has_footer ? date_rule_offset(zone.footer, seconds) : zone.offsets[0];
+  if (seconds < zone.transitions.front()) return zone.offsets[0];
+  const size_t index = static_cast<size_t>(std::upper_bound(zone.transitions.begin(), zone.transitions.end(), seconds) - zone.transitions.begin()) - 1;
+  if (index + 1 == zone.transitions.size() && zone.has_footer) return date_rule_offset(zone.footer, seconds);
+  return zone.offsets[zone.transition_types[index]];
+}
+
+std::shared_ptr<DateTzZone> date_zone_load(const std::string& name) {
+  static std::mutex mutex;
+  static std::map<std::string, std::shared_ptr<DateTzZone>> zones;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    const auto found = zones.find(name);
+    if (found != zones.end()) return found->second;
+  }
+  bool safe = !name.empty() && name[0] != '/' && name.find('\\') == std::string::npos && name.find('\0') == std::string::npos;
+  if (safe) {
+    size_t start = 0;
+    while (start <= name.size()) {
+      const size_t slash = name.find('/', start);
+      const std::string part = name.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+      if (part.empty() || part == "." || part == "..") safe = false;
+      if (slash == std::string::npos) break;
+      start = slash + 1;
+    }
+  }
+  std::shared_ptr<DateTzZone> loaded;
+  if (safe) {
+    std::vector<std::string> dirs;
+    if (const char* tzdir = std::getenv("TZDIR")) {
+      if (*tzdir) dirs.emplace_back(tzdir);
+    }
+    for (const char* dir : {"/usr/share/zoneinfo", "/usr/lib/zoneinfo", "/usr/share/lib/zoneinfo", "/etc/zoneinfo"}) dirs.emplace_back(dir);
+    for (const auto& dir : dirs) {
+      std::ifstream file(dir + "/" + name, std::ios::binary);
+      if (!file) continue;
+      std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+      auto zone = std::make_shared<DateTzZone>();
+      if (date_parse_tzif(data, *zone)) {
+        loaded = zone;
+        break;
+      }
+    }
+  }
+  std::lock_guard<std::mutex> lock(mutex);
+  zones[name] = loaded;
+  return loaded;
+}
+
+}  // namespace
+
+Value Core::date_zone_offset(Value name, Value epoch_ms) {
+  const std::string zone_name = str(name);
+  const auto zone = date_zone_load(zone_name);
+  if (!zone) throw AxError("runtime", "unknown time zone " + zone_name);
+  const long long seconds = static_cast<long long>(std::floor(num(epoch_ms) / 1000.0));
+  return Value(static_cast<double>(date_zone_offset_at(*zone, seconds)));
+}
 Value Core::math_is_finite(Value value) { return Value(std::isfinite(num(value))); }
 Value Core::math_floor(Value value) { return Value(std::floor(num(value))); }
 Value Core::math_log(Value value) { return Value(std::log(num(value))); }
@@ -879,6 +1202,8 @@ Value Core::type_is(Value value, Value type_name) {
   if (t == "boolean") return Value(value.is_bool());
   if (t == "null") return Value(value.is_null());
   if (t == "json") return Value(true);
+  // No native date type: date and datetime fields take strings here.
+  if (t == "date") return Value(false);
   return Value(false);
 }
 Value Core::regex_match(Value pattern, Value value) {

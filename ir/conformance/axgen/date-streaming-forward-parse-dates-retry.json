@@ -1,0 +1,83 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "note": "sec"
+      },
+      "index": 0,
+      "version": 1
+    },
+    {
+      "delta": {
+        "when": "2024-07-01T20:00:00.000Z"
+      },
+      "index": 0,
+      "version": 1
+    },
+    {
+      "delta": {
+        "note": "ond"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_output": {
+    "note": "second",
+    "when": "2024-07-01T20:00:00.000Z"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "date-streaming-forward-parse-dates-retry",
+  "options": {
+    "parse_dates": true
+  },
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "When: 2024-02-30T10:00:00Z\nNote: fi",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "rst",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "When: 2024-07-01 12:00 PST\nNote: sec",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "ond",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> when:datetime, note:string"
+}

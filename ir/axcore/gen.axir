@@ -819,6 +819,7 @@ module @ax.gen version "0.1" {
       core.append %ordered_messages, %user_message
       %output_fields = core.get %signature["output_fields"]
       core.call @append_structured_output_instruction(%ordered_messages, %output_fields, %selection)
+      %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
       %validation_feedback = core.get %runtime_options["validationFeedback"] default %validation_feedback_snake
       %has_validation_feedback = core.call intrinsic.truthy(%validation_feedback)
@@ -2011,6 +2012,7 @@ module @ax.gen version "0.1" {
       core.append %ordered_messages, %user_message
       %output_fields = core.get %signature["output_fields"]
       core.call @append_structured_output_instruction(%ordered_messages, %output_fields, %selection)
+      %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
       %validation_feedback = core.get %runtime_options["validationFeedback"] default %validation_feedback_snake
       %has_validation_feedback = core.call intrinsic.truthy(%validation_feedback)
