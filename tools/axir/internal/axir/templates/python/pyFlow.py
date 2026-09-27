@@ -17,11 +17,15 @@ from .ai import (
     _merge_runtime_hooks,
     _runtime_hook_scope,
     _runtime_hooks_from_options,
+    _snapshot_global_caching_function,
     _strip_runtime_hooks,
 )
 from .gen import (
     AxGen,
     ax,
+    _core_axgen_cache_read,
+    _core_axgen_cache_write,
+    _core_crypto_sha256_hex,
     _core_exception_message,
     _core_eq,
     _core_gte,
@@ -562,6 +566,17 @@ def _core_string_str(value):
 
 def _core_string_starts_with(value, prefix):
     return str(value).startswith(str(prefix))
+
+
+def _core_flow_caching_function(options):
+    # TS AxFlow's cachingFunction: the call's, else the process-wide one; the
+    # flow's constructor takes none.
+    options = options or {}
+    for key in ("cachingFunction", "caching_function"):
+        fn = options.get(key)
+        if fn is not None:
+            return fn
+    return _snapshot_global_caching_function()
 
 
 def _core_json_stable_stringify(value):

@@ -314,9 +314,20 @@ module @ax.flow version "0.1" {
     attr core_kind = "func"
     attr emit_module = "flow"
     attr private = true
-    type signature = "(values:json) -> string"
-    body @entry(%values: json) {
-      %key = core.call intrinsic.json.stable_stringify(%values)
+    type signature = "(flow:json, values:json) -> string"
+    body @entry(%flow: json, %values: json) {
+      // As in TS, the key hashes the flow's structure and the input values
+      // (keys sorted), so flows that share a cache don't collide. Keys are
+      // native SHA-256 digests and differ from TS's.
+      %plan = core.call @flow_plan(%flow)
+      %plan_text = core.call intrinsic.json.stable_stringify(%plan)
+      %values_text = core.call intrinsic.json.stable_stringify(%values)
+      %parts = core.list
+      core.append %parts, "axflow"
+      core.append %parts, %plan_text
+      core.append %parts, %values_text
+      %text = core.call intrinsic.string.join("\n", %parts)
+      %key = core.call intrinsic.crypto.sha256_hex(%text)
       core.return %key
     }
   }
@@ -327,25 +338,17 @@ module @ax.flow version "0.1" {
     attr private = true
     type signature = "(flow:json, values:json, options:json, mode:string, cachedValue:json) -> json"
     body @entry(%flow: json, %values: json, %options: json, %mode: string, %cached_value: json) {
+      // TS AxFlow's cachingFunction: the call's, else the process-wide one
+      // (the flow's constructor takes none). A run control skips it, and the
+      // flow ignores errors from its own reads and writes.
       %empty_map = core.map
       %opts_missing = core.call intrinsic.is_none(%options)
       %opts = core.let %options
       core.if %opts_missing {
         %opts = core.let %empty_map
       }
-      %key = core.call @flow_cache_key(%values)
-      %store_snake = core.get %opts["cache_store"] default null
-      %store = core.get %opts["cacheStore"] default %store_snake
-      %has_store = core.call intrinsic.is_not_none(%store)
-      %read_error_snake = core.get %opts["cache_read_error"] default false
-      %read_error = core.get %opts["cacheReadError"] default %read_error_snake
-      %write_error_snake = core.get %opts["cache_write_error"] default false
-      %write_error = core.get %opts["cacheWriteError"] default %write_error_snake
-      %is_read = core.call intrinsic.eq(%mode, "read")
-      %is_write = core.call intrinsic.eq(%mode, "write")
       %none = core.call intrinsic.none()
       %result = core.map
-      core.set %result["key"] = %key
       core.set %result["hit"] = false
       core.set %result["value"] = %none
       %controller = core.get %opts["control"] default null
@@ -353,31 +356,29 @@ module @ax.flow version "0.1" {
       core.if %controlled {
         core.return %result
       }
-      core.if %is_read {
-        %can_read_store = core.call intrinsic.and(%has_store, %read_error)
-        %skip_read = core.call intrinsic.truthy(%can_read_store)
-        core.if %skip_read {
-        } else {
-          core.if %has_store {
-            %cached = core.get %store[%key] default null
-            %hit = core.call intrinsic.is_not_none(%cached)
-            core.if %hit {
-              core.set %result["hit"] = true
-              core.set %result["value"] = %cached
-            }
-          }
-        }
+      %cache_fn = core.call intrinsic.flow.caching_function(%opts)
+      %no_cache = core.call intrinsic.is_none(%cache_fn)
+      core.if %no_cache {
+        core.return %result
       }
-      core.if %is_write {
-        %can_write_store = core.call intrinsic.and(%has_store, %write_error)
-        %skip_write = core.call intrinsic.truthy(%can_write_store)
-        core.if %skip_write {
-        } else {
-          core.if %has_store {
-            core.set %store[%key] = %cached_value
-            core.set %result["value"] = %cached_value
-          }
+      %key = core.call @flow_cache_key(%flow, %values)
+      %is_read = core.call intrinsic.eq(%mode, "read")
+      core.if %is_read {
+        %cached = core.call intrinsic.none()
+        core.try {
+          %cached = core.call intrinsic.axgen.cache_read(%cache_fn, %key)
+        } catch %read_error {
         }
+        %hit = core.call intrinsic.is_not_none(%cached)
+        core.if %hit {
+          core.set %result["hit"] = true
+          core.set %result["value"] = %cached
+        }
+        core.return %result
+      }
+      core.try {
+        core.call intrinsic.axgen.cache_write(%cache_fn, %key, %cached_value)
+      } catch %write_error {
       }
       core.return %result
     }
@@ -1042,7 +1043,7 @@ module @ax.flow version "0.1" {
       %state = core.call intrinsic.map.merge(%empty_map, %values)
       %traces = core.get %flow["traces"]
       %program_id = core.get %flow["program_id"] default "root.flow"
-      %cache_key = core.call @flow_cache_key(%values)
+      %cache_key = core.call @flow_cache_key(%flow, %values)
       %begin = core.call @program_trace_event(%program_id, "flow_start", %state)
       core.append %traces, %begin
       %state = core.call @flow_execute_steps(%flow, %client, %state, %opts)
