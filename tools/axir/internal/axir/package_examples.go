@@ -1146,6 +1146,37 @@ public final class AxGenStreamingNoKeyExample {
     };
   }
 
+  // A tracer and meter that record span and metric names.
+  static final class Telemetry implements AxTracer, AxMeter {
+    final List<String> names = Collections.synchronizedList(new ArrayList<>());
+
+    public AxSpan startSpan(AxSpanStart start) {
+      names.add(start.name());
+      return new AxSpan() {
+        public void setAttributes(Map<String, Object> attributes) {}
+        public void addEvent(String name, Map<String, Object> attributes) {}
+        public void recordException(Throwable error) {}
+        public void setStatus(String status, String description) {}
+        public void end() {}
+      };
+    }
+
+    public AxCounter createCounter(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> names.add(name); }
+    public AxHistogram createHistogram(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> names.add(name); }
+    public AxGauge createGauge(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> names.add(name); }
+
+    // The AxGen run telemetry recorded since the last call: ax_gen_forward
+    // spans and ax_gen_generation_* metrics.
+    List<String> takeRun() {
+      synchronized (names) {
+        List<String> run = new ArrayList<>();
+        for (String name : names) if (name.equals("ax_gen_forward") || name.startsWith("ax_gen_generation_")) run.add(name);
+        names.clear();
+        return run;
+      }
+    }
+  }
+
   public static void main(String[] args) throws Exception {
     // 1. A streamed forward with a streaming assertion, a streaming field
     //    processor, a TypeScript feedback processor, and field transforms.
@@ -1260,7 +1291,9 @@ public final class AxGenStreamingNoKeyExample {
 
     // 6. A cachingFunction from the constructor, the forward call or
     //    AxGlobals: a hit sends no request, and streamingForward yields it as
-    //    one delta.
+    //    one delta. As in TypeScript, the cache is read before the run
+    //    starts, so a hit records no ax_gen_forward span and no
+    //    ax_gen_generation_* metric.
     AtomicInteger completions = new AtomicInteger();
     AiClient counting = request -> {
       completions.incrementAndGet();
@@ -1268,26 +1301,44 @@ public final class AxGenStreamingNoKeyExample {
     };
     Map<String, Object> france = Map.of("question", "Capital of France?");
     Map<String, Map<String, Object>> store = new ConcurrentHashMap<>();
-    AxGen cachedGen = new AxGen(Ax.s("question:string -> answer:string"), Map.of("cachingFunction", memoryCache(store)));
+    Telemetry telemetry = new Telemetry();
+    AxGen cachedGen = new AxGen(Ax.s("question:string -> answer:string"), Map.of("cachingFunction", memoryCache(store)))
+        .setTracer(telemetry)
+        .setMeter(telemetry);
     Map<String, Object> stored = cachedGen.forward(counting, france);
+    List<String> missRun = telemetry.takeRun();
+    check(missRun.contains("ax_gen_forward") && missRun.contains("ax_gen_generation_requests_total"), "a cache miss run: " + missRun);
     Map<String, Object> hit = cachedGen.forward(counting, france);
-    check(Map.of("answer", "Paris").equals(stored) && stored.equals(hit), "cached outputs: " + stored + ", " + hit);
+    Map<String, Object> streamedHit = cachedGen.forward(counting, france, Map.of("stream", true));
+    check(Map.of("answer", "Paris").equals(stored) && stored.equals(hit) && stored.equals(streamedHit), "cached outputs: " + stored + ", " + hit + ", " + streamedHit);
     check(completions.get() == 1 && store.size() == 1, "a cache hit sent a request: " + completions.get());
+    List<String> hitRun = telemetry.takeRun();
+    check(hitRun.isEmpty(), "forward cache hits recorded run telemetry: " + hitRun);
     List<AxGenDelta> cachedDeltas = new ArrayList<>();
     try (AxGenDeltaStream stream = cachedGen.streamingForward(counting, france, Map.of())) {
       for (AxGenDelta delta : stream) cachedDeltas.add(delta);
     }
     check(cachedDeltas.equals(List.of(new AxGenDelta(0, 0, Map.of("answer", "Paris")))), "cached deltas: " + cachedDeltas);
     check(completions.get() == 1, "a streamed cache hit sent a request");
+    List<String> streamedHitRun = telemetry.takeRun();
+    check(streamedHitRun.isEmpty(), "a streamed cache hit recorded run telemetry: " + streamedHitRun);
+    // A streamed miss runs, and records its run telemetry.
+    Map<String, Object> spain = Map.of("question", "Capital of Spain?");
+    try (AxGenDeltaStream stream = cachedGen.streamingForward(counting, spain, Map.of())) {
+      for (AxGenDelta delta : stream) check(delta.version() == 0, "streamed miss delta: " + delta);
+    }
+    List<String> streamedMissRun = telemetry.takeRun();
+    check(completions.get() == 2 && store.size() == 2, "a streamed cache miss: " + completions.get());
+    check(streamedMissRun.contains("ax_gen_forward") && streamedMissRun.contains("ax_gen_generation_requests_total"), "a streamed cache miss run: " + streamedMissRun);
     // The forward call's function comes before the constructor's; the
     // caching_function key works too.
     Map<String, Map<String, Object>> callStore = new ConcurrentHashMap<>();
     cachedGen.forward(counting, france, Map.of("cachingFunction", memoryCache(callStore)));
     cachedGen.forward(counting, Map.of("question", "Capital of Italy?"), Map.of("caching_function", memoryCache(callStore)));
-    check(completions.get() == 3 && callStore.size() == 2 && store.size() == 1, "per-call cache: " + callStore.keySet());
+    check(completions.get() == 4 && callStore.size() == 2 && store.size() == 2, "per-call cache: " + callStore.keySet());
     // A run control skips the cache.
     cachedGen.forward(counting, france, Map.of("control", new AxRunControl()));
-    check(completions.get() == 4, "a controlled run read the cache");
+    check(completions.get() == 5, "a controlled run read the cache");
     // The process-wide function applies when neither the call nor the
     // constructor sets one; null clears it.
     Map<String, Map<String, Object>> globalStore = new ConcurrentHashMap<>();
@@ -1296,12 +1347,12 @@ public final class AxGenStreamingNoKeyExample {
       AxGen globalGen = Ax.ax("question:string -> answer:string");
       globalGen.forward(counting, france);
       globalGen.forward(counting, france);
-      check(completions.get() == 5 && globalStore.size() == 1, "global cache: " + completions.get());
+      check(completions.get() == 6 && globalStore.size() == 1, "global cache: " + completions.get());
     } finally {
       AxGlobals.setCachingFunction(null);
     }
     Ax.ax("question:string -> answer:string").forward(counting, france);
-    check(completions.get() == 6, "a cleared global cache still answered");
+    check(completions.get() == 7, "a cleared global cache still answered");
 
     System.out.println("java-axgen-streaming-ok " + merged);
   }

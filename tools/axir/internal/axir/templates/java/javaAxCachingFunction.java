@@ -14,7 +14,9 @@ import java.util.Map;
  * read throws propagates and one a store throws is ignored. {@link AxGen#streamingForward} yields
  * a stored output as one delta ({@code version} 0, {@code index} 0), ignores an exception a read
  * throws, and stores the output of a run that streamed one (the picked sample's, with a result
- * picker). A call with a run {@code control} skips the cache.
+ * picker). As in TypeScript, the cache is read before the run starts, so a hit records no {@code
+ * ax_gen_forward} span and no {@code ax_gen_generation} metrics. A call with a run {@code control}
+ * skips the cache.
  *
  * <p>Keys are SHA-256 hex digests of the signature and the input values, media data included; they
  * are not shared with other languages. Stores get a copy of the output and reads return a copy of
