@@ -2829,7 +2829,6 @@ module @ax.gen version "0.1" {
       %rung = core.get %selection["rung"]
       %structured = core.call intrinsic.is_not_none(%rung)
       core.set %render_options["structured_output"] = %structured
-      core.set %render_options["structured_output_function_name"] = ""
       %extra_functions = core.list
       %function_rung = core.call intrinsic.eq(%rung, "function")
       core.if %function_rung {
