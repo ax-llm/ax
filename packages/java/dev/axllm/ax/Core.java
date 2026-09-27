@@ -9830,6 +9830,7 @@ final class Core {
         responses_payload = Core._meta_prepare_responses_request(responses_payload, sampled_request, options);
       }
       if (!Core.truthy(is_meta)) {
+        responses_payload = Core._openai_responses_apply_prompt_cache_key(responses_payload, options);
         responses_payload = Core._openai_responses_apply_prompt_cache_retention(responses_payload, sampled_request, options, model);
       }
       payload = Core.openai_responses_apply_astra_caching(responses_payload, sampled_request, options);
@@ -15998,6 +15999,57 @@ final class Core {
       Core.set(payload, "prompt_cache_retention", retention);
     }
     return payload;
+  }
+
+  static Object _openai_responses_apply_prompt_cache_key(Object payload, Object options) {
+    axirCoverageMark("_openai_responses_apply_prompt_cache_key");
+    Object key_snake = Core.get(options, "prompt_cache_key", null);
+    Object key = Core.get(options, "promptCacheKey", key_snake);
+    Object session_snake = Core.get(options, "session_id", null);
+    Object session = Core.get(options, "sessionId", session_snake);
+    Object resolved_key = Core.coalesce(key, session);
+    Object has_key = Core.isNotNone(resolved_key);
+    if (Core.truthy(has_key)) {
+      Core.set(payload, "prompt_cache_key", resolved_key);
+    }
+    return payload;
+  }
+
+  static Object provider_call_timeout_ms(Object options) {
+    axirCoverageMark("provider_call_timeout_ms");
+    Object value = Core.get(options, "timeoutMs", null);
+    Object is_number = Core.typeIs(value, "number");
+    if (Core.truthy(is_number)) {
+      Object positive = Core.gt(value, 0);
+      if (Core.truthy(positive)) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  static Object provider_call_timeout_message(Object timeout_ms) {
+    axirCoverageMark("provider_call_timeout_message");
+    Object message = Core.stringFormat("Request timed out after {}ms", timeout_ms);
+    return message;
+  }
+
+  static Object provider_warn_call_timeout(Object options, Object seconds) {
+    axirCoverageMark("provider_warn_call_timeout");
+    Object timeout = Core.get(options, "timeout", null);
+    Object timeout_ms = Core.get(options, "timeoutMs", null);
+    Object has_timeout = Core.isNotNone(timeout);
+    Object has_timeout_ms = Core.isNotNone(timeout_ms);
+    Object without_ms = Core.not(has_timeout_ms);
+    Object warn = Core.and(has_timeout, without_ms);
+    if (Core.truthy(warn)) {
+      Object message = "Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does.";
+      if (Core.truthy(seconds)) {
+        message = "Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds).";
+      }
+      Core.aiWarnOnce("call-timeout", message);
+    }
+    return null;
   }
 
   static Object _provider_sampling_is_one_impl(Object value) {

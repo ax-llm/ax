@@ -457,6 +457,7 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 		"audio_responses_mapping",
 		"audio_http_roundtrip",
 		"stream_http_roundtrip",
+		"timeout_http_roundtrip",
 		"realtime_audio_events",
 		"realtime_audio_turn",
 		"runtime_adapter",
@@ -557,6 +558,7 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"audio_responses_mapping",
 		"audio_http_roundtrip",
 		"stream_http_roundtrip",
+		"timeout_http_roundtrip",
 		"realtime_audio_events",
 		"realtime_audio_turn",
 		"runtime_adapter",
@@ -755,6 +757,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"audio_responses_mapping.py",
 		"audio_http_roundtrip.py",
 		"stream_http_roundtrip.py",
+		"timeout_http_roundtrip.py",
 		"realtime_audio_events.py",
 		"realtime_audio_turn.py",
 		"runtime_adapter.py",
@@ -907,6 +910,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"AudioResponsesMappingExample",
 		"AudioHTTPRoundtripExample",
 		"StreamHTTPRoundtripExample",
+		"TimeoutHTTPRoundtripExample",
 		"RealtimeAudioEventsExample",
 		"RealtimeAudioTurnExample",
 		"RuntimeAdapterExample",
@@ -1321,11 +1325,11 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 			return report, err
 		}
 	}
-	// audio_http_roundtrip, stream_http_roundtrip, mcp_modern_roundtrip, and mcp_sse_roundtrip drive
+	// audio_http_roundtrip, stream_http_roundtrip, timeout_http_roundtrip, mcp_modern_roundtrip, and mcp_sse_roundtrip drive
 	// the real libcurl transport against a loopback server, so they need a
 	// curl-enabled axllm.o + libcurl (mcp_sse_roundtrip also links mcp.o). Skip
 	// them when libcurl is unavailable rather than failing the whole target.
-	curlExamples := []string{"audio_http_roundtrip", "stream_http_roundtrip", "mcp_modern_roundtrip", "mcp_sse_roundtrip"}
+	curlExamples := []string{"audio_http_roundtrip", "stream_http_roundtrip", "timeout_http_roundtrip", "mcp_modern_roundtrip", "mcp_sse_roundtrip"}
 	if cppLibcurlAvailable(cpp) {
 		curlObj := filepath.Join(buildDir, "axllm_curl.o")
 		if err := runVerifyCommand(&report, "compile axllm.cpp (curl)", "", nil, cpp, "-std=c++17", "-DAXLLM_ENABLE_CURL=1", "-I", report.OutDir, "-c", axSource, "-o", curlObj); err != nil {

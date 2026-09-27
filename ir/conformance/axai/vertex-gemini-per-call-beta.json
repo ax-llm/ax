@@ -1,0 +1,47 @@
+{
+  "expected_transport_request": {
+    "method": "POST",
+    "url": "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.5-flash:generateContent"
+  },
+  "kind": "ai_chat",
+  "model": "gemini-3.5-flash",
+  "name": "vertex-gemini-per-call-beta",
+  "options": {
+    "beta": true
+  },
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "projectId": "demo-project",
+    "region": "us-central1"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

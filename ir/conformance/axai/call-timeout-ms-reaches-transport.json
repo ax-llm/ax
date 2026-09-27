@@ -1,0 +1,52 @@
+{
+  "description": "Port-only: a call's timeoutMs (TS's per-call timeout, in milliseconds) reaches the transport as timeout_ms.",
+  "expected_transport_request": {
+    "timeout_ms": 250
+  },
+  "expected_warnings": [],
+  "kind": "ai_chat",
+  "model": "gpt-5.4-mini",
+  "name": "call-timeout-ms-reaches-transport",
+  "options": {
+    "timeoutMs": 250
+  },
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {},
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_call_timeout",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

@@ -20251,6 +20251,7 @@ func provider_build_chat_request(args ...Value) (Value, error) {
 		if coreTruthy(v_is_meta) {
 			{ v, err := _meta_prepare_responses_request(v_responses_payload, v_sampled_request, v_options); if err != nil { return nil, err }; v_responses_payload = v }
 		} else {
+			{ v, err := _openai_responses_apply_prompt_cache_key(v_responses_payload, v_options); if err != nil { return nil, err }; v_responses_payload = v }
 			{ v, err := _openai_responses_apply_prompt_cache_retention(v_responses_payload, v_sampled_request, v_options, v_model); if err != nil { return nil, err }; v_responses_payload = v }
 		}
 		{ v, err := openai_responses_apply_astra_caching(v_responses_payload, v_sampled_request, v_options); if err != nil { return nil, err }; v_payload = v }
@@ -32890,6 +32891,119 @@ func _openai_responses_apply_prompt_cache_retention(args ...Value) (Value, error
 	// empty
 	}
 	return v_payload, nil
+}
+
+func _openai_responses_apply_prompt_cache_key(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_apply_prompt_cache_key")
+	var v_payload Value
+	var v_options Value
+	var v_has_key Value
+	var v_key Value
+	var v_key_snake Value
+	var v_resolved_key Value
+	var v_session Value
+	var v_session_snake Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_has_key
+	_ = v_key
+	_ = v_key_snake
+	_ = v_resolved_key
+	_ = v_session
+	_ = v_session_snake
+	v_key_snake = coreGet(v_options, "prompt_cache_key", nil)
+	v_key = coreGet(v_options, "promptCacheKey", v_key_snake)
+	v_session_snake = coreGet(v_options, "session_id", nil)
+	v_session = coreGet(v_options, "sessionId", v_session_snake)
+	v_resolved_key = _core_coalesce(v_key, v_session)
+	v_has_key = _core_is_not_none(v_resolved_key)
+	if coreTruthy(v_has_key) {
+		if err := coreSet(v_payload, "prompt_cache_key", v_resolved_key); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_payload, nil
+}
+
+func provider_call_timeout_ms(args ...Value) (Value, error) {
+	axirCoverageMark("provider_call_timeout_ms")
+	var v_options Value
+	var v_is_number Value
+	var v_positive Value
+	var v_value Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	_ = v_is_number
+	_ = v_positive
+	_ = v_value
+	v_value = coreGet(v_options, "timeoutMs", nil)
+	v_is_number = coreTypeIs(v_value, "number")
+	if coreTruthy(v_is_number) {
+		v_positive = _core_gt(v_value, 0)
+		if coreTruthy(v_positive) {
+			return v_value, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
+func provider_call_timeout_message(args ...Value) (Value, error) {
+	axirCoverageMark("provider_call_timeout_message")
+	var v_timeout_ms Value
+	var v_message Value
+	if len(args) > 0 { v_timeout_ms = args[0] }
+	_ = v_timeout_ms
+	_ = v_message
+	v_message = _core_string_format("Request timed out after {}ms", v_timeout_ms)
+	return v_message, nil
+}
+
+func provider_warn_call_timeout(args ...Value) (Value, error) {
+	axirCoverageMark("provider_warn_call_timeout")
+	var v_options Value
+	var v_seconds Value
+	var v_has_timeout Value
+	var v_has_timeout_ms Value
+	var v_message Value
+	var v_timeout Value
+	var v_timeout_ms Value
+	var v_warn Value
+	var v_without_ms Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	if len(args) > 1 { v_seconds = args[1] }
+	_ = v_seconds
+	_ = v_has_timeout
+	_ = v_has_timeout_ms
+	_ = v_message
+	_ = v_timeout
+	_ = v_timeout_ms
+	_ = v_warn
+	_ = v_without_ms
+	v_timeout = coreGet(v_options, "timeout", nil)
+	v_timeout_ms = coreGet(v_options, "timeoutMs", nil)
+	v_has_timeout = _core_is_not_none(v_timeout)
+	v_has_timeout_ms = _core_is_not_none(v_timeout_ms)
+	v_without_ms = _core_not(v_has_timeout_ms)
+	v_warn = _core_and(v_has_timeout, v_without_ms)
+	if coreTruthy(v_warn) {
+		v_message = "Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does."
+		if coreTruthy(v_seconds) {
+			v_message = "Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds)."
+		} else {
+		// empty
+		}
+		_core_ai_warn_once("call-timeout", v_message)
+	} else {
+	// empty
+	}
+	return nil, nil
 }
 
 func _provider_sampling_is_one_impl(args ...Value) (Value, error) {
@@ -94227,8 +94341,84 @@ func wireJSONBody(payload Value) []byte {
 	return []byte(orderedStringify(payload))
 }
 
+// requestTimer is TS apiCall's timer for a call's timeoutMs: it ends a request
+// whose response headers have not arrived in time, and stops once they have.
+type requestTimer struct {
+	ms     float64
+	timer  *time.Timer
+	cancel context.CancelFunc
+}
+
+func startRequestTimer(ctx context.Context, request map[string]Value) (context.Context, *requestTimer) {
+	ms := num(coreGet(request, "timeout_ms", 0))
+	if ms <= 0 {
+		return ctx, nil
+	}
+	timed, cancel := context.WithCancel(ctx)
+	t := &requestTimer{ms: ms, cancel: cancel}
+	t.timer = time.AfterFunc(time.Duration(ms*float64(time.Millisecond)), cancel)
+	return timed, t
+}
+
+// headers stops the timer once the transport returns. It reports whether the
+// timer had already ended the request, even as the headers arrived.
+func (t *requestTimer) headers() bool {
+	return t != nil && !t.timer.Stop()
+}
+
+// release ends the request's context once its body is done.
+func (t *requestTimer) release() {
+	if t != nil {
+		t.timer.Stop()
+		t.cancel()
+	}
+}
+
+// timerBody releases the request's timer context when the stream body closes.
+type timerBody struct {
+	io.ReadCloser
+	timer *requestTimer
+}
+
+func (b timerBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.timer.release()
+	return err
+}
+
+// callTimeoutError is TS's AxAIServiceTimeoutError for a call's timeoutMs.
+func callTimeoutError(ms float64) error {
+	return AIServiceError{AxError{Category: "ai", Type: "AxAIServiceTimeoutError", Message: display(mustCore(provider_call_timeout_message(ms))), Retryable: true}}
+}
+
+func isAxTimeoutError(err error) bool {
+	typed, ok := AsAxError(err)
+	return ok && typed.Type == "AxAIServiceTimeoutError"
+}
+
+// transportCallError keeps a timeout a transport reported as TS's
+// AxAIServiceTimeoutError, with the request view a provider error keeps, and
+// makes any other failure a network error.
+func transportCallError(err error, call Value, options map[string]Value) error {
+	if typed, ok := AsAxError(err); ok && typed.Type == "AxAIServiceTimeoutError" {
+		view := errorRequestView(call, options)
+		typed.URL = display(coreGet(view, "url", ""))
+		typed.RequestBody = publicValue(coreGet(view, "json", coreGet(view, "data", nil)))
+		return AIServiceError{typed}
+	}
+	return providerNetworkError(err, call, options)
+}
+
+// warnCallTimeout: TS reads a per-call timeout in milliseconds; this port
+// ignores it until the next major version and warns once, naming timeoutMs.
+func warnCallTimeout(options map[string]Value) {
+	mustCore(provider_warn_call_timeout(stripRuntimeHooks(options), false))
+}
+
 func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	req := asMap(request)
+	ctx, timer := startRequestTimer(ctx, req)
+	defer timer.release()
 	var body []byte
 	multipartContentType := ""
 	if _, ok := req["json"]; ok {
@@ -94251,6 +94441,13 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 		client = http.DefaultClient
 	}
 	resp, err := client.Do(httpReq)
+	timedOut := timer.headers()
+	if err == nil && timedOut {
+		resp.Body.Close()
+	}
+	if timedOut {
+		return nil, callTimeoutError(timer.ms)
+	}
 	if err != nil {
 		return nil, normalizeContextError(ctx, err)
 	}
@@ -94287,9 +94484,11 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 
 func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamResponse, error) {
 	req := asMap(request)
+	ctx, timer := startRequestTimer(ctx, req)
 	body := wireJSONBody(coreGet(req, "json", Object()))
 	httpReq, err := http.NewRequestWithContext(ctx, display(coreGet(req, "method", "POST")), display(req["url"]), bytes.NewReader(body))
 	if err != nil {
+		timer.release()
 		return AxHTTPStreamResponse{}, err
 	}
 	for _, key := range orderedKeys(asMap(coreGet(req, "headers", Object()))) {
@@ -94300,10 +94499,21 @@ func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamR
 		client = http.DefaultClient
 	}
 	resp, err := client.Do(httpReq)
-	if err != nil {
+	timedOut := timer.headers()
+	if err != nil || timedOut {
+		if err == nil {
+			resp.Body.Close()
+		}
+		timer.release()
+		if timedOut {
+			return AxHTTPStreamResponse{}, callTimeoutError(timer.ms)
+		}
 		return AxHTTPStreamResponse{}, normalizeContextError(ctx, err)
 	}
-	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body}, nil
+	if timer == nil {
+		return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body}, nil
+	}
+	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: timerBody{resp.Body, timer}}, nil
 }
 
 // TypesafeQuestion describes a native Noul, Choice, or Score question. Criteria
@@ -94646,6 +94856,7 @@ func requireExpensiveModelConfirmation(provider string, request map[string]Value
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, false)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -94678,7 +94889,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 			}
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
-				panic(providerNetworkError(err, transportReq, mergedOptions))
+				panic(transportCallError(err, transportReq, mergedOptions))
 			}
 			body := normalizeTransportPayload(raw, transportReq, mergedOptions)
             return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
@@ -94730,7 +94941,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		raw, err := c.Transport.Call(ctx, call)
 		if err != nil {
 			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-			return nil, providerNetworkError(err, call, options)
+			return nil, transportCallError(err, call, options)
 		}
 		return safeValue(func() Value { return normalizeTransportPayload(raw, call, options) })
 	}
@@ -94825,6 +95036,9 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		opts := mergeAIOptions(c.optionsSnapshot(), options)
 		base := display(coreGet(opMap, "base_url", coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://generativelanguage.googleapis.com/v1beta")))))
 		call := Object("method", display(coreGet(opMap, "method", "POST")), "url", strings.TrimRight(base, "/")+display(coreGet(opMap, "path", "")), "headers", coreGet(fullCall, "headers", Object()), "json", coreGet(opMap, "request", Object()), "stream", false)
+		if timeoutMs := coreGet(fullCall, "timeout_ms", nil); timeoutMs != nil {
+			coreSet(call, "timeout_ms", timeoutMs)
+		}
 		return tryCall(call)
 	}
 	apiKey := display(coreGet(c.optionsSnapshot(), "api_key", coreGet(c.optionsSnapshot(), "apiKey", os.Getenv("GOOGLE_APIKEY"))))
@@ -94912,6 +95126,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, true)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -94930,7 +95145,7 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 			transportReq := c.requestJSON(ctx, "embed", req, false, mergedOptions)
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
-				panic(providerNetworkError(err, transportReq, mergedOptions))
+				panic(transportCallError(err, transportReq, mergedOptions))
 			}
 			return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw, transportReq, mergedOptions), c.Name, model))
 		})
@@ -94980,6 +95195,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 		response, err := transport.Stream(ctx, request)
 		if err != nil {
 			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
+			if isAxTimeoutError(err) { return nil, transportCallError(err, request, errorOptions) }
 			networkErr := providerNetworkError(err, request, errorOptions)
 			networkErr.Type = "AxAIServiceNetworkError"
 			networkErr.Retryable = true
@@ -95014,6 +95230,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 	raw, err := c.Transport.Call(ctx, request)
 	if err != nil {
 		if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
+		if isAxTimeoutError(err) { return nil, transportCallError(err, request, errorOptions) }
 		networkErr := providerNetworkError(err, request, errorOptions)
 		networkErr.Type = "AxAIServiceNetworkError"
 		networkErr.Retryable = true
@@ -95032,6 +95249,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 }
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+    warnCallTimeout(options)
     request, options = c.resolveModelKey(request, options, false)
     if !coreTruthy(coreGet(c.GetFeatures(display(coreGet(request,"model",""))),"streaming",true)) {
         response,err:=c.Chat(ctx,request,mergeAIOptions(options,Object("stream",false)));if err!=nil{return nil,err}
@@ -95090,7 +95308,9 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				transportReq := c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
 				raw, err := c.openProviderStream(ctx, transportReq, mergedOptions)
 				if err != nil {
-					if IsRetryable(err) && attempt < maxRetries {
+					// As in TS apiCall, a call's timeoutMs is not retried here.
+					callTimedOut := coreGet(transportReq, "timeout_ms", nil) != nil && isAxTimeoutError(err)
+					if IsRetryable(err) && !callTimedOut && attempt < maxRetries {
 						attempt++
 						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
 							panic(waitErr)
@@ -95360,6 +95580,13 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	// transport; flag the request so HTTPTransport.Call base64-encodes the body.
 	if display(coreGet(operationDescriptor, "response", "")) == "binary" {
 		coreSet(out, "binaryResponse", true)
+	}
+	// The call's timeoutMs (TS's per-call timeout, in milliseconds) bounds the
+	// wait for the response headers; HTTPTransport honors it.
+	if operation == "chat" || operation == "stream_chat" || operation == "embed" {
+		if timeoutMs := mustCore(provider_call_timeout_ms(opts)); timeoutMs != nil {
+			coreSet(out, "timeout_ms", timeoutMs)
+		}
 	}
 	return out
 }
@@ -105058,6 +105285,19 @@ func runConformanceAIChat(fixture map[string]Value) {
 	if expected, ok := fixture["expected_warnings"]; ok {
 		assertEqual(captured, expected, "ai chat warnings")
 	}
+	// Each fragment appears in a warning the call logged (a port's wording may differ).
+	for _, fragment := range asSlice(coreGet(fixture, "expected_warnings_containing", Array())) {
+		found := false
+		for _, message := range captured {
+			if strings.Contains(display(message), display(fragment)) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			panic(fmt.Sprintf("no ai chat warning contains %q: %v", display(fragment), captured))
+		}
+	}
 }
 
 func runConformanceAIChatRequest(fixture map[string]Value) {
@@ -107446,6 +107686,15 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	}
 	if expected := coreGet(fixture, "expected_request_count", nil); expected != nil && len(client.Requests) != int(num(expected)) {
 		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d requests, got %d", int(num(expected)), len(client.Requests))})
+	}
+	// Every chat call's options carry these (a forward option each stage gets).
+	if expected := coreGet(fixture, "expected_chat_options_all_subset", nil); expected != nil {
+		if len(client.ChatOptions) == 0 {
+			panic(AxError{Category: "fixture", Message: "fixture expected chat options but none were recorded"})
+		}
+		for index, options := range client.ChatOptions {
+			assertSubset(options, expected, fmt.Sprintf("chat options %d", index))
+		}
 	}
 	exactProjection := asMap(coreGet(fixture, "exact_observable_projection", Object()))
 	if expected := coreGet(exactProjection, "stateRoundtrip", nil); expected != nil {

@@ -63,7 +63,7 @@ Use the provider-backed Astra examples under `src/examples/rust/generation/`, `s
 
 ## Provider Forward Options
 
-AxGen merges constructor and per-call forward options before invoking the provider. Provider-facing keys such as `promptCacheKey`, `sessionId`, and `contextCache` therefore reach the chat request without being copied into program inputs. Per-call values override constructor defaults, and `modelConfig` / `model_config` merges key by key: a call's keys override the constructor's, whichever spelling each uses.
+AxGen merges constructor and per-call forward options before invoking the provider. Provider-facing keys such as `promptCacheKey`, `sessionId`, `contextCache`, and `timeoutMs` therefore reach the chat request without being copied into program inputs. Per-call values override constructor defaults, and `modelConfig` / `model_config` merges key by key: a call's keys override the constructor's, whichever spelling each uses.
 
 `structuredOutputMode` / `structured_output_mode` accepts `auto`, `native`, `function`, or `json_object`. Auto follows the selected profile/model ordering, with the provider-neutral singleton string/code JSON-object optimization. Explicit modes must be advertised and fail before transport otherwise. JSON-object mode retains exact-shape prompting, strict parsing, and one bounded correction retry without a synthetic `__axOutput` tool.
 

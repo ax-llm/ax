@@ -1,0 +1,27 @@
+{
+  "description": "Port-only: AxGen passes timeoutMs to ai.chat from the forward call, else the constructor, as TS passes its per-call timeout.",
+  "expected_chat_options_subset": {
+    "timeoutMs": 250
+  },
+  "expected_output": {
+    "answer": "on time"
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "timeoutMs": 250
+  },
+  "input": {
+    "question": "Answer within the timeout"
+  },
+  "kind": "forward",
+  "name": "call-timeout-ms-forward-option",
+  "options": {
+    "timeoutMs": 1000
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"on time\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

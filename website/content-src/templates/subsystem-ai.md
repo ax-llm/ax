@@ -169,6 +169,12 @@ breakpoints. Give AxGen a stable `promptCacheKey` plus `contextCache`; those
 forward options reach the provider in every language. Cache reads and writes
 are normalized separately for usage and catalog-backed cost estimates.
 
+A per-call timeout bounds the wait for the response headers, in milliseconds.
+TypeScript reads it as `timeout`. Until the next major version, the other
+languages read it as `timeoutMs` and warn once when a call gives `timeout`
+alone. A request whose response has not started in time fails with
+`AxAIServiceTimeoutError`.
+
 ### GPT-6 Astra and automatic sessions (TypeScript)
 
 Select `ai({ name: 'openai', config: { model: AxAIOpenAIModel.GPT6Astra }, apiKey })`.
