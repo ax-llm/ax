@@ -1,6 +1,6 @@
 # Changelog
 
-## [24.0.24](https://github.com/ax-llm/ax/compare/24.0.22...24.0.23) (2026-09-27)
+## [24.0.24](https://github.com/ax-llm/ax/compare/24.0.23...24.0.24) (2026-09-27)
 
 ### Features
 
@@ -8,7 +8,7 @@
 * **axir:** AxFlow cachingFunction in all five ports; a flow cache hit records no span; TS keys a node-less flow the same on every call (2d2) ([#740](https://github.com/ax-llm/ax/issues/740)) ([1a0abc8](https://github.com/ax-llm/ax/commit/1a0abc8e901ddb47219cfd7210fdc8dc3c3ae119))
 * **axir:** AxGen audio outputs render through speak() behind renderAudio in all five ports ([#736](https://github.com/ax-llm/ax/issues/736)) ([d023f67](https://github.com/ax-llm/ax/commit/d023f6756754927bbdeda17825b5b691b8a315fc))
 * **axir:** media inputs, speak() and agent audio outputs match TypeScript in all five ports; TS image detail, file filename, pcm and input_audio fixes (5b) ([#743](https://github.com/ax-llm/ax/issues/743)) ([4e8772b](https://github.com/ax-llm/ax/commit/4e8772b23d9c8b29dc34c6b5fb4932c82ff3aa84))
-* **axir:** opt-in TypeScript date parsing (parseDates) in the ports; time-zone abbreviations at literal offsets ([#734](https://github.com/ax-llm/ax/issues/734)) ([9de72ce](https://github.com/ax-llm/ax/commit/9de72cef37a7503777968051a6d9750ae45b02d5)), closes [86-#89](https://github.com/ax-llm/86-/issues/89)
+* **axir:** opt-in TypeScript date parsing (parseDates) in the ports; time-zone abbreviations at literal offsets ([#734](https://github.com/ax-llm/ax/issues/734)) ([9de72ce](https://github.com/ax-llm/ax/commit/9de72cef37a7503777968051a6d9750ae45b02d5))
 * **axir:** public streaming and field-processor APIs for Java, C++ and Rust; early stop reports aborted ([#730](https://github.com/ax-llm/ax/issues/730)) ([a88d66f](https://github.com/ax-llm/ax/commit/a88d66ffa9e2ff01cfab4530a32b889d588e67e7)), closes [#729](https://github.com/ax-llm/ax/issues/729)
 * **axir:** TypeScript AxGen streaming deltas in all five ports ([#724](https://github.com/ax-llm/ax/issues/724)) ([737f263](https://github.com/ax-llm/ax/commit/737f263c6b72edd66b19e73694fad66c48f45a52))
 * **axir:** TypeScript's AxGen cachingFunction in all five ports; a cache hit records no span (2d) ([#733](https://github.com/ax-llm/ax/issues/733)) ([da28673](https://github.com/ax-llm/ax/commit/da28673f86fca97bbd69a2315d7d0d5479f7b9dd))
@@ -44,7 +44,7 @@
 * **axir:** playbook evolve replays run on the runtime passed to evolve; examples stop when a replay fails ([#755](https://github.com/ax-llm/ax/issues/755)) ([f32c50c](https://github.com/ax-llm/ax/commit/f32c50cbcfe7a5fa537aebeea03f73966f5fa2a4)), closes [#750](https://github.com/ax-llm/ax/issues/750)
 * **axir:** ports' playbook reflector and curator get TypeScript's inputs ([#727](https://github.com/ax-llm/ax/issues/727)) ([22958b8](https://github.com/ax-llm/ax/commit/22958b8ff495055b60788e2e59559c8d05346588))
 * **axir:** provider errors, part 2: Core-owned error request view, TS body out of serialization, Go/C++ url and body ([#747](https://github.com/ax-llm/ax/issues/747)) ([0a2c467](https://github.com/ax-llm/ax/commit/0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346))
-* **axir:** real HTTP timeouts and connection failures raise TypeScript's typed errors in every port ([#767](https://github.com/ax-llm/ax/issues/767)) ([5c4fe20](https://github.com/ax-llm/ax/commit/5c4fe2040da83ec35a09ae62b94a7b49df87bf91)), closes [703/#707](https://github.com/703/ax/issues/707)
+* **axir:** real HTTP timeouts and connection failures raise TypeScript's typed errors in every port ([#767](https://github.com/ax-llm/ax/issues/767)) ([5c4fe20](https://github.com/ax-llm/ax/commit/5c4fe2040da83ec35a09ae62b94a7b49df87bf91))
 * **axir:** the AxGen structured-output contract goes in the system prompt in the ports; requiresStructuredOutput selects by mode (2h) ([#748](https://github.com/ax-llm/ax/issues/748)) ([d691dd6](https://github.com/ax-llm/ax/commit/d691dd63fb7f6ec665309a3c354322e6320f229d))
 * **axir:** TS playbook seed shape, miner user message, tool-field titles and string format in the ports (2f3) ([#739](https://github.com/ax-llm/ax/issues/739)) ([06404e0](https://github.com/ax-llm/ax/commit/06404e07963013d00a2603df6b59f3e4d6a7efdf))
 * **axir:** TypeScript's structured-output validation messages in the ports ([#768](https://github.com/ax-llm/ax/issues/768)) ([1c83032](https://github.com/ax-llm/ax/commit/1c83032daba575846bae2d85eb88e74a4605b6ed))
@@ -58,12 +58,6 @@
 * **examples:** the data-analyst examples wire their warehouse tools as the TS twin does ([#765](https://github.com/ax-llm/ax/issues/765)) ([08b2ab2](https://github.com/ax-llm/ax/commit/08b2ab2fc5b1938003221011e95b4cd852637e17))
 * **flow:** a parallel group merges each step's changes, in TS and all five ports ([#756](https://github.com/ax-llm/ax/issues/756)) ([58123b3](https://github.com/ax-llm/ax/commit/58123b3867e8d4d3835b9a555984f5c41704120d))
 * **util:** createHash('sha256') computes real SHA-256 (cache-key collisions) ([#726](https://github.com/ax-llm/ax/issues/726)) ([3f64c66](https://github.com/ax-llm/ax/commit/3f64c663fb11ccde81009af661e1e6937d11672c))
-
-## [24.0.23](https://github.com/ax-llm/ax/compare/24.0.22...24.0.23) (2026-09-25)
-
-### Bug Fixes
-
-* **gemini:** embed gemini-embedding-2 on Vertex through global :embedContent ([#715](https://github.com/ax-llm/ax/issues/715)) ([193f2ba](https://github.com/ax-llm/ax/commit/193f2ba165a758d84dfb49b2a10b7ba5cbe7fbbc))
 
 ## [24.0.23](https://github.com/ax-llm/ax/compare/24.0.22...24.0.23) (2026-09-25)
 
