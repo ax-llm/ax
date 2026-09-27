@@ -1,0 +1,22 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Generator answer`, `Question context`, `Key Insight`, `Item 1`. Your task is to generate new fields: `Root cause`, `Error Identification`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nGenerator answer:\nQuestion context:\nKey Insight:\nItem 1:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nRoot cause (wire key: `root_cause`): (This string field must be included)\nError Identification (wire key: `errorIdentification`): (This string field must be included)\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Generator answer: Paris\n\nQuestion context: European capitals\n\nKey Insight: Cite the source\n\nItem 1: first\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "generator_answer": "Paris",
+    "item1": "first",
+    "keyInsight": "Cite the source",
+    "question_context": "European capitals"
+  },
+  "kind": "prompt",
+  "name": "field-titles-snake-and-camel-case",
+  "signature": "generator_answer:string, question_context:string, keyInsight:string, item1:string -> root_cause:string, errorIdentification:string"
+}

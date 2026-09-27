@@ -2747,6 +2747,9 @@ await (async () => {
   let curations = 0;
   const teacherResponses: string[] = [];
   const teacherContents: string[] = [];
+  // Each teacher request's system prompt, in call order: the ports must build
+  // the reflector and curator signatures TS builds, descriptions included.
+  const teacherSystemPrompts: string[] = [];
   const teacherAI = new AxMockAIService<string>({
     name: 'mock',
     features: { functions: false, streaming: false },
@@ -2755,6 +2758,9 @@ await (async () => {
       for (const message of req.chatPrompt) {
         if (typeof message.content === 'string') {
           teacherContents.push(message.content);
+        }
+        if (message.role === 'system') {
+          teacherSystemPrompts.push(message.content);
         }
       }
       let content: string;
@@ -2838,8 +2844,14 @@ await (async () => {
       String(firstCurator.playbook),
       String(firstCurator.question_context),
     ],
+    expected_teacher_system_prompts: teacherSystemPrompts,
   });
   if (teacherContents.length === 0) {
     throw new Error('playbook-evolve-teacher-inputs: teacher was never called');
+  }
+  if (teacherSystemPrompts.length !== teacherResponses.length) {
+    throw new Error(
+      'playbook-evolve-teacher-inputs: expected one system prompt per teacher request'
+    );
   }
 })();

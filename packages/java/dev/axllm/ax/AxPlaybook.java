@@ -18,27 +18,13 @@ import java.util.regex.Pattern;
  * {@code Ax.optimize} hides GEPA.
  */
 public final class AxPlaybook {
-  private static final String REFLECTOR_SIGNATURE =
-      "question:string \"Original task input serialized as JSON\", "
-          + "generator_answer:string \"Generator output serialized as JSON\", "
-          + "generator_reasoning?:string \"Generator reasoning trace\", "
-          + "playbook:string \"Current context playbook rendered as markdown\", "
-          + "expected_answer?:string \"Expected output when ground truth is available\", "
-          + "feedback?:string \"External feedback or reward signal\", "
-          + "previous_reflection?:string \"Most recent reflection JSON when running multi-round refinement\" "
-          + "-> reasoning:string \"Step-by-step analysis of generator performance\", "
-          + "errorIdentification:string \"Specific mistakes detected\", "
-          + "rootCauseAnalysis:string \"Underlying cause of the error\", "
-          + "correctApproach:string \"What the generator should do differently\", "
-          + "keyInsight:string \"Reusable insight to remember\", "
-          + "bulletTags:json \"Array of {id, tag} entries referencing playbook bullets\"";
-  private static final String CURATOR_SIGNATURE =
-      "playbook:string \"Current playbook serialized as JSON\", "
-          + "reflection:string \"Latest reflection output serialized as JSON\", "
-          + "question_context:string \"Original task input serialized as JSON\", "
-          + "token_budget?:number \"Approximate token budget for curator response\" "
-          + "-> reasoning:string \"Justification for the proposed updates\", "
-          + "operations:json \"List of operations with type/section/content fields\"";
+  private static final String CURATOR_OPERATIONS_DESCRIPTION =
+      "List of operations, each {type: \"ADD\"|\"UPDATE\"|\"REMOVE\", section, content}. "
+          + "Emit an operation ONLY when the playbook should actually change. "
+          + "If nothing should change, return an empty array — never emit an ADD whose content "
+          + "just acknowledges that no change is needed (e.g. \"No update required\", "
+          + "\"Keep the existing rule unchanged\"). "
+          + "Each ADD content must be a standalone, reusable rule.";
   private static final String WEAKNESS_MINER_SIGNATURE =
       "clusterSignature:string \"Shared error signature of the cluster\", "
           + "taskSummaries:string \"One line per failing task\", "
@@ -112,16 +98,50 @@ public final class AxPlaybook {
     return prediction;
   }
 
+  // The reflector and curator signatures TS builds (src/ax/dsp/optimizers/ace.ts),
+  // built with the field builder: a signature string cannot carry a description
+  // with double quotes, as the curator's operations description has.
+  static AxSignature reflectorSignature() {
+    Field.Factory f = Ax.f();
+    return f.call()
+        .input("question", f.string("Original task input serialized as JSON"))
+        .input("generator_answer", f.string("Generator output serialized as JSON"))
+        .input("generator_reasoning", f.string("Generator reasoning trace").optional())
+        .input("playbook", f.string("Current context playbook rendered as markdown"))
+        .input("expected_answer", f.string("Expected output when ground truth is available").optional())
+        .input("feedback", f.string("External feedback or reward signal").optional())
+        .input("previous_reflection", f.string("Most recent reflection JSON when running multi-round refinement").optional())
+        .output("reasoning", f.string("Step-by-step analysis of generator performance"))
+        .output("errorIdentification", f.string("Specific mistakes detected"))
+        .output("rootCauseAnalysis", f.string("Underlying cause of the error"))
+        .output("correctApproach", f.string("What the generator should do differently"))
+        .output("keyInsight", f.string("Reusable insight to remember"))
+        .output("bulletTags", f.json("Array of {id, tag} entries referencing playbook bullets"))
+        .build();
+  }
+
+  static AxSignature curatorSignature() {
+    Field.Factory f = Ax.f();
+    return f.call()
+        .input("playbook", f.string("Current playbook serialized as JSON"))
+        .input("reflection", f.string("Latest reflection output serialized as JSON"))
+        .input("question_context", f.string("Original task input serialized as JSON"))
+        .input("token_budget", f.number("Approximate token budget for curator response").optional())
+        .output("reasoning", f.string("Justification for the proposed updates"))
+        .output("operations", f.json(CURATOR_OPERATIONS_DESCRIPTION))
+        .build();
+  }
+
   private AxGen reflector() {
     if (this.reflectorProgram == null) {
-      this.reflectorProgram = Ax.ax(REFLECTOR_SIGNATURE);
+      this.reflectorProgram = Ax.ax(reflectorSignature());
     }
     return this.reflectorProgram;
   }
 
   private AxGen curator() {
     if (this.curatorProgram == null) {
-      this.curatorProgram = Ax.ax(CURATOR_SIGNATURE);
+      this.curatorProgram = Ax.ax(curatorSignature());
     }
     return this.curatorProgram;
   }

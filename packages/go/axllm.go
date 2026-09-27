@@ -2097,8 +2097,10 @@ func _core_template_validate(source Value, context Value, required Value) Value 
 func _core_prompt_structured(signature Value, values Value, functions Value, options Value) (Value, error) {
 	return safeValue(func() Value { return promptStructured(signature, asMap(values), asSlice(functions), asMap(options)) })
 }
-func _core_prompt_user_content(signature Value, values Value) Value {
-	return promptUserContent(signature, asMap(values))
+// _core_prompt_user_content recovers at the host boundary: promptUserContent
+// reports a required input without a value via panic.
+func _core_prompt_user_content(signature Value, values Value) (Value, error) {
+	return safeValue(func() Value { return promptUserContent(signature, asMap(values)) })
 }
 func _core_stream_event_content_parts(event Value) Value {
 	if s, ok := event.(string); ok {
@@ -5635,6 +5637,9 @@ func _validate_fields_impl(args ...Value) (Value, error) {
 	var v_field_value Value
 	var v_has_title Value
 	var v_has_value Value
+	var v_input_error Value
+	var v_input_message Value
+	var v_is_input Value
 	var v_is_null Value
 	var v_is_optional Value
 	var v_message Value
@@ -5657,6 +5662,9 @@ func _validate_fields_impl(args ...Value) (Value, error) {
 	_ = v_field_value
 	_ = v_has_title
 	_ = v_has_value
+	_ = v_input_error
+	_ = v_input_message
+	_ = v_is_input
 	_ = v_is_null
 	_ = v_is_optional
 	_ = v_message
@@ -5692,6 +5700,14 @@ func _validate_fields_impl(args ...Value) (Value, error) {
 		if coreTruthy(v_missing_or_null) {
 			v_required_missing = _core_not(v_is_optional)
 			if coreTruthy(v_required_missing) {
+				v_is_input = _core_eq(v_context, "input")
+				if coreTruthy(v_is_input) {
+					v_input_message = _core_string_format("Value for input field '{}' is required.", v_field_name)
+					v_input_error = _core_validation_error(v_input_message)
+					return nil, asError(v_input_error)
+				} else {
+				// empty
+				}
 				v_message = _core_string_format("Required field is missing: '{}'", v_field_title)
 				v_error = _core_validation_error(v_message)
 				return nil, asError(v_error)
@@ -5771,51 +5787,6 @@ func _schema_json_type_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return "string", nil
-}
-
-func _validate_output_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_validate_output_impl")
-	var v_fields Value
-	var v_values Value
-	var v_alias_title Value
-	var v_field Value
-	var v_field_name Value
-	var v_field_title Value
-	var v_has_name Value
-	var v_has_title Value
-	var v_missing_name Value
-	var v_normalized Value
-	var v_title_value Value
-	if len(args) > 0 { v_fields = args[0] }
-	_ = v_fields
-	if len(args) > 1 { v_values = args[1] }
-	_ = v_values
-	_ = v_alias_title
-	_ = v_field
-	_ = v_field_name
-	_ = v_field_title
-	_ = v_has_name
-	_ = v_has_title
-	_ = v_missing_name
-	_ = v_normalized
-	_ = v_title_value
-	v_normalized = v_values
-	for _, v_field = range coreIter(v_fields) {
-		v_field_name = coreGet(v_field, "name", nil)
-		v_field_title = coreGet(v_field, "title", nil)
-		v_has_name = _core_map_contains(v_normalized, v_field_name)
-		v_missing_name = _core_not(v_has_name)
-		v_has_title = _core_map_contains(v_normalized, v_field_title)
-		v_alias_title = _core_and(v_missing_name, v_has_title)
-		if coreTruthy(v_alias_title) {
-			v_title_value = coreGet(v_normalized, v_field_title, nil)
-			if err := coreSet(v_normalized, v_field_name, v_title_value); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-	}
-	if _, err := _validate_fields_impl(v_fields, v_normalized, "output"); err != nil { return nil, err }
-	return v_normalized, nil
 }
 
 func _schema_enhance_description_impl(args ...Value) (Value, error) {
@@ -6025,6 +5996,51 @@ func _schema_enhance_description_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_base, nil
+}
+
+func _validate_output_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_output_impl")
+	var v_fields Value
+	var v_values Value
+	var v_alias_title Value
+	var v_field Value
+	var v_field_name Value
+	var v_field_title Value
+	var v_has_name Value
+	var v_has_title Value
+	var v_missing_name Value
+	var v_normalized Value
+	var v_title_value Value
+	if len(args) > 0 { v_fields = args[0] }
+	_ = v_fields
+	if len(args) > 1 { v_values = args[1] }
+	_ = v_values
+	_ = v_alias_title
+	_ = v_field
+	_ = v_field_name
+	_ = v_field_title
+	_ = v_has_name
+	_ = v_has_title
+	_ = v_missing_name
+	_ = v_normalized
+	_ = v_title_value
+	v_normalized = v_values
+	for _, v_field = range coreIter(v_fields) {
+		v_field_name = coreGet(v_field, "name", nil)
+		v_field_title = coreGet(v_field, "title", nil)
+		v_has_name = _core_map_contains(v_normalized, v_field_name)
+		v_missing_name = _core_not(v_has_name)
+		v_has_title = _core_map_contains(v_normalized, v_field_title)
+		v_alias_title = _core_and(v_missing_name, v_has_title)
+		if coreTruthy(v_alias_title) {
+			v_title_value = coreGet(v_normalized, v_field_title, nil)
+			if err := coreSet(v_normalized, v_field_name, v_title_value); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	if _, err := _validate_fields_impl(v_fields, v_normalized, "output"); err != nil { return nil, err }
+	return v_normalized, nil
 }
 
 func _validate_string_constraints_impl(args ...Value) (Value, error) {
@@ -7322,7 +7338,7 @@ func _prompt_user_content_impl(args ...Value) (Value, error) {
 	if len(args) > 1 { v_values = args[1] }
 	_ = v_values
 	_ = v_content
-	v_content = _core_prompt_user_content(v_signature, v_values)
+	{ v, err := _core_prompt_user_content(v_signature, v_values); if err != nil { return nil, err }; v_content = v }
 	return v_content, nil
 }
 
@@ -88466,9 +88482,59 @@ func (a *AxACE) ApplyOnlineUpdate(args map[string]Value) Value {
 	return curatorResult
 }
 
-const aceReflectorSignature = "question:string \"Original task input serialized as JSON\", generator_answer:string \"Generator output serialized as JSON\", generator_reasoning?:string \"Generator reasoning trace\", playbook:string \"Current context playbook rendered as markdown\", expected_answer?:string \"Expected output when ground truth is available\", feedback?:string \"External feedback or reward signal\", previous_reflection?:string \"Most recent reflection JSON when running multi-round refinement\" -> reasoning:string \"Step-by-step analysis of generator performance\", errorIdentification:string \"Specific mistakes detected\", rootCauseAnalysis:string \"Underlying cause of the error\", correctApproach:string \"What the generator should do differently\", keyInsight:string \"Reusable insight to remember\", bulletTags:json \"Array of {id, tag} entries referencing playbook bullets\""
+// The reflector and curator signatures TS builds (src/ax/dsp/optimizers/ace.ts),
+// assembled from fields: a signature string cannot carry a description with
+// double quotes, as the curator's operations description has.
+func aceField(name string, typeName string, description string, optional bool) Field {
+	return Field{Name: name, Title: title(name), Type: FieldType{Name: typeName}, Description: description, IsOptional: optional}
+}
 
-const aceCuratorSignature = "playbook:string \"Current playbook serialized as JSON\", reflection:string \"Latest reflection output serialized as JSON\", question_context:string \"Original task input serialized as JSON\", token_budget?:number \"Approximate token budget for curator response\" -> reasoning:string \"Justification for the proposed updates\", operations:json \"List of operations with type/section/content fields\""
+func aceReflectorSignature() AxSignature {
+	return AxSignature{
+		Inputs: []Field{
+			aceField("question", "string", "Original task input serialized as JSON", false),
+			aceField("generator_answer", "string", "Generator output serialized as JSON", false),
+			aceField("generator_reasoning", "string", "Generator reasoning trace", true),
+			aceField("playbook", "string", "Current context playbook rendered as markdown", false),
+			aceField("expected_answer", "string", "Expected output when ground truth is available", true),
+			aceField("feedback", "string", "External feedback or reward signal", true),
+			aceField("previous_reflection", "string", "Most recent reflection JSON when running multi-round refinement", true),
+		},
+		Outputs: []Field{
+			aceField("reasoning", "string", "Step-by-step analysis of generator performance", false),
+			aceField("errorIdentification", "string", "Specific mistakes detected", false),
+			aceField("rootCauseAnalysis", "string", "Underlying cause of the error", false),
+			aceField("correctApproach", "string", "What the generator should do differently", false),
+			aceField("keyInsight", "string", "Reusable insight to remember", false),
+			aceField("bulletTags", "json", "Array of {id, tag} entries referencing playbook bullets", false),
+		},
+	}
+}
+
+const aceCuratorOperationsDescription = `List of operations, each {type: "ADD"|"UPDATE"|"REMOVE", section, content}. Emit an operation ONLY when the playbook should actually change. If nothing should change, return an empty array — never emit an ADD whose content just acknowledges that no change is needed (e.g. "No update required", "Keep the existing rule unchanged"). Each ADD content must be a standalone, reusable rule.`
+
+func aceCuratorSignature() AxSignature {
+	return AxSignature{
+		Inputs: []Field{
+			aceField("playbook", "string", "Current playbook serialized as JSON", false),
+			aceField("reflection", "string", "Latest reflection output serialized as JSON", false),
+			aceField("question_context", "string", "Original task input serialized as JSON", false),
+			aceField("token_budget", "number", "Approximate token budget for curator response", true),
+		},
+		Outputs: []Field{
+			aceField("reasoning", "string", "Justification for the proposed updates", false),
+			aceField("operations", "json", aceCuratorOperationsDescription, false),
+		},
+	}
+}
+
+// newACEProgram runs a reflector or curator signature built from fields.
+func newACEProgram(signature AxSignature, id string) *AxGen {
+	mustCore(validate_signature(signature))
+	program := NewAx("question:string -> answer:string", Object("validation_retries", 1, "id", id))
+	program.Signature = signature
+	return program
+}
 
 const agentPlaybookWeaknessMinerSignature = "clusterSignature:string \"Shared error signature of the cluster\", taskSummaries:string \"One line per failing task\", actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", functionCallSummary?:string \"Digest of runtime/tool calls\", toolErrors?:string \"Tool errors observed\", currentPlaybook?:string \"Current failure-avoidance playbook\" -> weaknessDescription:string \"Recurring weakness\", rootCause:string \"Mechanical root cause\", proposedGuidance:string \"One concise imperative avoidance rule\", evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", configRecommendations?:json \"Setup suggestions no prompt text can fix\""
 
@@ -88739,14 +88805,14 @@ func (p *AxPlaybook) runGenerator(example map[string]Value) map[string]Value {
 
 func (p *AxPlaybook) reflector() *AxGen {
 	if p.reflectorProgram == nil {
-		p.reflectorProgram = NewAx(aceReflectorSignature, Object("validation_retries", 1, "id", "ace.reflector"))
+		p.reflectorProgram = newACEProgram(aceReflectorSignature(), "ace.reflector")
 	}
 	return p.reflectorProgram
 }
 
 func (p *AxPlaybook) curator() *AxGen {
 	if p.curatorProgram == nil {
-		p.curatorProgram = NewAx(aceCuratorSignature, Object("validation_retries", 1, "id", "ace.curator"))
+		p.curatorProgram = newACEProgram(aceCuratorSignature(), "ace.curator")
 	}
 	return p.curatorProgram
 }
@@ -93477,6 +93543,18 @@ func runPlaybookEvolveFixture(fixture map[string]Value) {
 			}
 		}
 	}
+	if expected, ok := fixture["expected_teacher_system_prompts"]; ok {
+		// Each teacher request's system prompt, in call order, byte for byte.
+		prompts := Array()
+		for _, request := range teacher.Requests {
+			for _, message := range asSlice(coreGet(request, "chat_prompt", Array())) {
+				if display(coreGet(message, "role", "")) == "system" {
+					prompts = append(prompts, coreGet(message, "content", nil))
+				}
+			}
+		}
+		assertEqual(prompts, expected, "teacher system prompts")
+	}
 }
 
 func conformanceVerificationSummary() Value {
@@ -94563,6 +94641,13 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_state", nil); expected != nil {
 		assertSubset(ag.GetState(), expected, "agent state")
 	}
+	if expected, ok := fixture["expected_playbook_state"]; ok {
+		var state Value
+		if handle := ag.GetPlaybook(); handle != nil {
+			state = handle.GetState()
+		}
+		assertEqual(state, expected, "agent playbook state")
+	}
 	exported := ag.ExportRuntimeState()
 	if expected := coreGet(fixture, "expected_runtime_contract_subset", nil); expected != nil {
 		assertSubset(ag.GetRuntimeContract(), expected, "runtime contract")
@@ -95487,6 +95572,14 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 	allText := true
 	for _, field := range fields {
 		value := coreGet(values, field.Name, nil)
+		// As TS renders an input field (src/ax/dsp/prompt.ts): a required input
+		// that is missing, null, "" or [] has no value.
+		if !goPromptProvided(value) {
+			if field.IsOptional || field.IsInternal {
+				continue
+			}
+			panic(AxError{Category: "runtime", Message: "Value for input field '" + field.Name + "' is required."})
+		}
 		text := field.Title + ": " + goPromptValueText(value) + "\n"
 		part := Object("type", "text", "text", text)
 		if field.IsCached {
@@ -95839,9 +95932,13 @@ func goPromptFieldTypeText(t FieldType) string {
 	}
 	return base
 }
+// goPromptHasComplexFields is TS's hasComplexFields (src/ax/dsp/sig.ts): only an
+// object output or an array of objects asks for one JSON object. JSON and
+// scalar-array outputs keep the `field name: value` text contract, which is the
+// rung the Core selects for them.
 func goPromptHasComplexFields(sig AxSignature) bool {
 	for _, f := range sig.Outputs {
-		if f.Type.Name == "object" || f.Type.Name == "json" || f.Type.IsArray {
+		if f.Type.Name == "object" || (f.Type.IsArray && len(f.Type.Fields) > 0) {
 			return true
 		}
 	}

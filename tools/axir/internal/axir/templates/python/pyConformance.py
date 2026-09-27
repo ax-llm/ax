@@ -1905,6 +1905,15 @@ def _run_playbook_evolve(fixture):
         for item in fixture.get("expected_teacher_request_contains") or []:
             if str(item) not in text:
                 raise FixtureError(f"teacher requests missing {item!r}")
+    if "expected_teacher_system_prompts" in fixture:
+        # Each teacher request's system prompt, in call order, byte for byte.
+        prompts = [
+            message.get("content")
+            for request in teacher.requests
+            for message in (request.get("chat_prompt") or [])
+            if message.get("role") == "system"
+        ]
+        _assert_equal(prompts, fixture["expected_teacher_system_prompts"], "teacher system prompts")
 
 
 def _run_ace(fixture, operation):
@@ -2386,6 +2395,9 @@ def _run_agent_forward(fixture):
         _assert_list_subset(ag.get_chat_log(), fixture["expected_chat_log_subset"], "agent chat log")
     if "expected_state" in fixture:
         _assert_subset(ag.get_state(), fixture["expected_state"], "agent state")
+    if "expected_playbook_state" in fixture:
+        handle = ag.get_playbook()
+        _assert_equal(handle.get_state() if handle is not None else None, fixture["expected_playbook_state"], "agent playbook state")
     exported = ag.export_runtime_state()
     if "expected_runtime_contract_subset" in fixture:
         _assert_subset(ag.get_runtime_contract(), fixture["expected_runtime_contract_subset"], "runtime contract")

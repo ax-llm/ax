@@ -5,7 +5,7 @@
   "files": {
     "axllm/agent.py": {
       "emitted_lines": 8914,
-      "total_lines": 11520
+      "total_lines": 11540
     },
     "axllm/ai.py": {
       "emitted_lines": 11437,
@@ -28,8 +28,8 @@
       "total_lines": 711
     },
     "axllm/schema.py": {
-      "emitted_lines": 885,
-      "total_lines": 1156
+      "emitted_lines": 892,
+      "total_lines": 1163
     },
     "axllm/signature.py": {
       "emitted_lines": 1546,

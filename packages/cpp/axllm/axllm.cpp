@@ -4197,6 +4197,12 @@ Value Core::_validate_fields_impl(Value fields, Value values, Value context) {
     if (Core::truthy(missing_or_null)) {
       Value required_missing = Core::not_(is_optional);
       if (Core::truthy(required_missing)) {
+        Value is_input = Core::eq(context, Value("input"));
+        if (Core::truthy(is_input)) {
+          Value input_message = Core::string_format(Value("Value for input field '{}' is required."), field_name);
+          Value input_error = Core::validation_error(input_message);
+          Core::raise_error(input_error);
+        }
         Value message = Core::string_format(Value("Required field is missing: '{}'"), field_title);
         Value error = Core::validation_error(message);
         Core::raise_error(error);
@@ -4250,25 +4256,6 @@ Value Core::_schema_json_type_impl(Value type_name) {
     return json_types;
   }
   return Value("string");
-}
-
-Value Core::_validate_output_impl(Value fields, Value values) {
-  axir_coverage_mark("_validate_output_impl");
-  Value normalized = values;
-  for (auto field : Core::iter(fields)) {
-    Value field_name = Core::get(field, Value("name"), Value());
-    Value field_title = Core::get(field, Value("title"), Value());
-    Value has_name = Core::map_contains(normalized, field_name);
-    Value missing_name = Core::not_(has_name);
-    Value has_title = Core::map_contains(normalized, field_title);
-    Value alias_title = Core::and_(missing_name, has_title);
-    if (Core::truthy(alias_title)) {
-      Value title_value = Core::get(normalized, field_title, Value());
-      Core::set(normalized, field_name, title_value);
-    }
-  }
-  Core::_validate_fields_impl(fields, normalized, Value("output"));
-  return normalized;
 }
 
 Value Core::_schema_enhance_description_impl(Value base, Value typ) {
@@ -4383,6 +4370,25 @@ Value Core::_schema_enhance_description_impl(Value base, Value typ) {
     return description;
   }
   return base;
+}
+
+Value Core::_validate_output_impl(Value fields, Value values) {
+  axir_coverage_mark("_validate_output_impl");
+  Value normalized = values;
+  for (auto field : Core::iter(fields)) {
+    Value field_name = Core::get(field, Value("name"), Value());
+    Value field_title = Core::get(field, Value("title"), Value());
+    Value has_name = Core::map_contains(normalized, field_name);
+    Value missing_name = Core::not_(has_name);
+    Value has_title = Core::map_contains(normalized, field_title);
+    Value alias_title = Core::and_(missing_name, has_title);
+    if (Core::truthy(alias_title)) {
+      Value title_value = Core::get(normalized, field_title, Value());
+      Core::set(normalized, field_name, title_value);
+    }
+  }
+  Core::_validate_fields_impl(fields, normalized, Value("output"));
+  return normalized;
 }
 
 Value Core::_validate_string_constraints_impl(Value value, Value field) {
@@ -44006,28 +44012,56 @@ Value AxACE::apply_online_update(Value args) {
   return curator_result;
 }
 
-static const char* kAceReflectorSignature =
-    "question:string \"Original task input serialized as JSON\", "
-    "generator_answer:string \"Generator output serialized as JSON\", "
-    "generator_reasoning?:string \"Generator reasoning trace\", "
-    "playbook:string \"Current context playbook rendered as markdown\", "
-    "expected_answer?:string \"Expected output when ground truth is available\", "
-    "feedback?:string \"External feedback or reward signal\", "
-    "previous_reflection?:string \"Most recent reflection JSON when running multi-round refinement\" "
-    "-> reasoning:string \"Step-by-step analysis of generator performance\", "
-    "errorIdentification:string \"Specific mistakes detected\", "
-    "rootCauseAnalysis:string \"Underlying cause of the error\", "
-    "correctApproach:string \"What the generator should do differently\", "
-    "keyInsight:string \"Reusable insight to remember\", "
-    "bulletTags:json \"Array of {id, tag} entries referencing playbook bullets\"";
+// The reflector and curator signatures TS builds (src/ax/dsp/optimizers/ace.ts),
+// assembled from Field records: a signature string cannot carry a description
+// with double quotes, as the curator's operations description has.
+static Value ace_field(const std::string& name, const std::string& type, const std::string& description, bool optional = false) {
+  return Core::record_new("Field", Value(Object{{"name", name},
+                                                {"type", Core::record_new("FieldType", Value(Object{{"name", type}}))},
+                                                {"description", description},
+                                                {"isOptional", optional}}));
+}
 
-static const char* kAceCuratorSignature =
-    "playbook:string \"Current playbook serialized as JSON\", "
-    "reflection:string \"Latest reflection output serialized as JSON\", "
-    "question_context:string \"Original task input serialized as JSON\", "
-    "token_budget?:number \"Approximate token budget for curator response\" "
-    "-> reasoning:string \"Justification for the proposed updates\", "
-    "operations:json \"List of operations with type/section/content fields\"";
+static Value ace_signature(Array inputs, Array outputs) {
+  Value sig(Object{{"description", Value()}, {"inputs", Value(std::move(inputs))}, {"outputs", Value(std::move(outputs))}});
+  Core::validate_signature(sig);
+  return sig;
+}
+
+static Value ace_reflector_signature() {
+  return ace_signature(
+      {ace_field("question", "string", "Original task input serialized as JSON"),
+       ace_field("generator_answer", "string", "Generator output serialized as JSON"),
+       ace_field("generator_reasoning", "string", "Generator reasoning trace", true),
+       ace_field("playbook", "string", "Current context playbook rendered as markdown"),
+       ace_field("expected_answer", "string", "Expected output when ground truth is available", true),
+       ace_field("feedback", "string", "External feedback or reward signal", true),
+       ace_field("previous_reflection", "string", "Most recent reflection JSON when running multi-round refinement", true)},
+      {ace_field("reasoning", "string", "Step-by-step analysis of generator performance"),
+       ace_field("errorIdentification", "string", "Specific mistakes detected"),
+       ace_field("rootCauseAnalysis", "string", "Underlying cause of the error"),
+       ace_field("correctApproach", "string", "What the generator should do differently"),
+       ace_field("keyInsight", "string", "Reusable insight to remember"),
+       ace_field("bulletTags", "json", "Array of {id, tag} entries referencing playbook bullets")});
+}
+
+static const char* kAceCuratorOperationsDescription =
+    "List of operations, each {type: \"ADD\"|\"UPDATE\"|\"REMOVE\", section, content}. "
+    "Emit an operation ONLY when the playbook should actually change. "
+    "If nothing should change, return an empty array \xE2\x80\x94 never emit an ADD whose content "
+    "just acknowledges that no change is needed (e.g. \"No update required\", "
+    "\"Keep the existing rule unchanged\"). "
+    "Each ADD content must be a standalone, reusable rule.";
+
+static Value ace_curator_signature() {
+  return ace_signature(
+      {ace_field("playbook", "string", "Current playbook serialized as JSON"),
+       ace_field("reflection", "string", "Latest reflection output serialized as JSON"),
+       ace_field("question_context", "string", "Original task input serialized as JSON"),
+       ace_field("token_budget", "number", "Approximate token budget for curator response", true)},
+      {ace_field("reasoning", "string", "Justification for the proposed updates"),
+       ace_field("operations", "json", kAceCuratorOperationsDescription)});
+}
 
 static const char* kAgentPlaybookWeaknessMinerSignature =
     "clusterSignature:string \"Shared error signature of the cluster\", "
@@ -44266,7 +44300,7 @@ Value AxPlaybook::run_generator(const Value& example) {
 // As in TS, the question holds the example's input fields and the expected
 // answer its output fields.
 Value AxPlaybook::run_reflector(const Value& payload) {
-  if (!reflector_program_) reflector_program_ = std::make_unique<AxGen>(s(kAceReflectorSignature));
+  if (!reflector_program_) reflector_program_ = std::make_unique<AxGen>(ace_reflector_signature());
   size_t max_chars = playbook_max_serialized_chars(engine_);
   Value example = Core::get(payload, "question");
   Value request = Value::object();
@@ -44291,7 +44325,7 @@ Value AxPlaybook::run_reflector(const Value& payload) {
 
 // The real LLM curator: a focused AxGen sub-program driven by the teacher.
 Value AxPlaybook::run_curator(const Value& payload) {
-  if (!curator_program_) curator_program_ = std::make_unique<AxGen>(s(kAceCuratorSignature));
+  if (!curator_program_) curator_program_ = std::make_unique<AxGen>(ace_curator_signature());
   Value question_context = playbook_field_values(Core::get(payload, "question_context"), program_, "inputs");
   Value request = Value::object();
   Core::set(request, "playbook", Value(playbook_input(Core::get(payload, "playbook", Value("")), engine_.get_playbook())));
