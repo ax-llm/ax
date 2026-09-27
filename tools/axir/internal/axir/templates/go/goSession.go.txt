@@ -727,7 +727,10 @@ func (p *genSessionClient) runSession(ctx context.Context, request, options map[
 		panic(err)
 	}
 	p.session = session
-	p.state = mustCore(chat_session_create_state(coreGet(request, "model", ""), p.path, coreGet(p.options, "maxSteps", coreGet(p.options, "max_steps", 10))))
+	// As TS's maxResponses: the run's maxSteps (25 by default) less the
+	// request's step.
+	limit := int(num(coreGet(p.options, "maxSteps", coreGet(p.options, "max_steps", 25))) - num(coreGet(request, "_ax_step_index", 0)))
+	p.state = mustCore(chat_session_create_state(coreGet(request, "model", ""), p.path, limit))
 	sessionCtx, deliveries, results := p.ctx, p.deliveries, p.results
 	go func() {
 		for {
@@ -843,8 +846,8 @@ func (p *genSessionClient) runSession(ctx context.Context, request, options map[
 	}
 }
 func (p *genSessionClient) submit(results []Value) {
-	if num(coreGet(p.state, "steps", 0)) >= num(coreGet(p.state, "max_steps", 10)) {
-		panic(fmt.Errorf("maximum model steps exhausted before final completion"))
+	if num(coreGet(p.state, "steps", 0)) >= num(coreGet(p.state, "max_steps", 25)) {
+		panic(mustCore(chat_session_step_limit_error(p.state)))
 	}
 	if err := p.session.Submit(results); err != nil {
 		panic(err)
