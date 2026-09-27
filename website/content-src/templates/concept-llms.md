@@ -72,7 +72,9 @@ Thinking controls expose provider-specific reasoning budgets through one Ax opti
 
 For OpenAI GPT-5.6 Chat, Ax emits explicit stable message breakpoints only when
 caching is requested and forwards `promptCacheKey` from AxGen. Older models,
-Azure, Responses, and uncached calls keep their existing request shape. For
+Azure, Responses, and uncached calls keep their existing request shape, except
+that every OpenAI Responses request sends `prompt_cache_key`, from
+`promptCacheKey`, else `sessionId`. For
 Vertex Gemini and Anthropic, project and region select global, US/EU
 multi-region, or regional routes; bearer-token lifecycle remains host-owned.
 

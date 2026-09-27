@@ -3091,9 +3091,16 @@ impl OpenAICompatibleClient {
         let mut attempt: i64 = 0;
         loop {
             let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
+            // As in TS apiCall, a call's timeoutMs is not retried here.
+            let call_timeout = call_header_timeout_ms(&call).is_some();
             let mut raw = match self.dispatch_transport_stream(call) {
                 Ok(value) => value,
-                Err(error) if is_retryable_ai_error(&error) && attempt < max_retries => {
+                Err(error)
+                    if is_retryable_ai_error(&error)
+                        && !(call_timeout
+                            && error.error_type.as_deref() == Some("AxAIServiceTimeoutError"))
+                        && attempt < max_retries =>
+                {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
                     cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
@@ -3404,6 +3411,17 @@ impl OpenAICompatibleClient {
         if method != "GET" && method != "HEAD" {
             out[body_key] = payload.clone();
         }
+        // The call's timeoutMs (TS's per-call timeout, in milliseconds) bounds
+        // the wait for the response headers.
+        if matches!(operation, "chat" | "stream_chat" | "embed") {
+            let timeout_ms =
+                core_value_to_json(&provider_call_timeout_ms(&[core_value_from_json(
+                    &self.options,
+                )])?);
+            if !timeout_ms.is_null() {
+                out["timeout_ms"] = timeout_ms;
+            }
+        }
         Ok(out)
     }
 
@@ -3431,6 +3449,11 @@ impl OpenAICompatibleClient {
             .unwrap_or(60.0);
         if let Some(token) = &cancellation {
             return cancellable_http_json(&call, timeout, token);
+        }
+        // A call's timeoutMs bounds only the wait for the response headers (TS
+        // apiCall's timer), which the async client can time on its own.
+        if call_header_timeout_ms(&call).is_some() {
+            return cancellable_http_json(&call, timeout, &AxCancellationToken::default());
         }
         let url = call
             .get("url")
@@ -3535,36 +3558,47 @@ impl OpenAICompatibleClient {
                     .stream(call)?,
             );
         }
-        let url = call
-            .get("url")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let method = call
-            .get("method")
-            .and_then(Value::as_str)
-            .unwrap_or("POST")
-            .parse::<reqwest::Method>()
-            .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
-        let mut builder = HttpClient::builder()
-            .timeout(Duration::from_secs(60))
-            .build()?
-            .request(method, url);
-        if let Some(headers) = call.get("headers").and_then(Value::as_object) {
-            for (key, value) in headers {
-                builder = builder.header(key.as_str(), value.as_str().unwrap_or_default());
+        // The per-call or client timeout in seconds, as for non-streaming
+        // requests, else 60 s.
+        let timeout = self
+            .options
+            .get("timeout")
+            .and_then(Value::as_f64)
+            .unwrap_or(60.0);
+        let (status, body): (u16, Box<dyn Read>) = match call_header_timeout_ms(&call) {
+            Some(header_ms) => open_timed_stream(&call, header_ms, timeout)?,
+            None => {
+                let url = call
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let method = call
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .unwrap_or("POST")
+                    .parse::<reqwest::Method>()
+                    .map_err(|error| {
+                        AxError::new("validation", format!("invalid HTTP method: {error}"))
+                    })?;
+                let mut builder = HttpClient::builder()
+                    .timeout(Duration::from_secs_f64(timeout.max(0.001)))
+                    .build()?
+                    .request(method, url);
+                if let Some(headers) = call.get("headers").and_then(Value::as_object) {
+                    for (key, value) in headers {
+                        builder = builder.header(key.as_str(), value.as_str().unwrap_or_default());
+                    }
+                }
+                let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
+                let response = builder.js_json(&body).send()?;
+                (response.status().as_u16(), Box::new(response))
             }
-        }
-        let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
-        let response = builder.js_json(&body).send()?;
+        };
         if let Some(token) = &cancellation {
             token.throw_if_cancelled()?;
         }
-        let status = response.status().as_u16();
-        let inner = Self::transport_stream_iter(AxTransportStream::Reader {
-            status,
-            body: Box::new(response),
-        })?;
+        let inner = Self::transport_stream_iter(AxTransportStream::Reader { status, body })?;
         Ok(match cancellation {
             Some(token) => Box::new(CancellableProviderIterator { inner, token })
                 as Box<dyn Iterator<Item = AxResult<Value>>>,
@@ -3613,13 +3647,16 @@ impl OpenAICompatibleClient {
                     .to_string()
             });
         let headers_call = self.provider_transport_request("chat", &json!({}), model, false)?;
-        let call = json!({
+        let mut call = json!({
             "method": operation.get("method").and_then(Value::as_str).unwrap_or("POST"),
             "url": format!("{}{}", base.trim_end_matches('/'), operation.get("path").and_then(Value::as_str).unwrap_or_default()),
             "headers": headers_call.get("headers").cloned().unwrap_or_else(|| json!({})),
             "json": operation.get("request").cloned().unwrap_or_else(|| json!({})),
             "stream": false,
         });
+        if let Some(timeout_ms) = headers_call.get("timeout_ms") {
+            call["timeout_ms"] = timeout_ms.clone();
+        }
         self.send_json_call(call)
     }
 
@@ -5177,6 +5214,7 @@ impl AxAIClient for OpenAICompatibleClient {
         OpenAICompatibleClient::speak(self, request)
     }
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        warn_call_timeout(&options);
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
         let previous = self.options.clone();
         self.options = merge_ai_options(&previous, &options)?;
@@ -5198,6 +5236,7 @@ impl AxAIClient for OpenAICompatibleClient {
         request: Value,
         options: Value,
     ) -> AxResult<AxChatStream> {
+        warn_call_timeout(&options);
         // The request is built and sent (first event peeked) inside stream_iter,
         // so the call options only need to apply until it returns.
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
@@ -19634,6 +19673,17 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             ));
         }
     }
+    // Every chat call's options carry these (a forward option each stage gets).
+    if let Some(expected) = fixture.get("expected_chat_options_all_subset") {
+        if client.chat_options.is_empty() {
+            return Err(AxError::runtime(
+                "fixture expected chat options but none were recorded",
+            ));
+        }
+        for (index, options) in client.chat_options.iter().enumerate() {
+            expect_json_subset(&format!("chat options {index}"), options, expected)?;
+        }
+    }
     let exact_projection = fixture.get("exact_observable_projection");
     if let Some(expected) = exact_projection.and_then(|projection| projection.get("stateRoundtrip"))
     {
@@ -25066,6 +25116,21 @@ fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
     result?;
     if let Some(expected) = fixture.get("expected_warnings") {
         expect_json_equal("ai chat warnings", &json!(captured), expected)?;
+    }
+    // Each fragment appears in a warning the call logged (a port's wording may differ).
+    for fragment in fixture
+        .get("expected_warnings_containing")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let fragment = fragment.as_str().unwrap_or_default();
+        if !captured.iter().any(|message| message.contains(fragment)) {
+            return Err(AxError::new(
+                "fixture",
+                format!("no ai chat warning contains {fragment:?}: {captured:?}"),
+            ));
+        }
     }
     Ok(())
 }
@@ -52915,6 +52980,10 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
                 v_options.clone(),
             ])?;
         } else {
+            v_responses_payload = _openai_responses_apply_prompt_cache_key(&[
+                v_responses_payload.clone(),
+                v_options.clone(),
+            ])?;
             v_responses_payload = _openai_responses_apply_prompt_cache_retention(&[
                 v_responses_payload.clone(),
                 v_sampled_request.clone(),
@@ -66615,6 +66684,127 @@ fn _openai_responses_apply_prompt_cache_retention(
         )?;
     }
     return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_responses_apply_prompt_cache_key(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_apply_prompt_cache_key");
+    let mut v_payload = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_has_key = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_key_snake = CoreValue::Null;
+    let mut v_resolved_key = CoreValue::Null;
+    let mut v_session = CoreValue::Null;
+    let mut v_session_snake = CoreValue::Null;
+    v_key_snake = core_get(
+        &v_options,
+        &CoreValue::from("prompt_cache_key"),
+        CoreValue::Null,
+    );
+    v_key = core_get(
+        &v_options,
+        &CoreValue::from("promptCacheKey"),
+        v_key_snake.clone(),
+    );
+    v_session_snake = core_get(&v_options, &CoreValue::from("session_id"), CoreValue::Null);
+    v_session = core_get(
+        &v_options,
+        &CoreValue::from("sessionId"),
+        v_session_snake.clone(),
+    );
+    v_resolved_key = core_coalesce(&[v_key.clone(), v_session.clone()])?;
+    v_has_key = core_is_not_none(&[v_resolved_key.clone()])?;
+    if core_truthy(&v_has_key) {
+        core_set(
+            &v_payload,
+            CoreValue::from("prompt_cache_key"),
+            v_resolved_key.clone(),
+        )?;
+    }
+    return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_call_timeout_ms(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_call_timeout_ms");
+    let mut v_options = core_arg(args, 0);
+    let mut v_is_number = CoreValue::Null;
+    let mut v_positive = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_value = core_get(&v_options, &CoreValue::from("timeoutMs"), CoreValue::Null);
+    v_is_number = core_type_is(&v_value, CoreValue::from("number"));
+    if core_truthy(&v_is_number) {
+        v_positive = core_gt(&[v_value.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_positive) {
+            return Ok(v_value.clone());
+        }
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_call_timeout_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_call_timeout_message");
+    let mut v_timeout_ms = core_arg(args, 0);
+    let mut v_message = CoreValue::Null;
+    v_message = core_string_format(&[
+        CoreValue::from("Request timed out after {}ms"),
+        v_timeout_ms.clone(),
+    ])?;
+    return Ok(v_message.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_warn_call_timeout(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_warn_call_timeout");
+    let mut v_options = core_arg(args, 0);
+    let mut v_seconds = core_arg(args, 1);
+    let mut v_has_timeout = CoreValue::Null;
+    let mut v_has_timeout_ms = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_timeout = CoreValue::Null;
+    let mut v_timeout_ms = CoreValue::Null;
+    let mut v_warn = CoreValue::Null;
+    let mut v_without_ms = CoreValue::Null;
+    v_timeout = core_get(&v_options, &CoreValue::from("timeout"), CoreValue::Null);
+    v_timeout_ms = core_get(&v_options, &CoreValue::from("timeoutMs"), CoreValue::Null);
+    v_has_timeout = core_is_not_none(&[v_timeout.clone()])?;
+    v_has_timeout_ms = core_is_not_none(&[v_timeout_ms.clone()])?;
+    v_without_ms = core_not(&[v_has_timeout_ms.clone()])?;
+    v_warn = core_and(&[v_has_timeout.clone(), v_without_ms.clone()])?;
+    if core_truthy(&v_warn) {
+        v_message = CoreValue::from("Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does.");
+        if core_truthy(&v_seconds) {
+            v_message = CoreValue::from("Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds).");
+        }
+        core_ai_warn_once(&[CoreValue::from("call-timeout"), v_message.clone()])?;
+    }
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -127898,7 +128088,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (946 of 946 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (950 of 950 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
@@ -128258,7 +128448,125 @@ fn core_flow_dispatch_group(args: &[CoreValue]) -> AxResult<CoreValue> {
     )))
 }
 
+// TS reads a per-call timeout in milliseconds; Rust reads it in seconds until
+// the next major version, so a call that gives it without timeoutMs warns once.
+fn warn_call_timeout(options: &Value) {
+    let _ = provider_warn_call_timeout(&[core_value_from_json(options), CoreValue::Bool(true)]);
+}
+
+// The call's timeoutMs: TS apiCall's timer bounds the wait for the headers.
+fn call_header_timeout_ms(call: &Value) -> Option<f64> {
+    call.get("timeout_ms")
+        .and_then(Value::as_f64)
+        .filter(|ms| *ms > 0.0)
+}
+
+// TS's AxAIServiceTimeoutError for a call's timeoutMs.
+fn call_timeout_error(call: &Value) -> AxError {
+    let message = provider_call_timeout_message(&[core_value_from_json(
+        call.get("timeout_ms").unwrap_or(&Value::Null),
+    )])
+    .map(|value| value.text())
+    .unwrap_or_else(|_| "Request timed out".to_string());
+    let mut error = AxError::new("ai", message);
+    error.error_type = Some("AxAIServiceTimeoutError".to_string());
+    error.retryable = true;
+    error
+}
+
+// A stream body read from an async response: each read waits at most `idle`,
+// as the blocking client's timeout bounds each read.
+struct TimedStreamBody {
+    runtime: tokio::runtime::Runtime,
+    response: reqwest::Response,
+    pending: Vec<u8>,
+    offset: usize,
+    idle: Duration,
+}
+
+impl Read for TimedStreamBody {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        while self.offset >= self.pending.len() {
+            let idle = self.idle;
+            let response = &mut self.response;
+            match self
+                .runtime
+                .block_on(async move { tokio::time::timeout(idle, response.chunk()).await })
+            {
+                Err(_) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "stream read timed out",
+                    ))
+                }
+                Ok(Err(error)) => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, error))
+                }
+                Ok(Ok(None)) => return Ok(0),
+                Ok(Ok(Some(chunk))) => {
+                    self.pending = chunk.to_vec();
+                    self.offset = 0;
+                }
+            }
+        }
+        let count = buf.len().min(self.pending.len() - self.offset);
+        buf[..count].copy_from_slice(&self.pending[self.offset..self.offset + count]);
+        self.offset += count;
+        Ok(count)
+    }
+}
+
+// A stream under a call's timeoutMs: the async client waits at most that long
+// for the response headers (TS apiCall's timer); the body then reads under the
+// client's timeout.
+fn open_timed_stream(
+    call: &Value,
+    header_ms: f64,
+    read_timeout: f64,
+) -> AxResult<(u16, Box<dyn Read>)> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let client = reqwest::Client::builder().build()?;
+    let method = call
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or("POST")
+        .parse::<reqwest::Method>()
+        .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
+    let mut request = client.request(
+        method,
+        call.get("url").and_then(Value::as_str).unwrap_or_default(),
+    );
+    if let Some(headers) = call.get("headers").and_then(Value::as_object) {
+        for (key, value) in headers {
+            request = request.header(key.as_str(), value.as_str().unwrap_or_default());
+        }
+    }
+    let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
+    let request = request.js_json(&body);
+    let wait = Duration::from_secs_f64(header_ms / 1000.0);
+    let response =
+        match runtime.block_on(async move { tokio::time::timeout(wait, request.send()).await }) {
+            Ok(result) => result?,
+            Err(_) => return Err(call_timeout_error(call)),
+        };
+    let status = response.status().as_u16();
+    Ok((
+        status,
+        Box::new(TimedStreamBody {
+            runtime,
+            response,
+            pending: Vec::new(),
+            offset: 0,
+            idle: Duration::from_secs_f64(read_timeout.max(0.001)),
+        }),
+    ))
+}
+
 // Dropping the async request on cancellation closes both pending headers and bodies.
+// A call's timeoutMs bounds the wait for the response headers (TS apiCall's
+// timer); the client's timeout still caps the request.
 fn cancellable_http_json(
     call: &Value,
     timeout: f64,
@@ -128270,12 +128578,14 @@ fn cancellable_http_json(
         flag.store(true, std::sync::atomic::Ordering::SeqCst);
     });
     token.throw_if_cancelled()?;
+    let header_ms = call_header_timeout_ms(call);
+    let total = header_ms.map_or(timeout, |ms| timeout.max(ms / 1000.0));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     runtime.block_on(async {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs_f64(timeout.max(0.001)))
+            .timeout(Duration::from_secs_f64(total.max(0.001)))
             .build()?;
         let method = call["method"]
             .as_str()
@@ -128292,7 +128602,16 @@ fn cancellable_http_json(
         } else if let Some(body) = call.get("json") {
             request = request.json(body);
         }
-        let response = session::session_http_wait(request.send(), &cancelled).await?;
+        let send = session::session_http_wait(request.send(), &cancelled);
+        let response = match header_ms {
+            Some(ms) => {
+                match tokio::time::timeout(Duration::from_secs_f64(ms / 1000.0), send).await {
+                    Ok(result) => result?,
+                    Err(_) => return Err(call_timeout_error(call)),
+                }
+            }
+            None => send.await?,
+        };
         token.throw_if_cancelled()?;
         let response = response.ok_or_else(|| AxError::new("aborted", "Request aborted"))?;
         let status = response.status().as_u16();

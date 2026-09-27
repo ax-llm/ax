@@ -1,0 +1,55 @@
+{
+  "expected_transport_json_absent": ["prompt_cache_options"],
+  "expected_transport_request": {
+    "json": {
+      "prompt_cache_key": "session-1"
+    },
+    "url": "https://api.openai.com/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5.4-mini",
+  "name": "openai-responses-prompt-cache-key-from-session-id",
+  "options": {
+    "sessionId": "session-1"
+  },
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {},
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_cache_key",
+        "model": "gpt-5.4-mini",
+        "output": [
+          {
+            "content": [
+              {
+                "annotations": [],
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_cache_key",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

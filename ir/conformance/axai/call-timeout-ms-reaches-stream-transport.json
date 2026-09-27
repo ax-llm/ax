@@ -1,0 +1,31 @@
+{
+  "description": "Port-only: a stream call's timeoutMs reaches the transport as timeout_ms.",
+  "expected_transport_request": {
+    "timeout_ms": 250
+  },
+  "kind": "ai_stream",
+  "model": "gpt-5.4-mini",
+  "name": "call-timeout-ms-reaches-stream-transport",
+  "options": {
+    "timeoutMs": 250
+  },
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": true
+    }
+  },
+  "service_options": {},
+  "transport_responses": [
+    {
+      "body": "data: {\"id\":\"chatcmpl_call_timeout\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}
