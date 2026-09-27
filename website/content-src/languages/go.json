@@ -300,6 +300,23 @@
           "\t}",
           "}"
         ]
+      },
+      "dates": {
+        "sourcePath": "src/examples/go/generation/date_fields.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "planner := ax.NewAx(`emailText:string, sentAt:datetime -> meetingStartsAt:datetime, travelWindow:dateRange`,",
+          "\tmap[string]ax.Value{\"parseDates\": true})",
+          "out, err := planner.Forward(ctx, client, map[string]ax.Value{",
+          "\t\"emailText\": emailText,",
+          "\t\"sentAt\":    time.Date(2024, 5, 2, 16, 30, 0, 0, time.UTC),",
+          "}, nil)",
+          "if err != nil {",
+          "\tpanic(err)",
+          "}",
+          "fmt.Println(out.(map[string]ax.Value)[\"meetingStartsAt\"]) // 2024-05-07T19:00:00.000Z"
+        ]
       }
     },
     "signatures": {

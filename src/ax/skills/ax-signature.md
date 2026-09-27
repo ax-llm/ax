@@ -31,7 +31,7 @@ version: "__VERSION__"
 | Code | `:code` | `string` | `pythonScript:code` |
 | Class | `:class "a, b, c"` | `"a" \| "b" \| "c"` | `mood:class "happy, sad"` |
 
-Date, datetime, and range fields are AI-friendly but strict. They accept ISO-style values, trim minor whitespace/casing issues, and parse ranges as `{ "start": "...", "end": "..." }`, `[start, end]`, `start/end`, or natural delimiters like `start to end`; invalid values and reversed ranges should fail validation rather than being silently autocorrected.
+Date, datetime, and range fields are AI-friendly but strict. They accept ISO-style values, trim minor whitespace/casing issues, and parse ranges as `{ "start": "...", "end": "..." }`, `[start, end]`, `start/end`, or natural delimiters like `start to end`; invalid values and reversed ranges should fail validation rather than being silently autocorrected. A datetime's zone can be `Z`, an offset, `UTC`/`GMT`, an IANA name (`2024-05-09 14:30 America/New_York`), or an abbreviation read at its literal offset all year (`PST` is -08:00 even in July, `EDT` is -04:00); ambiguous abbreviations (`BST`, `IST`, `CST`, `AST`, `SST`, `NST`, `ECT`, `GST`) and ICU's legacy short IDs are rejected with a correction that asks for an IANA name or an offset. `PST`/`PDT` and `CDT` follow US usage; for Philippine time (`PST`) or Cuban daylight time (`CDT`), give an IANA name (`Asia/Manila`, `America/Havana`) or a UTC offset. A wall time inside a DST gap is invalid, and one in an overlap takes the earlier instant.
 
 ## Arrays, Optional, and Internal Fields
 

@@ -1933,6 +1933,8 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"prompt", "template_validate", "", "semantic"},
 		{"prompt", "number_format", "", "semantic"},
 		{"axgen", "forward", "", "semantic"},
+		{"axgen", "date_field_value", "", "semantic"},
+		{"axgen", "date_input", "", "semantic"},
 		{"axgen", "stream", "", "semantic"},
 		{"axai", "ai_chat", "", "transport-boundary"},
 		{"axai", "ai_typesafe_native", "", "transport-boundary"},
