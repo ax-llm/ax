@@ -375,6 +375,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicAxGenCallProcessor:        "Core.axgenCallProcessor",
 	IntrinsicAxGenCheckStreamAssert:    "Core.axgenCheckStreamingAssertion",
 	IntrinsicAxGenDeprecation:          "Core.axgenDeprecation",
+	IntrinsicAxGenSpeak:                "Core.axgenSpeak",
 	IntrinsicDateZoneOffset:            "Core.dateZoneOffset",
 	IntrinsicAxGenCachingFunction:      "Core.axgenCachingFunction",
 	IntrinsicAxGenCacheRead:            "Core.axgenCacheRead",

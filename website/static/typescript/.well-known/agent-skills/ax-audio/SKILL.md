@@ -108,6 +108,8 @@ console.log(result.speech.transcript);
 
 The model emits a text script for `speech`; Ax replaces it with `AxChatAudioOutput` after result selection. If the field already contains an audio artifact with `{ data }` or `{ id }`, Ax leaves it alone.
 
+An audio input given as a string, or as an audio object with a string `transcript` (such as `result.speech` above, passed to the next program), reaches the model as text: the transcript. An audio object without a transcript is sent as an audio part with its `format` (`wav` when it has none) and `data`.
+
 ## Agent Audio Inputs
 
 ```typescript

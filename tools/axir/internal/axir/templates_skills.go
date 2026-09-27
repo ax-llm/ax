@@ -360,6 +360,8 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			skillCachingFunctionText(target),
 			"",
+			skillAudioOutputText(target),
+			"",
 			skillNumberFormatText(target),
 			"",
 			"`maxSteps` / `max_steps` (default 25) caps the tool loop. Each model turn that calls tools is one step, and validation retries stay inside their step. Reaching the cap raises `Generate failed: Max steps reached: N`. A call to a stop function (`stopFunctions` / `stop_functions`) runs the tool and ends the forward, as in TypeScript: the output is empty apart from the earlier steps' thought, and the tool's result is not the output.",
@@ -419,6 +421,18 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"- Provider-backed memory, skill, and observer lifecycle: `"+skillAgentMemoryExamplePath(target)+"`.",
 			"- Catalog-only search and relevance hints: the target's `smart-defaults-agent` example under `src/examples/"+target+"/long-agents/`.",
 			"- Website gallery: https://axllm.dev/"+target+"/examples/long-agents/.",
+			"",
+		) + "\n"
+	}
+	audioGuide := ""
+	if spec.ID == "audio" {
+		audioGuide = readmeLines(
+			"## Speech And Audio Fields",
+			"",
+			"- `speak()` returns TypeScript's speech result keys: `data` (base64 audio), `format`, `mimeType`, `transcript` (the spoken text), and `sampleRate` / `channels` when the mime type gives them. The older keys `audio`, `mime_type`, and `sample_rate` stay beside them until the next major version; read the TypeScript keys in new code. A binary speech body reaches the package without its Content-Type, so `mimeType` then comes from the format.",
+			"- "+skillAudioSpeakSurface(target)+"",
+			"- An AxGen `audio` output field becomes speech with the `renderAudio` / `render_audio` option (see the gen skill): the field then holds the `speak()` result, with the spoken text as its `transcript`.",
+			"- An audio input that is a string, or an audio object with a string `transcript` (a rendered audio output), reaches the model as text. Audio without a transcript goes as an audio part with only its `format` (`wav` when it has none) and `data`.",
 			"",
 		) + "\n"
 	}
@@ -485,7 +499,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		skillSnippet(target, spec.ID),
 		"```",
 		"",
-		expandedExamples+skillTypesafeGuide(target, spec.ID)+profileGuide+routingGuide+sessionGuide+genForwardGuide+agentStreamingGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
+		expandedExamples+skillTypesafeGuide(target, spec.ID)+profileGuide+routingGuide+sessionGuide+genForwardGuide+audioGuide+agentStreamingGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
 		"",
 		skillAPISurface(apiRef, spec.Sections),
 		"",
@@ -632,6 +646,31 @@ func skillCachingFunctionText(target string) string {
 	default:
 		return "A caching function (TypeScript's `cachingFunction`) is not available in this language yet."
 	}
+}
+
+func skillAudioSpeakSurface(target string) string {
+	switch target {
+	case "python":
+		return "The renderer calls the client's `speak(request, options)`, which every `AxAIService` has."
+	case "go":
+		return "The renderer calls the client's `Speak(ctx, request, options)`: `AxAIService` clients have it, and the `AIClient` interface does not require it, so a custom client without `Speak` cannot render audio."
+	case "java":
+		return "The renderer calls `AiClient.speak(request, options)`: `AxAIService` clients speak, and a client without speech throws `UnsupportedOperationException`."
+	case "rust":
+		return "The renderer calls `AxAIClient::speak(request)`, whose default returns an error; provider clients, routers, and balancers implement it."
+	case "cpp":
+		return "The renderer calls `AIClient::speak(request, options)`: `AxAIService` clients speak, and the base `AIClient` throws."
+	default:
+		return "The renderer calls the client's speech method."
+	}
+}
+
+func skillAudioOutputText(target string) string {
+	option := "`renderAudio` (or `render_audio`)"
+	if target == "python" {
+		option = "`render_audio` (or `renderAudio`)"
+	}
+	return option + ", a constructor or forward option (the forward's wins), renders `audio` output fields as TypeScript does: each audio output that holds text goes through the client's speak(), and the field becomes the speak() result, with the text as its `transcript` unless speak() gave one. The speak request is the forward options' `speech.speak` defaults, then `speech.fields.<field>`, then the text. It renders where TypeScript does: a forward's answer (streamed or not; with a result picker, only the picked sample), a cache hit, and a streaming forward's result when a result picker picks it, which then goes out as its one delta. Deltas that stream without a result picker stay text. The trace and the cache hold the rendered output, a rendered artifact passes through a cache hit untouched, and an error from speak() surfaces as it is, without a retry. Without the option an audio output keeps the model's text, as before, and the first such output logs a deprecation warning once per process; `false` keeps the text without the warning. Rendering becomes the default in the next major version."
 }
 
 func skillResultPickerSurface(target string) string {

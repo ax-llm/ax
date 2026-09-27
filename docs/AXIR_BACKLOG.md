@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-27-sampling-support-and-credential-routing` [axai] Match TypeScript's sampling support (explicit values the model accepts, one-time warnings) and keep credentials with their provider in the ports
+  - Status: open
+  - Source commit: `b253360603e59ab4fd0e550710d47ffae92faf05`
+  - TS paths: `src/ax/ai/base.ts`, `src/ax/ai/types.ts`, `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/info.ts`, `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/anthropic/api.ts`, `src/ax/ai/google-gemini/api.ts`
+  - Impact: The ports sent a default temperature 0 to models that reject it (GPT-5.6 Luna returned 400), ignored explicit sampling values' reasoning context, dropped the o-series token limit and n, and sent provider keys to the wrong host: OPENAI_API_KEY to other providers, other providers' keys to OPENAI_BASE_URL, and a requiresApiURL profile's key to api.openai.com. TS now tracks explicit sampling values, sends them when the request's reasoning effort allows, and warns once when it drops one.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -897,6 +902,15 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `55f195ce5`
   - Verification: `Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes.`
+- `axir-2026-09-27-audio-inputs-with-a-transcript-reach-the-model-as-text` [axgen] Audio inputs that hold text reach the model as text
+  - Status: done
+  - Source commit: `35a91361cbeea57d0dad24817543d0dc6d23a0b1`
+  - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/dsp/prompt.test.ts`, `src/ax/flow/flow.test.ts`
+  - Impact: TypeScript AxGen threw 'Audio field value must be an object.' for an audio input that held a plain string or an audio object with a transcript, so its own rendered speak() output could not feed the next program. It now sends both as text, and audio without a transcript as {type: 'audio', format, data} with format defaulting to wav. On origin/main the ports sent a transcript-bearing object as audio, copied extra keys such as mimeType into audio parts (Python, Java, Rust) or sent audio as JSON text (Go, C++), and all five sent audio[] items as JSON text.
+  - Suggested AxIR work: Send a transcript or a plain string as text and other audio as TypeScript's audio part in every port; Pin the part shape with prompt goldens and feed a rendered artifact to a second program and a two-step flow
+  - Completed at: 2026-09-27
+  - Completed by: `94cd7049eb4ab244410f175fc0779cf1e275ec39`
+  - Verification: `src/ax/dsp/prompt.ts lets strings fall through to text; the new prompt.test.ts and flow.test.ts cases fail on origin/main with 'Audio field value must be an object.' and pass here. Five TS-derived prompt goldens (transcript as text, plain string as text, object as audio part, wav default, audio[] as audio parts), axgen/audio-input-rendered-artifact-as-transcript and validation/value-audio-rendered-artifact-valid plus value-audio-older-speak-shape-invalid pass in all five ports. On origin/main the prompt goldens other than the plain string and the rendered-artifact golden fail in all five ports, and Go also fails the plain string.`
 - `axir-2026-09-27-axflow-reads-and-stores-its-own-cachingfunction-entry-in-the-por` [axflow] AxFlow reads and stores its own cachingFunction entry in the ports
   - Status: done
   - Source commit: `ec229a1fe66ae91383e7befff2205894e123abac`
@@ -942,15 +956,42 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `44bb2306d4a4794442415e0164f44118c1092279`
   - Verification: `TS: the new sig.test.ts field-title cases fail on main (User I D, Field  2) and pass; npm run test --workspace=@ax-llm/ax passes (a benchmark that timed out under load passes alone). TS goldens prompt/field-titles-snake-and-camel-case and axagent/agent-playbook-evolve-miner-system-prompt; runner keys expected_playbook_state_before_forward, expected_playbook_wall_clock, expected_playbook_config_unchanged and expected_teacher_system_prompts; hand-written axagent/playbook-config-empty-seed-wall-clock, playbook-config-kept-over-actor-instructions, -kept-after-child-agent, -kept-under-run-context, playbook-config-responder-target and axgen/function-call-chat-result-flat-shape and -nested-shape. Each fails on main in the ports named in the PR and passes in all five; 23 mutated copies fail in all five; per-port probes show a flat call runs its tool in every port. Full suites 1120/1120 in python, go, java, cpp and rust; the scripted-client tool examples assert the tool ran.`
-- `axir-2026-09-27-sampling-support-and-credential-routing` [axai] Match TypeScript's sampling support (explicit values the model accepts, one-time warnings) and keep credentials with their provider in the ports
+- `axir-2026-09-27-match-typescript-playbook-seed-miner-user-message-and-string-format` [axagent] Load TypeScript's playbook seed shape, build the weakness miner's user message as TypeScript does, and fix string format in the ports
   - Status: done
-  - Source commit: `b253360603e59ab4fd0e550710d47ffae92faf05`
-  - TS paths: `src/ax/ai/base.ts`, `src/ax/ai/types.ts`, `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/info.ts`, `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api_base.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/anthropic/api.ts`, `src/ax/ai/google-gemini/api.ts`
-  - Impact: The ports sent a default temperature 0 to models that reject it (GPT-5.6 Luna returned 400), ignored explicit sampling values' reasoning context, dropped the o-series token limit and n, and sent provider keys to the wrong host: OPENAI_API_KEY to other providers, other providers' keys to OPENAI_BASE_URL, and a requiresApiURL profile's key to api.openai.com. TS now tracks explicit sampling values, sends them when the request's reasoning effort allows, and warns once when it drops one.
+  - Source commit: `15cad746ec90a2a5a6299e74b86b258f6b6eafda`
+  - TS paths: `src/ax/agent/playbookConfig.ts`, `src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts`, `src/ax/agent/contextManager.ts`, `src/ax/dsp/sigTools.ts`, `src/ax/dsp/toolSchemaConverter.ts`
+  - Impact: The ports did not load TypeScript's playbook: {playbook: snapshot} seed and read a snapshot from playbook.seed, which TypeScript treats as a numeric random seed. The weakness miner's user message put the stringified action-log list into the excerpt (a Python repr, Java List.toString or JSON) where TypeScript sends the executor's action log text, and Python spaced the task-summary JSON. TypeScript titled tool fields in signature tool calling by splitting every capital (Get User I D, Search_docs). C++ string_format skipped a null argument, shifting later ones and leaving a literal {}, and Go and Java filled a {} inside an earlier argument.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-09-27
-  - Completed by: `1dfe3333ae9912d8f3dce404679aa064d59bbc2f`
-  - Verification: `TS sampling.test.ts (9 tests; 8 fail on main on behavior) and npx vitest run src/ax/ai (989) pass. axai-goldens.ts records 95 sampling fixtures from the real TS clients with their console.warn output (expected_warnings), 3 requires-api-url fixtures with TS's own error, and 7 port-only credential-env fixtures (TS reads no environment); 55 of them fail on main's Python package. axai passes 529/529 in Python, Go, Java, C++ and Rust; verify --mode release passes in python, go, java, rust and cpp (1282 fixtures each); npm run axir:conformance:check. Live: TS and Python send the same sampling fields and warning for gpt-5.6-luna (dropped with a warning; sent with thinkingTokenBudget none) and gpt-5.4-mini (sent); o3-mini gets max_completion_tokens; examples run in all five languages.`
+  - Completed by: `582e5e59643b774b012629d80ca2c69d78e77ec5`
+  - Verification: `One IR op resolves a playbook config's seed as TS does (playbook.playbook: a snapshot or a bare playbook; the older playbook.seed snapshot loads with a deprecation warning); TS goldens axagent/playbook-config-ts-snapshot-seed and -ts-bare-seed pin TS's state and prompt. Two IR ops build the weakness miner's inputs as TS's mineWeakness does from the executor's action log text (entries now record their stage); the TS golden agent-playbook-evolve-miner-system-prompt pins the user message (expected_teacher_user_messages). TS tool fields use toFieldTitle (sigTools.test.ts fails on main). C++ string_format fills a null's {}, and Go and Java fill from after the previous argument (axgen/function-call-missing-name, function-call-name-with-braces). Each new fixture fails on main in the ports named in the PR; 11 mutated copies fail in all five. Full suites 1150/1150 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes; Python and Go perturbation gates pass.`
+- `axir-2026-09-27-port-speak-results-carry-typescript-speech-response-keys` [axai] Port speak() results carry TypeScript's AxSpeechResponse keys
+  - Status: done
+  - Source commit: `de478da3e9660d6cf727dc38ab6b43b6a0b88c4c`
+  - TS paths: `src/ax/ai/audio/api.ts`, `src/ax/ai/audio/types.ts`
+  - Impact: TypeScript speak() returns AxSpeechResponse: data, format, mimeType, sampleRate and channels from the mime type, and the request text as transcript. The ports returned audio, mime_type and sample_rate. A port speak() result fed to the next program as an audio input fails the ports' own validation, which, like TypeScript's validAudio, needs a string or an object with a data or id key.
+  - Suggested AxIR work: Add the TypeScript keys beside the older ones; Remove the older keys at the next major version
+  - Completed at: 2026-09-27
+  - Completed by: `94cd7049eb4ab244410f175fc0779cf1e275ec39`
+  - Verification: `@speech_response_ts_keys_impl adds data, mimeType, sampleRate, channels and transcript beside the older keys in @provider_normalize_speak_response and @gemini_normalize_speak_response. axai/openai-speak-binary-body (TS keys from TypeScript's real OpenAI speak() on an mp3 body), responses-speak and the three Gemini TTS fixtures (TS keys from TypeScript's real Gemini speak()) fail on origin/main in all five ports and pass in all five with this change.`
+- `axir-2026-09-27-provider-errors-omit-credentials` [axai] Keep credentials out of port provider errors and honor includeRequestBodyInErrors
+  - Status: done
+  - Source commit: `f3c069b14`
+  - TS paths: `src/ax/util/apicall.ts`, `src/ax/util/apicall.test.ts`
+  - Impact: Python and Java provider errors kept the whole transport call on error.request (Authorization, x-api-key and x-goog-api-key headers included) and no port read includeRequestBodyInErrors; Go and Rust realtime connect errors repeated the Gemini Live ?key= URL and Java kept it on the handshake response. Provider errors now keep only what TypeScript's AxAIServiceError keeps: the URL, plus the body unless includeRequestBodyInErrors is false.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `f3c069b14`
+  - Verification: `Seven TS-derived axai fixtures (provider-error-*; new runner keys api_key, expected_error_excludes and expected_error_request in all five runners) fail on main in Python and Java (7/7 each: the error carried the fake key) and pass in all five ports; canary fixtures prove the key check bites in every runner. TS src/ax/util/apicall.test.ts pins that request headers never reach status, auth, retried or network errors. Go TestRealtimeDialErrorOmitsURLQuery and Rust realtime_connect_errors_mask_the_url_query pin the masked ?key= query. npm run axir:conformance:check and per-target verify --mode release.`
+- `axir-2026-09-27-render-axgen-audio-output-fields-through-speak-in-the-ports` [axgen] Render AxGen audio output fields through speak() in the ports
+  - Status: done
+  - Source commit: `de478da3e9660d6cf727dc38ab6b43b6a0b88c4c`
+  - TS paths: `src/ax/dsp/audioArtifacts.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TypeScript AxGen turns the text in a non-array audio output field into audio with ai.speak(). The request is speech.speak, then speech.fields.<field>, then the text; the field becomes the speak() result, with the text as its transcript unless speak() gave one. It renders after forward, on a cachingFunction cache hit and on the streamingForward delta that a result picker selects. The ports never called speak() for an output and returned the model's text.
+  - Suggested AxIR work: Add a renderAudio opt-in with TypeScript's semantics that warns once per process when it is unset; Make rendering the default at the next major version
+  - Completed at: 2026-09-27
+  - Completed by: `94cd7049eb4ab244410f175fc0779cf1e275ec39`
+  - Verification: `renderAudio (or render_audio) true renders through @render_audio_outputs_impl in ir/axcore/audio_output.axir at every @forward exit, on forward and streaming cache hits and on the streamingForward result-picker delta; unset keeps the text and warns once per process, and false keeps it silently. The 16 TS-derived axgen audio-output-* goldens and axflow/audio-output-flow-speaker-to-summarizer check speak requests and outputs; the 10 goldens that render fail on origin/main in all five ports. verify --mode release passes 1138 fixtures in python, java, cpp and rust; the Go conformance passes the whole tree after the load-flaky axai/portable-cancellation fixture passed 5/5 alone.`
 - `axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths` [axagent] Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths
   - Status: done
   - Source commit: `c3662628d8916a174fc1ef3bd0484f7b3ffd989c`

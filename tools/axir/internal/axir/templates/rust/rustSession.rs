@@ -517,6 +517,7 @@ pub(crate) fn dispatch_run_route(client:&mut dyn AxAIClient,method:&str,envelope
         "route_observe_session"=>{client.observe_chat_session_response(&request,&options);Ok(Value::Null)},
         "route_chat"=>client.chat_with_options(request,options),
         "route_transcribe"=>client.transcribe(request),
+        "route_speak"=>client.speak(request),
         _=>Err(AxError::validation("Invalid run route operation")),
     }
 }

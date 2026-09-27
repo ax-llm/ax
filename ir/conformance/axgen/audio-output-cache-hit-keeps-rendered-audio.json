@@ -1,0 +1,87 @@
+{
+  "calls": [
+    {
+      "forward_options": {
+        "renderAudio": true
+      },
+      "input": {
+        "question": "Say hi"
+      },
+      "kind": "forward"
+    },
+    {
+      "forward_options": {
+        "renderAudio": true
+      },
+      "input": {
+        "question": "Say hi"
+      },
+      "kind": "forward"
+    }
+  ],
+  "expected_cache_gets": 2,
+  "expected_cache_sets": [
+    {
+      "speech": {
+        "audio": "SUQzBAA=",
+        "data": "SUQzBAA=",
+        "format": "mp3",
+        "mimeType": "audio/mpeg",
+        "transcript": "Hello there"
+      },
+      "summary": "A greeting"
+    }
+  ],
+  "expected_deltas": [null, null],
+  "expected_outputs": [
+    {
+      "speech": {
+        "audio": "SUQzBAA=",
+        "data": "SUQzBAA=",
+        "format": "mp3",
+        "mimeType": "audio/mpeg",
+        "transcript": "Hello there"
+      },
+      "summary": "A greeting"
+    },
+    {
+      "speech": {
+        "audio": "SUQzBAA=",
+        "data": "SUQzBAA=",
+        "format": "mp3",
+        "mimeType": "audio/mpeg",
+        "transcript": "Hello there"
+      },
+      "summary": "A greeting"
+    }
+  ],
+  "expected_request_count": 1,
+  "expected_requests": [1, 0],
+  "expected_speak_requests": [
+    {
+      "text": "Hello there"
+    }
+  ],
+  "kind": "cache_sequence",
+  "name": "audio-output-cache-hit-keeps-rendered-audio",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Speech: Hello there\nSummary: A greeting",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> speech:audio, summary:string",
+  "speak_responses": [
+    {
+      "audio": "SUQzBAA=",
+      "data": "SUQzBAA=",
+      "format": "mp3",
+      "mimeType": "audio/mpeg",
+      "transcript": "Hello there"
+    }
+  ]
+}

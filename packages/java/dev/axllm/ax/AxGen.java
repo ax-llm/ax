@@ -518,7 +518,8 @@ public final class AxGen implements AxProgram {
     // so a stored output records neither; an error from the read propagates.
     Map<String, Object> callOptions = AxRuntimeHooks.strip(forwardOptions);
     Map<String, Object> cached = readCacheFirst(values, callOptions, false);
-    if (cached != null) return cached;
+    // A stored output's audio outputs are rendered, as TypeScript does.
+    if (cached != null) return Core.asMap(Core._render_audio_outputs_impl(this, client, cached, callOptions));
     AxGlobals.Scope scope = AxGlobals.openScope(
         hooks,
         runtimeHooks,
@@ -610,8 +611,10 @@ public final class AxGen implements AxProgram {
     // an error from the read is ignored, and a stored output arrives as one
     // delta without a run.
     Map<String, Object> callOptions = AxRuntimeHooks.strip(forwardOptions);
-    Map<String, Object> cached = readCacheFirst(input, callOptions, true);
-    if (cached != null) {
+    Map<String, Object> stored = readCacheFirst(input, callOptions, true);
+    if (stored != null) {
+      // A stored output's audio outputs are rendered, as TypeScript does.
+      Map<String, Object> cached = Core.asMap(Core._render_audio_outputs_impl(this, client, stored, callOptions));
       Map<String, Object> envelope = new LinkedHashMap<>();
       envelope.put("version", 0);
       envelope.put("index", 0);

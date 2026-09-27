@@ -1,5 +1,5 @@
 import type { AxFunction, AxFunctionJSONSchema } from '../ai/types.js';
-import type { AxIField } from './sig.js';
+import { type AxIField, toFieldTitle } from './sig.js';
 
 /**
  * Converts tool schemas to signature fields for signature tool calling
@@ -16,7 +16,7 @@ export class ToolSchemaConverter {
       fieldName,
       field: {
         name: fieldName,
-        title: this.formatTitle(tool.name),
+        title: toFieldTitle(tool.name),
         type: fieldType,
         description: tool.description || `Result from ${tool.name}`,
         isOptional: true,
@@ -51,14 +51,6 @@ export class ToolSchemaConverter {
       .toLowerCase()
       .replace(/^_|_$/g, '')
       .replace(/[^a-z0-9_]/g, '_');
-  }
-
-  private formatTitle(name: string): string {
-    // Convert camelCase to Title Case
-    return name
-      .replace(/([A-Z])/g, ' $1')
-      .replace(/^./, (str) => str.toUpperCase())
-      .trim();
   }
 
   private inferToolFieldType(parameters?: AxFunctionJSONSchema) {

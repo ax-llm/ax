@@ -560,6 +560,27 @@ class AxAIServiceAbortedError(AxAIServiceError):
         self.reason = reason
 
 
+def _include_request_body_in_errors(options: Any) -> bool:
+    # TypeScript's includeRequestBodyInErrors: on unless the call or client options set it false.
+    if isinstance(options, dict):
+        for key in ("includeRequestBodyInErrors", "include_request_body_in_errors"):
+            if options.get(key) is not None:
+                return bool(options[key])
+    return True
+
+
+def _error_request(call: Any, include_body: bool) -> dict[str, Any] | None:
+    # The request a provider error carries, as TypeScript's AxAIServiceError
+    # keeps it: the URL, plus the body unless includeRequestBodyInErrors is
+    # false. Never the headers, which hold the API key or credential tokens.
+    if not isinstance(call, dict):
+        return None
+    view = {"url": call["url"]} if "url" in call else {}
+    if include_body:
+        view.update({key: call[key] for key in ("json", "data") if key in call})
+    return view
+
+
 def _cancellation_token(options: dict[str, Any] | None) -> AxCancellationToken | None:
     if not isinstance(options, dict):
         return None
@@ -1223,7 +1244,7 @@ class ProviderOperationClient(AxBaseAI):
         raw = self._context_cache_chat(request, payload, model, endpoint, options)
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
-            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, cancellation=_cancellation_token(options))
+            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, cancellation=_cancellation_token(options), include_request_body_in_errors=_include_request_body_in_errors(options))
         return provider_normalize_chat_response(self.profile, raw, self.name, model, typesafe_response_context(payload, options) if self.profile == "typesafe" else payload)
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
@@ -1240,7 +1261,7 @@ class ProviderOperationClient(AxBaseAI):
         if explicit:
             cached_payload = copy.deepcopy(payload)
             cached_payload["cachedContent"] = explicit
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
 
         prompts = request.get("chat_prompt") or request.get("chatPrompt") or request.get("messages") or []
         non_system_seen = 0
@@ -1303,14 +1324,14 @@ class ProviderOperationClient(AxBaseAI):
         try:
             if plan.get("action") == "refresh":
                 ops = ai_gemini_cache_ops(cache_name, ttl_seconds, api_key, str(model), cache_body, options)
-                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation)
+                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
                 expires_at = expiry(refreshed)
                 if not expires_at:
                     raise AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", response_body=refreshed)
                 save({"cacheName": cache_name, "expiresAt": expires_at})
             if plan.get("action") in ("create", "refresh") and (plan.get("action") == "create" or not cache_name):
                 ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation)
+                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
                 cache_name = str((created or {}).get("name") or "")
                 expires_at = expiry(created)
                 if not cache_name or not expires_at:
@@ -1322,7 +1343,7 @@ class ProviderOperationClient(AxBaseAI):
             if plan.get("action") == "refresh":
                 try:
                     ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation)
+                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
                     cache_name = str((created or {}).get("name") or "")
                     expires_at = expiry(created)
                     if not cache_name or not expires_at:
@@ -1331,9 +1352,9 @@ class ProviderOperationClient(AxBaseAI):
                 except AxAIServiceAbortedError:
                     raise
                 except AxAIServiceError:
-                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
+                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
             else:
-                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
+                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
         if not cache_name:
             return None
         cached_payload = copy.deepcopy(payload)
@@ -1343,7 +1364,7 @@ class ProviderOperationClient(AxBaseAI):
         cached_payload.pop("toolConfig", None)
         cached_payload["cachedContent"] = cache_name
         try:
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
         except AxAIServiceError as error:
             if not ai_context_cache_rejection(error.status or 0, error.response_body):
                 raise
@@ -1354,7 +1375,7 @@ class ProviderOperationClient(AxBaseAI):
                     registry_call("set", namespace, cache_key, recovery.get("externalEntry"))
                 elif recovery.get("deleteInMemory"):
                     self._context_cache_entries.pop(cache_key, None)
-            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation)
+            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         request, options = self._resolve_model_key(_coerce_chat_request(request), options)
@@ -1398,7 +1419,7 @@ class ProviderOperationClient(AxBaseAI):
         # The client pops base_url out of its options; the embed route still honors an explicit one.
         route_options = {**options, "base_url": self.base_url_override} if self.base_url_override else options
         endpoint = provider_embed_url(self.profile, str(model or ""), route_options) or self._operation_path("embed", model)
-        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options))
+        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options), include_request_body_in_errors=_include_request_body_in_errors(options))
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
     def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1419,7 +1440,7 @@ class ProviderOperationClient(AxBaseAI):
             # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
             events = None
             try:
-                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", cancellation=cancellation)
+                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
                 events = _iter_sse_json(raw)
                 first = next(events, sentinel)
             except AxAIServiceError as error:
@@ -1464,7 +1485,7 @@ class ProviderOperationClient(AxBaseAI):
         if query:
             endpoint += ("&" if "?" in endpoint else "?") + urllib.parse.urlencode(query)
         event_stream = self.profile == "meta" and (request.get("partialMode") is not None or request.get("partial_mode") is not None or request.get("emitAudioProgress") is True or request.get("emit_audio_progress") is True)
-        raw = self._request_json(endpoint, payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe", accept="text/event-stream" if event_stream else None, cancellation=cancellation)
+        raw = self._request_json(endpoint, payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe", accept="text/event-stream" if event_stream else None, cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(self._merged_options(options)))
         if event_stream and isinstance(raw, (str, bytes, bytearray)):
             raw = {"events": list(_iter_sse_json(raw))}
         return provider_normalize_transcribe_response(self.profile, raw, request)
@@ -1476,7 +1497,7 @@ class ProviderOperationClient(AxBaseAI):
         model = request.get("model") or descriptor.get("defaultModel") or self.model
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
         binary_response = descriptor.get("response") == "binary"
-        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation)
+        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(self._merged_options(options)))
         return provider_normalize_speak_response(self.profile, raw, request)
 
     def realtime(self, events: Iterable[dict[str, Any]], model: str | None = None):
@@ -1689,7 +1710,7 @@ class ProviderOperationClient(AxBaseAI):
             for connection in connections: connection.close()
             raise
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None):
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None, include_request_body_in_errors: bool | None = None):
         if cancellation is not None: cancellation.throw_if_cancelled()
         method = str(method or "POST").upper()
         request_base_url = (base_url or self.base_url).rstrip("/")
@@ -1718,23 +1739,26 @@ class ProviderOperationClient(AxBaseAI):
         }
         if method in ("GET", "HEAD"):
             call.pop(body_key, None)
+        if include_request_body_in_errors is None:
+            include_request_body_in_errors = _include_request_body_in_errors(self.options)
+        error_request = _error_request(call, include_request_body_in_errors)
         if self.transport:
             try:
                 cancellable_name = "stream_with_cancellation" if stream else "call_with_cancellation"
                 cancellable = getattr(self.transport, cancellable_name, None)
                 result = cancellable(call, cancellation) if callable(cancellable) else self.transport(call)
                 if cancellation is not None: cancellation.throw_if_cancelled()
-                return _transport_result(result, call)
+                return _transport_result(result, error_request)
             except AxAIServiceAbortedError:
                 raise
             except AxAIServiceError:
                 raise
             except TimeoutError as exc:
                 if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
+                raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=error_request, retryable=True) from exc
             except OSError as exc:
                 if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
+                raise AxAIServiceNetworkError(str(exc), request=error_request, retryable=True) from exc
         if not self.api_key and not self.credential_provider:
             raise AxAIServiceAuthenticationError("api_key or credential_provider is required")
         request_headers = call["headers"]
@@ -1776,11 +1800,11 @@ class ProviderOperationClient(AxBaseAI):
                         except TimeoutError as exc:
                             self.close()
                             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                            raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
+                            raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=error_request, retryable=True) from exc
                         except OSError as exc:
                             self.close()
                             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                            raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
+                            raise AxAIServiceNetworkError(str(exc), request=error_request, retryable=True) from exc
                         if not chunk:
                             self.close()
                             raise StopIteration
@@ -1826,10 +1850,10 @@ class ProviderOperationClient(AxBaseAI):
             raise
         except http.client.HTTPException as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-            raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
+            raise AxAIServiceNetworkError(str(exc), request=error_request, retryable=True) from exc
         except TimeoutError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-            raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
+            raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=error_request, retryable=True) from exc
         except urllib.error.HTTPError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
             try: body = exc.read().decode()
@@ -1838,10 +1862,10 @@ class ProviderOperationClient(AxBaseAI):
                 parsed = json.loads(body)
             except json.JSONDecodeError:
                 parsed = body
-            raise openai_normalize_error(exc.code, parsed, call) from exc
+            raise openai_normalize_error(exc.code, parsed, error_request) from exc
         except OSError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-            raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
+            raise AxAIServiceNetworkError(str(exc), request=error_request, retryable=True) from exc
 
     def _headers(self):
         headers = {
@@ -1950,7 +1974,7 @@ class AxAITypesafeClient:
         attempt = 0
         while True:
             try:
-                return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation)
+                return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(opts))
             except AxAIServiceError as error:
                 if not _is_retryable_ai_error(error) or attempt >= int(retry["max_retries"]):
                     raise
@@ -10202,7 +10226,8 @@ def provider_normalize_speak_response(profile: str, raw: Any, request: Any) -> A
     out = {}
     out["audio"] = data
     out["format"] = format
-    return out
+    speech = _speech_response_ts_keys_impl(out, raw, request)
+    return speech
 
 
 def provider_normalize_realtime_event(profile: str, event: Any, state: Any, ai_name: str, model: str) -> AxChatResponse:
@@ -11473,7 +11498,86 @@ def _gemini_normalize_speak_response(raw: Any, request: Any) -> Any:
         out = _core_map_merge(out, mime_params)
     else:
         pass
+    speech = _speech_response_ts_keys_impl(out, raw, request)
+    return speech
+
+
+def _speech_response_ts_keys_impl(out: Any, raw: Any, request: Any) -> Any:
+    _core_coverage_mark("_speech_response_ts_keys_impl")
+    data = _core_get(out, "audio", None)
+    out["data"] = data
+    format = _core_get(out, "format", None)
+    mime_type = _core_get(out, "mime_type", "")
+    has_mime = _core_truthy(mime_type)
+    raw_is_object = _core_type_is(raw, "object")
+    read_raw_mime = _core_not(has_mime)
+    read_raw_mime = _core_and(read_raw_mime, raw_is_object)
+    if read_raw_mime:
+        raw_mime_snake = _core_get(raw, "mime_type", None)
+        snake_is_text = _core_type_is(raw_mime_snake, "string")
+        if snake_is_text:
+            mime_type = raw_mime_snake
+        else:
+            pass
+        raw_mime_camel = _core_get(raw, "mimeType", None)
+        camel_is_text = _core_type_is(raw_mime_camel, "string")
+        if camel_is_text:
+            mime_type = raw_mime_camel
+        else:
+            pass
+        has_mime = _core_truthy(mime_type)
+    else:
+        pass
+    if has_mime:
+        pass
+    else:
+        mime_type = _audio_mime_type_impl(format)
+    out["mimeType"] = mime_type
+    params = _audio_mime_params_impl(mime_type)
+    sample_rate = _core_get(params, "sample_rate", None)
+    has_sample_rate = _core_is_not_none(sample_rate)
+    if has_sample_rate:
+        out["sampleRate"] = sample_rate
+    else:
+        pass
+    channels = _core_get(params, "channels", None)
+    has_channels = _core_is_not_none(channels)
+    if has_channels:
+        out["channels"] = channels
+    else:
+        pass
+    request_input = _core_get(request, "input", None)
+    text = _core_get(request, "text", request_input)
+    has_text = _core_is_not_none(text)
+    if has_text:
+        out["transcript"] = text
+    else:
+        pass
     return out
+
+
+def _audio_mime_type_impl(format: Any) -> str:
+    _core_coverage_mark("_audio_mime_type_impl")
+    table = {}
+    table["wav"] = "audio/wav"
+    table["mp3"] = "audio/mpeg"
+    table["flac"] = "audio/flac"
+    table["opus"] = "audio/opus"
+    table["aac"] = "audio/aac"
+    table["pcm"] = "audio/pcm"
+    table["pcm16"] = "audio/pcm"
+    table["raw"] = "audio/pcm"
+    table["mulaw"] = "audio/basic"
+    table["ulaw"] = "audio/basic"
+    table["alaw"] = "audio/alaw"
+    table["ogg"] = "audio/ogg"
+    is_text = _core_type_is(format, "string")
+    if is_text:
+        mime = _core_get(table, format, "audio/mpeg")
+        return mime
+    else:
+        pass
+    return "audio/mpeg"
 
 
 def _audio_mime_params_impl(mime_type: str) -> Any:

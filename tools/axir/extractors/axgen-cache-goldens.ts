@@ -7,6 +7,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
+import { AxAIOpenAI } from '../../../src/ax/ai/openai/api.js';
 import type { AxChatResponse } from '../../../src/ax/ai/types.js';
 import { AxGen } from '../../../src/ax/dsp/generate.js';
 import { axGlobals } from '../../../src/ax/dsp/globals.js';
@@ -64,10 +65,22 @@ function tsResult(result: JsonMap): AxChatResponse['results'][number] {
   return out as AxChatResponse['results'][number];
 }
 
-function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
+function scriptedAI(
+  responses: ResponseSpec[],
+  features: JsonMap | undefined,
+  speakResponses: JsonMap[] = []
+) {
   const queue = clone(responses);
+  const speakQueue = clone(speakResponses);
+  const speakRequests: Json[] = [];
   let calls = 0;
   const ai = new AxMockAIService({
+    speechResponse: (req) => {
+      speakRequests.push(clone(req) as unknown as Json);
+      const next = speakQueue.shift();
+      if (!next) throw new Error('scripted speak exhausted');
+      return clone(next) as never;
+    },
     features: {
       functions: (features?.functions as boolean | undefined) ?? true,
       streaming: true,
@@ -88,7 +101,7 @@ function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
       });
     },
   });
-  return { ai, calls: () => calls };
+  return { ai, calls: () => calls, speakRequests: () => speakRequests };
 }
 
 const optionNames: Record<string, string> = {
@@ -128,11 +141,17 @@ type Case = {
   cache_read_error?: string;
   cache_write_error?: string;
   responses: ResponseSpec[];
+  // Scripted speak() responses, for audio outputs.
+  speak_responses?: JsonMap[];
   calls: CallSpec[];
 };
 
 async function record(name: string, spec: Case): Promise<void> {
-  const { ai, calls: requestCount } = scriptedAI(spec.responses, spec.features);
+  const {
+    ai,
+    calls: requestCount,
+    speakRequests,
+  } = scriptedAI(spec.responses, spec.features, spec.speak_responses);
   const store = new Map<string, unknown>();
   let cacheGets = 0;
   const cacheSets: Json[] = [];
@@ -221,6 +240,9 @@ async function record(name: string, spec: Case): Promise<void> {
     expected_cache_sets: cacheSets,
   };
   if (errors.some((error) => error !== null)) fixture.expected_errors = errors;
+  if (spec.speak_responses !== undefined) {
+    fixture.expected_speak_requests = speakRequests();
+  }
   for (const key of [
     'options',
     'cache_in',
@@ -228,6 +250,7 @@ async function record(name: string, spec: Case): Promise<void> {
     'result_picker_index',
     'cache_read_error',
     'cache_write_error',
+    'speak_responses',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
   }
@@ -428,7 +451,58 @@ const cases: Record<string, Case> = {
   },
 };
 
+// Audio outputs on a cache hit. The ports render them with renderAudio, which
+// every call here passes; TypeScript renders them by default.
+//
+// speak() returns what a provider's does: TS's real OpenAI speak() of an mp3
+// body, with the older `audio` key the ports' speak() keeps beside TS's keys
+// (the openai-speak-binary-body axai fixture pins that shape).
+const bytes = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00]);
+const openai = new AxAIOpenAI({
+  apiKey: 'test-key',
+  options: {
+    fetch: async () =>
+      new Response(bytes, {
+        status: 200,
+        headers: { 'content-type': 'audio/mpeg' },
+      }),
+  },
+});
+const spoken = clone(
+  await openai.speak({ text: 'Hello there', model: 'gpt-4o-mini-tts' })
+) as unknown as JsonMap;
+const providerSpeech: JsonMap = { audio: spoken.data, ...spoken };
+const speechSignature = 'question:string -> speech:audio, summary:string';
+const speechAnswer = 'Speech: Hello there\nSummary: A greeting';
+const rendering: JsonMap = { renderAudio: true };
+const audioCases: Record<string, Case> = {
+  // The stored output is the rendered one; a hit returns it as it is, with
+  // no speak() call, since only text is rendered.
+  'audio-output-cache-hit-keeps-rendered-audio': {
+    signature: speechSignature,
+    responses: [answer(speechAnswer)],
+    speak_responses: [providerSpeech],
+    calls: [
+      forward({ question: 'Say hi' }, { forward_options: rendering }),
+      forward({ question: 'Say hi' }, { forward_options: rendering }),
+    ],
+  },
+  // streamingForward without a result picker stores the streamed text, so a
+  // later hit renders it: once for forward, once for streamingForward, whose
+  // hit is one delta.
+  'audio-output-cache-hit-renders-stored-text': {
+    signature: speechSignature,
+    responses: [streamed('Speech: Hello there', '\nSummary: A greeting')],
+    speak_responses: [providerSpeech, providerSpeech],
+    calls: [
+      streaming({ question: 'Say hi' }, { forward_options: rendering }),
+      forward({ question: 'Say hi' }, { forward_options: rendering }),
+      streaming({ question: 'Say hi' }, { forward_options: rendering }),
+    ],
+  },
+};
+
 mkdirSync(outDir, { recursive: true });
-for (const [name, spec] of Object.entries(cases)) {
+for (const [name, spec] of Object.entries({ ...cases, ...audioCases })) {
   await record(name, spec);
 }

@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-go-audio/SKILL.md",
-      "digest": "sha256:ce7575b56d649b112f9be72e8718460447fb6b763805530390558f8196e3bace"
+      "digest": "sha256:a0829c4164fb92a0244296ad72ac5e51bd50e2314335d43795be41ff6f0a4070"
     },
     {
       "name": "ax-go-signature",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-go-gen/SKILL.md",
-      "digest": "sha256:357de61c4268e3d20c7f6f28fd9936dccb75aff51dfcab1c02dc50bc2859c332"
+      "digest": "sha256:067a4e11f806c2a6e95538e45f88a7c4b6605916ecbad9e7ae9b43aec49d09fe"
     },
     {
       "name": "ax-go-flow",
