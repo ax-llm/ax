@@ -755,6 +755,35 @@ const cases: Record<string, Case> = {
     responses: [streamed(text('User: {"name":"Ada"}'), done())],
   },
 
+  // ----- re-parse cadence in UTF-16 units -----
+  // TS re-parses streamed structured output after 160 new characters of
+  // String.prototype.length (UTF-16 code units): 90 emoji reach it (197
+  // units) in the first chunk, so a partial delta streams before the end.
+  'streaming-forward-structured-cadence-utf16-parse': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(`{"user":{"name":"${'\u{1F600}'.repeat(90)}`),
+        text(`${'\u{1F600}'.repeat(10)}"}}`),
+        done()
+      ),
+    ],
+  },
+  // 60 emoji are 137 units (257 UTF-8 bytes): below the threshold, and the
+  // text doesn't end at a structural boundary, so TS waits for the end.
+  'streaming-forward-structured-cadence-utf16-wait': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(`{"user":{"name":"${'\u{1F600}'.repeat(60)}`),
+        text(`${'\u{1F600}'.repeat(10)}"}}`),
+        done()
+      ),
+    ],
+  },
+
   // ----- function rung -----
   'streaming-forward-function-rung': {
     signature: 'question:string -> user:object{name:string}',
