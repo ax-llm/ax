@@ -63,6 +63,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .signature import (
+    _js_text,
     _core_string_extract_leading_group,
     _core_string_find_outside_quotes,
     _core_string_split_once,
@@ -572,8 +573,7 @@ def _core_string_split_trim_nonempty(value, sep):
 
 
 def _core_string_str(value):
-    # String(x): a float two is "2", not "2.0".
-    return _js_number_text(value) if isinstance(value, float) else str(value)
+    return _js_text(value)
 
 
 def _core_string_starts_with(value, prefix):
@@ -679,7 +679,7 @@ def _program_trace_event(program_id: str, kind: str, payload: Any) -> Any:
 
 def _flow_step(kind: str, name: str, program: Any, options: Any) -> Any:
     _core_coverage_mark("_flow_step")
-    trimmed = str(name).strip()
+    trimmed = str(name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     missing_name = _core_eq(trimmed, "")
     if missing_name:
         err = _core_runtime_error("flow step name is required")
@@ -1983,7 +1983,7 @@ def _flow_mermaid_register_node(ast: Any, id: str, shape: str, label: Any, line:
 
 def _flow_mermaid_parse_node_ref(ast: Any, text: str, line: int) -> str:
     _core_coverage_mark("_flow_mermaid_parse_node_ref")
-    source = str(text).strip()
+    source = str(text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     source_len = _core_len(source)
     empty = _core_eq(source_len, 0)
     if empty:
@@ -2005,9 +2005,9 @@ def _flow_mermaid_parse_node_ref(ast: Any, text: str, line: int) -> str:
         else:
             pass
     id_raw = _core_string_slice(source, 0, split_at)
-    id = str(id_raw).strip()
+    id = str(id_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     tail = _core_string_slice(source, split_at)
-    tail = str(tail).strip()
+    tail = str(tail).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     shape = "rect"
     label = _core_none()
     has_tail = _core_truthy(tail)
@@ -2033,7 +2033,7 @@ def _flow_mermaid_parse_node_ref(ast: Any, text: str, line: int) -> str:
                     _flow_mermaid_fail("Unexpected content after node id", line)
         balanced = _core_get(group, "balanced", False)
         rest = _core_get(group, "rest", "")
-        rest = str(rest).strip()
+        rest = str(rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         trailing = _core_truthy(rest)
         bad = _core_not(balanced)
         bad = _core_or(bad, trailing)
@@ -2056,7 +2056,7 @@ def _flow_mermaid_parse_node_ref(ast: Any, text: str, line: int) -> str:
             label_text = _core_string_slice(label_text, 1, inner_end)
         else:
             pass
-        label_text = str(label_text).strip()
+        label_text = str(label_text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         quoted_double = _core_string_starts_with(label_text, "\"")
         quoted_single = _core_string_starts_with(label_text, "'")
         quoted = _core_or(quoted_double, quoted_single)
@@ -2114,7 +2114,7 @@ def _flow_mermaid_parse(text: str) -> Any:
     line_number = 0
     for raw in lines:
         line_number = _core_add(line_number, 1)
-        line = str(raw).strip()
+        line = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         is_empty = _core_eq(line, "")
         if is_empty:
             pass
@@ -2132,9 +2132,9 @@ def _flow_mermaid_parse(text: str) -> Any:
                 else:
                     _flow_mermaid_fail("Invalid Ax directive", line_number)
                 id = _core_get(parts, "left", "")
-                id = str(id).strip()
+                id = str(id).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 sig = _core_get(parts, "right", "")
-                sig = str(sig).strip()
+                sig = str(sig).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 valid_id = _core_regex_match("^[A-Za-z_][A-Za-z0-9_]*$", id)
                 invalid_id = _core_not(valid_id)
                 if invalid_id:
@@ -2204,7 +2204,7 @@ def _flow_mermaid_parse(text: str) -> Any:
                             else:
                                 pass
                             segment = _core_list_get(segments, segment_index, "")
-                            segment = str(segment).strip()
+                            segment = str(segment).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                             label = _core_none()
                             has_label = _core_string_starts_with(segment, "|")
                             if has_label:
@@ -2216,9 +2216,9 @@ def _flow_mermaid_parse(text: str) -> Any:
                                 else:
                                     _flow_mermaid_fail("Unterminated edge label", line_number)
                                 label = _core_get(label_parts, "left", "")
-                                label = str(label).strip()
+                                label = str(label).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                                 segment = _core_get(label_parts, "right", "")
-                                segment = str(segment).strip()
+                                segment = str(segment).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                             else:
                                 pass
                             to_ids = _flow_mermaid_parse_group(ast, segment, line_number)
@@ -2778,7 +2778,7 @@ def _flow_mermaid_compile(ast: Any, bindings: Any) -> Any:
                 meta["target"] = to
                 if is_while:
                     condition_name = _core_string_slice(main, 6)
-                    condition_name = str(condition_name).strip()
+                    condition_name = str(condition_name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                     condition = _core_get(conditions, condition_name, None)
                     missing_condition = _core_is_none(condition)
                     if missing_condition:
@@ -2793,7 +2793,7 @@ def _flow_mermaid_compile(ast: Any, bindings: Any) -> Any:
                 else:
                     if is_if:
                         condition_name = _core_string_slice(main, 3)
-                        condition_name = str(condition_name).strip()
+                        condition_name = str(condition_name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                         condition = _core_get(conditions, condition_name, None)
                         missing_condition = _core_is_none(condition)
                         if missing_condition:

@@ -100,14 +100,16 @@ function scriptedAI(
 ) {
   const queue = clone(responses);
   let calls = 0;
+  const chatOptions: Record<string, unknown>[] = [];
   const ai = new AxMockAIService({
     features: {
       functions: (features.functions as boolean | undefined) ?? false,
       streaming: (features.streaming as boolean | undefined) ?? true,
       structuredOutputs: features.structured_outputs as boolean | undefined,
     },
-    chatResponse: async (req) => {
+    chatResponse: async (req, options) => {
       calls++;
+      chatOptions.push({ ...(options ?? {}) });
       onRequest?.(calls);
       const first = req.chatPrompt[0];
       const system =
@@ -132,7 +134,7 @@ function scriptedAI(
       });
     },
   });
-  return { ai, calls: () => calls };
+  return { ai, calls: () => calls, chatOptions };
 }
 
 // ----- scripted code runtime -----
@@ -246,6 +248,12 @@ type Case = {
   // agent(sig, {}) runs with its default JavaScript runtime; the extractor
   // gives TS the scripted runtime in its place.
   runtime_on_forward?: boolean;
+  // Port-only: TS passes a forward timeout (milliseconds) to every stage's
+  // ai.chat. TS runs the case with that timeout, and the extractor checks each
+  // chat call got it; the fixture gives the ports' forward timeoutMs, their
+  // name for it until the next major version, and pins that each chat call
+  // gets it.
+  call_timeout_ms?: number;
 };
 
 const DATE_TYPES = /:(datetimeRange|dateRange|datetime|date)\b/g;
@@ -262,7 +270,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const transcript: string[] = [];
   const control = spec.control ? runControl() : undefined;
   const steer = spec.control_steer;
-  const { ai, calls } = scriptedAI(
+  const { ai, calls, chatOptions } = scriptedAI(
     spec.responses,
     features,
     transcript,
@@ -315,6 +323,9 @@ async function record(name: string, spec: Case): Promise<void> {
   const forwardOptions: Record<string, unknown> = clone(
     spec.forward_options ?? {}
   );
+  if (spec.call_timeout_ms !== undefined) {
+    forwardOptions.timeout = spec.call_timeout_ms;
+  }
   // The run lifecycle events, in order, with their paths; with a steer,
   // every event.
   const controlEvents: JsonMap[] = [];
@@ -372,6 +383,23 @@ async function record(name: string, spec: Case): Promise<void> {
     expected_request_count: calls(),
     expected_transcript: transcript,
   };
+  if (spec.call_timeout_ms !== undefined) {
+    const timeout = spec.call_timeout_ms;
+    if (
+      chatOptions.length === 0 ||
+      chatOptions.some((options) => options.timeout !== timeout)
+    ) {
+      throw new Error(
+        `${name}: TS did not pass the forward timeout to every ai.chat call`
+      );
+    }
+    fixture.forward_options = {
+      ...clone(spec.forward_options ?? {}),
+      timeoutMs: timeout,
+    };
+    fixture.expected_chat_options_all_subset = { timeoutMs: timeout };
+    fixture.description = `Port-only: an agent forward timeoutMs reaches each of the ${chatOptions.length} stage ai.chat calls, as TS's forward timeout does (this extractor checks TS with timeout: ${timeout}).`;
+  }
   if (spec.keeps_date_text) {
     if (kind !== 'agent_forward') {
       throw new Error(`${name}: keeps_date_text supports agent_forward only`);
@@ -379,7 +407,9 @@ async function record(name: string, spec: Case): Promise<void> {
     fixture.description = spec.keeps_date_text;
   }
   for (const key of [
-    'forward_options',
+    ...(spec.call_timeout_ms === undefined
+      ? (['forward_options'] as const)
+      : []),
     'observers',
     'control',
     'control_steer',
@@ -820,6 +850,13 @@ const cases: Record<string, Case> = {
     responses: [...baseActors(), datedAnswer()],
     runtime_script: baseRuntime(),
   },
+  'agent-forward-call-timeout-ms-reaches-each-stage': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    call_timeout_ms: 250,
+  },
   'agent-forward-keeps-date-text-call-false': {
     kind: 'agent_forward',
     signature: DATED,
@@ -910,11 +947,18 @@ for (const [name, spec] of Object.entries(inputCases)) {
 // goes on and succeeds, as this release does (the run warns once with TS's
 // message, naming the option); with 'lenient' it runs on silently. TS always
 // fails these runs (above).
-for (const [name, portOptions] of [
-  ['agent-forward-input-context-field-missing-runs-by-default', {}],
+const contextFieldWarning =
+  "RLM contextField \"doc\" is missing from input values. TypeScript Ax fails the agent run here, before any request; this run goes on. Pass inputValidation: 'fail' to fail it now, or inputValidation: 'lenient' to keep running without this warning. Failing becomes the default in the next major version.";
+for (const [name, portOptions, warnings] of [
+  [
+    'agent-forward-input-context-field-missing-runs-by-default',
+    {},
+    [contextFieldWarning],
+  ],
   [
     'agent-forward-input-context-field-missing-lenient',
     { inputValidation: 'lenient' },
+    [],
   ],
 ] as const) {
   writeFixture(name, {
@@ -934,6 +978,7 @@ for (const [name, portOptions] of [
     runtime_script: baseRuntime(),
     expected_output: { answer: 'Refunds take 30 days.' },
     expected_request_count: 3,
+    expected_deprecations: [...warnings],
   });
 }
 
@@ -957,6 +1002,7 @@ writeFixture('agent-forward-input-context-field-missing-fail-on-forward', {
     'RLM contextField "doc" is missing from input values',
   expected_request_count: 0,
   expected_transcript: [],
+  expected_deprecations: [],
 });
 
 // Port-only: the ports' own agent options take only their named values; the

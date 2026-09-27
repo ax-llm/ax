@@ -18,7 +18,7 @@ from .ai import build_chat_request, build_embed_request, normalize_chat_response
 from .ai import openai_responses_transport_cursor, openai_responses_session_event, _wire_json_body
 from .ai import _snapshot_global_caching_function, set_caching_function
 from .ai import _ai_error_request, openai_normalize_error, provider_realtime_ws_url
-from .ai import _core_ai_capture_warnings
+from .ai import _core_ai_capture_warnings, _core_axgen_capture_deprecations
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
@@ -561,12 +561,35 @@ def run_fixture_path(path):
     return run_fixture(data, source=str(path))
 
 
+def _expand_ordered_json_fields(fixture):
+    """A top-level `<key>_json` string holds `<key>` as JSON text, so a
+    fixture can carry an object in TS's key order (the canonical fixture sort
+    reorders the keys of the fixture's own objects)."""
+    for key in [key for key, value in fixture.items() if key.endswith("_json") and isinstance(value, str)]:
+        fixture.setdefault(key[: -len("_json")], json.loads(fixture[key]))
+    return fixture
 # Python strings hold code points, so a lone surrogate (half of a pair a
 # provider split across stream events) is representable here.
 SUPPORTS_LONE_SURROGATES = True
 
 
 def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
+    fixture = _expand_ordered_json_fields(fixture)
+    # expected_deprecations pins the one-time deprecation warnings the run
+    # gives (the ones already shown are forgotten first).
+    if "expected_deprecations" in fixture:
+        captured = []
+        _core_axgen_capture_deprecations(captured.append)
+        try:
+            result = _run_fixture_kind(fixture, source=source)
+        finally:
+            _core_axgen_capture_deprecations(None)
+        _assert_equal(captured, fixture["expected_deprecations"], "deprecation warnings")
+        return result
+    return _run_fixture_kind(fixture, source=source)
+
+
+def _run_fixture_kind(fixture: dict[str, Any], *, source: str | None = None):
     name = fixture.get("name") or source or "<fixture>"
     kind = fixture.get("kind", "forward")
     if fixture.get("requires_lone_surrogates") and not SUPPORTS_LONE_SURROGATES:
@@ -596,6 +619,10 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_strip_internal(fixture)
         elif kind == "number_format":
             _run_number_format(fixture)
+        elif kind == "json_stringify":
+            _run_json_stringify(fixture)
+        elif kind == "string_format":
+            _run_string_format(fixture)
         elif kind == "date_field_value":
             _run_date_field_value(fixture)
         elif kind == "date_input":
@@ -1176,6 +1203,18 @@ def _run_date_input(fixture):
         _assert_equal(messages[-1]["content"], case["expected_user_content"], label)
 
 
+def _run_json_stringify(fixture):
+    """Each case's input text, parsed in key order, comes out of every
+    module's json.stringify as TS's JSON.stringify writes it: array-index keys
+    first in numeric order, then the rest in insertion order; null as null."""
+    modules = {name: importlib.import_module(f".{name}", __package__) for name in ("agent", "ai", "gen", "mcp")}
+    for index, case in enumerate(fixture.get("cases") or []):
+        for name, module in modules.items():
+            actual = module._core_json_stringify(json.loads(case["input"]))
+            if actual != case["json"]:
+                raise FixtureError(f"{name} json.stringify case {index}: expected {case['json']!r}, got {actual!r}")
+
+
 def _run_number_format(fixture):
     """String(x) and JSON.stringify(x) for numbers parsed from text with float(),
     which also reaches NaN, the infinities and -0. String(x) is string.str and
@@ -1204,6 +1243,22 @@ def _run_number_format(fixture):
         for label, actual, expected in checks:
             if actual != expected:
                 raise FixtureError(f"{label} of {case['input']}: expected {expected!r}, got {actual!r}")
+
+
+def _run_string_format(fixture):
+    """string.format and string.str as JavaScript writes the text, in every
+    module that has them."""
+    modules = {name: importlib.import_module(f".{name}", __package__) for name in ("agent", "ai", "flow", "gen", "mcp", "prompt", "schema", "signature")}
+    for case in fixture.get("format_cases") or []:
+        for name in ("agent", "ai", "gen", "mcp", "prompt", "schema", "signature"):
+            actual = modules[name]._core_string_format(case["template"], *case["input"])
+            if actual != case["expected"]:
+                raise FixtureError(f"{name} string.format of {case['template']!r}: expected {case['expected']!r}, got {actual!r}")
+    for case in fixture.get("str_cases") or []:
+        for name in ("ai", "flow", "gen"):
+            actual = modules[name]._core_string_str(case["input"])
+            if actual != case["expected"]:
+                raise FixtureError(f"{name} string.str of {case['input']!r}: expected {case['expected']!r}, got {actual!r}")
 
 
 def _run_strip_internal(fixture):
@@ -2614,6 +2669,12 @@ def _run_agent_forward(fixture):
         if check.get("functions_absent") and request.get("functions"): raise FixtureError("Agent runtime tools leaked into model-native functions")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+    # Every chat call's options carry these (a forward option each stage gets).
+    if "expected_chat_options_all_subset" in fixture:
+        if not client.chat_options:
+            raise FixtureError("fixture expected chat options but none were recorded")
+        for index, options in enumerate(client.chat_options):
+            _assert_subset(options, fixture["expected_chat_options_all_subset"], f"chat options {index}")
     projection = fixture.get("exact_observable_projection") or {}
     if "stateRoundtrip" in projection:
         _assert_equal(state_roundtrip_projection, projection["stateRoundtrip"], "exact agent state roundtrip projection")
@@ -3254,6 +3315,10 @@ def _run_ai_chat(fixture):
                 os.environ[key] = value
     if "expected_warnings" in fixture:
         _assert_equal(captured, fixture["expected_warnings"], "ai chat warnings")
+    # Each fragment appears in a warning the call logged (a port's wording may differ).
+    for fragment in fixture.get("expected_warnings_containing") or []:
+        if not any(str(fragment) in message for message in captured):
+            raise FixtureError(f"no ai chat warning contains {fragment!r}: {captured!r}")
 
 
 def _run_ai_chat_request(fixture):

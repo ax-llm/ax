@@ -779,3 +779,109 @@ writeFixture('number-format-cases', {
     return { input, string: String(value), json: JSON.stringify(value) };
   }),
 });
+
+// JSON.stringify: keys in the object's own-key order (array-index keys, "0"
+// to "4294967294" in canonical form, first in ascending numeric order, then
+// the other keys in insertion order), null as null, empty arrays and objects
+// as themselves. Each case's input is JSON text, parsed in key order by the
+// runners (the fixture's own keys would lose it to the canonical sort), and
+// `json` is what JSON.stringify(JSON.parse(input)) writes; every port's
+// json.stringify intrinsic must write it. json.stable_stringify stays
+// key-sorted.
+const jsonStringifyInputs: string[] = [
+  '{"b":1,"a":[2]}',
+  '{"zeta":{"y":1,"x":[{"d":1,"c":2}]},"alpha":null,"mid":"text"}',
+  '[]',
+  'null',
+  '{}',
+  '[null,{},[],{"b":false,"a":true}]',
+  '{"k":[],"e":{},"c":""}',
+  JSON.stringify('quote " backslash \\ newline \n tab \t'),
+  '0',
+  'false',
+  '""',
+  '{"b":1,"10":2,"2":3}',
+  '{"01":1,"1":2,"-1":3,"4294967295":4,"4294967294":5,"1.5":6,"0":7}',
+  '{"z":{"9":"nine","x":"ex","3":"three"},"list":[{"20":0,"b":1,"1":2}]}',
+];
+writeFixture('json-stringify-cases', {
+  kind: 'json_stringify',
+  cases: jsonStringifyInputs.map((input) => ({
+    input,
+    json: JSON.stringify(JSON.parse(input)),
+  })),
+});
+
+// string.format fills each {} from left to right with the next argument's
+// text and string.str writes one value's text, in every port as JavaScript
+// writes it: String(x) for a string, number, boolean or null, JSON.stringify(x)
+// for a list or object (keys in insertion order). {{ and }} write one brace,
+// any other brace is kept, an argument goes in as is, and a {} past the last
+// argument stays {}. Each case's `input` keeps its key order in the file.
+const jsValueText = (value: unknown): string =>
+  value !== null && typeof value === 'object'
+    ? JSON.stringify(value)
+    : String(value);
+function jsTemplateText(template: string, args: readonly unknown[]): string {
+  let out = '';
+  let next = 0;
+  for (let index = 0; index < template.length; ) {
+    const pair = template.slice(index, index + 2);
+    if (pair === '{{') {
+      out += '{';
+      index += 2;
+    } else if (pair === '}}') {
+      out += '}';
+      index += 2;
+    } else if (pair === '{}') {
+      out += next < args.length ? jsValueText(args[next++]) : '{}';
+      index += 2;
+    } else {
+      out += template[index];
+      index += 1;
+    }
+  }
+  return out;
+}
+const stringFormatCases: { template: string; input: unknown[] }[] = [
+  { template: 'Function not found: {}.', input: [null] },
+  { template: '{} and {}', input: [true, false] },
+  { template: '{} {} {} {}', input: [0, 2, 1.5, -12.25] },
+  { template: 'list {}', input: [[1, 'x', null, true]] },
+  { template: 'object {}', input: [{ query: 'scope-probe', limit: 2 }] },
+  { template: 'nested {}', input: [{ z: [1, { a: null }], a: 'b' }] },
+  {
+    template: 'Field "{}": unbalanced "{" in object type',
+    input: ['profile'],
+  },
+  {
+    template: "type 'object ({{ mimeType: string; data: string }})' for {}",
+    input: ['sourceFile'],
+  },
+  { template: '{{}} is literal, {} fills', input: ['x'] },
+  { template: 'as is: {} then {}', input: ['a{}b', 'c'] },
+  { template: 'one {} and {}', input: ['arg'] },
+  { template: 'text {} ✓', input: ['é "quoted"\n'] },
+];
+const stringStrInputs: unknown[] = [
+  null,
+  true,
+  false,
+  0,
+  1.5,
+  'text',
+  [1, 'a', null],
+  { b: 1, a: [null, false] },
+];
+writeFixture('string-format-cases', {
+  kind: 'string_format',
+  format_cases: stringFormatCases.map((item) => ({
+    template: item.template,
+    input: item.input,
+    expected: jsTemplateText(item.template, item.input),
+  })),
+  str_cases: stringStrInputs.map((input) => ({
+    input,
+    expected: jsValueText(input),
+  })),
+});

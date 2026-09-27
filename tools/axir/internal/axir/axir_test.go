@@ -877,6 +877,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/audio_responses_mapping.py",
 				"examples/audio_http_roundtrip.py",
 				"examples/stream_http_roundtrip.py",
+				"examples/timeout_http_roundtrip.py",
 				"examples/realtime_audio_events.py",
 				"examples/realtime_audio_turn.py",
 				"examples/optimizer_artifact.py",
@@ -961,6 +962,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/AudioResponsesMappingExample.java",
 				"examples/AudioHTTPRoundtripExample.java",
 				"examples/StreamHTTPRoundtripExample.java",
+				"examples/TimeoutHTTPRoundtripExample.java",
 				"examples/RealtimeAudioEventsExample.java",
 				"examples/RealtimeAudioTurnExample.java",
 				"examples/OptimizerArtifactExample.java",
@@ -1006,6 +1008,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/audio_responses_mapping.cpp",
 				"examples/audio_http_roundtrip.cpp",
 				"examples/stream_http_roundtrip.cpp",
+				"examples/timeout_http_roundtrip.cpp",
 				"examples/realtime_audio_events.cpp",
 				"examples/realtime_audio_turn.cpp",
 				"examples/optimizer_artifact.cpp",
@@ -1049,6 +1052,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/audio_responses_mapping/main.go",
 				"examples/audio_http_roundtrip/main.go",
 				"examples/stream_http_roundtrip/main.go",
+				"examples/timeout_http_roundtrip/main.go",
 				"examples/realtime_audio_events/main.go",
 				"examples/realtime_audio_turn/main.go",
 				"examples/optimizer_artifact/main.go",
@@ -1089,6 +1093,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/audio_responses_mapping.rs",
 				"examples/audio_http_roundtrip.rs",
 				"examples/stream_http_roundtrip.rs",
+				"examples/timeout_http_roundtrip.rs",
 				"examples/realtime_audio_events.rs",
 				"examples/realtime_audio_turn.rs",
 				"examples/optimizer_artifact.rs",
@@ -1287,7 +1292,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "runtime/goja/goja.go", "package goja", "func NewRuntime(options ...Option) *Runtime", "func (r *Runtime) RegisterCallable", "gojavm.New")
 				checkGeneratedFileContains(t, dir, "runtime/goja/goja_test.go", "TestExecuteSurfacesConsoleLogsOnIntermediateStep", "TestExecuteResetsLogsBetweenTurns", "TestConsoleVariantsDoNotThrow")
 				checkGeneratedFileContains(t, dir, "errors_test.go", "TestErrorsAsReachesAxErrorThroughServiceError", "TestAsAxErrorReportsEnvelopePresence", "TestIsRetryableFollowsCoreStatusSet")
-				checkGeneratedFileContains(t, dir, "ordered_values_test.go", "TestForwardReturnsPlainMaps", "TestInternalForwardKeepsKeyOrder", "TestMapCopiesListEachKeyOnce", "TestDeleteThenSetListsKeyOnceAtTheEnd", "TestJSONTextOmitsOrderListsAndHTMLEscapes", "TestMCPWireJSONOmitsOrderListsAndEscapesControlCharacters")
+				checkGeneratedFileContains(t, dir, "ordered_values_test.go", "TestForwardReturnsPlainMaps", "TestInternalForwardKeepsKeyOrder", "TestMapCopiesListEachKeyOnce", "TestDeleteThenSetListsKeyOnceAtTheEnd", "TestJSONTextOmitsOrderListsAndHTMLEscapes", "TestMCPWireJSONOmitsOrderListsAndEscapesControlCharacters", "TestLoneSurrogateEscapesKeepTheirHalves", "TestStreamedSplitSurrogatePairJoins")
 				checkGeneratedFileContains(t, dir, "examples/runtime_profiles/javascript_goja/main.go", "go-javascript-goja-profile-ok", "ax.NewAgent", "agent.Test(runtime", "while (true) {}")
 			case "rust":
 				checkGeneratedFileContains(t, dir, "Cargo.toml", `name = "axllm"`, "reqwest", "rustls-tls", "rquickjs", "runtime-quickjs", `required-features = ["runtime-quickjs"]`, "tungstenite", `realtime = ["dep:tungstenite"]`)

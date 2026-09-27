@@ -1,5 +1,8 @@
 {
   "description": "Port-only: without clarificationShape: 'structured', the evaluated clarification is the askClarification payload as given, as this release carries it.",
+  "expected_deprecations": [
+    "An agent clarification carries the askClarification payload as given; TypeScript Ax normalizes it to {question, ...}. Pass clarificationShape: 'structured' to get TypeScript's form now, or clarificationShape: 'raw' to keep the payload. The structured form becomes the default in the next major version."
+  ],
   "expected_prediction_fields": {
     "clarification": {
       "choices": ["API", "Guides"],

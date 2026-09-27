@@ -33,6 +33,19 @@ std::shared_ptr<AgentExecutionContext> MCPRunScope::current() { return active_mc
 
 thread_local const AxCancellationToken* ax_current_cancellation_token = nullptr;
 
+namespace {
+// A chat, stream or embed call's merged options while it builds its requests:
+// build_request reads the call's timeoutMs and base URL from them.
+thread_local const Value* ax_current_call_options = nullptr;
+struct AxCallOptionsScope {
+  const Value* previous;
+  explicit AxCallOptionsScope(const Value& options) : previous(ax_current_call_options) { ax_current_call_options = &options; }
+  ~AxCallOptionsScope() { ax_current_call_options = previous; }
+  AxCallOptionsScope(const AxCallOptionsScope&) = delete;
+  AxCallOptionsScope& operator=(const AxCallOptionsScope&) = delete;
+};
+}
+
 const AxCancellationToken* current_cancellation_token() { return ax_current_cancellation_token; }
 AxCancellationScope::AxCancellationScope(const AxCancellationToken* token) : previous_(ax_current_cancellation_token) { ax_current_cancellation_token = token; if (token) token->throw_if_cancelled(); }
 AxCancellationScope::~AxCancellationScope() { ax_current_cancellation_token = previous_; }
@@ -448,6 +461,38 @@ void HttpTransport::stream_cancellable(Value request, AxTransportStreamHandler h
   stream_impl(std::move(request), std::move(handler), nullptr, std::move(cancelled));
 }
 
+#if defined(AXLLM_ENABLE_CURL)
+static CURLcode ax_curl_perform(CURL* curl,const std::function<bool()>& cancelled);
+
+// TS apiCall's timer for a call's timeoutMs: it ends a request whose response
+// has not started in time and stops once the status line is in.
+struct AxHeaderDeadline {
+  CURL* curl;
+  double timeout_ms;
+  std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+  bool timed_out = false;
+  bool passed() {
+    if (timeout_ms <= 0 || timed_out) return timed_out;
+    long code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    if (code >= 200) return false;
+    if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count() < timeout_ms) return false;
+    timed_out = true;
+    return true;
+  }
+};
+
+// The client's timeout still caps the transfer; a longer timeoutMs raises the cap.
+static void ax_set_transfer_timeout(CURL* curl, double timeout_seconds, double timeout_ms) {
+  if (timeout_seconds <= 0) return;
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(std::max(timeout_seconds * 1000.0, timeout_ms)));
+}
+
+static AxError ax_call_timeout_error(const Value& timeout_ms) {
+  return Core::as_error(Core::ai_error_timeout(Core::provider_call_timeout_message(timeout_ms), Value(), Value(), Value(), Value(), true));
+}
+#endif
+
 void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation, std::shared_ptr<std::atomic<bool>> cancelled) {
   if (cancellation) cancellation->throw_if_cancelled();
   if (cancelled && cancelled->load()) return;
@@ -473,6 +518,7 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   std::string method = str(Core::get(request, "method", "POST"));
   std::string url = str(Core::get(request, "url"));
   double timeout = num(Core::get(request, "timeout", 0));
+  double timeout_ms = num(Core::get(request, "timeout_ms", 0));
 
   struct StreamContext {
     CURL* curl = nullptr;
@@ -508,13 +554,17 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {auto* context=static_cast<StreamContext*>(userdata);return (context->cancellation&&context->cancellation->is_cancelled()) || (context->session_cancelled&&context->session_cancelled->load())?1:0;});
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &context);
-  if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
+  ax_set_transfer_timeout(curl, timeout, timeout_ms);
   if (method == "POST") curl_easy_setopt(curl, CURLOPT_POST, 1L);
   else curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
 
-  CURLcode rc = curl_easy_perform(curl);
+  // A call's timeoutMs polls its header deadline; other streams run as before.
+  AxHeaderDeadline deadline{curl, timeout_ms};
+  CURLcode rc = timeout_ms > 0
+      ? ax_curl_perform(curl, [&] { return (cancellation && cancellation->is_cancelled()) || (cancelled && cancelled->load()) || deadline.passed(); })
+      : curl_easy_perform(curl);
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   curl_slist_free_all(headers);
@@ -525,6 +575,7 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   // may report it as CURLE_WRITE_ERROR (or another callback-abort code), but the
   // handler decision is authoritative once callback exceptions are excluded.
   if (context.cancelled || (cancelled && cancelled->load())) return;
+  if (deadline.timed_out) throw ax_call_timeout_error(Core::get(request, "timeout_ms"));
   // Provider errors never take the transport request: its headers hold the API
   // key or credential tokens, and AxError has no request field to carry anyway.
   if (rc != CURLE_OK) {
@@ -620,6 +671,7 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
   // must not be JSON-parsed or UTF-8 handled; they are returned as base64.
   bool binary_response = Core::truthy(Core::get(request, "binary", false));
   double timeout = num(Core::get(request, "timeout", 0));
+  double timeout_ms = num(Core::get(request, "timeout_ms", 0));
 
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
@@ -647,7 +699,7 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {auto* token=static_cast<const AxCancellationToken*>(userdata);return token&&token->is_cancelled()?1:0;});
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, const_cast<AxCancellationToken*>(cancellation));
-  if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
+  ax_set_transfer_timeout(curl, timeout, timeout_ms);
   if (method == "POST") {
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     // POSTFIELDSIZE makes the body binary-safe: curl sends exactly this many
@@ -664,7 +716,8 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
   }
 
-  CURLcode rc = ax_curl_perform(curl,[&]{return (cancellation&&cancellation->is_cancelled())||(cancelled&&cancelled());});
+  AxHeaderDeadline deadline{curl, timeout_ms};
+  CURLcode rc = ax_curl_perform(curl,[&]{return (cancellation&&cancellation->is_cancelled())||(cancelled&&cancelled())||deadline.passed();});
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   // Capture the response Content-Type before cleanup so callers (e.g. the MCP
@@ -677,6 +730,7 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
 
   if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
   if(cancelled&&cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
+  if (deadline.timed_out) throw ax_call_timeout_error(Core::get(request, "timeout_ms"));
 
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
@@ -1218,12 +1272,39 @@ Value Core::type_is(Value value, Value type_name) {
 Value Core::regex_match(Value pattern, Value value) {
   return Value(value.is_string() && std::regex_search(str(value), std::regex(str(pattern))));
 }
+// The UTF-8 length of the JavaScript white space or line terminator at pos
+// (String.prototype.trim's set), or 0.
+static size_t js_space_at(const std::string& s, size_t pos) {
+  const auto at = [&](size_t i) { return i < s.size() ? static_cast<unsigned char>(s[i]) : 0; };
+  const unsigned char a = at(pos), b = at(pos + 1), c = at(pos + 2);
+  if (a == 0x09 || a == 0x0A || a == 0x0B || a == 0x0C || a == 0x0D || a == 0x20) return 1;
+  if (a == 0xC2 && b == 0xA0) return 2;
+  if (a == 0xE1 && b == 0x9A && c == 0x80) return 3;
+  if (a == 0xE2 && b == 0x80 && ((c >= 0x80 && c <= 0x8A) || c == 0xA8 || c == 0xA9 || c == 0xAF)) return 3;
+  if (a == 0xE2 && b == 0x81 && c == 0x9F) return 3;
+  if (a == 0xE3 && b == 0x80 && c == 0x80) return 3;
+  if (a == 0xEF && b == 0xBB && c == 0xBF) return 3;
+  return 0;
+}
+// As JavaScript's String.prototype.trim: white space and line terminators,
+// not other control characters.
 Value Core::string_trim(Value value) {
   std::string s = str(value);
-  auto start = s.find_first_not_of(" \t\n\r");
-  if (start == std::string::npos) return Value("");
-  auto end = s.find_last_not_of(" \t\n\r");
-  return Value(s.substr(start, end - start + 1));
+  size_t start = 0, end = s.size();
+  while (start < end) {
+    size_t n = js_space_at(s, start);
+    if (n == 0 || start + n > end) break;
+    start += n;
+  }
+  while (end > start) {
+    size_t trimmed = 0;
+    for (size_t n = 1; n <= 3 && n <= end - start; n++) {
+      if (js_space_at(s, end - n) == n) { trimmed = n; break; }
+    }
+    if (trimmed == 0) break;
+    end -= trimmed;
+  }
+  return Value(s.substr(start, end - start));
 }
 Value Core::string_join(Value sep, Value values) {
   std::string out;
@@ -1341,18 +1422,34 @@ Value Core::string_words(Value value) {
 Value Core::string_default_if_empty(Value value, Value fallback) {
   return truthy(string_trim(value)) ? string_trim(value) : fallback;
 }
+// A value's text in string.format and string.str, as every port writes it: a
+// string as is, null as "null", a boolean as "true" or "false", a number as
+// JavaScript's String(x), and a list or object as compact JSON with its keys
+// in insertion order (JSON.stringify).
+static std::string js_text(const Value& value) {
+  if (value.is_null()) return "null";
+  if (value.is_array() || value.is_object()) return stringify(value);
+  return display(value);
+}
+// Each {} takes the next argument's js_text, from left to right and inserted
+// as is (never read as a template); {{ and }} write one brace, any other brace
+// is kept, and a {} past the last argument stays {}.
 Value Core::string_format_values(Value templ, const std::vector<Value>& args) {
-  // Each value fills the next {} after the previous one, so a value that
-  // itself contains {} is not formatted again. A null value fills its {} as
-  // well (display() writes it as the empty string, as Go's does).
-  std::string out = str(templ);
-  size_t cursor = 0;
-  for (const auto& arg : args) {
-    size_t pos = out.find("{}", cursor);
-    if (pos == std::string::npos) break;
-    std::string text = display(arg);
-    out.replace(pos, 2, text);
-    cursor = pos + text.size();
+  std::string text = str(templ);
+  std::string out;
+  size_t next = 0;
+  for (size_t i = 0; i < text.size();) {
+    if (i + 1 < text.size()) {
+      if (text[i] == '{' && text[i + 1] == '{') { out += '{'; i += 2; continue; }
+      if (text[i] == '}' && text[i + 1] == '}') { out += '}'; i += 2; continue; }
+      if (text[i] == '{' && text[i + 1] == '}') {
+        out += next < args.size() ? js_text(args[next++]) : std::string("{}");
+        i += 2;
+        continue;
+      }
+    }
+    out += text[i];
+    i++;
   }
   return Value(out);
 }
@@ -1523,7 +1620,7 @@ Value Core::string_extract_quoted_suffix(Value text) {
   }
   return Value(Object{{"value", Value()}, {"index", Value()}, {"rest", ""}, {"head", s}, {"found", false}});
 }
-Value Core::string_str(Value value) { return Value(display(value)); }
+Value Core::string_str(Value value) { return Value(js_text(value)); }
 Value Core::regex_replace(Value pattern, Value repl, Value value) {
   return Value(std::regex_replace(str(value), std::regex(str(pattern)), str(repl)));
 }
@@ -1854,6 +1951,10 @@ Value Core::exception_is_infrastructure(Value error) {
   return Value(type == "AxAIServiceNetworkError" || type == "AxAIServiceTimeoutError" || type == "AxAIServiceStreamTerminatedError");
 }
 // TS AxGen retries a model refusal inside its validation loop.
+Value Core::exception_is_validation(Value error) {
+  if (!error.is_object()) return Value(false);
+  return Value(str(get_key(error, "__error")) == "validation");
+}
 Value Core::exception_is_refusal(Value error) {
   if (!error.is_object()) return Value(false);
   return Value(str(get_key(error, "__type")) == "AxAIRefusalError");
@@ -5066,10 +5167,11 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
   axir_coverage_mark("_validate_string_constraints_impl");
   Value typ = Core::get(field, Value("type"), Value());
   Value title = Core::get(field, Value("title"), Value());
+  Value units = Core::string_utf16_units(value);
+  Value length = Core::len(units);
   Value min_length = Core::get(typ, Value("min_length"), Value());
   Value has_min = Core::is_not_none(min_length);
   if (Core::truthy(has_min)) {
-    Value length = Core::len(value);
     Value too_short = Core::lt(length, min_length);
     if (Core::truthy(too_short)) {
       Value message = Core::string_format(Value("Field '{}' failed validation: String must be at least {} characters long."), title, min_length);
@@ -5080,7 +5182,6 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
   Value max_length = Core::get(typ, Value("max_length"), Value());
   Value has_max = Core::is_not_none(max_length);
   if (Core::truthy(has_max)) {
-    Value length = Core::len(value);
     Value too_long = Core::gt(length, max_length);
     if (Core::truthy(too_long)) {
       Value message = Core::string_format(Value("Field '{}' failed validation: String must be at most {} characters long."), title, max_length);
@@ -6755,6 +6856,21 @@ Value Core::validate_chat_request(Value request) {
   }
   for (auto message : Core::iter(prompt)) {
     Value role = Core::get(message, Value("role"), Value());
+    Value role_is_text = Core::type_is(role, Value("string"));
+    Value role_given = Value(false);
+    if (Core::truthy(role_is_text)) {
+      role_given = Core::ne(role, Value(""));
+    }
+    Value role_missing = Core::not_(role_given);
+    if (Core::truthy(role_missing)) {
+      Value received_role = Value("undefined");
+      if (Core::truthy(role_is_text)) {
+        received_role = Core::json_pretty(role);
+      }
+      Value missing_role_text = Core::string_format(Value("Chat request message must have a role, received: {}"), received_role);
+      Value missing_role_error = Core::ai_error_response(missing_role_text);
+      Core::raise_error(missing_role_error);
+    }
     Value is_system = Core::eq(role, Value("system"));
     Value is_user = Core::eq(role, Value("user"));
     Value is_assistant = Core::eq(role, Value("assistant"));
@@ -6764,11 +6880,47 @@ Value Core::validate_chat_request(Value request) {
     Value valid_role = Core::or_(valid_left, valid_right);
     Value invalid_role = Core::not_(valid_role);
     if (Core::truthy(invalid_role)) {
-      Value message_text = Core::string_format(Value("Invalid chat message role: {}"), role);
+      Value role_json = Core::json_pretty(role);
+      Value message_text = Core::string_format(Value("Unsupported message role: {}"), role_json);
       Value error = Core::ai_error_response(message_text);
       Core::raise_error(error);
     }
     Value content = Core::get(message, Value("content"), Value());
+    Value content_is_list = Core::type_is(content, Value("list"));
+    Value user_items = Core::and_(is_user, content_is_list);
+    if (Core::truthy(user_items)) {
+      Value item_index = Value(0);
+      for (auto item : Core::iter(content)) {
+        Value item_is_map = Core::type_is(item, Value("object"));
+        Value item_is_list = Core::type_is(item, Value("list"));
+        Value item_is_object = Core::or_(item_is_map, item_is_list);
+        Value item_not_map = Core::not_(item_is_object);
+        if (Core::truthy(item_not_map)) {
+          Value item_json = Core::json_pretty(item);
+          Value item_text = Core::string_format(Value("User message content item at index {} must be an object, received: {}"), item_index, item_json);
+          Value item_error = Core::ai_error_unsupported(item_text);
+          Core::raise_error(item_error);
+        }
+        Value item_type = Core::get(item, Value("type"), Value());
+        Value item_type_is_text = Core::type_is(item_type, Value("string"));
+        Value item_type_given = Value(false);
+        if (Core::truthy(item_type_is_text)) {
+          item_type_given = Core::ne(item_type, Value(""));
+        }
+        Value item_type_missing = Core::not_(item_type_given);
+        if (Core::truthy(item_type_missing)) {
+          Value received_type = Value("undefined");
+          if (Core::truthy(item_type_is_text)) {
+            received_type = Core::json_pretty(item_type);
+          }
+          Value type_text = Core::string_format(Value("User message content item at index {} must have a type, received: {}"), item_index, received_type);
+          Value type_error = Core::ai_error_unsupported(type_text);
+          Core::raise_error(type_error);
+        }
+        Value next_item_index = Core::add(item_index, Value(1));
+        item_index = next_item_index;
+      }
+    }
     Value empty_function_calls = Value::array();
     Value function_calls_snake = Core::get(message, Value("function_calls"), empty_function_calls);
     Value function_calls = Core::get(message, Value("functionCalls"), function_calls_snake);
@@ -6813,13 +6965,6 @@ Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Valu
     Core::set(payload, target, value);
   }
   return Value();
-}
-
-Value Core::build_chat_request(Value service, Value request, Value options) {
-  axir_coverage_mark("build_chat_request");
-  Core::validate_chat_request(request);
-  Value payload = Core::openai_build_chat_request(request, options, Value(true));
-  return payload;
 }
 
 Value Core::_openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode) {
@@ -6932,6 +7077,13 @@ Value Core::_openai_message_impl(Value message, Value reasoning_content_mode, Va
   Value message_text = Core::string_format(Value("Invalid role: {}"), role);
   Value error = Core::ai_error_response(message_text);
   Core::raise_error(error);
+}
+
+Value Core::build_chat_request(Value service, Value request, Value options) {
+  axir_coverage_mark("build_chat_request");
+  Core::validate_chat_request(request);
+  Value payload = Core::openai_build_chat_request(request, options, Value(true));
+  return payload;
 }
 
 Value Core::normalize_chat_response(Value raw) {
@@ -7134,19 +7286,6 @@ Value Core::typesafe_normalize_chat_response(Value raw, Value context) {
   return response;
 }
 
-Value Core::merge_usage_context(Value defaults, Value overrides) {
-  axir_coverage_mark("merge_usage_context");
-  Value merged = Core::map_merge(defaults, overrides);
-  Value default_attributes = Core::get(defaults, Value("attributes"), Value());
-  Value override_attributes = Core::get(overrides, Value("attributes"), Value());
-  Value attributes = Core::map_merge(default_attributes, override_attributes);
-  Value has_attributes = Core::truthy_value(attributes);
-  if (Core::truthy(has_attributes)) {
-    Core::set(merged, Value("attributes"), attributes);
-  }
-  return merged;
-}
-
 Value Core::_openai_content_part_impl(Value part) {
   axir_coverage_mark("_openai_content_part_impl");
   Value type = Core::get(part, Value("type"), Value());
@@ -7284,6 +7423,39 @@ Value Core::_openai_content_part_impl(Value part) {
   Core::raise_error(error);
 }
 
+Value Core::typesafe_response_context(Value payload, Value options) {
+  axir_coverage_mark("typesafe_response_context");
+  Value empty = Value::object();
+  Value context = Core::map_merge(empty, payload);
+  Value threshold_snake = Core::get(options, Value("true_threshold"), Value(0.5));
+  Value threshold = Core::get(options, Value("trueThreshold"), threshold_snake);
+  Core::set(context, Value("trueThreshold"), threshold);
+  return context;
+}
+
+Value Core::merge_usage_context(Value defaults, Value overrides) {
+  axir_coverage_mark("merge_usage_context");
+  Value merged = Core::map_merge(defaults, overrides);
+  Value default_attributes = Core::get(defaults, Value("attributes"), Value());
+  Value override_attributes = Core::get(overrides, Value("attributes"), Value());
+  Value attributes = Core::map_merge(default_attributes, override_attributes);
+  Value has_attributes = Core::truthy_value(attributes);
+  if (Core::truthy(has_attributes)) {
+    Core::set(merged, Value("attributes"), attributes);
+  }
+  return merged;
+}
+
+Value Core::provider_validate_chat_request(Value profile, Value request, Value options) {
+  axir_coverage_mark("provider_validate_chat_request");
+  Value canonical = Core::provider_normalize_profile(profile);
+  Value is_typesafe = Core::eq(canonical, Value("typesafe"));
+  if (Core::truthy(is_typesafe)) {
+    Core::typesafe_build_chat_request(request, options);
+  }
+  return Value();
+}
+
 Value Core::build_usage_event(Value operation, Value response, Value options, Value streaming) {
   axir_coverage_mark("build_usage_event");
   Value model_usage_snake = Core::get(response, Value("model_usage"), Value());
@@ -7350,24 +7522,28 @@ Value Core::build_usage_event(Value operation, Value response, Value options, Va
   return event;
 }
 
-Value Core::typesafe_response_context(Value payload, Value options) {
-  axir_coverage_mark("typesafe_response_context");
-  Value empty = Value::object();
-  Value context = Core::map_merge(empty, payload);
-  Value threshold_snake = Core::get(options, Value("true_threshold"), Value(0.5));
-  Value threshold = Core::get(options, Value("trueThreshold"), threshold_snake);
-  Core::set(context, Value("trueThreshold"), threshold);
-  return context;
-}
-
-Value Core::provider_validate_chat_request(Value profile, Value request, Value options) {
-  axir_coverage_mark("provider_validate_chat_request");
-  Value canonical = Core::provider_normalize_profile(profile);
-  Value is_typesafe = Core::eq(canonical, Value("typesafe"));
-  if (Core::truthy(is_typesafe)) {
-    Core::typesafe_build_chat_request(request, options);
+Value Core::_openai_tool_call_to_provider_impl(Value call) {
+  axir_coverage_mark("_openai_tool_call_to_provider_impl");
+  Value fn = Core::get(call, Value("function"), Value());
+  Value params = Core::get(fn, Value("params"), Value());
+  Value params_is_string = Core::type_is(params, Value("string"));
+  if (Core::truthy(params_is_string)) {
+    // empty
   }
-  return Value();
+  if (!Core::truthy(params_is_string)) {
+    Value params_json = Core::json_stringify(params);
+    params = params_json;
+  }
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(fn, Value("name"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("arguments"), params);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
+  return out;
 }
 
 Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
@@ -7383,6 +7559,24 @@ Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
   Core::set(out, Value("ai"), ai_name);
   Core::set(out, Value("model"), model);
   Core::set(out, Value("tokens"), tokens);
+  return out;
+}
+
+Value Core::_openai_tool_spec_impl(Value fn) {
+  axir_coverage_mark("_openai_tool_spec_impl");
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value(""));
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("description"), description);
+  Value has_parameters = Core::truthy_value(parameters);
+  if (Core::truthy(has_parameters)) {
+    Core::set(function, Value("parameters"), parameters);
+  }
+  Value out = Value::object();
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
   return out;
 }
 
@@ -7473,48 +7667,6 @@ Value Core::ai_merge_replay_metadata(Value previous, Value incoming) {
   return out;
 }
 
-Value Core::_openai_tool_call_to_provider_impl(Value call) {
-  axir_coverage_mark("_openai_tool_call_to_provider_impl");
-  Value fn = Core::get(call, Value("function"), Value());
-  Value params = Core::get(fn, Value("params"), Value());
-  Value params_is_string = Core::type_is(params, Value("string"));
-  if (Core::truthy(params_is_string)) {
-    // empty
-  }
-  if (!Core::truthy(params_is_string)) {
-    Value params_json = Core::json_stringify(params);
-    params = params_json;
-  }
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(fn, Value("name"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("arguments"), params);
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
-}
-
-Value Core::_openai_tool_spec_impl(Value fn) {
-  axir_coverage_mark("_openai_tool_spec_impl");
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value(""));
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("description"), description);
-  Value has_parameters = Core::truthy_value(parameters);
-  if (Core::truthy(has_parameters)) {
-    Core::set(function, Value("parameters"), parameters);
-  }
-  Value out = Value::object();
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
-}
-
 Value Core::openai_build_embed_request(Value request) {
   axir_coverage_mark("openai_build_embed_request");
   Value embed_model_snake = Core::get(request, Value("embed_model"), Value());
@@ -7530,59 +7682,6 @@ Value Core::openai_build_embed_request(Value request) {
     Core::set(payload, Value("dimensions"), dimensions);
   }
   return payload;
-}
-
-Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
-  axir_coverage_mark("_chat_result_to_completion");
-  Value content = Core::get(result, Value("content"), Value(""));
-  Value calls = Value::array();
-  Value empty_calls = Value::array();
-  Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
-  for (auto call : Core::iter(function_calls)) {
-    Value fn = Core::get(call, Value("function"), Value());
-    Value id = Core::get(call, Value("id"), Value());
-    Value flat_name = Core::get(call, Value("name"), Value());
-    Value name = Core::get(fn, Value("name"), flat_name);
-    Value flat_params = Core::get(call, Value("params"), Value());
-    Value params = Core::get(fn, Value("params"), flat_params);
-    Value compat_call = Value::object();
-    Core::set(compat_call, Value("id"), id);
-    Core::set(compat_call, Value("name"), name);
-    Core::set(compat_call, Value("params"), params);
-    Core::append(calls, compat_call);
-  }
-  Value index = Core::get(result, Value("index"), fallback_index);
-  Value thought = Core::get(result, Value("thought"), Value());
-  Value has_thought = Core::is_not_none(thought);
-  Value thought_blocks = Core::get(result, Value("thought_blocks"), Value());
-  Value has_thought_blocks = Core::is_not_none(thought_blocks);
-  Value completion = Value::object();
-  Core::set(completion, Value("index"), index);
-  Core::set(completion, Value("content"), content);
-  Core::set(completion, Value("function_calls"), calls);
-  if (Core::truthy(has_thought)) {
-    Core::set(completion, Value("thought"), thought);
-  }
-  if (Core::truthy(has_thought_blocks)) {
-    Core::set(completion, Value("thought_blocks"), thought_blocks);
-  }
-  Value images = Core::get(result, Value("images"), Value());
-  Value has_images = Core::is_not_none(images);
-  if (Core::truthy(has_images)) {
-    Core::set(completion, Value("images"), images);
-  }
-  Value phase = Core::get(result, Value("phase"), Value());
-  Value has_phase = Core::is_not_none(phase);
-  if (Core::truthy(has_phase)) {
-    Core::set(completion, Value("phase"), phase);
-  }
-  Value finish_snake = Core::get(result, Value("finish_reason"), Value());
-  Value finish = Core::get(result, Value("finishReason"), finish_snake);
-  Value has_finish = Core::is_not_none(finish);
-  if (Core::truthy(has_finish)) {
-    Core::set(completion, Value("finish_reason"), finish);
-  }
-  return completion;
 }
 
 Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model) {
@@ -7652,66 +7751,66 @@ Value Core::_openai_normalize_chat_response_impl(Value raw, Value ai_name, Value
   return out;
 }
 
-Value Core::chat_response_to_completion(Value response) {
-  axir_coverage_mark("chat_response_to_completion");
-  Value has_routing = Core::map_contains(response, Value("routing"));
-  Value has_response = Core::map_contains(response, Value("response"));
-  Value router_envelope = Core::and_(has_routing, has_response);
-  if (Core::truthy(router_envelope)) {
-    response = Core::get(response, Value("response"), Value());
+Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
+  axir_coverage_mark("_chat_result_to_completion");
+  Value content = Core::get(result, Value("content"), Value(""));
+  Value calls = Value::array();
+  Value empty_calls = Value::array();
+  Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
+  for (auto call : Core::iter(function_calls)) {
+    Value fn = Core::get(call, Value("function"), Value());
+    Value id = Core::get(call, Value("id"), Value());
+    Value flat_name = Core::get(call, Value("name"), Value());
+    Value name = Core::get(fn, Value("name"), flat_name);
+    Value flat_params = Core::get(call, Value("params"), Value());
+    Value params = Core::get(fn, Value("params"), flat_params);
+    Value fn_is_map = Core::type_is(fn, Value("object"));
+    Value fn_has_name = Value(false);
+    if (Core::truthy(fn_is_map)) {
+      fn_has_name = Core::map_contains(fn, Value("name"));
+    }
+    Value flat_has_name = Core::map_contains(call, Value("name"));
+    Value has_name = Core::or_(fn_has_name, flat_has_name);
+    Value compat_call = Value::object();
+    Core::set(compat_call, Value("id"), id);
+    if (Core::truthy(has_name)) {
+      Core::set(compat_call, Value("name"), name);
+    }
+    Core::set(compat_call, Value("params"), params);
+    Core::append(calls, compat_call);
   }
-  Value empty_results = Value::array();
-  Value results = Core::get(response, Value("results"), empty_results);
-  Value completions = Value::array();
-  Value position = Value(0);
-  for (auto result : Core::iter(results)) {
-    Value completion = Core::_chat_result_to_completion(result, position);
-    Core::append(completions, completion);
-    Value next_position = Core::add(position, Value(1));
-    position = next_position;
-  }
-  Value empty_completion = Value::object();
-  Value first = Core::list_get(completions, Value(0), empty_completion);
-  Value content = Core::get(first, Value("content"), Value(""));
-  Value calls = Core::get(first, Value("function_calls"), empty_results);
-  Value model_usage = Core::get(response, Value("model_usage"), Value());
-  Value usage = Core::get(model_usage, Value("tokens"), Value());
-  Value thought = Core::get(first, Value("thought"), Value());
+  Value index = Core::get(result, Value("index"), fallback_index);
+  Value thought = Core::get(result, Value("thought"), Value());
   Value has_thought = Core::is_not_none(thought);
-  Value thought_blocks = Core::get(first, Value("thought_blocks"), Value());
+  Value thought_blocks = Core::get(result, Value("thought_blocks"), Value());
   Value has_thought_blocks = Core::is_not_none(thought_blocks);
-  Value out = Value::object();
-  Core::set(out, Value("content"), content);
-  Core::set(out, Value("function_calls"), calls);
-  Core::set(out, Value("results"), completions);
-  Core::set(out, Value("usage"), usage);
+  Value completion = Value::object();
+  Core::set(completion, Value("index"), index);
+  Core::set(completion, Value("content"), content);
+  Core::set(completion, Value("function_calls"), calls);
   if (Core::truthy(has_thought)) {
-    Core::set(out, Value("thought"), thought);
+    Core::set(completion, Value("thought"), thought);
   }
   if (Core::truthy(has_thought_blocks)) {
-    Core::set(out, Value("thought_blocks"), thought_blocks);
+    Core::set(completion, Value("thought_blocks"), thought_blocks);
   }
-  Value session_id = Core::get(response, Value("__session_response_id"), Value());
-  Value has_session_id = Core::is_not_none(session_id);
-  if (Core::truthy(has_session_id)) {
-    Core::set(out, Value("remote_id"), session_id);
-  }
-  Value images = Core::get(first, Value("images"), Value());
+  Value images = Core::get(result, Value("images"), Value());
   Value has_images = Core::is_not_none(images);
   if (Core::truthy(has_images)) {
-    Core::set(out, Value("images"), images);
+    Core::set(completion, Value("images"), images);
   }
-  Value phase = Core::get(first, Value("phase"), Value());
+  Value phase = Core::get(result, Value("phase"), Value());
   Value has_phase = Core::is_not_none(phase);
   if (Core::truthy(has_phase)) {
-    Core::set(out, Value("phase"), phase);
+    Core::set(completion, Value("phase"), phase);
   }
-  Value finish = Core::get(first, Value("finish_reason"), Value());
+  Value finish_snake = Core::get(result, Value("finish_reason"), Value());
+  Value finish = Core::get(result, Value("finishReason"), finish_snake);
   Value has_finish = Core::is_not_none(finish);
   if (Core::truthy(has_finish)) {
-    Core::set(out, Value("finish_reason"), finish);
+    Core::set(completion, Value("finish_reason"), finish);
   }
-  return out;
+  return completion;
 }
 
 Value Core::_openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode, Value reasoning_details_mode) {
@@ -7786,6 +7885,98 @@ Value Core::_openai_normalize_choice_impl(Value choice, Value raw, Value reasoni
   return out;
 }
 
+Value Core::chat_response_to_completion(Value response) {
+  axir_coverage_mark("chat_response_to_completion");
+  Value has_routing = Core::map_contains(response, Value("routing"));
+  Value has_response = Core::map_contains(response, Value("response"));
+  Value router_envelope = Core::and_(has_routing, has_response);
+  if (Core::truthy(router_envelope)) {
+    response = Core::get(response, Value("response"), Value());
+  }
+  Value empty_results = Value::array();
+  Value results = Core::get(response, Value("results"), empty_results);
+  Value completions = Value::array();
+  Value position = Value(0);
+  for (auto result : Core::iter(results)) {
+    Value completion = Core::_chat_result_to_completion(result, position);
+    Core::append(completions, completion);
+    Value next_position = Core::add(position, Value(1));
+    position = next_position;
+  }
+  Value empty_completion = Value::object();
+  Value first = Core::list_get(completions, Value(0), empty_completion);
+  Value content = Core::get(first, Value("content"), Value(""));
+  Value calls = Core::get(first, Value("function_calls"), empty_results);
+  Value model_usage = Core::get(response, Value("model_usage"), Value());
+  Value usage = Core::get(model_usage, Value("tokens"), Value());
+  Value thought = Core::get(first, Value("thought"), Value());
+  Value has_thought = Core::is_not_none(thought);
+  Value thought_blocks = Core::get(first, Value("thought_blocks"), Value());
+  Value has_thought_blocks = Core::is_not_none(thought_blocks);
+  Value out = Value::object();
+  Core::set(out, Value("content"), content);
+  Core::set(out, Value("function_calls"), calls);
+  Core::set(out, Value("results"), completions);
+  Core::set(out, Value("usage"), usage);
+  if (Core::truthy(has_thought)) {
+    Core::set(out, Value("thought"), thought);
+  }
+  if (Core::truthy(has_thought_blocks)) {
+    Core::set(out, Value("thought_blocks"), thought_blocks);
+  }
+  Value session_id = Core::get(response, Value("__session_response_id"), Value());
+  Value has_session_id = Core::is_not_none(session_id);
+  if (Core::truthy(has_session_id)) {
+    Core::set(out, Value("remote_id"), session_id);
+  }
+  Value images = Core::get(first, Value("images"), Value());
+  Value has_images = Core::is_not_none(images);
+  if (Core::truthy(has_images)) {
+    Core::set(out, Value("images"), images);
+  }
+  Value phase = Core::get(first, Value("phase"), Value());
+  Value has_phase = Core::is_not_none(phase);
+  if (Core::truthy(has_phase)) {
+    Core::set(out, Value("phase"), phase);
+  }
+  Value finish = Core::get(first, Value("finish_reason"), Value());
+  Value has_finish = Core::is_not_none(finish);
+  if (Core::truthy(has_finish)) {
+    Core::set(out, Value("finish_reason"), finish);
+  }
+  return out;
+}
+
+Value Core::_openai_normalize_tool_calls_impl(Value calls) {
+  axir_coverage_mark("_openai_normalize_tool_calls_impl");
+  Value out = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value fn = Core::get(call, Value("function"), Value());
+    Value params = Core::get(fn, Value("arguments"), Value());
+    Value params_is_string = Core::type_is(params, Value("string"));
+    if (Core::truthy(params_is_string)) {
+      try {
+        Value parsed_params = Core::json_parse(params);
+        params = parsed_params;
+      } catch (const std::exception& e) {
+        Value parse_error = Core::exception_value(e);
+        // empty
+      }
+    }
+    Value id = Core::get(call, Value("id"), Value());
+    Value name = Core::get(fn, Value("name"), Value());
+    Value function = Value::object();
+    Core::set(function, Value("name"), name);
+    Core::set(function, Value("params"), params);
+    Value normalized = Value::object();
+    Core::set(normalized, Value("id"), id);
+    Core::set(normalized, Value("type"), Value("function"));
+    Core::set(normalized, Value("function"), function);
+    Core::append(out, normalized);
+  }
+  return out;
+}
+
 Value Core::ai_context_cache_rejection(Value status, Value body_json) {
   axir_coverage_mark("ai_context_cache_rejection");
   Value status_400_min = Core::gte(status, Value(400));
@@ -7816,6 +8007,30 @@ Value Core::ai_context_cache_rejection(Value status, Value body_json) {
   return out;
 }
 
+Value Core::_openai_finish_reason_impl(Value value) {
+  axir_coverage_mark("_openai_finish_reason_impl");
+  Value is_stop = Core::eq(value, Value("stop"));
+  if (Core::truthy(is_stop)) {
+    return Value("stop");
+  }
+  Value is_length = Core::eq(value, Value("length"));
+  if (Core::truthy(is_length)) {
+    return Value("length");
+  }
+  Value is_content_filter = Core::eq(value, Value("content_filter"));
+  if (Core::truthy(is_content_filter)) {
+    return Value("error");
+  }
+  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
+  Value is_function_call = Core::eq(value, Value("function_call"));
+  Value is_call = Core::or_(is_tool_calls, is_function_call);
+  if (Core::truthy(is_call)) {
+    return Value("function_call");
+  }
+  Value none = Core::none();
+  return none;
+}
+
 Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
   axir_coverage_mark("ai_context_cache_expiry");
   Value is_number = Core::type_is(provider_expire_time, Value("number"));
@@ -7828,33 +8043,25 @@ Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
   return Value(0);
 }
 
-Value Core::_openai_normalize_tool_calls_impl(Value calls) {
-  axir_coverage_mark("_openai_normalize_tool_calls_impl");
-  Value out = Value::array();
-  for (auto call : Core::iter(calls)) {
-    Value fn = Core::get(call, Value("function"), Value());
-    Value params = Core::get(fn, Value("arguments"), Value());
-    Value params_is_string = Core::type_is(params, Value("string"));
-    if (Core::truthy(params_is_string)) {
-      try {
-        Value parsed_params = Core::json_parse(params);
-        params = parsed_params;
-      } catch (const std::exception& e) {
-        Value parse_error = Core::exception_value(e);
-        // empty
-      }
-    }
-    Value id = Core::get(call, Value("id"), Value());
-    Value name = Core::get(fn, Value("name"), Value());
-    Value function = Value::object();
-    Core::set(function, Value("name"), name);
-    Core::set(function, Value("params"), params);
-    Value normalized = Value::object();
-    Core::set(normalized, Value("id"), id);
-    Core::set(normalized, Value("type"), Value("function"));
-    Core::set(normalized, Value("function"), function);
-    Core::append(out, normalized);
+Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
+  axir_coverage_mark("openai_normalize_embed_response");
+  Value embeddings = Value::array();
+  Value empty_data = Value::array();
+  Value data = Core::get(raw, Value("data"), empty_data);
+  for (auto item : Core::iter(data)) {
+    Value embedding = Core::get(item, Value("embedding"), Value());
+    Core::append(embeddings, embedding);
   }
+  Value raw_model = Core::get(raw, Value("model"), Value());
+  Value used_model = Core::coalesce(raw_model, model);
+  Value raw_usage = Core::get(raw, Value("usage"), Value());
+  Value usage = Core::_openai_usage_with_service_tier(raw, raw_usage);
+  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
+  Value remote_id = Core::get(raw, Value("id"), Value());
+  Value out = Value::object();
+  Core::set(out, Value("embeddings"), embeddings);
+  Core::set(out, Value("remote_id"), remote_id);
+  Core::set(out, Value("model_usage"), model_usage);
   return out;
 }
 
@@ -7904,28 +8111,57 @@ Value Core::ai_context_cache_plan(Value configured, Value supported, Value expli
   return out;
 }
 
-Value Core::_openai_finish_reason_impl(Value value) {
-  axir_coverage_mark("_openai_finish_reason_impl");
-  Value is_stop = Core::eq(value, Value("stop"));
-  if (Core::truthy(is_stop)) {
-    return Value("stop");
+Value Core::openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model) {
+  axir_coverage_mark("openai_normalize_stream_delta");
+  Value response = Core::_openai_normalize_stream_delta_impl(raw, state, ai_name, model, Value("none"), Value("none"));
+  return response;
+}
+
+Value Core::_openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode) {
+  axir_coverage_mark("_openai_normalize_stream_delta_impl");
+  Value raw_is_object = Core::type_is(raw, Value("object"));
+  Value raw_not_object = Core::not_(raw_is_object);
+  if (Core::truthy(raw_not_object)) {
+    Value error = Core::ai_error_stream(Value("provider stream event must be a JSON object"), raw, Value(true));
+    Core::raise_error(error);
   }
-  Value is_length = Core::eq(value, Value("length"));
-  if (Core::truthy(is_length)) {
-    return Value("length");
+  Value provider_error = Core::get(raw, Value("error"), Value());
+  Value has_provider_error = Core::truthy_value(provider_error);
+  if (Core::truthy(has_provider_error)) {
+    Value message = Core::get(provider_error, Value("message"), Value("provider stream error"));
+    Value error = Core::ai_error_stream(message, raw, Value(true));
+    Core::raise_error(error);
   }
-  Value is_content_filter = Core::eq(value, Value("content_filter"));
-  if (Core::truthy(is_content_filter)) {
-    return Value("error");
+  Value index_ids = Core::get(state, Value("index_ids"), Value());
+  Value missing_index_ids = Core::is_none(index_ids);
+  if (Core::truthy(missing_index_ids)) {
+    Value new_index_ids = Value::object();
+    Core::set(state, Value("index_ids"), new_index_ids);
+    index_ids = new_index_ids;
   }
-  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
-  Value is_function_call = Core::eq(value, Value("function_call"));
-  Value is_call = Core::or_(is_tool_calls, is_function_call);
-  if (Core::truthy(is_call)) {
-    return Value("function_call");
+  Value raw_remote_id = Core::get(raw, Value("id"), Value());
+  Value has_raw_remote_id = Core::truthy_value(raw_remote_id);
+  if (Core::truthy(has_raw_remote_id)) {
+    Core::set(state, Value("remote_id"), raw_remote_id);
   }
-  Value none = Core::none();
-  return none;
+  Value remote_id = Core::get(state, Value("remote_id"), raw_remote_id);
+  Value results = Value::array();
+  Value empty_choices = Value::array();
+  Value choices = Core::get(raw, Value("choices"), empty_choices);
+  for (auto choice : Core::iter(choices)) {
+    Value result = Core::_openai_stream_choice_impl(choice, index_ids, reasoning_content_mode, reasoning_details_mode);
+    Core::append(results, result);
+  }
+  Value raw_model = Core::get(raw, Value("model"), Value());
+  Value used_model = Core::coalesce(raw_model, model);
+  Value raw_usage = Core::get(raw, Value("usage"), Value());
+  Value usage = Core::_openai_usage_with_service_tier(raw, raw_usage);
+  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
+  Value out = Value::object();
+  Core::set(out, Value("results"), results);
+  Core::set(out, Value("remote_id"), remote_id);
+  Core::set(out, Value("model_usage"), model_usage);
+  return out;
 }
 
 Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry) {
@@ -7950,28 +8186,6 @@ Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Val
       }
     }
   }
-  return out;
-}
-
-Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
-  axir_coverage_mark("openai_normalize_embed_response");
-  Value embeddings = Value::array();
-  Value empty_data = Value::array();
-  Value data = Core::get(raw, Value("data"), empty_data);
-  for (auto item : Core::iter(data)) {
-    Value embedding = Core::get(item, Value("embedding"), Value());
-    Core::append(embeddings, embedding);
-  }
-  Value raw_model = Core::get(raw, Value("model"), Value());
-  Value used_model = Core::coalesce(raw_model, model);
-  Value raw_usage = Core::get(raw, Value("usage"), Value());
-  Value usage = Core::_openai_usage_with_service_tier(raw, raw_usage);
-  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
-  Value remote_id = Core::get(raw, Value("id"), Value());
-  Value out = Value::object();
-  Core::set(out, Value("embeddings"), embeddings);
-  Core::set(out, Value("remote_id"), remote_id);
-  Core::set(out, Value("model_usage"), model_usage);
   return out;
 }
 
@@ -8034,111 +8248,6 @@ Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_k
   Core::set(out, Value("update"), update);
   Core::set(out, Value("delete"), delete_op);
   return out;
-}
-
-Value Core::openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model) {
-  axir_coverage_mark("openai_normalize_stream_delta");
-  Value response = Core::_openai_normalize_stream_delta_impl(raw, state, ai_name, model, Value("none"), Value("none"));
-  return response;
-}
-
-Value Core::_openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode) {
-  axir_coverage_mark("_openai_normalize_stream_delta_impl");
-  Value raw_is_object = Core::type_is(raw, Value("object"));
-  Value raw_not_object = Core::not_(raw_is_object);
-  if (Core::truthy(raw_not_object)) {
-    Value error = Core::ai_error_stream(Value("provider stream event must be a JSON object"), raw, Value(true));
-    Core::raise_error(error);
-  }
-  Value provider_error = Core::get(raw, Value("error"), Value());
-  Value has_provider_error = Core::truthy_value(provider_error);
-  if (Core::truthy(has_provider_error)) {
-    Value message = Core::get(provider_error, Value("message"), Value("provider stream error"));
-    Value error = Core::ai_error_stream(message, raw, Value(true));
-    Core::raise_error(error);
-  }
-  Value index_ids = Core::get(state, Value("index_ids"), Value());
-  Value missing_index_ids = Core::is_none(index_ids);
-  if (Core::truthy(missing_index_ids)) {
-    Value new_index_ids = Value::object();
-    Core::set(state, Value("index_ids"), new_index_ids);
-    index_ids = new_index_ids;
-  }
-  Value raw_remote_id = Core::get(raw, Value("id"), Value());
-  Value has_raw_remote_id = Core::truthy_value(raw_remote_id);
-  if (Core::truthy(has_raw_remote_id)) {
-    Core::set(state, Value("remote_id"), raw_remote_id);
-  }
-  Value remote_id = Core::get(state, Value("remote_id"), raw_remote_id);
-  Value results = Value::array();
-  Value empty_choices = Value::array();
-  Value choices = Core::get(raw, Value("choices"), empty_choices);
-  for (auto choice : Core::iter(choices)) {
-    Value result = Core::_openai_stream_choice_impl(choice, index_ids, reasoning_content_mode, reasoning_details_mode);
-    Core::append(results, result);
-  }
-  Value raw_model = Core::get(raw, Value("model"), Value());
-  Value used_model = Core::coalesce(raw_model, model);
-  Value raw_usage = Core::get(raw, Value("usage"), Value());
-  Value usage = Core::_openai_usage_with_service_tier(raw, raw_usage);
-  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
-  Value out = Value::object();
-  Core::set(out, Value("results"), results);
-  Core::set(out, Value("remote_id"), remote_id);
-  Core::set(out, Value("model_usage"), model_usage);
-  return out;
-}
-
-Value Core::fold_chat_response_stream(Value events) {
-  axir_coverage_mark("fold_chat_response_stream");
-  Value results = Value::array();
-  Value usage = Core::none();
-  for (auto raw_event : Core::iter(events)) {
-    Value event = raw_event;
-    Value has_routing = Core::map_contains(raw_event, Value("routing"));
-    Value has_response = Core::map_contains(raw_event, Value("response"));
-    Value router_envelope = Core::and_(has_routing, has_response);
-    if (Core::truthy(router_envelope)) {
-      event = Core::get(raw_event, Value("response"), Value());
-    }
-    Value empty_chunks = Value::array();
-    Value chunks = Core::get(event, Value("results"), empty_chunks);
-    for (auto chunk : Core::iter(chunks)) {
-      Value index = Core::get(chunk, Value("index"), Value(0));
-      Value target = Core::none();
-      for (auto candidate : Core::iter(results)) {
-        Value candidate_index = Core::get(candidate, Value("index"), Value());
-        Value same_index = Core::eq(candidate_index, index);
-        if (Core::truthy(same_index)) {
-          target = candidate;
-        }
-      }
-      Value missing_target = Core::is_none(target);
-      if (Core::truthy(missing_target)) {
-        Value new_target = Value::object();
-        Core::set(new_target, Value("index"), index);
-        Core::set(new_target, Value("content"), Value(""));
-        Value new_calls = Value::array();
-        Core::set(new_target, Value("function_calls"), new_calls);
-        Core::append(results, new_target);
-        target = new_target;
-      }
-      Core::_fold_chat_stream_chunk_impl(target, chunk);
-    }
-    Value usage_snake = Core::get(event, Value("model_usage"), Value());
-    Value event_usage = Core::get(event, Value("modelUsage"), usage_snake);
-    Value has_usage = Core::is_not_none(event_usage);
-    if (Core::truthy(has_usage)) {
-      usage = event_usage;
-    }
-  }
-  Value response = Value::object();
-  Core::set(response, Value("results"), results);
-  Value found_usage = Core::is_not_none(usage);
-  if (Core::truthy(found_usage)) {
-    Core::set(response, Value("model_usage"), usage);
-  }
-  return response;
 }
 
 Value Core::_openai_stream_choice_impl(Value choice, Value index_ids, Value reasoning_content_mode, Value reasoning_details_mode) {
@@ -8220,6 +8329,107 @@ Value Core::_openai_stream_choice_impl(Value choice, Value index_ids, Value reas
   Core::set(out, Value("function_calls"), calls);
   Core::set(out, Value("finish_reason"), finish_reason);
   return out;
+}
+
+Value Core::fold_chat_response_stream(Value events) {
+  axir_coverage_mark("fold_chat_response_stream");
+  Value results = Value::array();
+  Value usage = Core::none();
+  for (auto raw_event : Core::iter(events)) {
+    Value event = raw_event;
+    Value has_routing = Core::map_contains(raw_event, Value("routing"));
+    Value has_response = Core::map_contains(raw_event, Value("response"));
+    Value router_envelope = Core::and_(has_routing, has_response);
+    if (Core::truthy(router_envelope)) {
+      event = Core::get(raw_event, Value("response"), Value());
+    }
+    Value empty_chunks = Value::array();
+    Value chunks = Core::get(event, Value("results"), empty_chunks);
+    for (auto chunk : Core::iter(chunks)) {
+      Value index = Core::get(chunk, Value("index"), Value(0));
+      Value target = Core::none();
+      for (auto candidate : Core::iter(results)) {
+        Value candidate_index = Core::get(candidate, Value("index"), Value());
+        Value same_index = Core::eq(candidate_index, index);
+        if (Core::truthy(same_index)) {
+          target = candidate;
+        }
+      }
+      Value missing_target = Core::is_none(target);
+      if (Core::truthy(missing_target)) {
+        Value new_target = Value::object();
+        Core::set(new_target, Value("index"), index);
+        Core::set(new_target, Value("content"), Value(""));
+        Value new_calls = Value::array();
+        Core::set(new_target, Value("function_calls"), new_calls);
+        Core::append(results, new_target);
+        target = new_target;
+      }
+      Core::_fold_chat_stream_chunk_impl(target, chunk);
+    }
+    Value usage_snake = Core::get(event, Value("model_usage"), Value());
+    Value event_usage = Core::get(event, Value("modelUsage"), usage_snake);
+    Value has_usage = Core::is_not_none(event_usage);
+    if (Core::truthy(has_usage)) {
+      usage = event_usage;
+    }
+  }
+  Value response = Value::object();
+  Core::set(response, Value("results"), results);
+  Value found_usage = Core::is_not_none(usage);
+  if (Core::truthy(found_usage)) {
+    Core::set(response, Value("model_usage"), usage);
+  }
+  return response;
+}
+
+Value Core::openai_normalize_error(Value status, Value body, Value request, Value options) {
+  axir_coverage_mark("openai_normalize_error");
+  Value error_request = Core::_ai_error_request(request, options);
+  Value message = body;
+  Value code = Core::none();
+  Value body_is_object = Core::type_is(body, Value("object"));
+  if (Core::truthy(body_is_object)) {
+    Value error_body = Core::get(body, Value("error"), body);
+    Value error_is_object = Core::type_is(error_body, Value("object"));
+    if (Core::truthy(error_is_object)) {
+      Value body_text = Core::string_str(body);
+      Value message_value = Core::get(error_body, Value("message"), body_text);
+      Value code_value = Core::get(error_body, Value("code"), Value());
+      message = message_value;
+      code = code_value;
+    }
+    if (!Core::truthy(error_is_object)) {
+      Value message_value = Core::string_str(error_body);
+      message = message_value;
+    }
+  }
+  Value is_401 = Core::eq(status, Value(401));
+  Value is_403 = Core::eq(status, Value(403));
+  Value is_auth = Core::or_(is_401, is_403);
+  if (Core::truthy(is_auth)) {
+    Value error = Core::ai_error_auth(message, status, code, body, error_request);
+    return error;
+  }
+  Value is_408 = Core::eq(status, Value(408));
+  Value is_504 = Core::eq(status, Value(504));
+  Value is_timeout = Core::or_(is_408, is_504);
+  if (Core::truthy(is_timeout)) {
+    Value error = Core::ai_error_timeout(message, status, code, body, error_request, Value(true));
+    return error;
+  }
+  Value is_429 = Core::eq(status, Value(429));
+  Value is_500 = Core::eq(status, Value(500));
+  Value is_502 = Core::eq(status, Value(502));
+  Value is_503 = Core::eq(status, Value(503));
+  Value is_529 = Core::eq(status, Value(529));
+  Value retry_left = Core::or_(is_429, is_500);
+  Value retry_right = Core::or_(is_502, is_503);
+  Value retry_some = Core::or_(retry_left, retry_right);
+  Value retry_more = Core::or_(retry_some, is_504);
+  Value retryable = Core::or_(retry_more, is_529);
+  Value error = Core::ai_error_status(message, status, code, body, error_request, retryable);
+  return error;
 }
 
 Value Core::_fold_chat_stream_chunk_impl(Value target, Value chunk) {
@@ -8307,55 +8517,6 @@ Value Core::_fold_chat_stream_chunk_impl(Value target, Value chunk) {
     Core::set(target, Value("finish_reason"), finish);
   }
   return Value();
-}
-
-Value Core::openai_normalize_error(Value status, Value body, Value request, Value options) {
-  axir_coverage_mark("openai_normalize_error");
-  Value error_request = Core::_ai_error_request(request, options);
-  Value message = body;
-  Value code = Core::none();
-  Value body_is_object = Core::type_is(body, Value("object"));
-  if (Core::truthy(body_is_object)) {
-    Value error_body = Core::get(body, Value("error"), body);
-    Value error_is_object = Core::type_is(error_body, Value("object"));
-    if (Core::truthy(error_is_object)) {
-      Value body_text = Core::string_str(body);
-      Value message_value = Core::get(error_body, Value("message"), body_text);
-      Value code_value = Core::get(error_body, Value("code"), Value());
-      message = message_value;
-      code = code_value;
-    }
-    if (!Core::truthy(error_is_object)) {
-      Value message_value = Core::string_str(error_body);
-      message = message_value;
-    }
-  }
-  Value is_401 = Core::eq(status, Value(401));
-  Value is_403 = Core::eq(status, Value(403));
-  Value is_auth = Core::or_(is_401, is_403);
-  if (Core::truthy(is_auth)) {
-    Value error = Core::ai_error_auth(message, status, code, body, error_request);
-    return error;
-  }
-  Value is_408 = Core::eq(status, Value(408));
-  Value is_504 = Core::eq(status, Value(504));
-  Value is_timeout = Core::or_(is_408, is_504);
-  if (Core::truthy(is_timeout)) {
-    Value error = Core::ai_error_timeout(message, status, code, body, error_request, Value(true));
-    return error;
-  }
-  Value is_429 = Core::eq(status, Value(429));
-  Value is_500 = Core::eq(status, Value(500));
-  Value is_502 = Core::eq(status, Value(502));
-  Value is_503 = Core::eq(status, Value(503));
-  Value is_529 = Core::eq(status, Value(529));
-  Value retry_left = Core::or_(is_429, is_500);
-  Value retry_right = Core::or_(is_502, is_503);
-  Value retry_some = Core::or_(retry_left, retry_right);
-  Value retry_more = Core::or_(retry_some, is_504);
-  Value retryable = Core::or_(retry_more, is_529);
-  Value error = Core::ai_error_status(message, status, code, body, error_request, retryable);
-  return error;
 }
 
 Value Core::provider_normalize_profile(Value profile) {
@@ -11274,6 +11435,7 @@ Value Core::provider_build_chat_request(Value profile, Value request, Value opti
       responses_payload = Core::_meta_prepare_responses_request(responses_payload, sampled_request, options);
     }
     if (!Core::truthy(is_meta)) {
+      responses_payload = Core::_openai_responses_apply_prompt_cache_key(responses_payload, options);
       responses_payload = Core::_openai_responses_apply_prompt_cache_retention(responses_payload, sampled_request, options, model);
     }
     payload = Core::openai_responses_apply_astra_caching(responses_payload, sampled_request, options);
@@ -17445,6 +17607,57 @@ Value Core::_openai_responses_apply_prompt_cache_retention(Value payload, Value 
   return payload;
 }
 
+Value Core::_openai_responses_apply_prompt_cache_key(Value payload, Value options) {
+  axir_coverage_mark("_openai_responses_apply_prompt_cache_key");
+  Value key_snake = Core::get(options, Value("prompt_cache_key"), Value());
+  Value key = Core::get(options, Value("promptCacheKey"), key_snake);
+  Value session_snake = Core::get(options, Value("session_id"), Value());
+  Value session = Core::get(options, Value("sessionId"), session_snake);
+  Value resolved_key = Core::coalesce(key, session);
+  Value has_key = Core::is_not_none(resolved_key);
+  if (Core::truthy(has_key)) {
+    Core::set(payload, Value("prompt_cache_key"), resolved_key);
+  }
+  return payload;
+}
+
+Value Core::provider_call_timeout_ms(Value options) {
+  axir_coverage_mark("provider_call_timeout_ms");
+  Value value = Core::get(options, Value("timeoutMs"), Value());
+  Value is_number = Core::type_is(value, Value("number"));
+  if (Core::truthy(is_number)) {
+    Value positive = Core::gt(value, Value(0));
+    if (Core::truthy(positive)) {
+      return value;
+    }
+  }
+  return Value();
+}
+
+Value Core::provider_call_timeout_message(Value timeout_ms) {
+  axir_coverage_mark("provider_call_timeout_message");
+  Value message = Core::string_format(Value("Request timed out after {}ms"), timeout_ms);
+  return message;
+}
+
+Value Core::provider_warn_call_timeout(Value options, Value seconds) {
+  axir_coverage_mark("provider_warn_call_timeout");
+  Value timeout = Core::get(options, Value("timeout"), Value());
+  Value timeout_ms = Core::get(options, Value("timeoutMs"), Value());
+  Value has_timeout = Core::is_not_none(timeout);
+  Value has_timeout_ms = Core::is_not_none(timeout_ms);
+  Value without_ms = Core::not_(has_timeout_ms);
+  Value warn = Core::and_(has_timeout, without_ms);
+  if (Core::truthy(warn)) {
+    Value message = Value("Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does.");
+    if (Core::truthy(seconds)) {
+      message = Value("Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds).");
+    }
+    Core::ai_warn_once(Value("call-timeout"), message);
+  }
+  return Value();
+}
+
 Value Core::_provider_sampling_is_one_impl(Value value) {
   axir_coverage_mark("_provider_sampling_is_one_impl");
   Value is_number = Core::type_is(value, Value("number"));
@@ -20363,7 +20576,19 @@ Value Core::_parse_sample_outputs(Value gen, Value output_fields, Value response
     }
     if (!Core::truthy(text_contract)) {
       if (Core::truthy(validate_exact_json)) {
-        output = Core::_parse_output_impl(content);
+        Value strict_parsed = Value(false);
+        try {
+          output = Core::_parse_output_impl(content);
+          strict_parsed = Value(true);
+        } catch (const std::exception& e) {
+          Value strict_parse_error = Core::exception_value(e);
+          // empty
+        }
+        Value strict_failed = Core::not_(strict_parsed);
+        if (Core::truthy(strict_failed)) {
+          Value strict_error = Core::validation_error(Value("Structured output must be one JSON object with no prose or Markdown fences."));
+          Core::raise_error(strict_error);
+        }
       }
       if (!Core::truthy(validate_exact_json)) {
         output = Core::_parse_output_fields_impl(content, output_fields);
@@ -20693,6 +20918,21 @@ Value Core::_date_zone_resolve_impl(Value units, Value start, Value end, Value z
   Core::raise_error(missing_error);
 }
 
+Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
+  axir_coverage_mark("_build_optimization_eval_row");
+  Value out = Value::object();
+  Core::set(out, Value("input"), task);
+  Core::set(out, Value("prediction"), prediction);
+  Core::set(out, Value("scores"), scores);
+  Core::set(out, Value("scalar"), scalar);
+  Core::set(out, Value("trace"), trace);
+  Value has_error = Core::is_not_none(error);
+  if (Core::truthy(has_error)) {
+    Core::set(out, Value("error"), error);
+  }
+  return out;
+}
+
 Value Core::_select_sample_index(Value samples, Value options) {
   axir_coverage_mark("_select_sample_index");
   Value picker_snake = Core::get(options, Value("result_picker"), Value());
@@ -20721,21 +20961,6 @@ Value Core::_select_sample_index(Value samples, Value options) {
     Core::raise_error(error);
   }
   return selected;
-}
-
-Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
-  axir_coverage_mark("_build_optimization_eval_row");
-  Value out = Value::object();
-  Core::set(out, Value("input"), task);
-  Core::set(out, Value("prediction"), prediction);
-  Core::set(out, Value("scores"), scores);
-  Core::set(out, Value("scalar"), scalar);
-  Core::set(out, Value("trace"), trace);
-  Value has_error = Core::is_not_none(error);
-  if (Core::truthy(has_error)) {
-    Core::set(out, Value("error"), error);
-  }
-  return out;
 }
 
 Value Core::chat_session_create_state(Value model, Value path, Value max_steps) {
@@ -20828,6 +21053,15 @@ Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Val
   Core::set(out, Value("avg"), avg);
   Core::set(out, Value("count"), count);
   return out;
+}
+
+Value Core::chat_session_target_matches(Value target, Value path) {
+  axir_coverage_mark("chat_session_target_matches");
+  Value exact = Core::eq(target, path);
+  Value prefix = Core::string_format(Value("{}/"), target);
+  Value descendant = Core::string_starts_with(path, prefix);
+  Value matches = Core::or_(exact, descendant);
+  return matches;
 }
 
 Value Core::_forward_impl(Value gen, Value client, Value values, Value options) {
@@ -20972,6 +21206,13 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
         thought_prefix = Value("");
       }
       continue;
+    }
+    try {
+      Core::_check_completion_function_call_names(response, runtime_options);
+    } catch (const std::exception& e) {
+      Value unnamed_call_error = Core::exception_value(e);
+      Value unnamed_call_failure = Core::_generate_failed_impl(unnamed_call_error);
+      Core::raise_error(unnamed_call_failure);
     }
     Core::axgen_memory_add_response(gen, request, response);
     Core::axgen_record_chat_log(gen, request, response);
@@ -21160,15 +21401,6 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
     }
   }
   throw AxError("runtime", "unreachable AxGen forward loop exit");
-}
-
-Value Core::chat_session_target_matches(Value target, Value path) {
-  axir_coverage_mark("chat_session_target_matches");
-  Value exact = Core::eq(target, path);
-  Value prefix = Core::string_format(Value("{}/"), target);
-  Value descendant = Core::string_starts_with(path, prefix);
-  Value matches = Core::or_(exact, descendant);
-  return matches;
 }
 
 Value Core::chat_session_unresolved(Value state) {
@@ -22552,7 +22784,8 @@ Value Core::_stream_validate_constraints_impl(Value field, Value value, Value ki
   if (Core::truthy(not_string)) {
     return Value();
   }
-  Value length = Core::len(value);
+  Value units = Core::string_utf16_units(value);
+  Value length = Core::len(units);
   Value min_snake = Core::get(typ, Value("min_length"), Value());
   Value min_length = Core::get(typ, Value("minLength"), min_snake);
   Value has_min = Core::is_not_none(min_length);
@@ -22943,12 +23176,6 @@ Value Core::_date_delimiter_split_impl(Value text) {
   return none;
 }
 
-Value Core::_set_examples(Value gen, Value examples) {
-  axir_coverage_mark("_set_examples");
-  Core::set(gen, Value("examples"), examples);
-  return gen;
-}
-
 Value Core::_ace_empty_playbook(Value description, Value now) {
   axir_coverage_mark("_ace_empty_playbook");
   Value out = Value::object();
@@ -22969,16 +23196,10 @@ Value Core::_ace_empty_playbook(Value description, Value now) {
   return out;
 }
 
-Value Core::_set_demos(Value gen, Value demos) {
-  axir_coverage_mark("_set_demos");
-  Core::set(gen, Value("demos"), demos);
+Value Core::_set_examples(Value gen, Value examples) {
+  axir_coverage_mark("_set_examples");
+  Core::set(gen, Value("examples"), examples);
   return gen;
-}
-
-Value Core::_render_examples(Value gen) {
-  axir_coverage_mark("_render_examples");
-  Value messages = Core::axgen_render_examples(gen);
-  return messages;
 }
 
 Value Core::_ace_render_playbook(Value playbook) {
@@ -23038,16 +23259,16 @@ Value Core::_ace_render_playbook(Value playbook) {
   return result;
 }
 
-Value Core::_render_demos(Value gen) {
-  axir_coverage_mark("_render_demos");
-  Value messages = Core::axgen_render_demos(gen);
-  return messages;
+Value Core::_set_demos(Value gen, Value demos) {
+  axir_coverage_mark("_set_demos");
+  Core::set(gen, Value("demos"), demos);
+  return gen;
 }
 
-Value Core::_apply_field_processors(Value gen, Value output) {
-  axir_coverage_mark("_apply_field_processors");
-  Value processed = Core::axgen_apply_field_processors(gen, output);
-  return processed;
+Value Core::_render_examples(Value gen) {
+  axir_coverage_mark("_render_examples");
+  Value messages = Core::axgen_render_examples(gen);
+  return messages;
 }
 
 Value Core::chat_session_boundary_action(Value state) {
@@ -23205,28 +23426,16 @@ Value Core::_stream_convert_value_impl(Value field, Value value, Value required)
   return out;
 }
 
-Value Core::_run_assertions(Value gen, Value output) {
-  axir_coverage_mark("_run_assertions");
-  Value result = Core::axgen_run_assertions(gen, output);
-  Value status = Core::get(result, Value("status"), Value("pass"));
-  Value threw = Core::eq(status, Value("error"));
-  if (Core::truthy(threw)) {
-    Value thrown = Core::get(result, Value("error"), Value());
-    return thrown;
-  }
-  Value failed = Core::eq(status, Value("fail"));
-  if (Core::truthy(failed)) {
-    Value message = Core::get(result, Value("message"), Value());
-    Value has_message = Core::is_not_none(message);
-    if (Core::truthy(has_message)) {
-      Value assertion_error = Core::runtime_error(message);
-      Core::raise_error(assertion_error);
-    }
-    Value message_less = Core::runtime_error(Value("Assertion failed without message"));
-    return message_less;
-  }
-  Value passed = Core::none();
-  return passed;
+Value Core::_render_demos(Value gen) {
+  axir_coverage_mark("_render_demos");
+  Value messages = Core::axgen_render_demos(gen);
+  return messages;
+}
+
+Value Core::_apply_field_processors(Value gen, Value output) {
+  axir_coverage_mark("_apply_field_processors");
+  Value processed = Core::axgen_apply_field_processors(gen, output);
+  return processed;
 }
 
 Value Core::_date_range_keyword_impl(Value units, Value at, Value end) {
@@ -23275,6 +23484,30 @@ Value Core::_date_range_keyword_impl(Value units, Value at, Value end) {
   return Value(0);
 }
 
+Value Core::_run_assertions(Value gen, Value output) {
+  axir_coverage_mark("_run_assertions");
+  Value result = Core::axgen_run_assertions(gen, output);
+  Value status = Core::get(result, Value("status"), Value("pass"));
+  Value threw = Core::eq(status, Value("error"));
+  if (Core::truthy(threw)) {
+    Value thrown = Core::get(result, Value("error"), Value());
+    return thrown;
+  }
+  Value failed = Core::eq(status, Value("fail"));
+  if (Core::truthy(failed)) {
+    Value message = Core::get(result, Value("message"), Value());
+    Value has_message = Core::is_not_none(message);
+    if (Core::truthy(has_message)) {
+      Value assertion_error = Core::runtime_error(message);
+      Core::raise_error(assertion_error);
+    }
+    Value message_less = Core::runtime_error(Value("Assertion failed without message"));
+    return message_less;
+  }
+  Value passed = Core::none();
+  return passed;
+}
+
 Value Core::_ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now) {
   axir_coverage_mark("_ace_update_bullet_feedback");
   Value empty_map = Value::object();
@@ -23319,12 +23552,6 @@ Value Core::_ace_update_bullet_feedback(Value playbook, Value bullet_id, Value t
     return updated;
   }
   return playbook;
-}
-
-Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
-  axir_coverage_mark("_append_assertion_retry_messages");
-  Value updated_messages = Core::_append_validation_retry_messages_impl(messages, response, error);
-  return updated_messages;
 }
 
 Value Core::_regex_alternative(Value s) {
@@ -23375,12 +23602,6 @@ Value Core::_regex_alternative(Value s) {
   return t17;
 }
 
-Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
-  axir_coverage_mark("_record_trace");
-  Core::axgen_record_trace(gen, input, output, status);
-  return Value();
-}
-
 Value Core::chat_session_mark_submitted(Value state, Value ids) {
   axir_coverage_mark("chat_session_mark_submitted");
   Value pending = Core::get(state, Value("pending"), Value());
@@ -23395,10 +23616,10 @@ Value Core::chat_session_mark_submitted(Value state, Value ids) {
   return Value();
 }
 
-Value Core::_should_continue_steps(Value gen, Value calls) {
-  axir_coverage_mark("_should_continue_steps");
-  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
-  return should_continue;
+Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
+  axir_coverage_mark("_append_assertion_retry_messages");
+  Value updated_messages = Core::_append_validation_retry_messages_impl(messages, response, error);
+  return updated_messages;
 }
 
 Value Core::_date_strip_code_fence_impl(Value value) {
@@ -23460,11 +23681,10 @@ Value Core::chat_session_queue_update(Value state, Value update) {
   return Value(true);
 }
 
-Value Core::_parse_output_impl(Value content) {
-  axir_coverage_mark("_parse_output_impl");
-  Value text = Core::string_trim(content);
-  Value output = Core::json_parse_strict(text);
-  return output;
+Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
+  axir_coverage_mark("_record_trace");
+  Core::axgen_record_trace(gen, input, output, status);
+  return Value();
 }
 
 Value Core::_ace_dedupe_playbook(Value playbook) {
@@ -23506,21 +23726,54 @@ Value Core::_ace_dedupe_playbook(Value playbook) {
   return recomputed;
 }
 
-Value Core::_is_flexible_json_field(Value typ) {
-  axir_coverage_mark("_is_flexible_json_field");
-  Value type_name = Core::get(typ, Value("name"), Value());
-  Value is_json = Core::eq(type_name, Value("json"));
-  Value is_object = Core::eq(type_name, Value("object"));
-  Value fields = Core::get(typ, Value("fields"), Value());
-  Value has_fields = Core::truthy_value(fields);
-  Value no_fields = Core::not_(has_fields);
-  Value flexible = is_json;
-  if (Core::truthy(is_object)) {
-    if (Core::truthy(no_fields)) {
-      flexible = Value(true);
-    }
+Value Core::_should_continue_steps(Value gen, Value calls) {
+  axir_coverage_mark("_should_continue_steps");
+  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
+  return should_continue;
+}
+
+Value Core::_parse_output_impl(Value content) {
+  axir_coverage_mark("_parse_output_impl");
+  Value text = Core::string_trim(content);
+  Value output = Core::json_parse_strict(text);
+  return output;
+}
+
+Value Core::_regex_word(Value c) {
+  axir_coverage_mark("_regex_word");
+  Value t1 = Core::gte(c, Value(48));
+  Value t2 = t1;
+  if (Core::truthy(t2)) {
+    Value t3 = Core::lte(c, Value(57));
+    t2 = t3;
   }
-  return flexible;
+  Value t4 = t2;
+  Value t5 = Core::not_(t4);
+  if (Core::truthy(t5)) {
+    Value t6 = Core::gte(c, Value(65));
+    Value t7 = t6;
+    if (Core::truthy(t7)) {
+      Value t8 = Core::lte(c, Value(90));
+      t7 = t8;
+    }
+    t4 = t7;
+  }
+  Value t9 = Core::not_(t4);
+  if (Core::truthy(t9)) {
+    Value t10 = Core::gte(c, Value(97));
+    Value t11 = t10;
+    if (Core::truthy(t11)) {
+      Value t12 = Core::lte(c, Value(122));
+      t11 = t12;
+    }
+    t4 = t11;
+  }
+  Value t13 = Core::not_(t4);
+  if (Core::truthy(t13)) {
+    Value t14 = Core::eq(c, Value(95));
+    t4 = t14;
+  }
+  return t4;
 }
 
 Value Core::_stream_field_value_impl(Value field, Value text) {
@@ -23710,43 +23963,6 @@ Value Core::_stream_field_value_impl(Value field, Value text) {
   return out;
 }
 
-Value Core::_regex_word(Value c) {
-  axir_coverage_mark("_regex_word");
-  Value t1 = Core::gte(c, Value(48));
-  Value t2 = t1;
-  if (Core::truthy(t2)) {
-    Value t3 = Core::lte(c, Value(57));
-    t2 = t3;
-  }
-  Value t4 = t2;
-  Value t5 = Core::not_(t4);
-  if (Core::truthy(t5)) {
-    Value t6 = Core::gte(c, Value(65));
-    Value t7 = t6;
-    if (Core::truthy(t7)) {
-      Value t8 = Core::lte(c, Value(90));
-      t7 = t8;
-    }
-    t4 = t7;
-  }
-  Value t9 = Core::not_(t4);
-  if (Core::truthy(t9)) {
-    Value t10 = Core::gte(c, Value(97));
-    Value t11 = t10;
-    if (Core::truthy(t11)) {
-      Value t12 = Core::lte(c, Value(122));
-      t11 = t12;
-    }
-    t4 = t11;
-  }
-  Value t13 = Core::not_(t4);
-  if (Core::truthy(t13)) {
-    Value t14 = Core::eq(c, Value(95));
-    t4 = t14;
-  }
-  return t4;
-}
-
 Value Core::chat_session_record_unresolved(Value gen, Value state) {
   axir_coverage_mark("chat_session_record_unresolved");
   Value pending = Core::get(state, Value("pending"), Value());
@@ -23785,22 +24001,21 @@ Value Core::_date_string_mode_impl() {
   return Value("codepoint");
 }
 
-Value Core::_parse_json_string_value(Value value) {
-  axir_coverage_mark("_parse_json_string_value");
-  Value is_string = Core::type_is(value, Value("string"));
-  Value not_string = Core::not_(is_string);
-  if (Core::truthy(not_string)) {
-    return value;
+Value Core::_is_flexible_json_field(Value typ) {
+  axir_coverage_mark("_is_flexible_json_field");
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_json = Core::eq(type_name, Value("json"));
+  Value is_object = Core::eq(type_name, Value("object"));
+  Value fields = Core::get(typ, Value("fields"), Value());
+  Value has_fields = Core::truthy_value(fields);
+  Value no_fields = Core::not_(has_fields);
+  Value flexible = is_json;
+  if (Core::truthy(is_object)) {
+    if (Core::truthy(no_fields)) {
+      flexible = Value(true);
+    }
   }
-  Value result = value;
-  try {
-    Value parsed = Core::json_parse(value);
-    result = parsed;
-  } catch (const std::exception& e) {
-    Value parse_error = Core::exception_value(e);
-    result = value;
-  }
-  return result;
+  return flexible;
 }
 
 Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) {
@@ -23941,60 +24156,22 @@ Value Core::_date_native_offset_impl(Value units, Value index, Value mode) {
   return offset;
 }
 
-Value Core::_parse_json_string_for_field(Value field, Value value) {
-  axir_coverage_mark("_parse_json_string_for_field");
-  Value typ = Core::get(field, Value("type"), Value());
-  Value value_is_none = Core::is_none(value);
-  if (Core::truthy(value_is_none)) {
+Value Core::_parse_json_string_value(Value value) {
+  axir_coverage_mark("_parse_json_string_value");
+  Value is_string = Core::type_is(value, Value("string"));
+  Value not_string = Core::not_(is_string);
+  if (Core::truthy(not_string)) {
     return value;
   }
-  Value flexible = Core::_is_flexible_json_field(typ);
-  Value is_array = Core::get(typ, Value("is_array"), Value(false));
-  Value typ_fields = Core::get(typ, Value("fields"), Value());
-  Value has_typ_fields = Core::truthy_value(typ_fields);
-  if (Core::truthy(is_array)) {
-    Value value_is_list = Core::type_is(value, Value("list"));
-    Value not_list = Core::not_(value_is_list);
-    if (Core::truthy(not_list)) {
-      return value;
-    }
-    if (Core::truthy(flexible)) {
-      Value out = Value::array();
-      for (auto item : Core::iter(value)) {
-        Value parsed_item = Core::_parse_json_string_value(item);
-        Core::append(out, parsed_item);
-      }
-      return out;
-    }
-    if (Core::truthy(has_typ_fields)) {
-      Value rebuilt = Value::array();
-      for (auto item : Core::iter(value)) {
-        Value item_is_map = Core::type_is(item, Value("object"));
-        if (Core::truthy(item_is_map)) {
-          Value parsed_obj = Core::_parse_json_string_for_fields(typ_fields, item);
-          Core::append(rebuilt, parsed_obj);
-        }
-        if (!Core::truthy(item_is_map)) {
-          Core::append(rebuilt, item);
-        }
-      }
-      return rebuilt;
-    }
-    return value;
+  Value result = value;
+  try {
+    Value parsed = Core::json_parse(value);
+    result = parsed;
+  } catch (const std::exception& e) {
+    Value parse_error = Core::exception_value(e);
+    result = value;
   }
-  if (Core::truthy(flexible)) {
-    Value parsed_scalar = Core::_parse_json_string_value(value);
-    return parsed_scalar;
-  }
-  Value type_name = Core::get(typ, Value("name"), Value());
-  Value is_object = Core::eq(type_name, Value("object"));
-  if (Core::truthy(is_object)) {
-    if (Core::truthy(has_typ_fields)) {
-      Value parsed_obj2 = Core::_parse_json_string_for_fields(typ_fields, value);
-      return parsed_obj2;
-    }
-  }
-  return value;
+  return result;
 }
 
 Value Core::chat_session_transition(Value state, Value event) {
@@ -24198,6 +24375,62 @@ Value Core::_regex_space(Value c) {
   return t2;
 }
 
+Value Core::_parse_json_string_for_field(Value field, Value value) {
+  axir_coverage_mark("_parse_json_string_for_field");
+  Value typ = Core::get(field, Value("type"), Value());
+  Value value_is_none = Core::is_none(value);
+  if (Core::truthy(value_is_none)) {
+    return value;
+  }
+  Value flexible = Core::_is_flexible_json_field(typ);
+  Value is_array = Core::get(typ, Value("is_array"), Value(false));
+  Value typ_fields = Core::get(typ, Value("fields"), Value());
+  Value has_typ_fields = Core::truthy_value(typ_fields);
+  if (Core::truthy(is_array)) {
+    Value value_is_list = Core::type_is(value, Value("list"));
+    Value not_list = Core::not_(value_is_list);
+    if (Core::truthy(not_list)) {
+      return value;
+    }
+    if (Core::truthy(flexible)) {
+      Value out = Value::array();
+      for (auto item : Core::iter(value)) {
+        Value parsed_item = Core::_parse_json_string_value(item);
+        Core::append(out, parsed_item);
+      }
+      return out;
+    }
+    if (Core::truthy(has_typ_fields)) {
+      Value rebuilt = Value::array();
+      for (auto item : Core::iter(value)) {
+        Value item_is_map = Core::type_is(item, Value("object"));
+        if (Core::truthy(item_is_map)) {
+          Value parsed_obj = Core::_parse_json_string_for_fields(typ_fields, item);
+          Core::append(rebuilt, parsed_obj);
+        }
+        if (!Core::truthy(item_is_map)) {
+          Core::append(rebuilt, item);
+        }
+      }
+      return rebuilt;
+    }
+    return value;
+  }
+  if (Core::truthy(flexible)) {
+    Value parsed_scalar = Core::_parse_json_string_value(value);
+    return parsed_scalar;
+  }
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_object = Core::eq(type_name, Value("object"));
+  if (Core::truthy(is_object)) {
+    if (Core::truthy(has_typ_fields)) {
+      Value parsed_obj2 = Core::_parse_json_string_for_fields(typ_fields, value);
+      return parsed_obj2;
+    }
+  }
+  return value;
+}
+
 Value Core::_date_js_trim_impl(Value text) {
   axir_coverage_mark("_date_js_trim_impl");
   Value units = Core::string_utf16_units(text);
@@ -24210,25 +24443,6 @@ Value Core::_date_js_trim_impl(Value text) {
   Value slice_to = Core::_date_native_offset_impl(units, end, mode);
   Value trimmed = Core::string_slice(text, slice_from, slice_to);
   return trimmed;
-}
-
-Value Core::_parse_json_string_fields(Value output_fields, Value values) {
-  axir_coverage_mark("_parse_json_string_fields");
-  Value values_is_map = Core::type_is(values, Value("object"));
-  Value not_map = Core::not_(values_is_map);
-  if (Core::truthy(not_map)) {
-    return values;
-  }
-  for (auto field : Core::iter(output_fields)) {
-    Value name = Core::get(field, Value("name"), Value());
-    Value has_key = Core::map_contains(values, name);
-    if (Core::truthy(has_key)) {
-      Value value = Core::get(values, name, Value());
-      Value parsed = Core::_parse_json_string_for_field(field, value);
-      Core::set(values, name, parsed);
-    }
-  }
-  return values;
 }
 
 Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now) {
@@ -24425,15 +24639,14 @@ Value Core::_date_trim_bounds_impl(Value units, Value start, Value end) {
   return bounds;
 }
 
-Value Core::_parse_json_string_for_fields(Value fields_map, Value values) {
-  axir_coverage_mark("_parse_json_string_for_fields");
+Value Core::_parse_json_string_fields(Value output_fields, Value values) {
+  axir_coverage_mark("_parse_json_string_fields");
   Value values_is_map = Core::type_is(values, Value("object"));
   Value not_map = Core::not_(values_is_map);
   if (Core::truthy(not_map)) {
     return values;
   }
-  Value nested_fields = Core::fields_from_map(fields_map);
-  for (auto field : Core::iter(nested_fields)) {
+  for (auto field : Core::iter(output_fields)) {
     Value name = Core::get(field, Value("name"), Value());
     Value has_key = Core::map_contains(values, name);
     if (Core::truthy(has_key)) {
@@ -24585,6 +24798,58 @@ Value Core::_date_skip_space_impl(Value units, Value start, Value end) {
   return cursor;
 }
 
+Value Core::_parse_json_string_for_fields(Value fields_map, Value values) {
+  axir_coverage_mark("_parse_json_string_for_fields");
+  Value values_is_map = Core::type_is(values, Value("object"));
+  Value not_map = Core::not_(values_is_map);
+  if (Core::truthy(not_map)) {
+    return values;
+  }
+  Value nested_fields = Core::fields_from_map(fields_map);
+  for (auto field : Core::iter(nested_fields)) {
+    Value name = Core::get(field, Value("name"), Value());
+    Value has_key = Core::map_contains(values, name);
+    if (Core::truthy(has_key)) {
+      Value value = Core::get(values, name, Value());
+      Value parsed = Core::_parse_json_string_for_field(field, value);
+      Core::set(values, name, parsed);
+    }
+  }
+  return values;
+}
+
+Value Core::_date_space_impl(Value unit) {
+  axir_coverage_mark("_date_space_impl");
+  Value tab_low = Core::gte(unit, Value(9));
+  Value tab_high = Core::lte(unit, Value(13));
+  Value control = Core::and_(tab_low, tab_high);
+  if (Core::truthy(control)) {
+    return Value(true);
+  }
+  Value space = Core::eq(unit, Value(32));
+  Value no_break = Core::eq(unit, Value(160));
+  Value ogham = Core::eq(unit, Value(5760));
+  Value en_low = Core::gte(unit, Value(8192));
+  Value en_high = Core::lte(unit, Value(8202));
+  Value typographic = Core::and_(en_low, en_high);
+  Value line_separator = Core::eq(unit, Value(8232));
+  Value paragraph_separator = Core::eq(unit, Value(8233));
+  Value narrow = Core::eq(unit, Value(8239));
+  Value math_space = Core::eq(unit, Value(8287));
+  Value ideographic = Core::eq(unit, Value(12288));
+  Value byte_order = Core::eq(unit, Value(65279));
+  Value blank = Core::or_(space, no_break);
+  blank = Core::or_(blank, ogham);
+  blank = Core::or_(blank, typographic);
+  blank = Core::or_(blank, line_separator);
+  blank = Core::or_(blank, paragraph_separator);
+  blank = Core::or_(blank, narrow);
+  blank = Core::or_(blank, math_space);
+  blank = Core::or_(blank, ideographic);
+  blank = Core::or_(blank, byte_order);
+  return blank;
+}
+
 Value Core::_validate_exact_output_keys(Value fields, Value values, Value context) {
   axir_coverage_mark("_validate_exact_output_keys");
   Value is_object = Core::type_is(values, Value("object"));
@@ -24636,38 +24901,6 @@ Value Core::_validate_exact_output_keys(Value fields, Value values, Value contex
     }
   }
   return Value();
-}
-
-Value Core::_date_space_impl(Value unit) {
-  axir_coverage_mark("_date_space_impl");
-  Value tab_low = Core::gte(unit, Value(9));
-  Value tab_high = Core::lte(unit, Value(13));
-  Value control = Core::and_(tab_low, tab_high);
-  if (Core::truthy(control)) {
-    return Value(true);
-  }
-  Value space = Core::eq(unit, Value(32));
-  Value no_break = Core::eq(unit, Value(160));
-  Value ogham = Core::eq(unit, Value(5760));
-  Value en_low = Core::gte(unit, Value(8192));
-  Value en_high = Core::lte(unit, Value(8202));
-  Value typographic = Core::and_(en_low, en_high);
-  Value line_separator = Core::eq(unit, Value(8232));
-  Value paragraph_separator = Core::eq(unit, Value(8233));
-  Value narrow = Core::eq(unit, Value(8239));
-  Value math_space = Core::eq(unit, Value(8287));
-  Value ideographic = Core::eq(unit, Value(12288));
-  Value byte_order = Core::eq(unit, Value(65279));
-  Value blank = Core::or_(space, no_break);
-  blank = Core::or_(blank, ogham);
-  blank = Core::or_(blank, typographic);
-  blank = Core::or_(blank, line_separator);
-  blank = Core::or_(blank, paragraph_separator);
-  blank = Core::or_(blank, narrow);
-  blank = Core::or_(blank, math_space);
-  blank = Core::or_(blank, ideographic);
-  blank = Core::or_(blank, byte_order);
-  return blank;
 }
 
 Value Core::_stream_text_state_impl() {
@@ -24723,6 +24956,18 @@ Value Core::_stream_text_note_field_impl(Value xstate, Value field, Value init_s
   return Value();
 }
 
+Value Core::_date_ascii_letter_impl(Value unit) {
+  axir_coverage_mark("_date_ascii_letter_impl");
+  Value upper_low = Core::gte(unit, Value(65));
+  Value upper_high = Core::lte(unit, Value(90));
+  Value upper = Core::and_(upper_low, upper_high);
+  Value lower_low = Core::gte(unit, Value(97));
+  Value lower_high = Core::lte(unit, Value(122));
+  Value lower = Core::and_(lower_low, lower_high);
+  Value letter = Core::or_(upper, lower);
+  return letter;
+}
+
 Value Core::_tool_spec_impl(Value fn) {
   axir_coverage_mark("_tool_spec_impl");
   Value spec = Value::object();
@@ -24738,37 +24983,6 @@ Value Core::_tool_spec_impl(Value fn) {
     Core::set(spec, Value("execution"), execution);
   }
   return spec;
-}
-
-Value Core::_date_ascii_letter_impl(Value unit) {
-  axir_coverage_mark("_date_ascii_letter_impl");
-  Value upper_low = Core::gte(unit, Value(65));
-  Value upper_high = Core::lte(unit, Value(90));
-  Value upper = Core::and_(upper_low, upper_high);
-  Value lower_low = Core::gte(unit, Value(97));
-  Value lower_high = Core::lte(unit, Value(122));
-  Value lower = Core::and_(lower_low, lower_high);
-  Value letter = Core::or_(upper, lower);
-  return letter;
-}
-
-Value Core::_function_call_mode_impl(Value mode) {
-  axir_coverage_mark("_function_call_mode_impl");
-  Value missing = Core::is_none(mode);
-  if (Core::truthy(missing)) {
-    return Value("auto");
-  }
-  Value is_native = Core::eq(mode, Value("native"));
-  Value is_auto = Core::eq(mode, Value("auto"));
-  Value native_or_auto = Core::or_(is_native, is_auto);
-  if (Core::truthy(native_or_auto)) {
-    return Value("auto");
-  }
-  Value is_prompt = Core::eq(mode, Value("prompt"));
-  if (Core::truthy(is_prompt)) {
-    return Value("none");
-  }
-  return Value("auto");
 }
 
 Value Core::_stream_text_extract_impl(Value xstate, Value values, Value content, Value fields, Value options) {
@@ -24935,6 +25149,25 @@ Value Core::_date_ascii_matches_impl(Value units, Value at, Value end, Value wor
   return Value(true);
 }
 
+Value Core::_function_call_mode_impl(Value mode) {
+  axir_coverage_mark("_function_call_mode_impl");
+  Value missing = Core::is_none(mode);
+  if (Core::truthy(missing)) {
+    return Value("auto");
+  }
+  Value is_native = Core::eq(mode, Value("native"));
+  Value is_auto = Core::eq(mode, Value("auto"));
+  Value native_or_auto = Core::or_(is_native, is_auto);
+  if (Core::truthy(native_or_auto)) {
+    return Value("auto");
+  }
+  Value is_prompt = Core::eq(mode, Value("prompt"));
+  if (Core::truthy(is_prompt)) {
+    return Value("none");
+  }
+  return Value("auto");
+}
+
 Value Core::_regex_state(Value pos, Value caps) {
   axir_coverage_mark("_regex_state");
   Value t1 = Value::object();
@@ -24942,49 +25175,6 @@ Value Core::_regex_state(Value pos, Value caps) {
   Value t2 = Core::_regex_copy_map(caps);
   Core::set(t1, Value("caps"), t2);
   return t1;
-}
-
-Value Core::_response_function_calls_impl(Value response) {
-  axir_coverage_mark("_response_function_calls_impl");
-  Value empty = Value::array();
-  Value calls = Core::get(response, Value("function_calls"), empty);
-  return calls;
-}
-
-Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
-  axir_coverage_mark("_append_tool_call_messages_impl");
-  Value chat_calls = Value::array();
-  for (auto call : Core::iter(calls)) {
-    Value chat_call = Core::_completion_call_to_chat_impl(call);
-    Core::append(chat_calls, chat_call);
-  }
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("assistant"));
-  Core::set(message, Value("content"), content);
-  Core::set(message, Value("function_calls"), chat_calls);
-  Value thought = Core::get(response, Value("thought"), Value());
-  Value has_thought = Core::is_not_none(thought);
-  if (Core::truthy(has_thought)) {
-    Core::set(message, Value("thought"), thought);
-  }
-  Value thought_blocks = Core::get(response, Value("thought_blocks"), Value());
-  Value has_thought_blocks = Core::is_not_none(thought_blocks);
-  if (Core::truthy(has_thought_blocks)) {
-    Core::set(message, Value("thought_blocks"), thought_blocks);
-  }
-  Value images = Core::get(response, Value("images"), Value());
-  Value has_images = Core::is_not_none(images);
-  if (Core::truthy(has_images)) {
-    Core::set(message, Value("images"), images);
-  }
-  Value phase = Core::get(response, Value("phase"), Value());
-  Value has_phase = Core::is_not_none(phase);
-  if (Core::truthy(has_phase)) {
-    Core::set(message, Value("phase"), phase);
-  }
-  Core::append(messages, message);
-  return messages;
 }
 
 Value Core::_regex_capture_ids(Value n) {
@@ -25161,6 +25351,13 @@ Value Core::_ace_is_noop_acknowledgment(Value content) {
   return is_noop;
 }
 
+Value Core::_response_function_calls_impl(Value response) {
+  axir_coverage_mark("_response_function_calls_impl");
+  Value empty = Value::array();
+  Value calls = Core::get(response, Value("function_calls"), empty);
+  return calls;
+}
+
 Value Core::_date_digits_impl(Value units, Value at, Value count, Value end) {
   axir_coverage_mark("_date_digits_impl");
   Value last = Core::add(at, count);
@@ -25191,19 +25388,40 @@ Value Core::_date_digits_impl(Value units, Value at, Value count, Value end) {
   return value;
 }
 
-Value Core::_completion_call_to_chat_impl(Value call) {
-  axir_coverage_mark("_completion_call_to_chat_impl");
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(call, Value("name"), Value());
-  Value params = Core::get(call, Value("params"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("params"), params);
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
+Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
+  axir_coverage_mark("_append_tool_call_messages_impl");
+  Value chat_calls = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value chat_call = Core::_completion_call_to_chat_impl(call);
+    Core::append(chat_calls, chat_call);
+  }
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("assistant"));
+  Core::set(message, Value("content"), content);
+  Core::set(message, Value("function_calls"), chat_calls);
+  Value thought = Core::get(response, Value("thought"), Value());
+  Value has_thought = Core::is_not_none(thought);
+  if (Core::truthy(has_thought)) {
+    Core::set(message, Value("thought"), thought);
+  }
+  Value thought_blocks = Core::get(response, Value("thought_blocks"), Value());
+  Value has_thought_blocks = Core::is_not_none(thought_blocks);
+  if (Core::truthy(has_thought_blocks)) {
+    Core::set(message, Value("thought_blocks"), thought_blocks);
+  }
+  Value images = Core::get(response, Value("images"), Value());
+  Value has_images = Core::is_not_none(images);
+  if (Core::truthy(has_images)) {
+    Core::set(message, Value("images"), images);
+  }
+  Value phase = Core::get(response, Value("phase"), Value());
+  Value has_phase = Core::is_not_none(phase);
+  if (Core::truthy(has_phase)) {
+    Core::set(message, Value("phase"), phase);
+  }
+  Core::append(messages, message);
+  return messages;
 }
 
 Value Core::_date_expect_unit_impl(Value units, Value at, Value end, Value expected) {
@@ -25225,17 +25443,19 @@ Value Core::_regex_push(Value stack, Value top, Value value) {
   return t2;
 }
 
-Value Core::_tool_result_message_impl(Value call, Value result) {
-  axir_coverage_mark("_tool_result_message_impl");
+Value Core::_completion_call_to_chat_impl(Value call) {
+  axir_coverage_mark("_completion_call_to_chat_impl");
   Value id = Core::get(call, Value("id"), Value());
   Value name = Core::get(call, Value("name"), Value());
-  Value result_json = Core::json_stringify(result);
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("function"));
-  Core::set(message, Value("function_id"), id);
-  Core::set(message, Value("name"), name);
-  Core::set(message, Value("result"), result_json);
-  return message;
+  Value params = Core::get(call, Value("params"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("params"), params);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
+  return out;
 }
 
 Value Core::_date_scan_date_impl(Value units, Value at) {
@@ -25285,20 +25505,16 @@ Value Core::_regex_frame(Value todo, Value st) {
   return t1;
 }
 
-Value Core::_tool_error_message_impl(Value call, Value error) {
-  axir_coverage_mark("_tool_error_message_impl");
+Value Core::_tool_result_message_impl(Value call, Value result) {
+  axir_coverage_mark("_tool_result_message_impl");
   Value id = Core::get(call, Value("id"), Value());
   Value name = Core::get(call, Value("name"), Value());
-  Value error_text = Core::exception_message(error);
-  Value payload = Value::object();
-  Core::set(payload, Value("error"), error_text);
-  Value payload_json = Core::json_stringify(payload);
+  Value result_json = Core::json_stringify(result);
   Value message = Value::object();
   Core::set(message, Value("role"), Value("function"));
   Core::set(message, Value("function_id"), id);
   Core::set(message, Value("name"), name);
-  Core::set(message, Value("result"), payload_json);
-  Core::set(message, Value("is_error"), Value(true));
+  Core::set(message, Value("result"), result_json);
   return message;
 }
 
@@ -25897,21 +26113,21 @@ Value Core::_date_scan_datetime_impl(Value units, Value start, Value end) {
   return parts;
 }
 
-Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
-  axir_coverage_mark("_append_validation_retry_messages_impl");
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value assistant_message = Value::object();
-  Core::set(assistant_message, Value("role"), Value("assistant"));
-  Core::set(assistant_message, Value("content"), content);
-  Core::append(messages, assistant_message);
+Value Core::_tool_error_message_impl(Value call, Value error) {
+  axir_coverage_mark("_tool_error_message_impl");
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(call, Value("name"), Value());
   Value error_text = Core::exception_message(error);
-  Value prefix_message = Core::add(Value("The previous response failed validation: "), error_text);
-  Value retry_content = Core::add(prefix_message, Value(". Return only corrected JSON."));
-  Value retry_message = Value::object();
-  Core::set(retry_message, Value("role"), Value("user"));
-  Core::set(retry_message, Value("content"), retry_content);
-  Core::append(messages, retry_message);
-  return messages;
+  Value payload = Value::object();
+  Core::set(payload, Value("error"), error_text);
+  Value payload_json = Core::json_stringify(payload);
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("function"));
+  Core::set(message, Value("function_id"), id);
+  Core::set(message, Value("name"), name);
+  Core::set(message, Value("result"), payload_json);
+  Core::set(message, Value("is_error"), Value(true));
+  return message;
 }
 
 Value Core::_stream_text_required_check_impl(Value values, Value fields) {
@@ -25950,23 +26166,31 @@ Value Core::_stream_text_required_check_impl(Value values, Value fields) {
   Core::raise_error(error);
 }
 
-Value Core::_parse_text_field_value_impl(Value field, Value text) {
-  axir_coverage_mark("_parse_text_field_value_impl");
-  text = Core::string_trim(text);
-  Value typ = Core::get(field, Value("type"), Value());
-  Value name = Core::get(typ, Value("name"), Value());
-  Value array = Core::get(typ, Value("is_array"), Value(false));
-  Value is_boolean = Core::eq(name, Value("boolean"));
-  Value numeric = Core::eq(name, Value("number"));
-  Value json = Core::eq(name, Value("json"));
-  Value parse = Core::or_(is_boolean, numeric);
-  parse = Core::or_(parse, array);
-  parse = Core::or_(parse, json);
-  if (Core::truthy(parse)) {
-    Value value = Core::json_parse_strict(text);
-    return value;
+Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
+  axir_coverage_mark("_append_validation_retry_messages_impl");
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value assistant_message = Value::object();
+  Core::set(assistant_message, Value("role"), Value("assistant"));
+  Core::set(assistant_message, Value("content"), content);
+  Core::append(messages, assistant_message);
+  Value error_text = Core::exception_message(error);
+  Value is_validation = Core::exception_is_validation(error);
+  Value retry_text = Value("");
+  if (Core::truthy(is_validation)) {
+    retry_text = Core::add(Value("Invalid Field: "), error_text);
   }
-  return text;
+  if (!Core::truthy(is_validation)) {
+    Value instruction = Core::string_trim(error_text);
+    Value has_period = Core::string_ends_with(instruction, Value("."));
+    Value no_period = Core::not_(has_period);
+    if (Core::truthy(no_period)) {
+      instruction = Core::add(instruction, Value("."));
+    }
+    retry_text = Core::add(Value("Follow these instructions: "), instruction);
+  }
+  Value retry_message = Core::_feedback_message_impl(retry_text);
+  Core::append(messages, retry_message);
+  return messages;
 }
 
 Value Core::_ace_normalize_curator_operations(Value operations) {
@@ -26111,87 +26335,6 @@ Value Core::_ace_normalize_curator_operations(Value operations) {
   return empty_list;
 }
 
-Value Core::_parse_text_output_fields_impl(Value content, Value fields, Value is_final) {
-  axir_coverage_mark("_parse_text_output_fields_impl");
-  Value lines = Core::string_split(content, Value("\n"));
-  Value count = Core::len(lines);
-  Value index = Value(0);
-  Value values = Value::object();
-  Value current = Core::none();
-  Value current_name = Value("");
-  Value parts = Value::array();
-  for (auto line : Core::iter(lines)) {
-    index = Core::add(index, Value(1));
-    Value line_trimmed = Core::string_trim(line);
-    Value matched = Core::none();
-    Value value = Value("");
-    Value withhold = Value(false);
-    for (auto field : Core::iter(fields)) {
-      Value name = Core::get(field, Value("name"), Value());
-      Value title = Core::get(field, Value("title"), name);
-      Value labels = Value::array();
-      Core::append(labels, name);
-      Core::append(labels, title);
-      for (auto label : Core::iter(labels)) {
-        Value prefix = Core::string_format(Value("{}:"), label);
-        Value found = Core::string_starts_with(line_trimmed, prefix);
-        if (Core::truthy(found)) {
-          matched = field;
-          Value length = Core::len(prefix);
-          value = Core::string_slice(line_trimmed, length);
-          break;
-        }
-        Value last = Core::eq(index, count);
-        Value partial = Core::not_(is_final);
-        partial = Core::and_(partial, last);
-        if (Core::truthy(partial)) {
-          Value prefix_partial = Core::string_starts_with(prefix, line_trimmed);
-          withhold = Core::or_(withhold, prefix_partial);
-        }
-      }
-      Value has_match = Core::is_not_none(matched);
-      if (Core::truthy(has_match)) {
-        break;
-      }
-    }
-    Value has_match = Core::is_not_none(matched);
-    if (Core::truthy(has_match)) {
-      Value has_current = Core::ne(current_name, Value(""));
-      if (Core::truthy(has_current)) {
-        Value raw = Core::string_join(Value("\n"), parts);
-        Value parsed = Core::_parse_text_field_value_impl(current, raw);
-        Core::set(values, current_name, parsed);
-      }
-      current = matched;
-      current_name = Core::get(matched, Value("name"), Value());
-      parts = Value::array();
-      Core::append(parts, value);
-    }
-    if (!Core::truthy(has_match)) {
-      Value has_current = Core::ne(current_name, Value(""));
-      Value keep = Core::not_(withhold);
-      keep = Core::and_(keep, has_current);
-      if (Core::truthy(keep)) {
-        Core::append(parts, line);
-      }
-    }
-  }
-  Value has_current = Core::ne(current_name, Value(""));
-  if (Core::truthy(has_current)) {
-    Value raw = Core::string_join(Value("\n"), parts);
-    try {
-      Value parsed = Core::_parse_text_field_value_impl(current, raw);
-      Core::set(values, current_name, parsed);
-    } catch (const std::exception& e) {
-      Value parse_error = Core::exception_value(e);
-      if (Core::truthy(is_final)) {
-        Core::raise_error(parse_error);
-      }
-    }
-  }
-  return values;
-}
-
 Value Core::_stream_text_missed_fields_impl(Value values, Value content, Value fields) {
   axir_coverage_mark("_stream_text_missed_fields_impl");
   Value field_count = Core::len(fields);
@@ -26303,6 +26446,106 @@ Value Core::_stream_text_missed_fields_impl(Value values, Value content, Value f
   return Value();
 }
 
+Value Core::_parse_text_field_value_impl(Value field, Value text) {
+  axir_coverage_mark("_parse_text_field_value_impl");
+  text = Core::string_trim(text);
+  Value typ = Core::get(field, Value("type"), Value());
+  Value name = Core::get(typ, Value("name"), Value());
+  Value array = Core::get(typ, Value("is_array"), Value(false));
+  Value is_boolean = Core::eq(name, Value("boolean"));
+  Value numeric = Core::eq(name, Value("number"));
+  Value json = Core::eq(name, Value("json"));
+  Value parse = Core::or_(is_boolean, numeric);
+  parse = Core::or_(parse, array);
+  parse = Core::or_(parse, json);
+  if (Core::truthy(parse)) {
+    Value value = Core::json_parse_strict(text);
+    return value;
+  }
+  return text;
+}
+
+Value Core::_parse_text_output_fields_impl(Value content, Value fields, Value is_final) {
+  axir_coverage_mark("_parse_text_output_fields_impl");
+  Value lines = Core::string_split(content, Value("\n"));
+  Value count = Core::len(lines);
+  Value index = Value(0);
+  Value values = Value::object();
+  Value current = Core::none();
+  Value current_name = Value("");
+  Value parts = Value::array();
+  for (auto line : Core::iter(lines)) {
+    index = Core::add(index, Value(1));
+    Value line_trimmed = Core::string_trim(line);
+    Value matched = Core::none();
+    Value value = Value("");
+    Value withhold = Value(false);
+    for (auto field : Core::iter(fields)) {
+      Value name = Core::get(field, Value("name"), Value());
+      Value title = Core::get(field, Value("title"), name);
+      Value labels = Value::array();
+      Core::append(labels, name);
+      Core::append(labels, title);
+      for (auto label : Core::iter(labels)) {
+        Value prefix = Core::string_format(Value("{}:"), label);
+        Value found = Core::string_starts_with(line_trimmed, prefix);
+        if (Core::truthy(found)) {
+          matched = field;
+          Value length = Core::len(prefix);
+          value = Core::string_slice(line_trimmed, length);
+          break;
+        }
+        Value last = Core::eq(index, count);
+        Value partial = Core::not_(is_final);
+        partial = Core::and_(partial, last);
+        if (Core::truthy(partial)) {
+          Value prefix_partial = Core::string_starts_with(prefix, line_trimmed);
+          withhold = Core::or_(withhold, prefix_partial);
+        }
+      }
+      Value has_match = Core::is_not_none(matched);
+      if (Core::truthy(has_match)) {
+        break;
+      }
+    }
+    Value has_match = Core::is_not_none(matched);
+    if (Core::truthy(has_match)) {
+      Value has_current = Core::ne(current_name, Value(""));
+      if (Core::truthy(has_current)) {
+        Value raw = Core::string_join(Value("\n"), parts);
+        Value parsed = Core::_parse_text_field_value_impl(current, raw);
+        Core::set(values, current_name, parsed);
+      }
+      current = matched;
+      current_name = Core::get(matched, Value("name"), Value());
+      parts = Value::array();
+      Core::append(parts, value);
+    }
+    if (!Core::truthy(has_match)) {
+      Value has_current = Core::ne(current_name, Value(""));
+      Value keep = Core::not_(withhold);
+      keep = Core::and_(keep, has_current);
+      if (Core::truthy(keep)) {
+        Core::append(parts, line);
+      }
+    }
+  }
+  Value has_current = Core::ne(current_name, Value(""));
+  if (Core::truthy(has_current)) {
+    Value raw = Core::string_join(Value("\n"), parts);
+    try {
+      Value parsed = Core::_parse_text_field_value_impl(current, raw);
+      Core::set(values, current_name, parsed);
+    } catch (const std::exception& e) {
+      Value parse_error = Core::exception_value(e);
+      if (Core::truthy(is_final)) {
+        Core::raise_error(parse_error);
+      }
+    }
+  }
+  return values;
+}
+
 Value Core::_date_offset_zone_matches_impl(Value units, Value start, Value end) {
   axir_coverage_mark("_date_offset_zone_matches_impl");
   Value z_units = Core::string_utf16_units(Value("z"));
@@ -26366,36 +26609,6 @@ Value Core::_parse_output_fields_impl(Value content, Value fields) {
   }
   Value output = Core::_parse_text_output_fields_impl(text, fields, Value(true));
   return output;
-}
-
-Value Core::_signature_has_complex_fields(Value signature, Value options) {
-  axir_coverage_mark("_signature_has_complex_fields");
-  Value option_forced_snake = Core::get(options, Value("force_structured"), Value(false));
-  Value option_forced = Core::get(options, Value("forceStructured"), option_forced_snake);
-  Value signature_forced_snake = Core::get(signature, Value("force_structured"), Value(false));
-  Value signature_forced = Core::get(signature, Value("forceStructured"), signature_forced_snake);
-  Value forced = Core::or_(option_forced, signature_forced);
-  if (Core::truthy(forced)) {
-    return Value(true);
-  }
-  Value output_fields = Core::get(signature, Value("output_fields"), Value());
-  for (auto field : Core::iter(output_fields)) {
-    Value field_type = Core::get(field, Value("type"), Value());
-    Value type_name = Core::get(field_type, Value("name"), Value());
-    Value is_object = Core::eq(type_name, Value("object"));
-    if (Core::truthy(is_object)) {
-      return Value(true);
-    }
-    Value is_array_snake = Core::get(field_type, Value("is_array"), Value(false));
-    Value is_array = Core::get(field_type, Value("isArray"), is_array_snake);
-    Value nested_fields = Core::get(field_type, Value("fields"), Value());
-    Value has_nested_fields = Core::truthy_value(nested_fields);
-    Value object_array = Core::and_(is_array, has_nested_fields);
-    if (Core::truthy(object_array)) {
-      return Value(true);
-    }
-  }
-  return Value(false);
 }
 
 Value Core::_date_offset_minutes_impl(Value units, Value start, Value end) {
@@ -26574,36 +26787,34 @@ Value Core::_ace_locate_bullet_section(Value playbook, Value bullet_id) {
   return found;
 }
 
-Value Core::_caller_function_call_impl(Value options) {
-  axir_coverage_mark("_caller_function_call_impl");
-  Value requested_snake = Core::get(options, Value("function_call"), Value());
-  Value requested = Core::get(options, Value("functionCall"), requested_snake);
-  Value has_requested = Core::is_not_none(requested);
-  if (Core::truthy(has_requested)) {
-    return requested;
-  }
-  Value mode_snake = Core::get(options, Value("function_call_mode"), Value());
-  Value mode = Core::get(options, Value("functionCallMode"), mode_snake);
-  Value is_required = Core::eq(mode, Value("required"));
-  Value is_none = Core::eq(mode, Value("none"));
-  Value is_named = Core::type_is(mode, Value("object"));
-  Value required_or_none = Core::or_(is_required, is_none);
-  Value routed = Core::or_(required_or_none, is_named);
-  if (Core::truthy(routed)) {
-    return mode;
-  }
-  Value none = Core::none();
-  return none;
-}
-
-Value Core::_function_call_forces_tool_impl(Value choice) {
-  axir_coverage_mark("_function_call_forces_tool_impl");
-  Value is_required = Core::eq(choice, Value("required"));
-  if (Core::truthy(is_required)) {
+Value Core::_signature_has_complex_fields(Value signature, Value options) {
+  axir_coverage_mark("_signature_has_complex_fields");
+  Value option_forced_snake = Core::get(options, Value("force_structured"), Value(false));
+  Value option_forced = Core::get(options, Value("forceStructured"), option_forced_snake);
+  Value signature_forced_snake = Core::get(signature, Value("force_structured"), Value(false));
+  Value signature_forced = Core::get(signature, Value("forceStructured"), signature_forced_snake);
+  Value forced = Core::or_(option_forced, signature_forced);
+  if (Core::truthy(forced)) {
     return Value(true);
   }
-  Value is_named = Core::type_is(choice, Value("object"));
-  return is_named;
+  Value output_fields = Core::get(signature, Value("output_fields"), Value());
+  for (auto field : Core::iter(output_fields)) {
+    Value field_type = Core::get(field, Value("type"), Value());
+    Value type_name = Core::get(field_type, Value("name"), Value());
+    Value is_object = Core::eq(type_name, Value("object"));
+    if (Core::truthy(is_object)) {
+      return Value(true);
+    }
+    Value is_array_snake = Core::get(field_type, Value("is_array"), Value(false));
+    Value is_array = Core::get(field_type, Value("isArray"), is_array_snake);
+    Value nested_fields = Core::get(field_type, Value("fields"), Value());
+    Value has_nested_fields = Core::truthy_value(nested_fields);
+    Value object_array = Core::and_(is_array, has_nested_fields);
+    if (Core::truthy(object_array)) {
+      return Value(true);
+    }
+  }
+  return Value(false);
 }
 
 Value Core::_ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output) {
@@ -26737,76 +26948,36 @@ Value Core::_ace_resolve_curator_operation_targets(Value operations, Value playb
   return resolved;
 }
 
-Value Core::_function_call_names_output_impl(Value choice) {
-  axir_coverage_mark("_function_call_names_output_impl");
+Value Core::_caller_function_call_impl(Value options) {
+  axir_coverage_mark("_caller_function_call_impl");
+  Value requested_snake = Core::get(options, Value("function_call"), Value());
+  Value requested = Core::get(options, Value("functionCall"), requested_snake);
+  Value has_requested = Core::is_not_none(requested);
+  if (Core::truthy(has_requested)) {
+    return requested;
+  }
+  Value mode_snake = Core::get(options, Value("function_call_mode"), Value());
+  Value mode = Core::get(options, Value("functionCallMode"), mode_snake);
+  Value is_required = Core::eq(mode, Value("required"));
+  Value is_none = Core::eq(mode, Value("none"));
+  Value is_named = Core::type_is(mode, Value("object"));
+  Value required_or_none = Core::or_(is_required, is_none);
+  Value routed = Core::or_(required_or_none, is_named);
+  if (Core::truthy(routed)) {
+    return mode;
+  }
+  Value none = Core::none();
+  return none;
+}
+
+Value Core::_function_call_forces_tool_impl(Value choice) {
+  axir_coverage_mark("_function_call_forces_tool_impl");
+  Value is_required = Core::eq(choice, Value("required"));
+  if (Core::truthy(is_required)) {
+    return Value(true);
+  }
   Value is_named = Core::type_is(choice, Value("object"));
-  Value not_named = Core::not_(is_named);
-  if (Core::truthy(not_named)) {
-    return Value(false);
-  }
-  Value empty_function = Value::object();
-  Value function = Core::get(choice, Value("function"), empty_function);
-  Value name = Core::get(function, Value("name"), Value(""));
-  Value canonical = Core::eq(name, Value("__axOutput"));
-  Value legacy = Core::eq(name, Value("__finalResult"));
-  Value reserved = Core::or_(canonical, legacy);
-  return reserved;
-}
-
-Value Core::_stream_text_extract_values_impl(Value content, Value fields, Value strict_mode) {
-  axir_coverage_mark("_stream_text_extract_values_impl");
-  Value extract_options = Value::object();
-  Core::set(extract_options, Value("strict_mode"), strict_mode);
-  Value values = Value::object();
-  Value xstate = Core::_stream_text_state_impl();
-  Core::_stream_text_extract_impl(xstate, values, content, fields, extract_options);
-  Core::_stream_text_final_impl(xstate, values, content, fields, extract_options);
-  for (auto field : Core::iter(fields)) {
-    Value internal = Core::_stream_field_flag_impl(field, Value("is_internal"), Value("isInternal"));
-    if (Core::truthy(internal)) {
-      Value name = Core::get(field, Value("name"), Value(""));
-      Core::map_delete(values, name);
-    }
-  }
-  return values;
-}
-
-Value Core::_append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage) {
-  axir_coverage_mark("_append_structured_output_retry_messages_impl");
-  Value output_calls = Value::array();
-  Core::append(output_calls, call);
-  Value with_call = Core::_append_tool_call_messages_impl(messages, response, output_calls);
-  Value id = Core::get(call, Value("id"), Value());
-  Value direct_name = Core::get(call, Value("name"), Value());
-  Value fn = Core::get(call, Value("function"), Value());
-  Value name = Core::get(fn, Value("name"), direct_name);
-  Value result_message = Value::object();
-  Core::set(result_message, Value("role"), Value("function"));
-  Core::set(result_message, Value("function_id"), id);
-  Core::set(result_message, Value("name"), name);
-  Core::set(result_message, Value("result"), Value("done"));
-  Core::append(with_call, result_message);
-  Value notice = Value::object();
-  Core::set(notice, Value("role"), Value("user"));
-  Core::set(notice, Value("content"), Value("The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."));
-  Core::append(with_call, notice);
-  Value error_text = Core::exception_message(error);
-  error_text = Core::string_trim(error_text);
-  Value correction_text = Core::string_format(Value("Invalid Field: {}"), error_text);
-  Value is_assertion = Core::eq(stage, Value("assertion"));
-  if (Core::truthy(is_assertion)) {
-    Value has_period = Core::string_ends_with(error_text, Value("."));
-    Value period = Value(".");
-    if (Core::truthy(has_period)) {
-      period = Value("");
-    }
-    correction_text = Core::string_format(Value("Follow these instructions: {}{}"), error_text, period);
-  }
-  Value correction = Value::object();
-  Core::set(correction, Value("role"), Value("user"));
-  Core::set(correction, Value("content"), correction_text);
-  Core::append(with_call, correction);
-  return with_call;
+  return is_named;
 }
 
 Value Core::_date_js_json_impl(Value value) {
@@ -26857,6 +27028,40 @@ Value Core::_date_js_json_impl(Value value) {
   Value object_json = Core::add(Value("{"), members);
   object_json = Core::add(object_json, Value("}"));
   return object_json;
+}
+
+Value Core::_stream_text_extract_values_impl(Value content, Value fields, Value strict_mode) {
+  axir_coverage_mark("_stream_text_extract_values_impl");
+  Value extract_options = Value::object();
+  Core::set(extract_options, Value("strict_mode"), strict_mode);
+  Value values = Value::object();
+  Value xstate = Core::_stream_text_state_impl();
+  Core::_stream_text_extract_impl(xstate, values, content, fields, extract_options);
+  Core::_stream_text_final_impl(xstate, values, content, fields, extract_options);
+  for (auto field : Core::iter(fields)) {
+    Value internal = Core::_stream_field_flag_impl(field, Value("is_internal"), Value("isInternal"));
+    if (Core::truthy(internal)) {
+      Value name = Core::get(field, Value("name"), Value(""));
+      Core::map_delete(values, name);
+    }
+  }
+  return values;
+}
+
+Value Core::_function_call_names_output_impl(Value choice) {
+  axir_coverage_mark("_function_call_names_output_impl");
+  Value is_named = Core::type_is(choice, Value("object"));
+  Value not_named = Core::not_(is_named);
+  if (Core::truthy(not_named)) {
+    return Value(false);
+  }
+  Value empty_function = Value::object();
+  Value function = Core::get(choice, Value("function"), empty_function);
+  Value name = Core::get(function, Value("name"), Value(""));
+  Value canonical = Core::eq(name, Value("__axOutput"));
+  Value legacy = Core::eq(name, Value("__finalResult"));
+  Value reserved = Core::or_(canonical, legacy);
+  return reserved;
 }
 
 Value Core::_stream_text_yield_delta_impl(Value content, Value field, Value start, Value end, Value xstate, Value held, Value complete) {
@@ -26936,14 +27141,42 @@ Value Core::_stream_text_yield_delta_impl(Value content, Value field, Value star
   return none;
 }
 
-Value Core::_with_output_thought_impl(Value output, Value field, Value prefix, Value thought) {
-  axir_coverage_mark("_with_output_thought_impl");
-  Value joined = Core::add(prefix, thought);
-  Value has_thought = Core::truthy_value(joined);
-  if (Core::truthy(has_thought)) {
-    Core::set(output, field, joined);
+Value Core::_append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage) {
+  axir_coverage_mark("_append_structured_output_retry_messages_impl");
+  Value output_calls = Value::array();
+  Core::append(output_calls, call);
+  Value with_call = Core::_append_tool_call_messages_impl(messages, response, output_calls);
+  Value id = Core::get(call, Value("id"), Value());
+  Value direct_name = Core::get(call, Value("name"), Value());
+  Value fn = Core::get(call, Value("function"), Value());
+  Value name = Core::get(fn, Value("name"), direct_name);
+  Value result_message = Value::object();
+  Core::set(result_message, Value("role"), Value("function"));
+  Core::set(result_message, Value("function_id"), id);
+  Core::set(result_message, Value("name"), name);
+  Core::set(result_message, Value("result"), Value("done"));
+  Core::append(with_call, result_message);
+  Value notice = Value::object();
+  Core::set(notice, Value("role"), Value("user"));
+  Core::set(notice, Value("content"), Value("The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."));
+  Core::append(with_call, notice);
+  Value error_text = Core::exception_message(error);
+  error_text = Core::string_trim(error_text);
+  Value correction_text = Core::string_format(Value("Invalid Field: {}"), error_text);
+  Value is_assertion = Core::eq(stage, Value("assertion"));
+  if (Core::truthy(is_assertion)) {
+    Value has_period = Core::string_ends_with(error_text, Value("."));
+    Value period = Value(".");
+    if (Core::truthy(has_period)) {
+      period = Value("");
+    }
+    correction_text = Core::string_format(Value("Follow these instructions: {}{}"), error_text, period);
   }
-  return output;
+  Value correction = Value::object();
+  Core::set(correction, Value("role"), Value("user"));
+  Core::set(correction, Value("content"), correction_text);
+  Core::append(with_call, correction);
+  return with_call;
 }
 
 Value Core::_date_js_json_string_impl(Value text) {
@@ -27067,6 +27300,48 @@ Value Core::_date_js_json_string_impl(Value text) {
   out = Core::add(out, rest);
   out = Core::add(out, Value("\""));
   return out;
+}
+
+Value Core::_with_output_thought_impl(Value output, Value field, Value prefix, Value thought) {
+  axir_coverage_mark("_with_output_thought_impl");
+  Value joined = Core::add(prefix, thought);
+  Value has_thought = Core::truthy_value(joined);
+  if (Core::truthy(has_thought)) {
+    Core::set(output, field, joined);
+  }
+  return output;
+}
+
+Value Core::_ace_normalize_reflection_bullet_tags(Value reflection) {
+  axir_coverage_mark("_ace_normalize_reflection_bullet_tags");
+  Value empty_list = Value::array();
+  Value raw_bullet_tags = Core::get(reflection, Value("bulletTags"), empty_list);
+  Value candidates = Value::array();
+  Value tags_is_list = Core::type_is(raw_bullet_tags, Value("list"));
+  if (Core::truthy(tags_is_list)) {
+    candidates = raw_bullet_tags;
+  }
+  if (!Core::truthy(tags_is_list)) {
+    Value tags_is_object = Core::type_is(raw_bullet_tags, Value("object"));
+    if (Core::truthy(tags_is_object)) {
+      Core::append(candidates, raw_bullet_tags);
+    }
+  }
+  Value normalized = Value::array();
+  for (auto tag : Core::iter(candidates)) {
+    Value tag_is_object = Core::type_is(tag, Value("object"));
+    if (Core::truthy(tag_is_object)) {
+      Value tag_id = Core::get(tag, Value("id"), Value());
+      Value tag_id_is_string = Core::type_is(tag_id, Value("string"));
+      Value tag_value = Core::get(tag, Value("tag"), Value());
+      Value tag_value_is_string = Core::type_is(tag_value, Value("string"));
+      Value valid_tag_shape = Core::and_(tag_id_is_string, tag_value_is_string);
+      if (Core::truthy(valid_tag_shape)) {
+        Core::append(normalized, tag);
+      }
+    }
+  }
+  return normalized;
 }
 
 Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value options, Value sink) {
@@ -27390,6 +27665,9 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
           stage = Value("validation");
           Value folded = Core::fold_chat_response_stream(events);
           response = Core::chat_response_to_completion(folded);
+          stage = Value("fatal");
+          Core::_check_completion_function_call_names(response, runtime_options);
+          stage = Value("validation");
           Core::axgen_memory_add_response(gen, request, response);
           Core::axgen_record_chat_log(gen, request, response);
           recorded = Value(true);
@@ -27643,38 +27921,6 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
     step = Core::add(step, Value(1));
   }
   throw AxError("runtime", "unreachable AxGen streaming loop exit");
-}
-
-Value Core::_ace_normalize_reflection_bullet_tags(Value reflection) {
-  axir_coverage_mark("_ace_normalize_reflection_bullet_tags");
-  Value empty_list = Value::array();
-  Value raw_bullet_tags = Core::get(reflection, Value("bulletTags"), empty_list);
-  Value candidates = Value::array();
-  Value tags_is_list = Core::type_is(raw_bullet_tags, Value("list"));
-  if (Core::truthy(tags_is_list)) {
-    candidates = raw_bullet_tags;
-  }
-  if (!Core::truthy(tags_is_list)) {
-    Value tags_is_object = Core::type_is(raw_bullet_tags, Value("object"));
-    if (Core::truthy(tags_is_object)) {
-      Core::append(candidates, raw_bullet_tags);
-    }
-  }
-  Value normalized = Value::array();
-  for (auto tag : Core::iter(candidates)) {
-    Value tag_is_object = Core::type_is(tag, Value("object"));
-    if (Core::truthy(tag_is_object)) {
-      Value tag_id = Core::get(tag, Value("id"), Value());
-      Value tag_id_is_string = Core::type_is(tag_id, Value("string"));
-      Value tag_value = Core::get(tag, Value("tag"), Value());
-      Value tag_value_is_string = Core::type_is(tag_value, Value("string"));
-      Value valid_tag_shape = Core::and_(tag_id_is_string, tag_value_is_string);
-      if (Core::truthy(valid_tag_shape)) {
-        Core::append(normalized, tag);
-      }
-    }
-  }
-  return normalized;
 }
 
 Value Core::_stream_text_values_impl(Value fields, Value content, Value values, Value xstate, Value held, Value complete) {
@@ -28218,6 +28464,19 @@ Value Core::_regex_identifier(Value c, Value first) {
   return Value(false);
 }
 
+Value Core::_date_make_day_impl(Value year, Value month_index, Value date) {
+  axir_coverage_mark("_date_make_day_impl");
+  Value carry = Core::_date_floor_div_impl(month_index, Value(12));
+  Value whole_year = Core::add(year, carry);
+  Value carry_months = Core::mul(carry, Value(-12));
+  Value month = Core::add(month_index, carry_months);
+  month = Core::add(month, Value(1));
+  Value first = Core::_date_days_from_civil_impl(whole_year, month, Value(1));
+  Value day = Core::add(first, date);
+  day = Core::add(day, Value(-1));
+  return day;
+}
+
 Value Core::_stream_json_strip_dangling_key_impl(Value text, Value need_colon, Value lead) {
   axir_coverage_mark("_stream_json_strip_dangling_key_impl");
   Value cursor = Core::len(text);
@@ -28311,19 +28570,6 @@ Value Core::_stream_json_strip_dangling_key_impl(Value text, Value need_colon, V
     return result;
   }
   return Value(-1);
-}
-
-Value Core::_date_make_day_impl(Value year, Value month_index, Value date) {
-  axir_coverage_mark("_date_make_day_impl");
-  Value carry = Core::_date_floor_div_impl(month_index, Value(12));
-  Value whole_year = Core::add(year, carry);
-  Value carry_months = Core::mul(carry, Value(-12));
-  Value month = Core::add(month_index, carry_months);
-  month = Core::add(month, Value(1));
-  Value first = Core::_date_days_from_civil_impl(whole_year, month, Value(1));
-  Value day = Core::add(first, date);
-  day = Core::add(day, Value(-1));
-  return day;
 }
 
 Value Core::_date_utc_ms_impl(Value parts) {
@@ -29026,6 +29272,90 @@ Value Core::_stream_json_parse_partial_impl(Value json_text) {
   return out;
 }
 
+Value Core::_regex_id_start_ranges() {
+  axir_coverage_mark("_regex_id_start_ranges");
+  Value t1 = Core::json_parse(Value("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]"));
+  return t1;
+}
+
+Value Core::_regex_id_continue_ranges() {
+  axir_coverage_mark("_regex_id_continue_ranges");
+  Value t1 = Core::json_parse(Value("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]"));
+  return t1;
+}
+
+Value Core::_regex_clear_capture(Value caps, Value key) {
+  axir_coverage_mark("_regex_clear_capture");
+  Value t1 = Core::none();
+  Core::set(caps, key, t1);
+  return Value();
+}
+
+Value Core::_stream_json_should_parse_impl(Value state, Value content) {
+  axir_coverage_mark("_stream_json_should_parse_impl");
+  Value units = Core::string_utf16_units(content);
+  Value length = Core::len(units);
+  Value last = Core::get(state, Value("last_parse_length"), Value(0));
+  Value negative_last = Core::mul(last, Value(-1));
+  Value fresh = Core::add(length, negative_last);
+  Value nothing_new = Core::lte(fresh, Value(0));
+  if (Core::truthy(nothing_new)) {
+    return Value(false);
+  }
+  Value plenty = Core::gte(fresh, Value(160));
+  if (Core::truthy(plenty)) {
+    Core::set(state, Value("last_parse_length"), length);
+    return Value(true);
+  }
+  Value too_few = Core::lt(fresh, Value(80));
+  if (Core::truthy(too_few)) {
+    return Value(false);
+  }
+  Value cursor = Core::len(content);
+  Value last_ch = Value("");
+  while (true) {
+    Value at_start = Core::lte(cursor, Value(0));
+    if (Core::truthy(at_start)) {
+      break;
+    }
+    Value before = Core::add(cursor, Value(-1));
+    Value ch = Core::string_slice(content, before, cursor);
+    Value space = Core::regex_match(Value("^[ \\n\\r\\t]$"), ch);
+    Value not_space = Core::not_(space);
+    if (Core::truthy(not_space)) {
+      last_ch = ch;
+      break;
+    }
+    cursor = before;
+  }
+  Value brace = Core::eq(last_ch, Value("}"));
+  Value bracket = Core::eq(last_ch, Value("]"));
+  Value comma = Core::eq(last_ch, Value(","));
+  Value boundary = Core::or_(brace, bracket);
+  boundary = Core::or_(boundary, comma);
+  Value not_boundary = Core::not_(boundary);
+  if (Core::truthy(not_boundary)) {
+    return Value(false);
+  }
+  Core::set(state, Value("last_parse_length"), length);
+  return Value(true);
+}
+
+Value Core::_regex_copy_map(Value value) {
+  axir_coverage_mark("_regex_copy_map");
+  Value key = Core::none();
+  Value out = Core::none();
+  Value t1 = Value::object();
+  out = t1;
+  Value t2 = Core::map_keys(value);
+  for (auto iter_3 : Core::iter(t2)) {
+    key = iter_3;
+    Value t4 = Core::get(value, key, Value());
+    Core::set(out, key, t4);
+  }
+  return out;
+}
+
 Value Core::_parse_text_contract_output_impl(Value content, Value output_fields, Value strict_mode) {
   axir_coverage_mark("_parse_text_contract_output_impl");
   Value out = Value::object();
@@ -29071,112 +29401,6 @@ Value Core::_parse_text_contract_output_impl(Value content, Value output_fields,
   Core::set(out, Value("values"), values);
   Core::set(out, Value("extracted"), Value(true));
   return out;
-}
-
-Value Core::_regex_id_start_ranges() {
-  axir_coverage_mark("_regex_id_start_ranges");
-  Value t1 = Core::json_parse(Value("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]"));
-  return t1;
-}
-
-Value Core::_regex_id_continue_ranges() {
-  axir_coverage_mark("_regex_id_continue_ranges");
-  Value t1 = Core::json_parse(Value("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]"));
-  return t1;
-}
-
-Value Core::_regex_clear_capture(Value caps, Value key) {
-  axir_coverage_mark("_regex_clear_capture");
-  Value t1 = Core::none();
-  Core::set(caps, key, t1);
-  return Value();
-}
-
-Value Core::_stream_json_should_parse_impl(Value state, Value content) {
-  axir_coverage_mark("_stream_json_should_parse_impl");
-  Value length = Core::len(content);
-  Value last = Core::get(state, Value("last_parse_length"), Value(0));
-  Value negative_last = Core::mul(last, Value(-1));
-  Value fresh = Core::add(length, negative_last);
-  Value nothing_new = Core::lte(fresh, Value(0));
-  if (Core::truthy(nothing_new)) {
-    return Value(false);
-  }
-  Value plenty = Core::gte(fresh, Value(160));
-  if (Core::truthy(plenty)) {
-    Core::set(state, Value("last_parse_length"), length);
-    return Value(true);
-  }
-  Value too_few = Core::lt(fresh, Value(80));
-  if (Core::truthy(too_few)) {
-    return Value(false);
-  }
-  Value cursor = length;
-  Value last_ch = Value("");
-  while (true) {
-    Value at_start = Core::lte(cursor, Value(0));
-    if (Core::truthy(at_start)) {
-      break;
-    }
-    Value before = Core::add(cursor, Value(-1));
-    Value ch = Core::string_slice(content, before, cursor);
-    Value space = Core::regex_match(Value("^[ \\n\\r\\t]$"), ch);
-    Value not_space = Core::not_(space);
-    if (Core::truthy(not_space)) {
-      last_ch = ch;
-      break;
-    }
-    cursor = before;
-  }
-  Value brace = Core::eq(last_ch, Value("}"));
-  Value bracket = Core::eq(last_ch, Value("]"));
-  Value comma = Core::eq(last_ch, Value(","));
-  Value boundary = Core::or_(brace, bracket);
-  boundary = Core::or_(boundary, comma);
-  Value not_boundary = Core::not_(boundary);
-  if (Core::truthy(not_boundary)) {
-    return Value(false);
-  }
-  Core::set(state, Value("last_parse_length"), length);
-  return Value(true);
-}
-
-Value Core::_regex_copy_map(Value value) {
-  axir_coverage_mark("_regex_copy_map");
-  Value key = Core::none();
-  Value out = Core::none();
-  Value t1 = Value::object();
-  out = t1;
-  Value t2 = Core::map_keys(value);
-  for (auto iter_3 : Core::iter(t2)) {
-    key = iter_3;
-    Value t4 = Core::get(value, key, Value());
-    Core::set(out, key, t4);
-  }
-  return out;
-}
-
-Value Core::_generate_failed_impl(Value error) {
-  axir_coverage_mark("_generate_failed_impl");
-  Value aborted = Core::exception_is_aborted(error);
-  if (Core::truthy(aborted)) {
-    return error;
-  }
-  Value text = Core::exception_message(error);
-  Value message = Core::add(Value("Generate failed: "), text);
-  Value wrapped = Core::exception_rewrap(error, message);
-  return wrapped;
-}
-
-Value Core::_unable_to_fix_impl(Value error, Value output) {
-  axir_coverage_mark("_unable_to_fix_impl");
-  Value text = Core::exception_message(error);
-  Value message = Core::add(Value("Unable to fix validation error: "), text);
-  message = Core::add(message, Value("\n\nLLM Output:\n"));
-  message = Core::add(message, output);
-  Value unfixed = Core::exception_rewrap(error, message);
-  Value wrapped = Core::_generate_failed_impl(unfixed);
-  return wrapped;
 }
 
 Value Core::_stream_json_validate_impl(Value fields, Value values, Value allow_missing, Value reject_unknown) {
@@ -29225,6 +29449,29 @@ Value Core::_stream_json_validate_impl(Value fields, Value values, Value allow_m
   return Value();
 }
 
+Value Core::_generate_failed_impl(Value error) {
+  axir_coverage_mark("_generate_failed_impl");
+  Value aborted = Core::exception_is_aborted(error);
+  if (Core::truthy(aborted)) {
+    return error;
+  }
+  Value text = Core::exception_message(error);
+  Value message = Core::add(Value("Generate failed: "), text);
+  Value wrapped = Core::exception_rewrap(error, message);
+  return wrapped;
+}
+
+Value Core::_unable_to_fix_impl(Value error, Value output) {
+  axir_coverage_mark("_unable_to_fix_impl");
+  Value text = Core::exception_message(error);
+  Value message = Core::add(Value("Unable to fix validation error: "), text);
+  message = Core::add(message, Value("\n\nLLM Output:\n"));
+  message = Core::add(message, output);
+  Value unfixed = Core::exception_rewrap(error, message);
+  Value wrapped = Core::_generate_failed_impl(unfixed);
+  return wrapped;
+}
+
 Value Core::_attempt_output_impl(Value response) {
   axir_coverage_mark("_attempt_output_impl");
   Value empty_results = Value::array();
@@ -29247,31 +29494,6 @@ Value Core::_attempt_output_impl(Value response) {
   }
   Value joined = Core::string_join(Value("\n---\n"), contents);
   return joined;
-}
-
-Value Core::_max_tokens_error_impl(Value response) {
-  axir_coverage_mark("_max_tokens_error_impl");
-  Value empty_results = Value::array();
-  Value completions = Core::get(response, Value("results"), empty_results);
-  Value count = Core::len(completions);
-  Value single = Core::eq(count, Value(0));
-  if (Core::truthy(single)) {
-    completions = Value::array();
-    Core::append(completions, response);
-  }
-  for (auto completion : Core::iter(completions)) {
-    Value finish_snake = Core::get(completion, Value("finish_reason"), Value());
-    Value finish = Core::get(completion, Value("finishReason"), finish_snake);
-    Value cut = Core::eq(finish, Value("length"));
-    if (Core::truthy(cut)) {
-      Value content = Core::get(completion, Value("content"), Value(""));
-      Value message = Core::add(Value("Max tokens reached before completion\nContent: "), content);
-      Value error = Core::runtime_error(message);
-      return error;
-    }
-  }
-  Value none = Core::none();
-  return none;
 }
 
 Value Core::_stream_json_validate_value_impl(Value field, Value value, Value allow_missing) {
@@ -29365,6 +29587,31 @@ Value Core::_stream_json_validate_value_impl(Value field, Value value, Value all
   return value;
 }
 
+Value Core::_max_tokens_error_impl(Value response) {
+  axir_coverage_mark("_max_tokens_error_impl");
+  Value empty_results = Value::array();
+  Value completions = Core::get(response, Value("results"), empty_results);
+  Value count = Core::len(completions);
+  Value single = Core::eq(count, Value(0));
+  if (Core::truthy(single)) {
+    completions = Value::array();
+    Core::append(completions, response);
+  }
+  for (auto completion : Core::iter(completions)) {
+    Value finish_snake = Core::get(completion, Value("finish_reason"), Value());
+    Value finish = Core::get(completion, Value("finishReason"), finish_snake);
+    Value cut = Core::eq(finish, Value("length"));
+    if (Core::truthy(cut)) {
+      Value content = Core::get(completion, Value("content"), Value(""));
+      Value message = Core::add(Value("Max tokens reached before completion\nContent: "), content);
+      Value error = Core::runtime_error(message);
+      return error;
+    }
+  }
+  Value none = Core::none();
+  return none;
+}
+
 Value Core::_strict_mode_option_impl(Value base_options, Value options) {
   axir_coverage_mark("_strict_mode_option_impl");
   Value empty = Value::object();
@@ -29405,39 +29652,6 @@ Value Core::_caching_function_option_impl(Value gen, Value options) {
   }
   Value cache_fn = Core::axgen_caching_function(gen, call_options);
   return cache_fn;
-}
-
-Value Core::_cache_key_impl(Value gen, Value values) {
-  axir_coverage_mark("_cache_key_impl");
-  Value signature = Core::get(gen, Value("signature"), Value());
-  Value description = Core::get(signature, Value("description"), Value(""));
-  Value lines = Value::array();
-  Value description_line = Core::string_format(Value("description {}"), description);
-  Core::append(lines, description_line);
-  Value inputs = Value::array();
-  Value input_fields = Core::get(signature, Value("input_fields"), Value());
-  for (auto field : Core::iter(input_fields)) {
-    Value input_name = Core::get(field, Value("name"), Value(""));
-    Value input_label = Core::_stream_field_type_label_impl(field);
-    Value input_optional = Core::_stream_field_flag_impl(field, Value("is_optional"), Value("isOptional"));
-    Value input_line = Core::string_format(Value("input {} {} {}"), input_name, input_label, input_optional);
-    Core::append(lines, input_line);
-    Value input_value = Core::get(values, input_name, Value());
-    Core::append(inputs, input_value);
-  }
-  Value output_fields = Core::get(signature, Value("output_fields"), Value());
-  for (auto field : Core::iter(output_fields)) {
-    Value output_name = Core::get(field, Value("name"), Value(""));
-    Value output_label = Core::_stream_field_type_label_impl(field);
-    Value output_optional = Core::_stream_field_flag_impl(field, Value("is_optional"), Value("isOptional"));
-    Value output_line = Core::string_format(Value("output {} {} {}"), output_name, output_label, output_optional);
-    Core::append(lines, output_line);
-  }
-  Value inputs_json = Core::json_stable_stringify(inputs);
-  Core::append(lines, inputs_json);
-  Value text = Core::string_join(Value("\n"), lines);
-  Value key = Core::crypto_sha256_hex(text);
-  return key;
 }
 
 Value Core::_stream_json_validate_nested_impl(Value parent, Value object, Value allow_missing) {
@@ -29497,6 +29711,39 @@ Value Core::_stream_json_validate_nested_impl(Value parent, Value object, Value 
   return Value();
 }
 
+Value Core::_cache_key_impl(Value gen, Value values) {
+  axir_coverage_mark("_cache_key_impl");
+  Value signature = Core::get(gen, Value("signature"), Value());
+  Value description = Core::get(signature, Value("description"), Value(""));
+  Value lines = Value::array();
+  Value description_line = Core::string_format(Value("description {}"), description);
+  Core::append(lines, description_line);
+  Value inputs = Value::array();
+  Value input_fields = Core::get(signature, Value("input_fields"), Value());
+  for (auto field : Core::iter(input_fields)) {
+    Value input_name = Core::get(field, Value("name"), Value(""));
+    Value input_label = Core::_stream_field_type_label_impl(field);
+    Value input_optional = Core::_stream_field_flag_impl(field, Value("is_optional"), Value("isOptional"));
+    Value input_line = Core::string_format(Value("input {} {} {}"), input_name, input_label, input_optional);
+    Core::append(lines, input_line);
+    Value input_value = Core::get(values, input_name, Value());
+    Core::append(inputs, input_value);
+  }
+  Value output_fields = Core::get(signature, Value("output_fields"), Value());
+  for (auto field : Core::iter(output_fields)) {
+    Value output_name = Core::get(field, Value("name"), Value(""));
+    Value output_label = Core::_stream_field_type_label_impl(field);
+    Value output_optional = Core::_stream_field_flag_impl(field, Value("is_optional"), Value("isOptional"));
+    Value output_line = Core::string_format(Value("output {} {} {}"), output_name, output_label, output_optional);
+    Core::append(lines, output_line);
+  }
+  Value inputs_json = Core::json_stable_stringify(inputs);
+  Core::append(lines, inputs_json);
+  Value text = Core::string_join(Value("\n"), lines);
+  Value key = Core::crypto_sha256_hex(text);
+  return key;
+}
+
 Value Core::_cache_store_impl(Value cache_fn, Value key, Value output) {
   axir_coverage_mark("_cache_store_impl");
   Value no_cache = Core::is_none(cache_fn);
@@ -29508,16 +29755,6 @@ Value Core::_cache_store_impl(Value cache_fn, Value key, Value output) {
   } catch (const std::exception& e) {
     Value cache_write_error = Core::exception_value(e);
     // empty
-  }
-  return Value();
-}
-
-Value Core::_cache_store_streamed_impl(Value cache_fn, Value key, Value output) {
-  axir_coverage_mark("_cache_store_streamed_impl");
-  Value output_count = Core::len(output);
-  Value yielded = Core::gt(output_count, Value(0));
-  if (Core::truthy(yielded)) {
-    Core::_cache_store_impl(cache_fn, key, output);
   }
   return Value();
 }
@@ -29539,6 +29776,36 @@ Value Core::_stream_json_select_fields_impl(Value fields, Value values) {
       Value value = Core::get(values, key, Value());
       Core::set(out, key, value);
     }
+  }
+  return out;
+}
+
+Value Core::_cache_store_streamed_impl(Value cache_fn, Value key, Value output) {
+  axir_coverage_mark("_cache_store_streamed_impl");
+  Value output_count = Core::len(output);
+  Value yielded = Core::gt(output_count, Value(0));
+  if (Core::truthy(yielded)) {
+    Core::_cache_store_impl(cache_fn, key, output);
+  }
+  return Value();
+}
+
+Value Core::_stream_json_nested_fields_impl(Value fields_map) {
+  axir_coverage_mark("_stream_json_nested_fields_impl");
+  Value out = Value::array();
+  Value nested_fields = Core::fields_from_map(fields_map);
+  for (auto nested : Core::iter(nested_fields)) {
+    Value name = Core::get(nested, Value("name"), Value(""));
+    Value typ = Core::get(nested, Value("type"), Value());
+    Value optional = Core::_stream_field_flag_impl(nested, Value("is_optional"), Value("isOptional"));
+    Value internal = Core::_stream_field_flag_impl(nested, Value("is_internal"), Value("isInternal"));
+    Value field = Value::object();
+    Core::set(field, Value("name"), name);
+    Core::set(field, Value("title"), name);
+    Core::set(field, Value("type"), typ);
+    Core::set(field, Value("is_optional"), optional);
+    Core::set(field, Value("is_internal"), internal);
+    Core::append(out, field);
   }
   return out;
 }
@@ -29575,34 +29842,6 @@ Value Core::_cache_lookup_impl(Value gen, Value values, Value options, Value ign
   return lookup;
 }
 
-Value Core::_stream_json_nested_fields_impl(Value fields_map) {
-  axir_coverage_mark("_stream_json_nested_fields_impl");
-  Value out = Value::array();
-  Value nested_fields = Core::fields_from_map(fields_map);
-  for (auto nested : Core::iter(nested_fields)) {
-    Value name = Core::get(nested, Value("name"), Value(""));
-    Value typ = Core::get(nested, Value("type"), Value());
-    Value optional = Core::_stream_field_flag_impl(nested, Value("is_optional"), Value("isOptional"));
-    Value internal = Core::_stream_field_flag_impl(nested, Value("is_internal"), Value("isInternal"));
-    Value field = Value::object();
-    Core::set(field, Value("name"), name);
-    Core::set(field, Value("title"), name);
-    Core::set(field, Value("type"), typ);
-    Core::set(field, Value("is_optional"), optional);
-    Core::set(field, Value("is_internal"), internal);
-    Core::append(out, field);
-  }
-  return out;
-}
-
-Value Core::_cache_lookup_option_impl(Value options) {
-  axir_coverage_mark("_cache_lookup_option_impl");
-  Value empty = Value::object();
-  Value call_options = Core::map_merge(empty, options);
-  Value lookup = Core::get(call_options, Value("_ax_cache_lookup"), Value());
-  return lookup;
-}
-
 Value Core::_stream_json_flexible_impl(Value field) {
   axir_coverage_mark("_stream_json_flexible_impl");
   Value typ = Core::get(field, Value("type"), Value());
@@ -29617,6 +29856,35 @@ Value Core::_stream_json_flexible_impl(Value field) {
   Value open_object = Core::not_(has_nested);
   Value flexible = Core::and_(is_object, open_object);
   return flexible;
+}
+
+Value Core::_stream_json_string_value_impl(Value field, Value value) {
+  axir_coverage_mark("_stream_json_string_value_impl");
+  Value is_string = Core::type_is(value, Value("string"));
+  Value not_string = Core::not_(is_string);
+  if (Core::truthy(not_string)) {
+    return value;
+  }
+  Value parsed = Core::none();
+  try {
+    parsed = Core::json_parse_strict(value);
+  } catch (const std::exception& e) {
+    Value parse_error = Core::exception_value(e);
+    Value title = Core::_stream_field_title_impl(field);
+    Value detail = Core::exception_message(parse_error);
+    Value message = Core::string_format(Value("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text."), detail, title);
+    Value invalid = Core::validation_error(message);
+    Core::raise_error(invalid);
+  }
+  return parsed;
+}
+
+Value Core::_cache_lookup_option_impl(Value options) {
+  axir_coverage_mark("_cache_lookup_option_impl");
+  Value empty = Value::object();
+  Value call_options = Core::map_merge(empty, options);
+  Value lookup = Core::get(call_options, Value("_ax_cache_lookup"), Value());
+  return lookup;
 }
 
 Value Core::_apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates) {
@@ -29644,46 +29912,6 @@ Value Core::_apply_control_updates_impl(Value gen, Value messages, Value runtime
     Core::axgen_memory_add_request(gen, steers);
   }
   return messages;
-}
-
-Value Core::_stream_json_string_value_impl(Value field, Value value) {
-  axir_coverage_mark("_stream_json_string_value_impl");
-  Value is_string = Core::type_is(value, Value("string"));
-  Value not_string = Core::not_(is_string);
-  if (Core::truthy(not_string)) {
-    return value;
-  }
-  Value parsed = Core::none();
-  try {
-    parsed = Core::json_parse_strict(value);
-  } catch (const std::exception& e) {
-    Value parse_error = Core::exception_value(e);
-    Value title = Core::_stream_field_title_impl(field);
-    Value detail = Core::exception_message(parse_error);
-    Value message = Core::string_format(Value("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text."), detail, title);
-    Value invalid = Core::validation_error(message);
-    Core::raise_error(invalid);
-  }
-  return parsed;
-}
-
-Value Core::_structured_output_render_options_impl(Value selection) {
-  axir_coverage_mark("_structured_output_render_options_impl");
-  Value render_options = Value::object();
-  Value rung = Core::get(selection, Value("rung"), Value());
-  Value structured = Core::is_not_none(rung);
-  Core::set(render_options, Value("structured_output"), structured);
-  Value extra_functions = Value::array();
-  Value function_rung = Core::eq(rung, Value("function"));
-  if (Core::truthy(function_rung)) {
-    Core::set(render_options, Value("structured_output_function_name"), Value("__axOutput"));
-    Value output_function = Value::object();
-    Core::set(output_function, Value("name"), Value("__axOutput"));
-    Core::set(output_function, Value("description"), Value("Emit the complete structured program output using the declared argument shape."));
-    Core::append(extra_functions, output_function);
-  }
-  Core::set(render_options, Value("extra_functions"), extra_functions);
-  return render_options;
 }
 
 Value Core::_stream_json_strings_for_field_impl(Value field, Value value) {
@@ -29736,6 +29964,75 @@ Value Core::_stream_json_strings_for_field_impl(Value field, Value value) {
     Core::_stream_json_strings_for_fields_impl(nested, value);
   }
   return value;
+}
+
+Value Core::_structured_output_render_options_impl(Value selection) {
+  axir_coverage_mark("_structured_output_render_options_impl");
+  Value render_options = Value::object();
+  Value rung = Core::get(selection, Value("rung"), Value());
+  Value structured = Core::is_not_none(rung);
+  Core::set(render_options, Value("structured_output"), structured);
+  Value extra_functions = Value::array();
+  Value function_rung = Core::eq(rung, Value("function"));
+  if (Core::truthy(function_rung)) {
+    Core::set(render_options, Value("structured_output_function_name"), Value("__axOutput"));
+    Value output_function = Value::object();
+    Core::set(output_function, Value("name"), Value("__axOutput"));
+    Core::set(output_function, Value("description"), Value("Emit the complete structured program output using the declared argument shape."));
+    Core::append(extra_functions, output_function);
+  }
+  Core::set(render_options, Value("extra_functions"), extra_functions);
+  return render_options;
+}
+
+Value Core::_validate_completion_function_call_names(Value response) {
+  axir_coverage_mark("_validate_completion_function_call_names");
+  Value empty = Value::array();
+  Value results = Core::get(response, Value("results"), Value());
+  Value no_results = Core::is_none(results);
+  if (Core::truthy(no_results)) {
+    results = Value::array();
+    Core::append(results, response);
+  }
+  Value result_index = Value(0);
+  for (auto result : Core::iter(results)) {
+    Value calls = Core::get(result, Value("function_calls"), empty);
+    Value call_index = Value(0);
+    for (auto call : Core::iter(calls)) {
+      Value has_name = Core::map_contains(call, Value("name"));
+      Value name = Core::get(call, Value("name"), Value());
+      Value fn = Core::get(call, Value("function"), Value());
+      Value fn_is_map = Core::type_is(fn, Value("object"));
+      if (Core::truthy(fn_is_map)) {
+        Value fn_has_name = Core::map_contains(fn, Value("name"));
+        if (Core::truthy(fn_has_name)) {
+          has_name = Value(true);
+          name = Core::get(fn, Value("name"), Value());
+        }
+      }
+      Value name_is_text = Core::type_is(name, Value("string"));
+      Value named = Value(false);
+      if (Core::truthy(name_is_text)) {
+        Value trimmed = Core::string_trim(name);
+        named = Core::ne(trimmed, Value(""));
+      }
+      Value unnamed = Core::not_(named);
+      if (Core::truthy(unnamed)) {
+        Value received = Value("undefined");
+        if (Core::truthy(has_name)) {
+          received = Core::json_pretty(name);
+        }
+        Value message = Core::string_format(Value("Function call at index {} in result {} must have a non-empty function name, received: {}"), call_index, result_index, received);
+        Value error = Core::runtime_error(message);
+        Core::raise_error(error);
+      }
+      Value next_call_index = Core::add(call_index, Value(1));
+      call_index = next_call_index;
+    }
+    Value next_result_index = Core::add(result_index, Value(1));
+    result_index = next_result_index;
+  }
+  return Value();
 }
 
 Value Core::_stream_json_strings_for_fields_impl(Value fields_map, Value values) {
@@ -29793,6 +30090,40 @@ Value Core::_stream_state_impl(Value index) {
   Core::set(state, Value("xstate"), xstate);
   Core::set(state, Value("last_parse_length"), Value(0));
   return state;
+}
+
+Value Core::_check_completion_function_call_names(Value response, Value options) {
+  axir_coverage_mark("_check_completion_function_call_names");
+  Value mode_snake = Core::get(options, Value("function_call_validation"), Value());
+  Value mode = Core::get(options, Value("functionCallValidation"), mode_snake);
+  Value mode_set = Core::is_not_none(mode);
+  if (Core::truthy(mode_set)) {
+    Value is_fail = Core::eq(mode, Value("fail"));
+    Value is_correct = Core::eq(mode, Value("correct"));
+    Value known = Core::or_(is_fail, is_correct);
+    Value unknown = Core::not_(known);
+    if (Core::truthy(unknown)) {
+      Value mode_json = Core::json_pretty(mode);
+      Value mode_message = Core::string_format(Value("functionCallValidation must be 'correct' or 'fail', received: {}"), mode_json);
+      Value mode_error = Core::validation_error(mode_message);
+      Core::raise_error(mode_error);
+    }
+    if (Core::truthy(is_fail)) {
+      Core::_validate_completion_function_call_names(response);
+    }
+    return Value();
+  }
+  Value unnamed = Value(false);
+  try {
+    Core::_validate_completion_function_call_names(response);
+  } catch (const std::exception& e) {
+    Value unnamed_error = Core::exception_value(e);
+    unnamed = Value(true);
+  }
+  if (Core::truthy(unnamed)) {
+    Core::axgen_deprecation(Value("function-call-validation"), Value("A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version."));
+  }
+  return Value();
 }
 
 Value Core::_stream_merge_value_impl(Value base, Value has_base, Value delta) {
@@ -30209,7 +30540,7 @@ Value Core::_stream_check_assertions_impl(Value gen, Value xstate, Value content
         message = returned;
       }
       Core::set(xstate, Value("assertion_failed"), Value(true));
-      Value error = Core::validation_error(message);
+      Value error = Core::runtime_error(message);
       Core::raise_error(error);
     }
   }
@@ -36092,8 +36423,8 @@ Value Core::_agent_replay_trace(Value trace, Value fixtures) {
   Value expected_output = Core::get(fixtures, Value("expected_output"), Value());
   Value has_expected_output = Core::is_not_none(expected_output);
   if (Core::truthy(has_expected_output)) {
-    Value actual_output_text = Core::json_stringify(output);
-    Value expected_output_text = Core::json_stringify(expected_output);
+    Value actual_output_text = Core::json_stable_stringify(output);
+    Value expected_output_text = Core::json_stable_stringify(expected_output);
     Value output_matches = Core::eq(actual_output_text, expected_output_text);
     Value output_mismatch = Core::not_(output_matches);
     if (Core::truthy(output_mismatch)) {
@@ -46213,6 +46544,33 @@ static std::string escape_json(const std::string& in) {
   return out;
 }
 
+// The array index a JavaScript property key names: "0" to "4294967294" in
+// canonical form (no sign, no leading zero), else -1.
+static long long js_array_index(const std::string& key) {
+  if (key.empty() || key.size() > 10 || (key.size() > 1 && key[0] == '0')) return -1;
+  for (char c : key) {
+    if (c < '0' || c > '9') return -1;
+  }
+  long long index = std::stoll(key);
+  return index <= 4294967294LL ? index : -1;
+}
+
+// Entries in JavaScript's own-property order, which JSON.stringify follows:
+// array-index keys first in ascending numeric order, then the other keys in
+// insertion order.
+static std::vector<std::pair<std::string, Value>> js_own_key_order(std::vector<std::pair<std::string, Value>> items) {
+  std::vector<std::pair<std::string, Value>> indexed;
+  std::vector<std::pair<std::string, Value>> named;
+  for (auto& item : items) {
+    if (js_array_index(item.first) >= 0) indexed.push_back(std::move(item));
+    else named.push_back(std::move(item));
+  }
+  if (indexed.empty()) return named;
+  std::stable_sort(indexed.begin(), indexed.end(), [](const auto& a, const auto& b) { return js_array_index(a.first) < js_array_index(b.first); });
+  for (auto& item : named) indexed.push_back(std::move(item));
+  return indexed;
+}
+
 std::string stringify(const Value& value) {
   if (value.is_null()) return "null";
   if (auto p = std::get_if<bool>(&value.data)) return *p ? "true" : "false";
@@ -46225,7 +46583,7 @@ std::string stringify(const Value& value) {
   }
   std::string out = "{";
   size_t i = 0;
-  for (const auto& kv : entries(value)) { if (i++) out += ","; out += "\"" + escape_json(kv.first) + "\":" + stringify(kv.second); }
+  for (const auto& kv : js_own_key_order(entries(value))) { if (i++) out += ","; out += "\"" + escape_json(kv.first) + "\":" + stringify(kv.second); }
   return out + "}";
 }
 
@@ -46254,7 +46612,7 @@ static std::string stable_stringify(const Value& value) {
 static void write_pretty_json(std::string& out, const Value& value, const std::string& indent) {
   const std::string inner = indent + "  ";
   if (value.is_object()) {
-    auto items = entries(value);
+    auto items = js_own_key_order(entries(value));
     if (items.empty()) {
       out += "{}";
       return;
@@ -46884,19 +47242,44 @@ void Core::ai_capture_warnings(std::function<void(const std::string&)> sink) {
   ai_warning_sink() = std::move(sink);
 }
 
+static std::mutex& axgen_deprecations_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+static std::set<std::string>& axgen_deprecations_shown() {
+  static std::set<std::string> shown;
+  return shown;
+}
+
+static std::function<void(const std::string&)>& axgen_deprecation_sink() {
+  static std::function<void(const std::string&)> sink;
+  return sink;
+}
+
 // Deprecated port behavior warns once per key per process.
 Value Core::axgen_deprecation(Value key, Value message) {
-  static std::mutex shown_mutex;
-  static std::set<std::string> shown;
   try {
+    std::function<void(const std::string&)> sink;
     {
-      std::lock_guard<std::mutex> lock(shown_mutex);
-      if (!shown.insert(str(key)).second) return Value();
+      std::lock_guard<std::mutex> lock(axgen_deprecations_mutex());
+      if (!axgen_deprecations_shown().insert(str(key)).second) return Value();
+      sink = axgen_deprecation_sink();
+    }
+    if (sink) {
+      sink(str(message));
+      return Value();
     }
     std::cerr << "axllm deprecation: " << str(message) << std::endl;
   } catch (...) {
   }
   return Value();
+}
+
+void Core::axgen_capture_deprecations(std::function<void(const std::string&)> sink) {
+  std::lock_guard<std::mutex> lock(axgen_deprecations_mutex());
+  axgen_deprecations_shown().clear();
+  axgen_deprecation_sink() = std::move(sink);
 }
 
 // Caching functions the AxGen IR reaches through {"__caching_function_id"}
@@ -47065,6 +47448,7 @@ Value AxBaseAI::resolve_model_key_request(Value request, Value call_options, boo
 }
 
 Value AxBaseAI::chat(Value request, Value call_options, const AxRuntimeHooks& call_hooks) {
+  check_call_options(call_options);
   Value resolved = resolve_model_key_request(Core::coerce_chat_request(std::move(request)), call_options, false);
   Value req = Core::get(resolved, "request");
   call_options = Core::get(resolved, "options");
@@ -47126,6 +47510,7 @@ Value AxBaseAI::embed(Value request, Value call_options) {
 }
 
 Value AxBaseAI::embed(Value request, Value call_options, const AxRuntimeHooks& call_hooks) {
+  check_call_options(call_options);
   Value resolved = resolve_model_key_request(std::move(request), call_options, true);
   request = Core::get(resolved, "request");
   call_options = Core::get(resolved, "options");
@@ -47475,6 +47860,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
 }
 
 Value OpenAICompatibleClient::do_chat(Value request, Value options) {
+  AxCallOptionsScope call_scope(options);
   Value realtime_model = Core::coalesce(Core::get(request, "model"), Value(model_));
   if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request, options))) {
     return realtime_chat(request, nullptr);
@@ -47533,6 +47919,7 @@ static bool service_accepts_request_cpp(const std::shared_ptr<AxAIService>& serv
 }
 
 Value OpenAICompatibleClient::do_embed(Value request, Value options) {
+  AxCallOptionsScope call_scope(options);
   Value payload = Core::provider_build_embed_request(profile_, request, options);
   Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
   std::string embed_url = str(Core::provider_embed_url(profile_, model, options));
@@ -47626,6 +48013,7 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler)
 
 // options are the stream call options; null means none (stream_each(request, handler)).
 void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler, Value options) {
+  if (options.is_object()) check_call_options(options);
   Value resolved = resolve_model_key_request(Core::coerce_chat_request(std::move(request)), options, false);
   request = Core::get(resolved, "request");
   Value call_options = Core::get(resolved, "options");
@@ -47654,6 +48042,7 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
   bool cancelled = false;
   try {
     AxRequestExecutor next = [&]() {
+      AxCallOptionsScope call_scope(merged_options);
       if (Core::truthy(Core::provider_should_use_realtime(profile_, model, req, merged_options))) {
         Value final = realtime_chat(req, nullptr, [&](Value event) { if (!handler(event)) { cancelled = true; return false; } return true; });
         if (!cancelled) handler(Core::provider_realtime_terminal_response(final));
@@ -47725,7 +48114,9 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
           // Retry transport/open failures before any SSE event. Once a provider
           // event exists, its normalized error is authoritative unless the
           // explicit transient-status classifier above requested a retry.
-          if (!received_event && !delivered && stream_error_retryable(error) && attempt < max_retries) retry_requested = true;
+          // As in TS apiCall, a call's timeoutMs is not retried here.
+          bool call_timed_out = error.type == "AxAIServiceTimeoutError" && !Core::get(call, "timeout_ms").is_null();
+          if (!received_event && !delivered && stream_error_retryable(error) && !call_timed_out && attempt < max_retries) retry_requested = true;
           else if (delivered) {
             AxError terminated("response", error.what(), "AxAIServiceStreamTerminatedError", error.status, error.code, true, error.response_body);
             terminated.url = error.url;
@@ -48183,11 +48574,28 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
   return transport_result(raw, call, error_options);
 }
 
+// The call's options can move the provider's base URL (a Vertex beta selects
+// v1beta1), as TS resolves it for each call. An explicit base_url or
+// OPENAI_BASE_URL still wins.
+static std::string ax_call_base_url(const std::string& profile, const Value& descriptor, const std::string& base_url) {
+  if (ax_current_call_options == nullptr || !ax_current_call_options->is_object()) return base_url;
+  Value descriptor_base = Core::get(descriptor, "baseUrl");
+  if (descriptor_base.is_null() || strip_trailing_slashes(str(descriptor_base)) != base_url) return base_url;
+  Value resolved = Core::get(Core::provider_resolve_descriptor(profile, *ax_current_call_options), "baseUrl");
+  return resolved.is_null() ? base_url : strip_trailing_slashes(str(resolved));
+}
+
+// TS reads a per-call timeout in milliseconds; this port ignores it until the
+// next major version and warns once, naming timeoutMs.
+void OpenAICompatibleClient::check_call_options(const Value& call_options) {
+  Core::provider_warn_call_timeout(call_options, false);
+}
+
 Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
   Value call = Value::object();
   Core::set(call, "method", method.empty() ? "POST" : method);
   bool absolute = endpoint.rfind("http://", 0) == 0 || endpoint.rfind("https://", 0) == 0;
-  Core::set(call, "url", absolute ? endpoint : base_url_ + endpoint);
+  Core::set(call, "url", absolute ? endpoint : ax_call_base_url(profile_, descriptor_, base_url_) + endpoint);
   Value resolved_headers = headers();
   if (profile_ == "meta" && body_key == "data" && !binary_response) Core::set(resolved_headers, "Accept", "text/event-stream");
   std::string request_url = str(Core::get(call, "url"));
@@ -48207,6 +48615,12 @@ Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value p
   // Signals the transport to return the raw body as base64 instead of JSON.
   if (binary_response) Core::set(call, "binary", Value(true));
   Core::set(call, "timeout", timeout_seconds_);
+  // The chat, stream or embed call's timeoutMs (TS's per-call timeout, in
+  // milliseconds) bounds the wait for the response headers.
+  if (ax_current_call_options != nullptr) {
+    Value timeout_ms = Core::provider_call_timeout_ms(*ax_current_call_options);
+    if (!timeout_ms.is_null()) Core::set(call, "timeout_ms", timeout_ms);
+  }
   if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) {
     // A credential provider can still be attached after construction, so a
     // missing key fails here, before anything is sent. The error carries no

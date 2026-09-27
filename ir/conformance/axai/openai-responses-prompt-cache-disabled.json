@@ -1,8 +1,10 @@
 {
-  "expected_transport_json_absent": [
-    "prompt_cache_key",
-    "prompt_cache_options"
-  ],
+  "expected_transport_json_absent": ["prompt_cache_options"],
+  "expected_transport_request": {
+    "json": {
+      "prompt_cache_key": "responses-key"
+    }
+  },
   "kind": "ai_chat",
   "model": "gpt-5.6-luna",
   "name": "openai-responses-prompt-cache-disabled",
@@ -20,7 +22,7 @@
   },
   "service_options": {
     "contextCache": {},
-    "promptCacheKey": "must-not-send"
+    "promptCacheKey": "responses-key"
   },
   "transport_responses": [
     {

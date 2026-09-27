@@ -622,6 +622,7 @@ public final class Conformance {
     for (String arg : args) {
       for (Path path : expand(Path.of(arg))) {
         Map<String, Object> fixture = Core.asMap(Json.parse(Files.readString(path)));
+        expandOrderedJsonFields(fixture);
         Object name = fixture.getOrDefault("name", path.getFileName().toString());
         if (Core.truthy(fixture.get("requires_lone_surrogates")) && !SUPPORTS_LONE_SURROGATES) {
           System.out.println("skip " + name + ": requires lone surrogates (utf-8 runner)");
@@ -645,7 +646,24 @@ public final class Conformance {
     }
   }
 
+  // expected_deprecations pins the one-time deprecation warnings the run
+  // gives (the ones already shown are forgotten first).
   static void run(Map<String, Object> fixture) {
+    if (!fixture.containsKey("expected_deprecations")) {
+      runKind(fixture);
+      return;
+    }
+    List<Object> captured = java.util.Collections.synchronizedList(new ArrayList<>());
+    Core.axgenCaptureDeprecations(captured::add);
+    try {
+      runKind(fixture);
+    } finally {
+      Core.axgenCaptureDeprecations(null);
+    }
+    assertEqual(new ArrayList<>(captured), fixture.get("expected_deprecations"), "deprecation warnings");
+  }
+
+  static void runKind(Map<String, Object> fixture) {
     String kind = String.valueOf(fixture.getOrDefault("kind", "forward"));
     switch (kind) {
       case "signature_error" -> runSignatureError(fixture);
@@ -655,6 +673,8 @@ public final class Conformance {
       case "validate_output" -> runValidateOutput(fixture);
       case "strip_internal" -> runStripInternal(fixture);
       case "number_format" -> runNumberFormat(fixture);
+      case "json_stringify" -> runJsonStringify(fixture);
+      case "string_format" -> runStringFormat(fixture);
       case "date_field_value" -> runDateFieldValue(fixture);
       case "date_input" -> runDateInput(fixture);
       case "prompt" -> runPrompt(fixture);
@@ -902,6 +922,46 @@ public final class Conformance {
   // text). The JSON form must come out of every encoder: Json.stringify (wire
   // bodies and json.stringify), the key-sorted json.stable_stringify and
   // json.pretty (prompt values).
+  // Each case's input text, parsed in key order, comes out of json.stringify
+  // as TS's JSON.stringify writes it.
+  // A top-level "<key>_json" string holds <key> as JSON text, so a fixture can
+  // carry an object in TS's key order (the canonical fixture sort reorders the
+  // keys of the fixture's own objects).
+  static void expandOrderedJsonFields(Map<String, Object> fixture) {
+    for (String key : new ArrayList<>(fixture.keySet())) {
+      if (key.endsWith("_json") && fixture.get(key) instanceof String text) {
+        fixture.putIfAbsent(key.substring(0, key.length() - "_json".length()), Json.parse(text));
+      }
+    }
+  }
+
+  static void runJsonStringify(Map<String, Object> fixture) {
+    List<Object> cases = Core.asList(fixture.getOrDefault("cases", List.of()));
+    for (int index = 0; index < cases.size(); index++) {
+      Map<String, Object> item = Core.asMap(cases.get(index));
+      assertEqual(Core.jsonStringify(Json.parse(String.valueOf(item.get("input")))), item.get("json"), "json.stringify case " + index);
+    }
+  }
+
+  // string.format and string.str against JavaScript's text of each case.
+  static void runStringFormat(Map<String, Object> fixture) {
+    for (Object item : Core.asList(fixture.getOrDefault("format_cases", List.of()))) {
+      String template = String.valueOf(Core.get(item, "template", ""));
+      Object[] args = Core.asList(Core.get(item, "input", List.of())).toArray();
+      String actual = String.valueOf(Core.stringFormat(template, args));
+      String expected = String.valueOf(Core.get(item, "expected", ""));
+      if (!actual.equals(expected))
+        throw new FixtureError("string.format of " + Json.stringify(template) + ": expected " + Json.stringify(expected) + ", got " + Json.stringify(actual));
+    }
+    for (Object item : Core.asList(fixture.getOrDefault("str_cases", List.of()))) {
+      Object input = Core.get(item, "input", null);
+      String actual = Core.stringStr(input);
+      String expected = String.valueOf(Core.get(item, "expected", ""));
+      if (!actual.equals(expected))
+        throw new FixtureError("string.str of " + Json.stringify(input) + ": expected " + Json.stringify(expected) + ", got " + Json.stringify(actual));
+    }
+  }
+
   static void runNumberFormat(Map<String, Object> fixture) {
     for (Object item : Core.asList(fixture.get("cases"))) {
       String input = String.valueOf(Core.get(item, "input", ""));
@@ -2637,6 +2697,11 @@ public final class Conformance {
     }
     assertAgentRunProjections(fixture, agent, client, streamDeltas, controlEvents, observerCalls, observerMarks);
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected agent request count mismatch");
+    // Every chat call's options carry these (a forward option each stage gets).
+    if (fixture.containsKey("expected_chat_options_all_subset")) {
+      if (client.chatOptions.isEmpty()) throw new FixtureError("fixture expected chat options but none were recorded");
+      for (int index = 0; index < client.chatOptions.size(); index++) assertSubset(client.chatOptions.get(index), fixture.get("expected_chat_options_all_subset"), "chat options " + index);
+    }
     Map<String, Object> exactProjection = Core.asMap(fixture.getOrDefault("exact_observable_projection", Map.of()));
     if (exactProjection.containsKey("stateRoundtrip")) assertEqual(stateRoundtripProjection, exactProjection.get("stateRoundtrip"), "exact agent state roundtrip projection");
     if (exactProjection.containsKey("ranking")) {
@@ -3063,6 +3128,11 @@ public final class Conformance {
       Core.setEnvOverrides(null);
     }
     if (fixture.containsKey("expected_warnings")) assertEqual(captured, fixture.get("expected_warnings"), "ai chat warnings");
+    // Each fragment appears in a warning the call logged (a port's wording may differ).
+    for (Object fragment : Core.asList(fixture.getOrDefault("expected_warnings_containing", List.of()))) {
+      boolean found = captured.stream().anyMatch(message -> String.valueOf(message).contains(String.valueOf(fragment)));
+      if (!found) throw new FixtureError("no ai chat warning contains " + fragment + ": " + captured);
+    }
   }
 
   static void runAIChatRequest(Map<String, Object> fixture) {

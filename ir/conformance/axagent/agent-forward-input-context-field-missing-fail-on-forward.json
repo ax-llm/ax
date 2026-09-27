@@ -1,5 +1,6 @@
 {
   "description": "Port-only: inputValidation: 'fail' on the forward call checks the context fields of an agent built without it, before any request.",
+  "expected_deprecations": [],
   "expected_error_contains": "RLM contextField \"doc\" is missing from input values",
   "expected_request_count": 0,
   "expected_transcript": [],

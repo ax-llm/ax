@@ -430,6 +430,7 @@ struct Core {
   static Value exception_is_aborted(Value error);
   static Value exception_is_infrastructure(Value error);
   static Value exception_is_refusal(Value error);
+  static Value exception_is_validation(Value error);
   static AxError as_error(Value error);
   [[noreturn]] static void raise_error(Value error);
   static Value coerce_chat_request(Value request);
@@ -531,6 +532,9 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  // Conformance hook: forgets the deprecations already shown and sends new
+  // ones to sink (an empty sink prints them to stderr again).
+  static void axgen_capture_deprecations(std::function<void(const std::string&)> sink);
   static Value ai_warn_once(Value key, Value message);
   // Conformance hook: forgets the one-time warnings already shown and sends
   // new ones to sink (an empty sink prints them to stderr again).
@@ -683,6 +687,9 @@ class AxBaseAI : public AxAIService {
   // Model-catalog key for the expensive-model gate: the client name here, the
   // provider profile for provider clients.
   virtual std::string model_catalog_provider() const { return name_; }
+  // Sees a chat or embed call's own options before they merge with the
+  // client's; provider clients warn about options this port ignores.
+  virtual void check_call_options(const Value& call_options) { (void)call_options; }
   virtual Value do_chat(Value request, Value options) = 0;
   virtual Value do_embed(Value request, Value options) = 0;
 };
@@ -1025,6 +1032,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   // decides whether a provider error keeps the request body.
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options);
   Value build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
+  void check_call_options(const Value& call_options) override;
   std::string operation_method(const std::string& operation) const;
   std::string operation_path(const std::string& operation) const;
   std::string operation_path(const std::string& operation, Value model) const;

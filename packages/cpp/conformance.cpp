@@ -1970,6 +1970,33 @@ static Value evolve_script(Value responses) {
   return Value(script);
 }
 
+// A top-level "<key>_json" string holds <key> as JSON text, so a fixture can
+// carry an object in TS's key order (the canonical fixture sort reorders the
+// keys of the fixture's own objects).
+static void expand_ordered_json_fields(Value& fixture) {
+  std::vector<std::pair<std::string, std::string>> texts;
+  const std::string suffix = "_json";
+  for (const auto& kv : conf_entries(fixture)) {
+    const std::string& name = kv.first;
+    if (kv.second.is_string() && name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
+      texts.emplace_back(name.substr(0, name.size() - suffix.size()), display(kv.second));
+    }
+  }
+  for (const auto& [base, text] : texts) {
+    if (Core::get(fixture, base).is_null()) Core::set(fixture, base, parse_json(text));
+  }
+}
+
+// Each case's input text, parsed in key order, comes out of json.stringify as
+// TS's JSON.stringify writes it.
+static void run_json_stringify(Value fixture) {
+  int index = 0;
+  for (const auto& item : Core::iter(Core::get(fixture, "cases", Value::array()))) {
+    assert_equal(Core::json_stringify(parse_json(display(Core::get(item, "input")))), Core::get(item, "json"), "json.stringify case " + std::to_string(index));
+    index++;
+  }
+}
+
 static void run_agent_playbook_evolve(Value fixture) {
   Value source_responses = Core::get(fixture, "responses", Value::array());
   Value teacher_responses = Core::get(fixture, "teacher_responses");
@@ -2399,6 +2426,12 @@ static void run_agent_forward(Value fixture) {
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
     throw AxError("fixture", "expected agent request count mismatch");
+  }
+  // Every chat call's options carry these (a forward option each stage gets).
+  Value expected_all_chat_options = Core::get(fixture, "expected_chat_options_all_subset");
+  if (!expected_all_chat_options.is_null()) {
+    if (client.chat_options.empty()) throw AxError("fixture", "fixture expected chat options but none were recorded");
+    for (size_t index = 0; index < client.chat_options.size(); ++index) assert_subset(client.chat_options[index], expected_all_chat_options, "chat options " + std::to_string(index));
   }
   Value exact_projection = Core::get(fixture, "exact_observable_projection", Value::object());
   if (!Core::get(exact_projection, "stateRoundtrip").is_null()) assert_equal(state_roundtrip_projection, Core::get(exact_projection, "stateRoundtrip"), "exact agent state roundtrip projection");
@@ -3164,6 +3197,14 @@ static void run_ai_chat(Value fixture) {
   restore_fixture_env(saved);
   Value expected_warnings = Core::get(fixture, "expected_warnings");
   if (!expected_warnings.is_null()) assert_equal(captured, expected_warnings, "ai chat warnings");
+  // Each fragment appears in a warning the call logged (a port's wording may differ).
+  for (const auto& fragment : as_array(Core::get(fixture, "expected_warnings_containing", Value::array()))) {
+    bool found = false;
+    for (const auto& message : as_array(captured)) {
+      if (display(message).find(display(fragment)) != std::string::npos) { found = true; break; }
+    }
+    if (!found) throw AxError("fixture", "no ai chat warning contains " + display(fragment) + ": " + stringify(captured));
+  }
 }
 
 static void run_ai_chat_request(Value fixture) {
@@ -3991,6 +4032,24 @@ static void run_date_input(Value fixture) {
   }
 }
 
+// string.format and string.str against JavaScript's text of each case.
+static void run_string_format(Value fixture) {
+  for (const auto& item : Core::iter(Core::get(fixture, "format_cases", Value::array()))) {
+    Value templ = Core::get(item, "template", Value(""));
+    std::vector<Value> args;
+    for (const auto& arg : Core::iter(Core::get(item, "input", Value::array()))) args.push_back(arg);
+    std::string actual = display(Core::string_format_values(templ, args));
+    std::string expected = display(Core::get(item, "expected", Value("")));
+    if (actual != expected) throw AxError("fixture", "string.format of " + stringify(templ) + ": expected " + stringify(Value(expected)) + ", got " + stringify(Value(actual)));
+  }
+  for (const auto& item : Core::iter(Core::get(fixture, "str_cases", Value::array()))) {
+    Value input = Core::get(item, "input");
+    std::string actual = display(Core::string_str(input));
+    std::string expected = display(Core::get(item, "expected", Value("")));
+    if (actual != expected) throw AxError("fixture", "string.str of " + stringify(input) + ": expected " + stringify(Value(expected)) + ", got " + stringify(Value(actual)));
+  }
+}
+
 static void run_number_format(Value fixture) {
   for (const auto& item : Core::iter(Core::get(fixture, "cases", Value::array()))) {
     std::string input = display(Core::get(item, "input"));
@@ -4048,7 +4107,34 @@ static void run_flow_mermaid(Value fixture) {
   assert_equal(second.str(), expected, "flow mermaid canonical roundtrip");
 }
 
+static void run_kind(Value fixture);
+
+// expected_deprecations pins the one-time deprecation warnings the run gives
+// (the ones already shown are forgotten first).
 static void run(Value fixture) {
+  Value expected = Core::get(fixture, "expected_deprecations");
+  if (expected.is_null()) {
+    run_kind(fixture);
+    return;
+  }
+  auto captured = std::make_shared<Value>(Value::array());
+  auto captured_mutex = std::make_shared<std::mutex>();
+  Core::axgen_capture_deprecations([captured, captured_mutex](const std::string& message) {
+    std::lock_guard<std::mutex> lock(*captured_mutex);
+    Core::append(*captured, Value(message));
+  });
+  try {
+    run_kind(fixture);
+  } catch (...) {
+    Core::axgen_capture_deprecations({});
+    throw;
+  }
+  Core::axgen_capture_deprecations({});
+  std::lock_guard<std::mutex> lock(*captured_mutex);
+  assert_equal(*captured, expected, "deprecation warnings");
+}
+
+static void run_kind(Value fixture) {
   std::string kind = display(Core::get(fixture, "kind", "forward"));
   if (kind == "signature_error") {
     expect_maybe_error([&] { return build_signature(fixture); }, fixture);
@@ -4076,8 +4162,12 @@ static void run(Value fixture) {
   } else if (kind == "strip_internal") {
     Value sig = build_signature(fixture);
     assert_equal(Core::strip_internal(Core::get(sig, "outputs"), Core::get(fixture, "values", Value::object())), Core::get(fixture, "expected_output"), "strip internal");
+  } else if (kind == "json_stringify") {
+    run_json_stringify(fixture);
   } else if (kind == "number_format") {
     run_number_format(fixture);
+  } else if (kind == "string_format") {
+    run_string_format(fixture);
   } else if (kind == "date_field_value") {
     run_date_field_value(fixture);
   } else if (kind == "date_input") {
@@ -4301,6 +4391,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
       for (const auto& path : expand(argv[i])) {
         Value fixture = parse_json(read_file(path));
+        expand_ordered_json_fields(fixture);
         if (!kSupportsLoneSurrogates && Core::truthy(Core::get(fixture, "requires_lone_surrogates", false))) {
           std::cout << "skip " << display(Core::get(fixture, "name", path.filename().string())) << ": requires lone surrogates (utf-8 runner)\n";
           continue;

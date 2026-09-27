@@ -80,10 +80,17 @@ Runnable signature, native criteria/scoring, and two-program hybrid examples are
 - Credential callbacks cover chat, stream, embeddings, Responses, transcription, speech, and retries. Callback errors stop before transport, and completed 401/403 generation responses are not replayed automatically.
 - Keep ADC and cloud SDK dependencies host-owned: obtain or refresh the token inside the callback. A required-auth profile accepts either a static key or the callback.
 - Core resolves `global`, `us`, `eu`, and regional Vertex hosts. An explicit `baseUrl` / `base_url` takes precedence.
+- `beta` on a call routes that Vertex call onto `v1beta1`, and `beta: false` keeps it on `v1` when the client sets `beta`, as in TypeScript.
 - On Vertex, `gemini-embedding-2` embeds through `:embedContent` at the `global` location whatever `region` is set. Each call embeds exactly one text, because Vertex fuses a request's texts into one vector, and sends no task type, which Vertex ignores for this model; put task instructions in the text instead. Other embedding models and `endpointId` / `endpoint_id` deployments keep the regional `:predict` call.
 - OpenAI GPT-5.6 Chat explicit caching is opt-in through `contextCache` / `context_cache` or message/function cache flags. Use `promptCacheKey` / `prompt_cache_key` for stable affinity; `sessionId` / `session_id` is the fallback.
+- As in TypeScript, every OpenAI Responses request sends `prompt_cache_key`: the `promptCacheKey` / `prompt_cache_key`, else the `sessionId` / `session_id`, the call's before the client's. Chat Completions sends it only with GPT-5.6 caching.
 - Normalized usage separates uncached prompt, cache-read, and cache-creation tokens. `get_model_cost` / target equivalent uses the shared model catalog, including cache-write pricing and long-context thresholds.
 - Start with the OpenAI prompt-caching and Vertex Gemini examples under `examples/`. Scripted AxAI fixtures verify routing without live credentials.
+
+## Request Timeouts
+
+- `timeoutMs` on a chat, stream or embed call bounds the wait for the response headers in milliseconds, as TypeScript's per-call `timeout` does. In the client's options it applies to every call. A request whose response has not started in time fails with `AxAIServiceTimeoutError` (`Request timed out after <N>ms`). The request layer does not retry it, and AxGen retries it as an infrastructure error. Once the response starts, the body reads as it did before. AxGen and agent forwards pass `timeoutMs` to every model call.
+- Rust reads a per-call `timeout` in seconds, for streams too. The next major version reads it in milliseconds, as TypeScript does, so a call that gives it without `timeoutMs` warns once, naming `timeoutMs`. The client's `timeout` option stays in seconds.
 
 ## Routing And Balancing
 
@@ -138,3 +145,4 @@ Use the provider-backed Astra examples under `src/examples/rust/generation/`, `s
 - Use `no-key` examples for deterministic local checks and provider request mapping.
 - Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.
 - Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.
+- A provider can split a surrogate pair (an emoji, say) across stream chunks. AxGen streaming deltas and outputs join it, but a raw client `stream` delta carries each half as a private-use mark (U+10F800 plus the half's offset from U+D800), since a Rust `String` can't hold a lone surrogate. Join raw deltas with `join_stream_text(&text, &delta)`: `push_str` leaves the two marks where the character belongs.

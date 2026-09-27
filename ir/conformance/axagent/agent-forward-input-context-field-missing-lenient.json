@@ -1,5 +1,6 @@
 {
   "description": "Port-only: an agent run without its required context field goes on without inputValidation: 'fail', as this release does. TS fails it before any request.",
+  "expected_deprecations": [],
   "expected_output": {
     "answer": "Refunds take 30 days."
   },

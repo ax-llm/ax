@@ -1033,6 +1033,18 @@ func writeJSONString(b *strings.Builder, s string) {
 	b.WriteByte('"')
 	for i := 0; i < len(s); {
 		c := s[i]
+		if wtf8SurrogateAt(s, i, 0xA0, 0xBF) {
+			// A lone surrogate (WTF-8), which JS's JSON.stringify writes as its
+			// \u escape.
+			unit := wtf8SurrogateUnit(s, i)
+			b.WriteString(`\u`)
+			b.WriteByte(hexDigits[unit>>12&0xf])
+			b.WriteByte(hexDigits[unit>>8&0xf])
+			b.WriteByte(hexDigits[unit>>4&0xf])
+			b.WriteByte(hexDigits[unit&0xf])
+			i += 3
+			continue
+		}
 		if c >= utf8.RuneSelf {
 			r, size := utf8.DecodeRuneInString(s[i:])
 			if r == utf8.RuneError && size == 1 {
@@ -1145,6 +1157,44 @@ func plainJSONValue(value Value) Value {
 }
 
 // Prompt JSON shapes retain signature declaration order, including nested objects.
+// jsArrayIndex is the array index a JavaScript property key names: "0" to
+// "4294967294" in canonical form (no sign, no leading zero), else -1.
+func jsArrayIndex(key string) int64 {
+	if key == "" || len(key) > 10 || (len(key) > 1 && key[0] == '0') {
+		return -1
+	}
+	for i := 0; i < len(key); i++ {
+		if key[i] < '0' || key[i] > '9' {
+			return -1
+		}
+	}
+	index, err := strconv.ParseInt(key, 10, 64)
+	if err != nil || index > 4294967294 {
+		return -1
+	}
+	return index
+}
+
+// jsOwnKeyOrder puts keys in JavaScript's own-property order, which
+// JSON.stringify follows: array-index keys first in ascending numeric order,
+// then the other keys in their given order.
+func jsOwnKeyOrder(keys []string) []string {
+	var indexed []string
+	named := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if jsArrayIndex(key) >= 0 {
+			indexed = append(indexed, key)
+		} else {
+			named = append(named, key)
+		}
+	}
+	if len(indexed) == 0 {
+		return keys
+	}
+	sort.SliceStable(indexed, func(i, j int) bool { return jsArrayIndex(indexed[i]) < jsArrayIndex(indexed[j]) })
+	return append(indexed, named...)
+}
+
 func orderedStringify(value Value) string { var out strings.Builder; writeOrderedJSON(&out,value); return out.String() }
 func writeOrderedJSON(b *strings.Builder, value Value) {
 	switch v := value.(type) {
@@ -1177,7 +1227,7 @@ func writeOrderedJSON(b *strings.Builder, value Value) {
 		writeOrderedJSON(b, asSlice(v))
 	case map[string]Value:
 		b.WriteByte('{')
-		keys := orderedKeys(v)
+		keys := jsOwnKeyOrder(orderedKeys(v))
 		first := true
 		for _, key := range keys {
 			if key == "__order" {
@@ -1211,12 +1261,135 @@ func sortedMapKeys(m map[string]Value) []string {
 }
 
 func parseJSONErr(text string) (Value, error) {
-	dec := json.NewDecoder(strings.NewReader(text))
+	marked, lone := markLoneSurrogateEscapes(text)
+	dec := json.NewDecoder(strings.NewReader(marked))
 	raw, err := parseJSONValue(dec)
 	if err != nil {
 		return nil, AxError{Category: "runtime", Message: err.Error()}
 	}
+	if lone {
+		raw = restoreLoneSurrogates(raw)
+	}
 	return raw, nil
+}
+
+// A provider can split a surrogate pair across stream events, leaving a lone
+// surrogate escape ("\ud83d", then "\ude00") in each event's JSON. JS's
+// JSON.parse keeps each half, and the stream-text intrinsics join them again.
+// encoding/json reads a lone half as U+FFFD, so the decoder marks each one
+// first and restores it after as its 3-byte WTF-8 form (ED A0-BF xx), which
+// a Go string can hold. The mark is the code point loneSurrogateMark plus the
+// half's offset from U+D800, a private-use code point that only a text with a
+// lone surrogate escape is searched for.
+const loneSurrogateMark = 0x10F800
+
+// markLoneSurrogateEscapes replaces each \u escape of a lone surrogate in JSON
+// text with its mark, and reports whether it replaced any. A high surrogate
+// escape followed by a low one stays a pair.
+func markLoneSurrogateEscapes(text string) (string, bool) {
+	if !strings.Contains(text, `\u`) {
+		return text, false
+	}
+	surrogate := func(at int) (rune, bool) {
+		if at+6 > len(text) || text[at] != '\\' || text[at+1] != 'u' {
+			return 0, false
+		}
+		unit, err := strconv.ParseUint(text[at+2:at+6], 16, 32)
+		if err != nil || unit < 0xD800 || unit > 0xDFFF {
+			return 0, false
+		}
+		return rune(unit), true
+	}
+	var out strings.Builder
+	replaced := false
+	for i := 0; i < len(text); {
+		if text[i] != '\\' {
+			out.WriteByte(text[i])
+			i++
+			continue
+		}
+		unit, ok := surrogate(i)
+		switch {
+		case !ok:
+			// Any other escape is copied whole, so an escaped backslash can't
+			// start a \u escape.
+			end := i + 2
+			if end > len(text) {
+				end = len(text)
+			}
+			out.WriteString(text[i:end])
+			i = end
+		case unit <= 0xDBFF && func() bool { low, isLow := surrogate(i + 6); return isLow && low >= 0xDC00 }():
+			out.WriteString(text[i : i+12])
+			i += 12
+		default:
+			out.WriteRune(loneSurrogateMark + unit - 0xD800)
+			replaced = true
+			i += 6
+		}
+	}
+	if !replaced {
+		return text, false
+	}
+	return out.String(), true
+}
+
+// restoreLoneSurrogates turns each mark in decoded strings (values and keys)
+// back into the lone surrogate's WTF-8 bytes.
+func restoreLoneSurrogates(value Value) Value {
+	switch v := value.(type) {
+	case string:
+		return restoreLoneSurrogateString(v)
+	case map[string]Value:
+		// A copy with the same shape: an ordered map keeps its key-order list
+		// (with its keys restored too), and a plain one gets none.
+		out := make(map[string]Value, len(v))
+		for key, item := range v {
+			if key == "__order" {
+				order := []Value{}
+				for _, name := range asSlice(item) {
+					order = append(order, restoreLoneSurrogateString(display(name)))
+				}
+				out[key] = order
+				continue
+			}
+			out[restoreLoneSurrogateString(key)] = restoreLoneSurrogates(item)
+		}
+		return out
+	case []Value:
+		out := make([]Value, len(v))
+		for index, item := range v {
+			out[index] = restoreLoneSurrogates(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func restoreLoneSurrogateString(text string) string {
+	marked := false
+	for _, r := range text {
+		if r >= loneSurrogateMark && r <= loneSurrogateMark+0x7FF {
+			marked = true
+			break
+		}
+	}
+	if !marked {
+		return text
+	}
+	var out strings.Builder
+	for _, r := range text {
+		if r >= loneSurrogateMark && r <= loneSurrogateMark+0x7FF {
+			unit := r - loneSurrogateMark + 0xD800
+			out.WriteByte(0xED)
+			out.WriteByte(byte(0x80 | (unit>>6)&0x3F))
+			out.WriteByte(byte(0x80 | unit&0x3F))
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
 }
 
 func parseJSON(text string) Value { return mustCore(parseJSONErr(text)) }
@@ -1389,7 +1562,17 @@ func coreRegexMatch(pattern Value, value Value) Value {
 	return regexp.MustCompile(display(pattern)).FindStringIndex(display(value)) != nil
 }
 
-func coreStringTrim(value Value) Value { return strings.TrimSpace(display(value)) }
+// coreStringTrim trims as JavaScript's String.prototype.trim does: white
+// space and line terminators, not U+0085 or other control characters.
+func coreStringTrim(value Value) Value { return strings.TrimFunc(display(value), isJSWhitespace) }
+
+func isJSWhitespace(r rune) bool {
+	switch r {
+	case '\t', '\n', '\v', '\f', '\r', ' ', '\u00a0', '\u1680', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff':
+		return true
+	}
+	return r >= '\u2000' && r <= '\u200a'
+}
 
 func coreTypeIs(value Value, typeName Value) Value {
 	switch display(typeName) {
@@ -1460,23 +1643,82 @@ func _core_div(left Value, right Value) Value {
 	return num(left) / d
 }
 func _core_math_abs(value Value) Value             { return math.Abs(num(value)) }
-func _core_string_utf16_units(value Value) Value { units:=utf16.Encode([]rune(display(value)));out:=[]Value{};for _,unit:=range units{out=append(out,int(unit))};return out }
-
-func _core_string_codepoint_length(value Value) Value { return len([]rune(display(value))) }
-
-// _core_string_concat_stream_text appends streamed text. Go strings hold
-// UTF-8, which has no lone surrogates (JSON decoding turns an unpaired half
-// into U+FFFD), so there is no half pair to join and plain concatenation is
-// all there is to do.
-func _core_string_concat_stream_text(left Value, right Value) Value {
-	return display(left) + display(right)
+// A lone surrogate (WTF-8, see markLoneSurrogateEscapes) is one UTF-16 unit
+// and one code point, as in a JS string.
+func _core_string_utf16_units(value Value) Value {
+	text := display(value)
+	out := []Value{}
+	for i := 0; i < len(text); {
+		if wtf8SurrogateAt(text, i, 0xA0, 0xBF) {
+			out = append(out, int(wtf8SurrogateUnit(text, i)))
+			i += 3
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(text[i:])
+		for _, unit := range utf16.Encode([]rune{r}) {
+			out = append(out, int(unit))
+		}
+		i += size
+	}
+	return out
 }
 
-// _core_string_drop_trailing_high_surrogate returns the text unchanged: a
-// UTF-8 Go string cannot end in half of a surrogate pair, so there is nothing
-// to hold back.
+func _core_string_codepoint_length(value Value) Value {
+	text := display(value)
+	count := 0
+	for i := 0; i < len(text); count++ {
+		if wtf8SurrogateAt(text, i, 0xA0, 0xBF) {
+			i += 3
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(text[i:])
+		i += size
+	}
+	return count
+}
+
+// JSON decoding keeps a lone surrogate escape (half of a pair a provider split
+// across stream events) as its 3-byte WTF-8 form: ED A0-AF xx for a high
+// surrogate and ED B0-BF xx for a low one (see markLoneSurrogateEscapes).
+func wtf8SurrogateAt(text string, at int, low, high byte) bool {
+	return at >= 0 && at+3 <= len(text) && text[at] == 0xED && text[at+1] >= low && text[at+1] <= high && text[at+2]&0xC0 == 0x80
+}
+
+func wtf8SurrogateUnit(text string, at int) rune {
+	return 0xD000 | rune(text[at+1]&0x3F)<<6 | rune(text[at+2]&0x3F)
+}
+
+// _core_string_concat_stream_text appends streamed text. As in a UTF-16
+// string (TS, Java), a high surrogate ending the text and a low one starting
+// the chunk join into the code point they make, as 4-byte UTF-8.
+func _core_string_concat_stream_text(left Value, right Value) Value {
+	text, chunk := display(left), display(right)
+	if len(text) >= 3 && wtf8SurrogateAt(text, len(text)-3, 0xA0, 0xAF) && wtf8SurrogateAt(chunk, 0, 0xB0, 0xBF) {
+		codePoint := 0x10000 + (wtf8SurrogateUnit(text, len(text)-3)-0xD800)<<10 + (wtf8SurrogateUnit(chunk, 0) - 0xDC00)
+		return text[:len(text)-3] + string(codePoint) + chunk[3:]
+	}
+	return text + chunk
+}
+
+// JoinStreamText appends a streamed chunk to text, as the AxGen stream does:
+// half of a surrogate pair a provider split across chunks (its WTF-8 bytes
+// ending text, the other half starting chunk) joins into the character. A raw
+// client Stream delta can carry such a half, so join raw deltas with
+// JoinStreamText rather than +, which would leave the two halves' WTF-8
+// bytes (not valid UTF-8) instead of the character.
+func JoinStreamText(text, chunk string) string {
+	return display(_core_string_concat_stream_text(text, chunk))
+}
+
+// _core_string_drop_trailing_high_surrogate holds back a high surrogate at the
+// end of a field's text until its pair streams in, as TS does, so no delta
+// ends in half a character.
 func _core_string_drop_trailing_high_surrogate(value Value) Value {
-	return display(value)
+	text := display(value)
+	if len(text) >= 3 && wtf8SurrogateAt(text, len(text)-3, 0xA0, 0xAF) {
+		return text[:len(text)-3]
+	}
+	return text
 }
 
 // jsDateMillis is the epoch milliseconds of a time.Time (or *time.Time), which
@@ -1994,6 +2236,9 @@ func _core_exception_is_infrastructure(err Value) Value {
 func _core_exception_is_refusal(err Value) Value {
 	return asAxError(err).Type == "AxAIRefusalError"
 }
+func _core_exception_is_validation(err Value) Value {
+	return asAxError(err).Category == "validation"
+}
 func _core_runtime_error(message Value) Value {
 	return Object("__error", "runtime", "message", display(message))
 }
@@ -2012,7 +2257,8 @@ func _core_json_parse(value Value) (Value, error) {
 func _core_json_parse_strict(value Value) (Value, error) {
 	return parseJSONErr(strings.TrimSpace(display(value)))
 }
-func _core_json_stringify(value Value) Value        { return stableStringify(value) }
+// TS JSON.stringify(value): keys in insertion order, null as null.
+func _core_json_stringify(value Value) Value        { return orderedStringify(value) }
 func _core_json_stable_stringify(value Value) Value { return stableStringify(value) }
 func _core_tool_invoke(fn Value, params Value) (Value, error) {
 	if t, ok := fn.(Tool); ok {
@@ -2079,22 +2325,54 @@ func _core_string_title_from_camel(value Value) Value {
 	}
 	return strings.ToUpper(text[:1]) + text[1:]
 }
-func _core_string_format(template Value, args ...Value) Value {
-	// Each value fills the next {} after the previous one, so a value that
-	// itself contains {} is not formatted again.
-	out := display(template)
-	cursor := 0
-	for _, arg := range args {
-		idx := strings.Index(out[cursor:], "{}")
-		if idx < 0 {
-			break
-		}
-		idx += cursor
-		text := display(arg)
-		out = out[:idx] + text + out[idx+2:]
-		cursor = idx + len(text)
+// jsText is a value's text in string.format and string.str, as every port
+// writes it: a string as is, nil as "null", a bool as "true" or "false", a
+// number as JavaScript's String(x), and a list or map as compact JSON with its
+// keys in insertion order (JSON.stringify).
+func jsText(value Value) string {
+	switch v := value.(type) {
+	case nil:
+		return "null"
+	case []Value, *AxArray, map[string]Value:
+		return orderedStringify(v)
+	default:
+		return display(v)
 	}
-	return out
+}
+
+// _core_string_format fills each {} with the next argument's jsText, from left
+// to right and inserted as is (never read as a template); {{ and }} write one
+// brace, any other brace is kept, and a {} past the last argument stays {}.
+func _core_string_format(template Value, args ...Value) Value {
+	text := display(template)
+	var out strings.Builder
+	next := 0
+	for i := 0; i < len(text); {
+		if i+1 < len(text) {
+			switch text[i : i+2] {
+			case "{{":
+				out.WriteByte('{')
+				i += 2
+				continue
+			case "}}":
+				out.WriteByte('}')
+				i += 2
+				continue
+			case "{}":
+				if next < len(args) {
+					out.WriteString(jsText(args[next]))
+					next++
+				} else {
+					out.WriteString("{}")
+				}
+				i += 2
+				continue
+			}
+		}
+		out.WriteByte(text[i])
+		i++
+	}
+	return out.String()
 }
 func _core_string_slice(value Value, start Value, rest ...Value) Value {
 	s := display(value)
@@ -2201,7 +2479,7 @@ func _core_string_split(value Value, sep Value) Value {
 func _core_string_starts_with(value Value, prefix Value) Value {
 	return strings.HasPrefix(display(value), display(prefix))
 }
-func _core_string_str(value Value) Value { return display(value) }
+func _core_string_str(value Value) Value { return jsText(value) }
 func _core_regex_replace(pattern Value, repl Value, value Value) Value {
 	return regexp.MustCompile(display(pattern)).ReplaceAllString(display(value), display(repl))
 }
@@ -2234,7 +2512,7 @@ func writePrettyJSON(b *strings.Builder, value Value, indent string) {
 	inner := indent + "  "
 	switch v := value.(type) {
 	case map[string]Value:
-		keys := orderedKeys(v)
+		keys := jsOwnKeyOrder(orderedKeys(v))
 		if len(keys) == 0 {
 			b.WriteString("{}")
 			return
@@ -6336,6 +6614,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 	var v_too_long Value
 	var v_too_short Value
 	var v_typ Value
+	var v_units Value
 	var v_url_formats Value
 	var v_valid_email Value
 	var v_valid_url Value
@@ -6363,15 +6642,17 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 	_ = v_too_long
 	_ = v_too_short
 	_ = v_typ
+	_ = v_units
 	_ = v_url_formats
 	_ = v_valid_email
 	_ = v_valid_url
 	v_typ = coreGet(v_field, "type", nil)
 	v_title = coreGet(v_field, "title", nil)
+	v_units = _core_string_utf16_units(v_value)
+	v_length = _core_len(v_units)
 	v_min_length = coreGet(v_typ, "min_length", nil)
 	v_has_min = _core_is_not_none(v_min_length)
 	if coreTruthy(v_has_min) {
-		v_length = _core_len(v_value)
 		v_too_short = _core_lt(v_length, v_min_length)
 		if coreTruthy(v_too_short) {
 			v_message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long.", v_title, v_min_length)
@@ -6386,7 +6667,6 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 	v_max_length = coreGet(v_typ, "max_length", nil)
 	v_has_max = _core_is_not_none(v_max_length)
 	if coreTruthy(v_has_max) {
-		v_length = _core_len(v_value)
 		v_too_long = _core_gt(v_length, v_max_length)
 		if coreTruthy(v_too_long) {
 			v_message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long.", v_title, v_max_length)
@@ -9830,6 +10110,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 	var v_bad_assistant Value
 	var v_bad_prompt Value
 	var v_content Value
+	var v_content_is_list Value
 	var v_empty_function_calls Value
 	var v_error Value
 	var v_function_calls Value
@@ -9847,19 +10128,44 @@ func validate_chat_request(args ...Value) (Value, error) {
 	var v_is_function Value
 	var v_is_system Value
 	var v_is_user Value
+	var v_item Value
+	var v_item_error Value
+	var v_item_index Value
+	var v_item_is_list Value
+	var v_item_is_map Value
+	var v_item_is_object Value
+	var v_item_json Value
+	var v_item_not_map Value
+	var v_item_text Value
+	var v_item_type Value
+	var v_item_type_given Value
+	var v_item_type_is_text Value
+	var v_item_type_missing Value
 	var v_message Value
 	var v_message_text Value
 	var v_missing_assistant_payload Value
+	var v_missing_role_error Value
+	var v_missing_role_text Value
+	var v_next_item_index Value
 	var v_prompt Value
 	var v_prompt_empty Value
 	var v_prompt_is_list Value
 	var v_prompt_len Value
 	var v_prompt_not_list Value
 	var v_realtime Value
+	var v_received_role Value
+	var v_received_type Value
 	var v_role Value
+	var v_role_given Value
+	var v_role_is_text Value
+	var v_role_json Value
+	var v_role_missing Value
 	var v_thought Value
 	var v_thought_blocks Value
 	var v_thought_blocks_snake Value
+	var v_type_error Value
+	var v_type_text Value
+	var v_user_items Value
 	var v_valid_left Value
 	var v_valid_right Value
 	var v_valid_role Value
@@ -9868,6 +10174,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 	_ = v_bad_assistant
 	_ = v_bad_prompt
 	_ = v_content
+	_ = v_content_is_list
 	_ = v_empty_function_calls
 	_ = v_error
 	_ = v_function_calls
@@ -9885,19 +10192,44 @@ func validate_chat_request(args ...Value) (Value, error) {
 	_ = v_is_function
 	_ = v_is_system
 	_ = v_is_user
+	_ = v_item
+	_ = v_item_error
+	_ = v_item_index
+	_ = v_item_is_list
+	_ = v_item_is_map
+	_ = v_item_is_object
+	_ = v_item_json
+	_ = v_item_not_map
+	_ = v_item_text
+	_ = v_item_type
+	_ = v_item_type_given
+	_ = v_item_type_is_text
+	_ = v_item_type_missing
 	_ = v_message
 	_ = v_message_text
 	_ = v_missing_assistant_payload
+	_ = v_missing_role_error
+	_ = v_missing_role_text
+	_ = v_next_item_index
 	_ = v_prompt
 	_ = v_prompt_empty
 	_ = v_prompt_is_list
 	_ = v_prompt_len
 	_ = v_prompt_not_list
 	_ = v_realtime
+	_ = v_received_role
+	_ = v_received_type
 	_ = v_role
+	_ = v_role_given
+	_ = v_role_is_text
+	_ = v_role_json
+	_ = v_role_missing
 	_ = v_thought
 	_ = v_thought_blocks
 	_ = v_thought_blocks_snake
+	_ = v_type_error
+	_ = v_type_text
+	_ = v_user_items
 	_ = v_valid_left
 	_ = v_valid_right
 	_ = v_valid_role
@@ -9923,6 +10255,27 @@ func validate_chat_request(args ...Value) (Value, error) {
 	}
 	for _, v_message = range coreIter(v_prompt) {
 		v_role = coreGet(v_message, "role", nil)
+		v_role_is_text = coreTypeIs(v_role, "string")
+		v_role_given = false
+		if coreTruthy(v_role_is_text) {
+			v_role_given = _core_ne(v_role, "")
+		} else {
+		// empty
+		}
+		v_role_missing = _core_not(v_role_given)
+		if coreTruthy(v_role_missing) {
+			v_received_role = "undefined"
+			if coreTruthy(v_role_is_text) {
+				v_received_role = _core_json_pretty(v_role)
+			} else {
+			// empty
+			}
+			v_missing_role_text = _core_string_format("Chat request message must have a role, received: {}", v_received_role)
+			v_missing_role_error = _core_ai_error_response(v_missing_role_text)
+			return nil, asError(v_missing_role_error)
+		} else {
+		// empty
+		}
 		v_is_system = _core_eq(v_role, "system")
 		v_is_user = _core_eq(v_role, "user")
 		v_is_assistant = _core_eq(v_role, "assistant")
@@ -9932,13 +10285,59 @@ func validate_chat_request(args ...Value) (Value, error) {
 		v_valid_role = _core_or(v_valid_left, v_valid_right)
 		v_invalid_role = _core_not(v_valid_role)
 		if coreTruthy(v_invalid_role) {
-			v_message_text = _core_string_format("Invalid chat message role: {}", v_role)
+			v_role_json = _core_json_pretty(v_role)
+			v_message_text = _core_string_format("Unsupported message role: {}", v_role_json)
 			v_error = _core_ai_error_response(v_message_text)
 			return nil, asError(v_error)
 		} else {
 		// empty
 		}
 		v_content = coreGet(v_message, "content", nil)
+		v_content_is_list = coreTypeIs(v_content, "list")
+		v_user_items = _core_and(v_is_user, v_content_is_list)
+		if coreTruthy(v_user_items) {
+			v_item_index = 0
+			for _, v_item = range coreIter(v_content) {
+				v_item_is_map = coreTypeIs(v_item, "object")
+				v_item_is_list = coreTypeIs(v_item, "list")
+				v_item_is_object = _core_or(v_item_is_map, v_item_is_list)
+				v_item_not_map = _core_not(v_item_is_object)
+				if coreTruthy(v_item_not_map) {
+					v_item_json = _core_json_pretty(v_item)
+					v_item_text = _core_string_format("User message content item at index {} must be an object, received: {}", v_item_index, v_item_json)
+					v_item_error = _core_ai_error_unsupported(v_item_text)
+					return nil, asError(v_item_error)
+				} else {
+				// empty
+				}
+				v_item_type = coreGet(v_item, "type", nil)
+				v_item_type_is_text = coreTypeIs(v_item_type, "string")
+				v_item_type_given = false
+				if coreTruthy(v_item_type_is_text) {
+					v_item_type_given = _core_ne(v_item_type, "")
+				} else {
+				// empty
+				}
+				v_item_type_missing = _core_not(v_item_type_given)
+				if coreTruthy(v_item_type_missing) {
+					v_received_type = "undefined"
+					if coreTruthy(v_item_type_is_text) {
+						v_received_type = _core_json_pretty(v_item_type)
+					} else {
+					// empty
+					}
+					v_type_text = _core_string_format("User message content item at index {} must have a type, received: {}", v_item_index, v_received_type)
+					v_type_error = _core_ai_error_unsupported(v_type_text)
+					return nil, asError(v_type_error)
+				} else {
+				// empty
+				}
+				v_next_item_index = _core_add(v_item_index, 1)
+				v_item_index = v_next_item_index
+			}
+		} else {
+		// empty
+		}
 		v_empty_function_calls = MutableArray()
 		v_function_calls_snake = coreGet(v_message, "function_calls", v_empty_function_calls)
 		v_function_calls = coreGet(v_message, "functionCalls", v_function_calls_snake)
@@ -10015,24 +10414,6 @@ func _openai_copy_config_key_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return nil, nil
-}
-
-func build_chat_request(args ...Value) (Value, error) {
-	axirCoverageMark("build_chat_request")
-	var v_service Value
-	var v_request Value
-	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_payload
-	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
-	{ v, err := openai_build_chat_request(v_request, v_options, true); if err != nil { return nil, err }; v_payload = v }
-	return v_payload, nil
 }
 
 func _openai_message_impl(args ...Value) (Value, error) {
@@ -10269,6 +10650,24 @@ func _openai_message_impl(args ...Value) (Value, error) {
 	v_message_text = _core_string_format("Invalid role: {}", v_role)
 	v_error = _core_ai_error_response(v_message_text)
 	return nil, asError(v_error)
+}
+
+func build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_chat_request")
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
+	{ v, err := openai_build_chat_request(v_request, v_options, true); if err != nil { return nil, err }; v_payload = v }
+	return v_payload, nil
 }
 
 func normalize_chat_response(args ...Value) (Value, error) {
@@ -10732,37 +11131,6 @@ func typesafe_normalize_chat_response(args ...Value) (Value, error) {
 	return v_response, nil
 }
 
-func merge_usage_context(args ...Value) (Value, error) {
-	axirCoverageMark("merge_usage_context")
-	var v_defaults Value
-	var v_overrides Value
-	var v_attributes Value
-	var v_default_attributes Value
-	var v_has_attributes Value
-	var v_merged Value
-	var v_override_attributes Value
-	if len(args) > 0 { v_defaults = args[0] }
-	_ = v_defaults
-	if len(args) > 1 { v_overrides = args[1] }
-	_ = v_overrides
-	_ = v_attributes
-	_ = v_default_attributes
-	_ = v_has_attributes
-	_ = v_merged
-	_ = v_override_attributes
-	v_merged = _core_map_merge(v_defaults, v_overrides)
-	v_default_attributes = coreGet(v_defaults, "attributes", nil)
-	v_override_attributes = coreGet(v_overrides, "attributes", nil)
-	v_attributes = _core_map_merge(v_default_attributes, v_override_attributes)
-	v_has_attributes = _core_truthy(v_attributes)
-	if coreTruthy(v_has_attributes) {
-		if err := coreSet(v_merged, "attributes", v_attributes); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_merged, nil
-}
-
 func _openai_content_part_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_content_part_impl")
 	var v_part Value
@@ -11012,6 +11380,86 @@ func _openai_content_part_impl(args ...Value) (Value, error) {
 	return nil, asError(v_error)
 }
 
+func typesafe_response_context(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_response_context")
+	var v_payload Value
+	var v_options Value
+	var v_context Value
+	var v_empty Value
+	var v_threshold Value
+	var v_threshold_snake Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_context
+	_ = v_empty
+	_ = v_threshold
+	_ = v_threshold_snake
+	v_empty = Object()
+	v_context = _core_map_merge(v_empty, v_payload)
+	v_threshold_snake = coreGet(v_options, "true_threshold", 0.5)
+	v_threshold = coreGet(v_options, "trueThreshold", v_threshold_snake)
+	if err := coreSet(v_context, "trueThreshold", v_threshold); err != nil { return nil, err }
+	return v_context, nil
+}
+
+func merge_usage_context(args ...Value) (Value, error) {
+	axirCoverageMark("merge_usage_context")
+	var v_defaults Value
+	var v_overrides Value
+	var v_attributes Value
+	var v_default_attributes Value
+	var v_has_attributes Value
+	var v_merged Value
+	var v_override_attributes Value
+	if len(args) > 0 { v_defaults = args[0] }
+	_ = v_defaults
+	if len(args) > 1 { v_overrides = args[1] }
+	_ = v_overrides
+	_ = v_attributes
+	_ = v_default_attributes
+	_ = v_has_attributes
+	_ = v_merged
+	_ = v_override_attributes
+	v_merged = _core_map_merge(v_defaults, v_overrides)
+	v_default_attributes = coreGet(v_defaults, "attributes", nil)
+	v_override_attributes = coreGet(v_overrides, "attributes", nil)
+	v_attributes = _core_map_merge(v_default_attributes, v_override_attributes)
+	v_has_attributes = _core_truthy(v_attributes)
+	if coreTruthy(v_has_attributes) {
+		if err := coreSet(v_merged, "attributes", v_attributes); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_merged, nil
+}
+
+func provider_validate_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("provider_validate_chat_request")
+	var v_profile Value
+	var v_request Value
+	var v_options Value
+	var v_canonical Value
+	var v_is_typesafe Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_canonical
+	_ = v_is_typesafe
+	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_canonical = v }
+	v_is_typesafe = _core_eq(v_canonical, "typesafe")
+	if coreTruthy(v_is_typesafe) {
+		if _, err := typesafe_build_chat_request(v_request, v_options); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
 func build_usage_event(args ...Value) (Value, error) {
 	axirCoverageMark("build_usage_event")
 	var v_operation Value
@@ -11172,53 +11620,46 @@ func build_usage_event(args ...Value) (Value, error) {
 	return v_event, nil
 }
 
-func typesafe_response_context(args ...Value) (Value, error) {
-	axirCoverageMark("typesafe_response_context")
-	var v_payload Value
-	var v_options Value
-	var v_context Value
-	var v_empty Value
-	var v_threshold Value
-	var v_threshold_snake Value
-	if len(args) > 0 { v_payload = args[0] }
-	_ = v_payload
-	if len(args) > 1 { v_options = args[1] }
-	_ = v_options
-	_ = v_context
-	_ = v_empty
-	_ = v_threshold
-	_ = v_threshold_snake
-	v_empty = Object()
-	v_context = _core_map_merge(v_empty, v_payload)
-	v_threshold_snake = coreGet(v_options, "true_threshold", 0.5)
-	v_threshold = coreGet(v_options, "trueThreshold", v_threshold_snake)
-	if err := coreSet(v_context, "trueThreshold", v_threshold); err != nil { return nil, err }
-	return v_context, nil
-}
-
-func provider_validate_chat_request(args ...Value) (Value, error) {
-	axirCoverageMark("provider_validate_chat_request")
-	var v_profile Value
-	var v_request Value
-	var v_options Value
-	var v_canonical Value
-	var v_is_typesafe Value
-	if len(args) > 0 { v_profile = args[0] }
-	_ = v_profile
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_canonical
-	_ = v_is_typesafe
-	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_canonical = v }
-	v_is_typesafe = _core_eq(v_canonical, "typesafe")
-	if coreTruthy(v_is_typesafe) {
-		if _, err := typesafe_build_chat_request(v_request, v_options); err != nil { return nil, err }
-	} else {
+func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_tool_call_to_provider_impl")
+	var v_call Value
+	var v_fn Value
+	var v_function Value
+	var v_id Value
+	var v_name Value
+	var v_out Value
+	var v_params Value
+	var v_params_is_string Value
+	var v_params_json Value
+	if len(args) > 0 { v_call = args[0] }
+	_ = v_call
+	_ = v_fn
+	_ = v_function
+	_ = v_id
+	_ = v_name
+	_ = v_out
+	_ = v_params
+	_ = v_params_is_string
+	_ = v_params_json
+	v_fn = coreGet(v_call, "function", nil)
+	v_params = coreGet(v_fn, "params", nil)
+	v_params_is_string = coreTypeIs(v_params, "string")
+	if coreTruthy(v_params_is_string) {
 	// empty
+	} else {
+		v_params_json = _core_json_stringify(v_params)
+		v_params = v_params_json
 	}
-	return nil, nil
+	v_id = coreGet(v_call, "id", nil)
+	v_name = coreGet(v_fn, "name", nil)
+	v_function = Object()
+	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_function, "arguments", v_params); err != nil { return nil, err }
+	v_out = Object()
+	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
+	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func _ai_model_usage_impl(args ...Value) (Value, error) {
@@ -11255,6 +11696,41 @@ func _ai_model_usage_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "ai", v_ai_name); err != nil { return nil, err }
 	if err := coreSet(v_out, "model", v_model); err != nil { return nil, err }
 	if err := coreSet(v_out, "tokens", v_tokens); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _openai_tool_spec_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_tool_spec_impl")
+	var v_fn Value
+	var v_description Value
+	var v_function Value
+	var v_has_parameters Value
+	var v_name Value
+	var v_out Value
+	var v_parameters Value
+	if len(args) > 0 { v_fn = args[0] }
+	_ = v_fn
+	_ = v_description
+	_ = v_function
+	_ = v_has_parameters
+	_ = v_name
+	_ = v_out
+	_ = v_parameters
+	v_name = coreGet(v_fn, "name", nil)
+	v_description = coreGet(v_fn, "description", "")
+	v_parameters = coreGet(v_fn, "parameters", nil)
+	v_function = Object()
+	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_function, "description", v_description); err != nil { return nil, err }
+	v_has_parameters = _core_truthy(v_parameters)
+	if coreTruthy(v_has_parameters) {
+		if err := coreSet(v_function, "parameters", v_parameters); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
+	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -11424,83 +11900,6 @@ func ai_merge_replay_metadata(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_tool_call_to_provider_impl")
-	var v_call Value
-	var v_fn Value
-	var v_function Value
-	var v_id Value
-	var v_name Value
-	var v_out Value
-	var v_params Value
-	var v_params_is_string Value
-	var v_params_json Value
-	if len(args) > 0 { v_call = args[0] }
-	_ = v_call
-	_ = v_fn
-	_ = v_function
-	_ = v_id
-	_ = v_name
-	_ = v_out
-	_ = v_params
-	_ = v_params_is_string
-	_ = v_params_json
-	v_fn = coreGet(v_call, "function", nil)
-	v_params = coreGet(v_fn, "params", nil)
-	v_params_is_string = coreTypeIs(v_params, "string")
-	if coreTruthy(v_params_is_string) {
-	// empty
-	} else {
-		v_params_json = _core_json_stringify(v_params)
-		v_params = v_params_json
-	}
-	v_id = coreGet(v_call, "id", nil)
-	v_name = coreGet(v_fn, "name", nil)
-	v_function = Object()
-	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_function, "arguments", v_params); err != nil { return nil, err }
-	v_out = Object()
-	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
-	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
-	return v_out, nil
-}
-
-func _openai_tool_spec_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_tool_spec_impl")
-	var v_fn Value
-	var v_description Value
-	var v_function Value
-	var v_has_parameters Value
-	var v_name Value
-	var v_out Value
-	var v_parameters Value
-	if len(args) > 0 { v_fn = args[0] }
-	_ = v_fn
-	_ = v_description
-	_ = v_function
-	_ = v_has_parameters
-	_ = v_name
-	_ = v_out
-	_ = v_parameters
-	v_name = coreGet(v_fn, "name", nil)
-	v_description = coreGet(v_fn, "description", "")
-	v_parameters = coreGet(v_fn, "parameters", nil)
-	v_function = Object()
-	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_function, "description", v_description); err != nil { return nil, err }
-	v_has_parameters = _core_truthy(v_parameters)
-	if coreTruthy(v_has_parameters) {
-		if err := coreSet(v_function, "parameters", v_parameters); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_out = Object()
-	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
-	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
-	return v_out, nil
-}
-
 func openai_build_embed_request(args ...Value) (Value, error) {
 	axirCoverageMark("openai_build_embed_request")
 	var v_request Value
@@ -11535,125 +11934,6 @@ func openai_build_embed_request(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_payload, nil
-}
-
-func _chat_result_to_completion(args ...Value) (Value, error) {
-	axirCoverageMark("_chat_result_to_completion")
-	var v_result Value
-	var v_fallback_index Value
-	var v_call Value
-	var v_calls Value
-	var v_compat_call Value
-	var v_completion Value
-	var v_content Value
-	var v_empty_calls Value
-	var v_finish Value
-	var v_finish_snake Value
-	var v_flat_name Value
-	var v_flat_params Value
-	var v_fn Value
-	var v_function_calls Value
-	var v_has_finish Value
-	var v_has_images Value
-	var v_has_phase Value
-	var v_has_thought Value
-	var v_has_thought_blocks Value
-	var v_id Value
-	var v_images Value
-	var v_index Value
-	var v_name Value
-	var v_params Value
-	var v_phase Value
-	var v_thought Value
-	var v_thought_blocks Value
-	if len(args) > 0 { v_result = args[0] }
-	_ = v_result
-	if len(args) > 1 { v_fallback_index = args[1] }
-	_ = v_fallback_index
-	_ = v_call
-	_ = v_calls
-	_ = v_compat_call
-	_ = v_completion
-	_ = v_content
-	_ = v_empty_calls
-	_ = v_finish
-	_ = v_finish_snake
-	_ = v_flat_name
-	_ = v_flat_params
-	_ = v_fn
-	_ = v_function_calls
-	_ = v_has_finish
-	_ = v_has_images
-	_ = v_has_phase
-	_ = v_has_thought
-	_ = v_has_thought_blocks
-	_ = v_id
-	_ = v_images
-	_ = v_index
-	_ = v_name
-	_ = v_params
-	_ = v_phase
-	_ = v_thought
-	_ = v_thought_blocks
-	v_content = coreGet(v_result, "content", "")
-	v_calls = MutableArray()
-	v_empty_calls = MutableArray()
-	v_function_calls = coreGet(v_result, "function_calls", v_empty_calls)
-	for _, v_call = range coreIter(v_function_calls) {
-		v_fn = coreGet(v_call, "function", nil)
-		v_id = coreGet(v_call, "id", nil)
-		v_flat_name = coreGet(v_call, "name", nil)
-		v_name = coreGet(v_fn, "name", v_flat_name)
-		v_flat_params = coreGet(v_call, "params", nil)
-		v_params = coreGet(v_fn, "params", v_flat_params)
-		v_compat_call = Object()
-		if err := coreSet(v_compat_call, "id", v_id); err != nil { return nil, err }
-		if err := coreSet(v_compat_call, "name", v_name); err != nil { return nil, err }
-		if err := coreSet(v_compat_call, "params", v_params); err != nil { return nil, err }
-		v_calls = coreAppend(v_calls, v_compat_call)
-	}
-	v_index = coreGet(v_result, "index", v_fallback_index)
-	v_thought = coreGet(v_result, "thought", nil)
-	v_has_thought = _core_is_not_none(v_thought)
-	v_thought_blocks = coreGet(v_result, "thought_blocks", nil)
-	v_has_thought_blocks = _core_is_not_none(v_thought_blocks)
-	v_completion = Object()
-	if err := coreSet(v_completion, "index", v_index); err != nil { return nil, err }
-	if err := coreSet(v_completion, "content", v_content); err != nil { return nil, err }
-	if err := coreSet(v_completion, "function_calls", v_calls); err != nil { return nil, err }
-	if coreTruthy(v_has_thought) {
-		if err := coreSet(v_completion, "thought", v_thought); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	if coreTruthy(v_has_thought_blocks) {
-		if err := coreSet(v_completion, "thought_blocks", v_thought_blocks); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_images = coreGet(v_result, "images", nil)
-	v_has_images = _core_is_not_none(v_images)
-	if coreTruthy(v_has_images) {
-		if err := coreSet(v_completion, "images", v_images); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_phase = coreGet(v_result, "phase", nil)
-	v_has_phase = _core_is_not_none(v_phase)
-	if coreTruthy(v_has_phase) {
-		if err := coreSet(v_completion, "phase", v_phase); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_finish_snake = coreGet(v_result, "finish_reason", nil)
-	v_finish = coreGet(v_result, "finishReason", v_finish_snake)
-	v_has_finish = _core_is_not_none(v_finish)
-	if coreTruthy(v_has_finish) {
-		if err := coreSet(v_completion, "finish_reason", v_finish); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_completion, nil
 }
 
 func openai_normalize_chat_response(args ...Value) (Value, error) {
@@ -11814,141 +12094,144 @@ func _openai_normalize_chat_response_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func chat_response_to_completion(args ...Value) (Value, error) {
-	axirCoverageMark("chat_response_to_completion")
-	var v_response Value
+func _chat_result_to_completion(args ...Value) (Value, error) {
+	axirCoverageMark("_chat_result_to_completion")
+	var v_result Value
+	var v_fallback_index Value
+	var v_call Value
 	var v_calls Value
+	var v_compat_call Value
 	var v_completion Value
-	var v_completions Value
 	var v_content Value
-	var v_empty_completion Value
-	var v_empty_results Value
+	var v_empty_calls Value
 	var v_finish Value
-	var v_first Value
+	var v_finish_snake Value
+	var v_flat_has_name Value
+	var v_flat_name Value
+	var v_flat_params Value
+	var v_fn Value
+	var v_fn_has_name Value
+	var v_fn_is_map Value
+	var v_function_calls Value
 	var v_has_finish Value
 	var v_has_images Value
+	var v_has_name Value
 	var v_has_phase Value
-	var v_has_response Value
-	var v_has_routing Value
-	var v_has_session_id Value
 	var v_has_thought Value
 	var v_has_thought_blocks Value
+	var v_id Value
 	var v_images Value
-	var v_model_usage Value
-	var v_next_position Value
-	var v_out Value
+	var v_index Value
+	var v_name Value
+	var v_params Value
 	var v_phase Value
-	var v_position Value
-	var v_result Value
-	var v_results Value
-	var v_router_envelope Value
-	var v_session_id Value
 	var v_thought Value
 	var v_thought_blocks Value
-	var v_usage Value
-	if len(args) > 0 { v_response = args[0] }
-	_ = v_response
+	if len(args) > 0 { v_result = args[0] }
+	_ = v_result
+	if len(args) > 1 { v_fallback_index = args[1] }
+	_ = v_fallback_index
+	_ = v_call
 	_ = v_calls
+	_ = v_compat_call
 	_ = v_completion
-	_ = v_completions
 	_ = v_content
-	_ = v_empty_completion
-	_ = v_empty_results
+	_ = v_empty_calls
 	_ = v_finish
-	_ = v_first
+	_ = v_finish_snake
+	_ = v_flat_has_name
+	_ = v_flat_name
+	_ = v_flat_params
+	_ = v_fn
+	_ = v_fn_has_name
+	_ = v_fn_is_map
+	_ = v_function_calls
 	_ = v_has_finish
 	_ = v_has_images
+	_ = v_has_name
 	_ = v_has_phase
-	_ = v_has_response
-	_ = v_has_routing
-	_ = v_has_session_id
 	_ = v_has_thought
 	_ = v_has_thought_blocks
+	_ = v_id
 	_ = v_images
-	_ = v_model_usage
-	_ = v_next_position
-	_ = v_out
+	_ = v_index
+	_ = v_name
+	_ = v_params
 	_ = v_phase
-	_ = v_position
-	_ = v_result
-	_ = v_results
-	_ = v_router_envelope
-	_ = v_session_id
 	_ = v_thought
 	_ = v_thought_blocks
-	_ = v_usage
-	v_has_routing = _core_map_contains(v_response, "routing")
-	v_has_response = _core_map_contains(v_response, "response")
-	v_router_envelope = _core_and(v_has_routing, v_has_response)
-	if coreTruthy(v_router_envelope) {
-		v_response = coreGet(v_response, "response", nil)
-	} else {
-	// empty
+	v_content = coreGet(v_result, "content", "")
+	v_calls = MutableArray()
+	v_empty_calls = MutableArray()
+	v_function_calls = coreGet(v_result, "function_calls", v_empty_calls)
+	for _, v_call = range coreIter(v_function_calls) {
+		v_fn = coreGet(v_call, "function", nil)
+		v_id = coreGet(v_call, "id", nil)
+		v_flat_name = coreGet(v_call, "name", nil)
+		v_name = coreGet(v_fn, "name", v_flat_name)
+		v_flat_params = coreGet(v_call, "params", nil)
+		v_params = coreGet(v_fn, "params", v_flat_params)
+		v_fn_is_map = coreTypeIs(v_fn, "object")
+		v_fn_has_name = false
+		if coreTruthy(v_fn_is_map) {
+			v_fn_has_name = _core_map_contains(v_fn, "name")
+		} else {
+		// empty
+		}
+		v_flat_has_name = _core_map_contains(v_call, "name")
+		v_has_name = _core_or(v_fn_has_name, v_flat_has_name)
+		v_compat_call = Object()
+		if err := coreSet(v_compat_call, "id", v_id); err != nil { return nil, err }
+		if coreTruthy(v_has_name) {
+			if err := coreSet(v_compat_call, "name", v_name); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		if err := coreSet(v_compat_call, "params", v_params); err != nil { return nil, err }
+		v_calls = coreAppend(v_calls, v_compat_call)
 	}
-	v_empty_results = MutableArray()
-	v_results = coreGet(v_response, "results", v_empty_results)
-	v_completions = MutableArray()
-	v_position = 0
-	for _, v_result = range coreIter(v_results) {
-		{ v, err := _chat_result_to_completion(v_result, v_position); if err != nil { return nil, err }; v_completion = v }
-		v_completions = coreAppend(v_completions, v_completion)
-		v_next_position = _core_add(v_position, 1)
-		v_position = v_next_position
-	}
-	v_empty_completion = Object()
-	v_first = _core_list_get(v_completions, 0, v_empty_completion)
-	v_content = coreGet(v_first, "content", "")
-	v_calls = coreGet(v_first, "function_calls", v_empty_results)
-	v_model_usage = coreGet(v_response, "model_usage", nil)
-	v_usage = coreGet(v_model_usage, "tokens", nil)
-	v_thought = coreGet(v_first, "thought", nil)
+	v_index = coreGet(v_result, "index", v_fallback_index)
+	v_thought = coreGet(v_result, "thought", nil)
 	v_has_thought = _core_is_not_none(v_thought)
-	v_thought_blocks = coreGet(v_first, "thought_blocks", nil)
+	v_thought_blocks = coreGet(v_result, "thought_blocks", nil)
 	v_has_thought_blocks = _core_is_not_none(v_thought_blocks)
-	v_out = Object()
-	if err := coreSet(v_out, "content", v_content); err != nil { return nil, err }
-	if err := coreSet(v_out, "function_calls", v_calls); err != nil { return nil, err }
-	if err := coreSet(v_out, "results", v_completions); err != nil { return nil, err }
-	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
+	v_completion = Object()
+	if err := coreSet(v_completion, "index", v_index); err != nil { return nil, err }
+	if err := coreSet(v_completion, "content", v_content); err != nil { return nil, err }
+	if err := coreSet(v_completion, "function_calls", v_calls); err != nil { return nil, err }
 	if coreTruthy(v_has_thought) {
-		if err := coreSet(v_out, "thought", v_thought); err != nil { return nil, err }
+		if err := coreSet(v_completion, "thought", v_thought); err != nil { return nil, err }
 	} else {
 	// empty
 	}
 	if coreTruthy(v_has_thought_blocks) {
-		if err := coreSet(v_out, "thought_blocks", v_thought_blocks); err != nil { return nil, err }
+		if err := coreSet(v_completion, "thought_blocks", v_thought_blocks); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	v_session_id = coreGet(v_response, "__session_response_id", nil)
-	v_has_session_id = _core_is_not_none(v_session_id)
-	if coreTruthy(v_has_session_id) {
-		if err := coreSet(v_out, "remote_id", v_session_id); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_images = coreGet(v_first, "images", nil)
+	v_images = coreGet(v_result, "images", nil)
 	v_has_images = _core_is_not_none(v_images)
 	if coreTruthy(v_has_images) {
-		if err := coreSet(v_out, "images", v_images); err != nil { return nil, err }
+		if err := coreSet(v_completion, "images", v_images); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	v_phase = coreGet(v_first, "phase", nil)
+	v_phase = coreGet(v_result, "phase", nil)
 	v_has_phase = _core_is_not_none(v_phase)
 	if coreTruthy(v_has_phase) {
-		if err := coreSet(v_out, "phase", v_phase); err != nil { return nil, err }
+		if err := coreSet(v_completion, "phase", v_phase); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	v_finish = coreGet(v_first, "finish_reason", nil)
+	v_finish_snake = coreGet(v_result, "finish_reason", nil)
+	v_finish = coreGet(v_result, "finishReason", v_finish_snake)
 	v_has_finish = _core_is_not_none(v_finish)
 	if coreTruthy(v_has_finish) {
-		if err := coreSet(v_out, "finish_reason", v_finish); err != nil { return nil, err }
+		if err := coreSet(v_completion, "finish_reason", v_finish); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	return v_out, nil
+	return v_completion, nil
 }
 
 func _openai_normalize_choice_impl(args ...Value) (Value, error) {
@@ -12114,6 +12397,205 @@ func _openai_normalize_choice_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func chat_response_to_completion(args ...Value) (Value, error) {
+	axirCoverageMark("chat_response_to_completion")
+	var v_response Value
+	var v_calls Value
+	var v_completion Value
+	var v_completions Value
+	var v_content Value
+	var v_empty_completion Value
+	var v_empty_results Value
+	var v_finish Value
+	var v_first Value
+	var v_has_finish Value
+	var v_has_images Value
+	var v_has_phase Value
+	var v_has_response Value
+	var v_has_routing Value
+	var v_has_session_id Value
+	var v_has_thought Value
+	var v_has_thought_blocks Value
+	var v_images Value
+	var v_model_usage Value
+	var v_next_position Value
+	var v_out Value
+	var v_phase Value
+	var v_position Value
+	var v_result Value
+	var v_results Value
+	var v_router_envelope Value
+	var v_session_id Value
+	var v_thought Value
+	var v_thought_blocks Value
+	var v_usage Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	_ = v_calls
+	_ = v_completion
+	_ = v_completions
+	_ = v_content
+	_ = v_empty_completion
+	_ = v_empty_results
+	_ = v_finish
+	_ = v_first
+	_ = v_has_finish
+	_ = v_has_images
+	_ = v_has_phase
+	_ = v_has_response
+	_ = v_has_routing
+	_ = v_has_session_id
+	_ = v_has_thought
+	_ = v_has_thought_blocks
+	_ = v_images
+	_ = v_model_usage
+	_ = v_next_position
+	_ = v_out
+	_ = v_phase
+	_ = v_position
+	_ = v_result
+	_ = v_results
+	_ = v_router_envelope
+	_ = v_session_id
+	_ = v_thought
+	_ = v_thought_blocks
+	_ = v_usage
+	v_has_routing = _core_map_contains(v_response, "routing")
+	v_has_response = _core_map_contains(v_response, "response")
+	v_router_envelope = _core_and(v_has_routing, v_has_response)
+	if coreTruthy(v_router_envelope) {
+		v_response = coreGet(v_response, "response", nil)
+	} else {
+	// empty
+	}
+	v_empty_results = MutableArray()
+	v_results = coreGet(v_response, "results", v_empty_results)
+	v_completions = MutableArray()
+	v_position = 0
+	for _, v_result = range coreIter(v_results) {
+		{ v, err := _chat_result_to_completion(v_result, v_position); if err != nil { return nil, err }; v_completion = v }
+		v_completions = coreAppend(v_completions, v_completion)
+		v_next_position = _core_add(v_position, 1)
+		v_position = v_next_position
+	}
+	v_empty_completion = Object()
+	v_first = _core_list_get(v_completions, 0, v_empty_completion)
+	v_content = coreGet(v_first, "content", "")
+	v_calls = coreGet(v_first, "function_calls", v_empty_results)
+	v_model_usage = coreGet(v_response, "model_usage", nil)
+	v_usage = coreGet(v_model_usage, "tokens", nil)
+	v_thought = coreGet(v_first, "thought", nil)
+	v_has_thought = _core_is_not_none(v_thought)
+	v_thought_blocks = coreGet(v_first, "thought_blocks", nil)
+	v_has_thought_blocks = _core_is_not_none(v_thought_blocks)
+	v_out = Object()
+	if err := coreSet(v_out, "content", v_content); err != nil { return nil, err }
+	if err := coreSet(v_out, "function_calls", v_calls); err != nil { return nil, err }
+	if err := coreSet(v_out, "results", v_completions); err != nil { return nil, err }
+	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
+	if coreTruthy(v_has_thought) {
+		if err := coreSet(v_out, "thought", v_thought); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_has_thought_blocks) {
+		if err := coreSet(v_out, "thought_blocks", v_thought_blocks); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_session_id = coreGet(v_response, "__session_response_id", nil)
+	v_has_session_id = _core_is_not_none(v_session_id)
+	if coreTruthy(v_has_session_id) {
+		if err := coreSet(v_out, "remote_id", v_session_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_images = coreGet(v_first, "images", nil)
+	v_has_images = _core_is_not_none(v_images)
+	if coreTruthy(v_has_images) {
+		if err := coreSet(v_out, "images", v_images); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_phase = coreGet(v_first, "phase", nil)
+	v_has_phase = _core_is_not_none(v_phase)
+	if coreTruthy(v_has_phase) {
+		if err := coreSet(v_out, "phase", v_phase); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_finish = coreGet(v_first, "finish_reason", nil)
+	v_has_finish = _core_is_not_none(v_finish)
+	if coreTruthy(v_has_finish) {
+		if err := coreSet(v_out, "finish_reason", v_finish); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
+func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_normalize_tool_calls_impl")
+	var v_calls Value
+	var v_call Value
+	var v_fn Value
+	var v_function Value
+	var v_id Value
+	var v_name Value
+	var v_normalized Value
+	var v_out Value
+	var v_params Value
+	var v_params_is_string Value
+	var v_parse_error Value
+	var v_parsed_params Value
+	if len(args) > 0 { v_calls = args[0] }
+	_ = v_calls
+	_ = v_call
+	_ = v_fn
+	_ = v_function
+	_ = v_id
+	_ = v_name
+	_ = v_normalized
+	_ = v_out
+	_ = v_params
+	_ = v_params_is_string
+	_ = v_parse_error
+	_ = v_parsed_params
+	v_out = MutableArray()
+	for _, v_call = range coreIter(v_calls) {
+		v_fn = coreGet(v_call, "function", nil)
+		v_params = coreGet(v_fn, "arguments", nil)
+		v_params_is_string = coreTypeIs(v_params, "string")
+		if coreTruthy(v_params_is_string) {
+			{
+				__flow, __err := func() (coreFlow, error) {
+					{ v, err := _core_json_parse(v_params); if err != nil { return coreFlow{}, err }; v_parsed_params = v }
+					v_params = v_parsed_params
+					return coreFlow{}, nil
+				}()
+				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+				if __err != nil {
+					v_parse_error = errorValue(__err)
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		v_id = coreGet(v_call, "id", nil)
+		v_name = coreGet(v_fn, "name", nil)
+		v_function = Object()
+		if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+		if err := coreSet(v_function, "params", v_params); err != nil { return nil, err }
+		v_normalized = Object()
+		if err := coreSet(v_normalized, "id", v_id); err != nil { return nil, err }
+		if err := coreSet(v_normalized, "type", "function"); err != nil { return nil, err }
+		if err := coreSet(v_normalized, "function", v_function); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_normalized)
+	}
+	return v_out, nil
+}
+
 func ai_context_cache_rejection(args ...Value) (Value, error) {
 	axirCoverageMark("ai_context_cache_rejection")
 	var v_status Value
@@ -12200,6 +12682,55 @@ func ai_context_cache_rejection(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _openai_finish_reason_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_finish_reason_impl")
+	var v_value Value
+	var v_is_call Value
+	var v_is_content_filter Value
+	var v_is_function_call Value
+	var v_is_length Value
+	var v_is_stop Value
+	var v_is_tool_calls Value
+	var v_none Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_is_call
+	_ = v_is_content_filter
+	_ = v_is_function_call
+	_ = v_is_length
+	_ = v_is_stop
+	_ = v_is_tool_calls
+	_ = v_none
+	v_is_stop = _core_eq(v_value, "stop")
+	if coreTruthy(v_is_stop) {
+		return "stop", nil
+	} else {
+	// empty
+	}
+	v_is_length = _core_eq(v_value, "length")
+	if coreTruthy(v_is_length) {
+		return "length", nil
+	} else {
+	// empty
+	}
+	v_is_content_filter = _core_eq(v_value, "content_filter")
+	if coreTruthy(v_is_content_filter) {
+		return "error", nil
+	} else {
+	// empty
+	}
+	v_is_tool_calls = _core_eq(v_value, "tool_calls")
+	v_is_function_call = _core_eq(v_value, "function_call")
+	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
+	if coreTruthy(v_is_call) {
+		return "function_call", nil
+	} else {
+	// empty
+	}
+	v_none = _core_none()
+	return v_none, nil
+}
+
 func ai_context_cache_expiry(args ...Value) (Value, error) {
 	axirCoverageMark("ai_context_cache_expiry")
 	var v_provider_expire_time Value
@@ -12226,65 +12757,58 @@ func ai_context_cache_expiry(args ...Value) (Value, error) {
 	return 0, nil
 }
 
-func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_normalize_tool_calls_impl")
-	var v_calls Value
-	var v_call Value
-	var v_fn Value
-	var v_function Value
-	var v_id Value
-	var v_name Value
-	var v_normalized Value
+func openai_normalize_embed_response(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_embed_response")
+	var v_raw Value
+	var v_ai_name Value
+	var v_model Value
+	var v_data Value
+	var v_embedding Value
+	var v_embeddings Value
+	var v_empty_data Value
+	var v_item Value
+	var v_model_usage Value
 	var v_out Value
-	var v_params Value
-	var v_params_is_string Value
-	var v_parse_error Value
-	var v_parsed_params Value
-	if len(args) > 0 { v_calls = args[0] }
-	_ = v_calls
-	_ = v_call
-	_ = v_fn
-	_ = v_function
-	_ = v_id
-	_ = v_name
-	_ = v_normalized
+	var v_raw_model Value
+	var v_raw_usage Value
+	var v_remote_id Value
+	var v_usage Value
+	var v_used_model Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_ai_name = args[1] }
+	_ = v_ai_name
+	if len(args) > 2 { v_model = args[2] }
+	_ = v_model
+	_ = v_data
+	_ = v_embedding
+	_ = v_embeddings
+	_ = v_empty_data
+	_ = v_item
+	_ = v_model_usage
 	_ = v_out
-	_ = v_params
-	_ = v_params_is_string
-	_ = v_parse_error
-	_ = v_parsed_params
-	v_out = MutableArray()
-	for _, v_call = range coreIter(v_calls) {
-		v_fn = coreGet(v_call, "function", nil)
-		v_params = coreGet(v_fn, "arguments", nil)
-		v_params_is_string = coreTypeIs(v_params, "string")
-		if coreTruthy(v_params_is_string) {
-			{
-				__flow, __err := func() (coreFlow, error) {
-					{ v, err := _core_json_parse(v_params); if err != nil { return coreFlow{}, err }; v_parsed_params = v }
-					v_params = v_parsed_params
-					return coreFlow{}, nil
-				}()
-				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-				if __err != nil {
-					v_parse_error = errorValue(__err)
-				// empty
-				}
-			}
-		} else {
-		// empty
-		}
-		v_id = coreGet(v_call, "id", nil)
-		v_name = coreGet(v_fn, "name", nil)
-		v_function = Object()
-		if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-		if err := coreSet(v_function, "params", v_params); err != nil { return nil, err }
-		v_normalized = Object()
-		if err := coreSet(v_normalized, "id", v_id); err != nil { return nil, err }
-		if err := coreSet(v_normalized, "type", "function"); err != nil { return nil, err }
-		if err := coreSet(v_normalized, "function", v_function); err != nil { return nil, err }
-		v_out = coreAppend(v_out, v_normalized)
+	_ = v_raw_model
+	_ = v_raw_usage
+	_ = v_remote_id
+	_ = v_usage
+	_ = v_used_model
+	v_embeddings = MutableArray()
+	v_empty_data = MutableArray()
+	v_data = coreGet(v_raw, "data", v_empty_data)
+	for _, v_item = range coreIter(v_data) {
+		v_embedding = coreGet(v_item, "embedding", nil)
+		v_embeddings = coreAppend(v_embeddings, v_embedding)
 	}
+	v_raw_model = coreGet(v_raw, "model", nil)
+	v_used_model = _core_coalesce(v_raw_model, v_model)
+	v_raw_usage = coreGet(v_raw, "usage", nil)
+	{ v, err := _openai_usage_with_service_tier(v_raw, v_raw_usage); if err != nil { return nil, err }; v_usage = v }
+	{ v, err := _ai_model_usage_impl(v_ai_name, v_used_model, v_usage); if err != nil { return nil, err }; v_model_usage = v }
+	v_remote_id = coreGet(v_raw, "id", nil)
+	v_out = Object()
+	if err := coreSet(v_out, "embeddings", v_embeddings); err != nil { return nil, err }
+	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -12389,290 +12913,6 @@ func ai_context_cache_plan(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	return v_out, nil
-}
-
-func _openai_finish_reason_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_finish_reason_impl")
-	var v_value Value
-	var v_is_call Value
-	var v_is_content_filter Value
-	var v_is_function_call Value
-	var v_is_length Value
-	var v_is_stop Value
-	var v_is_tool_calls Value
-	var v_none Value
-	if len(args) > 0 { v_value = args[0] }
-	_ = v_value
-	_ = v_is_call
-	_ = v_is_content_filter
-	_ = v_is_function_call
-	_ = v_is_length
-	_ = v_is_stop
-	_ = v_is_tool_calls
-	_ = v_none
-	v_is_stop = _core_eq(v_value, "stop")
-	if coreTruthy(v_is_stop) {
-		return "stop", nil
-	} else {
-	// empty
-	}
-	v_is_length = _core_eq(v_value, "length")
-	if coreTruthy(v_is_length) {
-		return "length", nil
-	} else {
-	// empty
-	}
-	v_is_content_filter = _core_eq(v_value, "content_filter")
-	if coreTruthy(v_is_content_filter) {
-		return "error", nil
-	} else {
-	// empty
-	}
-	v_is_tool_calls = _core_eq(v_value, "tool_calls")
-	v_is_function_call = _core_eq(v_value, "function_call")
-	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
-	if coreTruthy(v_is_call) {
-		return "function_call", nil
-	} else {
-	// empty
-	}
-	v_none = _core_none()
-	return v_none, nil
-}
-
-func ai_context_cache_recovery(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_recovery")
-	var v_current_entry Value
-	var v_cache_name Value
-	var v_external_registry Value
-	var v_current_name Value
-	var v_empty Value
-	var v_entry_object Value
-	var v_matches Value
-	var v_out Value
-	var v_tombstone Value
-	if len(args) > 0 { v_current_entry = args[0] }
-	_ = v_current_entry
-	if len(args) > 1 { v_cache_name = args[1] }
-	_ = v_cache_name
-	if len(args) > 2 { v_external_registry = args[2] }
-	_ = v_external_registry
-	_ = v_current_name
-	_ = v_empty
-	_ = v_entry_object
-	_ = v_matches
-	_ = v_out
-	_ = v_tombstone
-	v_out = Object()
-	if err := coreSet(v_out, "invalidated", false); err != nil { return nil, err }
-	if err := coreSet(v_out, "deleteInMemory", false); err != nil { return nil, err }
-	v_entry_object = coreTypeIs(v_current_entry, "object")
-	if coreTruthy(v_entry_object) {
-		v_current_name = coreGet(v_current_entry, "cacheName", "")
-		v_matches = _core_eq(v_current_name, v_cache_name)
-		if coreTruthy(v_matches) {
-			if err := coreSet(v_out, "invalidated", true); err != nil { return nil, err }
-			if coreTruthy(v_external_registry) {
-				v_empty = Object()
-				v_tombstone = _core_map_merge(v_current_entry, v_empty)
-				if err := coreSet(v_tombstone, "expiresAt", 0); err != nil { return nil, err }
-				if err := coreSet(v_out, "externalEntry", v_tombstone); err != nil { return nil, err }
-			} else {
-				if err := coreSet(v_out, "deleteInMemory", true); err != nil { return nil, err }
-			}
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	return v_out, nil
-}
-
-func openai_normalize_embed_response(args ...Value) (Value, error) {
-	axirCoverageMark("openai_normalize_embed_response")
-	var v_raw Value
-	var v_ai_name Value
-	var v_model Value
-	var v_data Value
-	var v_embedding Value
-	var v_embeddings Value
-	var v_empty_data Value
-	var v_item Value
-	var v_model_usage Value
-	var v_out Value
-	var v_raw_model Value
-	var v_raw_usage Value
-	var v_remote_id Value
-	var v_usage Value
-	var v_used_model Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_ai_name = args[1] }
-	_ = v_ai_name
-	if len(args) > 2 { v_model = args[2] }
-	_ = v_model
-	_ = v_data
-	_ = v_embedding
-	_ = v_embeddings
-	_ = v_empty_data
-	_ = v_item
-	_ = v_model_usage
-	_ = v_out
-	_ = v_raw_model
-	_ = v_raw_usage
-	_ = v_remote_id
-	_ = v_usage
-	_ = v_used_model
-	v_embeddings = MutableArray()
-	v_empty_data = MutableArray()
-	v_data = coreGet(v_raw, "data", v_empty_data)
-	for _, v_item = range coreIter(v_data) {
-		v_embedding = coreGet(v_item, "embedding", nil)
-		v_embeddings = coreAppend(v_embeddings, v_embedding)
-	}
-	v_raw_model = coreGet(v_raw, "model", nil)
-	v_used_model = _core_coalesce(v_raw_model, v_model)
-	v_raw_usage = coreGet(v_raw, "usage", nil)
-	{ v, err := _openai_usage_with_service_tier(v_raw, v_raw_usage); if err != nil { return nil, err }; v_usage = v }
-	{ v, err := _ai_model_usage_impl(v_ai_name, v_used_model, v_usage); if err != nil { return nil, err }; v_model_usage = v }
-	v_remote_id = coreGet(v_raw, "id", nil)
-	v_out = Object()
-	if err := coreSet(v_out, "embeddings", v_embeddings); err != nil { return nil, err }
-	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
-	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
-	return v_out, nil
-}
-
-func ai_gemini_cache_ops(args ...Value) (Value, error) {
-	axirCoverageMark("ai_gemini_cache_ops")
-	var v_cache_name Value
-	var v_ttl_seconds Value
-	var v_api_key Value
-	var v_model Value
-	var v_create_body Value
-	var v_options Value
-	var v_cache_base_url Value
-	var v_create Value
-	var v_create_copy Value
-	var v_create_is_object Value
-	var v_create_path Value
-	var v_create_request Value
-	var v_delete_op Value
-	var v_delete_path Value
-	var v_descriptor Value
-	var v_empty Value
-	var v_empty_request Value
-	var v_has_cache_base_url Value
-	var v_is_vertex Value
-	var v_model_resource Value
-	var v_out Value
-	var v_parent Value
-	var v_ttl Value
-	var v_update Value
-	var v_update_path Value
-	var v_update_request Value
-	if len(args) > 0 { v_cache_name = args[0] }
-	_ = v_cache_name
-	if len(args) > 1 { v_ttl_seconds = args[1] }
-	_ = v_ttl_seconds
-	if len(args) > 2 { v_api_key = args[2] }
-	_ = v_api_key
-	if len(args) > 3 { v_model = args[3] }
-	_ = v_model
-	if len(args) > 4 { v_create_body = args[4] }
-	_ = v_create_body
-	if len(args) > 5 { v_options = args[5] }
-	_ = v_options
-	_ = v_cache_base_url
-	_ = v_create
-	_ = v_create_copy
-	_ = v_create_is_object
-	_ = v_create_path
-	_ = v_create_request
-	_ = v_delete_op
-	_ = v_delete_path
-	_ = v_descriptor
-	_ = v_empty
-	_ = v_empty_request
-	_ = v_has_cache_base_url
-	_ = v_is_vertex
-	_ = v_model_resource
-	_ = v_out
-	_ = v_parent
-	_ = v_ttl
-	_ = v_update
-	_ = v_update_path
-	_ = v_update_request
-	v_ttl = _core_string_format("{}s", v_ttl_seconds)
-	{ v, err := provider_resolve_descriptor("google-gemini", v_options); if err != nil { return nil, err }; v_descriptor = v }
-	v_is_vertex = coreGet(v_descriptor, "vertex", false)
-	v_create_path = "/cachedContents"
-	v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
-	v_delete_path = _core_string_format("/{}", v_cache_name)
-	if coreTruthy(v_is_vertex) {
-		v_parent = coreGet(v_descriptor, "vertexParent", "")
-		v_create_path = _core_string_format("/{}/cachedContents", v_parent)
-		v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
-		v_delete_path = _core_string_format("/{}", v_cache_name)
-	} else {
-	// empty
-	}
-	v_create_request = Object()
-	v_create_is_object = coreTypeIs(v_create_body, "object")
-	if coreTruthy(v_create_is_object) {
-		v_empty = Object()
-		v_create_copy = _core_map_merge(v_create_body, v_empty)
-		v_create_request = v_create_copy
-	} else {
-	// empty
-	}
-	v_model_resource = _core_string_format("models/{}", v_model)
-	if coreTruthy(v_is_vertex) {
-		v_parent = coreGet(v_descriptor, "vertexParent", "")
-		v_model_resource = _core_string_format("{}/publishers/google/models/{}", v_parent, v_model)
-	} else {
-	// empty
-	}
-	if err := coreSet(v_create_request, "model", v_model_resource); err != nil { return nil, err }
-	if err := coreSet(v_create_request, "ttl", v_ttl); err != nil { return nil, err }
-	v_update_request = Object()
-	if err := coreSet(v_update_request, "ttl", v_ttl); err != nil { return nil, err }
-	v_empty_request = Object()
-	v_create = Object()
-	if err := coreSet(v_create, "method", "POST"); err != nil { return nil, err }
-	if err := coreSet(v_create, "path", v_create_path); err != nil { return nil, err }
-	if err := coreSet(v_create, "request", v_create_request); err != nil { return nil, err }
-	v_cache_base_url = coreGet(v_descriptor, "vertexCacheBaseUrl", nil)
-	v_has_cache_base_url = _core_truthy(v_cache_base_url)
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_create, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_update = Object()
-	if err := coreSet(v_update, "method", "PATCH"); err != nil { return nil, err }
-	if err := coreSet(v_update, "path", v_update_path); err != nil { return nil, err }
-	if err := coreSet(v_update, "request", v_update_request); err != nil { return nil, err }
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_update, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_delete_op = Object()
-	if err := coreSet(v_delete_op, "method", "DELETE"); err != nil { return nil, err }
-	if err := coreSet(v_delete_op, "path", v_delete_path); err != nil { return nil, err }
-	if err := coreSet(v_delete_op, "request", v_empty_request); err != nil { return nil, err }
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_delete_op, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_out = Object()
-	if err := coreSet(v_out, "create", v_create); err != nil { return nil, err }
-	if err := coreSet(v_out, "update", v_update); err != nil { return nil, err }
-	if err := coreSet(v_out, "delete", v_delete_op); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -12815,115 +13055,184 @@ func _openai_normalize_stream_delta_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func fold_chat_response_stream(args ...Value) (Value, error) {
-	axirCoverageMark("fold_chat_response_stream")
-	var v_events Value
-	var v_candidate Value
-	var v_candidate_index Value
-	var v_chunk Value
-	var v_chunks Value
-	var v_empty_chunks Value
-	var v_event Value
-	var v_event_usage Value
-	var v_found_usage Value
-	var v_has_response Value
-	var v_has_routing Value
-	var v_has_usage Value
-	var v_index Value
-	var v_missing_target Value
-	var v_new_calls Value
-	var v_new_target Value
-	var v_raw_event Value
-	var v_response Value
-	var v_results Value
-	var v_router_envelope Value
-	var v_same_index Value
-	var v_target Value
-	var v_usage Value
-	var v_usage_snake Value
-	if len(args) > 0 { v_events = args[0] }
-	_ = v_events
-	_ = v_candidate
-	_ = v_candidate_index
-	_ = v_chunk
-	_ = v_chunks
-	_ = v_empty_chunks
-	_ = v_event
-	_ = v_event_usage
-	_ = v_found_usage
-	_ = v_has_response
-	_ = v_has_routing
-	_ = v_has_usage
-	_ = v_index
-	_ = v_missing_target
-	_ = v_new_calls
-	_ = v_new_target
-	_ = v_raw_event
-	_ = v_response
-	_ = v_results
-	_ = v_router_envelope
-	_ = v_same_index
-	_ = v_target
-	_ = v_usage
-	_ = v_usage_snake
-	v_results = MutableArray()
-	v_usage = _core_none()
-	for _, v_raw_event = range coreIter(v_events) {
-		v_event = v_raw_event
-		v_has_routing = _core_map_contains(v_raw_event, "routing")
-		v_has_response = _core_map_contains(v_raw_event, "response")
-		v_router_envelope = _core_and(v_has_routing, v_has_response)
-		if coreTruthy(v_router_envelope) {
-			v_event = coreGet(v_raw_event, "response", nil)
-		} else {
-		// empty
-		}
-		v_empty_chunks = MutableArray()
-		v_chunks = coreGet(v_event, "results", v_empty_chunks)
-		for _, v_chunk = range coreIter(v_chunks) {
-			v_index = coreGet(v_chunk, "index", 0)
-			v_target = _core_none()
-			for _, v_candidate = range coreIter(v_results) {
-				v_candidate_index = coreGet(v_candidate, "index", nil)
-				v_same_index = _core_eq(v_candidate_index, v_index)
-				if coreTruthy(v_same_index) {
-					v_target = v_candidate
-				} else {
-				// empty
-				}
-			}
-			v_missing_target = _core_is_none(v_target)
-			if coreTruthy(v_missing_target) {
-				v_new_target = Object()
-				if err := coreSet(v_new_target, "index", v_index); err != nil { return nil, err }
-				if err := coreSet(v_new_target, "content", ""); err != nil { return nil, err }
-				v_new_calls = MutableArray()
-				if err := coreSet(v_new_target, "function_calls", v_new_calls); err != nil { return nil, err }
-				v_results = coreAppend(v_results, v_new_target)
-				v_target = v_new_target
+func ai_context_cache_recovery(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_recovery")
+	var v_current_entry Value
+	var v_cache_name Value
+	var v_external_registry Value
+	var v_current_name Value
+	var v_empty Value
+	var v_entry_object Value
+	var v_matches Value
+	var v_out Value
+	var v_tombstone Value
+	if len(args) > 0 { v_current_entry = args[0] }
+	_ = v_current_entry
+	if len(args) > 1 { v_cache_name = args[1] }
+	_ = v_cache_name
+	if len(args) > 2 { v_external_registry = args[2] }
+	_ = v_external_registry
+	_ = v_current_name
+	_ = v_empty
+	_ = v_entry_object
+	_ = v_matches
+	_ = v_out
+	_ = v_tombstone
+	v_out = Object()
+	if err := coreSet(v_out, "invalidated", false); err != nil { return nil, err }
+	if err := coreSet(v_out, "deleteInMemory", false); err != nil { return nil, err }
+	v_entry_object = coreTypeIs(v_current_entry, "object")
+	if coreTruthy(v_entry_object) {
+		v_current_name = coreGet(v_current_entry, "cacheName", "")
+		v_matches = _core_eq(v_current_name, v_cache_name)
+		if coreTruthy(v_matches) {
+			if err := coreSet(v_out, "invalidated", true); err != nil { return nil, err }
+			if coreTruthy(v_external_registry) {
+				v_empty = Object()
+				v_tombstone = _core_map_merge(v_current_entry, v_empty)
+				if err := coreSet(v_tombstone, "expiresAt", 0); err != nil { return nil, err }
+				if err := coreSet(v_out, "externalEntry", v_tombstone); err != nil { return nil, err }
 			} else {
-			// empty
+				if err := coreSet(v_out, "deleteInMemory", true); err != nil { return nil, err }
 			}
-			if _, err := _fold_chat_stream_chunk_impl(v_target, v_chunk); err != nil { return nil, err }
-		}
-		v_usage_snake = coreGet(v_event, "model_usage", nil)
-		v_event_usage = coreGet(v_event, "modelUsage", v_usage_snake)
-		v_has_usage = _core_is_not_none(v_event_usage)
-		if coreTruthy(v_has_usage) {
-			v_usage = v_event_usage
 		} else {
 		// empty
 		}
-	}
-	v_response = Object()
-	if err := coreSet(v_response, "results", v_results); err != nil { return nil, err }
-	v_found_usage = _core_is_not_none(v_usage)
-	if coreTruthy(v_found_usage) {
-		if err := coreSet(v_response, "model_usage", v_usage); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	return v_response, nil
+	return v_out, nil
+}
+
+func ai_gemini_cache_ops(args ...Value) (Value, error) {
+	axirCoverageMark("ai_gemini_cache_ops")
+	var v_cache_name Value
+	var v_ttl_seconds Value
+	var v_api_key Value
+	var v_model Value
+	var v_create_body Value
+	var v_options Value
+	var v_cache_base_url Value
+	var v_create Value
+	var v_create_copy Value
+	var v_create_is_object Value
+	var v_create_path Value
+	var v_create_request Value
+	var v_delete_op Value
+	var v_delete_path Value
+	var v_descriptor Value
+	var v_empty Value
+	var v_empty_request Value
+	var v_has_cache_base_url Value
+	var v_is_vertex Value
+	var v_model_resource Value
+	var v_out Value
+	var v_parent Value
+	var v_ttl Value
+	var v_update Value
+	var v_update_path Value
+	var v_update_request Value
+	if len(args) > 0 { v_cache_name = args[0] }
+	_ = v_cache_name
+	if len(args) > 1 { v_ttl_seconds = args[1] }
+	_ = v_ttl_seconds
+	if len(args) > 2 { v_api_key = args[2] }
+	_ = v_api_key
+	if len(args) > 3 { v_model = args[3] }
+	_ = v_model
+	if len(args) > 4 { v_create_body = args[4] }
+	_ = v_create_body
+	if len(args) > 5 { v_options = args[5] }
+	_ = v_options
+	_ = v_cache_base_url
+	_ = v_create
+	_ = v_create_copy
+	_ = v_create_is_object
+	_ = v_create_path
+	_ = v_create_request
+	_ = v_delete_op
+	_ = v_delete_path
+	_ = v_descriptor
+	_ = v_empty
+	_ = v_empty_request
+	_ = v_has_cache_base_url
+	_ = v_is_vertex
+	_ = v_model_resource
+	_ = v_out
+	_ = v_parent
+	_ = v_ttl
+	_ = v_update
+	_ = v_update_path
+	_ = v_update_request
+	v_ttl = _core_string_format("{}s", v_ttl_seconds)
+	{ v, err := provider_resolve_descriptor("google-gemini", v_options); if err != nil { return nil, err }; v_descriptor = v }
+	v_is_vertex = coreGet(v_descriptor, "vertex", false)
+	v_create_path = "/cachedContents"
+	v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
+	v_delete_path = _core_string_format("/{}", v_cache_name)
+	if coreTruthy(v_is_vertex) {
+		v_parent = coreGet(v_descriptor, "vertexParent", "")
+		v_create_path = _core_string_format("/{}/cachedContents", v_parent)
+		v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
+		v_delete_path = _core_string_format("/{}", v_cache_name)
+	} else {
+	// empty
+	}
+	v_create_request = Object()
+	v_create_is_object = coreTypeIs(v_create_body, "object")
+	if coreTruthy(v_create_is_object) {
+		v_empty = Object()
+		v_create_copy = _core_map_merge(v_create_body, v_empty)
+		v_create_request = v_create_copy
+	} else {
+	// empty
+	}
+	v_model_resource = _core_string_format("models/{}", v_model)
+	if coreTruthy(v_is_vertex) {
+		v_parent = coreGet(v_descriptor, "vertexParent", "")
+		v_model_resource = _core_string_format("{}/publishers/google/models/{}", v_parent, v_model)
+	} else {
+	// empty
+	}
+	if err := coreSet(v_create_request, "model", v_model_resource); err != nil { return nil, err }
+	if err := coreSet(v_create_request, "ttl", v_ttl); err != nil { return nil, err }
+	v_update_request = Object()
+	if err := coreSet(v_update_request, "ttl", v_ttl); err != nil { return nil, err }
+	v_empty_request = Object()
+	v_create = Object()
+	if err := coreSet(v_create, "method", "POST"); err != nil { return nil, err }
+	if err := coreSet(v_create, "path", v_create_path); err != nil { return nil, err }
+	if err := coreSet(v_create, "request", v_create_request); err != nil { return nil, err }
+	v_cache_base_url = coreGet(v_descriptor, "vertexCacheBaseUrl", nil)
+	v_has_cache_base_url = _core_truthy(v_cache_base_url)
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_create, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_update = Object()
+	if err := coreSet(v_update, "method", "PATCH"); err != nil { return nil, err }
+	if err := coreSet(v_update, "path", v_update_path); err != nil { return nil, err }
+	if err := coreSet(v_update, "request", v_update_request); err != nil { return nil, err }
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_update, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_delete_op = Object()
+	if err := coreSet(v_delete_op, "method", "DELETE"); err != nil { return nil, err }
+	if err := coreSet(v_delete_op, "path", v_delete_path); err != nil { return nil, err }
+	if err := coreSet(v_delete_op, "request", v_empty_request); err != nil { return nil, err }
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_delete_op, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "create", v_create); err != nil { return nil, err }
+	if err := coreSet(v_out, "update", v_update); err != nil { return nil, err }
+	if err := coreSet(v_out, "delete", v_delete_op); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func _openai_stream_choice_impl(args ...Value) (Value, error) {
@@ -13111,6 +13420,235 @@ func _openai_stream_choice_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "function_calls", v_calls); err != nil { return nil, err }
 	if err := coreSet(v_out, "finish_reason", v_finish_reason); err != nil { return nil, err }
 	return v_out, nil
+}
+
+func fold_chat_response_stream(args ...Value) (Value, error) {
+	axirCoverageMark("fold_chat_response_stream")
+	var v_events Value
+	var v_candidate Value
+	var v_candidate_index Value
+	var v_chunk Value
+	var v_chunks Value
+	var v_empty_chunks Value
+	var v_event Value
+	var v_event_usage Value
+	var v_found_usage Value
+	var v_has_response Value
+	var v_has_routing Value
+	var v_has_usage Value
+	var v_index Value
+	var v_missing_target Value
+	var v_new_calls Value
+	var v_new_target Value
+	var v_raw_event Value
+	var v_response Value
+	var v_results Value
+	var v_router_envelope Value
+	var v_same_index Value
+	var v_target Value
+	var v_usage Value
+	var v_usage_snake Value
+	if len(args) > 0 { v_events = args[0] }
+	_ = v_events
+	_ = v_candidate
+	_ = v_candidate_index
+	_ = v_chunk
+	_ = v_chunks
+	_ = v_empty_chunks
+	_ = v_event
+	_ = v_event_usage
+	_ = v_found_usage
+	_ = v_has_response
+	_ = v_has_routing
+	_ = v_has_usage
+	_ = v_index
+	_ = v_missing_target
+	_ = v_new_calls
+	_ = v_new_target
+	_ = v_raw_event
+	_ = v_response
+	_ = v_results
+	_ = v_router_envelope
+	_ = v_same_index
+	_ = v_target
+	_ = v_usage
+	_ = v_usage_snake
+	v_results = MutableArray()
+	v_usage = _core_none()
+	for _, v_raw_event = range coreIter(v_events) {
+		v_event = v_raw_event
+		v_has_routing = _core_map_contains(v_raw_event, "routing")
+		v_has_response = _core_map_contains(v_raw_event, "response")
+		v_router_envelope = _core_and(v_has_routing, v_has_response)
+		if coreTruthy(v_router_envelope) {
+			v_event = coreGet(v_raw_event, "response", nil)
+		} else {
+		// empty
+		}
+		v_empty_chunks = MutableArray()
+		v_chunks = coreGet(v_event, "results", v_empty_chunks)
+		for _, v_chunk = range coreIter(v_chunks) {
+			v_index = coreGet(v_chunk, "index", 0)
+			v_target = _core_none()
+			for _, v_candidate = range coreIter(v_results) {
+				v_candidate_index = coreGet(v_candidate, "index", nil)
+				v_same_index = _core_eq(v_candidate_index, v_index)
+				if coreTruthy(v_same_index) {
+					v_target = v_candidate
+				} else {
+				// empty
+				}
+			}
+			v_missing_target = _core_is_none(v_target)
+			if coreTruthy(v_missing_target) {
+				v_new_target = Object()
+				if err := coreSet(v_new_target, "index", v_index); err != nil { return nil, err }
+				if err := coreSet(v_new_target, "content", ""); err != nil { return nil, err }
+				v_new_calls = MutableArray()
+				if err := coreSet(v_new_target, "function_calls", v_new_calls); err != nil { return nil, err }
+				v_results = coreAppend(v_results, v_new_target)
+				v_target = v_new_target
+			} else {
+			// empty
+			}
+			if _, err := _fold_chat_stream_chunk_impl(v_target, v_chunk); err != nil { return nil, err }
+		}
+		v_usage_snake = coreGet(v_event, "model_usage", nil)
+		v_event_usage = coreGet(v_event, "modelUsage", v_usage_snake)
+		v_has_usage = _core_is_not_none(v_event_usage)
+		if coreTruthy(v_has_usage) {
+			v_usage = v_event_usage
+		} else {
+		// empty
+		}
+	}
+	v_response = Object()
+	if err := coreSet(v_response, "results", v_results); err != nil { return nil, err }
+	v_found_usage = _core_is_not_none(v_usage)
+	if coreTruthy(v_found_usage) {
+		if err := coreSet(v_response, "model_usage", v_usage); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_response, nil
+}
+
+func openai_normalize_error(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_error")
+	var v_status Value
+	var v_body Value
+	var v_request Value
+	var v_options Value
+	var v_body_is_object Value
+	var v_body_text Value
+	var v_code Value
+	var v_code_value Value
+	var v_error Value
+	var v_error_body Value
+	var v_error_is_object Value
+	var v_error_request Value
+	var v_is_401 Value
+	var v_is_403 Value
+	var v_is_408 Value
+	var v_is_429 Value
+	var v_is_500 Value
+	var v_is_502 Value
+	var v_is_503 Value
+	var v_is_504 Value
+	var v_is_529 Value
+	var v_is_auth Value
+	var v_is_timeout Value
+	var v_message Value
+	var v_message_value Value
+	var v_retry_left Value
+	var v_retry_more Value
+	var v_retry_right Value
+	var v_retry_some Value
+	var v_retryable Value
+	if len(args) > 0 { v_status = args[0] }
+	_ = v_status
+	if len(args) > 1 { v_body = args[1] }
+	_ = v_body
+	if len(args) > 2 { v_request = args[2] }
+	_ = v_request
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
+	_ = v_body_is_object
+	_ = v_body_text
+	_ = v_code
+	_ = v_code_value
+	_ = v_error
+	_ = v_error_body
+	_ = v_error_is_object
+	_ = v_error_request
+	_ = v_is_401
+	_ = v_is_403
+	_ = v_is_408
+	_ = v_is_429
+	_ = v_is_500
+	_ = v_is_502
+	_ = v_is_503
+	_ = v_is_504
+	_ = v_is_529
+	_ = v_is_auth
+	_ = v_is_timeout
+	_ = v_message
+	_ = v_message_value
+	_ = v_retry_left
+	_ = v_retry_more
+	_ = v_retry_right
+	_ = v_retry_some
+	_ = v_retryable
+	{ v, err := _ai_error_request(v_request, v_options); if err != nil { return nil, err }; v_error_request = v }
+	v_message = v_body
+	v_code = _core_none()
+	v_body_is_object = coreTypeIs(v_body, "object")
+	if coreTruthy(v_body_is_object) {
+		v_error_body = coreGet(v_body, "error", v_body)
+		v_error_is_object = coreTypeIs(v_error_body, "object")
+		if coreTruthy(v_error_is_object) {
+			v_body_text = _core_string_str(v_body)
+			v_message_value = coreGet(v_error_body, "message", v_body_text)
+			v_code_value = coreGet(v_error_body, "code", nil)
+			v_message = v_message_value
+			v_code = v_code_value
+		} else {
+			v_message_value = _core_string_str(v_error_body)
+			v_message = v_message_value
+		}
+	} else {
+	// empty
+	}
+	v_is_401 = _core_eq(v_status, 401)
+	v_is_403 = _core_eq(v_status, 403)
+	v_is_auth = _core_or(v_is_401, v_is_403)
+	if coreTruthy(v_is_auth) {
+		v_error = _core_ai_error_auth(v_message, v_status, v_code, v_body, v_error_request)
+		return v_error, nil
+	} else {
+	// empty
+	}
+	v_is_408 = _core_eq(v_status, 408)
+	v_is_504 = _core_eq(v_status, 504)
+	v_is_timeout = _core_or(v_is_408, v_is_504)
+	if coreTruthy(v_is_timeout) {
+		v_error = _core_ai_error_timeout(v_message, v_status, v_code, v_body, v_error_request, true)
+		return v_error, nil
+	} else {
+	// empty
+	}
+	v_is_429 = _core_eq(v_status, 429)
+	v_is_500 = _core_eq(v_status, 500)
+	v_is_502 = _core_eq(v_status, 502)
+	v_is_503 = _core_eq(v_status, 503)
+	v_is_529 = _core_eq(v_status, 529)
+	v_retry_left = _core_or(v_is_429, v_is_500)
+	v_retry_right = _core_or(v_is_502, v_is_503)
+	v_retry_some = _core_or(v_retry_left, v_retry_right)
+	v_retry_more = _core_or(v_retry_some, v_is_504)
+	v_retryable = _core_or(v_retry_more, v_is_529)
+	v_error = _core_ai_error_status(v_message, v_status, v_code, v_body, v_error_request, v_retryable)
+	return v_error, nil
 }
 
 func _fold_chat_stream_chunk_impl(args ...Value) (Value, error) {
@@ -13313,124 +13851,6 @@ func _fold_chat_stream_chunk_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return nil, nil
-}
-
-func openai_normalize_error(args ...Value) (Value, error) {
-	axirCoverageMark("openai_normalize_error")
-	var v_status Value
-	var v_body Value
-	var v_request Value
-	var v_options Value
-	var v_body_is_object Value
-	var v_body_text Value
-	var v_code Value
-	var v_code_value Value
-	var v_error Value
-	var v_error_body Value
-	var v_error_is_object Value
-	var v_error_request Value
-	var v_is_401 Value
-	var v_is_403 Value
-	var v_is_408 Value
-	var v_is_429 Value
-	var v_is_500 Value
-	var v_is_502 Value
-	var v_is_503 Value
-	var v_is_504 Value
-	var v_is_529 Value
-	var v_is_auth Value
-	var v_is_timeout Value
-	var v_message Value
-	var v_message_value Value
-	var v_retry_left Value
-	var v_retry_more Value
-	var v_retry_right Value
-	var v_retry_some Value
-	var v_retryable Value
-	if len(args) > 0 { v_status = args[0] }
-	_ = v_status
-	if len(args) > 1 { v_body = args[1] }
-	_ = v_body
-	if len(args) > 2 { v_request = args[2] }
-	_ = v_request
-	if len(args) > 3 { v_options = args[3] }
-	_ = v_options
-	_ = v_body_is_object
-	_ = v_body_text
-	_ = v_code
-	_ = v_code_value
-	_ = v_error
-	_ = v_error_body
-	_ = v_error_is_object
-	_ = v_error_request
-	_ = v_is_401
-	_ = v_is_403
-	_ = v_is_408
-	_ = v_is_429
-	_ = v_is_500
-	_ = v_is_502
-	_ = v_is_503
-	_ = v_is_504
-	_ = v_is_529
-	_ = v_is_auth
-	_ = v_is_timeout
-	_ = v_message
-	_ = v_message_value
-	_ = v_retry_left
-	_ = v_retry_more
-	_ = v_retry_right
-	_ = v_retry_some
-	_ = v_retryable
-	{ v, err := _ai_error_request(v_request, v_options); if err != nil { return nil, err }; v_error_request = v }
-	v_message = v_body
-	v_code = _core_none()
-	v_body_is_object = coreTypeIs(v_body, "object")
-	if coreTruthy(v_body_is_object) {
-		v_error_body = coreGet(v_body, "error", v_body)
-		v_error_is_object = coreTypeIs(v_error_body, "object")
-		if coreTruthy(v_error_is_object) {
-			v_body_text = _core_string_str(v_body)
-			v_message_value = coreGet(v_error_body, "message", v_body_text)
-			v_code_value = coreGet(v_error_body, "code", nil)
-			v_message = v_message_value
-			v_code = v_code_value
-		} else {
-			v_message_value = _core_string_str(v_error_body)
-			v_message = v_message_value
-		}
-	} else {
-	// empty
-	}
-	v_is_401 = _core_eq(v_status, 401)
-	v_is_403 = _core_eq(v_status, 403)
-	v_is_auth = _core_or(v_is_401, v_is_403)
-	if coreTruthy(v_is_auth) {
-		v_error = _core_ai_error_auth(v_message, v_status, v_code, v_body, v_error_request)
-		return v_error, nil
-	} else {
-	// empty
-	}
-	v_is_408 = _core_eq(v_status, 408)
-	v_is_504 = _core_eq(v_status, 504)
-	v_is_timeout = _core_or(v_is_408, v_is_504)
-	if coreTruthy(v_is_timeout) {
-		v_error = _core_ai_error_timeout(v_message, v_status, v_code, v_body, v_error_request, true)
-		return v_error, nil
-	} else {
-	// empty
-	}
-	v_is_429 = _core_eq(v_status, 429)
-	v_is_500 = _core_eq(v_status, 500)
-	v_is_502 = _core_eq(v_status, 502)
-	v_is_503 = _core_eq(v_status, 503)
-	v_is_529 = _core_eq(v_status, 529)
-	v_retry_left = _core_or(v_is_429, v_is_500)
-	v_retry_right = _core_or(v_is_502, v_is_503)
-	v_retry_some = _core_or(v_retry_left, v_retry_right)
-	v_retry_more = _core_or(v_retry_some, v_is_504)
-	v_retryable = _core_or(v_retry_more, v_is_529)
-	v_error = _core_ai_error_status(v_message, v_status, v_code, v_body, v_error_request, v_retryable)
-	return v_error, nil
 }
 
 func provider_normalize_profile(args ...Value) (Value, error) {
@@ -19820,6 +20240,7 @@ func provider_build_chat_request(args ...Value) (Value, error) {
 		if coreTruthy(v_is_meta) {
 			{ v, err := _meta_prepare_responses_request(v_responses_payload, v_sampled_request, v_options); if err != nil { return nil, err }; v_responses_payload = v }
 		} else {
+			{ v, err := _openai_responses_apply_prompt_cache_key(v_responses_payload, v_options); if err != nil { return nil, err }; v_responses_payload = v }
 			{ v, err := _openai_responses_apply_prompt_cache_retention(v_responses_payload, v_sampled_request, v_options, v_model); if err != nil { return nil, err }; v_responses_payload = v }
 		}
 		{ v, err := openai_responses_apply_astra_caching(v_responses_payload, v_sampled_request, v_options); if err != nil { return nil, err }; v_payload = v }
@@ -32461,6 +32882,119 @@ func _openai_responses_apply_prompt_cache_retention(args ...Value) (Value, error
 	return v_payload, nil
 }
 
+func _openai_responses_apply_prompt_cache_key(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_apply_prompt_cache_key")
+	var v_payload Value
+	var v_options Value
+	var v_has_key Value
+	var v_key Value
+	var v_key_snake Value
+	var v_resolved_key Value
+	var v_session Value
+	var v_session_snake Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_has_key
+	_ = v_key
+	_ = v_key_snake
+	_ = v_resolved_key
+	_ = v_session
+	_ = v_session_snake
+	v_key_snake = coreGet(v_options, "prompt_cache_key", nil)
+	v_key = coreGet(v_options, "promptCacheKey", v_key_snake)
+	v_session_snake = coreGet(v_options, "session_id", nil)
+	v_session = coreGet(v_options, "sessionId", v_session_snake)
+	v_resolved_key = _core_coalesce(v_key, v_session)
+	v_has_key = _core_is_not_none(v_resolved_key)
+	if coreTruthy(v_has_key) {
+		if err := coreSet(v_payload, "prompt_cache_key", v_resolved_key); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_payload, nil
+}
+
+func provider_call_timeout_ms(args ...Value) (Value, error) {
+	axirCoverageMark("provider_call_timeout_ms")
+	var v_options Value
+	var v_is_number Value
+	var v_positive Value
+	var v_value Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	_ = v_is_number
+	_ = v_positive
+	_ = v_value
+	v_value = coreGet(v_options, "timeoutMs", nil)
+	v_is_number = coreTypeIs(v_value, "number")
+	if coreTruthy(v_is_number) {
+		v_positive = _core_gt(v_value, 0)
+		if coreTruthy(v_positive) {
+			return v_value, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
+func provider_call_timeout_message(args ...Value) (Value, error) {
+	axirCoverageMark("provider_call_timeout_message")
+	var v_timeout_ms Value
+	var v_message Value
+	if len(args) > 0 { v_timeout_ms = args[0] }
+	_ = v_timeout_ms
+	_ = v_message
+	v_message = _core_string_format("Request timed out after {}ms", v_timeout_ms)
+	return v_message, nil
+}
+
+func provider_warn_call_timeout(args ...Value) (Value, error) {
+	axirCoverageMark("provider_warn_call_timeout")
+	var v_options Value
+	var v_seconds Value
+	var v_has_timeout Value
+	var v_has_timeout_ms Value
+	var v_message Value
+	var v_timeout Value
+	var v_timeout_ms Value
+	var v_warn Value
+	var v_without_ms Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	if len(args) > 1 { v_seconds = args[1] }
+	_ = v_seconds
+	_ = v_has_timeout
+	_ = v_has_timeout_ms
+	_ = v_message
+	_ = v_timeout
+	_ = v_timeout_ms
+	_ = v_warn
+	_ = v_without_ms
+	v_timeout = coreGet(v_options, "timeout", nil)
+	v_timeout_ms = coreGet(v_options, "timeoutMs", nil)
+	v_has_timeout = _core_is_not_none(v_timeout)
+	v_has_timeout_ms = _core_is_not_none(v_timeout_ms)
+	v_without_ms = _core_not(v_has_timeout_ms)
+	v_warn = _core_and(v_has_timeout, v_without_ms)
+	if coreTruthy(v_warn) {
+		v_message = "Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does."
+		if coreTruthy(v_seconds) {
+			v_message = "Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds)."
+		} else {
+		// empty
+		}
+		_core_ai_warn_once("call-timeout", v_message)
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
 func _provider_sampling_is_one_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_provider_sampling_is_one_impl")
 	var v_value Value
@@ -38747,6 +39281,10 @@ func _parse_sample_outputs(args ...Value) (Value, error) {
 	var v_sample_index Value
 	var v_sample_thought Value
 	var v_samples Value
+	var v_strict_error Value
+	var v_strict_failed Value
+	var v_strict_parse_error Value
+	var v_strict_parsed Value
 	var v_stripped_output Value
 	var v_text_parsed Value
 	var v_validated Value
@@ -38796,6 +39334,10 @@ func _parse_sample_outputs(args ...Value) (Value, error) {
 	_ = v_sample_index
 	_ = v_sample_thought
 	_ = v_samples
+	_ = v_strict_error
+	_ = v_strict_failed
+	_ = v_strict_parse_error
+	_ = v_strict_parsed
 	_ = v_stripped_output
 	_ = v_text_parsed
 	_ = v_validated
@@ -38823,7 +39365,26 @@ func _parse_sample_outputs(args ...Value) (Value, error) {
 			v_extracted = coreGet(v_text_parsed, "extracted", false)
 		} else {
 			if coreTruthy(v_validate_exact_json) {
-				{ v, err := _parse_output_impl(v_content); if err != nil { return nil, err }; v_output = v }
+				v_strict_parsed = false
+				{
+					__flow, __err := func() (coreFlow, error) {
+						{ v, err := _parse_output_impl(v_content); if err != nil { return coreFlow{}, err }; v_output = v }
+						v_strict_parsed = true
+						return coreFlow{}, nil
+					}()
+					if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+					if __err != nil {
+						v_strict_parse_error = errorValue(__err)
+					// empty
+					}
+				}
+				v_strict_failed = _core_not(v_strict_parsed)
+				if coreTruthy(v_strict_failed) {
+					v_strict_error = _core_validation_error("Structured output must be one JSON object with no prose or Markdown fences.")
+					return nil, asError(v_strict_error)
+				} else {
+				// empty
+				}
 			} else {
 				{ v, err := _parse_output_fields_impl(v_content, v_output_fields); if err != nil { return nil, err }; v_output = v }
 			}
@@ -39495,6 +40056,45 @@ func _date_zone_resolve_impl(args ...Value) (Value, error) {
 	return nil, asError(v_missing_error)
 }
 
+func _build_optimization_eval_row(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimization_eval_row")
+	var v_task Value
+	var v_prediction Value
+	var v_scores Value
+	var v_scalar Value
+	var v_trace Value
+	var v_error Value
+	var v_has_error Value
+	var v_out Value
+	if len(args) > 0 { v_task = args[0] }
+	_ = v_task
+	if len(args) > 1 { v_prediction = args[1] }
+	_ = v_prediction
+	if len(args) > 2 { v_scores = args[2] }
+	_ = v_scores
+	if len(args) > 3 { v_scalar = args[3] }
+	_ = v_scalar
+	if len(args) > 4 { v_trace = args[4] }
+	_ = v_trace
+	if len(args) > 5 { v_error = args[5] }
+	_ = v_error
+	_ = v_has_error
+	_ = v_out
+	v_out = Object()
+	if err := coreSet(v_out, "input", v_task); err != nil { return nil, err }
+	if err := coreSet(v_out, "prediction", v_prediction); err != nil { return nil, err }
+	if err := coreSet(v_out, "scores", v_scores); err != nil { return nil, err }
+	if err := coreSet(v_out, "scalar", v_scalar); err != nil { return nil, err }
+	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
+	v_has_error = _core_is_not_none(v_error)
+	if coreTruthy(v_has_error) {
+		if err := coreSet(v_out, "error", v_error); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
 func _select_sample_index(args ...Value) (Value, error) {
 	axirCoverageMark("_select_sample_index")
 	var v_samples Value
@@ -39567,45 +40167,6 @@ func _select_sample_index(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_selected, nil
-}
-
-func _build_optimization_eval_row(args ...Value) (Value, error) {
-	axirCoverageMark("_build_optimization_eval_row")
-	var v_task Value
-	var v_prediction Value
-	var v_scores Value
-	var v_scalar Value
-	var v_trace Value
-	var v_error Value
-	var v_has_error Value
-	var v_out Value
-	if len(args) > 0 { v_task = args[0] }
-	_ = v_task
-	if len(args) > 1 { v_prediction = args[1] }
-	_ = v_prediction
-	if len(args) > 2 { v_scores = args[2] }
-	_ = v_scores
-	if len(args) > 3 { v_scalar = args[3] }
-	_ = v_scalar
-	if len(args) > 4 { v_trace = args[4] }
-	_ = v_trace
-	if len(args) > 5 { v_error = args[5] }
-	_ = v_error
-	_ = v_has_error
-	_ = v_out
-	v_out = Object()
-	if err := coreSet(v_out, "input", v_task); err != nil { return nil, err }
-	if err := coreSet(v_out, "prediction", v_prediction); err != nil { return nil, err }
-	if err := coreSet(v_out, "scores", v_scores); err != nil { return nil, err }
-	if err := coreSet(v_out, "scalar", v_scalar); err != nil { return nil, err }
-	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
-	v_has_error = _core_is_not_none(v_error)
-	if coreTruthy(v_has_error) {
-		if err := coreSet(v_out, "error", v_error); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_out, nil
 }
 
 func chat_session_create_state(args ...Value) (Value, error) {
@@ -39795,6 +40356,29 @@ func _build_optimization_eval_result(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func chat_session_target_matches(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_target_matches")
+	var v_target Value
+	var v_path Value
+	var v_descendant Value
+	var v_exact Value
+	var v_matches Value
+	var v_prefix Value
+	if len(args) > 0 { v_target = args[0] }
+	_ = v_target
+	if len(args) > 1 { v_path = args[1] }
+	_ = v_path
+	_ = v_descendant
+	_ = v_exact
+	_ = v_matches
+	_ = v_prefix
+	v_exact = _core_eq(v_target, v_path)
+	v_prefix = _core_string_format("{}/", v_target)
+	v_descendant = _core_string_starts_with(v_path, v_prefix)
+	v_matches = _core_or(v_exact, v_descendant)
+	return v_matches, nil
+}
+
 func _forward_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_forward_impl")
 	var v_gen Value
@@ -39945,6 +40529,8 @@ func _forward_impl(args ...Value) (Value, error) {
 	var v_tool_error_message Value
 	var v_tool_message Value
 	var v_tool_result Value
+	var v_unnamed_call_error Value
+	var v_unnamed_call_failure Value
 	var v_updated_messages Value
 	var v_user_message Value
 	var v_validate_exact_json Value
@@ -40107,6 +40693,8 @@ func _forward_impl(args ...Value) (Value, error) {
 	_ = v_tool_error_message
 	_ = v_tool_message
 	_ = v_tool_result
+	_ = v_unnamed_call_error
+	_ = v_unnamed_call_failure
 	_ = v_updated_messages
 	_ = v_user_message
 	_ = v_validate_exact_json
@@ -40277,6 +40865,18 @@ func _forward_impl(args ...Value) (Value, error) {
 					v_thought_prefix = ""
 				}
 				continue
+			}
+		}
+		{
+			__flow, __err := func() (coreFlow, error) {
+				if _, err := _check_completion_function_call_names(v_response, v_runtime_options); err != nil { return coreFlow{}, err }
+				return coreFlow{}, nil
+			}()
+			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+			if __err != nil {
+				v_unnamed_call_error = errorValue(__err)
+				{ v, err := _generate_failed_impl(v_unnamed_call_error); if err != nil { return nil, err }; v_unnamed_call_failure = v }
+				return nil, asError(v_unnamed_call_failure)
 			}
 		}
 		_core_axgen_memory_add_response(v_gen, v_request, v_response)
@@ -40493,29 +41093,6 @@ func _forward_impl(args ...Value) (Value, error) {
 			return v_rendered_output, nil
 		}
 	}
-}
-
-func chat_session_target_matches(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_target_matches")
-	var v_target Value
-	var v_path Value
-	var v_descendant Value
-	var v_exact Value
-	var v_matches Value
-	var v_prefix Value
-	if len(args) > 0 { v_target = args[0] }
-	_ = v_target
-	if len(args) > 1 { v_path = args[1] }
-	_ = v_path
-	_ = v_descendant
-	_ = v_exact
-	_ = v_matches
-	_ = v_prefix
-	v_exact = _core_eq(v_target, v_path)
-	v_prefix = _core_string_format("{}/", v_target)
-	v_descendant = _core_string_starts_with(v_path, v_prefix)
-	v_matches = _core_or(v_exact, v_descendant)
-	return v_matches, nil
 }
 
 func chat_session_unresolved(args ...Value) (Value, error) {
@@ -43438,6 +44015,7 @@ func _stream_validate_constraints_impl(args ...Value) (Value, error) {
 	var v_too_short Value
 	var v_too_small Value
 	var v_typ Value
+	var v_units Value
 	var v_url_bad Value
 	var v_url_error Value
 	var v_url_format Value
@@ -43496,6 +44074,7 @@ func _stream_validate_constraints_impl(args ...Value) (Value, error) {
 	_ = v_too_short
 	_ = v_too_small
 	_ = v_typ
+	_ = v_units
 	_ = v_url_bad
 	_ = v_url_error
 	_ = v_url_format
@@ -43563,7 +44142,8 @@ func _stream_validate_constraints_impl(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	v_length = _core_len(v_value)
+	v_units = _core_string_utf16_units(v_value)
+	v_length = _core_len(v_units)
 	v_min_snake = coreGet(v_typ, "min_length", nil)
 	v_min_length = coreGet(v_typ, "minLength", v_min_snake)
 	v_has_min = _core_is_not_none(v_min_length)
@@ -44355,18 +44935,6 @@ func _date_delimiter_split_impl(args ...Value) (Value, error) {
 	return v_none, nil
 }
 
-func _set_examples(args ...Value) (Value, error) {
-	axirCoverageMark("_set_examples")
-	var v_gen Value
-	var v_examples Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_examples = args[1] }
-	_ = v_examples
-	if err := coreSet(v_gen, "examples", v_examples); err != nil { return nil, err }
-	return v_gen, nil
-}
-
 func _ace_empty_playbook(args ...Value) (Value, error) {
 	axirCoverageMark("_ace_empty_playbook")
 	var v_description Value
@@ -44403,27 +44971,16 @@ func _ace_empty_playbook(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _set_demos(args ...Value) (Value, error) {
-	axirCoverageMark("_set_demos")
+func _set_examples(args ...Value) (Value, error) {
+	axirCoverageMark("_set_examples")
 	var v_gen Value
-	var v_demos Value
+	var v_examples Value
 	if len(args) > 0 { v_gen = args[0] }
 	_ = v_gen
-	if len(args) > 1 { v_demos = args[1] }
-	_ = v_demos
-	if err := coreSet(v_gen, "demos", v_demos); err != nil { return nil, err }
+	if len(args) > 1 { v_examples = args[1] }
+	_ = v_examples
+	if err := coreSet(v_gen, "examples", v_examples); err != nil { return nil, err }
 	return v_gen, nil
-}
-
-func _render_examples(args ...Value) (Value, error) {
-	axirCoverageMark("_render_examples")
-	var v_gen Value
-	var v_messages Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	_ = v_messages
-	v_messages = _core_axgen_render_examples(v_gen)
-	return v_messages, nil
 }
 
 func _ace_render_playbook(args ...Value) (Value, error) {
@@ -44555,29 +45112,27 @@ func _ace_render_playbook(args ...Value) (Value, error) {
 	return v_result, nil
 }
 
-func _render_demos(args ...Value) (Value, error) {
-	axirCoverageMark("_render_demos")
+func _set_demos(args ...Value) (Value, error) {
+	axirCoverageMark("_set_demos")
+	var v_gen Value
+	var v_demos Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_demos = args[1] }
+	_ = v_demos
+	if err := coreSet(v_gen, "demos", v_demos); err != nil { return nil, err }
+	return v_gen, nil
+}
+
+func _render_examples(args ...Value) (Value, error) {
+	axirCoverageMark("_render_examples")
 	var v_gen Value
 	var v_messages Value
 	if len(args) > 0 { v_gen = args[0] }
 	_ = v_gen
 	_ = v_messages
-	v_messages = _core_axgen_render_demos(v_gen)
+	v_messages = _core_axgen_render_examples(v_gen)
 	return v_messages, nil
-}
-
-func _apply_field_processors(args ...Value) (Value, error) {
-	axirCoverageMark("_apply_field_processors")
-	var v_gen Value
-	var v_output Value
-	var v_processed Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_output = args[1] }
-	_ = v_output
-	_ = v_processed
-	v_processed = _core_axgen_apply_field_processors(v_gen, v_output)
-	return v_processed, nil
 }
 
 func chat_session_boundary_action(args ...Value) (Value, error) {
@@ -44902,60 +45457,29 @@ func _stream_convert_value_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _run_assertions(args ...Value) (Value, error) {
-	axirCoverageMark("_run_assertions")
+func _render_demos(args ...Value) (Value, error) {
+	axirCoverageMark("_render_demos")
+	var v_gen Value
+	var v_messages Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	_ = v_messages
+	v_messages = _core_axgen_render_demos(v_gen)
+	return v_messages, nil
+}
+
+func _apply_field_processors(args ...Value) (Value, error) {
+	axirCoverageMark("_apply_field_processors")
 	var v_gen Value
 	var v_output Value
-	var v_assertion_error Value
-	var v_failed Value
-	var v_has_message Value
-	var v_message Value
-	var v_message_less Value
-	var v_passed Value
-	var v_result Value
-	var v_status Value
-	var v_threw Value
-	var v_thrown Value
+	var v_processed Value
 	if len(args) > 0 { v_gen = args[0] }
 	_ = v_gen
 	if len(args) > 1 { v_output = args[1] }
 	_ = v_output
-	_ = v_assertion_error
-	_ = v_failed
-	_ = v_has_message
-	_ = v_message
-	_ = v_message_less
-	_ = v_passed
-	_ = v_result
-	_ = v_status
-	_ = v_threw
-	_ = v_thrown
-	{ v, err := _core_axgen_run_assertions(v_gen, v_output); if err != nil { return nil, err }; v_result = v }
-	v_status = coreGet(v_result, "status", "pass")
-	v_threw = _core_eq(v_status, "error")
-	if coreTruthy(v_threw) {
-		v_thrown = coreGet(v_result, "error", nil)
-		return v_thrown, nil
-	} else {
-	// empty
-	}
-	v_failed = _core_eq(v_status, "fail")
-	if coreTruthy(v_failed) {
-		v_message = coreGet(v_result, "message", nil)
-		v_has_message = _core_is_not_none(v_message)
-		if coreTruthy(v_has_message) {
-			v_assertion_error = _core_runtime_error(v_message)
-			return nil, asError(v_assertion_error)
-		} else {
-		// empty
-		}
-		v_message_less = _core_runtime_error("Assertion failed without message")
-		return v_message_less, nil
-	} else {
-	// empty
-	}
-	v_passed = _core_none()
-	return v_passed, nil
+	_ = v_processed
+	v_processed = _core_axgen_apply_field_processors(v_gen, v_output)
+	return v_processed, nil
 }
 
 func _date_range_keyword_impl(args ...Value) (Value, error) {
@@ -45063,6 +45587,62 @@ func _date_range_keyword_impl(args ...Value) (Value, error) {
 	return 0, nil
 }
 
+func _run_assertions(args ...Value) (Value, error) {
+	axirCoverageMark("_run_assertions")
+	var v_gen Value
+	var v_output Value
+	var v_assertion_error Value
+	var v_failed Value
+	var v_has_message Value
+	var v_message Value
+	var v_message_less Value
+	var v_passed Value
+	var v_result Value
+	var v_status Value
+	var v_threw Value
+	var v_thrown Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_output = args[1] }
+	_ = v_output
+	_ = v_assertion_error
+	_ = v_failed
+	_ = v_has_message
+	_ = v_message
+	_ = v_message_less
+	_ = v_passed
+	_ = v_result
+	_ = v_status
+	_ = v_threw
+	_ = v_thrown
+	{ v, err := _core_axgen_run_assertions(v_gen, v_output); if err != nil { return nil, err }; v_result = v }
+	v_status = coreGet(v_result, "status", "pass")
+	v_threw = _core_eq(v_status, "error")
+	if coreTruthy(v_threw) {
+		v_thrown = coreGet(v_result, "error", nil)
+		return v_thrown, nil
+	} else {
+	// empty
+	}
+	v_failed = _core_eq(v_status, "fail")
+	if coreTruthy(v_failed) {
+		v_message = coreGet(v_result, "message", nil)
+		v_has_message = _core_is_not_none(v_message)
+		if coreTruthy(v_has_message) {
+			v_assertion_error = _core_runtime_error(v_message)
+			return nil, asError(v_assertion_error)
+		} else {
+		// empty
+		}
+		v_message_less = _core_runtime_error("Assertion failed without message")
+		return v_message_less, nil
+	} else {
+	// empty
+	}
+	v_passed = _core_none()
+	return v_passed, nil
+}
+
 func _ace_update_bullet_feedback(args ...Value) (Value, error) {
 	axirCoverageMark("_ace_update_bullet_feedback")
 	var v_playbook Value
@@ -45168,23 +45748,6 @@ func _ace_update_bullet_feedback(args ...Value) (Value, error) {
 	return v_playbook, nil
 }
 
-func _append_assertion_retry_messages(args ...Value) (Value, error) {
-	axirCoverageMark("_append_assertion_retry_messages")
-	var v_messages Value
-	var v_response Value
-	var v_error Value
-	var v_updated_messages Value
-	if len(args) > 0 { v_messages = args[0] }
-	_ = v_messages
-	if len(args) > 1 { v_response = args[1] }
-	_ = v_response
-	if len(args) > 2 { v_error = args[2] }
-	_ = v_error
-	_ = v_updated_messages
-	{ v, err := _append_validation_retry_messages_impl(v_messages, v_response, v_error); if err != nil { return nil, err }; v_updated_messages = v }
-	return v_updated_messages, nil
-}
-
 func _regex_alternative(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_alternative")
 	var v_s Value
@@ -45277,24 +45840,6 @@ func _regex_alternative(args ...Value) (Value, error) {
 	return v_t17, nil
 }
 
-func _record_trace(args ...Value) (Value, error) {
-	axirCoverageMark("_record_trace")
-	var v_gen Value
-	var v_input Value
-	var v_output Value
-	var v_status Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_input = args[1] }
-	_ = v_input
-	if len(args) > 2 { v_output = args[2] }
-	_ = v_output
-	if len(args) > 3 { v_status = args[3] }
-	_ = v_status
-	_core_axgen_record_trace(v_gen, v_input, v_output, v_status)
-	return nil, nil
-}
-
 func chat_session_mark_submitted(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_mark_submitted")
 	var v_state Value
@@ -45321,18 +45866,21 @@ func chat_session_mark_submitted(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func _should_continue_steps(args ...Value) (Value, error) {
-	axirCoverageMark("_should_continue_steps")
-	var v_gen Value
-	var v_calls Value
-	var v_should_continue Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_calls = args[1] }
-	_ = v_calls
-	_ = v_should_continue
-	v_should_continue = _core_axgen_should_continue_steps(v_gen, v_calls)
-	return v_should_continue, nil
+func _append_assertion_retry_messages(args ...Value) (Value, error) {
+	axirCoverageMark("_append_assertion_retry_messages")
+	var v_messages Value
+	var v_response Value
+	var v_error Value
+	var v_updated_messages Value
+	if len(args) > 0 { v_messages = args[0] }
+	_ = v_messages
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_error = args[2] }
+	_ = v_error
+	_ = v_updated_messages
+	{ v, err := _append_validation_retry_messages_impl(v_messages, v_response, v_error); if err != nil { return nil, err }; v_updated_messages = v }
+	return v_updated_messages, nil
 }
 
 func _date_strip_code_fence_impl(args ...Value) (Value, error) {
@@ -45467,18 +46015,22 @@ func chat_session_queue_update(args ...Value) (Value, error) {
 	return true, nil
 }
 
-func _parse_output_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_output_impl")
-	var v_content Value
+func _record_trace(args ...Value) (Value, error) {
+	axirCoverageMark("_record_trace")
+	var v_gen Value
+	var v_input Value
 	var v_output Value
-	var v_text Value
-	if len(args) > 0 { v_content = args[0] }
-	_ = v_content
+	var v_status Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_input = args[1] }
+	_ = v_input
+	if len(args) > 2 { v_output = args[2] }
 	_ = v_output
-	_ = v_text
-	v_text = coreStringTrim(v_content)
-	{ v, err := _core_json_parse_strict(v_text); if err != nil { return nil, err }; v_output = v }
-	return v_output, nil
+	if len(args) > 3 { v_status = args[3] }
+	_ = v_status
+	_core_axgen_record_trace(v_gen, v_input, v_output, v_status)
+	return nil, nil
 }
 
 func _ace_dedupe_playbook(args ...Value) (Value, error) {
@@ -45564,42 +46116,112 @@ func _ace_dedupe_playbook(args ...Value) (Value, error) {
 	return v_recomputed, nil
 }
 
-func _is_flexible_json_field(args ...Value) (Value, error) {
-	axirCoverageMark("_is_flexible_json_field")
-	var v_typ Value
-	var v_fields Value
-	var v_flexible Value
-	var v_has_fields Value
-	var v_is_json Value
-	var v_is_object Value
-	var v_no_fields Value
-	var v_type_name Value
-	if len(args) > 0 { v_typ = args[0] }
-	_ = v_typ
-	_ = v_fields
-	_ = v_flexible
-	_ = v_has_fields
-	_ = v_is_json
-	_ = v_is_object
-	_ = v_no_fields
-	_ = v_type_name
-	v_type_name = coreGet(v_typ, "name", nil)
-	v_is_json = _core_eq(v_type_name, "json")
-	v_is_object = _core_eq(v_type_name, "object")
-	v_fields = coreGet(v_typ, "fields", nil)
-	v_has_fields = _core_truthy(v_fields)
-	v_no_fields = _core_not(v_has_fields)
-	v_flexible = v_is_json
-	if coreTruthy(v_is_object) {
-		if coreTruthy(v_no_fields) {
-			v_flexible = true
-		} else {
-		// empty
-		}
+func _should_continue_steps(args ...Value) (Value, error) {
+	axirCoverageMark("_should_continue_steps")
+	var v_gen Value
+	var v_calls Value
+	var v_should_continue Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_calls = args[1] }
+	_ = v_calls
+	_ = v_should_continue
+	v_should_continue = _core_axgen_should_continue_steps(v_gen, v_calls)
+	return v_should_continue, nil
+}
+
+func _parse_output_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_output_impl")
+	var v_content Value
+	var v_output Value
+	var v_text Value
+	if len(args) > 0 { v_content = args[0] }
+	_ = v_content
+	_ = v_output
+	_ = v_text
+	v_text = coreStringTrim(v_content)
+	{ v, err := _core_json_parse_strict(v_text); if err != nil { return nil, err }; v_output = v }
+	return v_output, nil
+}
+
+func _regex_word(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_word")
+	var v_c Value
+	var v_t1 Value
+	var v_t10 Value
+	var v_t11 Value
+	var v_t12 Value
+	var v_t13 Value
+	var v_t14 Value
+	var v_t2 Value
+	var v_t3 Value
+	var v_t4 Value
+	var v_t5 Value
+	var v_t6 Value
+	var v_t7 Value
+	var v_t8 Value
+	var v_t9 Value
+	if len(args) > 0 { v_c = args[0] }
+	_ = v_c
+	_ = v_t1
+	_ = v_t10
+	_ = v_t11
+	_ = v_t12
+	_ = v_t13
+	_ = v_t14
+	_ = v_t2
+	_ = v_t3
+	_ = v_t4
+	_ = v_t5
+	_ = v_t6
+	_ = v_t7
+	_ = v_t8
+	_ = v_t9
+	v_t1 = _core_gte(v_c, 48)
+	v_t2 = v_t1
+	if coreTruthy(v_t2) {
+		v_t3 = _core_lte(v_c, 57)
+		v_t2 = v_t3
 	} else {
 	// empty
 	}
-	return v_flexible, nil
+	v_t4 = v_t2
+	v_t5 = _core_not(v_t4)
+	if coreTruthy(v_t5) {
+		v_t6 = _core_gte(v_c, 65)
+		v_t7 = v_t6
+		if coreTruthy(v_t7) {
+			v_t8 = _core_lte(v_c, 90)
+			v_t7 = v_t8
+		} else {
+		// empty
+		}
+		v_t4 = v_t7
+	} else {
+	// empty
+	}
+	v_t9 = _core_not(v_t4)
+	if coreTruthy(v_t9) {
+		v_t10 = _core_gte(v_c, 97)
+		v_t11 = v_t10
+		if coreTruthy(v_t11) {
+			v_t12 = _core_lte(v_c, 122)
+			v_t11 = v_t12
+		} else {
+		// empty
+		}
+		v_t4 = v_t11
+	} else {
+	// empty
+	}
+	v_t13 = _core_not(v_t4)
+	if coreTruthy(v_t13) {
+		v_t14 = _core_eq(v_c, 95)
+		v_t4 = v_t14
+	} else {
+	// empty
+	}
+	return v_t4, nil
 }
 
 func _stream_field_value_impl(args ...Value) (Value, error) {
@@ -46000,86 +46622,6 @@ func _stream_field_value_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _regex_word(args ...Value) (Value, error) {
-	axirCoverageMark("_regex_word")
-	var v_c Value
-	var v_t1 Value
-	var v_t10 Value
-	var v_t11 Value
-	var v_t12 Value
-	var v_t13 Value
-	var v_t14 Value
-	var v_t2 Value
-	var v_t3 Value
-	var v_t4 Value
-	var v_t5 Value
-	var v_t6 Value
-	var v_t7 Value
-	var v_t8 Value
-	var v_t9 Value
-	if len(args) > 0 { v_c = args[0] }
-	_ = v_c
-	_ = v_t1
-	_ = v_t10
-	_ = v_t11
-	_ = v_t12
-	_ = v_t13
-	_ = v_t14
-	_ = v_t2
-	_ = v_t3
-	_ = v_t4
-	_ = v_t5
-	_ = v_t6
-	_ = v_t7
-	_ = v_t8
-	_ = v_t9
-	v_t1 = _core_gte(v_c, 48)
-	v_t2 = v_t1
-	if coreTruthy(v_t2) {
-		v_t3 = _core_lte(v_c, 57)
-		v_t2 = v_t3
-	} else {
-	// empty
-	}
-	v_t4 = v_t2
-	v_t5 = _core_not(v_t4)
-	if coreTruthy(v_t5) {
-		v_t6 = _core_gte(v_c, 65)
-		v_t7 = v_t6
-		if coreTruthy(v_t7) {
-			v_t8 = _core_lte(v_c, 90)
-			v_t7 = v_t8
-		} else {
-		// empty
-		}
-		v_t4 = v_t7
-	} else {
-	// empty
-	}
-	v_t9 = _core_not(v_t4)
-	if coreTruthy(v_t9) {
-		v_t10 = _core_gte(v_c, 97)
-		v_t11 = v_t10
-		if coreTruthy(v_t11) {
-			v_t12 = _core_lte(v_c, 122)
-			v_t11 = v_t12
-		} else {
-		// empty
-		}
-		v_t4 = v_t11
-	} else {
-	// empty
-	}
-	v_t13 = _core_not(v_t4)
-	if coreTruthy(v_t13) {
-		v_t14 = _core_eq(v_c, 95)
-		v_t4 = v_t14
-	} else {
-	// empty
-	}
-	return v_t4, nil
-}
-
 func chat_session_record_unresolved(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_record_unresolved")
 	var v_gen Value
@@ -46160,42 +46702,42 @@ func _date_string_mode_impl(args ...Value) (Value, error) {
 	return "codepoint", nil
 }
 
-func _parse_json_string_value(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_json_string_value")
-	var v_value Value
-	var v_is_string Value
-	var v_not_string Value
-	var v_parse_error Value
-	var v_parsed Value
-	var v_result Value
-	if len(args) > 0 { v_value = args[0] }
-	_ = v_value
-	_ = v_is_string
-	_ = v_not_string
-	_ = v_parse_error
-	_ = v_parsed
-	_ = v_result
-	v_is_string = coreTypeIs(v_value, "string")
-	v_not_string = _core_not(v_is_string)
-	if coreTruthy(v_not_string) {
-		return v_value, nil
+func _is_flexible_json_field(args ...Value) (Value, error) {
+	axirCoverageMark("_is_flexible_json_field")
+	var v_typ Value
+	var v_fields Value
+	var v_flexible Value
+	var v_has_fields Value
+	var v_is_json Value
+	var v_is_object Value
+	var v_no_fields Value
+	var v_type_name Value
+	if len(args) > 0 { v_typ = args[0] }
+	_ = v_typ
+	_ = v_fields
+	_ = v_flexible
+	_ = v_has_fields
+	_ = v_is_json
+	_ = v_is_object
+	_ = v_no_fields
+	_ = v_type_name
+	v_type_name = coreGet(v_typ, "name", nil)
+	v_is_json = _core_eq(v_type_name, "json")
+	v_is_object = _core_eq(v_type_name, "object")
+	v_fields = coreGet(v_typ, "fields", nil)
+	v_has_fields = _core_truthy(v_fields)
+	v_no_fields = _core_not(v_has_fields)
+	v_flexible = v_is_json
+	if coreTruthy(v_is_object) {
+		if coreTruthy(v_no_fields) {
+			v_flexible = true
+		} else {
+		// empty
+		}
 	} else {
 	// empty
 	}
-	v_result = v_value
-	{
-		__flow, __err := func() (coreFlow, error) {
-			{ v, err := _core_json_parse(v_value); if err != nil { return coreFlow{}, err }; v_parsed = v }
-			v_result = v_parsed
-			return coreFlow{}, nil
-		}()
-		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-		if __err != nil {
-			v_parse_error = errorValue(__err)
-			v_result = v_value
-		}
-	}
-	return v_result, nil
+	return v_flexible, nil
 }
 
 func _ace_prune_section_for_addition(args ...Value) (Value, error) {
@@ -46481,117 +47023,42 @@ func _date_native_offset_impl(args ...Value) (Value, error) {
 	return v_offset, nil
 }
 
-func _parse_json_string_for_field(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_json_string_for_field")
-	var v_field Value
+func _parse_json_string_value(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_json_string_value")
 	var v_value Value
-	var v_flexible Value
-	var v_has_typ_fields Value
-	var v_is_array Value
-	var v_is_object Value
-	var v_item Value
-	var v_item_is_map Value
-	var v_not_list Value
-	var v_out Value
-	var v_parsed_item Value
-	var v_parsed_obj Value
-	var v_parsed_obj2 Value
-	var v_parsed_scalar Value
-	var v_rebuilt Value
-	var v_typ Value
-	var v_typ_fields Value
-	var v_type_name Value
-	var v_value_is_list Value
-	var v_value_is_none Value
-	if len(args) > 0 { v_field = args[0] }
-	_ = v_field
-	if len(args) > 1 { v_value = args[1] }
+	var v_is_string Value
+	var v_not_string Value
+	var v_parse_error Value
+	var v_parsed Value
+	var v_result Value
+	if len(args) > 0 { v_value = args[0] }
 	_ = v_value
-	_ = v_flexible
-	_ = v_has_typ_fields
-	_ = v_is_array
-	_ = v_is_object
-	_ = v_item
-	_ = v_item_is_map
-	_ = v_not_list
-	_ = v_out
-	_ = v_parsed_item
-	_ = v_parsed_obj
-	_ = v_parsed_obj2
-	_ = v_parsed_scalar
-	_ = v_rebuilt
-	_ = v_typ
-	_ = v_typ_fields
-	_ = v_type_name
-	_ = v_value_is_list
-	_ = v_value_is_none
-	v_typ = coreGet(v_field, "type", nil)
-	v_value_is_none = _core_is_none(v_value)
-	if coreTruthy(v_value_is_none) {
+	_ = v_is_string
+	_ = v_not_string
+	_ = v_parse_error
+	_ = v_parsed
+	_ = v_result
+	v_is_string = coreTypeIs(v_value, "string")
+	v_not_string = _core_not(v_is_string)
+	if coreTruthy(v_not_string) {
 		return v_value, nil
 	} else {
 	// empty
 	}
-	{ v, err := _is_flexible_json_field(v_typ); if err != nil { return nil, err }; v_flexible = v }
-	v_is_array = coreGet(v_typ, "is_array", false)
-	v_typ_fields = coreGet(v_typ, "fields", nil)
-	v_has_typ_fields = _core_truthy(v_typ_fields)
-	if coreTruthy(v_is_array) {
-		v_value_is_list = coreTypeIs(v_value, "list")
-		v_not_list = _core_not(v_value_is_list)
-		if coreTruthy(v_not_list) {
-			return v_value, nil
-		} else {
-		// empty
+	v_result = v_value
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _core_json_parse(v_value); if err != nil { return coreFlow{}, err }; v_parsed = v }
+			v_result = v_parsed
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_parse_error = errorValue(__err)
+			v_result = v_value
 		}
-		if coreTruthy(v_flexible) {
-			v_out = MutableArray()
-			for _, v_item = range coreIter(v_value) {
-				{ v, err := _parse_json_string_value(v_item); if err != nil { return nil, err }; v_parsed_item = v }
-				v_out = coreAppend(v_out, v_parsed_item)
-			}
-			return v_out, nil
-		} else {
-		// empty
-		}
-		if coreTruthy(v_has_typ_fields) {
-			v_rebuilt = MutableArray()
-			for _, v_item = range coreIter(v_value) {
-				v_item_is_map = coreTypeIs(v_item, "object")
-				if coreTruthy(v_item_is_map) {
-					{ v, err := _parse_json_string_for_fields(v_typ_fields, v_item); if err != nil { return nil, err }; v_parsed_obj = v }
-					v_rebuilt = coreAppend(v_rebuilt, v_parsed_obj)
-				} else {
-					v_rebuilt = coreAppend(v_rebuilt, v_item)
-				}
-			}
-			return v_rebuilt, nil
-		} else {
-		// empty
-		}
-		return v_value, nil
-	} else {
-	// empty
 	}
-	if coreTruthy(v_flexible) {
-		{ v, err := _parse_json_string_value(v_value); if err != nil { return nil, err }; v_parsed_scalar = v }
-		return v_parsed_scalar, nil
-	} else {
-	// empty
-	}
-	v_type_name = coreGet(v_typ, "name", nil)
-	v_is_object = _core_eq(v_type_name, "object")
-	if coreTruthy(v_is_object) {
-		if coreTruthy(v_has_typ_fields) {
-			{ v, err := _parse_json_string_for_fields(v_typ_fields, v_value); if err != nil { return nil, err }; v_parsed_obj2 = v }
-			return v_parsed_obj2, nil
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	return v_value, nil
+	return v_result, nil
 }
 
 func chat_session_transition(args ...Value) (Value, error) {
@@ -46970,6 +47437,119 @@ func _regex_space(args ...Value) (Value, error) {
 	return v_t2, nil
 }
 
+func _parse_json_string_for_field(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_json_string_for_field")
+	var v_field Value
+	var v_value Value
+	var v_flexible Value
+	var v_has_typ_fields Value
+	var v_is_array Value
+	var v_is_object Value
+	var v_item Value
+	var v_item_is_map Value
+	var v_not_list Value
+	var v_out Value
+	var v_parsed_item Value
+	var v_parsed_obj Value
+	var v_parsed_obj2 Value
+	var v_parsed_scalar Value
+	var v_rebuilt Value
+	var v_typ Value
+	var v_typ_fields Value
+	var v_type_name Value
+	var v_value_is_list Value
+	var v_value_is_none Value
+	if len(args) > 0 { v_field = args[0] }
+	_ = v_field
+	if len(args) > 1 { v_value = args[1] }
+	_ = v_value
+	_ = v_flexible
+	_ = v_has_typ_fields
+	_ = v_is_array
+	_ = v_is_object
+	_ = v_item
+	_ = v_item_is_map
+	_ = v_not_list
+	_ = v_out
+	_ = v_parsed_item
+	_ = v_parsed_obj
+	_ = v_parsed_obj2
+	_ = v_parsed_scalar
+	_ = v_rebuilt
+	_ = v_typ
+	_ = v_typ_fields
+	_ = v_type_name
+	_ = v_value_is_list
+	_ = v_value_is_none
+	v_typ = coreGet(v_field, "type", nil)
+	v_value_is_none = _core_is_none(v_value)
+	if coreTruthy(v_value_is_none) {
+		return v_value, nil
+	} else {
+	// empty
+	}
+	{ v, err := _is_flexible_json_field(v_typ); if err != nil { return nil, err }; v_flexible = v }
+	v_is_array = coreGet(v_typ, "is_array", false)
+	v_typ_fields = coreGet(v_typ, "fields", nil)
+	v_has_typ_fields = _core_truthy(v_typ_fields)
+	if coreTruthy(v_is_array) {
+		v_value_is_list = coreTypeIs(v_value, "list")
+		v_not_list = _core_not(v_value_is_list)
+		if coreTruthy(v_not_list) {
+			return v_value, nil
+		} else {
+		// empty
+		}
+		if coreTruthy(v_flexible) {
+			v_out = MutableArray()
+			for _, v_item = range coreIter(v_value) {
+				{ v, err := _parse_json_string_value(v_item); if err != nil { return nil, err }; v_parsed_item = v }
+				v_out = coreAppend(v_out, v_parsed_item)
+			}
+			return v_out, nil
+		} else {
+		// empty
+		}
+		if coreTruthy(v_has_typ_fields) {
+			v_rebuilt = MutableArray()
+			for _, v_item = range coreIter(v_value) {
+				v_item_is_map = coreTypeIs(v_item, "object")
+				if coreTruthy(v_item_is_map) {
+					{ v, err := _parse_json_string_for_fields(v_typ_fields, v_item); if err != nil { return nil, err }; v_parsed_obj = v }
+					v_rebuilt = coreAppend(v_rebuilt, v_parsed_obj)
+				} else {
+					v_rebuilt = coreAppend(v_rebuilt, v_item)
+				}
+			}
+			return v_rebuilt, nil
+		} else {
+		// empty
+		}
+		return v_value, nil
+	} else {
+	// empty
+	}
+	if coreTruthy(v_flexible) {
+		{ v, err := _parse_json_string_value(v_value); if err != nil { return nil, err }; v_parsed_scalar = v }
+		return v_parsed_scalar, nil
+	} else {
+	// empty
+	}
+	v_type_name = coreGet(v_typ, "name", nil)
+	v_is_object = _core_eq(v_type_name, "object")
+	if coreTruthy(v_is_object) {
+		if coreTruthy(v_has_typ_fields) {
+			{ v, err := _parse_json_string_for_fields(v_typ_fields, v_value); if err != nil { return nil, err }; v_parsed_obj2 = v }
+			return v_parsed_obj2, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_value, nil
+}
+
 func _date_js_trim_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_js_trim_impl")
 	var v_text Value
@@ -47003,49 +47583,6 @@ func _date_js_trim_impl(args ...Value) (Value, error) {
 	{ v, err := _date_native_offset_impl(v_units, v_end, v_mode); if err != nil { return nil, err }; v_slice_to = v }
 	v_trimmed = _core_string_slice(v_text, v_slice_from, v_slice_to)
 	return v_trimmed, nil
-}
-
-func _parse_json_string_fields(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_json_string_fields")
-	var v_output_fields Value
-	var v_values Value
-	var v_field Value
-	var v_has_key Value
-	var v_name Value
-	var v_not_map Value
-	var v_parsed Value
-	var v_value Value
-	var v_values_is_map Value
-	if len(args) > 0 { v_output_fields = args[0] }
-	_ = v_output_fields
-	if len(args) > 1 { v_values = args[1] }
-	_ = v_values
-	_ = v_field
-	_ = v_has_key
-	_ = v_name
-	_ = v_not_map
-	_ = v_parsed
-	_ = v_value
-	_ = v_values_is_map
-	v_values_is_map = coreTypeIs(v_values, "object")
-	v_not_map = _core_not(v_values_is_map)
-	if coreTruthy(v_not_map) {
-		return v_values, nil
-	} else {
-	// empty
-	}
-	for _, v_field = range coreIter(v_output_fields) {
-		v_name = coreGet(v_field, "name", nil)
-		v_has_key = _core_map_contains(v_values, v_name)
-		if coreTruthy(v_has_key) {
-			v_value = coreGet(v_values, v_name, nil)
-			{ v, err := _parse_json_string_for_field(v_field, v_value); if err != nil { return nil, err }; v_parsed = v }
-			if err := coreSet(v_values, v_name, v_parsed); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-	}
-	return v_values, nil
 }
 
 func _ace_apply_curator_operations(args ...Value) (Value, error) {
@@ -47456,26 +47993,24 @@ func _date_trim_bounds_impl(args ...Value) (Value, error) {
 	return v_bounds, nil
 }
 
-func _parse_json_string_for_fields(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_json_string_for_fields")
-	var v_fields_map Value
+func _parse_json_string_fields(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_json_string_fields")
+	var v_output_fields Value
 	var v_values Value
 	var v_field Value
 	var v_has_key Value
 	var v_name Value
-	var v_nested_fields Value
 	var v_not_map Value
 	var v_parsed Value
 	var v_value Value
 	var v_values_is_map Value
-	if len(args) > 0 { v_fields_map = args[0] }
-	_ = v_fields_map
+	if len(args) > 0 { v_output_fields = args[0] }
+	_ = v_output_fields
 	if len(args) > 1 { v_values = args[1] }
 	_ = v_values
 	_ = v_field
 	_ = v_has_key
 	_ = v_name
-	_ = v_nested_fields
 	_ = v_not_map
 	_ = v_parsed
 	_ = v_value
@@ -47487,8 +48022,7 @@ func _parse_json_string_for_fields(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	v_nested_fields = _core_fields_from_map(v_fields_map)
-	for _, v_field = range coreIter(v_nested_fields) {
+	for _, v_field = range coreIter(v_output_fields) {
 		v_name = coreGet(v_field, "name", nil)
 		v_has_key = _core_map_contains(v_values, v_name)
 		if coreTruthy(v_has_key) {
@@ -47811,6 +48345,121 @@ func _date_skip_space_impl(args ...Value) (Value, error) {
 	return v_cursor, nil
 }
 
+func _parse_json_string_for_fields(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_json_string_for_fields")
+	var v_fields_map Value
+	var v_values Value
+	var v_field Value
+	var v_has_key Value
+	var v_name Value
+	var v_nested_fields Value
+	var v_not_map Value
+	var v_parsed Value
+	var v_value Value
+	var v_values_is_map Value
+	if len(args) > 0 { v_fields_map = args[0] }
+	_ = v_fields_map
+	if len(args) > 1 { v_values = args[1] }
+	_ = v_values
+	_ = v_field
+	_ = v_has_key
+	_ = v_name
+	_ = v_nested_fields
+	_ = v_not_map
+	_ = v_parsed
+	_ = v_value
+	_ = v_values_is_map
+	v_values_is_map = coreTypeIs(v_values, "object")
+	v_not_map = _core_not(v_values_is_map)
+	if coreTruthy(v_not_map) {
+		return v_values, nil
+	} else {
+	// empty
+	}
+	v_nested_fields = _core_fields_from_map(v_fields_map)
+	for _, v_field = range coreIter(v_nested_fields) {
+		v_name = coreGet(v_field, "name", nil)
+		v_has_key = _core_map_contains(v_values, v_name)
+		if coreTruthy(v_has_key) {
+			v_value = coreGet(v_values, v_name, nil)
+			{ v, err := _parse_json_string_for_field(v_field, v_value); if err != nil { return nil, err }; v_parsed = v }
+			if err := coreSet(v_values, v_name, v_parsed); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	return v_values, nil
+}
+
+func _date_space_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_space_impl")
+	var v_unit Value
+	var v_blank Value
+	var v_byte_order Value
+	var v_control Value
+	var v_en_high Value
+	var v_en_low Value
+	var v_ideographic Value
+	var v_line_separator Value
+	var v_math_space Value
+	var v_narrow Value
+	var v_no_break Value
+	var v_ogham Value
+	var v_paragraph_separator Value
+	var v_space Value
+	var v_tab_high Value
+	var v_tab_low Value
+	var v_typographic Value
+	if len(args) > 0 { v_unit = args[0] }
+	_ = v_unit
+	_ = v_blank
+	_ = v_byte_order
+	_ = v_control
+	_ = v_en_high
+	_ = v_en_low
+	_ = v_ideographic
+	_ = v_line_separator
+	_ = v_math_space
+	_ = v_narrow
+	_ = v_no_break
+	_ = v_ogham
+	_ = v_paragraph_separator
+	_ = v_space
+	_ = v_tab_high
+	_ = v_tab_low
+	_ = v_typographic
+	v_tab_low = _core_gte(v_unit, 9)
+	v_tab_high = _core_lte(v_unit, 13)
+	v_control = _core_and(v_tab_low, v_tab_high)
+	if coreTruthy(v_control) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_space = _core_eq(v_unit, 32)
+	v_no_break = _core_eq(v_unit, 160)
+	v_ogham = _core_eq(v_unit, 5760)
+	v_en_low = _core_gte(v_unit, 8192)
+	v_en_high = _core_lte(v_unit, 8202)
+	v_typographic = _core_and(v_en_low, v_en_high)
+	v_line_separator = _core_eq(v_unit, 8232)
+	v_paragraph_separator = _core_eq(v_unit, 8233)
+	v_narrow = _core_eq(v_unit, 8239)
+	v_math_space = _core_eq(v_unit, 8287)
+	v_ideographic = _core_eq(v_unit, 12288)
+	v_byte_order = _core_eq(v_unit, 65279)
+	v_blank = _core_or(v_space, v_no_break)
+	v_blank = _core_or(v_blank, v_ogham)
+	v_blank = _core_or(v_blank, v_typographic)
+	v_blank = _core_or(v_blank, v_line_separator)
+	v_blank = _core_or(v_blank, v_paragraph_separator)
+	v_blank = _core_or(v_blank, v_narrow)
+	v_blank = _core_or(v_blank, v_math_space)
+	v_blank = _core_or(v_blank, v_ideographic)
+	v_blank = _core_or(v_blank, v_byte_order)
+	return v_blank, nil
+}
+
 func _validate_exact_output_keys(args ...Value) (Value, error) {
 	axirCoverageMark("_validate_exact_output_keys")
 	var v_fields Value
@@ -47928,75 +48577,6 @@ func _validate_exact_output_keys(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func _date_space_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_date_space_impl")
-	var v_unit Value
-	var v_blank Value
-	var v_byte_order Value
-	var v_control Value
-	var v_en_high Value
-	var v_en_low Value
-	var v_ideographic Value
-	var v_line_separator Value
-	var v_math_space Value
-	var v_narrow Value
-	var v_no_break Value
-	var v_ogham Value
-	var v_paragraph_separator Value
-	var v_space Value
-	var v_tab_high Value
-	var v_tab_low Value
-	var v_typographic Value
-	if len(args) > 0 { v_unit = args[0] }
-	_ = v_unit
-	_ = v_blank
-	_ = v_byte_order
-	_ = v_control
-	_ = v_en_high
-	_ = v_en_low
-	_ = v_ideographic
-	_ = v_line_separator
-	_ = v_math_space
-	_ = v_narrow
-	_ = v_no_break
-	_ = v_ogham
-	_ = v_paragraph_separator
-	_ = v_space
-	_ = v_tab_high
-	_ = v_tab_low
-	_ = v_typographic
-	v_tab_low = _core_gte(v_unit, 9)
-	v_tab_high = _core_lte(v_unit, 13)
-	v_control = _core_and(v_tab_low, v_tab_high)
-	if coreTruthy(v_control) {
-		return true, nil
-	} else {
-	// empty
-	}
-	v_space = _core_eq(v_unit, 32)
-	v_no_break = _core_eq(v_unit, 160)
-	v_ogham = _core_eq(v_unit, 5760)
-	v_en_low = _core_gte(v_unit, 8192)
-	v_en_high = _core_lte(v_unit, 8202)
-	v_typographic = _core_and(v_en_low, v_en_high)
-	v_line_separator = _core_eq(v_unit, 8232)
-	v_paragraph_separator = _core_eq(v_unit, 8233)
-	v_narrow = _core_eq(v_unit, 8239)
-	v_math_space = _core_eq(v_unit, 8287)
-	v_ideographic = _core_eq(v_unit, 12288)
-	v_byte_order = _core_eq(v_unit, 65279)
-	v_blank = _core_or(v_space, v_no_break)
-	v_blank = _core_or(v_blank, v_ogham)
-	v_blank = _core_or(v_blank, v_typographic)
-	v_blank = _core_or(v_blank, v_line_separator)
-	v_blank = _core_or(v_blank, v_paragraph_separator)
-	v_blank = _core_or(v_blank, v_narrow)
-	v_blank = _core_or(v_blank, v_math_space)
-	v_blank = _core_or(v_blank, v_ideographic)
-	v_blank = _core_or(v_blank, v_byte_order)
-	return v_blank, nil
-}
-
 func _stream_text_state_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_text_state_impl")
 	var v_extracted Value
@@ -48106,6 +48686,35 @@ func _stream_text_note_field_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _date_ascii_letter_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_ascii_letter_impl")
+	var v_unit Value
+	var v_letter Value
+	var v_lower Value
+	var v_lower_high Value
+	var v_lower_low Value
+	var v_upper Value
+	var v_upper_high Value
+	var v_upper_low Value
+	if len(args) > 0 { v_unit = args[0] }
+	_ = v_unit
+	_ = v_letter
+	_ = v_lower
+	_ = v_lower_high
+	_ = v_lower_low
+	_ = v_upper
+	_ = v_upper_high
+	_ = v_upper_low
+	v_upper_low = _core_gte(v_unit, 65)
+	v_upper_high = _core_lte(v_unit, 90)
+	v_upper = _core_and(v_upper_low, v_upper_high)
+	v_lower_low = _core_gte(v_unit, 97)
+	v_lower_high = _core_lte(v_unit, 122)
+	v_lower = _core_and(v_lower_low, v_lower_high)
+	v_letter = _core_or(v_upper, v_lower)
+	return v_letter, nil
+}
+
 func _tool_spec_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_tool_spec_impl")
 	var v_fn Value
@@ -48138,73 +48747,6 @@ func _tool_spec_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_spec, nil
-}
-
-func _date_ascii_letter_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_date_ascii_letter_impl")
-	var v_unit Value
-	var v_letter Value
-	var v_lower Value
-	var v_lower_high Value
-	var v_lower_low Value
-	var v_upper Value
-	var v_upper_high Value
-	var v_upper_low Value
-	if len(args) > 0 { v_unit = args[0] }
-	_ = v_unit
-	_ = v_letter
-	_ = v_lower
-	_ = v_lower_high
-	_ = v_lower_low
-	_ = v_upper
-	_ = v_upper_high
-	_ = v_upper_low
-	v_upper_low = _core_gte(v_unit, 65)
-	v_upper_high = _core_lte(v_unit, 90)
-	v_upper = _core_and(v_upper_low, v_upper_high)
-	v_lower_low = _core_gte(v_unit, 97)
-	v_lower_high = _core_lte(v_unit, 122)
-	v_lower = _core_and(v_lower_low, v_lower_high)
-	v_letter = _core_or(v_upper, v_lower)
-	return v_letter, nil
-}
-
-func _function_call_mode_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_function_call_mode_impl")
-	var v_mode Value
-	var v_is_auto Value
-	var v_is_native Value
-	var v_is_prompt Value
-	var v_missing Value
-	var v_native_or_auto Value
-	if len(args) > 0 { v_mode = args[0] }
-	_ = v_mode
-	_ = v_is_auto
-	_ = v_is_native
-	_ = v_is_prompt
-	_ = v_missing
-	_ = v_native_or_auto
-	v_missing = _core_is_none(v_mode)
-	if coreTruthy(v_missing) {
-		return "auto", nil
-	} else {
-	// empty
-	}
-	v_is_native = _core_eq(v_mode, "native")
-	v_is_auto = _core_eq(v_mode, "auto")
-	v_native_or_auto = _core_or(v_is_native, v_is_auto)
-	if coreTruthy(v_native_or_auto) {
-		return "auto", nil
-	} else {
-	// empty
-	}
-	v_is_prompt = _core_eq(v_mode, "prompt")
-	if coreTruthy(v_is_prompt) {
-		return "none", nil
-	} else {
-	// empty
-	}
-	return "auto", nil
 }
 
 func _stream_text_extract_impl(args ...Value) (Value, error) {
@@ -48582,6 +49124,44 @@ func _date_ascii_matches_impl(args ...Value) (Value, error) {
 	return true, nil
 }
 
+func _function_call_mode_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_function_call_mode_impl")
+	var v_mode Value
+	var v_is_auto Value
+	var v_is_native Value
+	var v_is_prompt Value
+	var v_missing Value
+	var v_native_or_auto Value
+	if len(args) > 0 { v_mode = args[0] }
+	_ = v_mode
+	_ = v_is_auto
+	_ = v_is_native
+	_ = v_is_prompt
+	_ = v_missing
+	_ = v_native_or_auto
+	v_missing = _core_is_none(v_mode)
+	if coreTruthy(v_missing) {
+		return "auto", nil
+	} else {
+	// empty
+	}
+	v_is_native = _core_eq(v_mode, "native")
+	v_is_auto = _core_eq(v_mode, "auto")
+	v_native_or_auto = _core_or(v_is_native, v_is_auto)
+	if coreTruthy(v_native_or_auto) {
+		return "auto", nil
+	} else {
+	// empty
+	}
+	v_is_prompt = _core_eq(v_mode, "prompt")
+	if coreTruthy(v_is_prompt) {
+		return "none", nil
+	} else {
+	// empty
+	}
+	return "auto", nil
+}
+
 func _regex_state(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_state")
 	var v_pos Value
@@ -48599,99 +49179,6 @@ func _regex_state(args ...Value) (Value, error) {
 	{ v, err := _regex_copy_map(v_caps); if err != nil { return nil, err }; v_t2 = v }
 	if err := coreSet(v_t1, "caps", v_t2); err != nil { return nil, err }
 	return v_t1, nil
-}
-
-func _response_function_calls_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_response_function_calls_impl")
-	var v_response Value
-	var v_calls Value
-	var v_empty Value
-	if len(args) > 0 { v_response = args[0] }
-	_ = v_response
-	_ = v_calls
-	_ = v_empty
-	v_empty = MutableArray()
-	v_calls = coreGet(v_response, "function_calls", v_empty)
-	return v_calls, nil
-}
-
-func _append_tool_call_messages_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_append_tool_call_messages_impl")
-	var v_messages Value
-	var v_response Value
-	var v_calls Value
-	var v_call Value
-	var v_chat_call Value
-	var v_chat_calls Value
-	var v_content Value
-	var v_has_images Value
-	var v_has_phase Value
-	var v_has_thought Value
-	var v_has_thought_blocks Value
-	var v_images Value
-	var v_message Value
-	var v_phase Value
-	var v_thought Value
-	var v_thought_blocks Value
-	if len(args) > 0 { v_messages = args[0] }
-	_ = v_messages
-	if len(args) > 1 { v_response = args[1] }
-	_ = v_response
-	if len(args) > 2 { v_calls = args[2] }
-	_ = v_calls
-	_ = v_call
-	_ = v_chat_call
-	_ = v_chat_calls
-	_ = v_content
-	_ = v_has_images
-	_ = v_has_phase
-	_ = v_has_thought
-	_ = v_has_thought_blocks
-	_ = v_images
-	_ = v_message
-	_ = v_phase
-	_ = v_thought
-	_ = v_thought_blocks
-	v_chat_calls = MutableArray()
-	for _, v_call = range coreIter(v_calls) {
-		{ v, err := _completion_call_to_chat_impl(v_call); if err != nil { return nil, err }; v_chat_call = v }
-		v_chat_calls = coreAppend(v_chat_calls, v_chat_call)
-	}
-	v_content = coreGet(v_response, "content", "")
-	v_message = Object()
-	if err := coreSet(v_message, "role", "assistant"); err != nil { return nil, err }
-	if err := coreSet(v_message, "content", v_content); err != nil { return nil, err }
-	if err := coreSet(v_message, "function_calls", v_chat_calls); err != nil { return nil, err }
-	v_thought = coreGet(v_response, "thought", nil)
-	v_has_thought = _core_is_not_none(v_thought)
-	if coreTruthy(v_has_thought) {
-		if err := coreSet(v_message, "thought", v_thought); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_thought_blocks = coreGet(v_response, "thought_blocks", nil)
-	v_has_thought_blocks = _core_is_not_none(v_thought_blocks)
-	if coreTruthy(v_has_thought_blocks) {
-		if err := coreSet(v_message, "thought_blocks", v_thought_blocks); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_images = coreGet(v_response, "images", nil)
-	v_has_images = _core_is_not_none(v_images)
-	if coreTruthy(v_has_images) {
-		if err := coreSet(v_message, "images", v_images); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_phase = coreGet(v_response, "phase", nil)
-	v_has_phase = _core_is_not_none(v_phase)
-	if coreTruthy(v_has_phase) {
-		if err := coreSet(v_message, "phase", v_phase); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_messages = coreAppend(v_messages, v_message)
-	return v_messages, nil
 }
 
 func _regex_capture_ids(args ...Value) (Value, error) {
@@ -49010,6 +49497,20 @@ func _ace_is_noop_acknowledgment(args ...Value) (Value, error) {
 	return v_is_noop, nil
 }
 
+func _response_function_calls_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_response_function_calls_impl")
+	var v_response Value
+	var v_calls Value
+	var v_empty Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	_ = v_calls
+	_ = v_empty
+	v_empty = MutableArray()
+	v_calls = coreGet(v_response, "function_calls", v_empty)
+	return v_calls, nil
+}
+
 func _date_digits_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_digits_impl")
 	var v_units Value
@@ -49082,32 +49583,83 @@ func _date_digits_impl(args ...Value) (Value, error) {
 	return v_value, nil
 }
 
-func _completion_call_to_chat_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_completion_call_to_chat_impl")
+func _append_tool_call_messages_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_append_tool_call_messages_impl")
+	var v_messages Value
+	var v_response Value
+	var v_calls Value
 	var v_call Value
-	var v_function Value
-	var v_id Value
-	var v_name Value
-	var v_out Value
-	var v_params Value
-	if len(args) > 0 { v_call = args[0] }
+	var v_chat_call Value
+	var v_chat_calls Value
+	var v_content Value
+	var v_has_images Value
+	var v_has_phase Value
+	var v_has_thought Value
+	var v_has_thought_blocks Value
+	var v_images Value
+	var v_message Value
+	var v_phase Value
+	var v_thought Value
+	var v_thought_blocks Value
+	if len(args) > 0 { v_messages = args[0] }
+	_ = v_messages
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_calls = args[2] }
+	_ = v_calls
 	_ = v_call
-	_ = v_function
-	_ = v_id
-	_ = v_name
-	_ = v_out
-	_ = v_params
-	v_id = coreGet(v_call, "id", nil)
-	v_name = coreGet(v_call, "name", nil)
-	v_params = coreGet(v_call, "params", nil)
-	v_function = Object()
-	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_function, "params", v_params); err != nil { return nil, err }
-	v_out = Object()
-	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
-	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
-	return v_out, nil
+	_ = v_chat_call
+	_ = v_chat_calls
+	_ = v_content
+	_ = v_has_images
+	_ = v_has_phase
+	_ = v_has_thought
+	_ = v_has_thought_blocks
+	_ = v_images
+	_ = v_message
+	_ = v_phase
+	_ = v_thought
+	_ = v_thought_blocks
+	v_chat_calls = MutableArray()
+	for _, v_call = range coreIter(v_calls) {
+		{ v, err := _completion_call_to_chat_impl(v_call); if err != nil { return nil, err }; v_chat_call = v }
+		v_chat_calls = coreAppend(v_chat_calls, v_chat_call)
+	}
+	v_content = coreGet(v_response, "content", "")
+	v_message = Object()
+	if err := coreSet(v_message, "role", "assistant"); err != nil { return nil, err }
+	if err := coreSet(v_message, "content", v_content); err != nil { return nil, err }
+	if err := coreSet(v_message, "function_calls", v_chat_calls); err != nil { return nil, err }
+	v_thought = coreGet(v_response, "thought", nil)
+	v_has_thought = _core_is_not_none(v_thought)
+	if coreTruthy(v_has_thought) {
+		if err := coreSet(v_message, "thought", v_thought); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_thought_blocks = coreGet(v_response, "thought_blocks", nil)
+	v_has_thought_blocks = _core_is_not_none(v_thought_blocks)
+	if coreTruthy(v_has_thought_blocks) {
+		if err := coreSet(v_message, "thought_blocks", v_thought_blocks); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_images = coreGet(v_response, "images", nil)
+	v_has_images = _core_is_not_none(v_images)
+	if coreTruthy(v_has_images) {
+		if err := coreSet(v_message, "images", v_images); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_phase = coreGet(v_response, "phase", nil)
+	v_has_phase = _core_is_not_none(v_phase)
+	if coreTruthy(v_has_phase) {
+		if err := coreSet(v_message, "phase", v_phase); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_messages = coreAppend(v_messages, v_message)
+	return v_messages, nil
 }
 
 func _date_expect_unit_impl(args ...Value) (Value, error) {
@@ -49162,31 +49714,32 @@ func _regex_push(args ...Value) (Value, error) {
 	return v_t2, nil
 }
 
-func _tool_result_message_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_tool_result_message_impl")
+func _completion_call_to_chat_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_completion_call_to_chat_impl")
 	var v_call Value
-	var v_result Value
+	var v_function Value
 	var v_id Value
-	var v_message Value
 	var v_name Value
-	var v_result_json Value
+	var v_out Value
+	var v_params Value
 	if len(args) > 0 { v_call = args[0] }
 	_ = v_call
-	if len(args) > 1 { v_result = args[1] }
-	_ = v_result
+	_ = v_function
 	_ = v_id
-	_ = v_message
 	_ = v_name
-	_ = v_result_json
+	_ = v_out
+	_ = v_params
 	v_id = coreGet(v_call, "id", nil)
 	v_name = coreGet(v_call, "name", nil)
-	v_result_json = _core_json_stringify(v_result)
-	v_message = Object()
-	if err := coreSet(v_message, "role", "function"); err != nil { return nil, err }
-	if err := coreSet(v_message, "function_id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_message, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_message, "result", v_result_json); err != nil { return nil, err }
-	return v_message, nil
+	v_params = coreGet(v_call, "params", nil)
+	v_function = Object()
+	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_function, "params", v_params); err != nil { return nil, err }
+	v_out = Object()
+	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
+	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func _date_scan_date_impl(args ...Value) (Value, error) {
@@ -49294,38 +49847,30 @@ func _regex_frame(args ...Value) (Value, error) {
 	return v_t1, nil
 }
 
-func _tool_error_message_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_tool_error_message_impl")
+func _tool_result_message_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_tool_result_message_impl")
 	var v_call Value
-	var v_error Value
-	var v_error_text Value
+	var v_result Value
 	var v_id Value
 	var v_message Value
 	var v_name Value
-	var v_payload Value
-	var v_payload_json Value
+	var v_result_json Value
 	if len(args) > 0 { v_call = args[0] }
 	_ = v_call
-	if len(args) > 1 { v_error = args[1] }
-	_ = v_error
-	_ = v_error_text
+	if len(args) > 1 { v_result = args[1] }
+	_ = v_result
 	_ = v_id
 	_ = v_message
 	_ = v_name
-	_ = v_payload
-	_ = v_payload_json
+	_ = v_result_json
 	v_id = coreGet(v_call, "id", nil)
 	v_name = coreGet(v_call, "name", nil)
-	v_error_text = _core_exception_message(v_error)
-	v_payload = Object()
-	if err := coreSet(v_payload, "error", v_error_text); err != nil { return nil, err }
-	v_payload_json = _core_json_stringify(v_payload)
+	v_result_json = _core_json_stringify(v_result)
 	v_message = Object()
 	if err := coreSet(v_message, "role", "function"); err != nil { return nil, err }
 	if err := coreSet(v_message, "function_id", v_id); err != nil { return nil, err }
 	if err := coreSet(v_message, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_message, "result", v_payload_json); err != nil { return nil, err }
-	if err := coreSet(v_message, "is_error", true); err != nil { return nil, err }
+	if err := coreSet(v_message, "result", v_result_json); err != nil { return nil, err }
 	return v_message, nil
 }
 
@@ -50663,42 +51208,39 @@ func _date_scan_datetime_impl(args ...Value) (Value, error) {
 	return v_parts, nil
 }
 
-func _append_validation_retry_messages_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_append_validation_retry_messages_impl")
-	var v_messages Value
-	var v_response Value
+func _tool_error_message_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_tool_error_message_impl")
+	var v_call Value
 	var v_error Value
-	var v_assistant_message Value
-	var v_content Value
 	var v_error_text Value
-	var v_prefix_message Value
-	var v_retry_content Value
-	var v_retry_message Value
-	if len(args) > 0 { v_messages = args[0] }
-	_ = v_messages
-	if len(args) > 1 { v_response = args[1] }
-	_ = v_response
-	if len(args) > 2 { v_error = args[2] }
+	var v_id Value
+	var v_message Value
+	var v_name Value
+	var v_payload Value
+	var v_payload_json Value
+	if len(args) > 0 { v_call = args[0] }
+	_ = v_call
+	if len(args) > 1 { v_error = args[1] }
 	_ = v_error
-	_ = v_assistant_message
-	_ = v_content
 	_ = v_error_text
-	_ = v_prefix_message
-	_ = v_retry_content
-	_ = v_retry_message
-	v_content = coreGet(v_response, "content", "")
-	v_assistant_message = Object()
-	if err := coreSet(v_assistant_message, "role", "assistant"); err != nil { return nil, err }
-	if err := coreSet(v_assistant_message, "content", v_content); err != nil { return nil, err }
-	v_messages = coreAppend(v_messages, v_assistant_message)
+	_ = v_id
+	_ = v_message
+	_ = v_name
+	_ = v_payload
+	_ = v_payload_json
+	v_id = coreGet(v_call, "id", nil)
+	v_name = coreGet(v_call, "name", nil)
 	v_error_text = _core_exception_message(v_error)
-	v_prefix_message = _core_add("The previous response failed validation: ", v_error_text)
-	v_retry_content = _core_add(v_prefix_message, ". Return only corrected JSON.")
-	v_retry_message = Object()
-	if err := coreSet(v_retry_message, "role", "user"); err != nil { return nil, err }
-	if err := coreSet(v_retry_message, "content", v_retry_content); err != nil { return nil, err }
-	v_messages = coreAppend(v_messages, v_retry_message)
-	return v_messages, nil
+	v_payload = Object()
+	if err := coreSet(v_payload, "error", v_error_text); err != nil { return nil, err }
+	v_payload_json = _core_json_stringify(v_payload)
+	v_message = Object()
+	if err := coreSet(v_message, "role", "function"); err != nil { return nil, err }
+	if err := coreSet(v_message, "function_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_message, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_message, "result", v_payload_json); err != nil { return nil, err }
+	if err := coreSet(v_message, "is_error", true); err != nil { return nil, err }
+	return v_message, nil
 }
 
 func _stream_text_required_check_impl(args ...Value) (Value, error) {
@@ -50785,47 +51327,59 @@ func _stream_text_required_check_impl(args ...Value) (Value, error) {
 	return nil, asError(v_error)
 }
 
-func _parse_text_field_value_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_text_field_value_impl")
-	var v_field Value
-	var v_text Value
-	var v_array Value
-	var v_is_boolean Value
-	var v_json Value
-	var v_name Value
-	var v_numeric Value
-	var v_parse Value
-	var v_typ Value
-	var v_value Value
-	if len(args) > 0 { v_field = args[0] }
-	_ = v_field
-	if len(args) > 1 { v_text = args[1] }
-	_ = v_text
-	_ = v_array
-	_ = v_is_boolean
-	_ = v_json
-	_ = v_name
-	_ = v_numeric
-	_ = v_parse
-	_ = v_typ
-	_ = v_value
-	v_text = coreStringTrim(v_text)
-	v_typ = coreGet(v_field, "type", nil)
-	v_name = coreGet(v_typ, "name", nil)
-	v_array = coreGet(v_typ, "is_array", false)
-	v_is_boolean = _core_eq(v_name, "boolean")
-	v_numeric = _core_eq(v_name, "number")
-	v_json = _core_eq(v_name, "json")
-	v_parse = _core_or(v_is_boolean, v_numeric)
-	v_parse = _core_or(v_parse, v_array)
-	v_parse = _core_or(v_parse, v_json)
-	if coreTruthy(v_parse) {
-		{ v, err := _core_json_parse_strict(v_text); if err != nil { return nil, err }; v_value = v }
-		return v_value, nil
+func _append_validation_retry_messages_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_append_validation_retry_messages_impl")
+	var v_messages Value
+	var v_response Value
+	var v_error Value
+	var v_assistant_message Value
+	var v_content Value
+	var v_error_text Value
+	var v_has_period Value
+	var v_instruction Value
+	var v_is_validation Value
+	var v_no_period Value
+	var v_retry_message Value
+	var v_retry_text Value
+	if len(args) > 0 { v_messages = args[0] }
+	_ = v_messages
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_error = args[2] }
+	_ = v_error
+	_ = v_assistant_message
+	_ = v_content
+	_ = v_error_text
+	_ = v_has_period
+	_ = v_instruction
+	_ = v_is_validation
+	_ = v_no_period
+	_ = v_retry_message
+	_ = v_retry_text
+	v_content = coreGet(v_response, "content", "")
+	v_assistant_message = Object()
+	if err := coreSet(v_assistant_message, "role", "assistant"); err != nil { return nil, err }
+	if err := coreSet(v_assistant_message, "content", v_content); err != nil { return nil, err }
+	v_messages = coreAppend(v_messages, v_assistant_message)
+	v_error_text = _core_exception_message(v_error)
+	v_is_validation = _core_exception_is_validation(v_error)
+	v_retry_text = ""
+	if coreTruthy(v_is_validation) {
+		v_retry_text = _core_add("Invalid Field: ", v_error_text)
 	} else {
-	// empty
+		v_instruction = coreStringTrim(v_error_text)
+		v_has_period = _core_string_ends_with(v_instruction, ".")
+		v_no_period = _core_not(v_has_period)
+		if coreTruthy(v_no_period) {
+			v_instruction = _core_add(v_instruction, ".")
+		} else {
+		// empty
+		}
+		v_retry_text = _core_add("Follow these instructions: ", v_instruction)
 	}
-	return v_text, nil
+	{ v, err := _feedback_message_impl(v_retry_text); if err != nil { return nil, err }; v_retry_message = v }
+	v_messages = coreAppend(v_messages, v_retry_message)
+	return v_messages, nil
 }
 
 func _ace_normalize_curator_operations(args ...Value) (Value, error) {
@@ -51136,172 +51690,6 @@ func _ace_normalize_curator_operations(args ...Value) (Value, error) {
 	return v_empty_list, nil
 }
 
-func _parse_text_output_fields_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_parse_text_output_fields_impl")
-	var v_content Value
-	var v_fields Value
-	var v_is_final Value
-	var v_count Value
-	var v_current Value
-	var v_current_name Value
-	var v_field Value
-	var v_found Value
-	var v_has_current Value
-	var v_has_match Value
-	var v_index Value
-	var v_keep Value
-	var v_label Value
-	var v_labels Value
-	var v_last Value
-	var v_length Value
-	var v_line Value
-	var v_line_trimmed Value
-	var v_lines Value
-	var v_matched Value
-	var v_name Value
-	var v_parse_error Value
-	var v_parsed Value
-	var v_partial Value
-	var v_parts Value
-	var v_prefix Value
-	var v_prefix_partial Value
-	var v_raw Value
-	var v_title Value
-	var v_value Value
-	var v_values Value
-	var v_withhold Value
-	if len(args) > 0 { v_content = args[0] }
-	_ = v_content
-	if len(args) > 1 { v_fields = args[1] }
-	_ = v_fields
-	if len(args) > 2 { v_is_final = args[2] }
-	_ = v_is_final
-	_ = v_count
-	_ = v_current
-	_ = v_current_name
-	_ = v_field
-	_ = v_found
-	_ = v_has_current
-	_ = v_has_match
-	_ = v_index
-	_ = v_keep
-	_ = v_label
-	_ = v_labels
-	_ = v_last
-	_ = v_length
-	_ = v_line
-	_ = v_line_trimmed
-	_ = v_lines
-	_ = v_matched
-	_ = v_name
-	_ = v_parse_error
-	_ = v_parsed
-	_ = v_partial
-	_ = v_parts
-	_ = v_prefix
-	_ = v_prefix_partial
-	_ = v_raw
-	_ = v_title
-	_ = v_value
-	_ = v_values
-	_ = v_withhold
-	v_lines = _core_string_split(v_content, "\n")
-	v_count = _core_len(v_lines)
-	v_index = 0
-	v_values = Object()
-	v_current = _core_none()
-	v_current_name = ""
-	v_parts = MutableArray()
-	for _, v_line = range coreIter(v_lines) {
-		v_index = _core_add(v_index, 1)
-		v_line_trimmed = coreStringTrim(v_line)
-		v_matched = _core_none()
-		v_value = ""
-		v_withhold = false
-		for _, v_field = range coreIter(v_fields) {
-			v_name = coreGet(v_field, "name", nil)
-			v_title = coreGet(v_field, "title", v_name)
-			v_labels = MutableArray()
-			v_labels = coreAppend(v_labels, v_name)
-			v_labels = coreAppend(v_labels, v_title)
-			for _, v_label = range coreIter(v_labels) {
-				v_prefix = _core_string_format("{}:", v_label)
-				v_found = _core_string_starts_with(v_line_trimmed, v_prefix)
-				if coreTruthy(v_found) {
-					v_matched = v_field
-					v_length = _core_len(v_prefix)
-					v_value = _core_string_slice(v_line_trimmed, v_length)
-					break
-				} else {
-				// empty
-				}
-				v_last = _core_eq(v_index, v_count)
-				v_partial = _core_not(v_is_final)
-				v_partial = _core_and(v_partial, v_last)
-				if coreTruthy(v_partial) {
-					v_prefix_partial = _core_string_starts_with(v_prefix, v_line_trimmed)
-					v_withhold = _core_or(v_withhold, v_prefix_partial)
-				} else {
-				// empty
-				}
-			}
-			v_has_match = _core_is_not_none(v_matched)
-			if coreTruthy(v_has_match) {
-				break
-			} else {
-			// empty
-			}
-		}
-		v_has_match = _core_is_not_none(v_matched)
-		if coreTruthy(v_has_match) {
-			v_has_current = _core_ne(v_current_name, "")
-			if coreTruthy(v_has_current) {
-				v_raw = _core_string_join("\n", v_parts)
-				{ v, err := _parse_text_field_value_impl(v_current, v_raw); if err != nil { return nil, err }; v_parsed = v }
-				if err := coreSet(v_values, v_current_name, v_parsed); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-			v_current = v_matched
-			v_current_name = coreGet(v_matched, "name", nil)
-			v_parts = MutableArray()
-			v_parts = coreAppend(v_parts, v_value)
-		} else {
-			v_has_current = _core_ne(v_current_name, "")
-			v_keep = _core_not(v_withhold)
-			v_keep = _core_and(v_keep, v_has_current)
-			if coreTruthy(v_keep) {
-				v_parts = coreAppend(v_parts, v_line)
-			} else {
-			// empty
-			}
-		}
-	}
-	v_has_current = _core_ne(v_current_name, "")
-	if coreTruthy(v_has_current) {
-		v_raw = _core_string_join("\n", v_parts)
-		{
-			__flow, __err := func() (coreFlow, error) {
-				{ v, err := _parse_text_field_value_impl(v_current, v_raw); if err != nil { return coreFlow{}, err }; v_parsed = v }
-				if err := coreSet(v_values, v_current_name, v_parsed); err != nil { return coreFlow{}, err }
-				return coreFlow{}, nil
-			}()
-			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-			if __err != nil {
-				v_parse_error = errorValue(__err)
-				if coreTruthy(v_is_final) {
-					return nil, asError(v_parse_error)
-				} else {
-				// empty
-				}
-			}
-		}
-	} else {
-	// empty
-	}
-	return v_values, nil
-}
-
 func _stream_text_missed_fields_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_text_missed_fields_impl")
 	var v_values Value
@@ -51566,6 +51954,215 @@ func _stream_text_missed_fields_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _parse_text_field_value_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_text_field_value_impl")
+	var v_field Value
+	var v_text Value
+	var v_array Value
+	var v_is_boolean Value
+	var v_json Value
+	var v_name Value
+	var v_numeric Value
+	var v_parse Value
+	var v_typ Value
+	var v_value Value
+	if len(args) > 0 { v_field = args[0] }
+	_ = v_field
+	if len(args) > 1 { v_text = args[1] }
+	_ = v_text
+	_ = v_array
+	_ = v_is_boolean
+	_ = v_json
+	_ = v_name
+	_ = v_numeric
+	_ = v_parse
+	_ = v_typ
+	_ = v_value
+	v_text = coreStringTrim(v_text)
+	v_typ = coreGet(v_field, "type", nil)
+	v_name = coreGet(v_typ, "name", nil)
+	v_array = coreGet(v_typ, "is_array", false)
+	v_is_boolean = _core_eq(v_name, "boolean")
+	v_numeric = _core_eq(v_name, "number")
+	v_json = _core_eq(v_name, "json")
+	v_parse = _core_or(v_is_boolean, v_numeric)
+	v_parse = _core_or(v_parse, v_array)
+	v_parse = _core_or(v_parse, v_json)
+	if coreTruthy(v_parse) {
+		{ v, err := _core_json_parse_strict(v_text); if err != nil { return nil, err }; v_value = v }
+		return v_value, nil
+	} else {
+	// empty
+	}
+	return v_text, nil
+}
+
+func _parse_text_output_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_parse_text_output_fields_impl")
+	var v_content Value
+	var v_fields Value
+	var v_is_final Value
+	var v_count Value
+	var v_current Value
+	var v_current_name Value
+	var v_field Value
+	var v_found Value
+	var v_has_current Value
+	var v_has_match Value
+	var v_index Value
+	var v_keep Value
+	var v_label Value
+	var v_labels Value
+	var v_last Value
+	var v_length Value
+	var v_line Value
+	var v_line_trimmed Value
+	var v_lines Value
+	var v_matched Value
+	var v_name Value
+	var v_parse_error Value
+	var v_parsed Value
+	var v_partial Value
+	var v_parts Value
+	var v_prefix Value
+	var v_prefix_partial Value
+	var v_raw Value
+	var v_title Value
+	var v_value Value
+	var v_values Value
+	var v_withhold Value
+	if len(args) > 0 { v_content = args[0] }
+	_ = v_content
+	if len(args) > 1 { v_fields = args[1] }
+	_ = v_fields
+	if len(args) > 2 { v_is_final = args[2] }
+	_ = v_is_final
+	_ = v_count
+	_ = v_current
+	_ = v_current_name
+	_ = v_field
+	_ = v_found
+	_ = v_has_current
+	_ = v_has_match
+	_ = v_index
+	_ = v_keep
+	_ = v_label
+	_ = v_labels
+	_ = v_last
+	_ = v_length
+	_ = v_line
+	_ = v_line_trimmed
+	_ = v_lines
+	_ = v_matched
+	_ = v_name
+	_ = v_parse_error
+	_ = v_parsed
+	_ = v_partial
+	_ = v_parts
+	_ = v_prefix
+	_ = v_prefix_partial
+	_ = v_raw
+	_ = v_title
+	_ = v_value
+	_ = v_values
+	_ = v_withhold
+	v_lines = _core_string_split(v_content, "\n")
+	v_count = _core_len(v_lines)
+	v_index = 0
+	v_values = Object()
+	v_current = _core_none()
+	v_current_name = ""
+	v_parts = MutableArray()
+	for _, v_line = range coreIter(v_lines) {
+		v_index = _core_add(v_index, 1)
+		v_line_trimmed = coreStringTrim(v_line)
+		v_matched = _core_none()
+		v_value = ""
+		v_withhold = false
+		for _, v_field = range coreIter(v_fields) {
+			v_name = coreGet(v_field, "name", nil)
+			v_title = coreGet(v_field, "title", v_name)
+			v_labels = MutableArray()
+			v_labels = coreAppend(v_labels, v_name)
+			v_labels = coreAppend(v_labels, v_title)
+			for _, v_label = range coreIter(v_labels) {
+				v_prefix = _core_string_format("{}:", v_label)
+				v_found = _core_string_starts_with(v_line_trimmed, v_prefix)
+				if coreTruthy(v_found) {
+					v_matched = v_field
+					v_length = _core_len(v_prefix)
+					v_value = _core_string_slice(v_line_trimmed, v_length)
+					break
+				} else {
+				// empty
+				}
+				v_last = _core_eq(v_index, v_count)
+				v_partial = _core_not(v_is_final)
+				v_partial = _core_and(v_partial, v_last)
+				if coreTruthy(v_partial) {
+					v_prefix_partial = _core_string_starts_with(v_prefix, v_line_trimmed)
+					v_withhold = _core_or(v_withhold, v_prefix_partial)
+				} else {
+				// empty
+				}
+			}
+			v_has_match = _core_is_not_none(v_matched)
+			if coreTruthy(v_has_match) {
+				break
+			} else {
+			// empty
+			}
+		}
+		v_has_match = _core_is_not_none(v_matched)
+		if coreTruthy(v_has_match) {
+			v_has_current = _core_ne(v_current_name, "")
+			if coreTruthy(v_has_current) {
+				v_raw = _core_string_join("\n", v_parts)
+				{ v, err := _parse_text_field_value_impl(v_current, v_raw); if err != nil { return nil, err }; v_parsed = v }
+				if err := coreSet(v_values, v_current_name, v_parsed); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_current = v_matched
+			v_current_name = coreGet(v_matched, "name", nil)
+			v_parts = MutableArray()
+			v_parts = coreAppend(v_parts, v_value)
+		} else {
+			v_has_current = _core_ne(v_current_name, "")
+			v_keep = _core_not(v_withhold)
+			v_keep = _core_and(v_keep, v_has_current)
+			if coreTruthy(v_keep) {
+				v_parts = coreAppend(v_parts, v_line)
+			} else {
+			// empty
+			}
+		}
+	}
+	v_has_current = _core_ne(v_current_name, "")
+	if coreTruthy(v_has_current) {
+		v_raw = _core_string_join("\n", v_parts)
+		{
+			__flow, __err := func() (coreFlow, error) {
+				{ v, err := _parse_text_field_value_impl(v_current, v_raw); if err != nil { return coreFlow{}, err }; v_parsed = v }
+				if err := coreSet(v_values, v_current_name, v_parsed); err != nil { return coreFlow{}, err }
+				return coreFlow{}, nil
+			}()
+			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+			if __err != nil {
+				v_parse_error = errorValue(__err)
+				if coreTruthy(v_is_final) {
+					return nil, asError(v_parse_error)
+				} else {
+				// empty
+				}
+			}
+		}
+	} else {
+	// empty
+	}
+	return v_values, nil
+}
+
 func _date_offset_zone_matches_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_offset_zone_matches_impl")
 	var v_units Value
@@ -51722,78 +52319,6 @@ func _parse_output_fields_impl(args ...Value) (Value, error) {
 	}
 	{ v, err := _parse_text_output_fields_impl(v_text, v_fields, true); if err != nil { return nil, err }; v_output = v }
 	return v_output, nil
-}
-
-func _signature_has_complex_fields(args ...Value) (Value, error) {
-	axirCoverageMark("_signature_has_complex_fields")
-	var v_signature Value
-	var v_options Value
-	var v_field Value
-	var v_field_type Value
-	var v_forced Value
-	var v_has_nested_fields Value
-	var v_is_array Value
-	var v_is_array_snake Value
-	var v_is_object Value
-	var v_nested_fields Value
-	var v_object_array Value
-	var v_option_forced Value
-	var v_option_forced_snake Value
-	var v_output_fields Value
-	var v_signature_forced Value
-	var v_signature_forced_snake Value
-	var v_type_name Value
-	if len(args) > 0 { v_signature = args[0] }
-	_ = v_signature
-	if len(args) > 1 { v_options = args[1] }
-	_ = v_options
-	_ = v_field
-	_ = v_field_type
-	_ = v_forced
-	_ = v_has_nested_fields
-	_ = v_is_array
-	_ = v_is_array_snake
-	_ = v_is_object
-	_ = v_nested_fields
-	_ = v_object_array
-	_ = v_option_forced
-	_ = v_option_forced_snake
-	_ = v_output_fields
-	_ = v_signature_forced
-	_ = v_signature_forced_snake
-	_ = v_type_name
-	v_option_forced_snake = coreGet(v_options, "force_structured", false)
-	v_option_forced = coreGet(v_options, "forceStructured", v_option_forced_snake)
-	v_signature_forced_snake = coreGet(v_signature, "force_structured", false)
-	v_signature_forced = coreGet(v_signature, "forceStructured", v_signature_forced_snake)
-	v_forced = _core_or(v_option_forced, v_signature_forced)
-	if coreTruthy(v_forced) {
-		return true, nil
-	} else {
-	// empty
-	}
-	v_output_fields = coreGet(v_signature, "output_fields", nil)
-	for _, v_field = range coreIter(v_output_fields) {
-		v_field_type = coreGet(v_field, "type", nil)
-		v_type_name = coreGet(v_field_type, "name", nil)
-		v_is_object = _core_eq(v_type_name, "object")
-		if coreTruthy(v_is_object) {
-			return true, nil
-		} else {
-		// empty
-		}
-		v_is_array_snake = coreGet(v_field_type, "is_array", false)
-		v_is_array = coreGet(v_field_type, "isArray", v_is_array_snake)
-		v_nested_fields = coreGet(v_field_type, "fields", nil)
-		v_has_nested_fields = _core_truthy(v_nested_fields)
-		v_object_array = _core_and(v_is_array, v_has_nested_fields)
-		if coreTruthy(v_object_array) {
-			return true, nil
-		} else {
-		// empty
-		}
-	}
-	return false, nil
 }
 
 func _date_offset_minutes_impl(args ...Value) (Value, error) {
@@ -52220,74 +52745,76 @@ func _ace_locate_bullet_section(args ...Value) (Value, error) {
 	return v_found, nil
 }
 
-func _caller_function_call_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_caller_function_call_impl")
+func _signature_has_complex_fields(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_has_complex_fields")
+	var v_signature Value
 	var v_options Value
-	var v_has_requested Value
-	var v_is_named Value
-	var v_is_none Value
-	var v_is_required Value
-	var v_mode Value
-	var v_mode_snake Value
-	var v_none Value
-	var v_requested Value
-	var v_requested_snake Value
-	var v_required_or_none Value
-	var v_routed Value
-	if len(args) > 0 { v_options = args[0] }
+	var v_field Value
+	var v_field_type Value
+	var v_forced Value
+	var v_has_nested_fields Value
+	var v_is_array Value
+	var v_is_array_snake Value
+	var v_is_object Value
+	var v_nested_fields Value
+	var v_object_array Value
+	var v_option_forced Value
+	var v_option_forced_snake Value
+	var v_output_fields Value
+	var v_signature_forced Value
+	var v_signature_forced_snake Value
+	var v_type_name Value
+	if len(args) > 0 { v_signature = args[0] }
+	_ = v_signature
+	if len(args) > 1 { v_options = args[1] }
 	_ = v_options
-	_ = v_has_requested
-	_ = v_is_named
-	_ = v_is_none
-	_ = v_is_required
-	_ = v_mode
-	_ = v_mode_snake
-	_ = v_none
-	_ = v_requested
-	_ = v_requested_snake
-	_ = v_required_or_none
-	_ = v_routed
-	v_requested_snake = coreGet(v_options, "function_call", nil)
-	v_requested = coreGet(v_options, "functionCall", v_requested_snake)
-	v_has_requested = _core_is_not_none(v_requested)
-	if coreTruthy(v_has_requested) {
-		return v_requested, nil
-	} else {
-	// empty
-	}
-	v_mode_snake = coreGet(v_options, "function_call_mode", nil)
-	v_mode = coreGet(v_options, "functionCallMode", v_mode_snake)
-	v_is_required = _core_eq(v_mode, "required")
-	v_is_none = _core_eq(v_mode, "none")
-	v_is_named = coreTypeIs(v_mode, "object")
-	v_required_or_none = _core_or(v_is_required, v_is_none)
-	v_routed = _core_or(v_required_or_none, v_is_named)
-	if coreTruthy(v_routed) {
-		return v_mode, nil
-	} else {
-	// empty
-	}
-	v_none = _core_none()
-	return v_none, nil
-}
-
-func _function_call_forces_tool_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_function_call_forces_tool_impl")
-	var v_choice Value
-	var v_is_named Value
-	var v_is_required Value
-	if len(args) > 0 { v_choice = args[0] }
-	_ = v_choice
-	_ = v_is_named
-	_ = v_is_required
-	v_is_required = _core_eq(v_choice, "required")
-	if coreTruthy(v_is_required) {
+	_ = v_field
+	_ = v_field_type
+	_ = v_forced
+	_ = v_has_nested_fields
+	_ = v_is_array
+	_ = v_is_array_snake
+	_ = v_is_object
+	_ = v_nested_fields
+	_ = v_object_array
+	_ = v_option_forced
+	_ = v_option_forced_snake
+	_ = v_output_fields
+	_ = v_signature_forced
+	_ = v_signature_forced_snake
+	_ = v_type_name
+	v_option_forced_snake = coreGet(v_options, "force_structured", false)
+	v_option_forced = coreGet(v_options, "forceStructured", v_option_forced_snake)
+	v_signature_forced_snake = coreGet(v_signature, "force_structured", false)
+	v_signature_forced = coreGet(v_signature, "forceStructured", v_signature_forced_snake)
+	v_forced = _core_or(v_option_forced, v_signature_forced)
+	if coreTruthy(v_forced) {
 		return true, nil
 	} else {
 	// empty
 	}
-	v_is_named = coreTypeIs(v_choice, "object")
-	return v_is_named, nil
+	v_output_fields = coreGet(v_signature, "output_fields", nil)
+	for _, v_field = range coreIter(v_output_fields) {
+		v_field_type = coreGet(v_field, "type", nil)
+		v_type_name = coreGet(v_field_type, "name", nil)
+		v_is_object = _core_eq(v_type_name, "object")
+		if coreTruthy(v_is_object) {
+			return true, nil
+		} else {
+		// empty
+		}
+		v_is_array_snake = coreGet(v_field_type, "is_array", false)
+		v_is_array = coreGet(v_field_type, "isArray", v_is_array_snake)
+		v_nested_fields = coreGet(v_field_type, "fields", nil)
+		v_has_nested_fields = _core_truthy(v_nested_fields)
+		v_object_array = _core_and(v_is_array, v_has_nested_fields)
+		if coreTruthy(v_object_array) {
+			return true, nil
+		} else {
+		// empty
+		}
+	}
+	return false, nil
 }
 
 func _ace_resolve_curator_operation_targets(args ...Value) (Value, error) {
@@ -52597,167 +53124,74 @@ func _ace_resolve_curator_operation_targets(args ...Value) (Value, error) {
 	return v_resolved, nil
 }
 
-func _function_call_names_output_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_function_call_names_output_impl")
-	var v_choice Value
-	var v_canonical Value
-	var v_empty_function Value
-	var v_function Value
+func _caller_function_call_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_caller_function_call_impl")
+	var v_options Value
+	var v_has_requested Value
 	var v_is_named Value
-	var v_legacy Value
-	var v_name Value
-	var v_not_named Value
-	var v_reserved Value
+	var v_is_none Value
+	var v_is_required Value
+	var v_mode Value
+	var v_mode_snake Value
+	var v_none Value
+	var v_requested Value
+	var v_requested_snake Value
+	var v_required_or_none Value
+	var v_routed Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	_ = v_has_requested
+	_ = v_is_named
+	_ = v_is_none
+	_ = v_is_required
+	_ = v_mode
+	_ = v_mode_snake
+	_ = v_none
+	_ = v_requested
+	_ = v_requested_snake
+	_ = v_required_or_none
+	_ = v_routed
+	v_requested_snake = coreGet(v_options, "function_call", nil)
+	v_requested = coreGet(v_options, "functionCall", v_requested_snake)
+	v_has_requested = _core_is_not_none(v_requested)
+	if coreTruthy(v_has_requested) {
+		return v_requested, nil
+	} else {
+	// empty
+	}
+	v_mode_snake = coreGet(v_options, "function_call_mode", nil)
+	v_mode = coreGet(v_options, "functionCallMode", v_mode_snake)
+	v_is_required = _core_eq(v_mode, "required")
+	v_is_none = _core_eq(v_mode, "none")
+	v_is_named = coreTypeIs(v_mode, "object")
+	v_required_or_none = _core_or(v_is_required, v_is_none)
+	v_routed = _core_or(v_required_or_none, v_is_named)
+	if coreTruthy(v_routed) {
+		return v_mode, nil
+	} else {
+	// empty
+	}
+	v_none = _core_none()
+	return v_none, nil
+}
+
+func _function_call_forces_tool_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_function_call_forces_tool_impl")
+	var v_choice Value
+	var v_is_named Value
+	var v_is_required Value
 	if len(args) > 0 { v_choice = args[0] }
 	_ = v_choice
-	_ = v_canonical
-	_ = v_empty_function
-	_ = v_function
 	_ = v_is_named
-	_ = v_legacy
-	_ = v_name
-	_ = v_not_named
-	_ = v_reserved
+	_ = v_is_required
+	v_is_required = _core_eq(v_choice, "required")
+	if coreTruthy(v_is_required) {
+		return true, nil
+	} else {
+	// empty
+	}
 	v_is_named = coreTypeIs(v_choice, "object")
-	v_not_named = _core_not(v_is_named)
-	if coreTruthy(v_not_named) {
-		return false, nil
-	} else {
-	// empty
-	}
-	v_empty_function = Object()
-	v_function = coreGet(v_choice, "function", v_empty_function)
-	v_name = coreGet(v_function, "name", "")
-	v_canonical = _core_eq(v_name, "__axOutput")
-	v_legacy = _core_eq(v_name, "__finalResult")
-	v_reserved = _core_or(v_canonical, v_legacy)
-	return v_reserved, nil
-}
-
-func _stream_text_extract_values_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_stream_text_extract_values_impl")
-	var v_content Value
-	var v_fields Value
-	var v_strict_mode Value
-	var v_extract_options Value
-	var v_field Value
-	var v_internal Value
-	var v_name Value
-	var v_values Value
-	var v_xstate Value
-	if len(args) > 0 { v_content = args[0] }
-	_ = v_content
-	if len(args) > 1 { v_fields = args[1] }
-	_ = v_fields
-	if len(args) > 2 { v_strict_mode = args[2] }
-	_ = v_strict_mode
-	_ = v_extract_options
-	_ = v_field
-	_ = v_internal
-	_ = v_name
-	_ = v_values
-	_ = v_xstate
-	v_extract_options = Object()
-	if err := coreSet(v_extract_options, "strict_mode", v_strict_mode); err != nil { return nil, err }
-	v_values = Object()
-	{ v, err := _stream_text_state_impl(); if err != nil { return nil, err }; v_xstate = v }
-	if _, err := _stream_text_extract_impl(v_xstate, v_values, v_content, v_fields, v_extract_options); err != nil { return nil, err }
-	if _, err := _stream_text_final_impl(v_xstate, v_values, v_content, v_fields, v_extract_options); err != nil { return nil, err }
-	for _, v_field = range coreIter(v_fields) {
-		{ v, err := _stream_field_flag_impl(v_field, "is_internal", "isInternal"); if err != nil { return nil, err }; v_internal = v }
-		if coreTruthy(v_internal) {
-			v_name = coreGet(v_field, "name", "")
-			_core_map_delete(v_values, v_name)
-		} else {
-		// empty
-		}
-	}
-	return v_values, nil
-}
-
-func _append_structured_output_retry_messages_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_append_structured_output_retry_messages_impl")
-	var v_messages Value
-	var v_response Value
-	var v_call Value
-	var v_error Value
-	var v_stage Value
-	var v_correction Value
-	var v_correction_text Value
-	var v_direct_name Value
-	var v_error_text Value
-	var v_fn Value
-	var v_has_period Value
-	var v_id Value
-	var v_is_assertion Value
-	var v_name Value
-	var v_notice Value
-	var v_output_calls Value
-	var v_period Value
-	var v_result_message Value
-	var v_with_call Value
-	if len(args) > 0 { v_messages = args[0] }
-	_ = v_messages
-	if len(args) > 1 { v_response = args[1] }
-	_ = v_response
-	if len(args) > 2 { v_call = args[2] }
-	_ = v_call
-	if len(args) > 3 { v_error = args[3] }
-	_ = v_error
-	if len(args) > 4 { v_stage = args[4] }
-	_ = v_stage
-	_ = v_correction
-	_ = v_correction_text
-	_ = v_direct_name
-	_ = v_error_text
-	_ = v_fn
-	_ = v_has_period
-	_ = v_id
-	_ = v_is_assertion
-	_ = v_name
-	_ = v_notice
-	_ = v_output_calls
-	_ = v_period
-	_ = v_result_message
-	_ = v_with_call
-	v_output_calls = MutableArray()
-	v_output_calls = coreAppend(v_output_calls, v_call)
-	{ v, err := _append_tool_call_messages_impl(v_messages, v_response, v_output_calls); if err != nil { return nil, err }; v_with_call = v }
-	v_id = coreGet(v_call, "id", nil)
-	v_direct_name = coreGet(v_call, "name", nil)
-	v_fn = coreGet(v_call, "function", nil)
-	v_name = coreGet(v_fn, "name", v_direct_name)
-	v_result_message = Object()
-	if err := coreSet(v_result_message, "role", "function"); err != nil { return nil, err }
-	if err := coreSet(v_result_message, "function_id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_result_message, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_result_message, "result", "done"); err != nil { return nil, err }
-	v_with_call = coreAppend(v_with_call, v_result_message)
-	v_notice = Object()
-	if err := coreSet(v_notice, "role", "user"); err != nil { return nil, err }
-	if err := coreSet(v_notice, "content", "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."); err != nil { return nil, err }
-	v_with_call = coreAppend(v_with_call, v_notice)
-	v_error_text = _core_exception_message(v_error)
-	v_error_text = coreStringTrim(v_error_text)
-	v_correction_text = _core_string_format("Invalid Field: {}", v_error_text)
-	v_is_assertion = _core_eq(v_stage, "assertion")
-	if coreTruthy(v_is_assertion) {
-		v_has_period = _core_string_ends_with(v_error_text, ".")
-		v_period = "."
-		if coreTruthy(v_has_period) {
-			v_period = ""
-		} else {
-		// empty
-		}
-		v_correction_text = _core_string_format("Follow these instructions: {}{}", v_error_text, v_period)
-	} else {
-	// empty
-	}
-	v_correction = Object()
-	if err := coreSet(v_correction, "role", "user"); err != nil { return nil, err }
-	if err := coreSet(v_correction, "content", v_correction_text); err != nil { return nil, err }
-	v_with_call = coreAppend(v_with_call, v_correction)
-	return v_with_call, nil
+	return v_is_named, nil
 }
 
 func _date_js_json_impl(args ...Value) (Value, error) {
@@ -52863,6 +53297,84 @@ func _date_js_json_impl(args ...Value) (Value, error) {
 	v_object_json = _core_add("{", v_members)
 	v_object_json = _core_add(v_object_json, "}")
 	return v_object_json, nil
+}
+
+func _stream_text_extract_values_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_text_extract_values_impl")
+	var v_content Value
+	var v_fields Value
+	var v_strict_mode Value
+	var v_extract_options Value
+	var v_field Value
+	var v_internal Value
+	var v_name Value
+	var v_values Value
+	var v_xstate Value
+	if len(args) > 0 { v_content = args[0] }
+	_ = v_content
+	if len(args) > 1 { v_fields = args[1] }
+	_ = v_fields
+	if len(args) > 2 { v_strict_mode = args[2] }
+	_ = v_strict_mode
+	_ = v_extract_options
+	_ = v_field
+	_ = v_internal
+	_ = v_name
+	_ = v_values
+	_ = v_xstate
+	v_extract_options = Object()
+	if err := coreSet(v_extract_options, "strict_mode", v_strict_mode); err != nil { return nil, err }
+	v_values = Object()
+	{ v, err := _stream_text_state_impl(); if err != nil { return nil, err }; v_xstate = v }
+	if _, err := _stream_text_extract_impl(v_xstate, v_values, v_content, v_fields, v_extract_options); err != nil { return nil, err }
+	if _, err := _stream_text_final_impl(v_xstate, v_values, v_content, v_fields, v_extract_options); err != nil { return nil, err }
+	for _, v_field = range coreIter(v_fields) {
+		{ v, err := _stream_field_flag_impl(v_field, "is_internal", "isInternal"); if err != nil { return nil, err }; v_internal = v }
+		if coreTruthy(v_internal) {
+			v_name = coreGet(v_field, "name", "")
+			_core_map_delete(v_values, v_name)
+		} else {
+		// empty
+		}
+	}
+	return v_values, nil
+}
+
+func _function_call_names_output_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_function_call_names_output_impl")
+	var v_choice Value
+	var v_canonical Value
+	var v_empty_function Value
+	var v_function Value
+	var v_is_named Value
+	var v_legacy Value
+	var v_name Value
+	var v_not_named Value
+	var v_reserved Value
+	if len(args) > 0 { v_choice = args[0] }
+	_ = v_choice
+	_ = v_canonical
+	_ = v_empty_function
+	_ = v_function
+	_ = v_is_named
+	_ = v_legacy
+	_ = v_name
+	_ = v_not_named
+	_ = v_reserved
+	v_is_named = coreTypeIs(v_choice, "object")
+	v_not_named = _core_not(v_is_named)
+	if coreTruthy(v_not_named) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_empty_function = Object()
+	v_function = coreGet(v_choice, "function", v_empty_function)
+	v_name = coreGet(v_function, "name", "")
+	v_canonical = _core_eq(v_name, "__axOutput")
+	v_legacy = _core_eq(v_name, "__finalResult")
+	v_reserved = _core_or(v_canonical, v_legacy)
+	return v_reserved, nil
 }
 
 func _stream_text_yield_delta_impl(args ...Value) (Value, error) {
@@ -53053,32 +53565,89 @@ func _stream_text_yield_delta_impl(args ...Value) (Value, error) {
 	return v_none, nil
 }
 
-func _with_output_thought_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_with_output_thought_impl")
-	var v_output Value
-	var v_field Value
-	var v_prefix Value
-	var v_thought Value
-	var v_has_thought Value
-	var v_joined Value
-	if len(args) > 0 { v_output = args[0] }
-	_ = v_output
-	if len(args) > 1 { v_field = args[1] }
-	_ = v_field
-	if len(args) > 2 { v_prefix = args[2] }
-	_ = v_prefix
-	if len(args) > 3 { v_thought = args[3] }
-	_ = v_thought
-	_ = v_has_thought
-	_ = v_joined
-	v_joined = _core_add(v_prefix, v_thought)
-	v_has_thought = _core_truthy(v_joined)
-	if coreTruthy(v_has_thought) {
-		if err := coreSet(v_output, v_field, v_joined); err != nil { return nil, err }
+func _append_structured_output_retry_messages_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_append_structured_output_retry_messages_impl")
+	var v_messages Value
+	var v_response Value
+	var v_call Value
+	var v_error Value
+	var v_stage Value
+	var v_correction Value
+	var v_correction_text Value
+	var v_direct_name Value
+	var v_error_text Value
+	var v_fn Value
+	var v_has_period Value
+	var v_id Value
+	var v_is_assertion Value
+	var v_name Value
+	var v_notice Value
+	var v_output_calls Value
+	var v_period Value
+	var v_result_message Value
+	var v_with_call Value
+	if len(args) > 0 { v_messages = args[0] }
+	_ = v_messages
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_call = args[2] }
+	_ = v_call
+	if len(args) > 3 { v_error = args[3] }
+	_ = v_error
+	if len(args) > 4 { v_stage = args[4] }
+	_ = v_stage
+	_ = v_correction
+	_ = v_correction_text
+	_ = v_direct_name
+	_ = v_error_text
+	_ = v_fn
+	_ = v_has_period
+	_ = v_id
+	_ = v_is_assertion
+	_ = v_name
+	_ = v_notice
+	_ = v_output_calls
+	_ = v_period
+	_ = v_result_message
+	_ = v_with_call
+	v_output_calls = MutableArray()
+	v_output_calls = coreAppend(v_output_calls, v_call)
+	{ v, err := _append_tool_call_messages_impl(v_messages, v_response, v_output_calls); if err != nil { return nil, err }; v_with_call = v }
+	v_id = coreGet(v_call, "id", nil)
+	v_direct_name = coreGet(v_call, "name", nil)
+	v_fn = coreGet(v_call, "function", nil)
+	v_name = coreGet(v_fn, "name", v_direct_name)
+	v_result_message = Object()
+	if err := coreSet(v_result_message, "role", "function"); err != nil { return nil, err }
+	if err := coreSet(v_result_message, "function_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_result_message, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_result_message, "result", "done"); err != nil { return nil, err }
+	v_with_call = coreAppend(v_with_call, v_result_message)
+	v_notice = Object()
+	if err := coreSet(v_notice, "role", "user"); err != nil { return nil, err }
+	if err := coreSet(v_notice, "content", "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."); err != nil { return nil, err }
+	v_with_call = coreAppend(v_with_call, v_notice)
+	v_error_text = _core_exception_message(v_error)
+	v_error_text = coreStringTrim(v_error_text)
+	v_correction_text = _core_string_format("Invalid Field: {}", v_error_text)
+	v_is_assertion = _core_eq(v_stage, "assertion")
+	if coreTruthy(v_is_assertion) {
+		v_has_period = _core_string_ends_with(v_error_text, ".")
+		v_period = "."
+		if coreTruthy(v_has_period) {
+			v_period = ""
+		} else {
+		// empty
+		}
+		v_correction_text = _core_string_format("Follow these instructions: {}{}", v_error_text, v_period)
 	} else {
 	// empty
 	}
-	return v_output, nil
+	v_correction = Object()
+	if err := coreSet(v_correction, "role", "user"); err != nil { return nil, err }
+	if err := coreSet(v_correction, "content", v_correction_text); err != nil { return nil, err }
+	v_with_call = coreAppend(v_with_call, v_correction)
+	return v_with_call, nil
 }
 
 func _date_js_json_string_impl(args ...Value) (Value, error) {
@@ -53337,6 +53906,100 @@ func _date_js_json_string_impl(args ...Value) (Value, error) {
 	v_out = _core_add(v_out, v_rest)
 	v_out = _core_add(v_out, "\"")
 	return v_out, nil
+}
+
+func _with_output_thought_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_with_output_thought_impl")
+	var v_output Value
+	var v_field Value
+	var v_prefix Value
+	var v_thought Value
+	var v_has_thought Value
+	var v_joined Value
+	if len(args) > 0 { v_output = args[0] }
+	_ = v_output
+	if len(args) > 1 { v_field = args[1] }
+	_ = v_field
+	if len(args) > 2 { v_prefix = args[2] }
+	_ = v_prefix
+	if len(args) > 3 { v_thought = args[3] }
+	_ = v_thought
+	_ = v_has_thought
+	_ = v_joined
+	v_joined = _core_add(v_prefix, v_thought)
+	v_has_thought = _core_truthy(v_joined)
+	if coreTruthy(v_has_thought) {
+		if err := coreSet(v_output, v_field, v_joined); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_output, nil
+}
+
+func _ace_normalize_reflection_bullet_tags(args ...Value) (Value, error) {
+	axirCoverageMark("_ace_normalize_reflection_bullet_tags")
+	var v_reflection Value
+	var v_candidates Value
+	var v_empty_list Value
+	var v_normalized Value
+	var v_raw_bullet_tags Value
+	var v_tag Value
+	var v_tag_id Value
+	var v_tag_id_is_string Value
+	var v_tag_is_object Value
+	var v_tag_value Value
+	var v_tag_value_is_string Value
+	var v_tags_is_list Value
+	var v_tags_is_object Value
+	var v_valid_tag_shape Value
+	if len(args) > 0 { v_reflection = args[0] }
+	_ = v_reflection
+	_ = v_candidates
+	_ = v_empty_list
+	_ = v_normalized
+	_ = v_raw_bullet_tags
+	_ = v_tag
+	_ = v_tag_id
+	_ = v_tag_id_is_string
+	_ = v_tag_is_object
+	_ = v_tag_value
+	_ = v_tag_value_is_string
+	_ = v_tags_is_list
+	_ = v_tags_is_object
+	_ = v_valid_tag_shape
+	v_empty_list = MutableArray()
+	v_raw_bullet_tags = coreGet(v_reflection, "bulletTags", v_empty_list)
+	v_candidates = MutableArray()
+	v_tags_is_list = coreTypeIs(v_raw_bullet_tags, "list")
+	if coreTruthy(v_tags_is_list) {
+		v_candidates = v_raw_bullet_tags
+	} else {
+		v_tags_is_object = coreTypeIs(v_raw_bullet_tags, "object")
+		if coreTruthy(v_tags_is_object) {
+			v_candidates = coreAppend(v_candidates, v_raw_bullet_tags)
+		} else {
+		// empty
+		}
+	}
+	v_normalized = MutableArray()
+	for _, v_tag = range coreIter(v_candidates) {
+		v_tag_is_object = coreTypeIs(v_tag, "object")
+		if coreTruthy(v_tag_is_object) {
+			v_tag_id = coreGet(v_tag, "id", nil)
+			v_tag_id_is_string = coreTypeIs(v_tag_id, "string")
+			v_tag_value = coreGet(v_tag, "tag", nil)
+			v_tag_value_is_string = coreTypeIs(v_tag_value, "string")
+			v_valid_tag_shape = _core_and(v_tag_id_is_string, v_tag_value_is_string)
+			if coreTruthy(v_valid_tag_shape) {
+				v_normalized = coreAppend(v_normalized, v_tag)
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_normalized, nil
 }
 
 func _streaming_forward_impl(args ...Value) (Value, error) {
@@ -54241,6 +54904,9 @@ func _streaming_forward_impl(args ...Value) (Value, error) {
 						v_stage = "validation"
 						{ v, err := fold_chat_response_stream(v_events); if err != nil { return coreFlow{}, err }; v_folded = v }
 						{ v, err := chat_response_to_completion(v_folded); if err != nil { return coreFlow{}, err }; v_response = v }
+						v_stage = "fatal"
+						if _, err := _check_completion_function_call_names(v_response, v_runtime_options); err != nil { return coreFlow{}, err }
+						v_stage = "validation"
 						_core_axgen_memory_add_response(v_gen, v_request, v_response)
 						_core_axgen_record_chat_log(v_gen, v_request, v_response)
 						v_recorded = true
@@ -54547,72 +55213,6 @@ func _streaming_forward_impl(args ...Value) (Value, error) {
 		}
 		v_step = _core_add(v_step, 1)
 	}
-}
-
-func _ace_normalize_reflection_bullet_tags(args ...Value) (Value, error) {
-	axirCoverageMark("_ace_normalize_reflection_bullet_tags")
-	var v_reflection Value
-	var v_candidates Value
-	var v_empty_list Value
-	var v_normalized Value
-	var v_raw_bullet_tags Value
-	var v_tag Value
-	var v_tag_id Value
-	var v_tag_id_is_string Value
-	var v_tag_is_object Value
-	var v_tag_value Value
-	var v_tag_value_is_string Value
-	var v_tags_is_list Value
-	var v_tags_is_object Value
-	var v_valid_tag_shape Value
-	if len(args) > 0 { v_reflection = args[0] }
-	_ = v_reflection
-	_ = v_candidates
-	_ = v_empty_list
-	_ = v_normalized
-	_ = v_raw_bullet_tags
-	_ = v_tag
-	_ = v_tag_id
-	_ = v_tag_id_is_string
-	_ = v_tag_is_object
-	_ = v_tag_value
-	_ = v_tag_value_is_string
-	_ = v_tags_is_list
-	_ = v_tags_is_object
-	_ = v_valid_tag_shape
-	v_empty_list = MutableArray()
-	v_raw_bullet_tags = coreGet(v_reflection, "bulletTags", v_empty_list)
-	v_candidates = MutableArray()
-	v_tags_is_list = coreTypeIs(v_raw_bullet_tags, "list")
-	if coreTruthy(v_tags_is_list) {
-		v_candidates = v_raw_bullet_tags
-	} else {
-		v_tags_is_object = coreTypeIs(v_raw_bullet_tags, "object")
-		if coreTruthy(v_tags_is_object) {
-			v_candidates = coreAppend(v_candidates, v_raw_bullet_tags)
-		} else {
-		// empty
-		}
-	}
-	v_normalized = MutableArray()
-	for _, v_tag = range coreIter(v_candidates) {
-		v_tag_is_object = coreTypeIs(v_tag, "object")
-		if coreTruthy(v_tag_is_object) {
-			v_tag_id = coreGet(v_tag, "id", nil)
-			v_tag_id_is_string = coreTypeIs(v_tag_id, "string")
-			v_tag_value = coreGet(v_tag, "tag", nil)
-			v_tag_value_is_string = coreTypeIs(v_tag_value, "string")
-			v_valid_tag_shape = _core_and(v_tag_id_is_string, v_tag_value_is_string)
-			if coreTruthy(v_valid_tag_shape) {
-				v_normalized = coreAppend(v_normalized, v_tag)
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-	}
-	return v_normalized, nil
 }
 
 func _stream_text_values_impl(args ...Value) (Value, error) {
@@ -55798,6 +56398,40 @@ func _regex_identifier(args ...Value) (Value, error) {
 	return false, nil
 }
 
+func _date_make_day_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_make_day_impl")
+	var v_year Value
+	var v_month_index Value
+	var v_date Value
+	var v_carry Value
+	var v_carry_months Value
+	var v_day Value
+	var v_first Value
+	var v_month Value
+	var v_whole_year Value
+	if len(args) > 0 { v_year = args[0] }
+	_ = v_year
+	if len(args) > 1 { v_month_index = args[1] }
+	_ = v_month_index
+	if len(args) > 2 { v_date = args[2] }
+	_ = v_date
+	_ = v_carry
+	_ = v_carry_months
+	_ = v_day
+	_ = v_first
+	_ = v_month
+	_ = v_whole_year
+	{ v, err := _date_floor_div_impl(v_month_index, 12); if err != nil { return nil, err }; v_carry = v }
+	v_whole_year = _core_add(v_year, v_carry)
+	v_carry_months = _core_mul(v_carry, -12)
+	v_month = _core_add(v_month_index, v_carry_months)
+	v_month = _core_add(v_month, 1)
+	{ v, err := _date_days_from_civil_impl(v_whole_year, v_month, 1); if err != nil { return nil, err }; v_first = v }
+	v_day = _core_add(v_first, v_date)
+	v_day = _core_add(v_day, -1)
+	return v_day, nil
+}
+
 func _stream_json_strip_dangling_key_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_json_strip_dangling_key_impl")
 	var v_text Value
@@ -55980,40 +56614,6 @@ func _stream_json_strip_dangling_key_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return -1, nil
-}
-
-func _date_make_day_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_date_make_day_impl")
-	var v_year Value
-	var v_month_index Value
-	var v_date Value
-	var v_carry Value
-	var v_carry_months Value
-	var v_day Value
-	var v_first Value
-	var v_month Value
-	var v_whole_year Value
-	if len(args) > 0 { v_year = args[0] }
-	_ = v_year
-	if len(args) > 1 { v_month_index = args[1] }
-	_ = v_month_index
-	if len(args) > 2 { v_date = args[2] }
-	_ = v_date
-	_ = v_carry
-	_ = v_carry_months
-	_ = v_day
-	_ = v_first
-	_ = v_month
-	_ = v_whole_year
-	{ v, err := _date_floor_div_impl(v_month_index, 12); if err != nil { return nil, err }; v_carry = v }
-	v_whole_year = _core_add(v_year, v_carry)
-	v_carry_months = _core_mul(v_carry, -12)
-	v_month = _core_add(v_month_index, v_carry_months)
-	v_month = _core_add(v_month, 1)
-	{ v, err := _date_days_from_civil_impl(v_whole_year, v_month, 1); if err != nil { return nil, err }; v_first = v }
-	v_day = _core_add(v_first, v_date)
-	v_day = _core_add(v_day, -1)
-	return v_day, nil
 }
 
 func _date_utc_ms_impl(args ...Value) (Value, error) {
@@ -57543,6 +58143,175 @@ func _stream_json_parse_partial_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _regex_id_start_ranges(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_id_start_ranges")
+	var v_t1 Value
+	_ = v_t1
+	{ v, err := _core_json_parse("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]"); if err != nil { return nil, err }; v_t1 = v }
+	return v_t1, nil
+}
+
+func _regex_id_continue_ranges(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_id_continue_ranges")
+	var v_t1 Value
+	_ = v_t1
+	{ v, err := _core_json_parse("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]"); if err != nil { return nil, err }; v_t1 = v }
+	return v_t1, nil
+}
+
+func _regex_clear_capture(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_clear_capture")
+	var v_caps Value
+	var v_key Value
+	var v_t1 Value
+	if len(args) > 0 { v_caps = args[0] }
+	_ = v_caps
+	if len(args) > 1 { v_key = args[1] }
+	_ = v_key
+	_ = v_t1
+	v_t1 = _core_none()
+	if err := coreSet(v_caps, v_key, v_t1); err != nil { return nil, err }
+	return nil, nil
+}
+
+func _stream_json_should_parse_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_json_should_parse_impl")
+	var v_state Value
+	var v_content Value
+	var v_at_start Value
+	var v_before Value
+	var v_boundary Value
+	var v_brace Value
+	var v_bracket Value
+	var v_ch Value
+	var v_comma Value
+	var v_cursor Value
+	var v_fresh Value
+	var v_last Value
+	var v_last_ch Value
+	var v_length Value
+	var v_negative_last Value
+	var v_not_boundary Value
+	var v_not_space Value
+	var v_nothing_new Value
+	var v_plenty Value
+	var v_space Value
+	var v_too_few Value
+	var v_units Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_content = args[1] }
+	_ = v_content
+	_ = v_at_start
+	_ = v_before
+	_ = v_boundary
+	_ = v_brace
+	_ = v_bracket
+	_ = v_ch
+	_ = v_comma
+	_ = v_cursor
+	_ = v_fresh
+	_ = v_last
+	_ = v_last_ch
+	_ = v_length
+	_ = v_negative_last
+	_ = v_not_boundary
+	_ = v_not_space
+	_ = v_nothing_new
+	_ = v_plenty
+	_ = v_space
+	_ = v_too_few
+	_ = v_units
+	v_units = _core_string_utf16_units(v_content)
+	v_length = _core_len(v_units)
+	v_last = coreGet(v_state, "last_parse_length", 0)
+	v_negative_last = _core_mul(v_last, -1)
+	v_fresh = _core_add(v_length, v_negative_last)
+	v_nothing_new = _core_lte(v_fresh, 0)
+	if coreTruthy(v_nothing_new) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_plenty = _core_gte(v_fresh, 160)
+	if coreTruthy(v_plenty) {
+		if err := coreSet(v_state, "last_parse_length", v_length); err != nil { return nil, err }
+		return true, nil
+	} else {
+	// empty
+	}
+	v_too_few = _core_lt(v_fresh, 80)
+	if coreTruthy(v_too_few) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_cursor = _core_len(v_content)
+	v_last_ch = ""
+	for {
+		v_at_start = _core_lte(v_cursor, 0)
+		if coreTruthy(v_at_start) {
+			break
+		} else {
+		// empty
+		}
+		v_before = _core_add(v_cursor, -1)
+		v_ch = _core_string_slice(v_content, v_before, v_cursor)
+		v_space = coreRegexMatch("^[ \\n\\r\\t]$", v_ch)
+		v_not_space = _core_not(v_space)
+		if coreTruthy(v_not_space) {
+			v_last_ch = v_ch
+			break
+		} else {
+		// empty
+		}
+		v_cursor = v_before
+	}
+	v_brace = _core_eq(v_last_ch, "}")
+	v_bracket = _core_eq(v_last_ch, "]")
+	v_comma = _core_eq(v_last_ch, ",")
+	v_boundary = _core_or(v_brace, v_bracket)
+	v_boundary = _core_or(v_boundary, v_comma)
+	v_not_boundary = _core_not(v_boundary)
+	if coreTruthy(v_not_boundary) {
+		return false, nil
+	} else {
+	// empty
+	}
+	if err := coreSet(v_state, "last_parse_length", v_length); err != nil { return nil, err }
+	return true, nil
+}
+
+func _regex_copy_map(args ...Value) (Value, error) {
+	axirCoverageMark("_regex_copy_map")
+	var v_value Value
+	var v_iter_3 Value
+	var v_key Value
+	var v_out Value
+	var v_t1 Value
+	var v_t2 Value
+	var v_t4 Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_iter_3
+	_ = v_key
+	_ = v_out
+	_ = v_t1
+	_ = v_t2
+	_ = v_t4
+	v_key = _core_none()
+	v_out = _core_none()
+	v_t1 = Object()
+	v_out = v_t1
+	v_t2 = _core_map_keys(v_value)
+	for _, v_iter_3 = range coreIter(v_t2) {
+		v_key = v_iter_3
+		v_t4 = coreGet(v_value, v_key, nil)
+		if err := coreSet(v_out, v_key, v_t4); err != nil { return nil, err }
+	}
+	return v_out, nil
+}
+
 func _parse_text_contract_output_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_parse_text_contract_output_impl")
 	var v_content Value
@@ -57646,222 +58415,6 @@ func _parse_text_contract_output_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "values", v_values); err != nil { return nil, err }
 	if err := coreSet(v_out, "extracted", true); err != nil { return nil, err }
 	return v_out, nil
-}
-
-func _regex_id_start_ranges(args ...Value) (Value, error) {
-	axirCoverageMark("_regex_id_start_ranges")
-	var v_t1 Value
-	_ = v_t1
-	{ v, err := _core_json_parse("[[65,90],[97,122],[170,170],[181,181],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[880,884],[886,887],[890,893],[895,895],[902,902],[904,906],[908,908],[910,929],[931,1013],[1015,1153],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1488,1514],[1519,1522],[1568,1610],[1646,1647],[1649,1747],[1749,1749],[1765,1766],[1774,1775],[1786,1788],[1791,1791],[1808,1808],[1810,1839],[1869,1957],[1969,1969],[1994,2026],[2036,2037],[2042,2042],[2048,2069],[2074,2074],[2084,2084],[2088,2088],[2112,2136],[2144,2154],[2160,2183],[2185,2191],[2208,2249],[2308,2361],[2365,2365],[2384,2384],[2392,2401],[2417,2432],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2493,2493],[2510,2510],[2524,2525],[2527,2529],[2544,2545],[2556,2556],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2649,2652],[2654,2654],[2674,2676],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2749,2749],[2768,2768],[2784,2785],[2809,2809],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2877,2877],[2908,2909],[2911,2913],[2929,2929],[2947,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3024,3024],[3077,3084],[3086,3088],[3090,3112],[3114,3129],[3133,3133],[3160,3162],[3164,3165],[3168,3169],[3200,3200],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3261,3261],[3292,3294],[3296,3297],[3313,3314],[3332,3340],[3342,3344],[3346,3386],[3389,3389],[3406,3406],[3412,3414],[3423,3425],[3450,3455],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3585,3632],[3634,3635],[3648,3654],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3760],[3762,3763],[3773,3773],[3776,3780],[3782,3782],[3804,3807],[3840,3840],[3904,3911],[3913,3948],[3976,3980],[4096,4138],[4159,4159],[4176,4181],[4186,4189],[4193,4193],[4197,4198],[4206,4208],[4213,4225],[4238,4238],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5905],[5919,5937],[5952,5969],[5984,5996],[5998,6000],[6016,6067],[6103,6103],[6108,6108],[6176,6264],[6272,6312],[6314,6314],[6320,6389],[6400,6430],[6480,6509],[6512,6516],[6528,6571],[6576,6601],[6656,6678],[6688,6740],[6823,6823],[6917,6963],[6981,6988],[7043,7072],[7086,7087],[7098,7141],[7168,7203],[7245,7247],[7258,7293],[7296,7306],[7312,7354],[7357,7359],[7401,7404],[7406,7411],[7413,7414],[7418,7418],[7424,7615],[7680,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8305,8305],[8319,8319],[8336,8348],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11502],[11506,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11648,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[12293,12295],[12321,12329],[12337,12341],[12344,12348],[12353,12438],[12443,12447],[12449,12538],[12540,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42527],[42538,42539],[42560,42606],[42623,42653],[42656,42735],[42775,42783],[42786,42888],[42891,42972],[42993,43009],[43011,43013],[43015,43018],[43020,43042],[43072,43123],[43138,43187],[43250,43255],[43259,43259],[43261,43262],[43274,43301],[43312,43334],[43360,43388],[43396,43442],[43471,43471],[43488,43492],[43494,43503],[43514,43518],[43520,43560],[43584,43586],[43588,43595],[43616,43638],[43642,43642],[43646,43695],[43697,43697],[43701,43702],[43705,43709],[43712,43712],[43714,43714],[43739,43741],[43744,43754],[43762,43764],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44002],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64285],[64287,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65136,65140],[65142,65276],[65313,65338],[65345,65370],[65382,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66176,66204],[66208,66256],[66304,66335],[66349,66378],[66384,66421],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68096],[68112,68115],[68117,68119],[68121,68149],[68192,68220],[68224,68252],[68288,68295],[68297,68324],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68899],[68938,68965],[68975,68997],[69248,69289],[69296,69297],[69314,69319],[69376,69404],[69415,69415],[69424,69445],[69488,69505],[69552,69572],[69600,69622],[69635,69687],[69745,69746],[69749,69749],[69763,69807],[69840,69864],[69891,69926],[69956,69956],[69959,69959],[69968,70002],[70006,70006],[70019,70066],[70081,70084],[70106,70106],[70108,70108],[70144,70161],[70163,70187],[70207,70208],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70366],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70461,70461],[70480,70480],[70493,70497],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70583],[70609,70609],[70611,70611],[70656,70708],[70727,70730],[70751,70753],[70784,70831],[70852,70853],[70855,70855],[71040,71086],[71128,71131],[71168,71215],[71236,71236],[71296,71338],[71352,71352],[71424,71450],[71488,71494],[71680,71723],[71840,71903],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71983],[71999,71999],[72001,72001],[72096,72103],[72106,72144],[72161,72161],[72163,72163],[72192,72192],[72203,72242],[72250,72250],[72272,72272],[72284,72329],[72349,72349],[72368,72440],[72640,72672],[72704,72712],[72714,72750],[72768,72768],[72818,72847],[72960,72966],[72968,72969],[72971,73008],[73030,73030],[73056,73061],[73063,73064],[73066,73097],[73112,73112],[73136,73179],[73440,73458],[73474,73474],[73476,73488],[73490,73523],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78913,78918],[78944,82938],[82944,83526],[90368,90397],[92160,92728],[92736,92766],[92784,92862],[92880,92909],[92928,92975],[92992,92995],[93027,93047],[93053,93071],[93504,93548],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94032,94032],[94099,94111],[94176,94177],[94179,94179],[94194,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[122624,122654],[122661,122666],[122928,122989],[123136,123180],[123191,123197],[123214,123214],[123536,123565],[123584,123627],[124112,124139],[124368,124397],[124400,124400],[124608,124638],[124640,124642],[124644,124645],[124647,124653],[124656,124660],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125184,125251],[125259,125259],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041]]"); if err != nil { return nil, err }; v_t1 = v }
-	return v_t1, nil
-}
-
-func _regex_id_continue_ranges(args ...Value) (Value, error) {
-	axirCoverageMark("_regex_id_continue_ranges")
-	var v_t1 Value
-	_ = v_t1
-	{ v, err := _core_json_parse("[[48,57],[65,90],[95,95],[97,122],[170,170],[181,181],[183,183],[186,186],[192,214],[216,246],[248,705],[710,721],[736,740],[748,748],[750,750],[768,884],[886,887],[890,893],[895,895],[902,906],[908,908],[910,929],[931,1013],[1015,1153],[1155,1159],[1162,1327],[1329,1366],[1369,1369],[1376,1416],[1425,1469],[1471,1471],[1473,1474],[1476,1477],[1479,1479],[1488,1514],[1519,1522],[1552,1562],[1568,1641],[1646,1747],[1749,1756],[1759,1768],[1770,1788],[1791,1791],[1808,1866],[1869,1969],[1984,2037],[2042,2042],[2045,2045],[2048,2093],[2112,2139],[2144,2154],[2160,2183],[2185,2191],[2199,2273],[2275,2403],[2406,2415],[2417,2435],[2437,2444],[2447,2448],[2451,2472],[2474,2480],[2482,2482],[2486,2489],[2492,2500],[2503,2504],[2507,2510],[2519,2519],[2524,2525],[2527,2531],[2534,2545],[2556,2556],[2558,2558],[2561,2563],[2565,2570],[2575,2576],[2579,2600],[2602,2608],[2610,2611],[2613,2614],[2616,2617],[2620,2620],[2622,2626],[2631,2632],[2635,2637],[2641,2641],[2649,2652],[2654,2654],[2662,2677],[2689,2691],[2693,2701],[2703,2705],[2707,2728],[2730,2736],[2738,2739],[2741,2745],[2748,2757],[2759,2761],[2763,2765],[2768,2768],[2784,2787],[2790,2799],[2809,2815],[2817,2819],[2821,2828],[2831,2832],[2835,2856],[2858,2864],[2866,2867],[2869,2873],[2876,2884],[2887,2888],[2891,2893],[2901,2903],[2908,2909],[2911,2915],[2918,2927],[2929,2929],[2946,2947],[2949,2954],[2958,2960],[2962,2965],[2969,2970],[2972,2972],[2974,2975],[2979,2980],[2984,2986],[2990,3001],[3006,3010],[3014,3016],[3018,3021],[3024,3024],[3031,3031],[3046,3055],[3072,3084],[3086,3088],[3090,3112],[3114,3129],[3132,3140],[3142,3144],[3146,3149],[3157,3158],[3160,3162],[3164,3165],[3168,3171],[3174,3183],[3200,3203],[3205,3212],[3214,3216],[3218,3240],[3242,3251],[3253,3257],[3260,3268],[3270,3272],[3274,3277],[3285,3286],[3292,3294],[3296,3299],[3302,3311],[3313,3315],[3328,3340],[3342,3344],[3346,3396],[3398,3400],[3402,3406],[3412,3415],[3423,3427],[3430,3439],[3450,3455],[3457,3459],[3461,3478],[3482,3505],[3507,3515],[3517,3517],[3520,3526],[3530,3530],[3535,3540],[3542,3542],[3544,3551],[3558,3567],[3570,3571],[3585,3642],[3648,3662],[3664,3673],[3713,3714],[3716,3716],[3718,3722],[3724,3747],[3749,3749],[3751,3773],[3776,3780],[3782,3782],[3784,3790],[3792,3801],[3804,3807],[3840,3840],[3864,3865],[3872,3881],[3893,3893],[3895,3895],[3897,3897],[3902,3911],[3913,3948],[3953,3972],[3974,3991],[3993,4028],[4038,4038],[4096,4169],[4176,4253],[4256,4293],[4295,4295],[4301,4301],[4304,4346],[4348,4680],[4682,4685],[4688,4694],[4696,4696],[4698,4701],[4704,4744],[4746,4749],[4752,4784],[4786,4789],[4792,4798],[4800,4800],[4802,4805],[4808,4822],[4824,4880],[4882,4885],[4888,4954],[4957,4959],[4969,4977],[4992,5007],[5024,5109],[5112,5117],[5121,5740],[5743,5759],[5761,5786],[5792,5866],[5870,5880],[5888,5909],[5919,5940],[5952,5971],[5984,5996],[5998,6000],[6002,6003],[6016,6099],[6103,6103],[6108,6109],[6112,6121],[6155,6157],[6159,6169],[6176,6264],[6272,6314],[6320,6389],[6400,6430],[6432,6443],[6448,6459],[6470,6509],[6512,6516],[6528,6571],[6576,6601],[6608,6618],[6656,6683],[6688,6750],[6752,6780],[6783,6793],[6800,6809],[6823,6823],[6832,6845],[6847,6877],[6880,6891],[6912,6988],[6992,7001],[7019,7027],[7040,7155],[7168,7223],[7232,7241],[7245,7293],[7296,7306],[7312,7354],[7357,7359],[7376,7378],[7380,7418],[7424,7957],[7960,7965],[7968,8005],[8008,8013],[8016,8023],[8025,8025],[8027,8027],[8029,8029],[8031,8061],[8064,8116],[8118,8124],[8126,8126],[8130,8132],[8134,8140],[8144,8147],[8150,8155],[8160,8172],[8178,8180],[8182,8188],[8204,8205],[8255,8256],[8276,8276],[8305,8305],[8319,8319],[8336,8348],[8400,8412],[8417,8417],[8421,8432],[8450,8450],[8455,8455],[8458,8467],[8469,8469],[8472,8477],[8484,8484],[8486,8486],[8488,8488],[8490,8505],[8508,8511],[8517,8521],[8526,8526],[8544,8584],[11264,11492],[11499,11507],[11520,11557],[11559,11559],[11565,11565],[11568,11623],[11631,11631],[11647,11670],[11680,11686],[11688,11694],[11696,11702],[11704,11710],[11712,11718],[11720,11726],[11728,11734],[11736,11742],[11744,11775],[12293,12295],[12321,12335],[12337,12341],[12344,12348],[12353,12438],[12441,12447],[12449,12543],[12549,12591],[12593,12686],[12704,12735],[12784,12799],[13312,19903],[19968,42124],[42192,42237],[42240,42508],[42512,42539],[42560,42607],[42612,42621],[42623,42737],[42775,42783],[42786,42888],[42891,42972],[42993,43047],[43052,43052],[43072,43123],[43136,43205],[43216,43225],[43232,43255],[43259,43259],[43261,43309],[43312,43347],[43360,43388],[43392,43456],[43471,43481],[43488,43518],[43520,43574],[43584,43597],[43600,43609],[43616,43638],[43642,43714],[43739,43741],[43744,43759],[43762,43766],[43777,43782],[43785,43790],[43793,43798],[43808,43814],[43816,43822],[43824,43866],[43868,43881],[43888,44010],[44012,44013],[44016,44025],[44032,55203],[55216,55238],[55243,55291],[63744,64109],[64112,64217],[64256,64262],[64275,64279],[64285,64296],[64298,64310],[64312,64316],[64318,64318],[64320,64321],[64323,64324],[64326,64433],[64467,64829],[64848,64911],[64914,64967],[65008,65019],[65024,65039],[65056,65071],[65075,65076],[65101,65103],[65136,65140],[65142,65276],[65296,65305],[65313,65338],[65343,65343],[65345,65370],[65381,65470],[65474,65479],[65482,65487],[65490,65495],[65498,65500],[65536,65547],[65549,65574],[65576,65594],[65596,65597],[65599,65613],[65616,65629],[65664,65786],[65856,65908],[66045,66045],[66176,66204],[66208,66256],[66272,66272],[66304,66335],[66349,66378],[66384,66426],[66432,66461],[66464,66499],[66504,66511],[66513,66517],[66560,66717],[66720,66729],[66736,66771],[66776,66811],[66816,66855],[66864,66915],[66928,66938],[66940,66954],[66956,66962],[66964,66965],[66967,66977],[66979,66993],[66995,67001],[67003,67004],[67008,67059],[67072,67382],[67392,67413],[67424,67431],[67456,67461],[67463,67504],[67506,67514],[67584,67589],[67592,67592],[67594,67637],[67639,67640],[67644,67644],[67647,67669],[67680,67702],[67712,67742],[67808,67826],[67828,67829],[67840,67861],[67872,67897],[67904,67929],[67968,68023],[68030,68031],[68096,68099],[68101,68102],[68108,68115],[68117,68119],[68121,68149],[68152,68154],[68159,68159],[68192,68220],[68224,68252],[68288,68295],[68297,68326],[68352,68405],[68416,68437],[68448,68466],[68480,68497],[68608,68680],[68736,68786],[68800,68850],[68864,68903],[68912,68921],[68928,68965],[68969,68973],[68975,68997],[69248,69289],[69291,69292],[69296,69297],[69314,69319],[69370,69404],[69415,69415],[69424,69456],[69488,69509],[69552,69572],[69600,69622],[69632,69702],[69734,69749],[69759,69818],[69826,69826],[69840,69864],[69872,69881],[69888,69940],[69942,69951],[69956,69959],[69968,70003],[70006,70006],[70016,70084],[70089,70092],[70094,70106],[70108,70108],[70144,70161],[70163,70199],[70206,70209],[70272,70278],[70280,70280],[70282,70285],[70287,70301],[70303,70312],[70320,70378],[70384,70393],[70400,70403],[70405,70412],[70415,70416],[70419,70440],[70442,70448],[70450,70451],[70453,70457],[70459,70468],[70471,70472],[70475,70477],[70480,70480],[70487,70487],[70493,70499],[70502,70508],[70512,70516],[70528,70537],[70539,70539],[70542,70542],[70544,70581],[70583,70592],[70594,70594],[70597,70597],[70599,70602],[70604,70611],[70625,70626],[70656,70730],[70736,70745],[70750,70753],[70784,70853],[70855,70855],[70864,70873],[71040,71093],[71096,71104],[71128,71133],[71168,71232],[71236,71236],[71248,71257],[71296,71352],[71360,71369],[71376,71395],[71424,71450],[71453,71467],[71472,71481],[71488,71494],[71680,71738],[71840,71913],[71935,71942],[71945,71945],[71948,71955],[71957,71958],[71960,71989],[71991,71992],[71995,72003],[72016,72025],[72096,72103],[72106,72151],[72154,72161],[72163,72164],[72192,72254],[72263,72263],[72272,72345],[72349,72349],[72368,72440],[72544,72551],[72640,72672],[72688,72697],[72704,72712],[72714,72758],[72760,72768],[72784,72793],[72818,72847],[72850,72871],[72873,72886],[72960,72966],[72968,72969],[72971,73014],[73018,73018],[73020,73021],[73023,73031],[73040,73049],[73056,73061],[73063,73064],[73066,73102],[73104,73105],[73107,73112],[73120,73129],[73136,73179],[73184,73193],[73440,73462],[73472,73488],[73490,73530],[73534,73538],[73552,73562],[73648,73648],[73728,74649],[74752,74862],[74880,75075],[77712,77808],[77824,78895],[78912,78933],[78944,82938],[82944,83526],[90368,90425],[92160,92728],[92736,92766],[92768,92777],[92784,92862],[92864,92873],[92880,92909],[92912,92916],[92928,92982],[92992,92995],[93008,93017],[93027,93047],[93053,93071],[93504,93548],[93552,93561],[93760,93823],[93856,93880],[93883,93907],[93952,94026],[94031,94087],[94095,94111],[94176,94177],[94179,94180],[94192,94198],[94208,101589],[101631,101662],[101760,101874],[110576,110579],[110581,110587],[110589,110590],[110592,110882],[110898,110898],[110928,110930],[110933,110933],[110948,110951],[110960,111355],[113664,113770],[113776,113788],[113792,113800],[113808,113817],[113821,113822],[118000,118009],[118528,118573],[118576,118598],[119141,119145],[119149,119154],[119163,119170],[119173,119179],[119210,119213],[119362,119364],[119808,119892],[119894,119964],[119966,119967],[119970,119970],[119973,119974],[119977,119980],[119982,119993],[119995,119995],[119997,120003],[120005,120069],[120071,120074],[120077,120084],[120086,120092],[120094,120121],[120123,120126],[120128,120132],[120134,120134],[120138,120144],[120146,120485],[120488,120512],[120514,120538],[120540,120570],[120572,120596],[120598,120628],[120630,120654],[120656,120686],[120688,120712],[120714,120744],[120746,120770],[120772,120779],[120782,120831],[121344,121398],[121403,121452],[121461,121461],[121476,121476],[121499,121503],[121505,121519],[122624,122654],[122661,122666],[122880,122886],[122888,122904],[122907,122913],[122915,122916],[122918,122922],[122928,122989],[123023,123023],[123136,123180],[123184,123197],[123200,123209],[123214,123214],[123536,123566],[123584,123641],[124112,124153],[124368,124410],[124608,124638],[124640,124661],[124670,124671],[124896,124902],[124904,124907],[124909,124910],[124912,124926],[124928,125124],[125136,125142],[125184,125259],[125264,125273],[126464,126467],[126469,126495],[126497,126498],[126500,126500],[126503,126503],[126505,126514],[126516,126519],[126521,126521],[126523,126523],[126530,126530],[126535,126535],[126537,126537],[126539,126539],[126541,126543],[126545,126546],[126548,126548],[126551,126551],[126553,126553],[126555,126555],[126557,126557],[126559,126559],[126561,126562],[126564,126564],[126567,126570],[126572,126578],[126580,126583],[126585,126588],[126590,126590],[126592,126601],[126603,126619],[126625,126627],[126629,126633],[126635,126651],[130032,130041],[131072,173791],[173824,178205],[178208,183981],[183984,191456],[191472,192093],[194560,195101],[196608,201546],[201552,210041],[917760,917999]]"); if err != nil { return nil, err }; v_t1 = v }
-	return v_t1, nil
-}
-
-func _regex_clear_capture(args ...Value) (Value, error) {
-	axirCoverageMark("_regex_clear_capture")
-	var v_caps Value
-	var v_key Value
-	var v_t1 Value
-	if len(args) > 0 { v_caps = args[0] }
-	_ = v_caps
-	if len(args) > 1 { v_key = args[1] }
-	_ = v_key
-	_ = v_t1
-	v_t1 = _core_none()
-	if err := coreSet(v_caps, v_key, v_t1); err != nil { return nil, err }
-	return nil, nil
-}
-
-func _stream_json_should_parse_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_stream_json_should_parse_impl")
-	var v_state Value
-	var v_content Value
-	var v_at_start Value
-	var v_before Value
-	var v_boundary Value
-	var v_brace Value
-	var v_bracket Value
-	var v_ch Value
-	var v_comma Value
-	var v_cursor Value
-	var v_fresh Value
-	var v_last Value
-	var v_last_ch Value
-	var v_length Value
-	var v_negative_last Value
-	var v_not_boundary Value
-	var v_not_space Value
-	var v_nothing_new Value
-	var v_plenty Value
-	var v_space Value
-	var v_too_few Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	if len(args) > 1 { v_content = args[1] }
-	_ = v_content
-	_ = v_at_start
-	_ = v_before
-	_ = v_boundary
-	_ = v_brace
-	_ = v_bracket
-	_ = v_ch
-	_ = v_comma
-	_ = v_cursor
-	_ = v_fresh
-	_ = v_last
-	_ = v_last_ch
-	_ = v_length
-	_ = v_negative_last
-	_ = v_not_boundary
-	_ = v_not_space
-	_ = v_nothing_new
-	_ = v_plenty
-	_ = v_space
-	_ = v_too_few
-	v_length = _core_len(v_content)
-	v_last = coreGet(v_state, "last_parse_length", 0)
-	v_negative_last = _core_mul(v_last, -1)
-	v_fresh = _core_add(v_length, v_negative_last)
-	v_nothing_new = _core_lte(v_fresh, 0)
-	if coreTruthy(v_nothing_new) {
-		return false, nil
-	} else {
-	// empty
-	}
-	v_plenty = _core_gte(v_fresh, 160)
-	if coreTruthy(v_plenty) {
-		if err := coreSet(v_state, "last_parse_length", v_length); err != nil { return nil, err }
-		return true, nil
-	} else {
-	// empty
-	}
-	v_too_few = _core_lt(v_fresh, 80)
-	if coreTruthy(v_too_few) {
-		return false, nil
-	} else {
-	// empty
-	}
-	v_cursor = v_length
-	v_last_ch = ""
-	for {
-		v_at_start = _core_lte(v_cursor, 0)
-		if coreTruthy(v_at_start) {
-			break
-		} else {
-		// empty
-		}
-		v_before = _core_add(v_cursor, -1)
-		v_ch = _core_string_slice(v_content, v_before, v_cursor)
-		v_space = coreRegexMatch("^[ \\n\\r\\t]$", v_ch)
-		v_not_space = _core_not(v_space)
-		if coreTruthy(v_not_space) {
-			v_last_ch = v_ch
-			break
-		} else {
-		// empty
-		}
-		v_cursor = v_before
-	}
-	v_brace = _core_eq(v_last_ch, "}")
-	v_bracket = _core_eq(v_last_ch, "]")
-	v_comma = _core_eq(v_last_ch, ",")
-	v_boundary = _core_or(v_brace, v_bracket)
-	v_boundary = _core_or(v_boundary, v_comma)
-	v_not_boundary = _core_not(v_boundary)
-	if coreTruthy(v_not_boundary) {
-		return false, nil
-	} else {
-	// empty
-	}
-	if err := coreSet(v_state, "last_parse_length", v_length); err != nil { return nil, err }
-	return true, nil
-}
-
-func _regex_copy_map(args ...Value) (Value, error) {
-	axirCoverageMark("_regex_copy_map")
-	var v_value Value
-	var v_iter_3 Value
-	var v_key Value
-	var v_out Value
-	var v_t1 Value
-	var v_t2 Value
-	var v_t4 Value
-	if len(args) > 0 { v_value = args[0] }
-	_ = v_value
-	_ = v_iter_3
-	_ = v_key
-	_ = v_out
-	_ = v_t1
-	_ = v_t2
-	_ = v_t4
-	v_key = _core_none()
-	v_out = _core_none()
-	v_t1 = Object()
-	v_out = v_t1
-	v_t2 = _core_map_keys(v_value)
-	for _, v_iter_3 = range coreIter(v_t2) {
-		v_key = v_iter_3
-		v_t4 = coreGet(v_value, v_key, nil)
-		if err := coreSet(v_out, v_key, v_t4); err != nil { return nil, err }
-	}
-	return v_out, nil
-}
-
-func _generate_failed_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_generate_failed_impl")
-	var v_error Value
-	var v_aborted Value
-	var v_message Value
-	var v_text Value
-	var v_wrapped Value
-	if len(args) > 0 { v_error = args[0] }
-	_ = v_error
-	_ = v_aborted
-	_ = v_message
-	_ = v_text
-	_ = v_wrapped
-	v_aborted = _core_exception_is_aborted(v_error)
-	if coreTruthy(v_aborted) {
-		return v_error, nil
-	} else {
-	// empty
-	}
-	v_text = _core_exception_message(v_error)
-	v_message = _core_add("Generate failed: ", v_text)
-	v_wrapped = _core_exception_rewrap(v_error, v_message)
-	return v_wrapped, nil
-}
-
-func _unable_to_fix_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_unable_to_fix_impl")
-	var v_error Value
-	var v_output Value
-	var v_message Value
-	var v_text Value
-	var v_unfixed Value
-	var v_wrapped Value
-	if len(args) > 0 { v_error = args[0] }
-	_ = v_error
-	if len(args) > 1 { v_output = args[1] }
-	_ = v_output
-	_ = v_message
-	_ = v_text
-	_ = v_unfixed
-	_ = v_wrapped
-	v_text = _core_exception_message(v_error)
-	v_message = _core_add("Unable to fix validation error: ", v_text)
-	v_message = _core_add(v_message, "\n\nLLM Output:\n")
-	v_message = _core_add(v_message, v_output)
-	v_unfixed = _core_exception_rewrap(v_error, v_message)
-	{ v, err := _generate_failed_impl(v_unfixed); if err != nil { return nil, err }; v_wrapped = v }
-	return v_wrapped, nil
 }
 
 func _stream_json_validate_impl(args ...Value) (Value, error) {
@@ -57974,6 +58527,56 @@ func _stream_json_validate_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _generate_failed_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_generate_failed_impl")
+	var v_error Value
+	var v_aborted Value
+	var v_message Value
+	var v_text Value
+	var v_wrapped Value
+	if len(args) > 0 { v_error = args[0] }
+	_ = v_error
+	_ = v_aborted
+	_ = v_message
+	_ = v_text
+	_ = v_wrapped
+	v_aborted = _core_exception_is_aborted(v_error)
+	if coreTruthy(v_aborted) {
+		return v_error, nil
+	} else {
+	// empty
+	}
+	v_text = _core_exception_message(v_error)
+	v_message = _core_add("Generate failed: ", v_text)
+	v_wrapped = _core_exception_rewrap(v_error, v_message)
+	return v_wrapped, nil
+}
+
+func _unable_to_fix_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_unable_to_fix_impl")
+	var v_error Value
+	var v_output Value
+	var v_message Value
+	var v_text Value
+	var v_unfixed Value
+	var v_wrapped Value
+	if len(args) > 0 { v_error = args[0] }
+	_ = v_error
+	if len(args) > 1 { v_output = args[1] }
+	_ = v_output
+	_ = v_message
+	_ = v_text
+	_ = v_unfixed
+	_ = v_wrapped
+	v_text = _core_exception_message(v_error)
+	v_message = _core_add("Unable to fix validation error: ", v_text)
+	v_message = _core_add(v_message, "\n\nLLM Output:\n")
+	v_message = _core_add(v_message, v_output)
+	v_unfixed = _core_exception_rewrap(v_error, v_message)
+	{ v, err := _generate_failed_impl(v_unfixed); if err != nil { return nil, err }; v_wrapped = v }
+	return v_wrapped, nil
+}
+
 func _attempt_output_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_attempt_output_impl")
 	var v_response Value
@@ -58023,62 +58626,6 @@ func _attempt_output_impl(args ...Value) (Value, error) {
 	}
 	v_joined = _core_string_join("\n---\n", v_contents)
 	return v_joined, nil
-}
-
-func _max_tokens_error_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_max_tokens_error_impl")
-	var v_response Value
-	var v_completion Value
-	var v_completions Value
-	var v_content Value
-	var v_count Value
-	var v_cut Value
-	var v_empty_results Value
-	var v_error Value
-	var v_finish Value
-	var v_finish_snake Value
-	var v_message Value
-	var v_none Value
-	var v_single Value
-	if len(args) > 0 { v_response = args[0] }
-	_ = v_response
-	_ = v_completion
-	_ = v_completions
-	_ = v_content
-	_ = v_count
-	_ = v_cut
-	_ = v_empty_results
-	_ = v_error
-	_ = v_finish
-	_ = v_finish_snake
-	_ = v_message
-	_ = v_none
-	_ = v_single
-	v_empty_results = MutableArray()
-	v_completions = coreGet(v_response, "results", v_empty_results)
-	v_count = _core_len(v_completions)
-	v_single = _core_eq(v_count, 0)
-	if coreTruthy(v_single) {
-		v_completions = MutableArray()
-		v_completions = coreAppend(v_completions, v_response)
-	} else {
-	// empty
-	}
-	for _, v_completion = range coreIter(v_completions) {
-		v_finish_snake = coreGet(v_completion, "finish_reason", nil)
-		v_finish = coreGet(v_completion, "finishReason", v_finish_snake)
-		v_cut = _core_eq(v_finish, "length")
-		if coreTruthy(v_cut) {
-			v_content = coreGet(v_completion, "content", "")
-			v_message = _core_add("Max tokens reached before completion\nContent: ", v_content)
-			v_error = _core_runtime_error(v_message)
-			return v_error, nil
-		} else {
-		// empty
-		}
-	}
-	v_none = _core_none()
-	return v_none, nil
 }
 
 func _stream_json_validate_value_impl(args ...Value) (Value, error) {
@@ -58269,6 +58816,62 @@ func _stream_json_validate_value_impl(args ...Value) (Value, error) {
 	return v_value, nil
 }
 
+func _max_tokens_error_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_max_tokens_error_impl")
+	var v_response Value
+	var v_completion Value
+	var v_completions Value
+	var v_content Value
+	var v_count Value
+	var v_cut Value
+	var v_empty_results Value
+	var v_error Value
+	var v_finish Value
+	var v_finish_snake Value
+	var v_message Value
+	var v_none Value
+	var v_single Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	_ = v_completion
+	_ = v_completions
+	_ = v_content
+	_ = v_count
+	_ = v_cut
+	_ = v_empty_results
+	_ = v_error
+	_ = v_finish
+	_ = v_finish_snake
+	_ = v_message
+	_ = v_none
+	_ = v_single
+	v_empty_results = MutableArray()
+	v_completions = coreGet(v_response, "results", v_empty_results)
+	v_count = _core_len(v_completions)
+	v_single = _core_eq(v_count, 0)
+	if coreTruthy(v_single) {
+		v_completions = MutableArray()
+		v_completions = coreAppend(v_completions, v_response)
+	} else {
+	// empty
+	}
+	for _, v_completion = range coreIter(v_completions) {
+		v_finish_snake = coreGet(v_completion, "finish_reason", nil)
+		v_finish = coreGet(v_completion, "finishReason", v_finish_snake)
+		v_cut = _core_eq(v_finish, "length")
+		if coreTruthy(v_cut) {
+			v_content = coreGet(v_completion, "content", "")
+			v_message = _core_add("Max tokens reached before completion\nContent: ", v_content)
+			v_error = _core_runtime_error(v_message)
+			return v_error, nil
+		} else {
+		// empty
+		}
+	}
+	v_none = _core_none()
+	return v_none, nil
+}
+
 func _strict_mode_option_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_strict_mode_option_impl")
 	var v_base_options Value
@@ -58364,85 +58967,6 @@ func _caching_function_option_impl(args ...Value) (Value, error) {
 	}
 	v_cache_fn = _core_axgen_caching_function(v_gen, v_call_options)
 	return v_cache_fn, nil
-}
-
-func _cache_key_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_cache_key_impl")
-	var v_gen Value
-	var v_values Value
-	var v_description Value
-	var v_description_line Value
-	var v_field Value
-	var v_input_fields Value
-	var v_input_label Value
-	var v_input_line Value
-	var v_input_name Value
-	var v_input_optional Value
-	var v_input_value Value
-	var v_inputs Value
-	var v_inputs_json Value
-	var v_key Value
-	var v_lines Value
-	var v_output_fields Value
-	var v_output_label Value
-	var v_output_line Value
-	var v_output_name Value
-	var v_output_optional Value
-	var v_signature Value
-	var v_text Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_values = args[1] }
-	_ = v_values
-	_ = v_description
-	_ = v_description_line
-	_ = v_field
-	_ = v_input_fields
-	_ = v_input_label
-	_ = v_input_line
-	_ = v_input_name
-	_ = v_input_optional
-	_ = v_input_value
-	_ = v_inputs
-	_ = v_inputs_json
-	_ = v_key
-	_ = v_lines
-	_ = v_output_fields
-	_ = v_output_label
-	_ = v_output_line
-	_ = v_output_name
-	_ = v_output_optional
-	_ = v_signature
-	_ = v_text
-	v_signature = coreGet(v_gen, "signature", nil)
-	v_description = coreGet(v_signature, "description", "")
-	v_lines = MutableArray()
-	v_description_line = _core_string_format("description {}", v_description)
-	v_lines = coreAppend(v_lines, v_description_line)
-	v_inputs = MutableArray()
-	v_input_fields = coreGet(v_signature, "input_fields", nil)
-	for _, v_field = range coreIter(v_input_fields) {
-		v_input_name = coreGet(v_field, "name", "")
-		{ v, err := _stream_field_type_label_impl(v_field); if err != nil { return nil, err }; v_input_label = v }
-		{ v, err := _stream_field_flag_impl(v_field, "is_optional", "isOptional"); if err != nil { return nil, err }; v_input_optional = v }
-		v_input_line = _core_string_format("input {} {} {}", v_input_name, v_input_label, v_input_optional)
-		v_lines = coreAppend(v_lines, v_input_line)
-		v_input_value = coreGet(v_values, v_input_name, nil)
-		v_inputs = coreAppend(v_inputs, v_input_value)
-	}
-	v_output_fields = coreGet(v_signature, "output_fields", nil)
-	for _, v_field = range coreIter(v_output_fields) {
-		v_output_name = coreGet(v_field, "name", "")
-		{ v, err := _stream_field_type_label_impl(v_field); if err != nil { return nil, err }; v_output_label = v }
-		{ v, err := _stream_field_flag_impl(v_field, "is_optional", "isOptional"); if err != nil { return nil, err }; v_output_optional = v }
-		v_output_line = _core_string_format("output {} {} {}", v_output_name, v_output_label, v_output_optional)
-		v_lines = coreAppend(v_lines, v_output_line)
-	}
-	v_inputs_json = _core_json_stable_stringify(v_inputs)
-	v_lines = coreAppend(v_lines, v_inputs_json)
-	v_text = _core_string_join("\n", v_lines)
-	v_key = _core_crypto_sha256_hex(v_text)
-	return v_key, nil
 }
 
 func _stream_json_validate_nested_impl(args ...Value) (Value, error) {
@@ -58579,6 +59103,85 @@ func _stream_json_validate_nested_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _cache_key_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_cache_key_impl")
+	var v_gen Value
+	var v_values Value
+	var v_description Value
+	var v_description_line Value
+	var v_field Value
+	var v_input_fields Value
+	var v_input_label Value
+	var v_input_line Value
+	var v_input_name Value
+	var v_input_optional Value
+	var v_input_value Value
+	var v_inputs Value
+	var v_inputs_json Value
+	var v_key Value
+	var v_lines Value
+	var v_output_fields Value
+	var v_output_label Value
+	var v_output_line Value
+	var v_output_name Value
+	var v_output_optional Value
+	var v_signature Value
+	var v_text Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_values = args[1] }
+	_ = v_values
+	_ = v_description
+	_ = v_description_line
+	_ = v_field
+	_ = v_input_fields
+	_ = v_input_label
+	_ = v_input_line
+	_ = v_input_name
+	_ = v_input_optional
+	_ = v_input_value
+	_ = v_inputs
+	_ = v_inputs_json
+	_ = v_key
+	_ = v_lines
+	_ = v_output_fields
+	_ = v_output_label
+	_ = v_output_line
+	_ = v_output_name
+	_ = v_output_optional
+	_ = v_signature
+	_ = v_text
+	v_signature = coreGet(v_gen, "signature", nil)
+	v_description = coreGet(v_signature, "description", "")
+	v_lines = MutableArray()
+	v_description_line = _core_string_format("description {}", v_description)
+	v_lines = coreAppend(v_lines, v_description_line)
+	v_inputs = MutableArray()
+	v_input_fields = coreGet(v_signature, "input_fields", nil)
+	for _, v_field = range coreIter(v_input_fields) {
+		v_input_name = coreGet(v_field, "name", "")
+		{ v, err := _stream_field_type_label_impl(v_field); if err != nil { return nil, err }; v_input_label = v }
+		{ v, err := _stream_field_flag_impl(v_field, "is_optional", "isOptional"); if err != nil { return nil, err }; v_input_optional = v }
+		v_input_line = _core_string_format("input {} {} {}", v_input_name, v_input_label, v_input_optional)
+		v_lines = coreAppend(v_lines, v_input_line)
+		v_input_value = coreGet(v_values, v_input_name, nil)
+		v_inputs = coreAppend(v_inputs, v_input_value)
+	}
+	v_output_fields = coreGet(v_signature, "output_fields", nil)
+	for _, v_field = range coreIter(v_output_fields) {
+		v_output_name = coreGet(v_field, "name", "")
+		{ v, err := _stream_field_type_label_impl(v_field); if err != nil { return nil, err }; v_output_label = v }
+		{ v, err := _stream_field_flag_impl(v_field, "is_optional", "isOptional"); if err != nil { return nil, err }; v_output_optional = v }
+		v_output_line = _core_string_format("output {} {} {}", v_output_name, v_output_label, v_output_optional)
+		v_lines = coreAppend(v_lines, v_output_line)
+	}
+	v_inputs_json = _core_json_stable_stringify(v_inputs)
+	v_lines = coreAppend(v_lines, v_inputs_json)
+	v_text = _core_string_join("\n", v_lines)
+	v_key = _core_crypto_sha256_hex(v_text)
+	return v_key, nil
+}
+
 func _cache_store_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_cache_store_impl")
 	var v_cache_fn Value
@@ -58610,31 +59213,6 @@ func _cache_store_impl(args ...Value) (Value, error) {
 			v_cache_write_error = errorValue(__err)
 		// empty
 		}
-	}
-	return nil, nil
-}
-
-func _cache_store_streamed_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_cache_store_streamed_impl")
-	var v_cache_fn Value
-	var v_key Value
-	var v_output Value
-	var v_output_count Value
-	var v_yielded Value
-	if len(args) > 0 { v_cache_fn = args[0] }
-	_ = v_cache_fn
-	if len(args) > 1 { v_key = args[1] }
-	_ = v_key
-	if len(args) > 2 { v_output = args[2] }
-	_ = v_output
-	_ = v_output_count
-	_ = v_yielded
-	v_output_count = _core_len(v_output)
-	v_yielded = _core_gt(v_output_count, 0)
-	if coreTruthy(v_yielded) {
-		if _, err := _cache_store_impl(v_cache_fn, v_key, v_output); err != nil { return nil, err }
-	} else {
-	// empty
 	}
 	return nil, nil
 }
@@ -58682,6 +59260,70 @@ func _stream_json_select_fields_impl(args ...Value) (Value, error) {
 		} else {
 		// empty
 		}
+	}
+	return v_out, nil
+}
+
+func _cache_store_streamed_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_cache_store_streamed_impl")
+	var v_cache_fn Value
+	var v_key Value
+	var v_output Value
+	var v_output_count Value
+	var v_yielded Value
+	if len(args) > 0 { v_cache_fn = args[0] }
+	_ = v_cache_fn
+	if len(args) > 1 { v_key = args[1] }
+	_ = v_key
+	if len(args) > 2 { v_output = args[2] }
+	_ = v_output
+	_ = v_output_count
+	_ = v_yielded
+	v_output_count = _core_len(v_output)
+	v_yielded = _core_gt(v_output_count, 0)
+	if coreTruthy(v_yielded) {
+		if _, err := _cache_store_impl(v_cache_fn, v_key, v_output); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
+func _stream_json_nested_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_json_nested_fields_impl")
+	var v_fields_map Value
+	var v_field Value
+	var v_internal Value
+	var v_name Value
+	var v_nested Value
+	var v_nested_fields Value
+	var v_optional Value
+	var v_out Value
+	var v_typ Value
+	if len(args) > 0 { v_fields_map = args[0] }
+	_ = v_fields_map
+	_ = v_field
+	_ = v_internal
+	_ = v_name
+	_ = v_nested
+	_ = v_nested_fields
+	_ = v_optional
+	_ = v_out
+	_ = v_typ
+	v_out = MutableArray()
+	v_nested_fields = _core_fields_from_map(v_fields_map)
+	for _, v_nested = range coreIter(v_nested_fields) {
+		v_name = coreGet(v_nested, "name", "")
+		v_typ = coreGet(v_nested, "type", nil)
+		{ v, err := _stream_field_flag_impl(v_nested, "is_optional", "isOptional"); if err != nil { return nil, err }; v_optional = v }
+		{ v, err := _stream_field_flag_impl(v_nested, "is_internal", "isInternal"); if err != nil { return nil, err }; v_internal = v }
+		v_field = Object()
+		if err := coreSet(v_field, "name", v_name); err != nil { return nil, err }
+		if err := coreSet(v_field, "title", v_name); err != nil { return nil, err }
+		if err := coreSet(v_field, "type", v_typ); err != nil { return nil, err }
+		if err := coreSet(v_field, "is_optional", v_optional); err != nil { return nil, err }
+		if err := coreSet(v_field, "is_internal", v_internal); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_field)
 	}
 	return v_out, nil
 }
@@ -58752,62 +59394,6 @@ func _cache_lookup_impl(args ...Value) (Value, error) {
 	return v_lookup, nil
 }
 
-func _stream_json_nested_fields_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_stream_json_nested_fields_impl")
-	var v_fields_map Value
-	var v_field Value
-	var v_internal Value
-	var v_name Value
-	var v_nested Value
-	var v_nested_fields Value
-	var v_optional Value
-	var v_out Value
-	var v_typ Value
-	if len(args) > 0 { v_fields_map = args[0] }
-	_ = v_fields_map
-	_ = v_field
-	_ = v_internal
-	_ = v_name
-	_ = v_nested
-	_ = v_nested_fields
-	_ = v_optional
-	_ = v_out
-	_ = v_typ
-	v_out = MutableArray()
-	v_nested_fields = _core_fields_from_map(v_fields_map)
-	for _, v_nested = range coreIter(v_nested_fields) {
-		v_name = coreGet(v_nested, "name", "")
-		v_typ = coreGet(v_nested, "type", nil)
-		{ v, err := _stream_field_flag_impl(v_nested, "is_optional", "isOptional"); if err != nil { return nil, err }; v_optional = v }
-		{ v, err := _stream_field_flag_impl(v_nested, "is_internal", "isInternal"); if err != nil { return nil, err }; v_internal = v }
-		v_field = Object()
-		if err := coreSet(v_field, "name", v_name); err != nil { return nil, err }
-		if err := coreSet(v_field, "title", v_name); err != nil { return nil, err }
-		if err := coreSet(v_field, "type", v_typ); err != nil { return nil, err }
-		if err := coreSet(v_field, "is_optional", v_optional); err != nil { return nil, err }
-		if err := coreSet(v_field, "is_internal", v_internal); err != nil { return nil, err }
-		v_out = coreAppend(v_out, v_field)
-	}
-	return v_out, nil
-}
-
-func _cache_lookup_option_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_cache_lookup_option_impl")
-	var v_options Value
-	var v_call_options Value
-	var v_empty Value
-	var v_lookup Value
-	if len(args) > 0 { v_options = args[0] }
-	_ = v_options
-	_ = v_call_options
-	_ = v_empty
-	_ = v_lookup
-	v_empty = Object()
-	v_call_options = _core_map_merge(v_empty, v_options)
-	v_lookup = coreGet(v_call_options, "_ax_cache_lookup", nil)
-	return v_lookup, nil
-}
-
 func _stream_json_flexible_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_json_flexible_impl")
 	var v_field Value
@@ -58843,6 +59429,73 @@ func _stream_json_flexible_impl(args ...Value) (Value, error) {
 	v_open_object = _core_not(v_has_nested)
 	v_flexible = _core_and(v_is_object, v_open_object)
 	return v_flexible, nil
+}
+
+func _stream_json_string_value_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_json_string_value_impl")
+	var v_field Value
+	var v_value Value
+	var v_detail Value
+	var v_invalid Value
+	var v_is_string Value
+	var v_message Value
+	var v_not_string Value
+	var v_parse_error Value
+	var v_parsed Value
+	var v_title Value
+	if len(args) > 0 { v_field = args[0] }
+	_ = v_field
+	if len(args) > 1 { v_value = args[1] }
+	_ = v_value
+	_ = v_detail
+	_ = v_invalid
+	_ = v_is_string
+	_ = v_message
+	_ = v_not_string
+	_ = v_parse_error
+	_ = v_parsed
+	_ = v_title
+	v_is_string = coreTypeIs(v_value, "string")
+	v_not_string = _core_not(v_is_string)
+	if coreTruthy(v_not_string) {
+		return v_value, nil
+	} else {
+	// empty
+	}
+	v_parsed = _core_none()
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _core_json_parse_strict(v_value); if err != nil { return coreFlow{}, err }; v_parsed = v }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_parse_error = errorValue(__err)
+			{ v, err := _stream_field_title_impl(v_field); if err != nil { return nil, err }; v_title = v }
+			v_detail = _core_exception_message(v_parse_error)
+			v_message = _core_string_format("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", v_detail, v_title)
+			v_invalid = _core_validation_error(v_message)
+			return nil, asError(v_invalid)
+		}
+	}
+	return v_parsed, nil
+}
+
+func _cache_lookup_option_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_cache_lookup_option_impl")
+	var v_options Value
+	var v_call_options Value
+	var v_empty Value
+	var v_lookup Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	_ = v_call_options
+	_ = v_empty
+	_ = v_lookup
+	v_empty = Object()
+	v_call_options = _core_map_merge(v_empty, v_options)
+	v_lookup = coreGet(v_call_options, "_ax_cache_lookup", nil)
+	return v_lookup, nil
 }
 
 func _apply_control_updates_impl(args ...Value) (Value, error) {
@@ -58901,92 +59554,6 @@ func _apply_control_updates_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_messages, nil
-}
-
-func _stream_json_string_value_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_stream_json_string_value_impl")
-	var v_field Value
-	var v_value Value
-	var v_detail Value
-	var v_invalid Value
-	var v_is_string Value
-	var v_message Value
-	var v_not_string Value
-	var v_parse_error Value
-	var v_parsed Value
-	var v_title Value
-	if len(args) > 0 { v_field = args[0] }
-	_ = v_field
-	if len(args) > 1 { v_value = args[1] }
-	_ = v_value
-	_ = v_detail
-	_ = v_invalid
-	_ = v_is_string
-	_ = v_message
-	_ = v_not_string
-	_ = v_parse_error
-	_ = v_parsed
-	_ = v_title
-	v_is_string = coreTypeIs(v_value, "string")
-	v_not_string = _core_not(v_is_string)
-	if coreTruthy(v_not_string) {
-		return v_value, nil
-	} else {
-	// empty
-	}
-	v_parsed = _core_none()
-	{
-		__flow, __err := func() (coreFlow, error) {
-			{ v, err := _core_json_parse_strict(v_value); if err != nil { return coreFlow{}, err }; v_parsed = v }
-			return coreFlow{}, nil
-		}()
-		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-		if __err != nil {
-			v_parse_error = errorValue(__err)
-			{ v, err := _stream_field_title_impl(v_field); if err != nil { return nil, err }; v_title = v }
-			v_detail = _core_exception_message(v_parse_error)
-			v_message = _core_string_format("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", v_detail, v_title)
-			v_invalid = _core_validation_error(v_message)
-			return nil, asError(v_invalid)
-		}
-	}
-	return v_parsed, nil
-}
-
-func _structured_output_render_options_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_structured_output_render_options_impl")
-	var v_selection Value
-	var v_extra_functions Value
-	var v_function_rung Value
-	var v_output_function Value
-	var v_render_options Value
-	var v_rung Value
-	var v_structured Value
-	if len(args) > 0 { v_selection = args[0] }
-	_ = v_selection
-	_ = v_extra_functions
-	_ = v_function_rung
-	_ = v_output_function
-	_ = v_render_options
-	_ = v_rung
-	_ = v_structured
-	v_render_options = Object()
-	v_rung = coreGet(v_selection, "rung", nil)
-	v_structured = _core_is_not_none(v_rung)
-	if err := coreSet(v_render_options, "structured_output", v_structured); err != nil { return nil, err }
-	v_extra_functions = MutableArray()
-	v_function_rung = _core_eq(v_rung, "function")
-	if coreTruthy(v_function_rung) {
-		if err := coreSet(v_render_options, "structured_output_function_name", "__axOutput"); err != nil { return nil, err }
-		v_output_function = Object()
-		if err := coreSet(v_output_function, "name", "__axOutput"); err != nil { return nil, err }
-		if err := coreSet(v_output_function, "description", "Emit the complete structured program output using the declared argument shape."); err != nil { return nil, err }
-		v_extra_functions = coreAppend(v_extra_functions, v_output_function)
-	} else {
-	// empty
-	}
-	if err := coreSet(v_render_options, "extra_functions", v_extra_functions); err != nil { return nil, err }
-	return v_render_options, nil
 }
 
 func _stream_json_strings_for_field_impl(args ...Value) (Value, error) {
@@ -59103,6 +59670,151 @@ func _stream_json_strings_for_field_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_value, nil
+}
+
+func _structured_output_render_options_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_structured_output_render_options_impl")
+	var v_selection Value
+	var v_extra_functions Value
+	var v_function_rung Value
+	var v_output_function Value
+	var v_render_options Value
+	var v_rung Value
+	var v_structured Value
+	if len(args) > 0 { v_selection = args[0] }
+	_ = v_selection
+	_ = v_extra_functions
+	_ = v_function_rung
+	_ = v_output_function
+	_ = v_render_options
+	_ = v_rung
+	_ = v_structured
+	v_render_options = Object()
+	v_rung = coreGet(v_selection, "rung", nil)
+	v_structured = _core_is_not_none(v_rung)
+	if err := coreSet(v_render_options, "structured_output", v_structured); err != nil { return nil, err }
+	v_extra_functions = MutableArray()
+	v_function_rung = _core_eq(v_rung, "function")
+	if coreTruthy(v_function_rung) {
+		if err := coreSet(v_render_options, "structured_output_function_name", "__axOutput"); err != nil { return nil, err }
+		v_output_function = Object()
+		if err := coreSet(v_output_function, "name", "__axOutput"); err != nil { return nil, err }
+		if err := coreSet(v_output_function, "description", "Emit the complete structured program output using the declared argument shape."); err != nil { return nil, err }
+		v_extra_functions = coreAppend(v_extra_functions, v_output_function)
+	} else {
+	// empty
+	}
+	if err := coreSet(v_render_options, "extra_functions", v_extra_functions); err != nil { return nil, err }
+	return v_render_options, nil
+}
+
+func _validate_completion_function_call_names(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_completion_function_call_names")
+	var v_response Value
+	var v_call Value
+	var v_call_index Value
+	var v_calls Value
+	var v_empty Value
+	var v_error Value
+	var v_fn Value
+	var v_fn_has_name Value
+	var v_fn_is_map Value
+	var v_has_name Value
+	var v_message Value
+	var v_name Value
+	var v_name_is_text Value
+	var v_named Value
+	var v_next_call_index Value
+	var v_next_result_index Value
+	var v_no_results Value
+	var v_received Value
+	var v_result Value
+	var v_result_index Value
+	var v_results Value
+	var v_trimmed Value
+	var v_unnamed Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	_ = v_call
+	_ = v_call_index
+	_ = v_calls
+	_ = v_empty
+	_ = v_error
+	_ = v_fn
+	_ = v_fn_has_name
+	_ = v_fn_is_map
+	_ = v_has_name
+	_ = v_message
+	_ = v_name
+	_ = v_name_is_text
+	_ = v_named
+	_ = v_next_call_index
+	_ = v_next_result_index
+	_ = v_no_results
+	_ = v_received
+	_ = v_result
+	_ = v_result_index
+	_ = v_results
+	_ = v_trimmed
+	_ = v_unnamed
+	v_empty = MutableArray()
+	v_results = coreGet(v_response, "results", nil)
+	v_no_results = _core_is_none(v_results)
+	if coreTruthy(v_no_results) {
+		v_results = MutableArray()
+		v_results = coreAppend(v_results, v_response)
+	} else {
+	// empty
+	}
+	v_result_index = 0
+	for _, v_result = range coreIter(v_results) {
+		v_calls = coreGet(v_result, "function_calls", v_empty)
+		v_call_index = 0
+		for _, v_call = range coreIter(v_calls) {
+			v_has_name = _core_map_contains(v_call, "name")
+			v_name = coreGet(v_call, "name", nil)
+			v_fn = coreGet(v_call, "function", nil)
+			v_fn_is_map = coreTypeIs(v_fn, "object")
+			if coreTruthy(v_fn_is_map) {
+				v_fn_has_name = _core_map_contains(v_fn, "name")
+				if coreTruthy(v_fn_has_name) {
+					v_has_name = true
+					v_name = coreGet(v_fn, "name", nil)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+			v_name_is_text = coreTypeIs(v_name, "string")
+			v_named = false
+			if coreTruthy(v_name_is_text) {
+				v_trimmed = coreStringTrim(v_name)
+				v_named = _core_ne(v_trimmed, "")
+			} else {
+			// empty
+			}
+			v_unnamed = _core_not(v_named)
+			if coreTruthy(v_unnamed) {
+				v_received = "undefined"
+				if coreTruthy(v_has_name) {
+					v_received = _core_json_pretty(v_name)
+				} else {
+				// empty
+				}
+				v_message = _core_string_format("Function call at index {} in result {} must have a non-empty function name, received: {}", v_call_index, v_result_index, v_received)
+				v_error = _core_runtime_error(v_message)
+				return nil, asError(v_error)
+			} else {
+			// empty
+			}
+			v_next_call_index = _core_add(v_call_index, 1)
+			v_call_index = v_next_call_index
+		}
+		v_next_result_index = _core_add(v_result_index, 1)
+		v_result_index = v_next_result_index
+	}
+	return nil, nil
 }
 
 func _stream_json_strings_for_fields_impl(args ...Value) (Value, error) {
@@ -59231,6 +59943,83 @@ func _stream_state_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "xstate", v_xstate); err != nil { return nil, err }
 	if err := coreSet(v_state, "last_parse_length", 0); err != nil { return nil, err }
 	return v_state, nil
+}
+
+func _check_completion_function_call_names(args ...Value) (Value, error) {
+	axirCoverageMark("_check_completion_function_call_names")
+	var v_response Value
+	var v_options Value
+	var v_is_correct Value
+	var v_is_fail Value
+	var v_known Value
+	var v_mode Value
+	var v_mode_error Value
+	var v_mode_json Value
+	var v_mode_message Value
+	var v_mode_set Value
+	var v_mode_snake Value
+	var v_unknown Value
+	var v_unnamed Value
+	var v_unnamed_error Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_is_correct
+	_ = v_is_fail
+	_ = v_known
+	_ = v_mode
+	_ = v_mode_error
+	_ = v_mode_json
+	_ = v_mode_message
+	_ = v_mode_set
+	_ = v_mode_snake
+	_ = v_unknown
+	_ = v_unnamed
+	_ = v_unnamed_error
+	v_mode_snake = coreGet(v_options, "function_call_validation", nil)
+	v_mode = coreGet(v_options, "functionCallValidation", v_mode_snake)
+	v_mode_set = _core_is_not_none(v_mode)
+	if coreTruthy(v_mode_set) {
+		v_is_fail = _core_eq(v_mode, "fail")
+		v_is_correct = _core_eq(v_mode, "correct")
+		v_known = _core_or(v_is_fail, v_is_correct)
+		v_unknown = _core_not(v_known)
+		if coreTruthy(v_unknown) {
+			v_mode_json = _core_json_pretty(v_mode)
+			v_mode_message = _core_string_format("functionCallValidation must be 'correct' or 'fail', received: {}", v_mode_json)
+			v_mode_error = _core_validation_error(v_mode_message)
+			return nil, asError(v_mode_error)
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_fail) {
+			if _, err := _validate_completion_function_call_names(v_response); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		return nil, nil
+	} else {
+	// empty
+	}
+	v_unnamed = false
+	{
+		__flow, __err := func() (coreFlow, error) {
+			if _, err := _validate_completion_function_call_names(v_response); err != nil { return coreFlow{}, err }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_unnamed_error = errorValue(__err)
+			v_unnamed = true
+		}
+	}
+	if coreTruthy(v_unnamed) {
+		_core_axgen_deprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")
+	} else {
+	// empty
+	}
+	return nil, nil
 }
 
 func _stream_merge_value_impl(args ...Value) (Value, error) {
@@ -60178,7 +60967,7 @@ func _stream_check_assertions_impl(args ...Value) (Value, error) {
 			// empty
 			}
 			if err := coreSet(v_xstate, "assertion_failed", true); err != nil { return nil, err }
-			v_error = _core_validation_error(v_message)
+			v_error = _core_runtime_error(v_message)
 			return nil, asError(v_error)
 		} else {
 		// empty
@@ -72468,8 +73257,8 @@ func _agent_replay_trace(args ...Value) (Value, error) {
 	v_expected_output = coreGet(v_fixtures, "expected_output", nil)
 	v_has_expected_output = _core_is_not_none(v_expected_output)
 	if coreTruthy(v_has_expected_output) {
-		v_actual_output_text = _core_json_stringify(v_output)
-		v_expected_output_text = _core_json_stringify(v_expected_output)
+		v_actual_output_text = _core_json_stable_stringify(v_output)
+		v_expected_output_text = _core_json_stable_stringify(v_expected_output)
 		v_output_matches = _core_eq(v_actual_output_text, v_expected_output_text)
 		v_output_mismatch = _core_not(v_output_matches)
 		if coreTruthy(v_output_mismatch) {
@@ -93676,12 +94465,90 @@ func (f AxCredentialProviderFunc) Credentials(ctx context.Context, request AxCre
 }
 
 // wireJSONBody is the JSON the HTTP and MCP transports send for a payload.
+// wireJSONBody is TS JSON.stringify(payload): keys in insertion order, as the
+// payload was built.
 func wireJSONBody(payload Value) []byte {
-	return []byte(stableStringify(payload))
+	return []byte(orderedStringify(payload))
+}
+
+// requestTimer is TS apiCall's timer for a call's timeoutMs: it ends a request
+// whose response headers have not arrived in time, and stops once they have.
+type requestTimer struct {
+	ms     float64
+	timer  *time.Timer
+	cancel context.CancelFunc
+}
+
+func startRequestTimer(ctx context.Context, request map[string]Value) (context.Context, *requestTimer) {
+	ms := num(coreGet(request, "timeout_ms", 0))
+	if ms <= 0 {
+		return ctx, nil
+	}
+	timed, cancel := context.WithCancel(ctx)
+	t := &requestTimer{ms: ms, cancel: cancel}
+	t.timer = time.AfterFunc(time.Duration(ms*float64(time.Millisecond)), cancel)
+	return timed, t
+}
+
+// headers stops the timer once the transport returns. It reports whether the
+// timer had already ended the request, even as the headers arrived.
+func (t *requestTimer) headers() bool {
+	return t != nil && !t.timer.Stop()
+}
+
+// release ends the request's context once its body is done.
+func (t *requestTimer) release() {
+	if t != nil {
+		t.timer.Stop()
+		t.cancel()
+	}
+}
+
+// timerBody releases the request's timer context when the stream body closes.
+type timerBody struct {
+	io.ReadCloser
+	timer *requestTimer
+}
+
+func (b timerBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.timer.release()
+	return err
+}
+
+// callTimeoutError is TS's AxAIServiceTimeoutError for a call's timeoutMs.
+func callTimeoutError(ms float64) error {
+	return AIServiceError{AxError{Category: "ai", Type: "AxAIServiceTimeoutError", Message: display(mustCore(provider_call_timeout_message(ms))), Retryable: true}}
+}
+
+func isAxTimeoutError(err error) bool {
+	typed, ok := AsAxError(err)
+	return ok && typed.Type == "AxAIServiceTimeoutError"
+}
+
+// transportCallError keeps a timeout a transport reported as TS's
+// AxAIServiceTimeoutError, with the request view a provider error keeps, and
+// makes any other failure a network error.
+func transportCallError(err error, call Value, options map[string]Value) error {
+	if typed, ok := AsAxError(err); ok && typed.Type == "AxAIServiceTimeoutError" {
+		view := errorRequestView(call, options)
+		typed.URL = display(coreGet(view, "url", ""))
+		typed.RequestBody = publicValue(coreGet(view, "json", coreGet(view, "data", nil)))
+		return AIServiceError{typed}
+	}
+	return providerNetworkError(err, call, options)
+}
+
+// warnCallTimeout: TS reads a per-call timeout in milliseconds; this port
+// ignores it until the next major version and warns once, naming timeoutMs.
+func warnCallTimeout(options map[string]Value) {
+	mustCore(provider_warn_call_timeout(stripRuntimeHooks(options), false))
 }
 
 func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	req := asMap(request)
+	ctx, timer := startRequestTimer(ctx, req)
+	defer timer.release()
 	var body []byte
 	multipartContentType := ""
 	if _, ok := req["json"]; ok {
@@ -93704,6 +94571,13 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 		client = http.DefaultClient
 	}
 	resp, err := client.Do(httpReq)
+	timedOut := timer.headers()
+	if err == nil && timedOut {
+		resp.Body.Close()
+	}
+	if timedOut {
+		return nil, callTimeoutError(timer.ms)
+	}
 	if err != nil {
 		return nil, normalizeContextError(ctx, err)
 	}
@@ -93740,9 +94614,11 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 
 func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamResponse, error) {
 	req := asMap(request)
+	ctx, timer := startRequestTimer(ctx, req)
 	body := wireJSONBody(coreGet(req, "json", Object()))
 	httpReq, err := http.NewRequestWithContext(ctx, display(coreGet(req, "method", "POST")), display(req["url"]), bytes.NewReader(body))
 	if err != nil {
+		timer.release()
 		return AxHTTPStreamResponse{}, err
 	}
 	for _, key := range orderedKeys(asMap(coreGet(req, "headers", Object()))) {
@@ -93753,10 +94629,21 @@ func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamR
 		client = http.DefaultClient
 	}
 	resp, err := client.Do(httpReq)
-	if err != nil {
+	timedOut := timer.headers()
+	if err != nil || timedOut {
+		if err == nil {
+			resp.Body.Close()
+		}
+		timer.release()
+		if timedOut {
+			return AxHTTPStreamResponse{}, callTimeoutError(timer.ms)
+		}
 		return AxHTTPStreamResponse{}, normalizeContextError(ctx, err)
 	}
-	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body}, nil
+	if timer == nil {
+		return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body}, nil
+	}
+	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: timerBody{resp.Body, timer}}, nil
 }
 
 // TypesafeQuestion describes a native Noul, Choice, or Score question. Criteria
@@ -94099,6 +94986,7 @@ func requireExpensiveModelConfirmation(provider string, request map[string]Value
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, false)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -94131,7 +95019,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 			}
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
-				panic(providerNetworkError(err, transportReq, mergedOptions))
+				panic(transportCallError(err, transportReq, mergedOptions))
 			}
 			body := normalizeTransportPayload(raw, transportReq, mergedOptions)
             return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
@@ -94183,7 +95071,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		raw, err := c.Transport.Call(ctx, call)
 		if err != nil {
 			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-			return nil, providerNetworkError(err, call, options)
+			return nil, transportCallError(err, call, options)
 		}
 		return safeValue(func() Value { return normalizeTransportPayload(raw, call, options) })
 	}
@@ -94278,6 +95166,9 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		opts := mergeAIOptions(c.optionsSnapshot(), options)
 		base := display(coreGet(opMap, "base_url", coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://generativelanguage.googleapis.com/v1beta")))))
 		call := Object("method", display(coreGet(opMap, "method", "POST")), "url", strings.TrimRight(base, "/")+display(coreGet(opMap, "path", "")), "headers", coreGet(fullCall, "headers", Object()), "json", coreGet(opMap, "request", Object()), "stream", false)
+		if timeoutMs := coreGet(fullCall, "timeout_ms", nil); timeoutMs != nil {
+			coreSet(call, "timeout_ms", timeoutMs)
+		}
 		return tryCall(call)
 	}
 	apiKey := display(coreGet(c.optionsSnapshot(), "api_key", coreGet(c.optionsSnapshot(), "apiKey", os.Getenv("GOOGLE_APIKEY"))))
@@ -94365,6 +95256,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
+	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, true)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -94383,7 +95275,7 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 			transportReq := c.requestJSON(ctx, "embed", req, false, mergedOptions)
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
-				panic(providerNetworkError(err, transportReq, mergedOptions))
+				panic(transportCallError(err, transportReq, mergedOptions))
 			}
 			return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw, transportReq, mergedOptions), c.Name, model))
 		})
@@ -94433,6 +95325,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 		response, err := transport.Stream(ctx, request)
 		if err != nil {
 			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
+			if isAxTimeoutError(err) { return nil, transportCallError(err, request, errorOptions) }
 			networkErr := providerNetworkError(err, request, errorOptions)
 			networkErr.Type = "AxAIServiceNetworkError"
 			networkErr.Retryable = true
@@ -94467,6 +95360,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 	raw, err := c.Transport.Call(ctx, request)
 	if err != nil {
 		if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
+		if isAxTimeoutError(err) { return nil, transportCallError(err, request, errorOptions) }
 		networkErr := providerNetworkError(err, request, errorOptions)
 		networkErr.Type = "AxAIServiceNetworkError"
 		networkErr.Retryable = true
@@ -94485,6 +95379,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 }
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+    warnCallTimeout(options)
     request, options = c.resolveModelKey(request, options, false)
     if !coreTruthy(coreGet(c.GetFeatures(display(coreGet(request,"model",""))),"streaming",true)) {
         response,err:=c.Chat(ctx,request,mergeAIOptions(options,Object("stream",false)));if err!=nil{return nil,err}
@@ -94543,7 +95438,9 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				transportReq := c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
 				raw, err := c.openProviderStream(ctx, transportReq, mergedOptions)
 				if err != nil {
-					if IsRetryable(err) && attempt < maxRetries {
+					// As in TS apiCall, a call's timeoutMs is not retried here.
+					callTimedOut := coreGet(transportReq, "timeout_ms", nil) != nil && isAxTimeoutError(err)
+					if IsRetryable(err) && !callTimedOut && attempt < maxRetries {
 						attempt++
 						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
 							panic(waitErr)
@@ -94813,6 +95710,13 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	// transport; flag the request so HTTPTransport.Call base64-encodes the body.
 	if display(coreGet(operationDescriptor, "response", "")) == "binary" {
 		coreSet(out, "binaryResponse", true)
+	}
+	// The call's timeoutMs (TS's per-call timeout, in milliseconds) bounds the
+	// wait for the response headers; HTTPTransport honors it.
+	if operation == "chat" || operation == "stream_chat" || operation == "embed" {
+		if timeoutMs := mustCore(provider_call_timeout_ms(opts)); timeoutMs != nil {
+			coreSet(out, "timeout_ms", timeoutMs)
+		}
 	}
 	return out
 }
@@ -95431,9 +96335,13 @@ func (s *sseJSONStream) flushEvent() (Value, bool, error) {
 		_ = s.Close()
 		return nil, true, nil
 	}
+	marked, lone := markLoneSurrogateEscapes(payload)
 	var value Value
-	if err := json.Unmarshal([]byte(payload), &value); err != nil {
+	if err := json.Unmarshal([]byte(marked), &value); err != nil {
 		return nil, false, err
+	}
+	if lone {
+		value = restoreLoneSurrogates(value)
 	}
 	return value, false, nil
 }
@@ -101133,12 +102041,36 @@ func coreAICaptureWarnings(sink func(string)) {
 	coreAIWarningSink = sink
 }
 
+var (
+	coreDeprecationSinkMu sync.Mutex
+	coreDeprecationSink   func(string)
+)
+
 // _core_axgen_deprecation logs a deprecated behavior once per key per process.
 func _core_axgen_deprecation(key Value, message Value) Value {
 	if _, shown := coreDeprecationsShown.LoadOrStore(display(key), true); !shown {
-		log.Printf("ax: deprecated: %s", display(message))
+		coreDeprecationSinkMu.Lock()
+		sink := coreDeprecationSink
+		coreDeprecationSinkMu.Unlock()
+		if sink != nil {
+			sink(display(message))
+		} else {
+			log.Printf("ax: deprecated: %s", display(message))
+		}
 	}
 	return nil
+}
+
+// coreAxGenCaptureDeprecations forgets the deprecations already shown and
+// sends new ones to sink (nil logs them again). Conformance fixtures use it.
+func coreAxGenCaptureDeprecations(sink func(string)) {
+	coreDeprecationSinkMu.Lock()
+	defer coreDeprecationSinkMu.Unlock()
+	coreDeprecationsShown.Range(func(key, _ any) bool {
+		coreDeprecationsShown.Delete(key)
+		return true
+	})
+	coreDeprecationSink = sink
 }
 
 // _core_axgen_caching_function returns the forward call's caching function,
@@ -102241,14 +103173,15 @@ func (f *conformanceScriptedAI) Stream(ctx context.Context, request map[string]V
 	return []Value{response}, nil
 }
 
-// supportsLoneSurrogates declares the runner's string model: Go strings hold
-// UTF-8, which cannot represent half of a surrogate pair, so fixtures that
-// split a pair across stream chunks are skipped here.
-const supportsLoneSurrogates = false
+// supportsLoneSurrogates declares the runner's string model: Go strings are
+// bytes, and JSON decoding keeps half of a surrogate pair (a provider split
+// across stream chunks) as its WTF-8 form, which the stream-text intrinsics
+// join again, so this runner runs the fixtures that split a pair.
+const supportsLoneSurrogates = true
 
 // ConformanceSkipReason is why this runner skips a fixture, or "" to run it:
-// a fixture that requires lone surrogates needs a UTF-16 or code point
-// string model.
+// a fixture that requires lone surrogates needs a string model that can hold
+// one (supportsLoneSurrogates).
 func ConformanceSkipReason(fixture Value) string {
 	if !supportsLoneSurrogates && coreTruthy(coreGet(fixture, "requires_lone_surrogates", false)) {
 		return "requires lone surrogates (utf-8 runner)"
@@ -102273,6 +103206,39 @@ func RunConformanceFixture(fixture Value) error {
 }
 
 func runConformanceFixture(fixture map[string]Value) {
+	// A top-level "<key>_json" string holds <key> as JSON text, so a fixture
+	// can carry an object in TS's key order (the canonical fixture sort
+	// reorders the keys of the fixture's own objects).
+	for _, key := range orderedKeys(fixture) {
+		text, isText := fixture[key].(string)
+		if !isText || !strings.HasSuffix(key, "_json") {
+			continue
+		}
+		if base := strings.TrimSuffix(key, "_json"); coreGet(fixture, base, nil) == nil {
+			coreSet(fixture, base, parseJSON(text))
+		}
+	}
+	// expected_deprecations pins the one-time deprecation warnings the run
+	// gives (the ones already shown are forgotten first).
+	if expected, ok := fixture["expected_deprecations"]; ok {
+		var mu sync.Mutex
+		captured := []Value{}
+		coreAxGenCaptureDeprecations(func(message string) {
+			mu.Lock()
+			defer mu.Unlock()
+			captured = append(captured, message)
+		})
+		defer coreAxGenCaptureDeprecations(nil)
+		runConformanceFixtureKind(fixture)
+		mu.Lock()
+		defer mu.Unlock()
+		assertEqual(captured, expected, "deprecation warnings")
+		return
+	}
+	runConformanceFixtureKind(fixture)
+}
+
+func runConformanceFixtureKind(fixture map[string]Value) {
 	kind := display(coreGet(fixture, "kind", "forward"))
 	switch kind {
 	case "signature_error":
@@ -102306,8 +103272,12 @@ func runConformanceFixture(fixture map[string]Value) {
 		assertEqual(mustCore(strip_internal(sig.Outputs, coreGet(fixture, "values", Object()))), coreGet(fixture, "expected_output", nil), "strip internal")
 	case "prompt":
 		runConformancePrompt(fixture)
+	case "json_stringify":
+		runConformanceJSONStringify(fixture)
 	case "number_format":
 		runConformanceNumberFormat(fixture)
+	case "string_format":
+		runConformanceStringFormat(fixture)
 	case "date_field_value":
 		runConformanceDateFieldValue(fixture)
 	case "date_input":
@@ -104265,6 +105235,19 @@ func runConformanceAIChat(fixture map[string]Value) {
 	if expected, ok := fixture["expected_warnings"]; ok {
 		assertEqual(captured, expected, "ai chat warnings")
 	}
+	// Each fragment appears in a warning the call logged (a port's wording may differ).
+	for _, fragment := range asSlice(coreGet(fixture, "expected_warnings_containing", Array())) {
+		found := false
+		for _, message := range captured {
+			if strings.Contains(display(message), display(fragment)) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			panic(fmt.Sprintf("no ai chat warning contains %q: %v", display(fragment), captured))
+		}
+	}
 }
 
 func runConformanceAIChatRequest(fixture map[string]Value) {
@@ -104911,6 +105894,18 @@ func runConformanceFlow(fixture map[string]Value) {
 // streaming extractor's number text). The JSON form must come out of every
 // encoder: the wire body and json.stringify (key-sorted), the ordered prompt
 // writer and json.pretty (prompt values).
+// runConformanceJSONStringify: each case's input text, parsed in key order,
+// comes out of json.stringify as TS's JSON.stringify writes it.
+func runConformanceJSONStringify(fixture map[string]Value) {
+	for index, item := range coreIter(coreGet(fixture, "cases", Array())) {
+		expected := display(coreGet(item, "json", ""))
+		actual := display(_core_json_stringify(parseJSON(display(coreGet(item, "input", "")))))
+		if actual != expected {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("json.stringify case %d: expected %s, got %s", index, expected, actual)})
+		}
+	}
+}
+
 func runConformanceNumberFormat(fixture map[string]Value) {
 	for _, item := range coreIter(coreGet(fixture, "cases", Array())) {
 		input := display(coreGet(item, "input", ""))
@@ -104931,6 +105926,26 @@ func runConformanceNumberFormat(fixture map[string]Value) {
 		check("json.stringify", display(_core_json_stringify(list)), "["+text+"]")
 		check("ordered JSON", orderedStringify(list), "["+text+"]")
 		check("json.pretty", display(_core_json_pretty(list)), "[\n  "+text+"\n]")
+	}
+}
+
+// runConformanceStringFormat checks string.format and string.str against
+// JavaScript's text of each case.
+func runConformanceStringFormat(fixture map[string]Value) {
+	for _, item := range coreIter(coreGet(fixture, "format_cases", Array())) {
+		template := display(coreGet(item, "template", ""))
+		args := asSlice(coreGet(item, "input", Array()))
+		actual := display(_core_string_format(template, args...))
+		if expected := display(coreGet(item, "expected", "")); actual != expected {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("string.format of %q: expected %q, got %q", template, expected, actual)})
+		}
+	}
+	for _, item := range coreIter(coreGet(fixture, "str_cases", Array())) {
+		input := coreGet(item, "input", nil)
+		actual := display(_core_string_str(input))
+		if expected := display(coreGet(item, "expected", "")); actual != expected {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("string.str of %s: expected %q, got %q", stableStringify(input), expected, actual)})
+		}
 	}
 }
 
@@ -106645,6 +107660,15 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	}
 	if expected := coreGet(fixture, "expected_request_count", nil); expected != nil && len(client.Requests) != int(num(expected)) {
 		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d requests, got %d", int(num(expected)), len(client.Requests))})
+	}
+	// Every chat call's options carry these (a forward option each stage gets).
+	if expected := coreGet(fixture, "expected_chat_options_all_subset", nil); expected != nil {
+		if len(client.ChatOptions) == 0 {
+			panic(AxError{Category: "fixture", Message: "fixture expected chat options but none were recorded"})
+		}
+		for index, options := range client.ChatOptions {
+			assertSubset(options, expected, fmt.Sprintf("chat options %d", index))
+		}
 	}
 	exactProjection := asMap(coreGet(fixture, "exact_observable_projection", Object()))
 	if expected := coreGet(exactProjection, "stateRoundtrip", nil); expected != nil {

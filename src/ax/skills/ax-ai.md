@@ -392,6 +392,7 @@ Providers without the requested audio endpoint throw `AxMediaNotSupportedError`.
 - `functionCallMode`: `'auto'` | `'native'` | `'prompt'`
 - `debug`, `logger`, `tracer`, `rateLimiter`, `timeout`
 - `timeout`, `fetch` and `corsProxy` given to one `chat()` or `embed()` call override the service's own
+- `timeout` is in milliseconds and bounds the wait for the response headers: a request whose response has not started in time fails with `AxAIServiceTimeoutError`, and a stream that has started runs on
 
 ## Sampling Parameters
 
@@ -754,6 +755,10 @@ Provider behavior:
 GPT-5.6+ needs a key that is stable per conversation to match reliably; it routes
 the request to the shard the cache lives on. Set `promptCacheKey`, or let it fall
 back to `sessionId`. Keep it under roughly 15 requests/minute per key.
+
+Every OpenAI Responses request sends `prompt_cache_key`, with or without
+caching: the `promptCacheKey`, else the `sessionId`, the call's before the
+service's. Chat Completions sends it only with GPT-5.6+ caching.
 
 ```typescript
 const result = await gen.forward(llm, values, {

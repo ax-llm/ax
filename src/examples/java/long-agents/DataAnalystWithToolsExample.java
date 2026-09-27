@@ -78,9 +78,9 @@ public final class DataAnalystWithToolsExample {
       "  - Compare like-for-like: always group by region AND product, not either alone.",
       "",
       "TOOLS AVAILABLE (call them, never invent figures)",
-      "  query  filter + aggregate a slice -> {matched, totalUnits, totalRevenue, avgReturnRate}",
-      "  top    rank a metric (\"revenue\"|\"units\") grouped by \"product\"|\"region\" -> [{key, value}]",
-      "  trend  monthly revenue series (Jan..Dec) for one region + product");
+      "  warehouse.query  filter + aggregate a slice -> {matched, totalUnits, totalRevenue, avgReturnRate}",
+      "  warehouse.top    rank a metric (\"revenue\"|\"units\") grouped by \"product\"|\"region\" -> [{key, value}]",
+      "  warehouse.trend  monthly revenue series (Jan..Dec) for one region + product");
 
   public static void main(String[] args) throws Exception {
     String apiKey = System.getenv("GOOGLE_APIKEY");
@@ -162,49 +162,49 @@ public final class DataAnalystWithToolsExample {
         Map.of(
             // Big data dictionary stays out of the prompt.
             "contextFields", List.of("schema"),
-            // Tool specs advertised to the model; handlers are registered on the runtime below.
-            "functions", List.of(
-                Map.of(
-                    "name", "query",
-                    "description", "Filter the sales table and return aggregates for the matching rows.",
-                    "parameters", Map.of(
+            // Tools reach the data the prompt never sees.
+            "functions", List.of(Map.of("namespace", "warehouse", "functions", List.of(
+                Ax.fn("query")
+                    .description("Filter the sales table and return aggregates for the matching rows.")
+                    .parameters(Map.of(
                         "type", "object",
                         "properties", Map.of(
-                            "region", Map.of("type", "string"),
-                            "product", Map.of("type", "string"),
-                            "month", Map.of("type", "string")))),
-                Map.of(
-                    "name", "top",
-                    "description", "Rank a metric (revenue|units) grouped by product|region, highest first.",
-                    "parameters", Map.of(
+                            "region", Map.of("type", "string", "description", "Optional region filter"),
+                            "product", Map.of("type", "string", "description", "Optional product filter"),
+                            "month", Map.of("type", "string", "description", "Optional month filter, e.g. Jan"))))
+                    .handler(values -> queryTool.call(values))
+                    .build(),
+                Ax.fn("top")
+                    .description("Rank a metric grouped by product or region, highest first.")
+                    .parameters(Map.of(
                         "type", "object",
                         "properties", Map.of(
-                            "metric", Map.of("type", "string"),
-                            "groupBy", Map.of("type", "string"),
-                            "limit", Map.of("type", "number")),
-                        "required", List.of("metric", "groupBy"))),
-                Map.of(
-                    "name", "trend",
-                    "description", "Monthly revenue series (Jan..Dec) for one region and product.",
-                    "parameters", Map.of(
+                            "metric", Map.of("type", "string", "description", "revenue or units"),
+                            "groupBy", Map.of("type", "string", "description", "product or region"),
+                            "limit", Map.of("type", "number", "description", "How many groups to return")),
+                        "required", List.of("metric", "groupBy")))
+                    .handler(values -> topTool.call(values))
+                    .build(),
+                Ax.fn("trend")
+                    .description("Monthly revenue series (Jan..Dec) for one region and product.")
+                    .parameters(Map.of(
                         "type", "object",
                         "properties", Map.of(
                             "region", Map.of("type", "string"),
                             "product", Map.of("type", "string")),
-                        "required", List.of("region", "product")))),
+                        "required", List.of("region", "product")))
+                    .handler(values -> trendTool.call(values))
+                    .build()))),
             "contextPolicy", Map.of("preset", "lean", "budget", "balanced"),
             "runtime", Map.of("language", "JavaScript")));
 
     try (AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime()) {
-      runtime.registerCallable("query", queryTool);
-      runtime.registerCallable("top", topTool);
-      runtime.registerCallable("trend", trendTool);
 
       Map<String, Object> result = analyst.forward(
           client,
           Map.of(
               "schema", SCHEMA,
-              "question", "Which region+product had the strongest Jan->Dec revenue growth, and which products have an average return rate above the 5% review threshold? Tool-calling rules: the tools are bare async functions named exactly `query`, `top`, `trend` -- call them as `await query({product:'Widget-B'})`, never as `tools.query(...)`. Do NOT wrap your turn in an IIFE like `(async()=>{...})()`; write top-level `await` and capture results in variables, then `console.log` one value to inspect, and only call `await final(task, evidence)` once you have the figures."),
+              "question", "Which region+product had the strongest Jan->Dec revenue growth, and which products have an average return rate above the 5% review threshold?"),
           Map.of("runtime", runtime, "max_actor_steps", 40));
 
       System.out.println(Json.pretty(result));

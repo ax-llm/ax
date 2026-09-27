@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-rust-ai/SKILL.md",
-      "digest": "sha256:e4f0c4b9dc3251769c3f382e6145e32347a65c8daecb90a6fd1844a9063c626e"
+      "digest": "sha256:7b403d315607500604771ec87ab96164d161b32b0839916608e5ede51d5a6c7e"
     },
     {
       "name": "ax-rust-typesafe",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:16dc858e06a0163ebae0a888ce502554ed9d27bd914606fcabfb22241ea6ca19"
+      "digest": "sha256:5b73831a5ef54411560395482ae932b31efcf0a7c58601aa69640a6f26aef0ce"
     },
     {
       "name": "ax-rust-flow",

@@ -239,8 +239,15 @@ impl AxSessionSocket for NativeSessionSocket {
                 .min(Duration::from_millis(20)),
         ))?;
         match socket.socket.read() {
-            Ok(tungstenite::Message::Text(text)) => Ok(Some(serde_json::from_str(text.as_str())?)),
-            Ok(tungstenite::Message::Binary(bytes)) => Ok(Some(serde_json::from_slice(&bytes)?)),
+            Ok(tungstenite::Message::Text(text)) => {
+                Ok(Some(serde_json_keeping_lone_surrogates(text.as_str())?))
+            }
+            Ok(tungstenite::Message::Binary(bytes)) => {
+                Ok(Some(match std::str::from_utf8(&bytes) {
+                    Ok(text) => serde_json_keeping_lone_surrogates(text),
+                    Err(_) => serde_json::from_slice(&bytes),
+                }?))
+            }
             Ok(tungstenite::Message::Close(_)) => Err(AxError::runtime(
                 "Responses socket disconnected; work was not replayed",
             )),

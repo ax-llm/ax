@@ -24,10 +24,11 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
 # AXIR_CORE_IMPORTS
-from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text
+from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text, _js_format, _js_text
 import warnings
 
 _CORE_DEPRECATIONS_SHOWN: set[str] = set()
+_CORE_DEPRECATION_SINK = None
 
 
 def _core_axgen_deprecation(key, message):
@@ -35,8 +36,19 @@ def _core_axgen_deprecation(key, message):
     if key in _CORE_DEPRECATIONS_SHOWN:
         return None
     _CORE_DEPRECATIONS_SHOWN.add(key)
+    if _CORE_DEPRECATION_SINK is not None:
+        _CORE_DEPRECATION_SINK(str(message))
+        return None
     warnings.warn(str(message), DeprecationWarning, stacklevel=4)
     return None
+
+
+def _core_axgen_capture_deprecations(sink):
+    # Conformance hook: forgets the deprecations already shown and sends new
+    # ones to sink (None warns again).
+    global _CORE_DEPRECATION_SINK
+    _CORE_DEPRECATIONS_SHOWN.clear()
+    _CORE_DEPRECATION_SINK = sink
 
 def _core_validation_error(message):
     return ValueError(str(message))
@@ -568,6 +580,15 @@ class AxAIServiceAbortedError(AxAIServiceError):
         message = "Request aborted" + (f": {reason}" if reason and reason != "cancelled" else "")
         super().__init__(message, retryable=False)
         self.reason = reason
+
+
+def _call_timeout_error(timeout_ms: Any, request: Any) -> AxAIServiceTimeoutError:
+    # TS's AxAIServiceTimeoutError for a call's timeoutMs. As in TS apiCall, the
+    # request layer does not retry it; AxGen still retries it as an
+    # infrastructure error.
+    error = AxAIServiceTimeoutError(provider_call_timeout_message(timeout_ms), request=request, retryable=True)
+    error.timeout_ms = timeout_ms
+    return error
 
 
 def _cancellation_token(options: dict[str, Any] | None) -> AxCancellationToken | None:
@@ -1207,6 +1228,16 @@ class ProviderOperationClient(AxBaseAI):
             )
         )
 
+    def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        # TS reads a per-call timeout in milliseconds; this port ignores it
+        # until the next major version and warns once, naming timeoutMs.
+        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
+        return super().chat(request, options)
+
+    def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
+        return super().embed(request, options)
+
     def open_chat_session(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         request, options = self._resolve_model_key(request, options)
         model = str(request.get("model") or self.model)
@@ -1233,7 +1264,7 @@ class ProviderOperationClient(AxBaseAI):
         raw = self._context_cache_chat(request, payload, model, endpoint, options)
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
-            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, cancellation=_cancellation_token(options), error_options=options)
+            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, base_url=self._call_base_url(options), cancellation=_cancellation_token(options), error_options=options, timeout_ms=self._call_timeout_ms(options))
         return provider_normalize_chat_response(self.profile, raw, self.name, model, typesafe_response_context(payload, options) if self.profile == "typesafe" else payload)
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
@@ -1246,11 +1277,13 @@ class ProviderOperationClient(AxBaseAI):
             cfg = {}
         if not isinstance(cfg, dict):
             return None
+        call_base_url = self._call_base_url(options)
+        timeout_ms = self._call_timeout_ms(options)
         explicit = str(cfg.get("name") or cfg.get("cacheName") or cfg.get("cache_name") or "")
         if explicit:
             cached_payload = copy.deepcopy(payload)
             cached_payload["cachedContent"] = explicit
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
 
         prompts = request.get("chat_prompt") or request.get("chatPrompt") or request.get("messages") or []
         non_system_seen = 0
@@ -1313,14 +1346,14 @@ class ProviderOperationClient(AxBaseAI):
         try:
             if plan.get("action") == "refresh":
                 ops = ai_gemini_cache_ops(cache_name, ttl_seconds, api_key, str(model), cache_body, options)
-                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation, error_options=options)
+                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
                 expires_at = expiry(refreshed)
                 if not expires_at:
                     raise AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", response_body=refreshed)
                 save({"cacheName": cache_name, "expiresAt": expires_at})
             if plan.get("action") in ("create", "refresh") and (plan.get("action") == "create" or not cache_name):
                 ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options)
+                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
                 cache_name = str((created or {}).get("name") or "")
                 expires_at = expiry(created)
                 if not cache_name or not expires_at:
@@ -1332,7 +1365,7 @@ class ProviderOperationClient(AxBaseAI):
             if plan.get("action") == "refresh":
                 try:
                     ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options)
+                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
                     cache_name = str((created or {}).get("name") or "")
                     expires_at = expiry(created)
                     if not cache_name or not expires_at:
@@ -1341,9 +1374,9 @@ class ProviderOperationClient(AxBaseAI):
                 except AxAIServiceAbortedError:
                     raise
                 except AxAIServiceError:
-                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
+                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
             else:
-                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
+                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
         if not cache_name:
             return None
         cached_payload = copy.deepcopy(payload)
@@ -1353,7 +1386,7 @@ class ProviderOperationClient(AxBaseAI):
         cached_payload.pop("toolConfig", None)
         cached_payload["cachedContent"] = cache_name
         try:
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
         except AxAIServiceError as error:
             if not ai_context_cache_rejection(error.status or 0, error.response_body):
                 raise
@@ -1364,9 +1397,10 @@ class ProviderOperationClient(AxBaseAI):
                     registry_call("set", namespace, cache_key, recovery.get("externalEntry"))
                 elif recovery.get("deleteInMemory"):
                     self._context_cache_entries.pop(cache_key, None)
-            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
+            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
         request, options = self._resolve_model_key(_coerce_chat_request(request), options)
         if self.get_features(request.get("model")).get("streaming") is False:
             yield self.chat(request, {**(options or {}), "stream": False})
@@ -1408,13 +1442,15 @@ class ProviderOperationClient(AxBaseAI):
         # The client pops base_url out of its options; the embed route still honors an explicit one.
         route_options = {**options, "base_url": self.base_url_override} if self.base_url_override else options
         endpoint = provider_embed_url(self.profile, str(model or ""), route_options) or self._operation_path("embed", model)
-        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options), error_options=options)
+        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", base_url=self._call_base_url(options), cancellation=_cancellation_token(options), error_options=options, timeout_ms=self._call_timeout_ms(options))
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
     def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any], options: dict[str, Any] | None = None):
         cancellation = _check_cancelled(options)
         model = request.get("model") or payload.get("model") or self.model
         endpoint = self._operation_path("stream_chat", model)
+        call_base_url = self._call_base_url(options)
+        timeout_ms = self._call_timeout_ms(options)
         cfg = resolve_stream_retry(options or {})
         max_retries = int(cfg["max_retries"])
         initial_delay = float(cfg["initial_delay_ms"])
@@ -1429,11 +1465,12 @@ class ProviderOperationClient(AxBaseAI):
             # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
             events = None
             try:
-                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", cancellation=cancellation, error_options=options)
+                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
                 events = _iter_sse_json(raw)
                 first = next(events, sentinel)
             except AxAIServiceError as error:
-                if _is_retryable_ai_error(error) and attempt < max_retries:
+                # As in TS apiCall, a call's timeoutMs is not retried here.
+                if _is_retryable_ai_error(error) and getattr(error, "timeout_ms", None) is None and attempt < max_retries:
                     attempt += 1
                     delay = min(initial_delay * (backoff ** (attempt - 1)), max_delay)
                     _wait_backoff(delay, cancellation)
@@ -1661,9 +1698,36 @@ class ProviderOperationClient(AxBaseAI):
         descriptor = (self.descriptor.get("operations") or {}).get(operation) or provider_operation_descriptor(self.profile, operation)
         return str(descriptor.get("method") or "POST").upper()
 
-    def _open_http_response(self, request, cancellation):
+    def _call_timeout_ms(self, options):
+        # The call's timeoutMs: TS's per-call timeout, in milliseconds.
+        return provider_call_timeout_ms(options or {})
+
+    def _call_base_url(self, options):
+        # The call's options can move the provider's base URL (a Vertex beta
+        # selects v1beta1), as TS resolves it for each call. An explicit base_url
+        # or OPENAI_BASE_URL still wins.
+        descriptor_base = str(self.descriptor.get("baseUrl") or "").rstrip("/")
+        if self.base_url_override or not options or self.base_url != descriptor_base:
+            return self.base_url
+        resolved = str(provider_resolve_descriptor(self.profile, options).get("baseUrl") or "").rstrip("/")
+        return resolved or self.base_url
+
+    def _restore_read_timeout(self, response, timeout_ms):
+        # A call's timeoutMs bounds only the wait for the response headers, as
+        # TS apiCall's timer does; the body reads under the client's timeout.
+        if timeout_ms is None:
+            return
+        sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+        if sock is not None:
+            try: sock.settimeout(self.timeout)
+            except OSError: pass
+
+    def _open_http_response(self, request, cancellation, timeout_ms=None):
+        timeout = self.timeout if timeout_ms is None else timeout_ms / 1000.0
         if cancellation is None:
-            return urllib.request.urlopen(request, timeout=self.timeout), lambda: None
+            response = urllib.request.urlopen(request, timeout=timeout)
+            self._restore_read_timeout(response, timeout_ms)
+            return response, lambda: None
         import socket
         connections = []
         def interrupt():
@@ -1693,14 +1757,15 @@ class ProviderOperationClient(AxBaseAI):
         unsubscribe = cancellation.subscribe(interrupt)
         try:
             cancellation.throw_if_cancelled()
-            response = urllib.request.build_opener(HTTPHandler(), HTTPSHandler()).open(request, timeout=self.timeout)
+            response = urllib.request.build_opener(HTTPHandler(), HTTPSHandler()).open(request, timeout=timeout)
+            self._restore_read_timeout(response, timeout_ms)
             return response, unsubscribe
         except BaseException:
             unsubscribe()
             for connection in connections: connection.close()
             raise
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None, error_options: dict[str, Any] | None = None):
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None, error_options: dict[str, Any] | None = None, timeout_ms: float | None = None):
         if cancellation is not None: cancellation.throw_if_cancelled()
         method = str(method or "POST").upper()
         request_base_url = (base_url or self.base_url).rstrip("/")
@@ -1729,6 +1794,9 @@ class ProviderOperationClient(AxBaseAI):
         }
         if method in ("GET", "HEAD"):
             call.pop(body_key, None)
+        if timeout_ms is not None:
+            # The call's timeoutMs, for a custom transport to honor.
+            call["timeout_ms"] = timeout_ms
         # The request this call's provider errors keep (Core owns the view).
         error_request = _ai_error_request(call, self.options if error_options is None else error_options)
         if self.transport:
@@ -1746,6 +1814,8 @@ class ProviderOperationClient(AxBaseAI):
                 raise
             except TimeoutError as exc:
                 if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
+                if timeout_ms is not None:
+                    raise _call_timeout_error(timeout_ms, error_request) from exc
                 raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=error_request, retryable=True) from exc
             except OSError as exc:
                 if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
@@ -1767,9 +1837,11 @@ class ProviderOperationClient(AxBaseAI):
             headers=request_headers,
             method=method,
         )
+        opened = False
         try:
             if cancellation is not None: cancellation.throw_if_cancelled()
-            res, stop_open = self._open_http_response(req, cancellation)
+            res, stop_open = self._open_http_response(req, cancellation, timeout_ms)
+            opened = True
             if stream:
                 # A generator cannot be closed while another thread is reading it.
                 # Own the response explicitly so cancellation can interrupt that read.
@@ -1851,6 +1923,8 @@ class ProviderOperationClient(AxBaseAI):
             raise AxAIServiceNetworkError(str(exc), request=error_request, retryable=True) from exc
         except TimeoutError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
+            if timeout_ms is not None and not opened:
+                raise _call_timeout_error(timeout_ms, error_request) from exc
             raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=error_request, retryable=True) from exc
         except urllib.error.HTTPError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
@@ -1863,6 +1937,10 @@ class ProviderOperationClient(AxBaseAI):
             raise openai_normalize_error(exc.code, parsed, error_request) from exc
         except OSError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
+            # urllib reports a connect that ran out of the call's timeoutMs as a
+            # URLError around the timeout.
+            if timeout_ms is not None and not opened and isinstance(getattr(exc, "reason", None), TimeoutError):
+                raise _call_timeout_error(timeout_ms, error_request) from exc
             raise AxAIServiceNetworkError(str(exc), request=error_request, retryable=True) from exc
 
     def _headers(self):
@@ -3267,7 +3345,8 @@ def _core_json_parse(value):
 
 
 def _core_json_stringify(value):
-    return _js_json_dumps(value or {}, sort_keys=True)
+    # TS JSON.stringify(value): keys in insertion order, null as null.
+    return _js_json_dumps(value)
 
 
 def _core_string_starts_with(value, prefix):
@@ -3293,8 +3372,7 @@ def _core_string_slice(value, start, end=None):
 
 
 def _core_string_format(template, *args):
-    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
-    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
+    return _js_format(template, args)
 
 
 def _core_string_replace(value, old, new):
@@ -3308,8 +3386,11 @@ def _core_url_encode_component(value):
 
 
 def _core_string_str(value):
-    # String(x): a float two is "2", not "2.0".
-    return _js_number_text(value) if isinstance(value, float) else str(value)
+    return _js_text(value)
+
+
+def _core_json_pretty(value):
+    return _js_json_dumps(value, indent=2)
 
 
 def _core_ai_error_response(message, response_body=None):

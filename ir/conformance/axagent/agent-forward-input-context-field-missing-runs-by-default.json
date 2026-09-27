@@ -1,5 +1,8 @@
 {
   "description": "Port-only: an agent run without its required context field goes on without inputValidation: 'fail', as this release does. TS fails it before any request.",
+  "expected_deprecations": [
+    "RLM contextField \"doc\" is missing from input values. TypeScript Ax fails the agent run here, before any request; this run goes on. Pass inputValidation: 'fail' to fail it now, or inputValidation: 'lenient' to keep running without this warning. Failing becomes the default in the next major version."
+  ],
   "expected_output": {
     "answer": "Refunds take 30 days."
   },

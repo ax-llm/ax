@@ -9613,6 +9613,75 @@ writeFixture('vertex-gemini-us-chat', {
   },
 });
 
+// A call's beta routes that call onto v1beta1, and wins over the service's
+// (TS getVertexApiURL(model, options.beta); src/ax/ai/call_options.test.ts).
+const vertexCallUrl = (version: string, operation: string) =>
+  `https://us-central1-aiplatform.googleapis.com/${version}/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.5-flash:${operation}`;
+const vertexCallResponse = {
+  status: 200,
+  json: {
+    candidates: [
+      { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+    ],
+  },
+};
+writeFixture('vertex-gemini-per-call-beta', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.5-flash',
+  service_options: { projectId: 'demo-project', region: 'us-central1' },
+  options: { beta: true },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [vertexCallResponse],
+  expected_transport_request: {
+    method: 'POST',
+    url: vertexCallUrl('v1beta1', 'generateContent'),
+  },
+});
+writeFixture('vertex-gemini-per-call-beta-over-service', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.5-flash',
+  service_options: {
+    projectId: 'demo-project',
+    region: 'us-central1',
+    beta: true,
+  },
+  options: { beta: false },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [vertexCallResponse],
+  expected_transport_request: {
+    method: 'POST',
+    url: vertexCallUrl('v1', 'generateContent'),
+  },
+});
+writeFixture('vertex-gemini-per-call-beta-stream', {
+  kind: 'ai_stream',
+  provider: 'google-gemini',
+  model: 'gemini-3.5-flash',
+  service_options: { projectId: 'demo-project', region: 'us-central1' },
+  options: { beta: true },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi' }],
+    model_config: { stream: true },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      body: 'data: {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"ok"}]}}]}\n\ndata: [DONE]\n\n',
+    },
+  ],
+  expected_transport_request: {
+    url: vertexCallUrl('v1beta1', 'streamGenerateContent?alt=sse'),
+  },
+});
+
 writeFixture('vertex-gemini-regional-endpoint-embed', {
   kind: 'ai_embed',
   provider: 'google-gemini',
@@ -10004,11 +10073,14 @@ writeFixture('azure-openai-prompt-cache-disabled', {
   expected_transport_json_absent: ['prompt_cache_key', 'prompt_cache_options'],
 });
 
+// Responses before GPT-6 has no cache breakpoints, but as in TS
+// (responses_api.ts, axResolveOpenAIPromptCacheKey) the request still sends
+// prompt_cache_key.
 writeFixture('openai-responses-prompt-cache-disabled', {
   kind: 'ai_chat',
   provider: 'openai-responses',
   model: 'gpt-5.6-luna',
-  service_options: { contextCache: {}, promptCacheKey: 'must-not-send' },
+  service_options: { contextCache: {}, promptCacheKey: 'responses-key' },
   request: {
     chat_prompt: [{ role: 'user', content: 'responses stays unchanged' }],
     model_config: { stream: false },
@@ -10030,7 +10102,175 @@ writeFixture('openai-responses-prompt-cache-disabled', {
       },
     },
   ],
-  expected_transport_json_absent: ['prompt_cache_key', 'prompt_cache_options'],
+  expected_transport_request: { json: { prompt_cache_key: 'responses-key' } },
+  expected_transport_json_absent: ['prompt_cache_options'],
+});
+
+// Every Responses request sends prompt_cache_key: the promptCacheKey, else the
+// sessionId, the call's before the service's (src/ax/ai/call_options.test.ts).
+const responsesCacheKeyResponse = {
+  status: 200,
+  json: {
+    id: 'resp_cache_key',
+    model: 'gpt-5.4-mini',
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    output: [
+      {
+        id: 'msg_cache_key',
+        type: 'message',
+        content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+      },
+    ],
+  },
+};
+for (const [name, fixture, key] of [
+  [
+    'openai-responses-prompt-cache-key-from-session-id',
+    { options: { sessionId: 'session-1' } },
+    'session-1',
+  ],
+  [
+    'openai-responses-prompt-cache-key-prefers-prompt-cache-key',
+    { options: { promptCacheKey: 'key-1', sessionId: 'session-1' } },
+    'key-1',
+  ],
+  [
+    'openai-responses-prompt-cache-key-from-service-session',
+    { service_options: { sessionId: 'service-session' } },
+    'service-session',
+  ],
+  [
+    'openai-responses-prompt-cache-key-call-session-over-service',
+    {
+      service_options: { sessionId: 'service-session' },
+      options: { sessionId: 'call-session' },
+    },
+    'call-session',
+  ],
+  [
+    'openai-responses-prompt-cache-key-service-key-over-call-session',
+    {
+      service_options: { promptCacheKey: 'service-key' },
+      options: { sessionId: 'call-session' },
+    },
+    'service-key',
+  ],
+  [
+    'openai-responses-prompt-cache-key-gpt-6-without-caching',
+    { model: 'gpt-6-luna', options: { sessionId: 'session-6' } },
+    'session-6',
+  ],
+  ['openai-responses-prompt-cache-key-absent-without-key', {}, undefined],
+] as const) {
+  writeFixture(name, {
+    kind: 'ai_chat',
+    provider: 'openai-responses',
+    model: 'gpt-5.4-mini',
+    // The call's options stay call options only beside service options.
+    service_options: {},
+    ...fixture,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'hi' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [responsesCacheKeyResponse],
+    ...(key === undefined
+      ? {
+          expected_transport_json_absent: [
+            'prompt_cache_key',
+            'prompt_cache_options',
+          ],
+        }
+      : {
+          expected_transport_request: {
+            url: 'https://api.openai.com/v1/responses',
+            json: { prompt_cache_key: key },
+          },
+          expected_transport_json_absent: ['prompt_cache_options'],
+        }),
+  });
+}
+
+// TS reads a call's timeout in milliseconds and bounds the wait for the
+// response headers with it (base.ts, apiCall; src/ax/ai/call_options.test.ts).
+// Until the next major version the ports take it as timeoutMs, which reaches
+// the transport as timeout_ms; each port's timeout_http_roundtrip example pins
+// the HTTP behavior.
+const callTimeoutChat = {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'gpt-5.4-mini',
+  service_options: {},
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_call_timeout', 'gpt-5.4-mini'),
+  ],
+};
+writeFixture('call-timeout-ms-reaches-transport', {
+  description:
+    "Port-only: a call's timeoutMs (TS's per-call timeout, in milliseconds) reaches the transport as timeout_ms.",
+  ...callTimeoutChat,
+  options: { timeoutMs: 250 },
+  expected_transport_request: { timeout_ms: 250 },
+  expected_warnings: [],
+});
+writeFixture('call-timeout-ms-reaches-stream-transport', {
+  description:
+    "Port-only: a stream call's timeoutMs reaches the transport as timeout_ms.",
+  kind: 'ai_stream',
+  provider: 'openai',
+  model: 'gpt-5.4-mini',
+  service_options: {},
+  options: { timeoutMs: 250 },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi' }],
+    model_config: { stream: true },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      body: 'data: {"id":"chatcmpl_call_timeout","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+    },
+  ],
+  expected_transport_request: { timeout_ms: 250 },
+});
+writeFixture('call-timeout-ms-from-client-options-embed', {
+  description:
+    "Port-only: a timeoutMs in the client's options applies to each embed request, as TS's service timeout does.",
+  kind: 'ai_embed',
+  provider: 'openai',
+  embed_model: 'text-embedding-3-small',
+  service_options: { timeoutMs: 250 },
+  request: { texts: ['hello'] },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        data: [{ embedding: [0.1, 0.2], index: 0 }],
+        model: 'text-embedding-3-small',
+        usage: { prompt_tokens: 1, total_tokens: 1 },
+      },
+    },
+  ],
+  expected_transport_request: { timeout_ms: 250 },
+});
+writeFixture('call-timeout-without-timeout-ms-warns', {
+  description:
+    'Port-only: a per-call timeout without timeoutMs is ignored (Rust reads it in seconds) until the next major version, so the call warns once, naming timeoutMs.',
+  ...callTimeoutChat,
+  options: { timeout: 30 },
+  expected_warnings_containing: ['per-call timeout', 'timeoutMs'],
+});
+writeFixture('call-timeout-with-timeout-ms-does-not-warn', {
+  description:
+    'Port-only: a per-call timeout beside timeoutMs does not warn, and timeoutMs applies.',
+  ...callTimeoutChat,
+  options: { timeout: 30, timeoutMs: 60000 },
+  expected_transport_request: { timeout_ms: 60000 },
+  expected_warnings: [],
 });
 
 writeFixture('openai-cache-write-usage-and-long-context-cost', {
@@ -13149,6 +13389,105 @@ writeFixture('openai-wire-json-numbers', {
   expected_transport_wire_json_contains: wireNumberNeedles,
 });
 
+// Tool-call arguments on the wire in TS's key order: JSON.stringify writes an
+// object's keys in its own-property order (array-index keys first in numeric
+// order, then insertion order), for Chat's tool_calls[].function.arguments and
+// Responses' function_call arguments alike. The request goes into the fixture
+// as request_json text: the canonical fixture sort would reorder the params
+// object's keys.
+const keyOrderParams = {
+  zeta: 1,
+  alpha: 'x',
+  '10': 'ten',
+  '2': 'two',
+  nested: { y: 1, x: 2 },
+};
+const keyOrderRequest = {
+  chat_prompt: [
+    { role: 'user', content: 'Look it up' },
+    {
+      role: 'assistant',
+      functionCalls: [
+        {
+          id: 'call-1',
+          type: 'function',
+          function: { name: 'lookup', params: keyOrderParams },
+        },
+      ],
+    },
+    { role: 'function', functionId: 'call-1', result: 'found' },
+  ],
+  functions: [
+    {
+      name: 'lookup',
+      description: 'Look something up',
+      parameters: {
+        type: 'object',
+        properties: { zeta: { type: 'number' }, alpha: { type: 'string' } },
+      },
+    },
+  ],
+  model_config: { stream: false },
+};
+const keyOrderNeedle = `"arguments":${JSON.stringify(JSON.stringify(keyOrderParams))}`;
+for (const [name, provider, AIClass, response] of [
+  [
+    'openai-tool-call-arguments-key-order',
+    'openai',
+    AxAIOpenAI,
+    compatibleResponse('chatcmpl_key_order', AxAIOpenAIModel.GPT54Mini).json,
+  ],
+  [
+    'openai-responses-tool-call-arguments-key-order',
+    'openai-responses',
+    AxAIOpenAIResponses,
+    {
+      id: 'resp_key_order',
+      object: 'response',
+      created_at: 0,
+      model: AxAIOpenAIModel.GPT54Mini,
+      status: 'completed',
+      output: [
+        {
+          type: 'message',
+          id: 'msg_key_order',
+          role: 'assistant',
+          status: 'completed',
+          content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+    },
+  ],
+] as const) {
+  let body = '';
+  await new (AIClass as any)({
+    apiKey: 'test-key',
+    config: { model: AxAIOpenAIModel.GPT54Mini },
+    options: {
+      fetch: async (_url: unknown, init?: RequestInit) => {
+        body = String(init?.body);
+        return Response.json(response);
+      },
+    },
+  }).chat({
+    chatPrompt: keyOrderRequest.chat_prompt,
+    functions: keyOrderRequest.functions,
+    modelConfig: keyOrderRequest.model_config,
+  } as any);
+  if (!body.includes(keyOrderNeedle)) {
+    throw new Error(`${name}: TS wire lacks ${keyOrderNeedle}: ${body}`);
+  }
+  writeFixture(name, {
+    kind: 'ai_chat',
+    provider,
+    model: AxAIOpenAIModel.GPT54Mini,
+    request_json: JSON.stringify(keyOrderRequest),
+    transport_responses: [{ status: 200, json: response as unknown as Json }],
+    expected_transport_wire_json_contains: [keyOrderNeedle],
+  });
+}
+
 // Sampling parameters on the wire. Each TS provider class starts from its own
 // default config: temperature 0 for the OpenAI Chat profiles, Anthropic and
 // Gemini (axBaseAIDefaultConfig), temperature 0.7 and topP 1 for
@@ -14002,6 +14341,62 @@ providerErrorFixture(
     transport_responses: [errorResponse(500), errorResponse(500)],
   }
 );
+
+// TS checks each chat prompt message before any request goes out
+// (axValidateChatRequestMessage): a role that is not a non-empty string, an
+// unknown role, and a user content item that is not an object or has no type
+// fail with messages that show the value as JSON.stringify(value, null, 2)
+// writes it, undefined when it is missing. The expected messages are TS's own.
+// TS throws a plain Error; the ports keep their classes: a role error is an
+// AxAIServiceResponseError, and a content-item error stays the
+// AxUnsupportedCapabilityError they raised before (it becomes the response
+// error at the next major).
+async function tsChatPromptError(chatPrompt: unknown[]): Promise<string> {
+  const llm = ai({ name: 'openai', apiKey: 'test-key' });
+  llm.setOptions({
+    fetch: (async () => {
+      throw new Error('chat-prompt check: no request expected');
+    }) as never,
+  });
+  try {
+    await llm.chat({ chatPrompt: chatPrompt as never }, { stream: false });
+  } catch (error) {
+    return (error as Error).message;
+  }
+  throw new Error('chat-prompt check: TS accepted the prompt');
+}
+for (const [name, chatPrompt] of [
+  ['chat-message-missing-role', [{ content: 'hi' }]],
+  ['chat-message-null-role', [{ role: null, content: 'hi' }]],
+  ['chat-message-empty-role', [{ role: '', content: 'hi' }]],
+  ['chat-message-number-role', [{ role: 5, content: 'hi' }]],
+  ['chat-message-blank-role', [{ role: '  ', content: 'hi' }]],
+  ['chat-message-unknown-role', [{ role: 'robot', content: 'hi' }]],
+  [
+    'chat-message-content-item-without-type',
+    [{ role: 'user', content: [{ text: 'hi' }] }],
+  ],
+  [
+    'chat-message-content-item-null-type',
+    [{ role: 'user', content: [{ type: null, text: 'hi' }] }],
+  ],
+  [
+    'chat-message-content-item-empty-type',
+    [{ role: 'user', content: [{ type: '', text: 'hi' }] }],
+  ],
+  ['chat-message-content-item-not-object', [{ role: 'user', content: ['hi'] }]],
+  ['chat-message-content-item-null', [{ role: 'user', content: [null] }]],
+  ['chat-message-content-item-list', [{ role: 'user', content: [['hi']] }]],
+] as const) {
+  writeFixture(name, {
+    kind: 'ai_error',
+    request: { chat_prompt: chatPrompt },
+    expected_error_contains: await tsChatPromptError([...chatPrompt]),
+    expected_error_type: name.startsWith('chat-message-content-item')
+      ? 'AxUnsupportedCapabilityError'
+      : 'AxAIServiceResponseError',
+  });
+}
 
 // Core owns the request a provider error keeps (@ai_error_request), and the
 // normalizer and the request-carrying ai.error intrinsics build every error

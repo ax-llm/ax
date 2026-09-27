@@ -101,9 +101,10 @@ writeFixture('assertion-retry', {
     { content: '{"answer":"good"}' },
   ],
   expected_output: { answer: 'good' },
+  // As TS renders an assertion's fixing instructions: the retry asks to
+  // follow the message, closed with a period.
   expected_request_contains: [
-    'answer must contain good',
-    'Return only corrected JSON',
+    'Follow these instructions: answer must contain good.',
   ],
   expected_request_count: 2,
 });
@@ -1183,6 +1184,28 @@ writeFixture('prompt-cache-key-forward-options', {
   },
   expected_request_count: 1,
 });
+
+// TS AxGen passes a call's timeout (milliseconds) to ai.chat, from the call or
+// else the constructor. Until the next major version the ports take it as
+// timeoutMs.
+for (const [name, forwardOptions, timeoutMs] of [
+  ['call-timeout-ms-forward-option', { timeoutMs: 250 }, 250],
+  ['call-timeout-ms-constructor-option', undefined, 1000],
+] as const) {
+  writeFixture(name, {
+    description:
+      'Port-only: AxGen passes timeoutMs to ai.chat from the forward call, else the constructor, as TS passes its per-call timeout.',
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    input: { question: 'Answer within the timeout' },
+    options: { timeoutMs: 1000 },
+    ...(forwardOptions ? { forward_options: forwardOptions } : {}),
+    responses: [{ content: '{"answer":"on time"}' }],
+    expected_output: { answer: 'on time' },
+    expected_chat_options_subset: { timeoutMs },
+    expected_request_count: 1,
+  });
+}
 
 const searchTool = {
   name: 'search',

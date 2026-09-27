@@ -63,7 +63,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .mcp import resolve_execution_context
-from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature, f as _signature_builder
+from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature, f as _signature_builder, _js_format
 # AXIR_CORE_IMPORTS
 
 
@@ -2483,7 +2483,8 @@ def _core_list_get(values, index, default=None):
 
 
 def _core_json_stringify(value):
-    return _js_json_dumps(value, sort_keys=True)
+    # TS JSON.stringify(value): keys in insertion order, null as null.
+    return _js_json_dumps(value)
 
 
 def _core_json_stable_stringify(value):
@@ -2495,8 +2496,7 @@ def _core_json_parse(value):
 
 
 def _core_string_format(template, *args):
-    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
-    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
+    return _js_format(template, args)
 
 
 def _core_string_slice(value, start, end=None):

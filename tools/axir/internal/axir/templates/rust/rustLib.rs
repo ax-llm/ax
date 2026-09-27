@@ -1488,6 +1488,20 @@ impl<F: serde_json::ser::Formatter> serde_json::ser::Formatter for JsNumberForma
     fn write_f64<W: ?Sized + std::io::Write>(&mut self, writer: &mut W, value: f64) -> std::io::Result<()> {
         writer.write_all(js_number_text(value).as_bytes())
     }
+    // A lone surrogate's mark (see LONE_SURROGATE_MARK) is written as JS's
+    // JSON.stringify writes a lone surrogate: its \u escape.
+    fn write_string_fragment<W: ?Sized + std::io::Write>(&mut self, writer: &mut W, fragment: &str) -> std::io::Result<()> {
+        if !fragment.chars().any(|ch| lone_surrogate_unit(ch).is_some()) {
+            return self.0.write_string_fragment(writer, fragment);
+        }
+        for ch in fragment.chars() {
+            match lone_surrogate_unit(ch) {
+                Some(unit) => writer.write_all(format!("\\u{unit:04x}").as_bytes())?,
+                None => self.0.write_string_fragment(writer, ch.encode_utf8(&mut [0u8; 4]))?,
+            }
+        }
+        Ok(())
+    }
     fn write_f32<W: ?Sized + std::io::Write>(&mut self, writer: &mut W, value: f32) -> std::io::Result<()> {
         // An f32 keeps its own shortest digits: 0.1f32 is 0.1.
         self.write_f64(writer, value.to_string().parse().unwrap_or(f64::from(value)))
@@ -1524,7 +1538,81 @@ impl<F: serde_json::ser::Formatter> serde_json::ser::Formatter for JsNumberForma
     }
 }
 
+/// The array index a JavaScript property key names: "0" to "4294967294" in
+/// canonical form (no sign, no leading zero).
+fn js_array_index(key: &str) -> Option<u64> {
+    if key.is_empty() || key.len() > 10 || !key.bytes().all(|byte| byte.is_ascii_digit()) || (key.len() > 1 && key.starts_with('0')) {
+        return None;
+    }
+    key.parse::<u64>().ok().filter(|index| *index <= 4_294_967_294)
+}
+
+/// Whether an object in the value has an array-index key out of JavaScript's
+/// own-property order (after another key, or after a larger index).
+fn js_needs_key_reorder(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => {
+            let mut seen_named = false;
+            let mut last_index: Option<u64> = None;
+            for (key, item) in map {
+                match js_array_index(key) {
+                    Some(index) => {
+                        if seen_named || last_index.is_some_and(|last| index < last) {
+                            return true;
+                        }
+                        last_index = Some(index);
+                    }
+                    None => seen_named = true,
+                }
+                if js_needs_key_reorder(item) {
+                    return true;
+                }
+            }
+            false
+        }
+        Value::Array(items) => items.iter().any(js_needs_key_reorder),
+        _ => false,
+    }
+}
+
+/// The value with each object's keys in JavaScript's own-property order,
+/// which JSON.stringify follows: array-index keys first in ascending numeric
+/// order, then the other keys in insertion order.
+fn js_own_key_order(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut indexed: Vec<(u64, &String, &Value)> = Vec::new();
+            let mut named: Vec<(&String, &Value)> = Vec::new();
+            for (key, item) in map {
+                match js_array_index(key) {
+                    Some(index) => indexed.push((index, key, item)),
+                    None => named.push((key, item)),
+                }
+            }
+            indexed.sort_by_key(|(index, _, _)| *index);
+            let mut out = serde_json::Map::new();
+            for (_, key, item) in indexed {
+                out.insert(key.clone(), js_own_key_order(item));
+            }
+            for (key, item) in named {
+                out.insert(key.clone(), js_own_key_order(item));
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(js_own_key_order).collect()),
+        _ => value.clone(),
+    }
+}
+
 fn js_json_write<F: serde_json::ser::Formatter>(value: &Value, formatter: F) -> Vec<u8> {
+    // JSON.stringify writes array-index keys first; reorder only when needed.
+    let reordered;
+    let value = if js_needs_key_reorder(value) {
+        reordered = js_own_key_order(value);
+        &reordered
+    } else {
+        value
+    };
     let mut out = Vec::with_capacity(128);
     let mut serializer = serde_json::Serializer::with_formatter(&mut out, JsNumberFormatter(formatter));
     // Serializing a serde_json::Value into a Vec cannot fail.
@@ -1824,9 +1912,29 @@ pub trait AxTransport: Send {
 struct CancellableProviderIterator{inner:Box<dyn Iterator<Item=AxResult<Value>>>,token:AxCancellationToken}
 impl Iterator for CancellableProviderIterator{type Item=AxResult<Value>;fn next(&mut self)->Option<Self::Item>{if let Err(error)=self.token.throw_if_cancelled(){return Some(Err(error))}let value=self.inner.next();if self.token.is_cancelled(){return Some(Err(self.token.throw_if_cancelled().unwrap_err()))}value}}
 
-// JSON text with each \u escape of a lone surrogate replaced by the escape of
-// U+FFFD; a high surrogate escape followed by a low one stays a pair.
-fn replace_lone_surrogate_escapes(text: &str) -> String {
+// A provider can split a surrogate pair across stream events, leaving a lone
+// surrogate escape ("\ud83d", then "\ude00") in each event's JSON. JS's
+// JSON.parse keeps each half, and the stream-text intrinsics join them again.
+// A Rust string can't hold a lone surrogate, so each half reads as its mark:
+// the private-use code point LONE_SURROGATE_MARK plus the half's offset from
+// U+D800. core_string_concat_stream_text joins a high mark and a low mark into
+// the character they make, and the JSON writer writes a mark as JS writes the
+// lone surrogate, as its \u escape.
+const LONE_SURROGATE_MARK: u32 = 0x10F800;
+
+fn lone_surrogate_mark(unit: u32) -> char {
+    char::from_u32(LONE_SURROGATE_MARK + unit - 0xD800).unwrap_or('\u{fffd}')
+}
+
+/// The lone surrogate (U+D800 to U+DFFF) a mark stands for.
+fn lone_surrogate_unit(ch: char) -> Option<u32> {
+    let code = ch as u32;
+    (LONE_SURROGATE_MARK..=LONE_SURROGATE_MARK + 0x7FF).contains(&code).then(|| code - LONE_SURROGATE_MARK + 0xD800)
+}
+
+// JSON text with each \u escape of a lone surrogate replaced by its mark; a
+// high surrogate escape followed by a low one stays a pair.
+fn mark_lone_surrogate_escapes(text: &str) -> String {
     let surrogate = |escape: &str| -> Option<u32> {
         let unit = u32::from_str_radix(escape.strip_prefix("\\u")?.get(..4)?, 16).ok()?;
         (0xD800..=0xDFFF).contains(&unit).then_some(unit)
@@ -1841,8 +1949,8 @@ fn replace_lone_surrogate_escapes(text: &str) -> String {
                 out.push_str(&rest[..12]);
                 rest = &rest[12..];
             }
-            Some(_) => {
-                out.push_str("\\ufffd");
+            Some(unit) => {
+                out.push(lone_surrogate_mark(unit));
                 rest = &rest[6..];
             }
             None => {
@@ -1858,18 +1966,23 @@ fn replace_lone_surrogate_escapes(text: &str) -> String {
     out
 }
 
-// Parses one stream event's JSON. A provider can split a surrogate pair
-// across two events, leaving a lone surrogate escape in each, which JS's
-// JSON.parse accepts and serde_json refuses. A Rust string can't hold half a
-// pair, so each lone half reads as U+FFFD instead of failing the stream.
-fn parse_stream_event_json(payload: &str) -> AxResult<Value> {
-    serde_json::from_str(payload).or_else(|error| {
-        let replaced = replace_lone_surrogate_escapes(payload);
-        if replaced == payload {
-            return Err(AxError::from(error));
+// serde_json::from_str, except that a lone surrogate escape, which JS's
+// JSON.parse accepts and serde_json refuses, reads as its mark (see
+// LONE_SURROGATE_MARK). Other invalid JSON fails with serde_json's error.
+fn serde_json_keeping_lone_surrogates(text: &str) -> serde_json::Result<Value> {
+    serde_json::from_str(text).or_else(|error| {
+        let marked = mark_lone_surrogate_escapes(text);
+        if marked == text {
+            return Err(error);
         }
-        serde_json::from_str(&replaced).map_err(AxError::from)
+        serde_json::from_str(&marked).map_err(|_| error)
     })
+}
+
+// Parses one stream event's JSON, keeping each half of a surrogate pair a
+// provider split across two events.
+fn parse_stream_event_json(payload: &str) -> AxResult<Value> {
+    serde_json_keeping_lone_surrogates(payload).map_err(AxError::from)
 }
 
 struct SseJsonStream {
@@ -2347,9 +2460,11 @@ impl OpenAICompatibleClient {
         let mut attempt: i64 = 0;
         loop {
             let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
+            // As in TS apiCall, a call's timeoutMs is not retried here.
+            let call_timeout = call_header_timeout_ms(&call).is_some();
             let mut raw = match self.dispatch_transport_stream(call) {
                 Ok(value) => value,
-                Err(error) if is_retryable_ai_error(&error) && attempt < max_retries => {
+                Err(error) if is_retryable_ai_error(&error) && !(call_timeout && error.error_type.as_deref() == Some("AxAIServiceTimeoutError")) && attempt < max_retries => {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
                     cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
@@ -2553,6 +2668,12 @@ impl OpenAICompatibleClient {
         }
         let mut out = json!({"method": method, "url": url, "headers": Value::Object(headers), "stream": stream});
         if method != "GET" && method != "HEAD" { out[body_key] = payload.clone(); }
+        // The call's timeoutMs (TS's per-call timeout, in milliseconds) bounds
+        // the wait for the response headers.
+        if matches!(operation, "chat" | "stream_chat" | "embed") {
+            let timeout_ms = core_value_to_json(&provider_call_timeout_ms(&[core_value_from_json(&self.options)])?);
+            if !timeout_ms.is_null() { out["timeout_ms"] = timeout_ms; }
+        }
         Ok(out)
     }
 
@@ -2565,6 +2686,9 @@ impl OpenAICompatibleClient {
         if let Some(transport) = &self.session_transport { return transport.lock().map_err(|_|AxError::runtime("Transport lock poisoned"))?.send(call); }
         let timeout = self.options.get("timeout").and_then(Value::as_f64).unwrap_or(60.0);
         if let Some(token) = &cancellation { return cancellable_http_json(&call, timeout, token); }
+        // A call's timeoutMs bounds only the wait for the response headers (TS
+        // apiCall's timer), which the async client can time on its own.
+        if call_header_timeout_ms(&call).is_some() { return cancellable_http_json(&call, timeout, &AxCancellationToken::default()); }
         let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
         let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
             .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
@@ -2629,21 +2753,29 @@ impl OpenAICompatibleClient {
             return Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner});
         }
         if let Some(transport) = &self.session_transport { return Self::transport_stream_iter(transport.lock().map_err(|_|AxError::runtime("Transport lock poisoned"))?.stream(call)?); }
-        let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
-        let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
-            .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
-        let mut builder = HttpClient::builder()
-            .timeout(Duration::from_secs(60))
-            .build()?
-            .request(method, url);
-        if let Some(headers) = call.get("headers").and_then(Value::as_object) {
-            for (key, value) in headers { builder = builder.header(key.as_str(), value.as_str().unwrap_or_default()); }
-        }
-        let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
-        let response = builder.js_json(&body).send()?;
+        // The per-call or client timeout in seconds, as for non-streaming
+        // requests, else 60 s.
+        let timeout = self.options.get("timeout").and_then(Value::as_f64).unwrap_or(60.0);
+        let (status, body): (u16, Box<dyn Read>) = match call_header_timeout_ms(&call) {
+            Some(header_ms) => open_timed_stream(&call, header_ms, timeout)?,
+            None => {
+                let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
+                let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
+                    .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
+                let mut builder = HttpClient::builder()
+                    .timeout(Duration::from_secs_f64(timeout.max(0.001)))
+                    .build()?
+                    .request(method, url);
+                if let Some(headers) = call.get("headers").and_then(Value::as_object) {
+                    for (key, value) in headers { builder = builder.header(key.as_str(), value.as_str().unwrap_or_default()); }
+                }
+                let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
+                let response = builder.js_json(&body).send()?;
+                (response.status().as_u16(), Box::new(response))
+            }
+        };
         if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
-        let status = response.status().as_u16();
-        let inner=Self::transport_stream_iter(AxTransportStream::Reader { status, body: Box::new(response) })?;
+        let inner=Self::transport_stream_iter(AxTransportStream::Reader { status, body })?;
         Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner})
     }
 
@@ -2671,13 +2803,14 @@ impl OpenAICompatibleClient {
         let descriptor = core_value_to_json(&provider_resolve_descriptor(&[CoreValue::from(self.profile.as_str()), core_value_from_json(&self.options)])?);
         let base = operation.get("base_url").and_then(Value::as_str).map(ToString::to_string).or_else(|| self.base_url_override.clone()).unwrap_or_else(|| descriptor.get("baseUrl").and_then(Value::as_str).unwrap_or("https://generativelanguage.googleapis.com/v1beta").to_string());
         let headers_call = self.provider_transport_request("chat", &json!({}), model, false)?;
-        let call = json!({
+        let mut call = json!({
             "method": operation.get("method").and_then(Value::as_str).unwrap_or("POST"),
             "url": format!("{}{}", base.trim_end_matches('/'), operation.get("path").and_then(Value::as_str).unwrap_or_default()),
             "headers": headers_call.get("headers").cloned().unwrap_or_else(|| json!({})),
             "json": operation.get("request").cloned().unwrap_or_else(|| json!({})),
             "stream": false,
         });
+        if let Some(timeout_ms) = headers_call.get("timeout_ms") { call["timeout_ms"] = timeout_ms.clone(); }
         self.send_json_call(call)
     }
 
@@ -3624,10 +3757,14 @@ impl WsRealtimeTransport {
         loop {
             match self.socket.read() {
                 Ok(tungstenite::Message::Text(text)) => {
-                    return Ok(Some(Some(serde_json::from_str(text.as_str()).map_err(|e| AxError::runtime(e.to_string()))?)));
+                    return Ok(Some(Some(serde_json_keeping_lone_surrogates(text.as_str()).map_err(|e| AxError::runtime(e.to_string()))?)));
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
-                    return Ok(Some(Some(serde_json::from_slice(&data).map_err(|e| AxError::runtime(e.to_string()))?)));
+                    let parsed = match std::str::from_utf8(&data) {
+                        Ok(text) => serde_json_keeping_lone_surrogates(text),
+                        Err(_) => serde_json::from_slice(&data),
+                    };
+                    return Ok(Some(Some(parsed.map_err(|e| AxError::runtime(e.to_string()))?)));
                 }
                 Ok(tungstenite::Message::Close(frame)) => {
                     if frame.as_ref().map(|f| f.code) == Some(tungstenite::protocol::frame::coding::CloseCode::Normal) { return Ok(Some(None)); }
@@ -3767,6 +3904,7 @@ impl AxAIClient for OpenAICompatibleClient {
     fn transcribe(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::transcribe(self, request) }
     fn speak(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::speak(self, request) }
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        warn_call_timeout(&options);
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
         let previous = self.options.clone();
         self.options = merge_ai_options(&previous, &options)?;
@@ -3778,6 +3916,7 @@ impl AxAIClient for OpenAICompatibleClient {
         response
     }
     fn stream_iter_with_options(&mut self, request: Value, options: Value) -> AxResult<AxChatStream> {
+        warn_call_timeout(&options);
         // The request is built and sent (first event peeked) inside stream_iter,
         // so the call options only need to apply until it returns.
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
@@ -10795,7 +10934,7 @@ impl ProtocolChild {
 }
 
 pub fn parse_json(text: &str) -> AxResult<Value> {
-    Ok(serde_json::from_str(text)?)
+    Ok(serde_json_keeping_lone_surrogates(text)?)
 }
 
 pub fn stable_stringify(value: &Value) -> String {
@@ -10854,18 +10993,16 @@ fn cache_expiry_millis(value: &Value) -> Option<u64> {
 }
 
 // Rust strings are UTF-8, which can't hold a lone surrogate (half of a
-// surrogate pair a provider split across stream events; a provider stream
-// reads each half as U+FFFD), so this runner skips the fixtures that require
-// one.
-const SUPPORTS_LONE_SURROGATES: bool = false;
+// surrogate pair a provider split across stream events), so JSON decoding
+// reads one as its mark (see LONE_SURROGATE_MARK), which the stream-text
+// intrinsics join again; this runner runs the fixtures that split a pair.
+const SUPPORTS_LONE_SURROGATES: bool = true;
 
 /// The conformance runner's skip for a fixture's JSON text: its name and the
-/// reason, when this runner skips it. serde_json refuses a lone surrogate
-/// escape, so a fixture that has one is read with U+FFFD in its place to
-/// find its `requires_lone_surrogates` flag.
+/// reason, when this runner skips it.
 #[doc(hidden)]
 pub fn conformance_fixture_skip(text: &str) -> Option<(String, &'static str)> {
-    let fixture = parse_json(text).or_else(|_| parse_json(&replace_lone_surrogate_escapes(text))).ok()?;
+    let fixture = parse_json(text).ok()?;
     if SUPPORTS_LONE_SURROGATES || fixture.get("requires_lone_surrogates").and_then(Value::as_bool) != Some(true) {
         return None;
     }
@@ -10874,6 +11011,37 @@ pub fn conformance_fixture_skip(text: &str) -> Option<(String, &'static str)> {
 }
 
 pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
+    // A top-level "<key>_json" string holds <key> as JSON text, so a fixture
+    // can carry an object in TS's key order (the canonical fixture sort
+    // reorders the keys of the fixture's own objects).
+    let mut fixture = fixture;
+    if let Some(map) = fixture.as_object_mut() {
+        let texts = map
+            .iter()
+            .filter_map(|(key, value)| Some((key.strip_suffix("_json")?.to_string(), value.as_str()?.to_string())))
+            .collect::<Vec<_>>();
+        for (base, text) in texts {
+            if !map.contains_key(&base) {
+                let parsed: Value = serde_json::from_str(&text)
+                    .map_err(|error| AxError::new("fixture", format!("{base}_json: {error}")))?;
+                map.insert(base, parsed);
+            }
+        }
+    }
+    // expected_deprecations pins the one-time deprecation warnings the run
+    // gives (the ones already shown are forgotten first).
+    if let Some(expected) = fixture.get("expected_deprecations").cloned() {
+        core_axgen_capture_deprecations(true);
+        let result = run_conformance_fixture_kind(fixture);
+        let captured = core_axgen_capture_deprecations(false);
+        result?;
+        let actual = Value::Array(captured.into_iter().map(Value::String).collect());
+        return expect_json_equal("deprecation warnings", &actual, &expected);
+    }
+    run_conformance_fixture_kind(fixture)
+}
+
+fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
     let kind = fixture
         .get("kind")
         .and_then(Value::as_str)
@@ -10887,6 +11055,8 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "strip_internal" => run_strip_internal_fixture(&fixture)?,
         "prompt" => run_prompt_fixture(&fixture)?,
         "number_format" => run_number_format_fixture(&fixture)?,
+        "json_stringify" => run_json_stringify_fixture(&fixture)?,
+        "string_format" => run_string_format_fixture(&fixture)?,
         "date_field_value" => run_date_field_value_fixture(&fixture)?,
         "date_input" => run_date_input_fixture(&fixture)?,
         "template" => run_template_fixture(&fixture)?,
@@ -13685,6 +13855,15 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                 "fixture",
                 format!("expected {} requests, got {}", expected, client.requests.len()),
             ));
+        }
+    }
+    // Every chat call's options carry these (a forward option each stage gets).
+    if let Some(expected) = fixture.get("expected_chat_options_all_subset") {
+        if client.chat_options.is_empty() {
+            return Err(AxError::runtime("fixture expected chat options but none were recorded"));
+        }
+        for (index, options) in client.chat_options.iter().enumerate() {
+            expect_json_subset(&format!("chat options {index}"), options, expected)?;
         }
     }
     let exact_projection = fixture.get("exact_observable_projection");
@@ -17948,6 +18127,13 @@ fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_warnings") {
         expect_json_equal("ai chat warnings", &json!(captured), expected)?;
     }
+    // Each fragment appears in a warning the call logged (a port's wording may differ).
+    for fragment in fixture.get("expected_warnings_containing").and_then(Value::as_array).into_iter().flatten() {
+        let fragment = fragment.as_str().unwrap_or_default();
+        if !captured.iter().any(|message| message.contains(fragment)) {
+            return Err(AxError::new("fixture", format!("no ai chat warning contains {fragment:?}: {captured:?}")));
+        }
+    }
     Ok(())
 }
 
@@ -18491,6 +18677,45 @@ fn wire_json_equal(left: &Value, right: &Value) -> bool {
 // text). The JSON form must come out of every encoder: the wire body
 // (js_json_string), the json.stringify, json.stable_stringify and json.pretty
 // intrinsics, and AxGen's value text.
+// Each case's input text, parsed in key order, comes out of json.stringify as
+// TS's JSON.stringify writes it.
+fn run_json_stringify_fixture(fixture: &Value) -> AxResult<()> {
+    for (index, item) in fixture.get("cases").and_then(Value::as_array).cloned().unwrap_or_default().into_iter().enumerate() {
+        let text = item.get("input").and_then(Value::as_str).unwrap_or_default();
+        let parsed: Value = serde_json::from_str(text).map_err(|error| AxError::new("fixture", format!("json.stringify case {index}: {error}")))?;
+        let actual = core_value_to_json(&core_json_stringify(&[core_value_from_json(&parsed)])?);
+        let expected = item.get("json").cloned().unwrap_or(Value::Null);
+        expect_json_equal(&format!("json.stringify case {index}"), &actual, &expected)?;
+    }
+    Ok(())
+}
+
+// string.format and string.str against JavaScript's text of each case.
+fn run_string_format_fixture(fixture: &Value) -> AxResult<()> {
+    let text = |value: CoreValue| value.as_str().map(str::to_string).unwrap_or_default();
+    for case in fixture.get("format_cases").and_then(Value::as_array).into_iter().flatten() {
+        let template = case.get("template").and_then(Value::as_str).unwrap_or_default();
+        let mut args = vec![CoreValue::from(template)];
+        for arg in case.get("input").and_then(Value::as_array).into_iter().flatten() {
+            args.push(core_value_from_json(arg));
+        }
+        let actual = text(core_string_format(&args)?);
+        let expected = case.get("expected").and_then(Value::as_str).unwrap_or_default();
+        if actual != expected {
+            return Err(AxError::new("fixture", format!("string.format of {template:?}: expected {expected:?}, got {actual:?}")));
+        }
+    }
+    for case in fixture.get("str_cases").and_then(Value::as_array).into_iter().flatten() {
+        let input = case.get("input").cloned().unwrap_or(Value::Null);
+        let actual = text(core_string_str(&[core_value_from_json(&input)])?);
+        let expected = case.get("expected").and_then(Value::as_str).unwrap_or_default();
+        if actual != expected {
+            return Err(AxError::new("fixture", format!("string.str of {input}: expected {expected:?}, got {actual:?}")));
+        }
+    }
+    Ok(())
+}
+
 fn run_number_format_fixture(fixture: &Value) -> AxResult<()> {
     for case in fixture.get("cases").and_then(Value::as_array).into_iter().flatten() {
         let input = case.get("input").and_then(Value::as_str).unwrap_or_default();
@@ -19147,8 +19372,14 @@ fn core_iter(value: &CoreValue) -> Result<Vec<CoreValue>, AxError> {
     }
 }
 
+// As JavaScript's String.prototype.trim: white space and line terminators,
+// not U+0085 or other control characters.
+fn is_js_whitespace(c: char) -> bool {
+    matches!(c, '\t' | '\n' | '\u{000b}' | '\u{000c}' | '\r' | ' ' | '\u{00a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
 fn core_string_trim(value: &CoreValue) -> CoreValue {
-    CoreValue::from_string(value.text().trim().to_string())
+    CoreValue::from_string(value.text().trim_matches(is_js_whitespace).to_string())
 }
 
 fn core_string_join(sep: &CoreValue, values: &CoreValue) -> Result<CoreValue, AxError> {
@@ -19260,7 +19491,14 @@ fn core_number_arg(args: &[CoreValue], index: usize) -> Result<f64, AxError> {
 }
 
 fn core_string_utf16_units(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    let units=core_arg(args,0).text().encode_utf16().map(|unit|CoreValue::Num(unit as f64)).collect();
+    // A lone surrogate's mark is the one UTF-16 unit it stands for.
+    let mut units = Vec::new();
+    for ch in core_arg(args, 0).text().chars() {
+        match lone_surrogate_unit(ch) {
+            Some(unit) => units.push(CoreValue::Num(unit as f64)),
+            None => units.extend(ch.encode_utf16(&mut [0u16; 2]).iter().map(|unit| CoreValue::Num(*unit as f64))),
+        }
+    }
     Ok(CoreValue::list_from(units))
 }
 
@@ -19268,20 +19506,45 @@ fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError
     Ok(CoreValue::Num(core_arg(args, 0).text().chars().count() as f64))
 }
 
-// Appends streamed text. A Rust string is UTF-8 and holds whole characters,
-// so no chunk ends in half of a surrogate pair, and plain concatenation keeps
-// every character whole (Python joins a pair split across two chunks).
+// Appends streamed text. As in a UTF-16 string (TS, Java), a high surrogate
+// ending the text and a low one starting the chunk join into the character
+// they make; here each half is its mark (see LONE_SURROGATE_MARK).
 fn core_string_concat_stream_text(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    Ok(CoreValue::from_string(format!("{}{}", core_arg(args, 0).text(), core_arg(args, 1).text())))
+    Ok(CoreValue::from_string(join_stream_text(&core_arg(args, 0).text(), &core_arg(args, 1).text())))
+}
+
+/// Appends a streamed chunk to `text`, as the AxGen stream does: half of a
+/// surrogate pair a provider split across chunks (read as its private-use
+/// mark, since a Rust `String` can't hold a lone surrogate) ending `text`, and
+/// the other half starting `chunk`, join into the character. A raw client
+/// `stream` delta can carry such a half, so join raw deltas with
+/// `join_stream_text` rather than `push_str`, which would leave the two
+/// marks instead of the character.
+pub fn join_stream_text(text: &str, chunk: &str) -> String {
+    let last = text.chars().last();
+    let first = chunk.chars().next();
+    let high = last.and_then(lone_surrogate_unit).filter(|unit| *unit <= 0xDBFF);
+    let low = first.and_then(lone_surrogate_unit).filter(|unit| *unit >= 0xDC00);
+    if let (Some(last), Some(first), Some(high), Some(low)) = (last, first, high, low) {
+        let joined = char::from_u32(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00)).unwrap_or('\u{fffd}');
+        let head = &text[..text.len() - last.len_utf8()];
+        let tail = &chunk[first.len_utf8()..];
+        return format!("{head}{joined}{tail}");
+    }
+    format!("{text}{chunk}")
 }
 
 // The value without a trailing high surrogate (U+D800 to U+DBFF), which TS
-// holds back until its low half streams in. A UTF-8 Rust string can't end in
-// one, since a lone surrogate isn't a char (a stream event's lone surrogate
-// escape reads as U+FFFD, see parse_stream_event_json), so the value comes
-// back unchanged.
+// holds back until its low half streams in, so no delta ends in half a
+// character.
 fn core_string_drop_trailing_high_surrogate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    Ok(core_arg(args, 0))
+    let text = core_arg(args, 0).text();
+    match text.chars().last() {
+        Some(last) if lone_surrogate_unit(last).is_some_and(|unit| unit <= 0xDBFF) => {
+            Ok(CoreValue::from_string(text[..text.len() - last.len_utf8()].to_string()))
+        }
+        _ => Ok(core_arg(args, 0)),
+    }
 }
 
 // ----- intrinsic.date.zone_offset: the platform tz database -----
@@ -19883,18 +20146,54 @@ fn core_validation_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Error(Rc::new(AxError::validation(core_arg(args, 0).text()))))
 }
 
+// A value's text in string.format and string.str, as every port writes it: a
+// string as is, null as "null", a boolean as "true" or "false", a number as
+// JavaScript's String(x), and a list or map as compact JSON with its keys in
+// insertion order (JSON.stringify).
+fn core_js_text(value: &CoreValue) -> String {
+    match value {
+        CoreValue::Null => "null".to_string(),
+        CoreValue::Bool(flag) => if *flag { "true" } else { "false" }.to_string(),
+        CoreValue::List(_) | CoreValue::Map(_) => js_json_string(&core_value_to_json(value)),
+        other => other.text(),
+    }
+}
+
+// Each {} takes the next argument's core_js_text, from left to right and
+// inserted as is (never read as a template); {{ and }} write one brace, any
+// other brace is kept, and a {} past the last argument stays {}.
 fn core_string_format(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let template = core_arg(args, 0).text();
+    let bytes = template.as_bytes();
     let mut out = String::new();
-    let mut rest = template.as_str();
-    let mut index = 1;
-    while let Some(pos) = rest.find("{}") {
-        out.push_str(&rest[..pos]);
-        out.push_str(&core_arg(args, index).text());
-        index += 1;
-        rest = &rest[pos + 2..];
+    let mut next = 1;
+    let mut literal_start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() {
+            let pair = (bytes[i], bytes[i + 1]);
+            let replacement = match pair {
+                (b'{', b'{') => Some("{".to_string()),
+                (b'}', b'}') => Some("}".to_string()),
+                (b'{', b'}') => Some(if next < args.len() {
+                    next += 1;
+                    core_js_text(&args[next - 1])
+                } else {
+                    "{}".to_string()
+                }),
+                _ => None,
+            };
+            if let Some(text) = replacement {
+                out.push_str(&template[literal_start..i]);
+                out.push_str(&text);
+                i += 2;
+                literal_start = i;
+                continue;
+            }
+        }
+        i += 1;
     }
-    out.push_str(rest);
+    out.push_str(&template[literal_start..]);
     Ok(CoreValue::from_string(out))
 }
 
@@ -21864,11 +22163,10 @@ fn core_json_parse_strict(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 fn core_json_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    // python _core_json_stringify: json.dumps(value, sort_keys=True,
-    // separators=(",", ":")) — compact and key-sorted.
+    // TS JSON.stringify(value): compact, keys in insertion order, numbers as
+    // JavaScript writes them, null as null.
     let value = core_arg(args, 0);
-    let json = if value.is_null() { json!({}) } else { core_value_to_json(&value) };
-    Ok(CoreValue::from_string(stable_stringify(&json)))
+    Ok(CoreValue::from_string(js_json_string(&core_value_to_json(&value))))
 }
 
 fn core_map_delete(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -21931,7 +22229,7 @@ fn core_string_index_of(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 fn core_string_str(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    Ok(CoreValue::from_string(core_arg(args, 0).text()))
+    Ok(CoreValue::from_string(core_js_text(&core_arg(args, 0))))
 }
 
 fn core_string_join_intrinsic(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -22778,6 +23076,11 @@ fn core_exception_is_infrastructure(args: &[CoreValue]) -> Result<CoreValue, AxE
 
 // TS AxGen retries a model refusal inside its validation loop.
 #[allow(dead_code)]
+fn core_exception_is_validation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let validation = matches!(core_arg(args, 0), CoreValue::Error(error) if error.category == "validation");
+    Ok(CoreValue::Bool(validation))
+}
+
 fn core_exception_is_refusal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let refusal = matches!(
         core_arg(args, 0),
@@ -23715,19 +24018,41 @@ fn ai_capture_warnings(capture: bool) -> Vec<String> {
     collected
 }
 
+static AXGEN_DEPRECATIONS_SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+static AXGEN_DEPRECATION_CAPTURE: Mutex<Option<Vec<String>>> = Mutex::new(None);
+
 // python: _core_axgen_deprecation(key, message). Deprecated port behavior
 // warns once per key per process.
 #[allow(dead_code)]
 fn core_axgen_deprecation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    static SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
-    let first = SHOWN
+    let first = AXGEN_DEPRECATIONS_SHOWN
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(core_arg(args, 0).text());
     if first {
-        eprintln!("axllm: deprecated: {}", core_arg(args, 1).text());
+        let message = core_arg(args, 1).text();
+        let mut capture = AXGEN_DEPRECATION_CAPTURE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match capture.as_mut() {
+            Some(captured) => captured.push(message),
+            None => eprintln!("axllm: deprecated: {message}"),
+        }
     }
     Ok(CoreValue::Null)
+}
+
+// Conformance hook: turning capture on forgets the deprecations already shown
+// and keeps new ones; each call returns what the last capture kept (off
+// prints them again).
+fn core_axgen_capture_deprecations(on: bool) -> Vec<String> {
+    if on {
+        AXGEN_DEPRECATIONS_SHOWN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
+    }
+    let mut capture = AXGEN_DEPRECATION_CAPTURE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let captured = capture.take().unwrap_or_default();
+    if on {
+        *capture = Some(Vec::new());
+    }
+    captured
 }
 
 // python: _core_crypto_sha256_hex(text). The lowercase hex SHA-256 of the
@@ -26346,21 +26671,109 @@ fn core_flow_dispatch_group(args:&[CoreValue])->AxResult<CoreValue>{
     Ok(core_value_from_json(&Value::Array(reports.into_iter().map(Option::unwrap).collect())))
 }
 
+// TS reads a per-call timeout in milliseconds; Rust reads it in seconds until
+// the next major version, so a call that gives it without timeoutMs warns once.
+fn warn_call_timeout(options: &Value) {
+    let _ = provider_warn_call_timeout(&[core_value_from_json(options), CoreValue::Bool(true)]);
+}
+
+// The call's timeoutMs: TS apiCall's timer bounds the wait for the headers.
+fn call_header_timeout_ms(call: &Value) -> Option<f64> {
+    call.get("timeout_ms").and_then(Value::as_f64).filter(|ms| *ms > 0.0)
+}
+
+// TS's AxAIServiceTimeoutError for a call's timeoutMs.
+fn call_timeout_error(call: &Value) -> AxError {
+    let message = provider_call_timeout_message(&[core_value_from_json(call.get("timeout_ms").unwrap_or(&Value::Null))])
+        .map(|value| value.text())
+        .unwrap_or_else(|_| "Request timed out".to_string());
+    let mut error = AxError::new("ai", message);
+    error.error_type = Some("AxAIServiceTimeoutError".to_string());
+    error.retryable = true;
+    error
+}
+
+// A stream body read from an async response: each read waits at most `idle`,
+// as the blocking client's timeout bounds each read.
+struct TimedStreamBody {
+    runtime: tokio::runtime::Runtime,
+    response: reqwest::Response,
+    pending: Vec<u8>,
+    offset: usize,
+    idle: Duration,
+}
+
+impl Read for TimedStreamBody {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        while self.offset >= self.pending.len() {
+            let idle = self.idle;
+            let response = &mut self.response;
+            match self.runtime.block_on(async move { tokio::time::timeout(idle, response.chunk()).await }) {
+                Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "stream read timed out")),
+                Ok(Err(error)) => return Err(std::io::Error::new(std::io::ErrorKind::Other, error)),
+                Ok(Ok(None)) => return Ok(0),
+                Ok(Ok(Some(chunk))) => {
+                    self.pending = chunk.to_vec();
+                    self.offset = 0;
+                }
+            }
+        }
+        let count = buf.len().min(self.pending.len() - self.offset);
+        buf[..count].copy_from_slice(&self.pending[self.offset..self.offset + count]);
+        self.offset += count;
+        Ok(count)
+    }
+}
+
+// A stream under a call's timeoutMs: the async client waits at most that long
+// for the response headers (TS apiCall's timer); the body then reads under the
+// client's timeout.
+fn open_timed_stream(call: &Value, header_ms: f64, read_timeout: f64) -> AxResult<(u16, Box<dyn Read>)> {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let client = reqwest::Client::builder().build()?;
+    let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
+        .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
+    let mut request = client.request(method, call.get("url").and_then(Value::as_str).unwrap_or_default());
+    if let Some(headers) = call.get("headers").and_then(Value::as_object) {
+        for (key, value) in headers { request = request.header(key.as_str(), value.as_str().unwrap_or_default()); }
+    }
+    let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
+    let request = request.js_json(&body);
+    let wait = Duration::from_secs_f64(header_ms / 1000.0);
+    let response = match runtime.block_on(async move { tokio::time::timeout(wait, request.send()).await }) {
+        Ok(result) => result?,
+        Err(_) => return Err(call_timeout_error(call)),
+    };
+    let status = response.status().as_u16();
+    Ok((status, Box::new(TimedStreamBody { runtime, response, pending: Vec::new(), offset: 0, idle: Duration::from_secs_f64(read_timeout.max(0.001)) })))
+}
+
 // Dropping the async request on cancellation closes both pending headers and bodies.
+// A call's timeoutMs bounds the wait for the response headers (TS apiCall's
+// timer); the client's timeout still caps the request.
 fn cancellable_http_json(call: &Value, timeout: f64, token: &AxCancellationToken) -> AxResult<Value> {
     let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = cancelled.clone();
     let _subscription = token.subscribe(move || { flag.store(true, std::sync::atomic::Ordering::SeqCst); });
     token.throw_if_cancelled()?;
+    let header_ms = call_header_timeout_ms(call);
+    let total = header_ms.map_or(timeout, |ms| timeout.max(ms / 1000.0));
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(async {
-        let client = reqwest::Client::builder().timeout(Duration::from_secs_f64(timeout.max(0.001))).build()?;
+        let client = reqwest::Client::builder().timeout(Duration::from_secs_f64(total.max(0.001))).build()?;
         let method = call["method"].as_str().unwrap_or("POST").parse::<reqwest::Method>().map_err(|e| AxError::validation(e.to_string()))?;
         let mut request = client.request(method, call["url"].as_str().unwrap_or_default());
         for (key,value) in call["headers"].as_object().into_iter().flatten() { request = request.header(key.as_str(),value.as_str().unwrap_or_default()); }
         if let Some(data)=call.get("data") { let (body,content_type)=encode_multipart(data); request=request.header("Content-Type",content_type).body(body); }
         else if let Some(body)=call.get("json") { request=request.json(body); }
-        let response=session::session_http_wait(request.send(),&cancelled).await?;
+        let send=session::session_http_wait(request.send(),&cancelled);
+        let response=match header_ms {
+            Some(ms)=>match tokio::time::timeout(Duration::from_secs_f64(ms/1000.0),send).await {
+                Ok(result)=>result?,
+                Err(_)=>return Err(call_timeout_error(call)),
+            },
+            None=>send.await?,
+        };
         token.throw_if_cancelled()?;
         let response=response.ok_or_else(||AxError::new("aborted","Request aborted"))?;
         let status=response.status().as_u16();
@@ -27394,17 +27807,40 @@ mod stream_split_surrogate_tests {
     }
 
     #[test]
-    fn a_split_surrogate_pair_reads_as_replacement_characters() -> AxResult<()> {
-        // TS keeps each half and joins them into the emoji. serde_json
-        // refuses a lone surrogate escape, which a Rust string can't hold, so
-        // each half reads as U+FFFD, and the stream goes on.
+    fn a_split_surrogate_pair_joins_into_one_character() -> AxResult<()> {
+        // TS keeps each half and joins them into the emoji, and no delta holds
+        // half of it. Each half reads as its mark, which the stream-text
+        // intrinsics join.
         for buffered in [false, true] {
             let mut client = ai("openai", json!({"api_key": "test", "model": "gpt-5.4-mini"}))?.with_transport(SplitPair { buffered });
             let mut program = ax("question:string -> answer:string")?;
-            let output = program.streaming_forward(&mut client, json!({"question": "Status?"}), json!({}), |_| Ok(()))?;
-            assert_eq!(output, json!({"answer": "hi \u{fffd}\u{fffd} there"}), "buffered {buffered}");
+            let collected = Arc::new(Mutex::new(Vec::<String>::new()));
+            let captured = collected.clone();
+            let output = program.streaming_forward(&mut client, json!({"question": "Status?"}), json!({}), move |delta| {
+                captured.lock().unwrap().push(delta.delta.get("answer").and_then(Value::as_str).unwrap_or_default().to_string());
+                Ok(())
+            })?;
+            let deltas = collected.lock().unwrap().clone();
+            assert_eq!(output, json!({"answer": "hi \u{1f600} there"}), "buffered {buffered}");
+            assert_eq!(deltas.concat(), "hi \u{1f600} there", "buffered {buffered}");
+            assert!(deltas.iter().all(|delta| !delta.chars().any(|ch| lone_surrogate_unit(ch).is_some())), "a delta holds half a character: {deltas:?}");
         }
-        // Any other bad escape still fails the event's parse.
+        // Raw client stream deltas carry the halves; join_stream_text joins
+        // them into the character, as the AxGen stream does.
+        for buffered in [false, true] {
+            let mut client = ai("openai", json!({"api_key": "test", "model": "gpt-5.4-mini"}))?.with_transport(SplitPair { buffered });
+            let deltas = client.stream(json!({"chat_prompt": [{"role": "user", "content": "Status?"}]}))?;
+            let text = deltas.iter().fold(String::new(), |text, delta| {
+                join_stream_text(&text, delta["results"][0]["content"].as_str().unwrap_or_default())
+            });
+            assert_eq!(text, "Answer: hi \u{1f600} there", "buffered {buffered}");
+        }
+        // A lone half reads as its mark and is written back as JS writes it.
+        let half = parse_stream_event_json("{\"content\":\"hi \\ud83d\"}")?;
+        assert_eq!(half["content"].as_str().and_then(|text| text.chars().last()).and_then(lone_surrogate_unit), Some(0xD83D));
+        assert_eq!(js_json_string(&half), "{\"content\":\"hi \\ud83d\"}");
+        // Any other bad escape still fails the event's parse, and a pair
+        // stays one character.
         assert!(parse_stream_event_json("{\"content\":\"\\u12\"}").is_err());
         assert_eq!(parse_stream_event_json("{\"content\":\"\\ud83d\\ude00\"}")?, json!({"content": "\u{1f600}"}));
         Ok(())
