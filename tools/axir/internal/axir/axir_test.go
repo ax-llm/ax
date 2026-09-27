@@ -359,6 +359,11 @@ func TestPublicGeneratedSurfaceHygiene(t *testing.T) {
 				auditPublicSurfacePathHygiene(t, repoRoot, path)
 				return nil
 			}
+			// A worktree's node_modules (or build) may be a symlink to a
+			// directory: skip it as the directory itself is skipped.
+			if entry.Type()&fs.ModeSymlink != 0 && generatedPackageHygieneSkipDir(entry.Name()) {
+				return nil
+			}
 			auditPublicSurfacePathHygiene(t, repoRoot, path)
 			if generatedPackageHygieneSkipFile(entry.Name()) {
 				return nil
@@ -2898,9 +2903,15 @@ func TestPromptConformanceFixturesLoad(t *testing.T) {
 			if _, ok := fixture["expected_result"]; !ok {
 				t.Fatalf("%s missing expected_result", file)
 			}
-		case "number_format":
+		case "number_format", "json_stringify":
 			if cases, ok := fixture["cases"].([]any); !ok || len(cases) == 0 {
 				t.Fatalf("%s missing cases", file)
+			}
+		case "string_format":
+			formatCases, formatOK := fixture["format_cases"].([]any)
+			strCases, strOK := fixture["str_cases"].([]any)
+			if !formatOK || !strOK || len(formatCases) == 0 || len(strCases) == 0 {
+				t.Fatalf("%s missing format_cases/str_cases", file)
 			}
 		default:
 			t.Fatalf("%s has unknown prompt kind %v", file, fixture["kind"])
