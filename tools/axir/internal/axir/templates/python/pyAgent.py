@@ -36,8 +36,10 @@ from .gen import (
     _core_ai_complete_once,
     _core_ai_client_features,
     _core_axgen_deprecation,
+    _core_fields_from_map,
     _core_string_index_of,
     _core_string_str,
+    _core_string_utf16_units,
     _core_tool_invoke,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
@@ -1768,10 +1770,12 @@ class AxAgent:
         self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
         self._rebind_playbook()
 
+    # The actor stages list every input field in their system prompt, as TS's
+    # actor AxGen does (includeOptionalInputFieldsInSystemPrompt).
     def _build_stage_set(self, record):
         actor_validation_retries = self.options.get("validation_retries", self.options.get("validationRetries", 1))
-        distiller = AxGen(record["distiller_signature"], {"validation_retries": actor_validation_retries, "id": "ctx.root.actor", "instruction": record.get("distiller_description") or ""})
-        executor = AxGen(record["executor_signature"], {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": record.get("executor_description") or ""})
+        distiller = AxGen(record["distiller_signature"], {"validation_retries": actor_validation_retries, "id": "ctx.root.actor", "instruction": record.get("distiller_description") or "", "includeOptionalInputFieldsInSystemPrompt": True})
+        executor = AxGen(record["executor_signature"], {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": record.get("executor_description") or "", "includeOptionalInputFieldsInSystemPrompt": True})
         responder_options = {"id": "task.root.responder", "instruction": record.get("responder_description") or ""}
         # As in TS, the responder's validation budget is maxRetries (3 by
         # default) unless validation_retries is set.
@@ -2720,6 +2724,20 @@ def _core_agent_runtime_language(runtime):
             language = language()
     language = str(language or "").strip()
     return language or "JavaScript"
+
+
+def _core_agent_runtime_usage_instructions(runtime):
+    # A runtime's own usage instructions, as TS's getUsageInstructions(): a
+    # runtime config's "usageInstructions", else the code runtime's own, else
+    # none.
+    if isinstance(runtime, dict):
+        text = runtime.get("usageInstructions", runtime.get("usage_instructions"))
+    else:
+        method = getattr(runtime, "get_usage_instructions", None)
+        text = method() if callable(method) else getattr(runtime, "usage_instructions", None)
+        if callable(text):
+            text = text()
+    return str(text or "")
 
 
 def _core_agent_memory_search(state, searches, already_loaded):

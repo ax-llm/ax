@@ -4,6 +4,12 @@
   },
   "expected_request_contains": ["This answer has no evidence to cite"],
   "expected_request_count": 4,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user", "assistant", "user"]
+  ],
   "expected_transcript": [
     "request:distiller",
     "request:executor",

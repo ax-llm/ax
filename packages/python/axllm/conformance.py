@@ -977,6 +977,7 @@ def _run_prompt(fixture):
         functions=tools,
         custom_template=fixture.get("custom_template") or options.get("custom_template") or options.get("customTemplate"),
         structured_output_function_name=fixture.get("structured_output_function_name") or options.get("structured_output_function_name") or options.get("structuredOutputFunctionName"),
+        include_optional_input_fields_in_system_prompt=bool(options.get("includeOptionalInputFieldsInSystemPrompt", options.get("include_optional_input_fields_in_system_prompt", False))),
     )
     if fixture.get("instruction"):
         prompt.set_instruction(fixture["instruction"])
@@ -2570,6 +2571,14 @@ def _run_agent_forward(fixture):
         for value in check.get("not_contains",[]):
             if value in text: raise FixtureError("Child request exposed "+value)
         if check.get("functions_absent") and request.get("functions"): raise FixtureError("Agent runtime tools leaked into model-native functions")
+    # Each stage's first request in full: every message's role and content.
+    for expected_first in fixture.get("expected_stage_first_requests") or []:
+        position = expected_first["index"]
+        if position >= len(client.requests):
+            raise FixtureError(f"no request {position} for the {expected_first['stage']} stage")
+        prompt = client.requests[position].get("chat_prompt") or []
+        actual_messages = [{"role": message.get("role"), "content": message.get("content")} for message in prompt]
+        _assert_equal(actual_messages, expected_first["messages"], f"{expected_first['stage']} first request")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
     projection = fixture.get("exact_observable_projection") or {}

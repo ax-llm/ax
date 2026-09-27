@@ -255,9 +255,15 @@ class AxGen:
             functions=self.functions,
             structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
             custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+            include_optional_input_fields_in_system_prompt=self._include_optional_input_fields(),
         )
         if self.instruction:
             self.prompt_template.set_instruction(self.instruction)
+
+    def _include_optional_input_fields(self) -> bool:
+        # TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists
+        # every input field, provided or not. Off by default.
+        return bool(self.options.get("include_optional_input_fields_in_system_prompt", self.options.get("includeOptionalInputFieldsInSystemPrompt", False)))
 
     def set_rate_limiter(self, limiter: AxRateLimiter | None):
         self.runtime_hooks = AxRuntimeHooks(limiter, self.runtime_hooks.tracer, self.runtime_hooks.meter)
@@ -585,6 +591,7 @@ class AxGen:
                 functions=call_gen.functions,
                 structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
                 custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+                include_optional_input_fields_in_system_prompt=self._include_optional_input_fields(),
             )
             if self.instruction:
                 call_gen.prompt_template.set_instruction(self.instruction)
@@ -763,6 +770,7 @@ class AxGen:
                 functions=call_gen.functions,
                 structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
                 custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+                include_optional_input_fields_in_system_prompt=self._include_optional_input_fields(),
             )
             if self.instruction:
                 call_gen.prompt_template.set_instruction(self.instruction)
@@ -816,7 +824,7 @@ class AxGen:
             call_gen = copy.copy(self)
             call_gen.execution_context = call_context
             call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
-            call_gen.prompt_template = AxPromptTemplate(self.signature, functions=call_gen.functions)
+            call_gen.prompt_template = AxPromptTemplate(self.signature, functions=call_gen.functions, include_optional_input_fields_in_system_prompt=self._include_optional_input_fields())
             yield from call_gen._streaming_forward_unscoped(client, values, {**(options or {}), "executionContext": call_context})
             return
         validate_fields(self.signature.get_input_fields(), values, "input")

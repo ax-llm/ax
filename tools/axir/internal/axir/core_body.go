@@ -163,6 +163,7 @@ const (
 	IntrinsicAgentRuntimeRestore       CoreIntrinsic = "intrinsic.agent.runtime.restore_state"
 	IntrinsicAgentRuntimeClose         CoreIntrinsic = "intrinsic.agent.runtime.close"
 	IntrinsicAgentRuntimeLanguage      CoreIntrinsic = "intrinsic.agent.runtime.language"
+	IntrinsicAgentRuntimeUsage         CoreIntrinsic = "intrinsic.agent.runtime.usage_instructions"
 	IntrinsicAgentMemorySearch         CoreIntrinsic = "intrinsic.agent.memory_search"
 	IntrinsicAgentSkillSearch          CoreIntrinsic = "intrinsic.agent.skill_search"
 	IntrinsicAgentObserverNotify       CoreIntrinsic = "intrinsic.agent.observer.notify"
@@ -325,6 +326,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAgentRuntimeRestore:       "_core_agent_runtime_restore_state",
 	IntrinsicAgentRuntimeClose:         "_core_agent_runtime_close",
 	IntrinsicAgentRuntimeLanguage:      "_core_agent_runtime_language",
+	IntrinsicAgentRuntimeUsage:         "_core_agent_runtime_usage_instructions",
 	IntrinsicAgentMemorySearch:         "_core_agent_memory_search",
 	IntrinsicAgentSkillSearch:          "_core_agent_skill_search",
 	IntrinsicAgentObserverNotify:       "_core_agent_observer_notify",
@@ -512,6 +514,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.agent.runtime.restore_state":           true,
 	"intrinsic.agent.runtime.close":                   true,
 	"intrinsic.agent.runtime.language":                true,
+	"intrinsic.agent.runtime.usage_instructions":      true,
 	"intrinsic.agent.memory_search":                   true,
 	"intrinsic.agent.skill_search":                    true,
 	"intrinsic.agent.observer.notify":                 true,
@@ -856,6 +859,9 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.url.valid":                       intrinsicInfo("intrinsic.url.valid", 1, 1, false, "bool"),
 	"intrinsic.url.encode_component":            intrinsicInfo("intrinsic.url.encode_component", 1, 1, false, "string"),
 	"intrinsic.stream.event_content_parts":      intrinsicInfo("intrinsic.stream.event_content_parts", 1, 1, false, "list<string>"),
+
+	// A runtime's own usage instructions (TS getUsageInstructions()).
+	"intrinsic.agent.runtime.usage_instructions": intrinsicInfo("intrinsic.agent.runtime.usage_instructions", 1, 1, true, "string"),
 }
 
 func intrinsicInfo(name string, minArgs, maxArgs int, hostBoundary bool, returnKind string) CoreIntrinsicInfo {

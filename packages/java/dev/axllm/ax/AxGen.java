@@ -98,7 +98,8 @@ public final class AxGen implements AxProgram {
       signature,
       functions,
       (String) this.options.getOrDefault("structured_output_function_name", this.options.get("structuredOutputFunctionName")),
-      (String) this.options.getOrDefault("custom_template", this.options.get("customTemplate"))
+      (String) this.options.getOrDefault("custom_template", this.options.get("customTemplate")),
+      Core.truthy(this.options.getOrDefault("include_optional_input_fields_in_system_prompt", this.options.getOrDefault("includeOptionalInputFieldsInSystemPrompt", false)))
     );
     if (!this.instruction.isEmpty()) {
       this.promptTemplate.setInstruction(this.instruction);

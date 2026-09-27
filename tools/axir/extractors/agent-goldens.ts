@@ -2228,8 +2228,7 @@ writeFixture('context-runtime-state-summary', {
   },
   expected_context_result_subset: {
     prepared: {
-      liveRuntimeState:
-        'Current runtime state:\n- alpha: 1\n- beta: {"ok":true}',
+      liveRuntimeState: '- alpha: 1\n- beta: {"ok":true}',
     },
   },
 });
@@ -2482,11 +2481,11 @@ const runtimeEntries = [
 const provenance = Object.fromEntries(
   buildRuntimeStateProvenance(provenanceActionLog).entries()
 ) as Json;
-const provenanceRuntimeState = `Current runtime state:\n${formatStructuredRuntimeState(
+const provenanceRuntimeState = formatStructuredRuntimeState(
   runtimeEntries,
   buildRuntimeStateProvenance(provenanceActionLog),
   { maxEntries: 8, maxChars: 1200 }
-)}`;
+);
 writeFixture('context-runtime-state-provenance-summary', {
   kind: 'agent_runtime_policy',
   signature: 'question:string -> answer:string',

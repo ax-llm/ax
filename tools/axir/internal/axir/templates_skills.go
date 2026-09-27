@@ -370,6 +370,8 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			skillErrorsText(target),
 			"",
+			"`includeOptionalInputFieldsInSystemPrompt` / `include_optional_input_fields_in_system_prompt` (off by default), set on the constructor or the forward (the forward's wins), lists every input field in the system prompt, provided or not, as in TypeScript; the user message still leaves out an unset optional field. The agent's actor stages turn it on, as TypeScript's do.",
+			"",
 			"`strictMode` / `strict_mode`, set on the constructor or the forward (the forward's wins), requires the answer to open with its first required field's label, as in TypeScript: an unlabeled answer, or one JSON object, is retried with a correction instead of being read as a single-field answer.",
 			"",
 			skillDateFieldsText(target),

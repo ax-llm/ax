@@ -983,7 +983,8 @@ public final class Conformance {
       sig,
       tools.tools,
       (String) fixture.getOrDefault("structured_output_function_name", options.getOrDefault("structured_output_function_name", options.get("structuredOutputFunctionName"))),
-      (String) fixture.getOrDefault("custom_template", options.getOrDefault("custom_template", options.get("customTemplate")))
+      (String) fixture.getOrDefault("custom_template", options.getOrDefault("custom_template", options.get("customTemplate"))),
+      Core.truthy(options.getOrDefault("includeOptionalInputFieldsInSystemPrompt", options.getOrDefault("include_optional_input_fields_in_system_prompt", false)))
     );
     if (fixture.get("instruction") != null) prompt.setInstruction(String.valueOf(fixture.get("instruction")));
     Object messages = prompt.render(Core.asMap(fixture.getOrDefault("input", fixture.getOrDefault("values", Map.of()))));
@@ -2640,6 +2641,21 @@ public final class Conformance {
       assertEqual(actualStageRequests, exactProjection.get("stageRequests"), "exact agent stage request projection");
     }
     for(var entry:Core.asMap(fixture.get("expected_mcp_calls")).entrySet()){var actual=new ArrayList<Object>();for(Object raw:mcpTransports.get(entry.getKey()).requests){var request=Core.asMap(raw);if("tools/call".equals(request.get("method"))){var params=Core.asMap(request.get("params"));actual.add(Map.of("name",params.get("name"),"arguments",params.get("arguments")));}}assertEqual(actual,entry.getValue(),"delegated MCP calls "+entry.getKey());}
+    // Each stage's first request in full: every message's role and content.
+    for (Object raw : Core.asList(fixture.get("expected_stage_first_requests"))) {
+      Map<String, Object> spec = Core.asMap(raw);
+      int index = Core.asInt(spec.get("index"));
+      String stage = String.valueOf(spec.get("stage"));
+      if (index >= client.requests.size()) throw new FixtureError("no request " + index + " for the " + stage + " stage");
+      List<Object> actual = new ArrayList<>();
+      for (Object message : Core.asList(Core.asMap(client.requests.get(index)).get("chat_prompt"))) {
+        Map<String, Object> projected = new LinkedHashMap<>();
+        projected.put("role", Core.asMap(message).get("role"));
+        projected.put("content", Core.asMap(message).get("content"));
+        actual.add(projected);
+      }
+      assertEqual(actual, spec.get("messages"), stage + " first request");
+    }
     for(Object raw:Core.asList(fixture.get("expected_request_checks"))){var check=Core.asMap(raw);var request=Core.asMap(client.requests.get(Core.asInt(check.get("index"))));String text=Json.stringify(request);for(Object value:Core.asList(check.get("contains")))if(!text.contains(String.valueOf(value)))throw new FixtureError("Child request missing "+value);for(Object value:Core.asList(check.get("not_contains")))if(text.contains(String.valueOf(value)))throw new FixtureError("Child request exposed "+value);if(Core.truthy(check.get("functions_absent"))&&Core.truthy(request.get("functions")))throw new FixtureError("Agent runtime tools leaked into native functions");}
     if (fixture.containsKey("expected_request_contains")) {
       String text = Json.stringify(client.requests);

@@ -7264,8 +7264,8 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, options)))
 	sig := NewSignature(signature)
 	actorValidationRetries := coreGet(options, "validation_retries", coreGet(options, "validationRetries", 1))
-	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
-	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
+	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(state, "distiller_description", ""))
+	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(state, "executor_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
@@ -7306,8 +7306,8 @@ func (a *AxAgent) useStageMode(options map[string]Value) error {
 	if !ok {
 		actorValidationRetries := coreGet(a.Options, "validation_retries", coreGet(a.Options, "validationRetries", 1))
 		set = agentStageSet{
-			distiller: NewAx(display(coreGet(record, "distiller_signature", "")), Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(record, "distiller_description", ""))),
-			executor:  NewAx(display(coreGet(record, "executor_signature", "")), Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(record, "executor_description", ""))),
+			distiller: NewAx(display(coreGet(record, "distiller_signature", "")), Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(record, "distiller_description", ""))),
+			executor:  NewAx(display(coreGet(record, "executor_signature", "")), Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(record, "executor_description", ""))),
 			responder: newAgentResponder(a.State, display(coreGet(a.State, "responder_signature", a.Signature.String())), a.Options),
 		}
 		a.stageSets[mode] = set
@@ -7364,8 +7364,8 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	a.Signature = NewSignature(signature)
 	a.State = state
 	actorValidationRetries := coreGet(a.Options, "validation_retries", coreGet(a.Options, "validationRetries", 1))
-	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
-	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
+	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(state, "distiller_description", ""))
+	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(state, "executor_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
@@ -11413,6 +11413,25 @@ func _core_agent_runtime_language(values ...Value) Value {
 		return "JavaScript"
 	}
 	return language
+}
+
+// _core_agent_runtime_usage_instructions is a runtime's own usage
+// instructions, as TS's getUsageInstructions(): a runtime config's
+// "usageInstructions", else the code runtime's own, else none.
+func _core_agent_runtime_usage_instructions(values ...Value) Value {
+	var runtime Value
+	if len(values) > 0 {
+		runtime = values[0]
+	}
+	switch v := runtime.(type) {
+	case map[string]Value:
+		if raw := coreGet(v, "usageInstructions", coreGet(v, "usage_instructions", nil)); raw != nil {
+			return display(raw)
+		}
+	case CodeRuntime:
+		return v.UsageInstructions()
+	}
+	return ""
 }
 
 func _core_agent_runtime_close(values ...Value) Value {
@@ -16265,6 +16284,20 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		assertEqual(actualStageRequests, expectedStageRequests, "exact agent stage request projection")
 	}
     expectedMCPCalls:=asMap(coreGet(fixture,"expected_mcp_calls",Object()));for _,key:=range orderedKeys(expectedMCPCalls){expected:=expectedMCPCalls[key];actual:=Array();for _,request:=range mcpTransports[key].Requests{if request["method"]=="tools/call"{params:=coreGet(request,"params",Object());actual=append(actual,Object("name",coreGet(params,"name",nil),"arguments",coreGet(params,"arguments",nil)))}};assertEqual(actual,expected,"delegated MCP calls "+key)}
+	// Each stage's first request in full: every message's role and content.
+	for _, raw := range asSlice(coreGet(fixture, "expected_stage_first_requests", Array())) {
+		spec := asMap(raw)
+		index := int(num(coreGet(spec, "index", 0)))
+		stage := display(coreGet(spec, "stage", ""))
+		if index >= len(client.Requests) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("no request %d for the %s stage", index, stage)})
+		}
+		actual := Array()
+		for _, message := range asSlice(coreGet(client.Requests[index], "chat_prompt", Array())) {
+			actual = append(actual, Object("role", coreGet(message, "role", nil), "content", coreGet(message, "content", nil)))
+		}
+		assertEqual(actual, coreGet(spec, "messages", Array()), stage+" first request")
+	}
     for _,raw:=range asSlice(coreGet(fixture,"expected_request_checks",Array())){check:=asMap(raw);request:=client.Requests[int(num(check["index"]))];text:=stableStringify(request);for _,value:=range asSlice(coreGet(check,"contains",Array())){if !strings.Contains(text,display(value)){panic("Child request missing "+display(value))}};for _,value:=range asSlice(coreGet(check,"not_contains",Array())){if strings.Contains(text,display(value)){panic("Child request exposed "+display(value))}};if coreTruthy(check["functions_absent"])&&coreTruthy(coreGet(request,"functions",nil)){panic("Agent runtime tools leaked into native functions")}}
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
@@ -17594,6 +17627,9 @@ func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value,
 	outputFields := goPromptOutputFields(sig)
 	task := goPromptTaskDefinition(sig, options)
 	funcs := goPromptFunctionDescriptors(functions)
+	// TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists
+	// every input field, provided or not. Off by default.
+	includeOptional := coreTruthy(coreGet(options, "include_optional_input_fields_in_system_prompt", coreGet(options, "includeOptionalInputFieldsInSystemPrompt", false)))
 	vars := map[string]Value{
 		"hasFunctions":                 len(funcs) > 0,
 		"hasTaskDefinition":            task != "",
@@ -17601,10 +17637,10 @@ func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value,
 		"hasOutputFields":              len(outputFields) > 0,
 		"hasComplexFields":             complex,
 		"hasStructuredOutputFunction":  complex && coreGet(options, "structured_output_function_name", coreGet(options, "structuredOutputFunctionName", nil)) != nil,
-		"identityText":                 goPromptIdentity(sig, values),
+		"identityText":                 goPromptIdentity(sig, values, includeOptional),
 		"taskDefinitionText":           task,
 		"functionsList":                goPromptRenderFunctions(funcs),
-		"inputFieldsSection":           goPromptInputSection(sig, values),
+		"inputFieldsSection":           goPromptInputSection(sig, values, includeOptional),
 		"outputFieldsSection":          goPromptOutputSection(sig, complex),
 		"structuredOutputFunctionName": coreGet(options, "structured_output_function_name", coreGet(options, "structuredOutputFunctionName", "")),
 	}
@@ -17675,6 +17711,22 @@ func goPromptInputFields(sig AxSignature, values map[string]Value) []Field {
 	}
 	return out
 }
+// goPromptSystemInputFields lists the input fields the system prompt shows:
+// every one, cached first, with includeOptionalInputFieldsInSystemPrompt;
+// otherwise the ones the user message renders.
+func goPromptSystemInputFields(sig AxSignature, values map[string]Value, includeOptional bool) []Field {
+	if !includeOptional {
+		return goPromptInputFields(sig, values)
+	}
+	fields := append([]Field(nil), sig.Inputs...)
+	sort.SliceStable(fields, func(i, j int) bool {
+		if fields[i].IsCached == fields[j].IsCached {
+			return false
+		}
+		return fields[i].IsCached
+	})
+	return fields
+}
 func goPromptProvided(value Value) bool {
 	if value == nil {
 		return false
@@ -17693,8 +17745,8 @@ func goPromptValueText(value Value) string {
 	}
 	return prettyJSONText(value)
 }
-func goPromptIdentity(sig AxSignature, values map[string]Value) string {
-	return "You will be provided with the following fields: " + goPromptDescFields(goPromptInputFields(sig, values)) + ". Your task is to generate new fields: " + goPromptDescFields(goPromptOutputFields(sig)) + "."
+func goPromptIdentity(sig AxSignature, values map[string]Value, includeOptional bool) string {
+	return "You will be provided with the following fields: " + goPromptDescFields(goPromptSystemInputFields(sig, values, includeOptional)) + ". Your task is to generate new fields: " + goPromptDescFields(goPromptOutputFields(sig)) + "."
 }
 func goPromptDescFields(fields []Field) string {
 	bt := string(rune(96))
@@ -17716,8 +17768,8 @@ func goPromptTaskDefinition(sig AxSignature, options map[string]Value) string {
 	}
 	return strings.Join(parts, "\n\n")
 }
-func goPromptInputSection(sig AxSignature, values map[string]Value) string {
-	return "**Input Fields**: The following fields will be provided to you:\n\n" + goPromptRenderInputFields(goPromptInputFields(sig, values), goPromptFieldMap(sig))
+func goPromptInputSection(sig AxSignature, values map[string]Value, includeOptional bool) string {
+	return "**Input Fields**: The following fields will be provided to you:\n\n" + goPromptRenderInputFields(goPromptSystemInputFields(sig, values, includeOptional), goPromptFieldMap(sig))
 }
 // goPromptOutputSection ends with the exact JSON shape when the output is
 // structured (the signature's complex fields, or the render's

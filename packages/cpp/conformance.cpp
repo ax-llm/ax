@@ -2393,6 +2393,17 @@ static void run_agent_forward(Value fixture) {
     assert_equal(actual_stage_requests, expected_stage_requests, "exact agent stage request projection");
   }
   for(auto key:Core::iter(Core::map_keys(Core::get(fixture,"expected_mcp_calls",Value::object())))){Array actual;for(auto request:mcp_transports.at(display(key))->requests){if(display(Core::get(request,"method"))=="tools/call"){auto params=Core::get(request,"params");actual.push_back(object({{"name",Core::get(params,"name")},{"arguments",Core::get(params,"arguments")}}));}}auto expected=Core::get(Core::get(fixture,"expected_mcp_calls"),key);assert_subset(Value(actual),expected,"delegated MCP calls");assert_subset(expected,Value(actual),"delegated MCP call fields");}
+  // Each stage's first request in full: every message's role and content.
+  for (auto spec : Core::iter(Core::get(fixture, "expected_stage_first_requests", Value::array()))) {
+    size_t index = static_cast<size_t>(std::stoul(display(Core::get(spec, "index"))));
+    std::string stage = display(Core::get(spec, "stage"));
+    if (index >= client.requests.size()) throw AxError("fixture", "no request " + std::to_string(index) + " for the " + stage + " stage");
+    Array actual;
+    for (auto message : Core::iter(Core::get(client.requests.at(index), "chat_prompt", Value::array()))) {
+      actual.push_back(object({{"role", Core::get(message, "role")}, {"content", Core::get(message, "content")}}));
+    }
+    assert_equal(Value(actual), Core::get(spec, "messages"), stage + " first request");
+  }
   for(auto check:Core::iter(Core::get(fixture,"expected_request_checks",Value::array()))){auto request=client.requests.at(static_cast<size_t>(std::stoul(display(Core::get(check,"index")))));auto text=stringify(request);for(auto value:Core::iter(Core::get(check,"contains",Value::array())))if(text.find(display(value))==std::string::npos)throw AxError("fixture","Child request missing "+display(value));for(auto value:Core::iter(Core::get(check,"not_contains",Value::array())))if(text.find(display(value))!=std::string::npos)throw AxError("fixture","Child request exposed "+display(value));if(Core::truthy(Core::get(check,"functions_absent"))&&Core::truthy(Core::get(request,"functions")))throw AxError("fixture","Agent runtime tools leaked into native functions");}
   Value expected_contains = Core::get(fixture, "expected_request_contains");
   if (!expected_contains.is_null()) {

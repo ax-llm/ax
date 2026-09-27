@@ -100,6 +100,7 @@ function scriptedAI(
 ) {
   const queue = clone(responses);
   let calls = 0;
+  const prompts: unknown[] = [];
   const ai = new AxMockAIService({
     features: {
       functions: (features.functions as boolean | undefined) ?? false,
@@ -109,6 +110,7 @@ function scriptedAI(
     chatResponse: async (req) => {
       calls++;
       onRequest?.(calls);
+      prompts.push(clone(req.chatPrompt));
       const first = req.chatPrompt[0];
       const system =
         first?.role === 'system' && typeof first.content === 'string'
@@ -132,7 +134,7 @@ function scriptedAI(
       });
     },
   });
-  return { ai, calls: () => calls };
+  return { ai, calls: () => calls, prompts: () => prompts };
 }
 
 // ----- scripted code runtime -----
@@ -220,10 +222,7 @@ type Case = {
   // with control_steer).
   control?: boolean;
   // Steer the run while this request (1-based) is in flight; the fixture
-  // then pins every control event. It leaves out expected_request_roles: the
-  // ports' actor stages send AxGen's JSON-shape instruction as a user message
-  // of its own where TS keeps it in the system prompt, so each actor request
-  // has one more user message; the steer lands where TS puts it.
+  // then pins every control event.
   control_steer?: { during_request: number; text: string };
   // The consumer stops the stream after this many deltas.
   stop_after_deltas?: number;
@@ -241,7 +240,18 @@ type Case = {
   // agent(sig, {}) runs with its default JavaScript runtime; the extractor
   // gives TS the scripted runtime in its place.
   runtime_on_forward?: boolean;
+  // Pin the first request of each stage (distiller, executor, responder)
+  // in full: every message's role and content, as each port must send them.
+  first_requests?: boolean;
+  // Why the fixture leaves out expected_request_roles.
+  no_request_roles?: string;
 };
+
+// TS forward drops a failed answer and its correction once the next answer
+// arrives (response/nonStreaming.ts), so each retry sends one failed attempt;
+// the ports' AxGen keeps them all. Two or more responder retries show it.
+const RETRY_MEMORY_GAP =
+  "the ports' non-streaming AxGen keeps every failed attempt and correction, where TS keeps the latest";
 
 const DATE_TYPES = /:(datetimeRange|dateRange|datetime|date)\b/g;
 
@@ -257,7 +267,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const transcript: string[] = [];
   const control = spec.control ? runControl() : undefined;
   const steer = spec.control_steer;
-  const { ai, calls } = scriptedAI(
+  const { ai, calls, prompts } = scriptedAI(
     spec.responses,
     features,
     transcript,
@@ -276,6 +286,25 @@ async function record(name: string, spec: Case): Promise<void> {
       observerCalls.push({ callback: label, payload: clone(payload) as Json });
     };
   const options: Record<string, unknown> = clone(spec.options ?? {});
+  // The fixture's functions carry no implementation; the scripted runtime
+  // never calls them.
+  if (Array.isArray(options.functions)) {
+    const withFunc = (fn: Record<string, unknown>) => ({
+      ...fn,
+      func: async () => ({}),
+    });
+    options.functions = (options.functions as Record<string, unknown>[]).map(
+      (item) =>
+        Array.isArray(item.functions)
+          ? {
+              ...item,
+              functions: (item.functions as Record<string, unknown>[]).map(
+                withFunc
+              ),
+            }
+          : withFunc(item)
+    );
+  }
   for (const label of spec.observers ?? []) {
     if (label === 'used_memories') options.onUsedMemories = observe(label);
     if (label === 'used_skills') options.onUsedSkills = observe(label);
@@ -401,6 +430,30 @@ async function record(name: string, spec: Case): Promise<void> {
   }
   if (spec.request_contains) {
     fixture.expected_request_contains = spec.request_contains;
+  }
+  // Every request's message roles, in order: a steer lands where TS puts it.
+  if (spec.no_request_roles === undefined) {
+    fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
+      prompt.map((message) => message.role as Json)
+    );
+  }
+  if (spec.first_requests) {
+    const firsts: JsonMap[] = [];
+    const seen = new Set<string>();
+    transcript.forEach((entry, position) => {
+      if (!entry.startsWith('request:')) return;
+      const stage = entry.slice('request:'.length);
+      if (seen.has(stage)) return;
+      seen.add(stage);
+      const index = transcript
+        .slice(0, position)
+        .filter((item) => item.startsWith('request:')).length;
+      const messages = (
+        prompts()[index] as { role: string; content: Json }[]
+      ).map((message) => ({ role: message.role, content: message.content }));
+      firsts.push({ index, stage, messages });
+    });
+    fixture.expected_stage_first_requests = firsts;
   }
   if (error !== undefined) {
     fixture.expected_error_contains = error;
@@ -530,7 +583,160 @@ const datedStream = (): ResponseSpec =>
 
 mkdirSync(outDir, { recursive: true });
 
+// Grouped tools with explicit namespaces (TS files flat functions under
+// `utils`, the ports under `tools`): one always-included module and one
+// discoverable one, with parameter and return schemas. Each schema declares
+// its properties in sorted order, since the fixture sync sorts object keys
+// and TS renders a tool's arguments in declared order.
+const TOOL_GROUPS: JsonMap[] = [
+  {
+    namespace: 'db',
+    title: 'Database',
+    selectionCriteria: 'Customer records',
+    alwaysInclude: true,
+    functions: [
+      {
+        name: 'lookup',
+        description: 'Look up a customer by id',
+        parameters: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            include: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['id'],
+        },
+        returns: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            tier: { enum: ['gold', 'silver'] },
+          },
+        },
+      },
+    ],
+  },
+  {
+    namespace: 'web',
+    title: 'Web',
+    selectionCriteria: 'Public pages',
+    functions: [
+      {
+        name: 'search',
+        description: 'Search public pages',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            size: { type: ['number', 'null'] },
+          },
+          required: ['query'],
+        },
+      },
+    ],
+  },
+];
+
 const cases: Record<string, Case> = {
+  // ----- each stage's first request, in full -----
+  'agent-first-requests-base': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-tools': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off', functions: TOOL_GROUPS },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-context-field': {
+    kind: 'agent_forward',
+    signature: 'question:string, policyDoc:string -> answer:string',
+    input: {
+      question: 'How long do refunds take?',
+      policyDoc:
+        'Refunds take 30 days after approval. Store credit is instant.',
+    },
+    options: { directResponse: 'off', contextFields: ['policyDoc'] },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-skills': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      skills: [
+        {
+          id: 'refunds',
+          name: 'Refund policy',
+          description: 'How refunds work',
+          content: 'Refunds settle in 30 days; quote the policy.',
+        },
+      ],
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-discovery': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      functionDiscovery: true,
+      functions: TOOL_GROUPS,
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-memories': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      memoriesCatalog: [
+        { id: 'mem-refunds', content: 'Refunds settle in 30 days.' },
+        { id: 'mem-credit', content: 'Store credit is instant.' },
+      ],
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-skills-catalog': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      skillsCatalog: [
+        {
+          id: 'shipping',
+          name: 'Shipping policy',
+          description: 'How shipping works',
+          content: 'Orders ship in 2 days.',
+        },
+        {
+          id: 'refunds',
+          name: 'Refund policy',
+          description: 'How refunds work',
+          content: 'Refunds settle in 30 days; quote the policy.',
+        },
+      ],
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
   // ----- streaming -----
   'agent-streaming-forward-plain': {
     options: { directResponse: 'off' },
@@ -672,6 +878,7 @@ const cases: Record<string, Case> = {
       cited('["made_up_source"]'),
     ],
     runtime_script: baseRuntime(),
+    no_request_roles: RETRY_MEMORY_GAP,
   },
   'agent-forward-citations-no-evidence': {
     kind: 'agent_forward',
@@ -733,6 +940,7 @@ const cases: Record<string, Case> = {
       cited('["made_up_source"]'),
     ],
     runtime_script: baseRuntime(),
+    no_request_roles: RETRY_MEMORY_GAP,
   },
   'agent-forward-context-map': {
     kind: 'agent_forward',

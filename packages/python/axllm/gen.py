@@ -260,9 +260,15 @@ class AxGen:
             functions=self.functions,
             structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
             custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+            include_optional_input_fields_in_system_prompt=self._include_optional_input_fields(),
         )
         if self.instruction:
             self.prompt_template.set_instruction(self.instruction)
+
+    def _include_optional_input_fields(self) -> bool:
+        # TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists
+        # every input field, provided or not. Off by default.
+        return bool(self.options.get("include_optional_input_fields_in_system_prompt", self.options.get("includeOptionalInputFieldsInSystemPrompt", False)))
 
     def set_rate_limiter(self, limiter: AxRateLimiter | None):
         self.runtime_hooks = AxRuntimeHooks(limiter, self.runtime_hooks.tracer, self.runtime_hooks.meter)
@@ -590,6 +596,7 @@ class AxGen:
                 functions=call_gen.functions,
                 structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
                 custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+                include_optional_input_fields_in_system_prompt=self._include_optional_input_fields(),
             )
             if self.instruction:
                 call_gen.prompt_template.set_instruction(self.instruction)
@@ -768,6 +775,7 @@ class AxGen:
                 functions=call_gen.functions,
                 structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
                 custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+                include_optional_input_fields_in_system_prompt=self._include_optional_input_fields(),
             )
             if self.instruction:
                 call_gen.prompt_template.set_instruction(self.instruction)
@@ -821,7 +829,7 @@ class AxGen:
             call_gen = copy.copy(self)
             call_gen.execution_context = call_context
             call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
-            call_gen.prompt_template = AxPromptTemplate(self.signature, functions=call_gen.functions)
+            call_gen.prompt_template = AxPromptTemplate(self.signature, functions=call_gen.functions, include_optional_input_fields_in_system_prompt=self._include_optional_input_fields())
             yield from call_gen._streaming_forward_unscoped(client, values, {**(options or {}), "executionContext": call_context})
             return
         validate_fields(self.signature.get_input_fields(), values, "input")
@@ -4981,6 +4989,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
     validate_fields(input_fields, values, "input")
     prompt_template = _core_get(gen, "prompt_template", None)
     render_options = _structured_output_render_options_impl(selection)
+    _include_optional_render_option_impl(render_options, options)
     messages = _core_object_call_method(prompt_template, "render", values, render_options)
     example_messages = _render_examples(gen)
     demo_messages = _render_demos(gen)
@@ -7716,13 +7725,6 @@ def chat_session_queue_update(state: Any, update: Any) -> bool:
     return True
 
 
-def _parse_output_impl(content: str) -> Any:
-    _core_coverage_mark("_parse_output_impl")
-    text = str(content).strip()
-    output = _core_json_parse_strict(text)
-    return output
-
-
 def _ace_dedupe_playbook(playbook: Any) -> Any:
     _core_coverage_mark("_ace_dedupe_playbook")
     empty_map = {}
@@ -7756,6 +7758,13 @@ def _ace_dedupe_playbook(playbook: Any) -> Any:
     playbook["sections"] = sections
     recomputed = _ace_recompute_playbook_stats(playbook)
     return recomputed
+
+
+def _parse_output_impl(content: str) -> Any:
+    _core_coverage_mark("_parse_output_impl")
+    text = str(content).strip()
+    output = _core_json_parse_strict(text)
+    return output
 
 
 def _is_flexible_json_field(typ: FieldType) -> bool:
@@ -8205,66 +8214,6 @@ def _date_native_offset_impl(units: Any, index: Any, mode: Any) -> Any:
     return offset
 
 
-def _parse_json_string_for_field(field: Field, value: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_for_field")
-    typ = _core_get(field, "type", None)
-    value_is_none = _core_is_none(value)
-    if value_is_none:
-        return value
-    else:
-        pass
-    flexible = _is_flexible_json_field(typ)
-    is_array = _core_get(typ, "is_array", False)
-    typ_fields = _core_get(typ, "fields", None)
-    has_typ_fields = _core_truthy(typ_fields)
-    if is_array:
-        value_is_list = _core_type_is(value, "list")
-        not_list = _core_not(value_is_list)
-        if not_list:
-            return value
-        else:
-            pass
-        if flexible:
-            out = []
-            for item in value:
-                parsed_item = _parse_json_string_value(item)
-                out.append(parsed_item)
-            return out
-        else:
-            pass
-        if has_typ_fields:
-            rebuilt = []
-            for item in value:
-                item_is_map = _core_type_is(item, "object")
-                if item_is_map:
-                    parsed_obj = _parse_json_string_for_fields(typ_fields, item)
-                    rebuilt.append(parsed_obj)
-                else:
-                    rebuilt.append(item)
-            return rebuilt
-        else:
-            pass
-        return value
-    else:
-        pass
-    if flexible:
-        parsed_scalar = _parse_json_string_value(value)
-        return parsed_scalar
-    else:
-        pass
-    type_name = _core_get(typ, "name", None)
-    is_object = _core_eq(type_name, "object")
-    if is_object:
-        if has_typ_fields:
-            parsed_obj2 = _parse_json_string_for_fields(typ_fields, value)
-            return parsed_obj2
-        else:
-            pass
-    else:
-        pass
-    return value
-
-
 def chat_session_transition(state: Any, event: Any) -> Any:
     _core_coverage_mark("chat_session_transition")
     type = _core_get(event, "type", None)
@@ -8373,6 +8322,66 @@ def chat_session_transition(state: Any, event: Any) -> Any:
     action = chat_session_boundary_action(state)
     action["changed"] = changed
     return action
+
+
+def _parse_json_string_for_field(field: Field, value: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_for_field")
+    typ = _core_get(field, "type", None)
+    value_is_none = _core_is_none(value)
+    if value_is_none:
+        return value
+    else:
+        pass
+    flexible = _is_flexible_json_field(typ)
+    is_array = _core_get(typ, "is_array", False)
+    typ_fields = _core_get(typ, "fields", None)
+    has_typ_fields = _core_truthy(typ_fields)
+    if is_array:
+        value_is_list = _core_type_is(value, "list")
+        not_list = _core_not(value_is_list)
+        if not_list:
+            return value
+        else:
+            pass
+        if flexible:
+            out = []
+            for item in value:
+                parsed_item = _parse_json_string_value(item)
+                out.append(parsed_item)
+            return out
+        else:
+            pass
+        if has_typ_fields:
+            rebuilt = []
+            for item in value:
+                item_is_map = _core_type_is(item, "object")
+                if item_is_map:
+                    parsed_obj = _parse_json_string_for_fields(typ_fields, item)
+                    rebuilt.append(parsed_obj)
+                else:
+                    rebuilt.append(item)
+            return rebuilt
+        else:
+            pass
+        return value
+    else:
+        pass
+    if flexible:
+        parsed_scalar = _parse_json_string_value(value)
+        return parsed_scalar
+    else:
+        pass
+    type_name = _core_get(typ, "name", None)
+    is_object = _core_eq(type_name, "object")
+    if is_object:
+        if has_typ_fields:
+            parsed_obj2 = _parse_json_string_for_fields(typ_fields, value)
+            return parsed_obj2
+        else:
+            pass
+    else:
+        pass
+    return value
 
 
 def _regex_space(c: Any) -> Any:
@@ -11600,6 +11609,7 @@ def _streaming_forward_impl(gen: AxGen, client: AIClient, values: Any, options: 
     validate_fields(input_fields, values, "input")
     prompt_template = _core_get(gen, "prompt_template", None)
     render_options = _structured_output_render_options_impl(selection)
+    _include_optional_render_option_impl(render_options, options)
     messages = _core_object_call_method(prompt_template, "render", values, render_options)
     example_messages = _render_examples(gen)
     demo_messages = _render_demos(gen)
@@ -14314,6 +14324,19 @@ def _stream_json_strings_for_field_impl(field: Any, value: Any) -> Any:
     else:
         pass
     return value
+
+
+def _include_optional_render_option_impl(render_options: Any, options: Any) -> None:
+    _core_coverage_mark("_include_optional_render_option_impl")
+    snake = _core_get(options, "include_optional_input_fields_in_system_prompt", None)
+    value = _core_get(options, "includeOptionalInputFieldsInSystemPrompt", snake)
+    given = _core_is_not_none(value)
+    if given:
+        flag = _core_truthy(value)
+        render_options["include_optional_input_fields_in_system_prompt"] = flag
+    else:
+        pass
+    return None
 
 
 def _stream_json_strings_for_fields_impl(fields_map: Any, values: Any) -> None:
