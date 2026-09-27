@@ -54,25 +54,7 @@ import type {
   ResponsesReqUpdater,
   UserMessageContentItem,
 } from './responses_types.js';
-import { AxAIOpenAIResponsesModel } from './responses_types.js';
 import { axNormalizeOpenAIUsage } from './usage.js';
-
-/**
- * Checks if the given OpenAI Responses model is a thinking/reasoning model.
- * Thinking models (o1, o3, o4 series) have different parameter restrictions.
- */
-export const isOpenAIResponsesThinkingModel = (model: string): boolean => {
-  const thinkingModels = [
-    AxAIOpenAIResponsesModel.O1,
-    AxAIOpenAIResponsesModel.O1Mini,
-    AxAIOpenAIResponsesModel.O1Pro,
-    AxAIOpenAIResponsesModel.O3,
-    AxAIOpenAIResponsesModel.O3Mini,
-    AxAIOpenAIResponsesModel.O3Pro,
-    AxAIOpenAIResponsesModel.O4Mini,
-  ];
-  return thinkingModels.includes(model as AxAIOpenAIResponsesModel);
-};
 
 export class AxAIOpenAIResponsesImpl<
   TModel,
@@ -120,12 +102,29 @@ export class AxAIOpenAIResponsesImpl<
     return {
       maxTokens: config.maxTokens, // maps to max_output_tokens
       temperature: config.temperature,
-      // presencePenalty, frequencyPenalty are not direct params in /v1/responses
+      presencePenalty: config.presencePenalty,
+      frequencyPenalty: config.frequencyPenalty,
       stopSequences: config.stopSequences, // /v1/responses uses 'truncation' or relies on item structure
       topP: config.topP,
       // n: config.n, // Not a direct parameter in /v1/responses
       stream: config.stream,
     };
+  }
+
+  /** The `reasoning.effort` createChatReq will send for this model. */
+  resolveReasoningEffort(
+    model: TModel,
+    config: Readonly<AxAIServiceOptions>
+  ): AxAIOpenAIResponsesConfig<TModel, TEmbedModel>['reasoningEffort'] {
+    const budget = config.thinkingTokenBudget;
+    if (!budget) return this.config.reasoningEffort;
+    if (budget === 'highest' && this.config.highestReasoningEffort) {
+      return this.config.highestReasoningEffort;
+    }
+    const effort = axResolveOpenAIResponsesReasoningEffort(model, budget);
+    return budget === 'none'
+      ? effort
+      : (this.config.reasoningEffortMap?.[budget] ?? effort);
   }
 
   private mapInternalContentToResponsesInput(
@@ -569,8 +568,6 @@ export class AxAIOpenAIResponsesImpl<
         ? ['reasoning.encrypted_content']
         : [];
 
-    const isThinkingModel = isOpenAIResponsesThinkingModel(model as string);
-
     let reasoningSummary = this.config.reasoningSummary;
 
     if (!config?.showThoughts) {
@@ -579,32 +576,13 @@ export class AxAIOpenAIResponsesImpl<
       reasoningSummary = 'auto';
     }
 
-    let reasoningEffort = this.config.reasoningEffort;
-
-    // Handle thinkingTokenBudget config parameter
-    if (config?.thinkingTokenBudget) {
-      if (
-        config.thinkingTokenBudget === 'none' &&
-        this.config.rejectReasoningNone
-      ) {
-        throw new Error('This provider does not support reasoning level none');
-      }
-      reasoningEffort = axResolveOpenAIResponsesReasoningEffort(
-        model,
-        config.thinkingTokenBudget
-      );
-      if (config.thinkingTokenBudget !== 'none') {
-        reasoningEffort =
-          this.config.reasoningEffortMap?.[config.thinkingTokenBudget] ??
-          reasoningEffort;
-      }
-      if (
-        config.thinkingTokenBudget === 'highest' &&
-        this.config.highestReasoningEffort
-      ) {
-        reasoningEffort = this.config.highestReasoningEffort;
-      }
+    if (
+      config?.thinkingTokenBudget === 'none' &&
+      this.config.rejectReasoningNone
+    ) {
+      throw new Error('This provider does not support reasoning level none');
     }
+    const reasoningEffort = this.resolveReasoningEffort(model, config ?? {});
 
     const mutableReq: Mutable<AxAIOpenAIResponsesRequest<TModel>> = {
       model,
@@ -619,30 +597,21 @@ export class AxAIOpenAIResponsesImpl<
           : typeof req.functionCall === 'object' && req.functionCall.function
             ? { type: 'function', name: req.functionCall.function.name }
             : undefined,
-      // For thinking models, don't set these parameters as they're not supported
-      ...(isThinkingModel
-        ? {
-            max_output_tokens:
-              req.modelConfig?.maxTokens ?? this.config.maxTokens ?? undefined,
-          }
-        : {
-            ...(req.modelConfig?.temperature !== undefined
-              ? { temperature: req.modelConfig.temperature }
-              : {}),
-            ...(req.modelConfig?.topP !== undefined
-              ? { top_p: req.modelConfig.topP }
-              : {}),
-            presence_penalty:
-              req.modelConfig?.presencePenalty ??
-              this.config.presencePenalty ??
-              undefined,
-            frequency_penalty:
-              req.modelConfig?.frequencyPenalty ??
-              this.config.frequencyPenalty ??
-              undefined,
-            max_output_tokens:
-              req.modelConfig?.maxTokens ?? this.config.maxTokens ?? undefined,
-          }),
+      // Model info decides which sampling parameters the model accepts; the
+      // base layer has already removed the rest from modelConfig, which also
+      // carries the AI's own config.
+      ...{
+        ...(req.modelConfig?.temperature !== undefined
+          ? { temperature: req.modelConfig.temperature }
+          : {}),
+        ...(req.modelConfig?.topP !== undefined
+          ? { top_p: req.modelConfig.topP }
+          : {}),
+        presence_penalty: req.modelConfig?.presencePenalty ?? undefined,
+        frequency_penalty: req.modelConfig?.frequencyPenalty ?? undefined,
+        max_output_tokens:
+          req.modelConfig?.maxTokens ?? this.config.maxTokens ?? undefined,
+      },
       stream: req.modelConfig?.stream ?? this.config.stream ?? false, // Sourced from modelConfig or global config
       // Optional fields from AxAIOpenAIResponsesRequest that need to be in Mutable for initialization
       background: undefined,
