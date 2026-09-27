@@ -120,6 +120,9 @@ type CallSpec = {
   input: JsonMap;
   // Attach a run control to this call.
   control?: boolean;
+  // Pass the input with its keys in reverse order. Fixture JSON sorts its
+  // keys, so the order is a flag every runner applies.
+  reverse_input_keys?: boolean;
 };
 
 type Case = {
@@ -166,20 +169,21 @@ async function record(name: string, spec: Case): Promise<void> {
       const options: Record<string, unknown> = {};
       if (cacheIn === 'call') options.cachingFunction = cachingFunction;
       if (call.control) options.control = runControl();
+      const input = call.reverse_input_keys
+        ? Object.fromEntries(Object.entries(call.input).reverse())
+        : call.input;
       errors.push(null);
       try {
         if (call.kind === 'forward') {
           outputs.push(
-            clone(
-              (await program.forward(ai, call.input as never, options)) as Json
-            )
+            clone((await program.forward(ai, input as never, options)) as Json)
           );
           deltas.push(null);
         } else {
           const seen: JsonMap[] = [];
           for await (const delta of program.streamingForward(
             ai,
-            call.input as never,
+            input as never,
             options
           )) {
             seen.push(clone(delta) as unknown as JsonMap);
@@ -264,7 +268,7 @@ const cases: Record<string, Case> = {
   'flow-cache-key-stable-input-order': {
     flow: 'name',
     responses: [],
-    calls: [forward(ada), forward({ lastName: 'Lovelace', firstName: 'Ada' })],
+    calls: [forward(ada), forward(ada, { reverse_input_keys: true })],
   },
   // The flow ignores errors from its own cache reads and writes.
   'flow-cache-errors-ignored': {
