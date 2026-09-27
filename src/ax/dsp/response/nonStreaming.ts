@@ -58,6 +58,14 @@ export async function* processResponse<OUT extends AxGenOut>({
     debugPromptMetrics,
   });
 
+  // Each sample's answer, which an exhausted-retries error reports.
+  for (const result of results) {
+    const state = states[result.index];
+    if (state) {
+      state.content = result.content ?? '';
+    }
+  }
+
   for (const result of results) {
     const state = states[result.index];
 

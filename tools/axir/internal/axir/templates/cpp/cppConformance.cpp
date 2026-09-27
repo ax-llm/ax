@@ -12,6 +12,7 @@
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <typeinfo>
 
 using namespace axllm;
 
@@ -664,7 +665,25 @@ static void assert_list_subset(Value actual, Value expected, const std::string& 
   }
 }
 
-static Value expect_maybe_error(const std::function<Value()>& fn, Value fixture) {
+// "Generate failed: ..." keeps the failure it wraps as its direct cause, and
+// every error in the chain keeps the class, category and type of the one it
+// wraps.
+static void assert_error_cause(Value fixture, const std::exception& error) {
+  Value expected = Core::get(fixture, "expected_error_cause_contains");
+  if (expected.is_null()) return;
+  const auto* wrapped = dynamic_cast<const AxError*>(&error);
+  const AxError* cause = wrapped == nullptr ? nullptr : wrapped->cause();
+  if (cause == nullptr || std::string(cause->what()).find(display(expected)) == std::string::npos) {
+    throw AxError("fixture", "expected an error cause containing " + display(expected) + ", got " + (cause == nullptr ? std::string("none") : std::string(cause->what())));
+  }
+  for (const AxError* link = cause; link != nullptr; link = link->cause()) {
+    if (typeid(*link) != typeid(*wrapped) || link->category != wrapped->category || link->type != wrapped->type) {
+      throw AxError("fixture", "error cause " + std::string(link->what()) + " (" + link->category + " " + link->type + ") does not keep the class, category and type of " + wrapped->what() + " (" + wrapped->category + " " + wrapped->type + ")");
+    }
+  }
+}
+
+static Value expect_maybe_error(const std::function<Value()>& fn, Value fixture, bool check_cause = false) {
   try {
     Value out = fn();
     if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected operation to fail");
@@ -678,6 +697,7 @@ static Value expect_maybe_error(const std::function<Value()>& fn, Value fixture)
       throw AxError("fixture", std::string("expected error category ") + display(expected_category) + ", got " + e.category);
     }
     if (std::string(e.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + e.what());
+    if (check_cause) assert_error_cause(fixture, e);
     return Value();
   }
 }
@@ -784,7 +804,7 @@ static void run_forward(Value fixture) {
   }
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
   Value input = Core::get(fixture, "input", Core::get(fixture, "values", Value::object()));
-  Value output = expect_maybe_error([&] { return gen.forward(client, input, Core::get(fixture, "forward_options", Value::object())); }, fixture);
+  Value output = expect_maybe_error([&] { return gen.forward(client, input, Core::get(fixture, "forward_options", Value::object())); }, fixture, true);
   bool expected_error = !Core::get(fixture, "expected_error_contains").is_null();
   if (!expected_error && !Core::get(fixture, "expected_processor_calls").is_null()) {
     assert_equal(processor_calls, Core::get(fixture, "expected_processor_calls"), "field processor calls");
@@ -902,6 +922,7 @@ static void run_streaming_forward(Value fixture) {
   } catch (const std::exception& error) {
     if (const auto* ax = dynamic_cast<const AxError*>(&error); ax && ax->category == "fixture") throw;
     if (expected_error.is_null() || std::string(error.what()).find(display(expected_error)) == std::string::npos) throw;
+    assert_error_cause(fixture, error);
     assert_equal(deltas, Core::get(fixture, "expected_deltas", Value::array()), "streaming deltas before the error");
     failed = true;
   }

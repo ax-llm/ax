@@ -1434,7 +1434,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     const signatureToolCallingManager = this.signatureToolCallingManager;
 
-    const strictMode = options?.strictMode ?? false;
+    const strictMode = options?.strictMode ?? this.options?.strictMode ?? false;
     const model = options.model;
     const usage = this.usage;
     const firstStep = stepIndex === 0;
@@ -1967,6 +1967,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       | AxStreamingAssertionError
       | undefined;
     let lastError: Error | undefined;
+    // What the failing attempt answered, for the exhausted-retries message.
+    let lastOutput = '';
 
     const promptTemplateClass =
       this.options?.promptTemplate ?? AxPromptTemplate;
@@ -2786,6 +2788,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               }
 
               lastError = e as Error;
+              lastOutput = states.map((s) => s.content).join('\n---\n');
               let errorFields: AxIField[] | undefined;
               const debug = this.isDebug(ai, options);
               const logger = this.getLogger(ai, options);
@@ -2910,7 +2913,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                 (err ?? lastError)?.message ??
                 (err ?? lastError)?.toString() ??
                 'unknown error'
-              }\n\nLLM Output:\n${states.map((s) => s.content).join('\n---\n')}`
+              }\n\nLLM Output:\n${lastOutput}`
             ),
             ai,
             this.signature
@@ -3944,21 +3947,13 @@ function enhanceError(
     return originalError;
   }
 
-  // Don't wrap validation errors - let them propagate directly
-  const errorMsg = (originalError.message || '').toLowerCase();
-  const isValidationError =
-    errorMsg.includes('at least') ||
-    errorMsg.includes('at most') ||
-    errorMsg.includes('must match pattern') ||
-    errorMsg.includes('invalid url') ||
-    errorMsg.includes('required') ||
-    errorMsg.includes('missing') ||
-    errorMsg.includes('valid email') ||
-    errorMsg.includes('number must be') ||
+  // Validation and assertion errors propagate as they are. Every other failure
+  // is wrapped, by its type, not by the words in its message: a processor
+  // error that says "required" is still a generation failure.
+  if (
     originalError.name === 'ValidationError' ||
-    originalError.name === 'AxAssertionError';
-
-  if (isValidationError) {
+    originalError.name === 'AxAssertionError'
+  ) {
     return originalError;
   }
 

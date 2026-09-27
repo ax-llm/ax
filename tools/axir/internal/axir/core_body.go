@@ -83,6 +83,7 @@ const (
 	IntrinsicAIClientFeatures          CoreIntrinsic = "intrinsic.ai.client_features"
 	IntrinsicRetrySleep                CoreIntrinsic = "intrinsic.retry.sleep"
 	IntrinsicExceptionMessage          CoreIntrinsic = "intrinsic.exception.message"
+	IntrinsicExceptionRewrap           CoreIntrinsic = "intrinsic.exception.rewrap"
 	IntrinsicRuntimeError              CoreIntrinsic = "intrinsic.error.runtime"
 	IntrinsicJSONParse                 CoreIntrinsic = "intrinsic.json.parse"
 	IntrinsicJSONParseStrict           CoreIntrinsic = "intrinsic.json.parse_strict"
@@ -231,6 +232,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAIClientFeatures:          "_core_ai_client_features",
 	IntrinsicRetrySleep:                "_core_retry_sleep",
 	IntrinsicExceptionMessage:          "_core_exception_message",
+	IntrinsicExceptionRewrap:           "_core_exception_rewrap",
 	IntrinsicRuntimeError:              "_core_runtime_error",
 	IntrinsicJSONParse:                 "_core_json_parse",
 	IntrinsicJSONParseStrict:           "_core_json_parse_strict",
@@ -378,6 +380,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.ai.client_features":                    true,
 	"intrinsic.retry.sleep":                           true,
 	"intrinsic.exception.message":                     true,
+	"intrinsic.exception.rewrap":                      true,
 	"intrinsic.exception.is_aborted":                  true,
 	"intrinsic.exception.is_infrastructure":           true,
 	"intrinsic.exception.is_refusal":                  true,
@@ -780,6 +783,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.json.parse_strict":               intrinsicInfo("intrinsic.json.parse_strict", 1, 1, true, "json"),
 	"intrinsic.retry.sleep":                     intrinsicInfo("intrinsic.retry.sleep", 3, 3, true, "void"),
 	"intrinsic.exception.message":               intrinsicInfo("intrinsic.exception.message", 1, 1, true, "string"),
+	"intrinsic.exception.rewrap":                intrinsicInfo("intrinsic.exception.rewrap", 2, 2, true, "error"),
 	"intrinsic.exception.is_aborted":            intrinsicInfo("intrinsic.exception.is_aborted", 1, 1, true, "bool"),
 	"intrinsic.exception.is_infrastructure":     intrinsicInfo("intrinsic.exception.is_infrastructure", 1, 1, true, "bool"),
 	"intrinsic.exception.is_refusal":            intrinsicInfo("intrinsic.exception.is_refusal", 1, 1, true, "bool"),

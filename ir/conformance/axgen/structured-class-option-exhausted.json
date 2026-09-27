@@ -1,0 +1,36 @@
+{
+  "expected_error_cause_contains": "Unable to fix validation error: Field 'Mood' has an invalid value 'calm': Invalid class 'calm', expected one of the following: happy, sad. Provide a classification class. Ensure formatting exactly matches the expected type.",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Mood' has an invalid value 'calm': Invalid class 'calm', expected one of the following: happy, sad. Provide a classification class. Ensure formatting exactly matches the expected type.",
+  "expected_request_count": 2,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "structured-class-option-exhausted",
+  "options": {
+    "max_retries": 1
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"mood\":\"angry\",\"detail\":{\"note\":\"n\"}}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"mood\":\"calm\",\"detail\":{\"note\":\"n\"}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> mood:class \"happy, sad\", detail:object{ note:string }"
+}

@@ -1,0 +1,75 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "o"
+      },
+      "index": 0,
+      "version": 1
+    },
+    {
+      "delta": {
+        "answer": "k"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 2,
+  "forward_options": {
+    "strict_mode": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-strict-mode-unlabeled-retry",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "o",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "k",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: o",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "k",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

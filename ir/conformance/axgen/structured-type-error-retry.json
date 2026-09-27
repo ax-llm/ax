@@ -1,0 +1,37 @@
+{
+  "expected_output": {
+    "count": 3,
+    "detail": {
+      "note": "n"
+    }
+  },
+  "expected_request_count": 2,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "structured-type-error-retry",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"count\":\"seven\",\"detail\":{\"note\":\"n\"}}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"count\":3,\"detail\":{\"note\":\"n\"}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> count:number, detail:object{ note:string }"
+}

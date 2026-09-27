@@ -190,6 +190,20 @@ def _core_validation_error(message):
 
 
 def _core_field_item(field):
+    if isinstance(field, dict):
+        # A nested object field the IR builds as a map; its type is a
+        # FieldType or a map.
+        item_field = dict(field)
+        field_type = item_field.get("type")
+        if isinstance(field_type, dict):
+            field_type = dict(field_type)
+            field_type.pop("isArray", None)
+            field_type["is_array"] = False
+        elif field_type is not None:
+            field_type = copy.deepcopy(field_type)
+            field_type.is_array = False
+        item_field["type"] = field_type
+        return item_field
     item_field = copy.deepcopy(field)
     item_field.type.is_array = False
     return item_field

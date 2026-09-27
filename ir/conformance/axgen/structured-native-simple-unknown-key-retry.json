@@ -1,0 +1,37 @@
+{
+  "expected_output": {
+    "answer": "{\"answer\":\"x\",\"extra\":1}"
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "forward_options": {
+    "structured_output_mode": "native"
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "structured-native-simple-unknown-key-retry",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"answer\":\"x\",\"extra\":1}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"answer\":\"x\"}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

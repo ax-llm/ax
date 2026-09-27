@@ -1,0 +1,36 @@
+{
+  "expected_error_cause_contains": "Unable to fix validation error: Required field is missing: 'Count'. After the \"Count:\" label, provide a non-empty number. Do not use null, undefined, or leave it blank.",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Required field is missing: 'Count'. After the \"Count:\" label, provide a non-empty number. Do not use null, undefined, or leave it blank.",
+  "expected_request_count": 2,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "structured-title-key-exhausted",
+  "options": {
+    "max_retries": 1
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"Count\":1,\"detail\":{\"note\":\"n\"}}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"Count\":2,\"detail\":{\"note\":\"n\"}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> count:number, detail:object{ note:string }"
+}

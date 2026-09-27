@@ -1,0 +1,34 @@
+{
+  "expected_error_cause_contains": "upstream token required",
+  "expected_error_contains": "Generate failed: upstream token required",
+  "expected_processor_calls": [
+    {
+      "done": true,
+      "field": "answer",
+      "value": "hi"
+    }
+  ],
+  "expected_request_count": 1,
+  "feedback_processors": [
+    {
+      "field": "answer",
+      "throws": "upstream token required"
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "errors-processor-throws",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: hi",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

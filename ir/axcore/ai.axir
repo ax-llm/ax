@@ -861,6 +861,12 @@ module @ax.ai version "0.1" {
       core.if %has_phase {
         core.set %completion["phase"] = %phase
       }
+      %finish_snake = core.get %result["finish_reason"]
+      %finish = core.get %result["finishReason"] default %finish_snake
+      %has_finish = core.call intrinsic.is_not_none(%finish)
+      core.if %has_finish {
+        core.set %completion["finish_reason"] = %finish
+      }
       core.return %completion
     }
   }
@@ -922,6 +928,11 @@ module @ax.ai version "0.1" {
       %has_phase = core.call intrinsic.is_not_none(%phase)
       core.if %has_phase {
         core.set %out["phase"] = %phase
+      }
+      %finish = core.get %first["finish_reason"]
+      %has_finish = core.call intrinsic.is_not_none(%finish)
+      core.if %has_finish {
+        core.set %out["finish_reason"] = %finish
       }
       core.return %out
     }

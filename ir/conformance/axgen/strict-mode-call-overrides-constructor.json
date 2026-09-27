@@ -1,0 +1,28 @@
+{
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "strict_mode": false
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "strict-mode-call-overrides-constructor",
+  "options": {
+    "strict_mode": true
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "ok",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

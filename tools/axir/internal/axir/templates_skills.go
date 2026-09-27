@@ -359,6 +359,10 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			"`maxRetries` / `max_retries` (default 3) caps both retry loops, as in TypeScript. A failed provider request is retried only for infrastructure errors: a 5xx status, a network error, a timeout, or a terminated stream. As in TypeScript, these retries wrap the validation loop: a step's infrastructure retries share one budget, and each one restarts validation with a fresh budget. Any other error, such as a 400 or 429 status, a response error, or a rejection before the request is sent, surfaces after one request. Validation failures, and assertion failures that carry a message, are retried inside the current step with a correction message, and each tool step starts with fresh budgets. As in TypeScript, an assertion that fails without a message, or that raises an error, surfaces at once without a retry; give it a message (the `message` key of a declarative assertion, or the message argument of a callable assertion where the target has one) to make its failure retryable. On the `function` rung a retry keeps the failed `__axOutput` call on the assistant turn with a `done` result and asks the model to fix its arguments, as TypeScript does. A model refusal spends the same budget: the same prompt goes out again at once, with no backoff and no correction message. `validationRetries` / `validation_retries` and `infraRetries` / `infra_retries` override the two budgets separately.",
 			"",
+			skillErrorsText(target),
+			"",
+			"`strictMode` / `strict_mode`, set on the constructor or the forward (the forward's wins), requires the answer to open with its first required field's label, as in TypeScript: an unlabeled answer, or one JSON object, is retried with a correction instead of being read as a single-field answer.",
+			"",
 			"`functionCall` / `function_call` sets the tool choice: `auto`, `none`, `required`, or `{ type: 'function', function: { name } }` to force one function. A forced call (`required` or named) applies to the first step only, as in TypeScript: later steps drop it together with the tools so the model can answer. Under the `function` structured-output rung the forced step withholds `__axOutput`, so the forcing reaches a user tool, and the next step forces `__axOutput`. A tool choice passed as `functionCallMode` is routed the same way.",
 			"",
 			"## Multi-Sampling",
@@ -475,6 +479,18 @@ func skillStreamingForwardText(target string) string {
 	default:
 		return "The streaming forward API yields the provider's raw chat response chunks (`results[].content`, `results[].thought`, `results[].function_calls`), not TypeScript's `{ version, index, delta }` field deltas."
 	}
+}
+
+func skillErrorsText(target string) string {
+	text := "A failed forward raises `Generate failed: <reason>`, as TypeScript's message reads. Exhausted validation, assertion or refusal retries give `Generate failed: Unable to fix validation error: <last error>`, ending with `LLM Output:` and the last attempt's answer (each sample's, joined with `---`). A response the model cut off at its token limit raises `Generate failed: Max tokens reached before completion`, streamed or not, instead of returning the partial answer. Only the message text changed: the error keeps its class and category (a validation failure is still a validation error), and an aborted run raises its abort error as it is. "
+	cause := map[string]string{
+		"python": "The error it wraps is its `__cause__`, as `raise ... from` sets it.",
+		"java":   "The error it wraps is its `getCause()`.",
+		"go":     "The error it wraps is what `errors.Unwrap` returns, so `errors.Is` and `errors.As` reach it; an error the runtime caught and raised again comes back rebuilt with the same category, type and message.",
+		"cpp":    "The error it wraps is its `cause()`.",
+		"rust":   "The message includes the wrapped error's text; `AxError` gains a `cause`, `source()` and `#[non_exhaustive]` in the next major version, since a new public field would break struct literals now.",
+	}[target]
+	return text + cause + " TypeScript raises an `AxGenerateError`, which the ports raise from the next major version."
 }
 
 func skillTextContractText(target string) string {

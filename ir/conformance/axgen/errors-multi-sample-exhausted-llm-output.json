@@ -1,0 +1,29 @@
+{
+  "expected_error_cause_contains": "Unable to fix validation error: Field 'Score' has an invalid value 'nope': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Score' has an invalid value 'nope': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.\n\nLLM Output:\nAnswer: a\nScore: nope\n---\nAnswer: b\nScore: 2",
+  "expected_request_count": 1,
+  "forward_options": {
+    "max_retries": 0,
+    "sample_count": 2
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "errors-multi-sample-exhausted-llm-output",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: a\nScore: nope",
+          "index": 0
+        },
+        {
+          "content": "Answer: b\nScore: 2",
+          "index": 1
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, score:number"
+}
