@@ -657,6 +657,9 @@ class AxBaseAI : public AxAIService {
   // Model-catalog key for the expensive-model gate: the client name here, the
   // provider profile for provider clients.
   virtual std::string model_catalog_provider() const { return name_; }
+  // Sees a chat or embed call's own options before they merge with the
+  // client's; provider clients warn about options this port ignores.
+  virtual void check_call_options(const Value& call_options) { (void)call_options; }
   virtual Value do_chat(Value request, Value options) = 0;
   virtual Value do_embed(Value request, Value options) = 0;
 };
@@ -996,6 +999,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
   Value build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
+  void check_call_options(const Value& call_options) override;
   std::string operation_method(const std::string& operation) const;
   std::string operation_path(const std::string& operation) const;
   std::string operation_path(const std::string& operation, Value model) const;

@@ -9611,6 +9611,75 @@ writeFixture('vertex-gemini-us-chat', {
   },
 });
 
+// A call's beta routes that call onto v1beta1, and wins over the service's
+// (TS getVertexApiURL(model, options.beta); src/ax/ai/call_options.test.ts).
+const vertexCallUrl = (version: string, operation: string) =>
+  `https://us-central1-aiplatform.googleapis.com/${version}/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.5-flash:${operation}`;
+const vertexCallResponse = {
+  status: 200,
+  json: {
+    candidates: [
+      { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+    ],
+  },
+};
+writeFixture('vertex-gemini-per-call-beta', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.5-flash',
+  service_options: { projectId: 'demo-project', region: 'us-central1' },
+  options: { beta: true },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [vertexCallResponse],
+  expected_transport_request: {
+    method: 'POST',
+    url: vertexCallUrl('v1beta1', 'generateContent'),
+  },
+});
+writeFixture('vertex-gemini-per-call-beta-over-service', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.5-flash',
+  service_options: {
+    projectId: 'demo-project',
+    region: 'us-central1',
+    beta: true,
+  },
+  options: { beta: false },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [vertexCallResponse],
+  expected_transport_request: {
+    method: 'POST',
+    url: vertexCallUrl('v1', 'generateContent'),
+  },
+});
+writeFixture('vertex-gemini-per-call-beta-stream', {
+  kind: 'ai_stream',
+  provider: 'google-gemini',
+  model: 'gemini-3.5-flash',
+  service_options: { projectId: 'demo-project', region: 'us-central1' },
+  options: { beta: true },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi' }],
+    model_config: { stream: true },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      body: 'data: {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"ok"}]}}]}\n\ndata: [DONE]\n\n',
+    },
+  ],
+  expected_transport_request: {
+    url: vertexCallUrl('v1beta1', 'streamGenerateContent?alt=sse'),
+  },
+});
+
 writeFixture('vertex-gemini-regional-endpoint-embed', {
   kind: 'ai_embed',
   provider: 'google-gemini',
@@ -10002,11 +10071,14 @@ writeFixture('azure-openai-prompt-cache-disabled', {
   expected_transport_json_absent: ['prompt_cache_key', 'prompt_cache_options'],
 });
 
+// Responses before GPT-6 has no cache breakpoints, but as in TS
+// (responses_api.ts, axResolveOpenAIPromptCacheKey) the request still sends
+// prompt_cache_key.
 writeFixture('openai-responses-prompt-cache-disabled', {
   kind: 'ai_chat',
   provider: 'openai-responses',
   model: 'gpt-5.6-luna',
-  service_options: { contextCache: {}, promptCacheKey: 'must-not-send' },
+  service_options: { contextCache: {}, promptCacheKey: 'responses-key' },
   request: {
     chat_prompt: [{ role: 'user', content: 'responses stays unchanged' }],
     model_config: { stream: false },
@@ -10028,7 +10100,175 @@ writeFixture('openai-responses-prompt-cache-disabled', {
       },
     },
   ],
-  expected_transport_json_absent: ['prompt_cache_key', 'prompt_cache_options'],
+  expected_transport_request: { json: { prompt_cache_key: 'responses-key' } },
+  expected_transport_json_absent: ['prompt_cache_options'],
+});
+
+// Every Responses request sends prompt_cache_key: the promptCacheKey, else the
+// sessionId, the call's before the service's (src/ax/ai/call_options.test.ts).
+const responsesCacheKeyResponse = {
+  status: 200,
+  json: {
+    id: 'resp_cache_key',
+    model: 'gpt-5.4-mini',
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    output: [
+      {
+        id: 'msg_cache_key',
+        type: 'message',
+        content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+      },
+    ],
+  },
+};
+for (const [name, fixture, key] of [
+  [
+    'openai-responses-prompt-cache-key-from-session-id',
+    { options: { sessionId: 'session-1' } },
+    'session-1',
+  ],
+  [
+    'openai-responses-prompt-cache-key-prefers-prompt-cache-key',
+    { options: { promptCacheKey: 'key-1', sessionId: 'session-1' } },
+    'key-1',
+  ],
+  [
+    'openai-responses-prompt-cache-key-from-service-session',
+    { service_options: { sessionId: 'service-session' } },
+    'service-session',
+  ],
+  [
+    'openai-responses-prompt-cache-key-call-session-over-service',
+    {
+      service_options: { sessionId: 'service-session' },
+      options: { sessionId: 'call-session' },
+    },
+    'call-session',
+  ],
+  [
+    'openai-responses-prompt-cache-key-service-key-over-call-session',
+    {
+      service_options: { promptCacheKey: 'service-key' },
+      options: { sessionId: 'call-session' },
+    },
+    'service-key',
+  ],
+  [
+    'openai-responses-prompt-cache-key-gpt-6-without-caching',
+    { model: 'gpt-6-luna', options: { sessionId: 'session-6' } },
+    'session-6',
+  ],
+  ['openai-responses-prompt-cache-key-absent-without-key', {}, undefined],
+] as const) {
+  writeFixture(name, {
+    kind: 'ai_chat',
+    provider: 'openai-responses',
+    model: 'gpt-5.4-mini',
+    // The call's options stay call options only beside service options.
+    service_options: {},
+    ...fixture,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'hi' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [responsesCacheKeyResponse],
+    ...(key === undefined
+      ? {
+          expected_transport_json_absent: [
+            'prompt_cache_key',
+            'prompt_cache_options',
+          ],
+        }
+      : {
+          expected_transport_request: {
+            url: 'https://api.openai.com/v1/responses',
+            json: { prompt_cache_key: key },
+          },
+          expected_transport_json_absent: ['prompt_cache_options'],
+        }),
+  });
+}
+
+// TS reads a call's timeout in milliseconds and bounds the wait for the
+// response headers with it (base.ts, apiCall; src/ax/ai/call_options.test.ts).
+// Until the next major version the ports take it as timeoutMs, which reaches
+// the transport as timeout_ms; each port's timeout_http_roundtrip example pins
+// the HTTP behavior.
+const callTimeoutChat = {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'gpt-5.4-mini',
+  service_options: {},
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_call_timeout', 'gpt-5.4-mini'),
+  ],
+};
+writeFixture('call-timeout-ms-reaches-transport', {
+  description:
+    "Port-only: a call's timeoutMs (TS's per-call timeout, in milliseconds) reaches the transport as timeout_ms.",
+  ...callTimeoutChat,
+  options: { timeoutMs: 250 },
+  expected_transport_request: { timeout_ms: 250 },
+  expected_warnings: [],
+});
+writeFixture('call-timeout-ms-reaches-stream-transport', {
+  description:
+    "Port-only: a stream call's timeoutMs reaches the transport as timeout_ms.",
+  kind: 'ai_stream',
+  provider: 'openai',
+  model: 'gpt-5.4-mini',
+  service_options: {},
+  options: { timeoutMs: 250 },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi' }],
+    model_config: { stream: true },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      body: 'data: {"id":"chatcmpl_call_timeout","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+    },
+  ],
+  expected_transport_request: { timeout_ms: 250 },
+});
+writeFixture('call-timeout-ms-from-client-options-embed', {
+  description:
+    "Port-only: a timeoutMs in the client's options applies to each embed request, as TS's service timeout does.",
+  kind: 'ai_embed',
+  provider: 'openai',
+  embed_model: 'text-embedding-3-small',
+  service_options: { timeoutMs: 250 },
+  request: { texts: ['hello'] },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        data: [{ embedding: [0.1, 0.2], index: 0 }],
+        model: 'text-embedding-3-small',
+        usage: { prompt_tokens: 1, total_tokens: 1 },
+      },
+    },
+  ],
+  expected_transport_request: { timeout_ms: 250 },
+});
+writeFixture('call-timeout-without-timeout-ms-warns', {
+  description:
+    'Port-only: a per-call timeout without timeoutMs is ignored (Rust reads it in seconds) until the next major version, so the call warns once, naming timeoutMs.',
+  ...callTimeoutChat,
+  options: { timeout: 30 },
+  expected_warnings_containing: ['per-call timeout', 'timeoutMs'],
+});
+writeFixture('call-timeout-with-timeout-ms-does-not-warn', {
+  description:
+    'Port-only: a per-call timeout beside timeoutMs does not warn, and timeoutMs applies.',
+  ...callTimeoutChat,
+  options: { timeout: 30, timeoutMs: 60000 },
+  expected_transport_request: { timeout_ms: 60000 },
+  expected_warnings: [],
 });
 
 writeFixture('openai-cache-write-usage-and-long-context-cost', {

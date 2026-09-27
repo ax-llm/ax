@@ -2,17 +2,22 @@
   "expected_transport_json_absent": ["prompt_cache_options"],
   "expected_transport_request": {
     "json": {
-      "prompt_cache_key": "responses-key"
-    }
+      "prompt_cache_key": "key-1"
+    },
+    "url": "https://api.openai.com/v1/responses"
   },
   "kind": "ai_chat",
-  "model": "gpt-5.6-luna",
-  "name": "openai-responses-prompt-cache-disabled",
+  "model": "gpt-5.4-mini",
+  "name": "openai-responses-prompt-cache-key-prefers-prompt-cache-key",
+  "options": {
+    "promptCacheKey": "key-1",
+    "sessionId": "session-1"
+  },
   "provider": "openai-responses",
   "request": {
     "chat_prompt": [
       {
-        "content": "responses stays unchanged",
+        "content": "hi",
         "role": "user"
       }
     ],
@@ -20,15 +25,12 @@
       "stream": false
     }
   },
-  "service_options": {
-    "contextCache": {},
-    "promptCacheKey": "responses-key"
-  },
+  "service_options": {},
   "transport_responses": [
     {
       "json": {
-        "id": "resp_cache_disabled",
-        "model": "gpt-5.6-luna",
+        "id": "resp_cache_key",
+        "model": "gpt-5.4-mini",
         "output": [
           {
             "content": [
@@ -38,7 +40,7 @@
                 "type": "output_text"
               }
             ],
-            "id": "msg_cache_disabled",
+            "id": "msg_cache_key",
             "type": "message"
           }
         ],

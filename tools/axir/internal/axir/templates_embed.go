@@ -57,6 +57,9 @@ var goAudioHTTPRoundtripExample string
 //go:embed templates/go/goStreamHTTPRoundtripExample.go.txt
 var goStreamHTTPRoundtripExample string
 
+//go:embed templates/go/goTimeoutHTTPRoundtripExample.go.txt
+var goTimeoutHTTPRoundtripExample string
+
 //go:embed templates/go/goAxFlowOpenAIExample.go.txt
 var goAxFlowOpenAIExample string
 
@@ -656,6 +659,9 @@ var rustAudioHTTPRoundtripExample string
 
 //go:embed templates/rust/rustStreamHTTPRoundtripExample.rs
 var rustStreamHTTPRoundtripExample string
+
+//go:embed templates/rust/rustTimeoutHTTPRoundtripExample.rs
+var rustTimeoutHTTPRoundtripExample string
 
 //go:embed templates/rust/rustAxFlowOpenAIExample.rs
 var rustAxFlowOpenAIExample string

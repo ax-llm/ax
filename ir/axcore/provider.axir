@@ -4509,6 +4509,7 @@ module @ax.provider version "0.1" {
         core.if %is_meta {
           %responses_payload = core.call @meta_prepare_responses_request(%responses_payload, %sampled_request, %options)
         } else {
+          %responses_payload = core.call @openai_responses_apply_prompt_cache_key(%responses_payload, %options)
           %responses_payload = core.call @openai_responses_apply_prompt_cache_retention(%responses_payload, %sampled_request, %options, %model)
         }
         %payload = core.call @openai_responses_apply_astra_caching(%responses_payload, %sampled_request, %options)
@@ -11396,6 +11397,93 @@ module @ax.provider version "0.1" {
         core.set %payload["prompt_cache_retention"] = %retention
       }
       core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_apply_prompt_cache_key {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/openai/responses_api.ts"
+    type signature = "(payload:json, options:json) -> json"
+    body @entry(%payload: json, %options: json) {
+      // As in TS (axResolveOpenAIPromptCacheKey), every Responses request sends
+      // prompt_cache_key: the promptCacheKey, else the sessionId. The options
+      // carry the call's over the client's, so the order is the call's key,
+      // the client's key, the call's sessionId, then the client's.
+      %key_snake = core.get %options["prompt_cache_key"]
+      %key = core.get %options["promptCacheKey"] default %key_snake
+      %session_snake = core.get %options["session_id"]
+      %session = core.get %options["sessionId"] default %session_snake
+      %resolved_key = core.call intrinsic.coalesce(%key, %session)
+      %has_key = core.call intrinsic.is_not_none(%resolved_key)
+      core.if %has_key {
+        core.set %payload["prompt_cache_key"] = %resolved_key
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @provider_call_timeout_ms {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/base.ts"
+    tag "src/ax/util/apicall.ts"
+    type signature = "(options:json) -> json"
+    body @entry(%options: json) {
+      // TS bounds each HTTP request with the call's timeout in milliseconds
+      // (base.ts: options.timeout ?? this.timeout); apiCall ends a request whose
+      // response headers have not arrived by then. Until the next major version
+      // the ports take that per-call value as timeoutMs. A positive number
+      // applies; anything else leaves the client's own timeout.
+      %value = core.get %options["timeoutMs"] default null
+      %is_number = core.type_is %value type "number"
+      core.if %is_number {
+        %positive = core.call intrinsic.gt(%value, 0)
+        core.if %positive {
+          core.return %value
+        }
+      }
+      core.return null
+    }
+  }
+
+  op ax.provider.semantic @provider_call_timeout_message {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/util/apicall.ts"
+    type signature = "(timeout_ms:json) -> string"
+    body @entry(%timeout_ms: json) {
+      // TS AxAIServiceTimeoutError's message for a request that timed out.
+      %message = core.call intrinsic.string.format("Request timed out after {}ms", %timeout_ms)
+      core.return %message
+    }
+  }
+
+  op ax.provider.semantic @provider_warn_call_timeout {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/base.ts"
+    type signature = "(options:json, seconds:bool) -> void"
+    body @entry(%options: json, %seconds: bool) {
+      // TS reads a per-call timeout in milliseconds. Until the next major
+      // version, Python, Go, Java and C++ ignore it and Rust reads it in
+      // seconds, so a call that gives timeout without timeoutMs warns once,
+      // naming timeoutMs.
+      %timeout = core.get %options["timeout"] default null
+      %timeout_ms = core.get %options["timeoutMs"] default null
+      %has_timeout = core.call intrinsic.is_not_none(%timeout)
+      %has_timeout_ms = core.call intrinsic.is_not_none(%timeout_ms)
+      %without_ms = core.call intrinsic.not(%has_timeout_ms)
+      %warn = core.call intrinsic.and(%has_timeout, %without_ms)
+      core.if %warn {
+        %message = core.let "Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does."
+        core.if %seconds {
+          %message = core.let "Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds)."
+        }
+        core.call intrinsic.ai.warn_once("call-timeout", %message)
+      }
+      core.return
     }
   }
 }

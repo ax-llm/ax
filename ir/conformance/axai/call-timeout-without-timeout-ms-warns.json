@@ -1,0 +1,49 @@
+{
+  "description": "Port-only: a per-call timeout without timeoutMs is ignored (Rust reads it in seconds) until the next major version, so the call warns once, naming timeoutMs.",
+  "expected_warnings_containing": ["per-call timeout", "timeoutMs"],
+  "kind": "ai_chat",
+  "model": "gpt-5.4-mini",
+  "name": "call-timeout-without-timeout-ms-warns",
+  "options": {
+    "timeout": 30
+  },
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {},
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_call_timeout",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

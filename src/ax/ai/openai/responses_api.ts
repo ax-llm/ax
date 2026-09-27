@@ -757,7 +757,8 @@ export class AxAIOpenAIResponsesImpl<
           ...finalReqToProcess,
           input: marked as typeof finalReqToProcess.input,
           prompt_cache_options: { mode: 'explicit', ttl: '30m' },
-          prompt_cache_key: config.promptCacheKey ?? config.sessionId,
+          // The call's key, else the service's, as on every Responses request.
+          prompt_cache_key: axResolveOpenAIPromptCacheKey(config, this.options),
         };
       }
       finalReqToProcess = axValidateOpenAIResponseRequest(finalReqToProcess);
