@@ -2013,3 +2013,47 @@ const inputCases: Record<string, Case> = {
 for (const [name, spec] of Object.entries(inputCases)) {
   await record(name, spec);
 }
+
+// TS checks a response's function calls before any function runs: a
+// forward's in AxMemory.addResponse, a stream's merged calls once the stream
+// ends. A call whose name is missing, null, empty or blank fails the run at
+// once ("Function call at index 0 in result 0 must have a non-empty function
+// name, received: ..."), with no retry and no second request.
+for (const [label, name] of [
+  ['missing', undefined],
+  ['null', null],
+  ['empty', ''],
+  ['blank', '  '],
+] as const) {
+  const fnPart: JsonMap = { params: '{"key":"a"}' };
+  if (name !== undefined) fnPart.name = name;
+  const unnamed: JsonMap = { id: 'call_1', type: 'function', function: fnPart };
+  await record(`function-call-${label}-name`, {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            content: '',
+            function_calls: [unnamed],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      { results: [{ index: 0, content: 'Answer: done' }] },
+    ],
+  });
+  await record(`streaming-forward-function-call-${label}-name`, {
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    responses: [
+      streamed(
+        chunk({ function_calls: [unnamed], finish_reason: 'function_call' })
+      ),
+      streamed(text('Answer: done'), done()),
+    ],
+  });
+}

@@ -1,0 +1,53 @@
+{
+  "expected_error_cause_contains": "Function call at index 0 in result 0 must have a non-empty function name, received: \"\"",
+  "expected_error_contains": "Generate failed: Function call at index 0 in result 0 must have a non-empty function name, received: \"\"",
+  "expected_request_count": 1,
+  "expected_tool_calls": [],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "function-call-empty-name",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "",
+                "params": "{\"key\":\"a\"}"
+              },
+              "id": "call_1",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: done",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

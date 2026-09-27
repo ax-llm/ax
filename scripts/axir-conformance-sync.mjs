@@ -68,13 +68,22 @@ function flagValue(flags, key, fallback = undefined) {
 // stay stable regardless of producer key order.
 const STABLE_ORDER_PRESERVING_KEYS = new Set(['sections']);
 
+// Keys whose whole subtree keeps its key order: validator cases compare
+// schemas and arguments as written, and string-format cases write objects as
+// JSON in their key order.
+const ORDER_PRESERVING_SUBTREES = new Set([
+  'validation_cases',
+  'format_cases',
+  'str_cases',
+]);
+
 function stable(
   value,
   parentKey = '',
   preserveOrder = false,
   inSignature = false
 ) {
-  const keepOrder = preserveOrder || parentKey === 'validation_cases';
+  const keepOrder = preserveOrder || ORDER_PRESERVING_SUBTREES.has(parentKey);
   const signature = inSignature || parentKey === 'signature_spec';
   const fieldOrder =
     signature && ['inputs', 'outputs', 'fields'].includes(parentKey);

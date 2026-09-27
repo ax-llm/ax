@@ -13355,3 +13355,52 @@ providerErrorFixture(
     transport_responses: [errorResponse(500), errorResponse(500)],
   }
 );
+
+// TS checks each chat prompt message before any request goes out
+// (axValidateChatRequestMessage): a role that is not a non-empty string, an
+// unknown role, and a user content item that is not an object or has no type
+// fail with messages that show the value as JSON.stringify(value, null, 2)
+// writes it, undefined when it is missing. The expected messages are TS's own.
+async function tsChatPromptError(chatPrompt: unknown[]): Promise<string> {
+  const llm = ai({ name: 'openai', apiKey: 'test-key' });
+  llm.setOptions({
+    fetch: (async () => {
+      throw new Error('chat-prompt check: no request expected');
+    }) as never,
+  });
+  try {
+    await llm.chat({ chatPrompt: chatPrompt as never }, { stream: false });
+  } catch (error) {
+    return (error as Error).message;
+  }
+  throw new Error('chat-prompt check: TS accepted the prompt');
+}
+for (const [name, chatPrompt] of [
+  ['chat-message-missing-role', [{ content: 'hi' }]],
+  ['chat-message-null-role', [{ role: null, content: 'hi' }]],
+  ['chat-message-empty-role', [{ role: '', content: 'hi' }]],
+  ['chat-message-number-role', [{ role: 5, content: 'hi' }]],
+  ['chat-message-blank-role', [{ role: '  ', content: 'hi' }]],
+  ['chat-message-unknown-role', [{ role: 'robot', content: 'hi' }]],
+  [
+    'chat-message-content-item-without-type',
+    [{ role: 'user', content: [{ text: 'hi' }] }],
+  ],
+  [
+    'chat-message-content-item-null-type',
+    [{ role: 'user', content: [{ type: null, text: 'hi' }] }],
+  ],
+  [
+    'chat-message-content-item-empty-type',
+    [{ role: 'user', content: [{ type: '', text: 'hi' }] }],
+  ],
+  ['chat-message-content-item-not-object', [{ role: 'user', content: ['hi'] }]],
+  ['chat-message-content-item-null', [{ role: 'user', content: [null] }]],
+  ['chat-message-content-item-list', [{ role: 'user', content: [['hi']] }]],
+] as const) {
+  writeFixture(name, {
+    kind: 'ai_error',
+    request: { chat_prompt: chatPrompt },
+    expected_error_contains: await tsChatPromptError([...chatPrompt]),
+  });
+}

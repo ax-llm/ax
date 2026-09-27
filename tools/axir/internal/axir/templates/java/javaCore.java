@@ -276,7 +276,7 @@ final class Core {
   }
   static int asInt(Object value) { return value instanceof Number n ? n.intValue() : Integer.parseInt(String.valueOf(value)); }
   static double asDouble(Object value) { return value instanceof Number n ? n.doubleValue() : Double.parseDouble(String.valueOf(value)); }
-  static String stringStr(Object value) { return display(value); }
+  static String stringStr(Object value) { return jsText(value); }
 
   static Object get(Object target, Object key, Object defaultValue) {
     if (target == null) return defaultValue;
@@ -472,19 +472,37 @@ final class Core {
   }
   static Object stringWords(Object value) { return Arrays.asList(String.valueOf(value).split("\\s+")); }
   static Object stringDefaultIfEmpty(Object value, Object fallback) { String text = String.valueOf(value).trim(); return text.isEmpty() ? fallback : text; }
+  // Each {} takes the next argument's jsText, from left to right and inserted
+  // as is (never read as a template); {{ and }} write one brace, any other
+  // brace is kept, and a {} past the last argument stays {}.
   static Object stringFormat(Object template, Object... args) {
-    // Each value fills the next {} after the previous one, so a value that
-    // itself contains {} is not formatted again.
-    String out = String.valueOf(template);
-    int cursor = 0;
-    for (Object arg : args) {
-      int index = out.indexOf("{}", cursor);
-      if (index < 0) break;
-      String text = display(arg);
-      out = out.substring(0, index) + text + out.substring(index + 2);
-      cursor = index + text.length();
+    String text = String.valueOf(template);
+    StringBuilder out = new StringBuilder();
+    int next = 0;
+    for (int i = 0; i < text.length(); ) {
+      if (i + 1 < text.length()) {
+        String pair = text.substring(i, i + 2);
+        if (pair.equals("{{")) { out.append('{'); i += 2; continue; }
+        if (pair.equals("}}")) { out.append('}'); i += 2; continue; }
+        if (pair.equals("{}")) {
+          out.append(next < args.length ? jsText(args[next++]) : "{}");
+          i += 2;
+          continue;
+        }
+      }
+      out.append(text.charAt(i));
+      i++;
     }
-    return out;
+    return out.toString();
+  }
+  // A value's text in string.format and string.str, as every port writes it:
+  // a string as is, null as "null", a boolean as "true" or "false", a number
+  // as JavaScript's String(x), and a list or map as compact JSON with its keys
+  // in insertion order (JSON.stringify).
+  static String jsText(Object value) {
+    if (value == null) return "null";
+    if (value instanceof List<?> || value instanceof Map<?, ?>) return Json.stringify(value);
+    return display(value);
   }
   static String display(Object value) {
     if (value instanceof Number n) return Json.numberText(n);

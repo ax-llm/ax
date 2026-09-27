@@ -750,6 +750,14 @@ module @ax.gen version "0.1" {
           }
           core.continue
         }
+        // As TS's AxMemory does, a call without a name fails the forward
+        // before the response is kept or any function runs.
+        core.try {
+          core.call @validate_completion_function_call_names(%response)
+        } catch %unnamed_call_error {
+          %unnamed_call_failure = core.call @generate_failed_impl(%unnamed_call_error)
+          core.raise %unnamed_call_failure
+        }
         core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
         core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
         %calls = core.call @response_function_calls_impl(%response)
@@ -2168,6 +2176,11 @@ module @ax.gen version "0.1" {
               %stage = core.let "validation"
               %folded = core.call @fold_chat_response_stream(%events)
               %response = core.call @chat_response_to_completion(%folded)
+              // The merged calls get the forward's check: a call without a
+              // name fails the run without a retry.
+              %stage = core.let "fatal"
+              core.call @validate_completion_function_call_names(%response)
+              %stage = core.let "validation"
               core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
               core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
               %recorded = core.let true
@@ -2845,6 +2858,72 @@ module @ax.gen version "0.1" {
       }
       core.set %render_options["extra_functions"] = %extra_functions
       core.return %render_options
+    }
+  }
+
+  op ax.gen.semantic @validate_completion_function_call_names {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "source:src/ax/ai/validate.ts#validateChatResponseFunctionCalls"
+    type signature = "(json) -> void throws"
+    body @entry(%response: json) {
+      // TS checks a model response's function calls before any runs (a
+      // forward's in AxMemory.addResponse, a stream's merged calls when it
+      // ends): a call whose name is missing, not a string, empty or blank
+      // fails with "Function call at index <call> in result <result> must
+      // have a non-empty function name, received: <JSON.stringify(name, null,
+      // 2)>", undefined for a missing name. The caller fails the forward
+      // without a retry. A complete()-only client's answer without results
+      // is result 0.
+      %empty = core.list
+      %results = core.get %response["results"]
+      %no_results = core.call intrinsic.is_none(%results)
+      core.if %no_results {
+        %results = core.list
+        core.append %results, %response
+      }
+      %result_index = core.let 0
+      core.for %result in %results {
+        %calls = core.get %result["function_calls"] default %empty
+        %call_index = core.let 0
+        core.for %call in %calls {
+          // The flat {id, name, params} call, or TS's nested {function:
+          // {name, params}} one.
+          %has_name = core.call intrinsic.map.contains(%call, "name")
+          %name = core.get %call["name"]
+          %fn = core.get %call["function"]
+          %fn_is_map = core.type_is %fn type "object"
+          core.if %fn_is_map {
+            %fn_has_name = core.call intrinsic.map.contains(%fn, "name")
+            core.if %fn_has_name {
+              %has_name = core.let true
+              %name = core.get %fn["name"]
+            }
+          }
+          %name_is_text = core.type_is %name type "string"
+          %named = core.let false
+          core.if %name_is_text {
+            %trimmed = core.string_trim %name
+            %named = core.call intrinsic.ne(%trimmed, "")
+          }
+          %unnamed = core.call intrinsic.not(%named)
+          core.if %unnamed {
+            %received = core.let "undefined"
+            core.if %has_name {
+              %received = core.call intrinsic.json.pretty(%name)
+            }
+            %message = core.call intrinsic.string.format("Function call at index {} in result {} must have a non-empty function name, received: {}", %call_index, %result_index, %received)
+            %error = core.call intrinsic.error.runtime(%message)
+            core.raise %error
+          }
+          %next_call_index = core.call intrinsic.add(%call_index, 1)
+          %call_index = core.let %next_call_index
+        }
+        %next_result_index = core.call intrinsic.add(%result_index, 1)
+        %result_index = core.let %next_result_index
+      }
+      core.return
     }
   }
 }

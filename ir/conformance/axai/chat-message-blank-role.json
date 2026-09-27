@@ -1,0 +1,13 @@
+{
+  "expected_error_contains": "Unsupported message role: \"  \"",
+  "kind": "ai_error",
+  "name": "chat-message-blank-role",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "  "
+      }
+    ]
+  }
+}

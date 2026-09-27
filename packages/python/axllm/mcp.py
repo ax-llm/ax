@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .signature import AxSignature, _js_json_dumps, _js_number_text
+from .signature import AxSignature, _js_json_dumps, _js_number_text, _js_format
 from .tool import Tool
 from .ai import AxCancellationToken, AxAIServiceAbortedError
 
@@ -120,10 +120,7 @@ def _core_validation_error(message): return AxMCPError(str(message))
 
 
 def _core_string_format(template, *args):
-    rendered = str(template)
-    for value in args:
-        rendered = rendered.replace("{}", _js_number_text(value) if isinstance(value, float) else str(value), 1)
-    return rendered
+    return _js_format(template, args)
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS

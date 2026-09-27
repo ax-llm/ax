@@ -338,6 +338,20 @@ engine API and still owns reflection, selection, Pareto metadata, bootstrapping,
 selector state, metric budgets, and descendant component optimization while
 reusing the shared optimizer evaluator/artifact boundary.
 
+## Text In Core Messages
+
+`intrinsic.string.format(template, args...)` and `intrinsic.string.str(value)`
+write text as JavaScript does in every port, so a Core message reads as the
+TypeScript template literal it mirrors. Each `{}` takes the next argument's
+text: a string as is (even one that contains `{}`), `null` as `null`, a
+boolean as `true` or `false`, a number as JavaScript's `String(n)`, and a list
+or object as compact `JSON.stringify` in key order. `{{` and `}}` write one
+brace, any other brace is kept, and a `{}` past the last argument stays `{}`.
+`string.str` writes one value the same way. To show a value as TypeScript's
+`JSON.stringify(value, null, 2)` does, pass `intrinsic.json.pretty(value)` as
+the argument. The TS golden `ir/conformance/prompt/string-format-cases.json`
+pins these rules in all five runners.
+
 ## Adding Or Changing Semantics
 
 New portable behavior should follow this loop:

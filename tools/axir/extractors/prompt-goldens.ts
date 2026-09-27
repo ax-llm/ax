@@ -599,3 +599,77 @@ writeFixture('number-format-cases', {
     return { input, string: String(value), json: JSON.stringify(value) };
   }),
 });
+
+// string.format fills each {} from left to right with the next argument's
+// text and string.str writes one value's text, in every port as JavaScript
+// writes it: String(x) for a string, number, boolean or null, JSON.stringify(x)
+// for a list or object (keys in insertion order). {{ and }} write one brace,
+// any other brace is kept, an argument goes in as is, and a {} past the last
+// argument stays {}. Each case's `input` keeps its key order in the file.
+const jsValueText = (value: unknown): string =>
+  value !== null && typeof value === 'object'
+    ? JSON.stringify(value)
+    : String(value);
+function jsTemplateText(template: string, args: readonly unknown[]): string {
+  let out = '';
+  let next = 0;
+  for (let index = 0; index < template.length; ) {
+    const pair = template.slice(index, index + 2);
+    if (pair === '{{') {
+      out += '{';
+      index += 2;
+    } else if (pair === '}}') {
+      out += '}';
+      index += 2;
+    } else if (pair === '{}') {
+      out += next < args.length ? jsValueText(args[next++]) : '{}';
+      index += 2;
+    } else {
+      out += template[index];
+      index += 1;
+    }
+  }
+  return out;
+}
+const stringFormatCases: { template: string; input: unknown[] }[] = [
+  { template: 'Function not found: {}.', input: [null] },
+  { template: '{} and {}', input: [true, false] },
+  { template: '{} {} {} {}', input: [0, 2, 1.5, -12.25] },
+  { template: 'list {}', input: [[1, 'x', null, true]] },
+  { template: 'object {}', input: [{ query: 'scope-probe', limit: 2 }] },
+  { template: 'nested {}', input: [{ z: [1, { a: null }], a: 'b' }] },
+  {
+    template: 'Field "{}": unbalanced "{" in object type',
+    input: ['profile'],
+  },
+  {
+    template: "type 'object ({{ mimeType: string; data: string }})' for {}",
+    input: ['sourceFile'],
+  },
+  { template: '{{}} is literal, {} fills', input: ['x'] },
+  { template: 'as is: {} then {}', input: ['a{}b', 'c'] },
+  { template: 'one {} and {}', input: ['arg'] },
+  { template: 'text {} ✓', input: ['é "quoted"\n'] },
+];
+const stringStrInputs: unknown[] = [
+  null,
+  true,
+  false,
+  0,
+  1.5,
+  'text',
+  [1, 'a', null],
+  { b: 1, a: [null, false] },
+];
+writeFixture('string-format-cases', {
+  kind: 'string_format',
+  format_cases: stringFormatCases.map((item) => ({
+    template: item.template,
+    input: item.input,
+    expected: jsTemplateText(item.template, item.input),
+  })),
+  str_cases: stringStrInputs.map((input) => ({
+    input,
+    expected: jsValueText(input),
+  })),
+});

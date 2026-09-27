@@ -1,5 +1,6 @@
 import type { AxChatResponse, AxModelUsage } from '../../ai/types.js';
 import { mergeFunctionCalls } from '../../ai/util.js';
+import { validateChatResponseFunctionCalls } from '../../ai/validate.js';
 import { assertStreamingAssertions } from '../asserts.js';
 import { ValidationError } from '../errors.js';
 import { streamingExtractValues, streamValues } from '../extract.js';
@@ -91,6 +92,17 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
     throw error;
   } finally {
     reader.releaseLock();
+  }
+
+  // Every sample's merged calls go through the checks a forward response gets
+  // in AxMemory.addResponse before any function runs, so a call without a
+  // name (or id, type or function object) fails the same way in both.
+  if (!args.signatureToolCallingManager) {
+    for (const state of states) {
+      if (state.functionCalls?.length) {
+        validateChatResponseFunctionCalls(state.functionCalls, state.index);
+      }
+    }
   }
 
   for (const state of states) {

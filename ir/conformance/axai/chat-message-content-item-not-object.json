@@ -1,0 +1,13 @@
+{
+  "expected_error_contains": "User message content item at index 0 must be an object, received: \"hi\"",
+  "kind": "ai_error",
+  "name": "chat-message-content-item-not-object",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": ["hi"],
+        "role": "user"
+      }
+    ]
+  }
+}

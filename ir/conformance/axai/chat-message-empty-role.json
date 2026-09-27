@@ -1,0 +1,13 @@
+{
+  "expected_error_contains": "Chat request message must have a role, received: \"\"",
+  "kind": "ai_error",
+  "name": "chat-message-empty-role",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": ""
+      }
+    ]
+  }
+}

@@ -24,7 +24,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
 # AXIR_CORE_IMPORTS
-from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text
+from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text, _js_format, _js_text
 
 def _core_validation_error(message):
     return ValueError(str(message))
@@ -3293,8 +3293,7 @@ def _core_string_slice(value, start, end=None):
 
 
 def _core_string_format(template, *args):
-    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
-    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
+    return _js_format(template, args)
 
 
 def _core_string_replace(value, old, new):
@@ -3302,8 +3301,11 @@ def _core_string_replace(value, old, new):
 
 
 def _core_string_str(value):
-    # String(x): a float two is "2", not "2.0".
-    return _js_number_text(value) if isinstance(value, float) else str(value)
+    return _js_text(value)
+
+
+def _core_json_pretty(value):
+    return _js_json_dumps(value, indent=2)
 
 
 def _core_ai_error_response(message, response_body=None):

@@ -588,6 +588,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_strip_internal(fixture)
         elif kind == "number_format":
             _run_number_format(fixture)
+        elif kind == "string_format":
+            _run_string_format(fixture)
         elif kind == "date_field_value":
             _run_date_field_value(fixture)
         elif kind == "date_input":
@@ -1194,6 +1196,22 @@ def _run_number_format(fixture):
         for label, actual, expected in checks:
             if actual != expected:
                 raise FixtureError(f"{label} of {case['input']}: expected {expected!r}, got {actual!r}")
+
+
+def _run_string_format(fixture):
+    """string.format and string.str as JavaScript writes the text, in every
+    module that has them."""
+    modules = {name: importlib.import_module(f".{name}", __package__) for name in ("agent", "ai", "flow", "gen", "mcp", "prompt", "schema", "signature")}
+    for case in fixture.get("format_cases") or []:
+        for name in ("agent", "ai", "gen", "mcp", "prompt", "schema", "signature"):
+            actual = modules[name]._core_string_format(case["template"], *case["input"])
+            if actual != case["expected"]:
+                raise FixtureError(f"{name} string.format of {case['template']!r}: expected {case['expected']!r}, got {actual!r}")
+    for case in fixture.get("str_cases") or []:
+        for name in ("ai", "flow", "gen"):
+            actual = modules[name]._core_string_str(case["input"])
+            if actual != case["expected"]:
+                raise FixtureError(f"{name} string.str of {case['input']!r}: expected {case['expected']!r}, got {actual!r}")
 
 
 def _run_strip_internal(fixture):
