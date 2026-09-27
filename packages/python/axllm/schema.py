@@ -353,6 +353,13 @@ def _validate_fields_impl(fields: list[Any], values: Any, context: str) -> None:
         if missing_or_null:
             required_missing = _core_not(is_optional)
             if required_missing:
+                is_input = _core_eq(context, "input")
+                if is_input:
+                    input_message = _core_string_format("Value for input field '{}' is required.", field_name)
+                    input_error = _core_validation_error(input_message)
+                    raise input_error
+                else:
+                    pass
                 message = _core_string_format("Required field is missing: '{}'", field_title)
                 error = _core_validation_error(message)
                 raise error
@@ -408,25 +415,6 @@ def _schema_json_type_impl(type_name: str) -> Any:
     else:
         pass
     return "string"
-
-
-def _validate_output_impl(fields: list[Any], values: Any) -> Any:
-    _core_coverage_mark("_validate_output_impl")
-    normalized = values
-    for field in fields:
-        field_name = _core_get(field, "name", None)
-        field_title = _core_get(field, "title", None)
-        has_name = _core_map_contains(normalized, field_name)
-        missing_name = _core_not(has_name)
-        has_title = _core_map_contains(normalized, field_title)
-        alias_title = _core_and(missing_name, has_title)
-        if alias_title:
-            title_value = _core_get(normalized, field_title, None)
-            normalized[field_name] = title_value
-        else:
-            pass
-    _validate_fields_impl(fields, normalized, "output")
-    return normalized
 
 
 def _schema_enhance_description_impl(base: Any, typ: FieldType) -> Any:
@@ -543,6 +531,25 @@ def _schema_enhance_description_impl(base: Any, typ: FieldType) -> Any:
     else:
         pass
     return base
+
+
+def _validate_output_impl(fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_validate_output_impl")
+    normalized = values
+    for field in fields:
+        field_name = _core_get(field, "name", None)
+        field_title = _core_get(field, "title", None)
+        has_name = _core_map_contains(normalized, field_name)
+        missing_name = _core_not(has_name)
+        has_title = _core_map_contains(normalized, field_title)
+        alias_title = _core_and(missing_name, has_title)
+        if alias_title:
+            title_value = _core_get(normalized, field_title, None)
+            normalized[field_name] = title_value
+        else:
+            pass
+    _validate_fields_impl(fields, normalized, "output")
+    return normalized
 
 
 def _validate_string_constraints_impl(value: str, field: Field) -> None:

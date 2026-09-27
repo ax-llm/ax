@@ -1719,6 +1719,16 @@ public final class Conformance {
         if (!text.contains(String.valueOf(item))) throw new FixtureError("teacher requests missing " + item);
       }
     }
+    if (fixture.containsKey("expected_teacher_system_prompts")) {
+      // Each teacher request's system prompt, in call order, byte for byte.
+      List<Object> prompts = new ArrayList<>();
+      for (Map<String, Object> request : teacher.requests) {
+        for (Object message : Core.asList(request.get("chat_prompt"))) {
+          if (message instanceof Map<?, ?> map && "system".equals(map.get("role"))) prompts.add(map.get("content"));
+        }
+      }
+      assertEqual(prompts, fixture.get("expected_teacher_system_prompts"), "teacher system prompts");
+    }
   }
 
   // A string script item is the response {"content": item}.
@@ -2225,6 +2235,10 @@ public final class Conformance {
     }
     if (fixture.containsKey("expected_chat_log_subset")) assertListSubset(agent.getChatLog(), fixture.get("expected_chat_log_subset"), "agent chat log");
     if (fixture.containsKey("expected_state")) assertSubset(agent.getState(), fixture.get("expected_state"), "agent state");
+    if (fixture.containsKey("expected_playbook_state")) {
+      AxPlaybook handle = agent.getPlaybook();
+      assertEqual(handle == null ? null : handle.getState(), fixture.get("expected_playbook_state"), "agent playbook state");
+    }
     Map<String, Object> exported = agent.exportRuntimeState();
     if (fixture.containsKey("expected_runtime_contract_subset")) assertSubset(agent.getRuntimeContract(), fixture.get("expected_runtime_contract_subset"), "runtime contract");
     if (fixture.containsKey("expected_exported_state_subset")) assertSubset(exported, fixture.get("expected_exported_state_subset"), "runtime state");

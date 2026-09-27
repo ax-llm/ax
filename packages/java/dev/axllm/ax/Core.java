@@ -2999,6 +2999,12 @@ final class Core {
       if (Core.truthy(missing_or_null)) {
         Object required_missing = Core.not(is_optional);
         if (Core.truthy(required_missing)) {
+          Object is_input = Core.eq(context, "input");
+          if (Core.truthy(is_input)) {
+            Object input_message = Core.stringFormat("Value for input field '{}' is required.", field_name);
+            Object input_error = Core.validationError(input_message);
+            throw Core.asRuntime(input_error);
+          }
           Object message = Core.stringFormat("Required field is missing: '{}'", field_title);
           Object error = Core.validationError(message);
           throw Core.asRuntime(error);
@@ -3052,25 +3058,6 @@ final class Core {
       return json_types;
     }
     return "string";
-  }
-
-  static Object _validate_output_impl(Object fields, Object values) {
-    axirCoverageMark("_validate_output_impl");
-    Object normalized = values;
-    for (Object field : Core.iter(fields)) {
-      Object field_name = Core.get(field, "name", null);
-      Object field_title = Core.get(field, "title", null);
-      Object has_name = Core.mapContains(normalized, field_name);
-      Object missing_name = Core.not(has_name);
-      Object has_title = Core.mapContains(normalized, field_title);
-      Object alias_title = Core.and(missing_name, has_title);
-      if (Core.truthy(alias_title)) {
-        Object title_value = Core.get(normalized, field_title, null);
-        Core.set(normalized, field_name, title_value);
-      }
-    }
-    Core._validate_fields_impl(fields, normalized, "output");
-    return normalized;
   }
 
   static Object _schema_enhance_description_impl(Object base, Object typ) {
@@ -3185,6 +3172,25 @@ final class Core {
       return description;
     }
     return base;
+  }
+
+  static Object _validate_output_impl(Object fields, Object values) {
+    axirCoverageMark("_validate_output_impl");
+    Object normalized = values;
+    for (Object field : Core.iter(fields)) {
+      Object field_name = Core.get(field, "name", null);
+      Object field_title = Core.get(field, "title", null);
+      Object has_name = Core.mapContains(normalized, field_name);
+      Object missing_name = Core.not(has_name);
+      Object has_title = Core.mapContains(normalized, field_title);
+      Object alias_title = Core.and(missing_name, has_title);
+      if (Core.truthy(alias_title)) {
+        Object title_value = Core.get(normalized, field_title, null);
+        Core.set(normalized, field_name, title_value);
+      }
+    }
+    Core._validate_fields_impl(fields, normalized, "output");
+    return normalized;
   }
 
   static Object _validate_string_constraints_impl(Object value, Object field) {

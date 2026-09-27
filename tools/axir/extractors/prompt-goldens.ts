@@ -421,6 +421,29 @@ stringPrompt(
   { ticket: 'Checkout is down' }
 );
 
+// Field titles follow TS's toTitle (src/ax/dsp/sig.ts): a snake_case name keeps
+// its later words lowercase ("Generator answer"), a camelCase name starts a
+// word at each capital ("Key Insight"), and a digit run starts a word ("Item 1").
+stringPrompt(
+  'field-titles-snake-and-camel-case',
+  'generator_answer:string, question_context:string, keyInsight:string, item1:string -> root_cause:string, errorIdentification:string',
+  {
+    generator_answer: 'Paris',
+    question_context: 'European capitals',
+    keyInsight: 'Cite the source',
+    item1: 'first',
+  }
+);
+
+// JSON and array outputs keep the `field name: value` text contract: TS asks
+// for one JSON object (and prints its shape) only when an output is an object
+// or an array of objects.
+stringPrompt(
+  'json-and-array-outputs-text-contract',
+  'question:string -> tags:string[], details:json',
+  { question: 'What is Ax?' }
+);
+
 // Object input values render as JSON.stringify(value, null, 2): two-space
 // indentation, keys in insertion order, {} and [] for empty containers, and
 // non-ASCII text (including non-BMP emoji) as UTF-8 rather than \u escapes.

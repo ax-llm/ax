@@ -113,6 +113,8 @@ function tsChunk(chunk: ChunkSpec): AxChatResponse {
 function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
   const queue = clone(responses);
   let calls = 0;
+  // The chat prompt of each request, in call order.
+  const prompts: Json[] = [];
   const ai = new AxMockAIService({
     features: {
       functions: (features?.functions as boolean | undefined) ?? true,
@@ -124,8 +126,9 @@ function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
           }
         : {}),
     },
-    chatResponse: async () => {
+    chatResponse: async (req) => {
       calls++;
+      prompts.push(clone(req.chatPrompt) as unknown as Json);
       const next = queue.shift();
       if (!next) throw new Error('scripted client exhausted');
       if ('error' in next) throw tsError(next.error);
@@ -155,7 +158,7 @@ function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
       functionCot: features.function_cot as boolean,
     });
   }
-  return { ai, calls: () => calls };
+  return { ai, calls: () => calls, prompts: () => prompts };
 }
 
 // Option keys the fixtures spell in snake_case, mapped to TS names.
@@ -300,6 +303,9 @@ type Case = {
   error_contains?: string;
   // Pin TS's whole error message, not only its first line.
   full_error?: boolean;
+  // Pin the first request's user message: its content as a JSON string
+  // literal, which every runner's JSON text of the chat prompt must contain.
+  pin_user_prompt?: boolean;
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -307,7 +313,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const input = spec.input ?? { question: 'Status?' };
   const toolCalls: JsonMap[] = [];
   const processorCalls: JsonMap[] = [];
-  const { ai, calls } = scriptedAI(spec.responses, spec.features);
+  const { ai, calls, prompts } = scriptedAI(spec.responses, spec.features);
   const gen = new AxGen(spec.signature, {
     ...tsOptions(spec.options),
     functions: tsTools(spec.tools ?? [], toolCalls),
@@ -431,6 +437,14 @@ async function record(name: string, spec: Case): Promise<void> {
     }
   } else if (error === undefined) {
     fixture.expected_output = output;
+  }
+  if (spec.pin_user_prompt) {
+    const first = (prompts()[0] ?? []) as { role?: string; content?: Json }[];
+    const user = first.filter((message) => message.role === 'user').at(-1);
+    if (typeof user?.content !== 'string') {
+      throw new Error(`${name}: no text user message to pin`);
+    }
+    fixture.expected_chat_prompt_contains = [JSON.stringify(user.content)];
   }
   if (error !== undefined) {
     // Without an explicit substring, pin TypeScript's first line, or its
@@ -1659,5 +1673,70 @@ writeFixture('streaming-forward-field-transform', {
 });
 
 for (const [name, spec] of Object.entries(cases)) {
+  await record(name, spec);
+}
+
+// ----- required inputs -----
+// TS renders each input field through isProvidedValue (src/ax/dsp/prompt.ts):
+// a required input that is missing, null, an empty string or an empty array
+// fails the forward before any request with "Value for input field '<name>'
+// is required."; a whitespace-only string is a value and renders as is; an
+// optional input with an empty value is left out of the prompt.
+const answeredOk: ResponseSpec = {
+  results: [{ index: 0, content: 'Answer: ok' }],
+};
+const inputCases: Record<string, Case> = {
+  'forward-required-input-empty-string': {
+    kind: 'forward',
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a', second: '' },
+    responses: [answeredOk],
+  },
+  'forward-required-input-missing': {
+    kind: 'forward',
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a' },
+    responses: [answeredOk],
+  },
+  'forward-required-input-null': {
+    kind: 'forward',
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a', second: null },
+    responses: [answeredOk],
+  },
+  'forward-required-input-empty-array': {
+    kind: 'forward',
+    signature: 'first:string, second:string[] -> answer:string',
+    input: { first: 'a', second: [] },
+    responses: [answeredOk],
+  },
+  'forward-required-input-whitespace': {
+    kind: 'forward',
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a', second: '   ' },
+    responses: [answeredOk],
+    pin_user_prompt: true,
+  },
+  'forward-optional-input-empty-string': {
+    kind: 'forward',
+    signature: 'first:string, second?:string -> answer:string',
+    input: { first: 'a', second: '' },
+    responses: [answeredOk],
+    pin_user_prompt: true,
+  },
+  // A stream fails the same way, before any delta.
+  'streaming-forward-required-input-empty-string': {
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a', second: '' },
+    responses: [streamed(text('Answer: ok'), done())],
+  },
+  'streaming-forward-required-input-missing': {
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a' },
+    responses: [streamed(text('Answer: ok'), done())],
+  },
+};
+
+for (const [name, spec] of Object.entries(inputCases)) {
   await record(name, spec);
 }

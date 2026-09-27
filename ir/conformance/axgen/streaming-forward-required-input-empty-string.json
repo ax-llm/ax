@@ -1,0 +1,34 @@
+{
+  "expected_deltas": [],
+  "expected_error_contains": "Value for input field 'second' is required.",
+  "expected_request_count": 0,
+  "input": {
+    "first": "a",
+    "second": ""
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-required-input-empty-string",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: ok",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "first:string, second:string -> answer:string"
+}

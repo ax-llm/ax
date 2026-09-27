@@ -1097,6 +1097,17 @@ static void run_playbook_evolve(Value fixture) {
   AxPlaybook book = playbook(program, student, options, &teacher);
   Value result = book.evolve(as_array(Core::get(fixture, "examples", Value::array())), metric);
   if (!Core::get(fixture, "expected_playbook").is_null()) assert_equal(Core::get(result, "playbook"), Core::get(fixture, "expected_playbook"), "playbook evolve playbook");
+  Value expected_prompts = Core::get(fixture, "expected_teacher_system_prompts");
+  if (!expected_prompts.is_null()) {
+    // Each teacher request's system prompt, in call order, byte for byte.
+    Array prompts;
+    for (const auto& request : teacher.requests) {
+      for (const auto& message : Core::iter(Core::get(request, "chat_prompt", Value::array()))) {
+        if (display(Core::get(message, "role")) == "system") prompts.push_back(Core::get(message, "content"));
+      }
+    }
+    assert_equal(Value(prompts), expected_prompts, "teacher system prompts");
+  }
   Value expected_contains = Core::get(fixture, "expected_teacher_request_contains");
   if (expected_contains.is_null()) return;
   // The plain text of every teacher request message, as the model reads it.
@@ -2006,6 +2017,10 @@ static void run_agent_forward(Value fixture) {
   }
   if (!Core::get(fixture, "expected_chat_log_subset").is_null()) assert_list_subset(ag->get_chat_log(), Core::get(fixture, "expected_chat_log_subset"), "agent chat log");
   if (!Core::get(fixture, "expected_state").is_null()) assert_subset(ag->get_state(), Core::get(fixture, "expected_state"), "agent state");
+  if (!Core::get(fixture, "expected_playbook_state").is_null()) {
+    AxPlaybook* handle = ag->get_playbook();
+    assert_equal(handle ? handle->get_state() : Value(), Core::get(fixture, "expected_playbook_state"), "agent playbook state");
+  }
   Value exported = ag->export_runtime_state();
   if (!Core::get(fixture, "expected_runtime_contract_subset").is_null()) assert_subset(ag->get_runtime_contract(), Core::get(fixture, "expected_runtime_contract_subset"), "runtime contract");
   if (!Core::get(fixture, "expected_exported_state_subset").is_null()) assert_subset(exported, Core::get(fixture, "expected_exported_state_subset"), "runtime state");
