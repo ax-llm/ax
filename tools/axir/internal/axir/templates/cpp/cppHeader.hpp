@@ -412,7 +412,11 @@ struct Core {
   static Value client_ref(AIClient& client);
   static Value agent_stage_ref(AxProgram& stage);
   static Value code_runtime_ref(AxCodeRuntime& runtime);
-  static Value object_call_method(Value target, Value method_name, Value arg = Value());
+  // A prompt template's "render" takes the values and, optionally, render
+  // options that win over the template's own (AxGen passes the selected
+  // structured-output rung's): structured_output, structured_output_function_name
+  // and extra_functions, which are listed after the template's functions.
+  static Value object_call_method(Value target, Value method_name, Value arg = Value(), Value options = Value());
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
   static Value ai_complete_once(Value client, Value request, Value options);
