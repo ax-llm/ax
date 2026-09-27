@@ -899,6 +899,13 @@ static void run_forward(Value fixture) {
   Value sig = build_signature(fixture);
   ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
   Value options = Core::map_merge(Core::get(fixture, "options", Value::object()), Value(Object{{"functions", tool_build.values}}));
+  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
+  client.script_speak(fixture);
+  auto control_events = std::make_shared<FixtureControlEvents>();
+  // constructor_control: the run control is a constructor default, not a
+  // call option.
+  std::optional<AxRunControl> constructor_control;
+  if (Core::truthy(Core::get(fixture, "constructor_control", false))) constructor_control = attach_fixture_control(fixture, client, options, control_events);
   AxGen gen(sig, options);
   if (!Core::get(fixture, "examples").is_null()) gen.set_examples(Core::get(fixture, "examples"));
   if (!Core::get(fixture, "demos").is_null()) gen.set_demos(Core::get(fixture, "demos"));
@@ -919,10 +926,7 @@ static void run_forward(Value fixture) {
       return std::stoi(display(picker_index));
     });
   }
-  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
-  client.script_speak(fixture);
   Value forward_options = Core::get(fixture, "forward_options", Value::object());
-  auto control_events = std::make_shared<FixtureControlEvents>();
   std::optional<AxRunControl> control;
   if (Core::truthy(Core::get(fixture, "control", false))) {
     forward_options = Core::map_merge(Value::object(), forward_options);
@@ -1022,6 +1026,13 @@ static void run_streaming_forward(Value fixture) {
   Value sig = build_signature(fixture);
   ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
   Value options = Core::map_merge(Core::get(fixture, "options", Value::object()), Value(Object{{"functions", tool_build.values}}));
+  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
+  client.script_speak(fixture);
+  auto control_events = std::make_shared<FixtureControlEvents>();
+  // constructor_control: the run control is a constructor default, not a
+  // call option.
+  std::optional<AxRunControl> constructor_control;
+  if (Core::truthy(Core::get(fixture, "constructor_control", false))) constructor_control = attach_fixture_control(fixture, client, options, control_events);
   AxGen gen(sig, options);
   for (const auto& assertion : Core::iter(Core::get(fixture, "assertions", Value::array()))) gen.add_assert(assertion);
   for (const auto& assertion : Core::iter(Core::get(fixture, "streaming_assertions", Value::array()))) gen.add_streaming_assert(assertion);
@@ -1039,10 +1050,7 @@ static void run_streaming_forward(Value fixture) {
     gen.set_result_picker([index](const Value&) { return index; });
   }
   if (!Core::get(fixture, "stop_functions").is_null()) gen.set_stop_functions(Core::get(fixture, "stop_functions", Value::array()));
-  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
-  client.script_speak(fixture);
   Value run_options = Core::map_merge(Value::object(), Core::get(fixture, "forward_options", Value::object()));
-  auto control_events = std::make_shared<FixtureControlEvents>();
   std::optional<AxRunControl> control;
   if (Core::truthy(Core::get(fixture, "control", false))) control = attach_fixture_control(fixture, client, run_options, control_events);
   // stop_after_deltas: the handler stops the run after that many deltas.
@@ -1174,7 +1182,15 @@ static void run_cache_sequence(Value fixture) {
   auto cache = std::make_shared<FixtureCache>();
   AxCachingFunction fn = fixture_caching_function(fixture, cache);
   std::string cache_in = Core::truthy(Core::get(fixture, "cache_in")) ? display(Core::get(fixture, "cache_in")) : "call";
-  AxGen gen(build_signature(fixture), Core::map_merge(Value::object(), Core::get(fixture, "options", Value::object())));
+  Value options = Core::map_merge(Value::object(), Core::get(fixture, "options", Value::object()));
+  // constructor_control: a run control in the constructor's options, which
+  // skips the cache as a call's does.
+  std::optional<AxRunControl> constructor_control;
+  if (Core::truthy(Core::get(fixture, "constructor_control", false))) {
+    constructor_control = run_control();
+    Core::set(options, "control", constructor_control->value());
+  }
+  AxGen gen(build_signature(fixture), options);
   if (cache_in == "constructor") gen.set_caching_function(fn);
   Value picker_index = Core::get(fixture, "result_picker_index");
   if (!picker_index.is_null()) {

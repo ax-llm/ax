@@ -2,8 +2,9 @@ use axllm::{AxAIClient, AxResult, OpenAICompatibleClient};
 use serde_json::json;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 // Drive a streaming stream() through the REAL reqwest transport against an
 // in-process loopback server that returns a spec-legal text/event-stream body
@@ -64,44 +65,50 @@ fn main() -> AxResult<()> {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
     let port = listener.local_addr().unwrap().port();
 
+    // The server holds the rest of the body back until the client has taken
+    // the first event, and reports whether the client did: the order proves
+    // incremental delivery, so a slow machine cannot fail it. The 30 s bound
+    // only runs out when the client yields nothing before the body ends.
+    let (first_taken, first_taken_rx) = mpsc::channel::<()>();
     let first_body = sse_first.clone();
     let rest_body = sse_rest.clone();
-    thread::spawn(move || {
-        if let Ok((mut stream, _)) = listener.accept() {
-            drain_request(&mut stream);
-            let header = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                first_body.len() + rest_body.len()
-            );
-            let _ = stream.write_all(header.as_bytes());
-            for byte in first_body.as_bytes() {
-                let _ = stream.write_all(&[*byte]);
-                let _ = stream.flush();
-            }
-            thread::sleep(Duration::from_millis(300));
-            let _ = stream.write_all(rest_body.as_bytes());
+    let server = thread::spawn(move || -> bool {
+        let Ok((mut stream, _)) = listener.accept() else {
+            return false;
+        };
+        drain_request(&mut stream);
+        let header = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            first_body.len() + rest_body.len()
+        );
+        let _ = stream.write_all(header.as_bytes());
+        for byte in first_body.as_bytes() {
+            let _ = stream.write_all(&[*byte]);
             let _ = stream.flush();
         }
+        let incremental = first_taken_rx.recv_timeout(Duration::from_secs(30)).is_ok();
+        let _ = stream.write_all(rest_body.as_bytes());
+        let _ = stream.flush();
+        incremental
     });
 
     // base_url_override is the documented proxy/gateway knob; point it at the
     // loopback so the real reqwest transport streams from our server.
     let mut client = OpenAICompatibleClient::new("test-key", "gpt-5.4-mini");
     client.base_url_override = Some(format!("http://127.0.0.1:{port}"));
-    let started = Instant::now();
     let mut stream = client.stream_iter(json!({
         "chat_prompt": [{"role": "user", "content": "stream"}]
     }))?;
     let first = stream.next().expect("first event before completion")?;
-    let ttft = started.elapsed();
+    let _ = first_taken.send(());
     let mut events = vec![first];
     for event in &mut stream {
         events.push(event?);
     }
-    let completion = started.elapsed();
+    let incremental = server.join().expect("loopback server");
     assert!(
-        completion.saturating_sub(ttft) >= Duration::from_millis(200),
-        "first event was not incremental: ttft={ttft:?} completion={completion:?}"
+        incremental,
+        "first event was not incremental: the client yielded it only after the server sent the rest of the body"
     );
 
     let deltas: Vec<String> = events

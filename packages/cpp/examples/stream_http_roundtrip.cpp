@@ -77,6 +77,9 @@ void write_response(int fd, const std::string& content_type, const std::string& 
 }
 
 
+// The server waits for the client to close the connection once the run is
+// aborted. The 30 s receive timeout only runs out when the client keeps the
+// connection; it is generous so that a slow machine cannot trip it.
 void stalled_http_cancellation() {
   using namespace axllm;
   int listener=socket(AF_INET,SOCK_STREAM,0);
@@ -87,7 +90,7 @@ void stalled_http_cancellation() {
   std::atomic<bool> closed{false};
   std::thread server([&]{
     int connection=accept(listener,nullptr,nullptr);if(connection<0)return;
-    drain_request(connection);timeval timeout{3,0};setsockopt(connection,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
+    drain_request(connection);timeval timeout{30,0};setsockopt(connection,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
     const std::string event="data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"item\",\"call_id\":\"http-pending\",\"name\":\"lookup\",\"arguments\":\"{}\"}}\n\n";
     const std::string response="HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 100000\r\n\r\n"+event;
     size_t offset=0;while(offset<response.size()){auto written=send(connection,response.data()+offset,response.size()-offset,0);if(written<=0)break;offset+=written;}
@@ -140,10 +143,16 @@ int main() {
   getsockname(server_fd, reinterpret_cast<sockaddr*>(&addr), &alen);
   int port = ntohs(addr.sin_port);
 
+  // Both requests hold the rest of the body back and record whether the
+  // client got there first: the order proves incremental delivery and prompt
+  // cancellation, so a slow machine cannot fail either check. The 30 s bounds
+  // only run out when the client never gets there.
   std::mutex release_mutex;
   std::condition_variable release_rest;
   bool first_received = false;
+  bool cancel_returned = false;
   std::atomic<bool> release_timed_out{false};
+  std::atomic<bool> cancel_hold_expired{false};
   std::thread server([&]() {
     for (int request = 0; request < 2; ++request) {
       int fd = accept(server_fd, nullptr, nullptr);
@@ -153,11 +162,16 @@ int main() {
         write_response(fd, "text/event-stream", sse_first, sse_rest,
                        std::chrono::milliseconds(0), [&] {
           std::unique_lock<std::mutex> lock(release_mutex);
-          if (!release_rest.wait_for(lock, std::chrono::seconds(5), [&] { return first_received; }))
+          if (!release_rest.wait_for(lock, std::chrono::seconds(30), [&] { return first_received; }))
             release_timed_out.store(true);
         });
       } else {
-        write_response(fd, "text/event-stream", sse_first, sse_rest, std::chrono::milliseconds(1500));
+        write_response(fd, "text/event-stream", sse_first, sse_rest,
+                       std::chrono::milliseconds(0), [&] {
+          std::unique_lock<std::mutex> lock(release_mutex);
+          if (!release_rest.wait_for(lock, std::chrono::seconds(30), [&] { return cancel_returned; }))
+            cancel_hold_expired.store(true);
+        });
       }
       close(fd);
     }
@@ -196,13 +210,13 @@ int main() {
 
   axllm::AxCancellationToken token;
   bool aborted = false;
-  std::chrono::steady_clock::time_point cancel_started;
+  bool cancelled = false;
   try {
     client.stream_each(
         axllm::object({{"chat_prompt", axllm::array({axllm::object({
             {"role", "user"}, {"content", "cancel stream"}})})}}),
         [&](const axllm::Value&) {
-          cancel_started = std::chrono::steady_clock::now();
+          cancelled = true;
           token.cancel("loopback stopped");
           return true;
         },
@@ -214,10 +228,15 @@ int main() {
       return 1;
     }
   }
-  auto cancel_completed = std::chrono::steady_clock::now();
-  if (!aborted || cancel_started.time_since_epoch().count() == 0 ||
-      cancel_completed - cancel_started > std::chrono::milliseconds(750)) {
+  bool held = !cancel_hold_expired.load();
+  {
+    std::lock_guard<std::mutex> lock(release_mutex);
+    cancel_returned = true;
+  }
+  release_rest.notify_one();
+  if (!aborted || !cancelled || !held) {
     std::cerr << "real HTTP stream cancellation was not prompt\n";
+    server.join();
     return 1;
   }
 
