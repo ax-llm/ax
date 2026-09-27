@@ -1714,8 +1714,15 @@ func _core_map_values(values Value) Value {
 	return out
 }
 func _core_record_new(name Value, values Value) Value { return recordNew(display(name), asMap(values)) }
-func _core_object_call_method(target Value, methodName Value, arg Value) (Value, error) {
-	return objectCallMethod(target, display(methodName), arg)
+// _core_object_call_method calls a method with one argument and, for a
+// prompt template's render, the render's options.
+func _core_object_call_method(target Value, methodName Value, args ...Value) (Value, error) {
+	var arg Value
+	var rest []Value
+	if len(args) > 0 {
+		arg, rest = args[0], args[1:]
+	}
+	return objectCallMethod(target, display(methodName), arg, rest...)
 }
 func _core_program_components(program Value) Value {
 	if p, ok := program.(AxProgram); ok {
@@ -3392,9 +3399,20 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	out := Object("status", float64(resp.StatusCode))
 	if coreTruthy(coreGet(req, "binaryResponse", false)) {
 		// Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
-		// be UTF-8 decoded / JSON-parsed; return the bytes as a base64 string so
-		// the speak normalizer's `raw["audio"] default raw` picks it up.
-		coreSet(out, "json", base64.StdEncoding.EncodeToString(data))
+		// be UTF-8 decoded: the bytes go on as base64 with their Content-Type,
+		// which names their mime type. A JSON body (as TS reads one by its
+		// Content-Type) goes on parsed.
+		contentType := resp.Header.Get("Content-Type")
+		if strings.Contains(contentType, "application/json") {
+			parsed, parseErr := parseJSONErr(string(data))
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			coreSet(out, "json", parsed)
+		} else {
+			coreSet(out, "json", base64.StdEncoding.EncodeToString(data))
+		}
+		coreSet(out, "headers", Object("content-type", contentType))
 	} else if coreTruthy(coreGet(req, "stream", false)) {
 		coreSet(out, "body", string(data))
 	} else if len(data) > 0 {
@@ -3531,6 +3549,12 @@ type AnthropicClient struct{ *OpenAICompatibleClient }
 
 func NewOpenAICompatibleClient(options map[string]Value) *OpenAICompatibleClient {
 	descriptor := asMap(mustCore(provider_descriptor("openai-compatible")))
+	if coreGet(options, "base_url", coreGet(options, "baseUrl", nil)) == nil {
+		// Built directly without a base_url, the generic client talks to
+		// OpenAI, as it does in the other languages.
+		options = cloneMap(options)
+		coreSet(options, "base_url", "https://api.openai.com/v1")
+	}
 	return newProviderClient("openai-compatible", "openai-compatible", options, display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))
 }
 func newProviderClient(profile, name string, options map[string]Value, defaultModel, defaultEmbed string) *OpenAICompatibleClient {
@@ -3547,11 +3571,10 @@ func newProviderClient(profile, name string, options map[string]Value, defaultMo
 	if options["embed_model"] == nil {
 		options["embed_model"] = defaultEmbed
 	}
-	modelConfig := asMap(coreGet(options, "model_config", Object()))
-	if profile != "typesafe" && coreGet(modelConfig, "temperature", nil) == nil {
-		coreSet(modelConfig, "temperature", float64(0))
-	}
-	coreSet(options, "model_config", modelConfig)
+	// Only the caller's settings: provider_build_chat_request adds the
+	// provider's sampling defaults (as its TS class starts from) under them,
+	// after dropping the explicit ones the model rejects.
+	coreSet(options, "model_config", cloneMap(asMap(coreGet(options, "model_config", Object()))))
 	transport, _ := options["transport"].(Transport)
 	if transport == nil {
 		transport = HTTPTransport{}
@@ -3570,14 +3593,14 @@ func NewGoogleGeminiClient(options map[string]Value) *GoogleGeminiClient {
 }
 func newGoogleGeminiClient(profile string, options map[string]Value) *GoogleGeminiClient {
 	descriptor := asMap(mustCore(provider_descriptor(profile)))
-	return &GoogleGeminiClient{newProviderClient(profile, profile, normalizeGoogleOptions(options), display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))}
+	return &GoogleGeminiClient{newProviderClient(profile, profile, normalizeGoogleOptions(profile, options), display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))}
 }
 func NewAnthropicClient(options map[string]Value) *AnthropicClient {
 	return newAnthropicClient("anthropic", options)
 }
 func newAnthropicClient(profile string, options map[string]Value) *AnthropicClient {
 	descriptor := asMap(mustCore(provider_descriptor(profile)))
-	return &AnthropicClient{newProviderClient(profile, profile, normalizeAnthropicOptions(options), display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))}
+	return &AnthropicClient{newProviderClient(profile, profile, normalizeAnthropicOptions(profile, options), display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))}
 }
 func NewAI(provider string, options map[string]Value) AIClient {
 	profile := display(mustCore(provider_normalize_profile(provider)))
@@ -3588,12 +3611,28 @@ func NewAI(provider string, options map[string]Value) AIClient {
     if profile=="typesafe" && coreGet(options,"api_key",coreGet(options,"apiKey",nil))==nil {
         options=cloneMap(options);key:=os.Getenv("TYPESAFE_APIKEY");if key==""{key=os.Getenv("TYPESAFE_API_KEY")};options["api_key"]=key
     }
-	credentialProvider := coreGet(options, "credential_provider", coreGet(options, "credentialProvider", nil))
-	apiKey := display(coreGet(options, "api_key", coreGet(options, "apiKey", "")))
-	if coreTruthy(coreGet(descriptor, "authRequired", false)) && apiKey == "" && credentialProvider == nil {
-		panic(AxError{Category: "authentication", Message: profile + " requires api_key or credential_provider"})
+	transportName := display(coreGet(descriptor, "transport", ""))
+	switch transportName {
+	case "gemini-generate-content":
+		options = normalizeGoogleOptions(profile, options)
+	case "anthropic-messages":
+		options = normalizeAnthropicOptions(profile, options)
 	}
-	switch display(coreGet(descriptor, "transport", "")) {
+	// A profile without a base URL of its own needs the caller's (TS
+	// resolveProfileURL) instead of sending its key to another host.
+	mustCore(provider_require_api_url(profile, options))
+	credentialProvider := coreGet(options, "credential_provider", coreGet(options, "credentialProvider", nil))
+	apiKey := ""
+	if key := coreGet(options, "api_key", coreGet(options, "apiKey", nil)); key != nil {
+		apiKey = display(key)
+	}
+	if apiKey == "" {
+		apiKey = goOpenAIEnvKey(profile)
+	}
+	if coreTruthy(coreGet(descriptor, "authRequired", false)) && apiKey == "" && credentialProvider == nil {
+		panic(AxError{Category: "authentication", Message: display(mustCore(provider_missing_api_key_message(profile)))})
+	}
+	switch transportName {
 	case "openai-responses":
 		return newOpenAIResponsesClient(profile, options)
 	case "gemini-generate-content":
@@ -3637,8 +3676,24 @@ func normalizeAzureOptions(options map[string]Value) map[string]Value {
 	return options
 }
 
-func normalizeGoogleOptions(options map[string]Value) map[string]Value {
+// goOpenAIEnvKey is OPENAI_API_KEY for OpenAI's own profiles and the generic
+// client, and empty for every other provider: the OpenAI key never goes to
+// another provider's servers.
+func goOpenAIEnvKey(profile string) string {
+	switch profile {
+	case "openai", "openai-responses", "openai-compatible":
+		return os.Getenv("OPENAI_API_KEY")
+	}
+	return ""
+}
+
+// normalizeGoogleOptions fills the key and base URL from the Google env vars,
+// which belong to the google-gemini profile only.
+func normalizeGoogleOptions(profile string, options map[string]Value) map[string]Value {
 	options = cloneMap(options)
+	if profile != "google-gemini" {
+		return options
+	}
 	vertex := coreGet(options, "project_id", coreGet(options, "projectId", nil)) != nil && coreGet(options, "region", nil) != nil
 	if coreGet(options, "api_key", coreGet(options, "apiKey", nil)) == nil {
 		key := os.Getenv("GOOGLE_API_KEY")
@@ -3660,8 +3715,14 @@ func normalizeGoogleOptions(options map[string]Value) map[string]Value {
 	return options
 }
 
-func normalizeAnthropicOptions(options map[string]Value) map[string]Value {
+// normalizeAnthropicOptions fills the key and base URL from the Anthropic env
+// vars, which belong to the anthropic profile only: an Anthropic key never
+// goes to another anthropic-messages host.
+func normalizeAnthropicOptions(profile string, options map[string]Value) map[string]Value {
 	options = cloneMap(options)
+	if profile != "anthropic" {
+		return options
+	}
 	vertex := coreGet(options, "project_id", coreGet(options, "projectId", nil)) != nil && coreGet(options, "region", nil) != nil
 	if coreGet(options, "api_key", coreGet(options, "apiKey", nil)) == nil {
 		key := os.Getenv("ANTHROPIC_API_KEY")
@@ -4366,7 +4427,7 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	descriptor := mustCore(provider_resolve_descriptor(c.Profile, opts))
 	base := display(coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://api.openai.com/v1"))))
 	headers := Object("Content-Type", "application/json")
-	defaultKey:=os.Getenv("OPENAI_API_KEY");if c.Profile=="typesafe" { defaultKey="" }
+	defaultKey:=goOpenAIEnvKey(c.Profile)
 	apiKey := display(coreGet(opts, "api_key", coreGet(opts, "apiKey", defaultKey)))
 	switch display(coreGet(descriptor, "auth", "bearer")) {
 	case "bearer":
@@ -4440,6 +4501,21 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	return out
 }
 
+// transportContentType is the Content-Type header of a transport response, if
+// it names one.
+func transportContentType(raw Value) string {
+	headers, ok := coreGet(raw, "headers", nil).(map[string]Value)
+	if !ok {
+		return ""
+	}
+	for key, value := range headers {
+		if key != "__order" && strings.EqualFold(key, "content-type") {
+			return display(value)
+		}
+	}
+	return ""
+}
+
 func normalizeTransportPayload(raw Value, call Value, options map[string]Value) Value {
 	status := int(num(coreGet(raw, "status", 200)))
 	body := coreGet(raw, "json", coreGet(raw, "body", coreGet(raw, "data", raw)))
@@ -4475,7 +4551,22 @@ func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]V
 		if err != nil {
 			panic(providerNetworkError(err, transportReq, errorOptions))
 		}
-		return mustCore(provider_normalize_speak_response(c.Profile, normalizeTransportPayload(raw, transportReq, errorOptions), request))
+		// As TS's axFetchJsonSpeech: a JSON body (by its Content-Type) is read
+		// as JSON, and a binary one as base64 with its Content-Type.
+		payload := normalizeTransportPayload(raw, transportReq, errorOptions)
+		contentType := transportContentType(raw)
+		if text, ok := payload.(string); ok && strings.Contains(contentType, "application/json") {
+			parsed, parseErr := parseJSONErr(text)
+			if parseErr != nil {
+				panic(AxError{Category: "response", Message: parseErr.Error()})
+			}
+			payload = parsed
+		}
+		var contentTypeValue Value
+		if contentType != "" {
+			contentTypeValue = contentType
+		}
+		return mustCore(provider_normalize_speak_response(c.Profile, payload, request, contentTypeValue))
 	})
 	return value, normalizeContextError(ctx, err)
 }
@@ -4612,7 +4703,7 @@ func redactURLQuery(message, rawURL string) string {
 func (c *OpenAICompatibleClient) realtimeWSTarget(model Value, opts map[string]Value) (string, map[string]Value) {
 	// Grammar-specific URL + auth construction lives in Core so the client stays
 	// provider-agnostic.
-	defaultKey:=os.Getenv("OPENAI_API_KEY");if c.Profile=="typesafe" { defaultKey="" }
+	defaultKey:=goOpenAIEnvKey(c.Profile)
 	apiKey := display(coreGet(opts, "api_key", coreGet(opts, "apiKey", defaultKey)))
 	target := mustCore(provider_realtime_ws_url(c.Profile, display(model), apiKey, opts))
 	headers := Object()
@@ -7130,6 +7221,17 @@ type AxAgent struct {
 	// prompt, kept to rebind the playbook when SetSignature rebuilds stages.
 	playbookTarget string
 	playbookApply  bool
+	// Each run uses the stage set of its mode (see useStageMode): "runtime",
+	// the RLM stages, or "plain", the runtime-less stages. The other mode's
+	// set is built on first use and kept; optimizedComponents apply to a set
+	// when a run switches to it.
+	stageMode           string
+	stageSets           map[string]agentStageSet
+	optimizedComponents map[string]Value
+}
+
+type agentStageSet struct {
+	distiller, executor, responder *AxGen
 }
 
 // AxMemoriesSearchFn / AxSkillsSearchFn are native host callbacks the agent invokes (from the agent
@@ -7170,8 +7272,60 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
 	a := &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: newAgentResponder(state, responderSignature, options), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions), ExecutionContext: executionContext, ExecutionContextError: contextErr, PlaybookConfig: coreGet(options, "playbook", nil), RuntimeHooks: hooks}
+	a.resetStageSets()
 	a.attachConfiguredPlaybook()
 	return a
+}
+
+// resetStageSets makes the stages just built the only stage set, for the
+// mode the agent was built in.
+func (a *AxAgent) resetStageSets() {
+	a.stageMode = "plain"
+	if coreTruthy(coreGet(a.State, "runtime_enabled", false)) {
+		a.stageMode = "runtime"
+	}
+	a.stageSets = map[string]agentStageSet{a.stageMode: {a.Distiller, a.Executor, a.Responder}}
+	a.optimizedComponents = map[string]Value{}
+}
+
+// useStageMode gives the run the stages of its runtime: the constructor's,
+// else the forward call's; without one, the runtime-less stages run. A set
+// coming back into use takes the instructions from the agent's state (a
+// standing instruction set since) and the optimized components again.
+func (a *AxAgent) useStageMode(options map[string]Value) error {
+	raw, err := _agent_use_stage_mode(a.State, options)
+	if err != nil {
+		return err
+	}
+	record := asMap(raw)
+	mode := display(coreGet(record, "mode", "plain"))
+	if mode == a.stageMode {
+		return nil
+	}
+	set, ok := a.stageSets[mode]
+	if !ok {
+		actorValidationRetries := coreGet(a.Options, "validation_retries", coreGet(a.Options, "validationRetries", 1))
+		set = agentStageSet{
+			distiller: NewAx(display(coreGet(record, "distiller_signature", "")), Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(record, "distiller_description", ""))),
+			executor:  NewAx(display(coreGet(record, "executor_signature", "")), Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(record, "executor_description", ""))),
+			responder: newAgentResponder(a.State, display(coreGet(a.State, "responder_signature", a.Signature.String())), a.Options),
+		}
+		a.stageSets[mode] = set
+	} else {
+		for stage, field := range map[*AxGen]string{set.distiller: "distiller_description", set.executor: "executor_description", set.responder: "responder_description"} {
+			stage.Instruction = display(coreGet(record, field, ""))
+			coreSet(stage.Options, "instruction", stage.Instruction)
+		}
+	}
+	if len(a.optimizedComponents) > 0 {
+		set.distiller.ApplyOptimizedComponents(a.optimizedComponents)
+		set.executor.ApplyOptimizedComponents(a.optimizedComponents)
+		set.responder.ApplyOptimizedComponents(a.optimizedComponents)
+	}
+	a.Distiller, a.Executor, a.Responder = set.distiller, set.executor, set.responder
+	a.stageMode = mode
+	a.rebindPlaybook()
+	return nil
 }
 // newAgentResponder builds the responder stage. As in TypeScript, its
 // validation budget is maxRetries unless validation_retries is set, and with
@@ -7221,6 +7375,7 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	a.Executor = NewAx(executorSignature, executorOptions)
 	a.Responder = newAgentResponder(state, responderSignature, a.Options)
 	a.LlmQuery = NewAx(llmQuerySignature, llmQueryOptions)
+	a.resetStageSets()
 	a.rebindPlaybook()
 	return a
 }
@@ -7347,6 +7502,9 @@ func (a *AxAgent) run(ctx context.Context, client AIClient, values map[string]Va
 	}
 	if a.ExecutionContextError != nil {
 		return nil, a.ExecutionContextError
+	}
+	if err := a.useStageMode(options); err != nil {
+		return nil, err
 	}
 	callOptions := map[string]Value{}
 	for key, value := range options {
@@ -7526,6 +7684,13 @@ func (a *AxAgent) GetOptimizableComponents() Value {
 }
 func (a *AxAgent) ApplyOptimizedComponents(m map[string]Value) {
 	mustCore(_validate_optimization_component_map(a.GetOptimizableComponents(), m))
+	// Kept for the other stage set, which gets them when a run switches to it.
+	if a.optimizedComponents == nil {
+		a.optimizedComponents = map[string]Value{}
+	}
+	for key, value := range m {
+		a.optimizedComponents[key] = value
+	}
 	a.Distiller.ApplyOptimizedComponents(m)
 	a.Executor.ApplyOptimizedComponents(m)
 	a.Responder.ApplyOptimizedComponents(m)
@@ -10285,9 +10450,32 @@ func conformanceSanitizeRuntimeGlobals(globals map[string]Value) map[string]Valu
 	return out
 }
 
-func objectCallMethod(target Value, method string, arg Value) (Value, error) {
+// promptRenderOptions applies a render's options (AxGen passes the selected
+// structured-output rung's) to the template's functions and options: its
+// structured_output and structured_output_function_name win over the
+// template's, and its extra_functions (the function rung's __axOutput) are
+// listed after the template's own functions.
+func promptRenderOptions(functions Value, options Value, render Value) (Value, Value) {
+	merged := asMap(options)
+	listed := append([]Value(nil), asSlice(functions)...)
+	for _, key := range orderedKeys(asMap(render)) {
+		value := coreGet(render, key, nil)
+		if key == "extra_functions" || key == "extraFunctions" {
+			listed = append(listed, asSlice(value)...)
+			continue
+		}
+		coreSet(merged, key, value)
+	}
+	return listed, merged
+}
+
+func objectCallMethod(target Value, method string, arg Value, rest ...Value) (Value, error) {
 	if method == "render" {
-		return render_prompt(coreGet(target, "signature", nil), arg, coreGet(target, "functions", Array()), coreGet(target, "options", Object()))
+		functions, options := coreGet(target, "functions", Array()), coreGet(target, "options", Object())
+		if len(rest) > 0 && rest[0] != nil {
+			functions, options = promptRenderOptions(functions, options, rest[0])
+		}
+		return render_prompt(coreGet(target, "signature", nil), arg, functions, options)
 	}
 	if method == "call" {
 		if fn, ok := target.(func(map[string]Value) Value); ok {
@@ -10541,6 +10729,42 @@ func _core_axgen_check_streaming_assertion(spec Value, value Value, done Value) 
 }
 
 var coreDeprecationsShown sync.Map
+
+var (
+	coreAIWarningsMu    sync.Mutex
+	coreAIWarningsShown = map[string]bool{}
+	coreAIWarningSink   func(string)
+)
+
+// _core_ai_warn_once logs a warning once per key per process (TS
+// console.warn): a setting Ax could not send, such as a sampling parameter
+// the selected model rejects.
+func _core_ai_warn_once(key Value, message Value) Value {
+	coreAIWarningsMu.Lock()
+	id := display(key)
+	if coreAIWarningsShown[id] {
+		coreAIWarningsMu.Unlock()
+		return nil
+	}
+	coreAIWarningsShown[id] = true
+	sink := coreAIWarningSink
+	coreAIWarningsMu.Unlock()
+	if sink != nil {
+		sink(display(message))
+	} else {
+		log.Print(display(message))
+	}
+	return nil
+}
+
+// coreAICaptureWarnings forgets the one-time warnings already shown and sends
+// new ones to sink (nil logs them again). Conformance fixtures use it.
+func coreAICaptureWarnings(sink func(string)) {
+	coreAIWarningsMu.Lock()
+	defer coreAIWarningsMu.Unlock()
+	coreAIWarningsShown = map[string]bool{}
+	coreAIWarningSink = sink
+}
 
 // _core_axgen_deprecation logs a deprecated behavior once per key per process.
 func _core_axgen_deprecation(key Value, message Value) Value {
@@ -11168,6 +11392,29 @@ func _core_agent_runtime_restore_state(values ...Value) (Value, error) {
 	}
 	return Object(), nil
 }
+// _core_agent_runtime_language is a runtime's language: a runtime config's
+// "language", else the code runtime's own, else JavaScript, TS's default
+// runtime.
+func _core_agent_runtime_language(values ...Value) Value {
+	var runtime Value
+	if len(values) > 0 {
+		runtime = values[0]
+	}
+	language := ""
+	switch v := runtime.(type) {
+	case map[string]Value:
+		if raw := coreGet(v, "language", nil); raw != nil {
+			language = strings.TrimSpace(display(raw))
+		}
+	case CodeRuntime:
+		language = strings.TrimSpace(v.Language())
+	}
+	if language == "" {
+		return "JavaScript"
+	}
+	return language
+}
+
 func _core_agent_runtime_close(values ...Value) Value {
 	var session Value
 	if len(values) == 1 {
@@ -12984,6 +13231,7 @@ func runConformanceForward(fixture map[string]Value) {
 				}
 			}
 		}
+		conformanceAssertChatPrompt(fixture, client)
 	} else {
 		if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
 			panic(AxError{Category: "fixture", Message: "expected request count mismatch"})
@@ -13205,6 +13453,20 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 			}
 		}
 	}
+	conformanceAssertChatPrompt(fixture, client)
+}
+
+// conformanceAssertChatPrompt compares expected_chat_prompt with the first
+// request's whole chat_prompt.
+func conformanceAssertChatPrompt(fixture map[string]Value, client *conformanceScriptedAI) {
+	expected, ok := fixture["expected_chat_prompt"]
+	if !ok {
+		return
+	}
+	if len(client.Requests) == 0 {
+		panic(FixtureError{Message: "fixture expected a request but none were sent"})
+	}
+	assertEqual(coreGet(client.Requests[0], "chat_prompt", nil), expected, "chat prompt")
 }
 
 // conformanceCache is a cache sequence fixture's in-memory cache: it counts
@@ -13477,7 +13739,8 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 	transport := NewScriptedTransport(asSlice(coreGet(fixture, "transport_responses", Array())))
 	provider := display(coreGet(fixture, "provider", "openai"))
 	options := cloneMap(asMap(coreGet(fixture, "service_options", coreGet(fixture, "options", Object()))))
-	if coreGet(options, "api_key", nil) == nil && coreGet(options, "apiKey", nil) == nil {
+	// no_api_key: the client gets no key argument (the env fixtures).
+	if coreGet(options, "api_key", nil) == nil && coreGet(options, "apiKey", nil) == nil && !coreTruthy(coreGet(fixture, "no_api_key", false)) {
 		coreSet(options, "api_key", coreGet(fixture, "api_key", "test-key"))
 	}
 	if model := coreGet(fixture, "model", nil); model != nil {
@@ -13522,7 +13785,13 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 		coreSet(options, "credential_provider", provider)
 	}
 	coreSet(options, "transport", transport)
-	client := NewAI(provider, options)
+	var client AIClient
+	if display(coreGet(fixture, "client_class", "")) == "OpenAICompatibleClient" {
+		// The generic client built by its own constructor instead of NewAI.
+		client = NewOpenAICompatibleClient(options)
+	} else {
+		client = NewAI(provider, options)
+	}
 	switch c := client.(type) {
 	case *OpenAICompatibleClient:
 		return c, transport
@@ -13536,15 +13805,65 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 		panic(AxError{Category: "fixture", Message: "unexpected AI client"})
 	}
 }
+// applyConformanceEnv sets (or, for null, unsets) the fixture's environment
+// variables and returns the function that restores them.
+func applyConformanceEnv(fixture map[string]Value) func() {
+	env := asMap(coreGet(fixture, "env", Object()))
+	saved := map[string]*string{}
+	for _, key := range orderedKeys(env) {
+		if previous, ok := os.LookupEnv(key); ok {
+			value := previous
+			saved[key] = &value
+		} else {
+			saved[key] = nil
+		}
+		if env[key] == nil {
+			os.Unsetenv(key)
+		} else {
+			os.Setenv(key, display(env[key]))
+		}
+	}
+	return func() {
+		for key, value := range saved {
+			if value == nil {
+				os.Unsetenv(key)
+			} else {
+				os.Setenv(key, *value)
+			}
+		}
+	}
+}
+
+// runConformanceAIChat runs one chat fixture. A fixture can set environment
+// variables and pins the one-time warnings the request logs with
+// expected_warnings.
 func runConformanceAIChat(fixture map[string]Value) {
-	client, transport := conformanceAIClient(fixture)
+	restore := applyConformanceEnv(fixture)
+	defer restore()
+	captured := []Value{}
+	coreAICaptureWarnings(func(message string) { captured = append(captured, message) })
+	defer coreAICaptureWarnings(nil)
+	runConformanceAIChatRequest(fixture)
+	if expected, ok := fixture["expected_warnings"]; ok {
+		assertEqual(captured, expected, "ai chat warnings")
+	}
+}
+
+func runConformanceAIChatRequest(fixture map[string]Value) {
+	var client *OpenAICompatibleClient
+	var transport *ScriptedTransport
 	output := expectMaybeFixtureError(func() Value {
+		client, transport = conformanceAIClient(fixture)
 		out, err := client.Chat(context.Background(), asMap(coreGet(fixture, "request", Object())), asMap(coreGet(fixture, "options", Object())))
 		if err != nil {
 			panic(err)
 		}
 		return out
 	}, fixture, nil)
+	if transport == nil {
+		// The client failed to build, so it sent nothing.
+		return
+	}
 	if coreGet(fixture, "expected_error_contains", nil) == nil {
 		if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 			assertEqual(output, expected, "ai chat output")
@@ -15571,6 +15890,9 @@ func conformanceAgentRequestStage(request map[string]Value) string {
 		return "executor"
 	case strings.Contains(system, "`Generator answer`"), strings.Contains(system, "`Question context`"):
 		return "playbook"
+	case strings.Contains(system, "Your task is to generate new fields: `Completion`"):
+		// The ports' runtime-less distiller or executor (port-only).
+		return "runtime_less"
 	case strings.Contains(system, "context-map Distiller"), strings.Contains(system, "context-map Cartographer"):
 		return "context_map"
 	}
@@ -15578,7 +15900,7 @@ func conformanceAgentRequestStage(request map[string]Value) string {
 }
 
 func runConformanceAgentForward(fixture map[string]Value) {
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
+	client := conformanceScriptSpeak(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, fixture)
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	observerTranscript := MutableArray()
 	semanticObserversEnabled := coreGet(fixture, "expected_observer_transcript", nil) != nil
@@ -15661,6 +15983,13 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		runtime.Usage = display(coreGet(runtimeConfig, "usageInstructions", coreGet(runtimeConfig, "usage_instructions", "")))
 		coreSet(options, "runtime", runtime)
 	}
+	// runtime_on_forward: the runtime goes on each forward call (unless a run
+	// says without_runtime) instead of the constructor.
+	var forwardRuntime Value
+	if coreTruthy(coreGet(fixture, "runtime_on_forward", false)) && options["runtime"] != nil {
+		forwardRuntime = options["runtime"]
+		delete(options, "runtime")
+	}
 	// As the other runners do, a playbook config gets the scripted client as
 	// its student, so the agent can attach the playbook at construction.
 	var playbookConfig map[string]Value
@@ -15704,6 +16033,9 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		if snapshot := coreGet(fixture, "restore_runtime_state", nil); snapshot != nil {
 			ag.RestoreRuntimeState(snapshot)
 		}
+		if components := coreGet(fixture, "apply_components", nil); components != nil {
+			ag.ApplyOptimizedComponents(cloneMap(asMap(components)))
+		}
 		if forwardRuns := coreGet(fixture, "forward_runs", nil); forwardRuns != nil {
 			outputs := MutableArray()
 			for _, rawRun := range asSlice(forwardRuns) {
@@ -15720,9 +16052,15 @@ func runConformanceAgentForward(fixture map[string]Value) {
 						"loaded_skill_docs", coreGet(restored, "loaded_skill_docs", Array()),
 					))
 				}
+				if signature := coreGet(run, "set_signature", nil); signature != nil {
+					ag.SetSignature(display(signature))
+				}
 				forwardOptions := cloneMap(asMap(coreGet(run, "forward_options", Object())))
 				installSemanticObserver(forwardOptions, "onUsedSkills", "forward.used_skills", false)
 				installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
+				if forwardRuntime != nil && !coreTruthy(coreGet(run, "without_runtime", false)) {
+					forwardOptions["runtime"] = forwardRuntime
+				}
 				out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(run, "input", Object())), forwardOptions)
 				if forwardErr != nil {
 					panic(forwardErr)
@@ -15750,6 +16088,9 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
 		for key, value := range controlOptions {
 			forwardOptions[key] = value
+		}
+		if forwardRuntime != nil {
+			forwardOptions["runtime"] = forwardRuntime
 		}
 		if streaming {
 			stopAfter := coreGet(fixture, "stop_after_deltas", nil)
@@ -15828,6 +16169,7 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 		assertEqual(output, expected, "agent output")
 	}
+	conformanceAssertSpeakRequests(fixture, client)
 	assertRunProjections()
 	if expected := coreGet(fixture, "expected_run_state_projections", nil); expected != nil {
 		assertEqual(runStateProjections, expected, "agent run state projections")
@@ -16973,7 +17315,6 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 	fields := goPromptInputFields(sig, values)
 	parts := []Value{}
 	allText := true
-	audioParts := false
 	for _, field := range fields {
 		value := coreGet(values, field.Name, nil)
 		// As TS renders an input field (src/ax/dsp/prompt.ts): a required input
@@ -16984,7 +17325,8 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 			}
 			panic(AxError{Category: "runtime", Message: "Value for input field '" + field.Name + "' is required."})
 		}
-		if field.Type.Name == "audio" {
+		kind := field.Type.Name
+		if kind == "audio" {
 			// As TS: an audio object with a transcript (what an AxGen audio
 			// output renders to), like a plain string, reaches the model as
 			// text; other audio goes as audio parts.
@@ -16993,23 +17335,25 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 					value = transcript
 				}
 			}
-			if _, isText := value.(string); !isText {
-				parts = append(parts, Object("type", "text", "text", field.Title+": \n"))
-				if field.Type.IsArray {
-					items, ok := value.([]Value)
-					if !ok {
-						panic(AxError{Category: "runtime", Message: "Audio field value must be an array."})
-					}
-					for _, item := range items {
-						parts = append(parts, goPromptAudioPart(item))
-					}
-				} else {
-					parts = append(parts, goPromptAudioPart(value))
+		}
+		_, isText := value.(string)
+		// As TS defaultRenderInField: image, file and url values, and audio
+		// that is not text, go out as media parts after a text part with the
+		// field's title.
+		if kind == "image" || kind == "file" || kind == "url" || (kind == "audio" && !isText) {
+			parts = append(parts, Object("type", "text", "text", field.Title+": \n"))
+			if field.Type.IsArray {
+				if !goPromptIsList(value) {
+					panic(AxError{Category: "runtime", Message: goPromptMediaLabel(kind) + " field value must be an array."})
 				}
-				allText = false
-				audioParts = true
-				continue
+				for _, item := range asSlice(value) {
+					parts = append(parts, goPromptMediaPart(kind, item))
+				}
+			} else {
+				parts = append(parts, goPromptMediaPart(kind, value))
 			}
+			allText = false
+			continue
 		}
 		valueText := goPromptValueText(value)
 		// A time.Time in a date-typed field reads as TS renders a Date.
@@ -17023,9 +17367,6 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 			allText = false
 		}
 		parts = append(parts, part)
-		if field.Type.Name == "image" || field.Type.Name == "file" || field.Type.Name == "url" {
-			allText = false
-		}
 	}
 	if allText {
 		lines := []string{}
@@ -17034,10 +17375,8 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 		}
 		return strings.Join(lines, "\n")
 	}
-	if !audioParts {
-		return parts
-	}
-	// As TS: consecutive text parts join with a newline.
+	// As TS combineConsecutiveStrings: in a message with media, each run of
+	// text parts joins with a newline and is cached when any of them is.
 	combined := []Value{}
 	for _, part := range parts {
 		if display(coreGet(part, "type", "")) == "text" && len(combined) > 0 && display(coreGet(combined[len(combined)-1], "type", "")) == "text" {
@@ -17053,25 +17392,205 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 	return combined
 }
 
+func goPromptMediaLabel(kind string) string {
+	switch kind {
+	case "image":
+		return "Image"
+	case "audio":
+		return "Audio"
+	case "file":
+		return "File"
+	}
+	return "URL"
+}
+
+// goPromptMediaAliases turns the snake_case aliases the provider mappings
+// read into the part type's declared camelCase keys (a camelCase key wins),
+// so inputs written with them keep working.
+func goPromptMediaAliases(kind string, value Value) Value {
+	object, ok := value.(map[string]Value)
+	if !ok {
+		return value
+	}
+	var aliases [][2]string
+	switch kind {
+	case "image":
+		aliases = [][2]string{{"mime_type", "mimeType"}}
+	case "audio":
+		aliases = [][2]string{{"audio", "data"}, {"mime_type", "mimeType"}, {"sample_rate", "sampleRate"}}
+	case "file":
+		aliases = [][2]string{{"mime_type", "mimeType"}, {"file_uri", "fileUri"}, {"extracted_text", "extractedText"}}
+	default:
+		aliases = [][2]string{{"cached_content", "cachedContent"}}
+	}
+	var out map[string]Value
+	for _, alias := range aliases {
+		item, hasAlias := object[alias[0]]
+		_, hasKey := object[alias[1]]
+		if hasAlias && !hasKey {
+			if out == nil {
+				out = cloneMap(object)
+			}
+			coreSet(out, alias[1], item)
+		}
+	}
+	if out == nil {
+		return value
+	}
+	return out
+}
+
+func goPromptMediaPart(kind string, value Value) Value {
+	value = goPromptMediaAliases(kind, value)
+	switch kind {
+	case "image":
+		return goPromptImagePart(value)
+	case "audio":
+		return goPromptAudioPart(value)
+	case "file":
+		return goPromptFilePart(value)
+	}
+	return goPromptURLPart(value)
+}
+
+func goPromptIsList(value Value) bool {
+	switch value.(type) {
+	case []Value, *AxArray:
+		return true
+	}
+	return false
+}
+
+// goPromptJSFalsy is JavaScript's !value for a JSON value: objects and arrays
+// are truthy.
+func goPromptJSFalsy(value Value) bool {
+	switch v := value.(type) {
+	case nil:
+		return true
+	case bool:
+		return !v
+	case string:
+		return v == ""
+	case int:
+		return v == 0
+	case int64:
+		return v == 0
+	case float64:
+		return v == 0 || v != v
+	}
+	return false
+}
+
+// goPromptMediaObject checks a media value as TS's validators do and returns
+// it as a map.
+func goPromptMediaObject(value Value, label string, requiredKey string) map[string]Value {
+	if goPromptJSFalsy(value) {
+		panic(AxError{Category: "runtime", Message: label + " field value is required."})
+	}
+	object, isObject := value.(map[string]Value)
+	if !isObject && !goPromptIsList(value) {
+		panic(AxError{Category: "runtime", Message: label + " field value must be an object."})
+	}
+	if !isObject {
+		panic(AxError{Category: "runtime", Message: label + " field must have " + requiredKey})
+	}
+	if _, ok := object[requiredKey]; !ok {
+		panic(AxError{Category: "runtime", Message: label + " field must have " + requiredKey})
+	}
+	return object
+}
+
+// goPromptImagePart is TS's image part: the mime type, the data as `image`,
+// and the details the provider reads (OpenAI's image detail).
+func goPromptImagePart(value Value) Value {
+	image := goPromptMediaObject(value, "Image", "mimeType")
+	data, hasData := image["data"]
+	if !hasData {
+		panic(AxError{Category: "runtime", Message: "Image field must have data"})
+	}
+	part := Object("type", "image", "mimeType", image["mimeType"], "image", data)
+	return goPromptDeclaredKeys(part, image, "details", "cache", "optimize", "altText")
+}
+
+// goPromptDeclaredKeys copies the optional keys a media part type declares
+// (TS AxChatRequest) that the value sets onto the part, so the provider or
+// router that reads them gets them; other keys stay behind.
+func goPromptDeclaredKeys(part map[string]Value, value map[string]Value, keys ...string) Value {
+	for _, key := range keys {
+		if item, ok := value[key]; ok {
+			coreSet(part, key, item)
+		}
+	}
+	return part
+}
+
 // goPromptAudioPart is TS's audio part: only the format (wav when there is
 // none) and the data.
 func goPromptAudioPart(value Value) Value {
-	audio, ok := value.(map[string]Value)
-	if !ok {
-		panic(AxError{Category: "runtime", Message: "Audio field value must be an object."})
-	}
-	data, hasData := audio["data"]
-	if !hasData {
-		panic(AxError{Category: "runtime", Message: "Audio field must have data"})
-	}
+	audio := goPromptMediaObject(value, "Audio", "data")
 	format := audio["format"]
 	if format == nil {
 		format = "wav"
 	}
-	return Object("type", "audio", "format", format, "data", data)
+	part := Object("type", "audio", "format", format, "data", audio["data"])
+	return goPromptDeclaredKeys(part, audio, "mimeType", "sampleRate", "channels", "cache", "transcription", "duration")
+}
+
+// goPromptFilePart is TS's file part: the mime type and either the data or
+// the fileUri.
+func goPromptFilePart(value Value) Value {
+	file := goPromptMediaObject(value, "File", "mimeType")
+	data, hasData := file["data"]
+	fileURI, hasFileURI := file["fileUri"]
+	if !hasData && !hasFileURI {
+		panic(AxError{Category: "runtime", Message: "File field must have either data or fileUri"})
+	}
+	if hasData && hasFileURI {
+		panic(AxError{Category: "runtime", Message: "File field cannot have both data and fileUri"})
+	}
+	part := Object("type", "file", "mimeType", file["mimeType"], "data", data)
+	if hasFileURI {
+		part = Object("type", "file", "mimeType", file["mimeType"], "fileUri", fileURI)
+	}
+	return goPromptDeclaredKeys(part, file, "filename", "cache", "extractedText")
+}
+
+// goPromptURLPart is TS's url part: the url, and the title and description
+// when they are set; a plain string is the url.
+func goPromptURLPart(value Value) Value {
+	if goPromptJSFalsy(value) {
+		panic(AxError{Category: "runtime", Message: "URL field value is required."})
+	}
+	if url, ok := value.(string); ok {
+		return Object("type", "url", "url", url)
+	}
+	link, isObject := value.(map[string]Value)
+	if !isObject && !goPromptIsList(value) {
+		panic(AxError{Category: "runtime", Message: "URL field value must be a string or object."})
+	}
+	if !isObject {
+		panic(AxError{Category: "runtime", Message: "URL field must have url property"})
+	}
+	url, hasURL := link["url"]
+	if !hasURL {
+		panic(AxError{Category: "runtime", Message: "URL field must have url property"})
+	}
+	part := Object("type", "url", "url", url)
+	if title := link["title"]; !goPromptJSFalsy(title) {
+		coreSet(part, "title", title)
+	}
+	if description := link["description"]; !goPromptJSFalsy(description) {
+		coreSet(part, "description", description)
+	}
+	return goPromptDeclaredKeys(part, link, "cachedContent", "cache")
 }
 func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value, options map[string]Value) string {
+	// As TypeScript's structuredOutput option: AxGen renders with it set when
+	// a structured-output rung is selected; otherwise the signature decides.
 	complex := goPromptHasComplexFields(sig)
+	if structured, ok := coreGet(options, "structured_output", coreGet(options, "structuredOutput", nil)).(bool); ok {
+		complex = structured
+	}
 	outputFields := goPromptOutputFields(sig)
 	task := goPromptTaskDefinition(sig, options)
 	funcs := goPromptFunctionDescriptors(functions)
@@ -17086,7 +17605,7 @@ func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value,
 		"taskDefinitionText":           task,
 		"functionsList":                goPromptRenderFunctions(funcs),
 		"inputFieldsSection":           goPromptInputSection(sig, values),
-		"outputFieldsSection":          goPromptOutputSection(sig),
+		"outputFieldsSection":          goPromptOutputSection(sig, complex),
 		"structuredOutputFunctionName": coreGet(options, "structured_output_function_name", coreGet(options, "structuredOutputFunctionName", "")),
 	}
 	custom := coreGet(options, "custom_template", coreGet(options, "customTemplate", nil))
@@ -17200,10 +17719,13 @@ func goPromptTaskDefinition(sig AxSignature, options map[string]Value) string {
 func goPromptInputSection(sig AxSignature, values map[string]Value) string {
 	return "**Input Fields**: The following fields will be provided to you:\n\n" + goPromptRenderInputFields(goPromptInputFields(sig, values), goPromptFieldMap(sig))
 }
-func goPromptOutputSection(sig AxSignature) string {
+// goPromptOutputSection ends with the exact JSON shape when the output is
+// structured (the signature's complex fields, or the render's
+// structured_output).
+func goPromptOutputSection(sig AxSignature, structured bool) string {
 	fields := goPromptOutputFields(sig)
 	out := "**Output Fields**: You must generate the following fields:\n\n" + goPromptRenderOutputFields(fields, goPromptFieldMap(sig))
-	if goPromptHasComplexFields(sig) {
+	if structured {
 		shape := Object()
 		for _, field := range fields {
 			coreSet(shape, field.Name, goPromptOutputTypePlaceholder(field.Type))

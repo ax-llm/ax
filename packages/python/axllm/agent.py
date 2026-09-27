@@ -1761,19 +1761,60 @@ class AxAgent:
     def _rebuild_from_signature(self, signature):
         self.state = _agent_factory(signature, self.options)
         self.signature = _core_get(self.state, "signature")
+        self.distiller, self.executor, self.responder = self._build_stage_set({
+            "distiller_signature": _core_get(self.state, "distiller_signature"),
+            "executor_signature": _core_get(self.state, "executor_signature"),
+            "distiller_description": _core_get(self.state, "distiller_description", ""),
+            "executor_description": _core_get(self.state, "executor_description", ""),
+            "responder_description": _core_get(self.state, "responder_description", ""),
+        })
+        # Each run uses the stage set of its mode (see _use_stage_mode): this
+        # one, or the other, built on first use and kept.
+        self._stage_mode = "runtime" if _core_get(self.state, "runtime_enabled", False) else "plain"
+        self._stage_sets = {self._stage_mode: (self.distiller, self.executor, self.responder)}
+        self._optimized_components = {}
+        self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+        self._rebind_playbook()
+
+    def _build_stage_set(self, record):
         actor_validation_retries = self.options.get("validation_retries", self.options.get("validationRetries", 1))
-        self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": actor_validation_retries, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
-        self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
-        responder_options = {"id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")}
+        distiller = AxGen(record["distiller_signature"], {"validation_retries": actor_validation_retries, "id": "ctx.root.actor", "instruction": record.get("distiller_description") or ""})
+        executor = AxGen(record["executor_signature"], {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": record.get("executor_description") or ""})
+        responder_options = {"id": "task.root.responder", "instruction": record.get("responder_description") or ""}
         # As in TS, the responder's validation budget is maxRetries (3 by
         # default) unless validation_retries is set.
         if "validation_retries" in self.options:
             responder_options["validation_retries"] = self.options["validation_retries"]
-        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), responder_options)
+        responder = AxGen(_core_get(self.state, "responder_signature", self.signature), responder_options)
         if (_core_get(self.state, "citations", {}) or {}).get("enabled"):
             state = self.state
-            self.responder.add_assert(lambda output: _agent_citation_assert(state, output))
-        self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+            responder.add_assert(lambda output: _agent_citation_assert(state, output))
+        return distiller, executor, responder
+
+    def _use_stage_mode(self, options):
+        # A run's stages follow its runtime: the constructor's, else the
+        # forward call's; without one, the runtime-less stages run. The other
+        # mode's set is built on first use and kept, with the optimized
+        # components applied so far.
+        record = _agent_use_stage_mode(self.state, options)
+        mode = record.get("mode")
+        if mode == self._stage_mode:
+            return
+        stages = self._stage_sets.get(mode)
+        if stages is None:
+            stages = self._build_stage_set(record)
+            self._stage_sets[mode] = stages
+        else:
+            # The instructions follow the agent's state (a standing instruction
+            # set since), and the optimized components apply again below.
+            stages[0].set_instruction(record.get("distiller_description") or "")
+            stages[1].set_instruction(record.get("executor_description") or "")
+            stages[2].set_instruction(record.get("responder_description") or "")
+        if self._optimized_components:
+            for stage in stages:
+                stage.apply_optimized_components(self._optimized_components)
+        self.distiller, self.executor, self.responder = stages
+        self._stage_mode = mode
         self._rebind_playbook()
 
     def add_child_agent(self, namespace: str, name: str, child: "AxAgent"):
@@ -1891,6 +1932,7 @@ class AxAgent:
         options = dict(options or {})
         if sink is not None:
             _agent_check_stream_run_session(self, client, options)
+        self._use_stage_mode(options)
         call_context = resolve_execution_context(options, self.execution_context)
         if call_context is not None or self.state.get("mcp_run_context_active"):
             modules = []
@@ -2103,6 +2145,9 @@ class AxAgent:
     def apply_optimized_components(self, component_map: dict[str, Any]):
         updates = dict(component_map or {})
         _validate_optimization_component_map(self.get_optimizable_components(), updates)
+        # Kept for the other stage set, which gets them when a run switches to
+        # it (see _use_stage_mode).
+        self._optimized_components.update(updates)
         self.distiller.apply_optimized_components(updates)
         self.executor.apply_optimized_components(updates)
         self.responder.apply_optimized_components(updates)
@@ -2292,7 +2337,12 @@ class AxAgent:
         if not self._playbook_apply:
             handle._set_apply_hook(lambda _rendered: None)
             return
-        base = stage.signature.get_description() if hasattr(stage.signature, "get_description") else None
+        # A stage keeps the description it had when first bound, so binding a
+        # stage again (a kept stage set coming back into use) doesn't compose
+        # the playbook twice.
+        if not hasattr(stage, "_playbook_base"):
+            stage._playbook_base = stage.signature.get_description() if hasattr(stage.signature, "get_description") else None
+        base = stage._playbook_base
 
         def _apply(rendered):
             stage.signature.description = _playbook_compose_instruction(base, rendered)
@@ -2667,6 +2717,19 @@ def _core_agent_runtime_close(session):
     return {"closed": True}
 
 
+def _core_agent_runtime_language(runtime):
+    # A runtime's language: a runtime config's "language", else the code
+    # runtime's own, else JavaScript, TS's default runtime.
+    if isinstance(runtime, dict):
+        language = runtime.get("language")
+    else:
+        language = getattr(runtime, "language", None)
+        if callable(language):
+            language = language()
+    language = str(language or "").strip()
+    return language or "JavaScript"
+
+
 def _core_agent_memory_search(state, searches, already_loaded):
     options = _core_get(state, "options", {}) or {}
     callback = options.get("on_memories_search") or options.get("onMemoriesSearch")
@@ -2877,19 +2940,10 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     state["executor_exclude_fields"] = executor_exclude
     state["responder_exclude_fields"] = responder_exclude
     code_field_name = _core_get(runtime_contract, "code_field_name", "javascriptCode")
-    runtime_distiller_signature = _core_string_format("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
-    distiller_signature = "input:json, context:json -> completion:json"
-    if runtime_enabled:
-        distiller_signature = runtime_distiller_signature
-    else:
-        pass
+    actor_signatures = _agent_actor_stage_signatures(runtime_enabled, code_field_name)
+    distiller_signature = _core_get(actor_signatures, "distiller", None)
     state["distiller_signature"] = distiller_signature
-    runtime_executor_signature = _core_string_format("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
-    executor_signature = "input:json, executorRequest:string, distilledContext:json -> completion:json"
-    if runtime_enabled:
-        executor_signature = runtime_executor_signature
-    else:
-        pass
+    executor_signature = _core_get(actor_signatures, "executor", None)
     state["executor_signature"] = executor_signature
     llm_query_signature = "task:string, context:json -> answer:string"
     state["llm_query_signature"] = llm_query_signature
@@ -10763,6 +10817,7 @@ def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
         pass
     if is_responder:
         out = _agent_stage_parse_dates(out, base_options, stage_options, forward_options)
+        out = _agent_stage_render_audio(out, base_options, stage_options, forward_options)
     else:
         pass
     return out
@@ -12221,6 +12276,30 @@ def _agent_streaming_forward(state: Any, distiller: Any, executor: Any, responde
     return output
 
 
+def _agent_stage_render_audio(out: Any, base_options: Any, stage_options: Any, forward_options: Any) -> Any:
+    _core_coverage_mark("_agent_stage_render_audio")
+    resolved = _core_none()
+    sources = []
+    sources.append(base_options)
+    sources.append(stage_options)
+    sources.append(forward_options)
+    for source in sources:
+        snake = _core_get(source, "render_audio", None)
+        value = _core_get(source, "renderAudio", snake)
+        chosen = _core_is_not_none(value)
+        if chosen:
+            resolved = value
+        else:
+            pass
+    has_choice = _core_is_not_none(resolved)
+    if has_choice:
+        out["render_audio"] = resolved
+        out["renderAudio"] = resolved
+    else:
+        pass
+    return out
+
+
 def _agent_stage_parse_dates(out: Any, base_options: Any, stage_options: Any, forward_options: Any) -> Any:
     _core_coverage_mark("_agent_stage_parse_dates")
     resolved = _core_none()
@@ -12243,5 +12322,136 @@ def _agent_stage_parse_dates(out: Any, base_options: Any, stage_options: Any, fo
     else:
         pass
     return out
+
+
+def _agent_actor_stage_signatures(runtime_enabled: bool, code_field_name: str) -> Any:
+    _core_coverage_mark("_agent_actor_stage_signatures")
+    distiller = "input:json, context:json -> completion:json"
+    executor = "input:json, executorRequest:string, distilledContext:json -> completion:json"
+    if runtime_enabled:
+        distiller = _core_string_format("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
+        executor = _core_string_format("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
+    else:
+        pass
+    out = {}
+    out["distiller"] = distiller
+    out["executor"] = executor
+    return out
+
+
+def _agent_runtime_configured(state: Any) -> bool:
+    _core_coverage_mark("_agent_runtime_configured")
+    empty_map = {}
+    options = _core_get(state, "options", empty_map)
+    has_runtime = _core_map_contains(options, "runtime")
+    has_config = _core_map_contains(options, "runtimeConfig")
+    has_config_snake = _core_map_contains(options, "runtime_config")
+    has_any_config = _core_or(has_config, has_config_snake)
+    configured = _core_or(has_runtime, has_any_config)
+    return configured
+
+
+def _agent_stage_mode_fields(state: Any) -> Any:
+    _core_coverage_mark("_agent_stage_mode_fields")
+    keys = []
+    keys.append("runtime_enabled")
+    keys.append("runtime_contract")
+    keys.append("distiller_signature")
+    keys.append("executor_signature")
+    keys.append("distiller_description")
+    keys.append("executor_description_base")
+    keys.append("responder_description")
+    fields = {}
+    for key in keys:
+        value = _core_get(state, key, None)
+        fields[key] = value
+    return fields
+
+
+def _agent_runtime_stage_fields(state: Any, runtime: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_stage_fields")
+    language = _core_agent_runtime_language(runtime)
+    config = {}
+    config["language"] = language
+    contract_options = {}
+    contract_options["runtime"] = config
+    contract = _normalize_agent_runtime(contract_options)
+    empty_map = {}
+    saved_contract = _core_get(state, "runtime_contract", empty_map)
+    state["runtime_contract"] = contract
+    options = _core_get(state, "options", empty_map)
+    executor_description = _render_rlm_executor_description(state, options)
+    responder_description = _render_rlm_responder_description(state, options)
+    distiller_description = _render_rlm_distiller_description(state, options)
+    state["runtime_contract"] = saved_contract
+    code_field_name = _core_get(contract, "code_field_name", "javascriptCode")
+    runtime_stages = True
+    signatures = _agent_actor_stage_signatures(runtime_stages, code_field_name)
+    distiller_signature = _core_get(signatures, "distiller", None)
+    executor_signature = _core_get(signatures, "executor", None)
+    fields = {}
+    fields["runtime_enabled"] = True
+    fields["runtime_contract"] = contract
+    fields["distiller_signature"] = distiller_signature
+    fields["executor_signature"] = executor_signature
+    fields["distiller_description"] = distiller_description
+    fields["executor_description_base"] = executor_description
+    fields["responder_description"] = responder_description
+    return fields
+
+
+def _agent_use_stage_mode(state: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_use_stage_mode")
+    configured = _agent_runtime_configured(state)
+    runtime = _core_get(options, "runtime", None)
+    has_runtime = _core_is_not_none(runtime)
+    runtime_mode = _core_or(configured, has_runtime)
+    mode = "plain"
+    if runtime_mode:
+        mode = "runtime"
+    else:
+        pass
+    state_runtime = _core_get(state, "runtime_enabled", False)
+    active_default = "plain"
+    if state_runtime:
+        active_default = "runtime"
+    else:
+        pass
+    active = _core_get(state, "stage_mode", active_default)
+    switching = _core_ne(mode, active)
+    if switching:
+        empty_modes = {}
+        modes = _core_get(state, "stage_modes", empty_modes)
+        current_fields = _agent_stage_mode_fields(state)
+        modes[active] = current_fields
+        target = _core_get(modes, mode, None)
+        cached = _core_is_not_none(target)
+        if cached:
+            pass
+        else:
+            target = _agent_runtime_stage_fields(state, runtime)
+        for field in target:
+            field_value = _core_get(target, field, None)
+            state[field] = field_value
+        state["stage_modes"] = modes
+        state["stage_mode"] = mode
+        prompt_policy = _build_agent_actor_prompt_policy(state)
+        state["actor_prompt_policy"] = prompt_policy
+        _agent_refresh_actor_instruction(state)
+    else:
+        pass
+    record = {}
+    record["mode"] = mode
+    record_distiller_signature = _core_get(state, "distiller_signature", "")
+    record["distiller_signature"] = record_distiller_signature
+    record_executor_signature = _core_get(state, "executor_signature", "")
+    record["executor_signature"] = record_executor_signature
+    record_distiller_description = _core_get(state, "distiller_description", "")
+    record["distiller_description"] = record_distiller_description
+    record_executor_description = _core_get(state, "executor_description", "")
+    record["executor_description"] = record_executor_description
+    record_responder_description = _core_get(state, "responder_description", "")
+    record["responder_description"] = record_responder_description
+    return record
 
 # END AXIR CORE EMITTED FUNCTIONS

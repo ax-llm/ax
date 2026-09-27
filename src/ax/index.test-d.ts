@@ -69,7 +69,17 @@ const missingTypesSig = AxSignature.create(
 type _missingTypesIn = Expect<
   Equal<
     SigIn<typeof missingTypesSig>,
-    { question: string; animalImage: { mimeType: string; data: string } }
+    {
+      question: string;
+      animalImage: {
+        mimeType: string;
+        data: string;
+        details?: 'high' | 'low' | 'auto';
+        cache?: boolean;
+        optimize?: 'quality' | 'size' | 'auto';
+        altText?: string;
+      };
+    }
   >
 >;
 type _missingTypesOut = Expect<

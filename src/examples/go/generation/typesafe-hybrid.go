@@ -36,7 +36,7 @@ func main() {
 	if key == "" {
 		key = os.Getenv("OPENAI_APIKEY")
 	}
-	writer := ax.NewAI("openai", map[string]ax.Value{"api_key": key, "model": "gpt-5.6-luna", "model_config": map[string]ax.Value{"temperature": 1}})
+	writer := ax.NewAI("openai", map[string]ax.Value{"api_key": key, "model": "gpt-5.6-luna"})
 	inputs := map[string]ax.Value{"ticket": "Checkout is unavailable for all customers after the latest deployment.", "urgent": decision["urgent"], "team": decision["team"]}
 	replyValue, err := ax.NewAx("ticket:string, urgent:boolean, team:string -> reply:string", nil).Forward(ctx, writer, inputs, nil)
 	if err != nil {

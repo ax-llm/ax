@@ -417,7 +417,11 @@ struct Core {
   static Value client_ref(AIClient& client);
   static Value agent_stage_ref(AxProgram& stage);
   static Value code_runtime_ref(AxCodeRuntime& runtime);
-  static Value object_call_method(Value target, Value method_name, Value arg = Value());
+  // A prompt template's "render" takes the values and, optionally, render
+  // options that win over the template's own (AxGen passes the selected
+  // structured-output rung's): structured_output, structured_output_function_name
+  // and extra_functions, which are listed after the template's functions.
+  static Value object_call_method(Value target, Value method_name, Value arg = Value(), Value options = Value());
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
   static Value ai_complete_once(Value client, Value request, Value options);
@@ -476,6 +480,7 @@ struct Core {
   static Value agent_runtime_export_state(Value session, Value options);
   static Value agent_runtime_restore_state(Value session, Value snapshot, Value options);
   static Value agent_runtime_close(Value session);
+  static Value agent_runtime_language(Value runtime);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
   static Value agent_observer_notify(Value state, Value forward_options, Value kind, Value payload);
@@ -506,6 +511,10 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  static Value ai_warn_once(Value key, Value message);
+  // Conformance hook: forgets the one-time warnings already shown and sends
+  // new ones to sink (an empty sink prints them to stderr again).
+  static void ai_capture_warnings(std::function<void(const std::string&)> sink);
   // AxGen cachingFunction seams: the call's, else the AxGen's own, else the
   // process-wide caching function (a caching_function() handle value, or
   // null); a read, whose errors propagate (null is a miss); and a write.
@@ -1001,6 +1010,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   std::string operation_path(const std::string& operation, Value model) const;
   Value headers() const;
   Value transport_result(Value result, Value request, Value options);
+  std::string transport_content_type(Value result);
   std::vector<Value> iter_sse_json(Value raw);
 };
 
@@ -1666,6 +1676,20 @@ class AxAgent : public AxProgram {
   void learn_playbook_failures(Value output);
   std::unique_ptr<AxGen> make_responder(const Value& options);
   Value run(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks, Value sink, const bool* consumer_stopped);
+  // Each run uses the stage set of its mode (see use_stage_mode): "runtime",
+  // the RLM stages, or "plain", the runtime-less stages. The members hold the
+  // set in use; the other mode's set waits in stage_sets_, and
+  // optimized_components_ apply to a set when a run switches to it.
+  struct StageSet {
+    std::unique_ptr<AxGen> distiller;
+    std::unique_ptr<AxGen> executor;
+    std::unique_ptr<AxGen> responder;
+  };
+  std::string stage_mode_ = "plain";
+  std::map<std::string, StageSet> stage_sets_;
+  Value optimized_components_ = Value::object();
+  void reset_stage_sets();
+  void use_stage_mode(const Value& options);
 };
 
 std::string stringify(const Value& value);

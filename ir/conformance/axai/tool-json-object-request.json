@@ -1,6 +1,7 @@
 {
   "name": "tool-json-object-request",
   "kind": "ai_chat",
+  "model": "gpt-4.1-mini",
   "request": {
     "chat_prompt": [
       {

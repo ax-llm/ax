@@ -1,0 +1,30 @@
+{
+  "expected_output": {
+    "audio": "SUQzBAA=",
+    "data": "SUQzBAA=",
+    "format": "mp3",
+    "mimeType": "audio/mpeg",
+    "transcript": "Hello there"
+  },
+  "expected_transport_json_absent": ["voice", "voice_id", "speed", "language"],
+  "expected_transport_request": {
+    "json": {
+      "input": "Hello there",
+      "model": "voxtral-mini-tts-2603",
+      "response_format": "mp3"
+    },
+    "url": "https://api.mistral.ai/v1/audio/speech"
+  },
+  "kind": "ai_speak",
+  "name": "mistral-speak-default-model",
+  "provider": "mistral",
+  "request": {
+    "text": "Hello there"
+  },
+  "transport_responses": [
+    {
+      "body": "SUQzBAA=",
+      "status": 200
+    }
+  ]
+}

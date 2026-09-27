@@ -17,7 +17,7 @@ public final class TypesafeHybridExample {
     var decision = triage.forward(model, Map.of("ticket", "Checkout is unavailable for all customers after the latest deployment."));
     if (!(decision.get("urgent") instanceof Boolean) || !Set.of("support", "billing", "engineering").contains(decision.get("team"))) throw new AssertionError("Invalid decision");
     var key = System.getenv().getOrDefault("OPENAI_API_KEY", System.getenv("OPENAI_APIKEY"));
-    var writer = Ax.ai("openai", Map.of("apiKey", key, "model", "gpt-5.6-luna", "model_config", Map.of("temperature", 1)));
+    var writer = Ax.ai("openai", Map.of("apiKey", key, "model", "gpt-5.6-luna"));
     var inputs = new LinkedHashMap<String,Object>(decision);
     inputs.put("ticket", "Checkout is unavailable for all customers after the latest deployment.");
     var reply = Ax.ax("ticket:string, urgent:boolean, team:string -> reply:string").forward(writer, inputs);

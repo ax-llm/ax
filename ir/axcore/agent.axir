@@ -104,17 +104,10 @@ module @ax.agent version "0.1" {
       core.set %state["executor_exclude_fields"] = %executor_exclude
       core.set %state["responder_exclude_fields"] = %responder_exclude
       %code_field_name = core.get %runtime_contract["code_field_name"] default "javascriptCode"
-      %runtime_distiller_signature = core.call intrinsic.string.format("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", %code_field_name)
-      %distiller_signature = core.let "input:json, context:json -> completion:json"
-      core.if %runtime_enabled {
-        %distiller_signature = core.let %runtime_distiller_signature
-      }
+      %actor_signatures = core.call @agent_actor_stage_signatures(%runtime_enabled, %code_field_name)
+      %distiller_signature = core.get %actor_signatures["distiller"]
       core.set %state["distiller_signature"] = %distiller_signature
-      %runtime_executor_signature = core.call intrinsic.string.format("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", %code_field_name)
-      %executor_signature = core.let "input:json, executorRequest:string, distilledContext:json -> completion:json"
-      core.if %runtime_enabled {
-        %executor_signature = core.let %runtime_executor_signature
-      }
+      %executor_signature = core.get %actor_signatures["executor"]
       core.set %state["executor_signature"] = %executor_signature
       %llm_query_signature = core.let "task:string, context:json -> answer:string"
       core.set %state["llm_query_signature"] = %llm_query_signature
@@ -8578,6 +8571,7 @@ module @ax.agent version "0.1" {
       }
       core.if %is_responder {
         %out = core.call @agent_stage_parse_dates(%out, %base_options, %stage_options, %forward_options)
+        %out = core.call @agent_stage_render_audio(%out, %base_options, %stage_options, %forward_options)
       }
       core.return %out
     }
@@ -10187,6 +10181,40 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_stage_render_audio {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json, json) -> json"
+    body @entry(%out: json, %base_options: json, %stage_options: json, %forward_options: json) {
+      // TS's responder AxGen always turns audio outputs into speech; the
+      // ports' AxGen does so with render_audio (see
+      // @render_audio_outputs_impl). The responder takes the forward call's
+      // choice first, then its responderOptions', then the agent
+      // constructor's, and gets it under both spellings so its AxGen reads
+      // that one value.
+      %resolved = core.call intrinsic.none()
+      %sources = core.list
+      core.append %sources, %base_options
+      core.append %sources, %stage_options
+      core.append %sources, %forward_options
+      core.for %source in %sources {
+        %snake = core.get %source["render_audio"] default null
+        %value = core.get %source["renderAudio"] default %snake
+        %chosen = core.call intrinsic.is_not_none(%value)
+        core.if %chosen {
+          %resolved = core.let %value
+        }
+      }
+      %has_choice = core.call intrinsic.is_not_none(%resolved)
+      core.if %has_choice {
+        core.set %out["render_audio"] = %resolved
+        core.set %out["renderAudio"] = %resolved
+      }
+      core.return %out
+    }
+  }
+
   op ax.agent.semantic @agent_stage_parse_dates {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -10217,6 +10245,178 @@ module @ax.agent version "0.1" {
         core.set %out["parseDates"] = %resolved
       }
       core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_actor_stage_signatures {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(bool, string) -> json"
+    body @entry(%runtime_enabled: bool, %code_field_name: string) {
+      // The distiller and executor signatures: the RLM stages with a runtime,
+      // which write code in the runtime's code field, else the ports'
+      // runtime-less stages, which answer with a completion payload.
+      %distiller = core.let "input:json, context:json -> completion:json"
+      %executor = core.let "input:json, executorRequest:string, distilledContext:json -> completion:json"
+      core.if %runtime_enabled {
+        %distiller = core.call intrinsic.string.format("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", %code_field_name)
+        %executor = core.call intrinsic.string.format("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", %code_field_name)
+      }
+      %out = core.map
+      core.set %out["distiller"] = %distiller
+      core.set %out["executor"] = %executor
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_runtime_configured {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> bool"
+    body @entry(%state: json) {
+      // A runtime or a runtime config on the constructor, as @agent_factory
+      // reads it.
+      %empty_map = core.map
+      %options = core.get %state["options"] default %empty_map
+      %has_runtime = core.call intrinsic.map.contains(%options, "runtime")
+      %has_config = core.call intrinsic.map.contains(%options, "runtimeConfig")
+      %has_config_snake = core.call intrinsic.map.contains(%options, "runtime_config")
+      %has_any_config = core.call intrinsic.or(%has_config, %has_config_snake)
+      %configured = core.call intrinsic.or(%has_runtime, %has_any_config)
+      core.return %configured
+    }
+  }
+
+  op ax.agent.semantic @agent_stage_mode_fields {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> json"
+    body @entry(%state: json) {
+      // The state fields that differ between the RLM stages and the
+      // runtime-less stages.
+      %keys = core.list
+      core.append %keys, "runtime_enabled"
+      core.append %keys, "runtime_contract"
+      core.append %keys, "distiller_signature"
+      core.append %keys, "executor_signature"
+      core.append %keys, "distiller_description"
+      core.append %keys, "executor_description_base"
+      core.append %keys, "responder_description"
+      %fields = core.map
+      core.for %key in %keys {
+        %value = core.get %state[%key] default null
+        core.set %fields[%key] = %value
+      }
+      core.return %fields
+    }
+  }
+
+  op ax.agent.semantic @agent_runtime_stage_fields {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> json throws"
+    body @entry(%state: json, %runtime: json) {
+      // The RLM stage fields for a runtime given on the forward call, as a
+      // constructor runtime config in that runtime's language builds them.
+      %language = core.call intrinsic.agent.runtime.language(%runtime)
+      %config = core.map
+      core.set %config["language"] = %language
+      %contract_options = core.map
+      core.set %contract_options["runtime"] = %config
+      %contract = core.call @normalize_agent_runtime(%contract_options)
+      %empty_map = core.map
+      %saved_contract = core.get %state["runtime_contract"] default %empty_map
+      core.set %state["runtime_contract"] = %contract
+      %options = core.get %state["options"] default %empty_map
+      %executor_description = core.call @render_rlm_executor_description(%state, %options)
+      %responder_description = core.call @render_rlm_responder_description(%state, %options)
+      %distiller_description = core.call @render_rlm_distiller_description(%state, %options)
+      core.set %state["runtime_contract"] = %saved_contract
+      %code_field_name = core.get %contract["code_field_name"] default "javascriptCode"
+      %runtime_stages = core.let true
+      %signatures = core.call @agent_actor_stage_signatures(%runtime_stages, %code_field_name)
+      %distiller_signature = core.get %signatures["distiller"]
+      %executor_signature = core.get %signatures["executor"]
+      %fields = core.map
+      core.set %fields["runtime_enabled"] = true
+      core.set %fields["runtime_contract"] = %contract
+      core.set %fields["distiller_signature"] = %distiller_signature
+      core.set %fields["executor_signature"] = %executor_signature
+      core.set %fields["distiller_description"] = %distiller_description
+      core.set %fields["executor_description_base"] = %executor_description
+      core.set %fields["responder_description"] = %responder_description
+      core.return %fields
+    }
+  }
+
+  op ax.agent.semantic @agent_use_stage_mode {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> json throws"
+    body @entry(%state: json, %options: json) {
+      // TS's agent always runs the RLM stages: its default runtime is
+      // JavaScript. The ports run them when the run has a runtime, the
+      // constructor's, else the forward call's, and their runtime-less stages
+      // otherwise. Each run picks its stages: state keeps the fields of both
+      // stage sets, and the host keeps a stage set for each mode, so switching
+      // keeps each set's instructions and optimized components.
+      %configured = core.call @agent_runtime_configured(%state)
+      %runtime = core.get %options["runtime"] default null
+      %has_runtime = core.call intrinsic.is_not_none(%runtime)
+      %runtime_mode = core.call intrinsic.or(%configured, %has_runtime)
+      %mode = core.let "plain"
+      core.if %runtime_mode {
+        %mode = core.let "runtime"
+      }
+      %state_runtime = core.get %state["runtime_enabled"] default false
+      %active_default = core.let "plain"
+      core.if %state_runtime {
+        %active_default = core.let "runtime"
+      }
+      %active = core.get %state["stage_mode"] default %active_default
+      %switching = core.call intrinsic.ne(%mode, %active)
+      core.if %switching {
+        %empty_modes = core.map
+        %modes = core.get %state["stage_modes"] default %empty_modes
+        %current_fields = core.call @agent_stage_mode_fields(%state)
+        core.set %modes[%active] = %current_fields
+        %target = core.get %modes[%mode] default null
+        %cached = core.call intrinsic.is_not_none(%target)
+        core.if %cached {
+        } else {
+          // Only an agent without a constructor runtime switches, and it
+          // starts with the runtime-less stages, so the set to build is the
+          // forward runtime's.
+          %target = core.call @agent_runtime_stage_fields(%state, %runtime)
+        }
+        core.for %field in %target {
+          %field_value = core.get %target[%field] default null
+          core.set %state[%field] = %field_value
+        }
+        core.set %state["stage_modes"] = %modes
+        core.set %state["stage_mode"] = %mode
+        %prompt_policy = core.call @build_agent_actor_prompt_policy(%state)
+        core.set %state["actor_prompt_policy"] = %prompt_policy
+        core.call @agent_refresh_actor_instruction(%state)
+      }
+      %record = core.map
+      core.set %record["mode"] = %mode
+      %record_distiller_signature = core.get %state["distiller_signature"] default ""
+      core.set %record["distiller_signature"] = %record_distiller_signature
+      %record_executor_signature = core.get %state["executor_signature"] default ""
+      core.set %record["executor_signature"] = %record_executor_signature
+      %record_distiller_description = core.get %state["distiller_description"] default ""
+      core.set %record["distiller_description"] = %record_distiller_description
+      %record_executor_description = core.get %state["executor_description"] default ""
+      core.set %record["executor_description"] = %record_executor_description
+      %record_responder_description = core.get %state["responder_description"] default ""
+      core.set %record["responder_description"] = %record_responder_description
+      core.return %record
     }
   }
 }

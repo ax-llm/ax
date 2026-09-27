@@ -58,7 +58,7 @@ import {
   AxAIOpenAIModel,
 } from './chat_types.js';
 import { axResolveOpenAIChatReasoningEffort } from './effort.js';
-import { axModelInfoOpenAI } from './info.js';
+import { axModelInfoOpenAI, openAIOSeriesSamplingModelInfo } from './info.js';
 import {
   axIsGPT6Astra,
   axIsGPT6Family,
@@ -80,27 +80,6 @@ export {
   axAIOpenAIAudioDefaultConfig,
   axAIOpenAIRealtimeDefaultConfig,
   axAIOpenAIRealtimeTranscriptionDefaultConfig,
-};
-
-/**
- * Checks if the given OpenAI model is a thinking/reasoning model.
- * Thinking models (o1, o3, o4 series) have different parameter restrictions.
- */
-export const isOpenAIThinkingModel = (model: string): boolean => {
-  const thinkingModels = [
-    AxAIOpenAIModel.O1,
-    AxAIOpenAIModel.O1Mini,
-    AxAIOpenAIModel.O3,
-    AxAIOpenAIModel.O3Mini,
-    AxAIOpenAIModel.O4Mini,
-    // Pro models (string values since they're not in the regular chat enum)
-    'o1-pro',
-    'o3-pro',
-  ];
-  return (
-    thinkingModels.includes(model as AxAIOpenAIModel) ||
-    thinkingModels.includes(model)
-  );
 };
 
 export const axAIOpenAIDefaultConfig = (): AxAIOpenAIConfig<
@@ -379,6 +358,21 @@ class AxAIOpenAIImpl<
     };
   }
 
+  /** OpenAI's info for an o-series name, for profiles without model info. */
+  samplingModelInfo(model: TModel): Readonly<AxModelInfo> | undefined {
+    return openAIOSeriesSamplingModelInfo(String(model));
+  }
+
+  /** The `reasoning_effort` createChatReq will send for this model. */
+  resolveReasoningEffort(
+    model: TModel,
+    config: Readonly<AxAIServiceOptions>
+  ): string | undefined {
+    return config.thinkingTokenBudget
+      ? axResolveOpenAIChatReasoningEffort(model, config.thinkingTokenBudget)
+      : this.config.reasoningEffort;
+  }
+
   validateChatReq = (req: Readonly<AxInternalChatRequest<TModel>>): void => {
     if (
       this.promptCaching &&
@@ -499,14 +493,14 @@ class AxAIOpenAIImpl<
       }
     }
 
-    const frequencyPenalty =
-      req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty;
+    // The penalties come only from the merged modelConfig (which carries the
+    // AI's config): the base layer removes them there when the model rejects
+    // them, and a fallback to this.config would put them back.
+    const frequencyPenalty = req.modelConfig?.frequencyPenalty;
 
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
     const store = this.config.store;
-
-    const isThinkingModel = isOpenAIThinkingModel(model as string);
 
     let reqValue: AxAIOpenAIChatRequest<TModel> = {
       model,
@@ -526,37 +520,29 @@ class AxAIOpenAIImpl<
           : {}),
       ...(tools ? { tools } : {}),
       ...(toolsChoice ? { tool_choice: toolsChoice } : {}),
-      // For thinking models, don't set these parameters as they're not supported
-      ...(isThinkingModel
-        ? {}
-        : {
-            ...((req.modelConfig?.maxTokens ?? this.config.maxTokens) !==
-            undefined
-              ? {
-                  max_completion_tokens: (req.modelConfig?.maxTokens ??
-                    this.config.maxTokens)!,
-                }
-              : {}),
-            ...(req.modelConfig?.temperature !== undefined
-              ? { temperature: req.modelConfig.temperature }
-              : {}),
-            ...(req.modelConfig?.topP !== undefined
-              ? { top_p: req.modelConfig.topP }
-              : {}),
-            ...((req.modelConfig?.n ?? this.config.n) !== undefined
-              ? { n: (req.modelConfig?.n ?? this.config.n)! }
-              : {}),
-            ...((req.modelConfig?.presencePenalty ??
-              this.config.presencePenalty) !== undefined
-              ? {
-                  presence_penalty: (req.modelConfig?.presencePenalty ??
-                    this.config.presencePenalty)!,
-                }
-              : {}),
-            ...(frequencyPenalty !== undefined
-              ? { frequency_penalty: frequencyPenalty }
-              : {}),
-          }),
+      // Model info decides which sampling parameters the model accepts; the
+      // base layer has already removed the rest from modelConfig.
+      ...((req.modelConfig?.maxTokens ?? this.config.maxTokens) !== undefined
+        ? {
+            max_completion_tokens: (req.modelConfig?.maxTokens ??
+              this.config.maxTokens)!,
+          }
+        : {}),
+      ...(req.modelConfig?.temperature !== undefined
+        ? { temperature: req.modelConfig.temperature }
+        : {}),
+      ...(req.modelConfig?.topP !== undefined
+        ? { top_p: req.modelConfig.topP }
+        : {}),
+      ...((req.modelConfig?.n ?? this.config.n) !== undefined
+        ? { n: (req.modelConfig?.n ?? this.config.n)! }
+        : {}),
+      ...(req.modelConfig?.presencePenalty !== undefined
+        ? { presence_penalty: req.modelConfig.presencePenalty }
+        : {}),
+      ...(frequencyPenalty !== undefined
+        ? { frequency_penalty: frequencyPenalty }
+        : {}),
       ...((req.modelConfig?.stopSequences ?? this.config.stop) &&
       (req.modelConfig?.stopSequences ?? this.config.stop)!.length > 0
         ? { stop: (req.modelConfig?.stopSequences ?? this.config.stop)! }
@@ -906,7 +892,7 @@ function createMessages<TModel>(
                   const url = `data:${c.mimeType};base64,${c.image}`;
                   return {
                     type: 'image_url' as const,
-                    image_url: { url, details: c.details ?? 'auto' },
+                    image_url: { url, detail: c.details ?? 'auto' },
                   };
                 }
                 case 'audio': {
@@ -1236,7 +1222,8 @@ export class AxAIOpenAIBase<
         model,
         input: req.text,
         voice,
-        response_format: format === 'pcm' ? 'pcm16' : format,
+        // OpenAI's `pcm` is 16-bit PCM; it rejects `pcm16`.
+        response_format: format === 'pcm16' ? 'pcm' : format,
         ...(req.speed !== undefined ? { speed: req.speed } : {}),
       },
       format,
@@ -1462,5 +1449,6 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
     });
 
     super.setName('OpenAI');
+    this.setExplicitModelConfigKeys(config);
   }
 }

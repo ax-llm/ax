@@ -23,7 +23,7 @@ func main() {
 	if model == "" {
 		model = "gpt-5.4-mini"
 	}
-	client := ax.NewOpenAICompatibleClient(map[string]ax.Value{
+	client := ax.NewAI("openai", map[string]ax.Value{
 		"api_key":      apiKey,
 		"model":        model,
 		"model_config": ax.Object("temperature", 0),

@@ -1,0 +1,45 @@
+{
+  "expected_transport_wire_json_contains": [
+    "\"input_audio\":{\"data\":\"UklGRg==\"}"
+  ],
+  "kind": "ai_chat",
+  "name": "responses-audio-part-without-format",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "data": "UklGRg==",
+            "type": "audio"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_audio",
+        "output": [
+          {
+            "content": [
+              {
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_audio",
+            "role": "assistant",
+            "type": "message"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

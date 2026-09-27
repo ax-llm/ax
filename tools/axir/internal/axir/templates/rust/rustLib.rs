@@ -2393,10 +2393,10 @@ impl OpenAICompatibleClient {
         {
             req["model"] = json!(self.model.clone());
         }
-        let mut base_config = if self.model_config.is_object() { self.model_config.clone() } else { json!({}) };
-        if self.profile != "typesafe" && base_config.get("temperature").is_none() {
-            base_config["temperature"] = json!(0);
-        }
+        // Only the caller's settings: provider_build_chat_request adds the
+        // provider's sampling defaults (as its TS class starts from) under
+        // them, after dropping the explicit ones the model rejects.
+        let base_config = if self.model_config.is_object() { self.model_config.clone() } else { json!({}) };
         let override_config = req
             .get("model_config")
             .or_else(|| req.get("modelConfig"))
@@ -2490,7 +2490,8 @@ impl OpenAICompatibleClient {
             && self.api_key.is_empty()
             && self.credential_provider.is_none()
         {
-            return Err(AxError::new("authentication", format!("{} requires api_key or credential_provider", self.profile)));
+            let message = core_value_to_json(&provider_missing_api_key_message(&[CoreValue::from(self.profile.as_str())])?);
+            return Err(AxError::new("authentication", message.as_str().unwrap_or_default().to_string()));
         }
         if let Some(provider) = self.credential_provider.as_ref() {
             for (key, value) in provider.credentials(&AxCredentialRequest {
@@ -2828,13 +2829,24 @@ impl OpenAICompatibleClient {
             .send()?
             .error_for_status()?;
         // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
-        // be UTF-8 decoded or parsed as JSON; return the bytes as a base64 string
-        // so the speak normalizer can pass it through to the `audio` field.
-        let response: Value = if binary {
-            Value::String(encode_base64(&raw.bytes()?))
-        } else {
-            raw.json()?
-        };
+        // be UTF-8 decoded: the bytes go on as base64 with their Content-Type,
+        // which names their mime type. A JSON body (as TS reads one by its
+        // Content-Type) goes on parsed.
+        if binary {
+            let content_type = raw
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            let response: Value = if content_type.contains("application/json") {
+                raw.json()?
+            } else {
+                Value::String(encode_base64(&raw.bytes()?))
+            };
+            return Ok(json!({"status": 200, "json": response, "headers": {"content-type": content_type}}));
+        }
+        let response: Value = raw.json()?;
         Ok(json!({"status": 200, "json": response}))
     }
 
@@ -3052,11 +3064,25 @@ impl OpenAICompatibleClient {
             "mistral" => self.post_json("/audio/speech", body, binary, "speak")?,
             _ => self.post_json("/audio/speech", body, binary, "speak")?,
         };
-        let payload = normalize_passthrough_response(raw)?;
+        // As TS's axFetchJsonSpeech: a JSON body (by its Content-Type) is read
+        // as JSON, and a binary one as base64 with its Content-Type.
+        let content_type = transport_content_type(&raw);
+        let mut payload = normalize_passthrough_response(raw)?;
+        if content_type.contains("application/json") {
+            if let Value::String(text) = &payload {
+                payload = serde_json::from_str(text).map_err(AxError::from)?;
+            }
+        }
+        let content_type_value = if content_type.is_empty() {
+            CoreValue::Null
+        } else {
+            CoreValue::from(content_type.as_str())
+        };
         let normalized = provider_normalize_speak_response(&[
             CoreValue::from(profile.as_str()),
             core_value_from_json(&payload),
             core_value_from_json(&request),
+            content_type_value,
         ])?;
         Ok(core_value_to_json(&normalized))
     }
@@ -3850,11 +3876,16 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
         .ok_or_else(|| AxError::validation(format!("unknown AxAI provider {provider}")))?;
     let profile = defaults.profile.clone();
     let vertex = options.get("project_id").or_else(|| options.get("projectId")).is_some() && options.get("region").is_some();
+    // OPENAI_API_KEY belongs to OpenAI's own profiles and the generic client:
+    // the OpenAI key never goes to another provider. A profile that needs a
+    // key and has none fails on its first request (a credential provider can
+    // still be attached after ai()).
+    let reads_openai_env = matches!(profile.as_str(), "openai" | "openai-responses" | "openai-compatible");
     let api_key = string_at(&options, "api_key")
         .or_else(|| string_at(&options, "apiKey"))
         .or_else(|| if vertex && matches!(profile.as_str(), "google-gemini" | "anthropic") { std::env::var("GOOGLE_VERTEX_ACCESS_TOKEN").ok() } else { None })
-        .or_else(|| if profile == "typesafe" { std::env::var("TYPESAFE_APIKEY").or_else(|_| std::env::var("TYPESAFE_API_KEY")).ok() } else { std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("OPENAI_APIKEY")).ok() })
-        .unwrap_or_else(|| if profile == "typesafe" { String::new() } else { "test-key".to_string() });
+        .or_else(|| if profile == "typesafe" { std::env::var("TYPESAFE_APIKEY").or_else(|_| std::env::var("TYPESAFE_API_KEY")).ok() } else if reads_openai_env { std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("OPENAI_APIKEY")).ok() } else { None })
+        .unwrap_or_default();
     if profile == "typesafe" {
         let threshold = options.get("trueThreshold").or_else(|| options.get("true_threshold")).cloned().unwrap_or(json!(0.5));
         typesafe_require_number(&[core_value_from_json(&threshold), CoreValue::from("trueThreshold"), CoreValue::Num(0.0), CoreValue::Num(1.0)])?;
@@ -3871,10 +3902,8 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
         .or_else(|| resolved_descriptor.get("baseUrl").and_then(Value::as_str).map(ToString::to_string))
         .unwrap_or_else(|| defaults.api_url.to_string());
     if defaults.requires_api_url && api_url.is_empty() {
-        return Err(AxError::validation(format!(
-            "AxAI profile {} requires api_url",
-            profile
-        )));
+        // TS resolveProfileURL: "<Name> requires apiURL".
+        provider_require_api_url(&[CoreValue::from(profile.as_str()), core_value_from_json(&json!({}))])?;
     }
     let embed_model = string_at(&options, "embed_model").unwrap_or_else(|| defaults.embed_model.to_string());
     let mut client = OpenAICompatibleClient::new(api_key, model)
@@ -3945,6 +3974,20 @@ fn normalize_openai_response(profile: &str, model: &str, response: Value, contex
 
 // python: _transport_result. Raises openai_normalize_error for status >= 400
 // and unwraps {status, json|body|data} transport envelopes otherwise.
+/// The Content-Type header of a transport response, if it names one.
+fn transport_content_type(response: &Value) -> String {
+    response
+        .get("headers")
+        .and_then(Value::as_object)
+        .and_then(|headers| {
+            headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("content-type"))
+                .and_then(|(_, value)| value.as_str().map(str::to_string))
+        })
+        .unwrap_or_default()
+}
+
 fn normalize_passthrough_response(response: Value) -> AxResult<Value> {
     // Responses objects have a string status (for example "completed"). Only
     // numeric HTTP statuses identify a transport envelope.
@@ -5394,6 +5437,13 @@ pub struct AxAgent {
     // run-end learning; None uses the forward's client.
     playbook_student: Option<Rc<RefCell<dyn AxAIClient>>>,
     runtime_hooks: AxRuntimeHooks,
+    // Each run uses the stage set of its mode (see use_stage_mode): "runtime",
+    // the RLM stages, or "plain", the runtime-less stages. The fields above hold
+    // the set in use; the other mode's set waits in stage_sets, and
+    // optimized_components apply to a set when a run switches to it.
+    stage_mode: String,
+    stage_sets: BTreeMap<String, (CoreValue, CoreValue, CoreValue)>,
+    optimized_components: Value,
 }
 
 thread_local! {
@@ -5637,6 +5687,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
     .text();
     let llm_query_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("llm_query_description"), CoreValue::from("")));
     let responder = agent_responder_gen(&state, &options, responder_signature, responder_instruction)?;
+    let stage_mode = if core_truthy(&core_get(&state, &CoreValue::from("runtime_enabled"), CoreValue::Bool(false))) { "runtime" } else { "plain" }.to_string();
     Ok(AxAgent {
         configured_options: options.clone(),
         state,
@@ -5659,6 +5710,9 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         playbook_observer: None,
         playbook_student: None,
         runtime_hooks: AxRuntimeHooks::default(),
+        stage_mode,
+        stage_sets: BTreeMap::new(),
+        optimized_components: json!({}),
     })
 }
 
@@ -5795,6 +5849,64 @@ impl AxAgent {
         Self::write_stage_instruction(target, &instruction);
     }
 
+    // A run's stages follow its runtime: the agent's, else the forward call's;
+    // without one, the runtime-less stages run. A set coming back into use
+    // takes the instructions from the agent's state (a standing instruction set
+    // since) and the optimized components again.
+    fn use_stage_mode(&mut self, options: &CoreValue) -> AxResult<()> {
+        let record = core_value_to_json(&_agent_use_stage_mode(&[self.state.clone(), options.clone()])?);
+        let mode = record.get("mode").and_then(Value::as_str).unwrap_or("plain").to_string();
+        if mode == self.stage_mode {
+            return Ok(());
+        }
+        let text = |field: &str| record.get(field).and_then(Value::as_str).unwrap_or_default().to_string();
+        let (distiller, executor, responder) = match self.stage_sets.remove(&mode) {
+            Some(set) => {
+                Self::write_stage_instruction(&set.0, &text("distiller_description"));
+                Self::write_stage_instruction(&set.1, &text("executor_description"));
+                Self::write_stage_instruction(&set.2, &text("responder_description"));
+                set
+            }
+            None => {
+                let retries = core_value_to_json(&core_get(
+                    &self.configured_options,
+                    &CoreValue::from("validation_retries"),
+                    core_get(&self.configured_options, &CoreValue::from("validationRetries"), CoreValue::Num(1.0)),
+                ));
+                let distiller = agent_stage_gen(
+                    s(&text("distiller_signature"))?,
+                    json!({"validation_retries": retries.clone(), "id": "ctx.root.actor", "instruction": text("distiller_description")}),
+                );
+                let executor = agent_stage_gen(
+                    s(&text("executor_signature"))?,
+                    json!({"validation_retries": retries, "id": "task.root.actor", "instruction": text("executor_description")}),
+                );
+                let responder_signature = signature_from_record(&core_get(&self.state, &CoreValue::from("responder_signature"), CoreValue::Null))?;
+                let responder = agent_responder_gen(&self.state, &self.configured_options, responder_signature, json!(text("responder_description")))?;
+                (distiller, executor, responder)
+            }
+        };
+        if self.optimized_components.as_object().is_some_and(|map| !map.is_empty()) {
+            let components = core_value_from_json(&self.optimized_components);
+            core_program_apply_components(&[distiller.clone(), components.clone()])?;
+            core_program_apply_components(&[executor.clone(), components.clone()])?;
+            core_program_apply_components(&[responder.clone(), components])?;
+        }
+        let outgoing = (
+            std::mem::replace(&mut self.distiller, distiller),
+            std::mem::replace(&mut self.executor, executor),
+            std::mem::replace(&mut self.responder, responder),
+        );
+        let previous = std::mem::replace(&mut self.stage_mode, mode);
+        self.stage_sets.insert(previous, outgoing);
+        if self.playbook_configured() {
+            let field = if self.playbook_stage_name() == "responder" { "responder_description" } else { "executor_description" };
+            self.playbook_instruction_base = text(field);
+            self.refresh_playbook_prompt();
+        }
+        Ok(())
+    }
+
     pub fn get_instruction(&self) -> String {
         self.state_json("stage_instruction").as_str().unwrap_or_default().to_string()
     }
@@ -5829,7 +5941,20 @@ impl AxAgent {
         input: Value,
         options: impl Into<AxForwardOptions>,
     ) -> AxResult<Value> {
-        self.run(client, input, options.into(), None)
+        self.run(client, input, options.into(), None, None)
+    }
+
+    // A forward with a runtime on the call, as the other ports take one (the
+    // conformance runner's runtime_on_forward). Rust attaches runtimes with
+    // with_runtime, so a runtime per call is reachable only inside the crate.
+    pub(crate) fn forward_with_runtime_host<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: AxForwardOptions,
+        runtime: Option<CoreValue>,
+    ) -> AxResult<Value> {
+        self.run(client, input, options, None, runtime)
     }
 
     /// Runs the agent and streams the responder's output, as TypeScript's
@@ -5849,13 +5974,25 @@ impl AxAgent {
         client: &mut C,
         input: Value,
         options: impl Into<AxForwardOptions>,
+        on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
+    ) -> AxResult<Value> {
+        self.streaming_forward_with_runtime_host(client, input, options.into(), None, on_delta)
+    }
+
+    // streaming_forward with a runtime on the call; see forward_with_runtime_host.
+    pub(crate) fn streaming_forward_with_runtime_host<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: AxForwardOptions,
+        runtime: Option<CoreValue>,
         mut on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
     ) -> AxResult<Value> {
         let host = Rc::new(CoreDeltaSinkHost {
             sink: RefCell::new(Box::new(move |envelope| on_delta(AxGenDelta::from_envelope(&envelope)))),
             stopped: RefCell::new(None),
         });
-        let result = self.run(client, input, options.into(), Some(host.clone()));
+        let result = self.run(client, input, options, Some(host.clone()), runtime);
         // The consumer's own error, not the abort that carried it out of the run.
         let stop = host.stopped.borrow_mut().take();
         match stop {
@@ -5871,6 +6008,7 @@ impl AxAgent {
         input: Value,
         options: AxForwardOptions,
         sink: Option<Rc<CoreDeltaSinkHost>>,
+        forward_runtime: Option<CoreValue>,
     ) -> AxResult<Value> {
         session::with_control(options, |options| {
         let defaults = self.runtime_hooks.clone();
@@ -5880,11 +6018,17 @@ impl AxAgent {
             attributes.insert("ax.streaming".to_string(), json!(true));
         }
         with_runtime_scope(None, Some(&defaults), "ax_gen_agent_forward", "agent", attributes, || {
+        // The run's options as the IR takes them, with a runtime on the call.
+        let run_options = core_value_from_json(&options);
+        if let Some(runtime) = &forward_runtime {
+            core_set(&run_options, CoreValue::from("runtime"), runtime.clone())?;
+        }
+        self.use_stage_mode(&run_options)?;
         let call_context=self.execution_context.clone().or_else(mcp::MCPRunScope::current);
         let _context_scope=mcp::MCPRunScope::enter(call_context.clone());
         if call_context.is_some() || core_truthy(&core_get(&self.state,&CoreValue::from("mcp_run_context_active"),CoreValue::Bool(false))) {
             let modules=match &call_context {Some(context)=>agent_context_modules(context)?,None=>CoreValue::new_list()};
-            _agent_apply_run_context(&[self.state.clone(),self.configured_options.clone(),core_value_from_json(&options),modules])?;
+            _agent_apply_run_context(&[self.state.clone(),self.configured_options.clone(),run_options.clone(),modules])?;
             if core_truthy(&core_get(&self.state,&CoreValue::from("runtime_enabled"),CoreValue::Bool(false))) {
                 for (field,stage) in [("distiller_description","distiller"),("executor_description","executor"),("responder_description","responder")] {
                     let instruction=core_get(&self.state,&CoreValue::from(field),CoreValue::from("")).text();
@@ -5919,7 +6063,10 @@ impl AxAgent {
         // thread-local client bound by with_core_client below (CoreValue::Null
         // here resolves to that binding), so it captures only Send + Sync data.
         let state_options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
-        let runtime_host = core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null);
+        let runtime_host = match &forward_runtime {
+            Some(runtime) => runtime.clone(),
+            None => core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null),
+        };
         let invocation_binding = AgentRunBinding::new(self.state.clone());
         if let CoreValue::Host(host) = &runtime_host {
             for raw_name in core_iter(&_agent_runtime_callable_names(&[self.state.clone()])?)? {
@@ -5974,7 +6121,7 @@ impl AxAgent {
                 self.responder.clone(),
                 CoreValue::Null,
                 core_value_from_json(&input),
-                core_value_from_json(&options),
+                run_options.clone(),
             ]),
             Some(sink) => _agent_streaming_forward(&[
                 self.state.clone(),
@@ -5983,7 +6130,7 @@ impl AxAgent {
                 self.responder.clone(),
                 CoreValue::Null,
                 core_value_from_json(&input),
-                core_value_from_json(&options),
+                run_options.clone(),
                 CoreValue::Host(sink.clone()),
             ]),
         });
@@ -6292,6 +6439,12 @@ impl AxAgent {
             core_value_from_json(&components),
             core_value_from_json(component_map),
         ])?;
+        // Kept for the other stage set, which gets them when a run switches to it.
+        if let (Some(kept), Some(updates)) = (self.optimized_components.as_object_mut(), component_map.as_object()) {
+            for (key, value) in updates {
+                kept.insert(key.clone(), value.clone());
+            }
+        }
         let component_core = core_value_from_json(component_map);
         core_program_apply_components(&[self.distiller.clone(), component_core.clone()])?;
         core_program_apply_components(&[self.executor.clone(), component_core.clone()])?;
@@ -12946,7 +13099,8 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     let mut client = FixtureClient::scripted(
         responses,
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
-    );
+    )
+    .with_speak_responses(fixture);
     client.transcribe_responses = fixture
         .get("transcribe_responses")
         .and_then(Value::as_array)
@@ -13033,12 +13187,20 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         ScriptedCodeRuntime::new(script.clone(), language, usage)
     });
     let executed_handle = scripted.as_ref().map(|runtime| runtime.executed_handle());
+    // runtime_on_forward: the runtime goes on each forward call (unless a run
+    // says without_runtime) instead of the constructor.
+    let runtime_on_forward = fixture.get("runtime_on_forward").and_then(Value::as_bool).unwrap_or(false);
+    let mut forward_runtime: Option<CoreValue> = None;
     if let Some(runtime) = scripted {
         let host = core_code_runtime_host_shared(
             Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
             core_runtime_capabilities_full(),
         );
-        core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        if runtime_on_forward {
+            forward_runtime = Some(host);
+        } else {
+            core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        }
     }
     // agent_runtime_real (G1): drive forward() through the REAL embedded engine.
     if fixture.get("runtime_engine").is_some() {
@@ -13129,6 +13291,9 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(snapshot) = fixture.get("restore_runtime_state") {
         agent.restore_runtime_state(snapshot.clone())?;
     }
+    if let Some(components) = fixture.get("apply_components") {
+        agent.apply_optimized_components(components)?;
+    }
     let mut run_state_projections = Vec::<Value>::new();
     let mut saved_runtime_state: Option<Value> = None;
     let mut state_roundtrip_projection = json!({});
@@ -13160,6 +13325,9 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                     }
                     _ => {}
                 }
+                if let Some(signature) = run.get("set_signature").and_then(Value::as_str) {
+                    agent.set_signature(signature)?;
+                }
                 let input = run.get("input").cloned().unwrap_or_else(|| json!({}));
                 let mut forward_options = run
                     .get("forward_options")
@@ -13169,7 +13337,8 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                     install_semantic_observer(options, "onUsedSkills", "forward.used_skills", false);
                     install_semantic_observer(options, "onUsedMemories", "forward.used_memories", false);
                 }
-                outputs.push(agent.forward_with_options(&mut client, input, forward_options)?);
+                let run_runtime = if run.get("without_runtime").and_then(Value::as_bool).unwrap_or(false) { None } else { forward_runtime.clone() };
+                outputs.push(agent.forward_with_runtime_host(&mut client, input, AxForwardOptions::from(forward_options), run_runtime)?);
                 let run_exported = agent.export_runtime_state()?;
                 if run
                     .get("save_runtime_state")
@@ -13212,7 +13381,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         if streaming {
             let deltas = stream_deltas.clone();
             let stop_after = fixture.get("stop_after_deltas").and_then(Value::as_u64);
-            let result = agent.streaming_forward(&mut client, input, run_options, move |update| {
+            let result = agent.streaming_forward_with_runtime_host(&mut client, input, run_options, forward_runtime.clone(), move |update| {
                 let mut deltas = deltas.borrow_mut();
                 deltas.push(json!({"version": update.version, "index": update.index, "delta": update.delta}));
                 if stop_after.is_some_and(|limit| deltas.len() as u64 >= limit) {
@@ -13226,7 +13395,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                 other => other,
             };
         }
-        agent.forward_with_options(&mut client, input, run_options)
+        agent.forward_with_runtime_host(&mut client, input, run_options, forward_runtime.clone())
     })();
     let assert_run_projections = |agent: &mut AxAgent, client: &FixtureClient| -> AxResult<()> {
         if streaming || fixture.get("expected_deltas").is_some() {
@@ -13288,6 +13457,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("agent output", &output, expected)?;
     }
+    expect_fixture_speak_requests(fixture, &client.speak_requests)?;
     if let Some(expected) = fixture.get("expected_run_state_projections") {
         expect_json_equal(
             "agent run state projections",
@@ -13622,6 +13792,9 @@ fn agent_request_stage(request: &Value) -> &'static str {
         "executor"
     } else if system.contains("`Generator answer`") || system.contains("`Question context`") {
         "playbook"
+    } else if system.contains("Your task is to generate new fields: `Completion`") {
+        // The ports' runtime-less distiller or executor (port-only).
+        "runtime_less"
     } else if system.contains("context-map Distiller") || system.contains("context-map Cartographer") {
         "context_map"
     } else {
@@ -16906,6 +17079,17 @@ fn expect_fixture_request_roles(fixture: &Value, client: &FixtureClient) -> AxRe
     expect_json_equal("request roles", &Value::Array(roles), expected)
 }
 
+// python: expected_chat_prompt. The first request's whole chat prompt.
+fn expect_fixture_chat_prompt(fixture: &Value, client: &FixtureClient) -> AxResult<()> {
+    let Some(expected) = fixture.get("expected_chat_prompt") else {
+        return Ok(());
+    };
+    let Some(first) = client.requests.first() else {
+        return Err(AxError::new("fixture", "fixture expected a request but none were sent"));
+    };
+    expect_json_equal("chat prompt", first.get("chat_prompt").unwrap_or(&Value::Null), expected)
+}
+
 // python: _run_streaming_forward. Streams the forward into a delta list and
 // checks the deltas (also those sent before an expected error), the merged
 // output, the requests, tool calls and field processor calls. With `control`
@@ -17004,6 +17188,7 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
         expect_json_equal("run control events", &actual, expected)?;
     }
     expect_fixture_request_roles(fixture, &client)?;
+    expect_fixture_chat_prompt(fixture, &client)?;
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() != expected as usize {
             return Err(AxError::new("fixture", format!("expected {expected} requests, got {}", client.requests.len())));
@@ -17387,6 +17572,7 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         expect_json_equal("run control events", &actual, expected)?;
     }
     expect_fixture_request_roles(fixture, &client)?;
+    expect_fixture_chat_prompt(fixture, &client)?;
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() != expected as usize {
             return Err(AxError::new(
@@ -17519,8 +17705,55 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+// Sets (or, for null, unsets) the fixture's environment variables and returns
+// their previous values.
+fn apply_fixture_env(fixture: &Value) -> Vec<(String, Option<String>)> {
+    let mut saved = Vec::new();
+    if let Some(env) = fixture.get("env").and_then(Value::as_object) {
+        for (name, value) in env {
+            saved.push((name.clone(), std::env::var(name).ok()));
+            match value.as_str() {
+                Some(text) => std::env::set_var(name, text),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+    saved
+}
+
+fn restore_fixture_env(saved: Vec<(String, Option<String>)>) {
+    for (name, value) in saved {
+        match value {
+            Some(text) => std::env::set_var(&name, text),
+            None => std::env::remove_var(&name),
+        }
+    }
+}
+
+// A chat fixture can set environment variables, and pins the one-time
+// warnings the request logs with expected_warnings.
 fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
-    let (mut client, requests, credential_requests) = fixture_client(fixture)?;
+    let saved = apply_fixture_env(fixture);
+    ai_capture_warnings(true);
+    let result = run_ai_chat_request_fixture(fixture);
+    let captured = ai_capture_warnings(false);
+    restore_fixture_env(saved);
+    result?;
+    if let Some(expected) = fixture.get("expected_warnings") {
+        expect_json_equal("ai chat warnings", &json!(captured), expected)?;
+    }
+    Ok(())
+}
+
+fn run_ai_chat_request_fixture(fixture: &Value) -> AxResult<()> {
+    let built = fixture_client(fixture);
+    if fixture.get("expected_error_contains").is_some() {
+        if let Err(err) = built {
+            // A client that fails to build has sent nothing.
+            return expect_validation_result(Err(err), fixture);
+        }
+    }
+    let (mut client, requests, credential_requests) = built?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     // Fixture `options` are the call's options (client options come from
     // `service_options`, falling back to `options`).
@@ -17911,8 +18144,18 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
     if fixture.get("credential_provider_fixture").is_some() {
         options["api_key"] = json!("");
     }
-    if options.get("api_key").is_none() {options["api_key"]=fixture.get("api_key").cloned().unwrap_or_else(|| json!("test-key"));}
-    let mut client = ai(provider, options)?.with_transport(transport);
+    // no_api_key: the client gets no key argument (the env fixtures).
+    if options.get("api_key").is_none() && !fixture.get("no_api_key").and_then(Value::as_bool).unwrap_or(false) {options["api_key"]=fixture.get("api_key").cloned().unwrap_or_else(|| json!("test-key"));}
+    let mut client = if fixture.get("client_class").and_then(Value::as_str) == Some("OpenAICompatibleClient") {
+        // The generic client built by its own constructor instead of ai().
+        let api_key = options.get("api_key").and_then(Value::as_str).unwrap_or("test-key").to_string();
+        let model = options.get("model").and_then(Value::as_str).unwrap_or_default().to_string();
+        OpenAICompatibleClient::new(api_key, model)
+            .with_model_config(options.get("model_config").cloned().unwrap_or_else(|| json!({})))
+            .with_transport(transport)
+    } else {
+        ai(provider, options)?.with_transport(transport)
+    };
     if let Some(credential_fixture) = fixture.get("credential_provider_fixture") {
         let header_sets = credential_fixture.get("headers").and_then(Value::as_array).cloned().unwrap_or_default();
         let error = credential_fixture.get("error").and_then(Value::as_str).map(ToString::to_string);
@@ -20464,6 +20707,8 @@ fn core_prompt_combine_consecutive_text(parts: &CoreValue, separator: &str) -> R
             _ => None,
         };
         if let Some(prev) = merge_target {
+            // TS combineConsecutiveStrings: the joined part is cached when any
+            // of its text parts is.
             let prev_text = core_get(&prev, &CoreValue::from("text"), CoreValue::from("")).text();
             let part_text = core_get(&part, &CoreValue::from("text"), CoreValue::from("")).text();
             core_set(
@@ -20471,6 +20716,9 @@ fn core_prompt_combine_consecutive_text(parts: &CoreValue, separator: &str) -> R
                 CoreValue::from("text"),
                 CoreValue::from_string(format!("{prev_text}{separator}{part_text}")),
             )?;
+            if core_truthy(&core_get(&part, &CoreValue::from("cache"), CoreValue::Null)) {
+                core_set(&prev, CoreValue::from("cache"), CoreValue::Bool(true))?;
+            }
         } else {
             core_append(&out, part)?;
         }
@@ -20478,17 +20726,169 @@ fn core_prompt_combine_consecutive_text(parts: &CoreValue, separator: &str) -> R
     Ok(out)
 }
 
+// JavaScript's !value for a JSON value: objects and arrays are truthy.
+#[allow(dead_code)]
+fn core_prompt_js_falsy(value: &CoreValue) -> bool {
+    match value {
+        CoreValue::Null => true,
+        CoreValue::Bool(b) => !*b,
+        CoreValue::Str(s) => s.is_empty(),
+        CoreValue::Num(n) => *n == 0.0 || n.is_nan(),
+        _ => false,
+    }
+}
+
+// Checks a media value as TS's validators do.
+#[allow(dead_code)]
+fn core_prompt_media_object(value: &CoreValue, label: &str, required_key: &str) -> Result<(), AxError> {
+    if core_prompt_js_falsy(value) {
+        return Err(AxError::runtime(format!("{label} field value is required.")));
+    }
+    let has_key = match value {
+        CoreValue::Map(map) => map.borrow().contains(required_key),
+        CoreValue::List(_) => false,
+        _ => return Err(AxError::runtime(format!("{label} field value must be an object."))),
+    };
+    if !has_key {
+        return Err(AxError::runtime(format!("{label} field must have {required_key}")));
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn core_prompt_has_key(value: &CoreValue, key: &str) -> bool {
+    matches!(value, CoreValue::Map(map) if map.borrow().contains(key))
+}
+
+// The optional keys a media part type declares (TS AxChatRequest) that the
+// value sets go on the part, so the provider or router that reads them gets
+// them; other keys stay behind.
+#[allow(dead_code)]
+fn core_prompt_declared_keys(part: CoreValue, value: &CoreValue, keys: &[&str]) -> Result<CoreValue, AxError> {
+    for key in keys {
+        if core_prompt_has_key(value, key) {
+            core_set(&part, CoreValue::from(*key), core_get(value, &CoreValue::from(*key), CoreValue::Null))?;
+        }
+    }
+    Ok(part)
+}
+
+// TS defaultRenderInField: an image part carries the mime type, the data as
+// `image`, and the details the provider reads (OpenAI's image detail).
+#[allow(dead_code)]
+fn core_prompt_image_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    core_prompt_media_object(value, "Image", "mimeType")?;
+    if !core_prompt_has_key(value, "data") {
+        return Err(AxError::runtime("Image field must have data"));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("image"))?;
+    core_set(&part, CoreValue::from("mimeType"), core_get(value, &CoreValue::from("mimeType"), CoreValue::Null))?;
+    core_set(&part, CoreValue::from("image"), core_get(value, &CoreValue::from("data"), CoreValue::Null))?;
+    core_prompt_declared_keys(part, value, &["details", "cache", "optimize", "altText"])
+}
+
+// TS defaultRenderInField: a file part carries the mime type and either its
+// data or its fileUri.
+#[allow(dead_code)]
+fn core_prompt_file_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    core_prompt_media_object(value, "File", "mimeType")?;
+    let has_data = core_prompt_has_key(value, "data");
+    let has_file_uri = core_prompt_has_key(value, "fileUri");
+    if !has_data && !has_file_uri {
+        return Err(AxError::runtime("File field must have either data or fileUri"));
+    }
+    if has_data && has_file_uri {
+        return Err(AxError::runtime("File field cannot have both data and fileUri"));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("file"))?;
+    core_set(&part, CoreValue::from("mimeType"), core_get(value, &CoreValue::from("mimeType"), CoreValue::Null))?;
+    let key = if has_file_uri { "fileUri" } else { "data" };
+    core_set(&part, CoreValue::from(key), core_get(value, &CoreValue::from(key), CoreValue::Null))?;
+    core_prompt_declared_keys(part, value, &["filename", "cache", "extractedText"])
+}
+
+// TS defaultRenderInField: a url part carries the url, and the title and
+// description when they are set; a plain string is the url.
+#[allow(dead_code)]
+fn core_prompt_url_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    if core_prompt_js_falsy(value) {
+        return Err(AxError::runtime("URL field value is required."));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("url"))?;
+    if matches!(value, CoreValue::Str(_)) {
+        core_set(&part, CoreValue::from("url"), value.clone())?;
+        return Ok(part);
+    }
+    if !matches!(value, CoreValue::Map(_) | CoreValue::List(_)) {
+        return Err(AxError::runtime("URL field value must be a string or object."));
+    }
+    if !core_prompt_has_key(value, "url") {
+        return Err(AxError::runtime("URL field must have url property"));
+    }
+    core_set(&part, CoreValue::from("url"), core_get(value, &CoreValue::from("url"), CoreValue::Null))?;
+    for key in ["title", "description"] {
+        let item = core_get(value, &CoreValue::from(key), CoreValue::Null);
+        if !core_prompt_js_falsy(&item) {
+            core_set(&part, CoreValue::from(key), item)?;
+        }
+    }
+    core_prompt_declared_keys(part, value, &["cachedContent", "cache"])
+}
+
+// The snake_case aliases the provider mappings read become the part type's
+// declared camelCase keys (a camelCase key wins), so inputs written with them
+// keep working.
+#[allow(dead_code)]
+fn core_prompt_media_aliases(kind: &str, value: &CoreValue) -> Result<CoreValue, AxError> {
+    let CoreValue::Map(map) = value else {
+        return Ok(value.clone());
+    };
+    let aliases: &[(&str, &str)] = match kind {
+        "image" => &[("mime_type", "mimeType")],
+        "audio" => &[("audio", "data"), ("mime_type", "mimeType"), ("sample_rate", "sampleRate")],
+        "file" => &[("mime_type", "mimeType"), ("file_uri", "fileUri"), ("extracted_text", "extractedText")],
+        _ => &[("cached_content", "cachedContent")],
+    };
+    let mut out: Option<CoreValue> = None;
+    for (alias, key) in aliases {
+        let (has_alias, has_key) = {
+            let borrowed = map.borrow();
+            (borrowed.contains(alias), borrowed.contains(key))
+        };
+        if has_alias && !has_key {
+            if out.is_none() {
+                let copy = CoreValue::new_map();
+                for (entry_key, item) in map.borrow().entries.clone() {
+                    core_set(&copy, CoreValue::from(entry_key.as_str()), item)?;
+                }
+                out = Some(copy);
+            }
+            let item = core_get(value, &CoreValue::from(*alias), CoreValue::Null);
+            core_set(out.as_ref().unwrap(), CoreValue::from(*key), item)?;
+        }
+    }
+    Ok(out.unwrap_or_else(|| value.clone()))
+}
+
+#[allow(dead_code)]
+fn core_prompt_media_part(kind: &str, value: &CoreValue) -> Result<CoreValue, AxError> {
+    let value = &core_prompt_media_aliases(kind, value)?;
+    match kind {
+        "image" => core_prompt_image_part(value),
+        "audio" => core_prompt_audio_part(value),
+        "file" => core_prompt_file_part(value),
+        _ => core_prompt_url_part(value),
+    }
+}
+
 // TS defaultRenderInField: an audio part carries only its format (wav when it
 // has none) and its data.
 #[allow(dead_code)]
 fn core_prompt_audio_part(value: &CoreValue) -> Result<CoreValue, AxError> {
-    let has_data = match value {
-        CoreValue::Map(map) => map.borrow().contains("data"),
-        _ => return Err(AxError::runtime("Audio field value must be an object.")),
-    };
-    if !has_data {
-        return Err(AxError::runtime("Audio field must have data"));
-    }
+    core_prompt_media_object(value, "Audio", "data")?;
     let format = core_get(value, &CoreValue::from("format"), CoreValue::Null);
     let part = CoreValue::new_map();
     core_set(&part, CoreValue::from("type"), CoreValue::from("audio"))?;
@@ -20502,7 +20902,11 @@ fn core_prompt_audio_part(value: &CoreValue) -> Result<CoreValue, AxError> {
         CoreValue::from("data"),
         core_get(value, &CoreValue::from("data"), CoreValue::Null),
     )?;
-    Ok(part)
+    core_prompt_declared_keys(
+        part,
+        value,
+        &["mimeType", "sampleRate", "channels", "cache", "transcription", "duration"],
+    )
 }
 
 #[allow(dead_code)]
@@ -20514,9 +20918,18 @@ fn core_prompt_default_render_in_field(field: &CoreValue, value: &CoreValue) -> 
         "string".to_string()
     };
     let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
-    if typ == "audio" && !matches!(value, CoreValue::Str(_)) {
-        // A string (a plain one, or an audio object's transcript) renders as
-        // text below, like any text field.
+    // As TS: image, file and url values, and audio that is not text (a plain
+    // string or an audio object's transcript renders as text below), go out
+    // as media parts after a text part with the title.
+    let media = matches!(typ.as_str(), "image" | "file" | "url")
+        || (typ == "audio" && !matches!(value, CoreValue::Str(_)));
+    if media {
+        let label = match typ.as_str() {
+            "image" => "Image",
+            "audio" => "Audio",
+            "file" => "File",
+            _ => "URL",
+        };
         let parts = CoreValue::new_list();
         let text_part = CoreValue::new_map();
         core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
@@ -20528,50 +20941,15 @@ fn core_prompt_default_render_in_field(field: &CoreValue, value: &CoreValue) -> 
         core_append(&parts, text_part)?;
         if core_truthy(&core_get(&field_type, &CoreValue::from("is_array"), CoreValue::Null)) {
             if !matches!(value, CoreValue::List(_)) {
-                return Err(AxError::runtime("Audio field value must be an array."));
+                return Err(AxError::runtime(format!("{label} field value must be an array.")));
             }
             for item in core_iter(value)? {
-                core_append(&parts, core_prompt_audio_part(&item)?)?;
+                core_append(&parts, core_prompt_media_part(&typ, &item)?)?;
             }
         } else {
-            core_append(&parts, core_prompt_audio_part(value)?)?;
+            core_append(&parts, core_prompt_media_part(&typ, value)?)?;
         }
         return Ok(parts);
-    }
-    if matches!(typ.as_str(), "image" | "audio" | "file" | "url") {
-        if matches!(value, CoreValue::List(_)) {
-            let parts = CoreValue::new_list();
-            let text_part = CoreValue::new_map();
-            core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
-            core_set(
-                &text_part,
-                CoreValue::from("text"),
-                CoreValue::from_string(format!("{title}: ")),
-            )?;
-            core_append(&parts, text_part)?;
-            for item in core_iter(value)? {
-                core_append(&parts, item)?;
-            }
-            return Ok(parts);
-        }
-        if let CoreValue::Map(map) = value {
-            let part = CoreValue::new_map();
-            for (key, item) in map.borrow().entries.clone() {
-                core_set(&part, CoreValue::from(key.as_str()), item)?;
-            }
-            let has_type = matches!(&part, CoreValue::Map(m) if m.borrow().contains("type"));
-            if !has_type {
-                core_set(&part, CoreValue::from("type"), CoreValue::from_string(typ.clone()))?;
-            }
-            let text_part = CoreValue::new_map();
-            core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
-            core_set(
-                &text_part,
-                CoreValue::from("text"),
-                CoreValue::from_string(format!("{title}: ")),
-            )?;
-            return Ok(CoreValue::list_from(vec![text_part, part]));
-        }
     }
     let part = CoreValue::new_map();
     core_set(&part, CoreValue::from("type"), CoreValue::from("text"))?;
@@ -20836,8 +21214,11 @@ fn core_prompt_is_provided_value(value: &CoreValue) -> bool {
     }
 }
 
+// `structured` gives the section its exact JSON shape: the rendered prompt's
+// structured output, which is the signature's complexity unless a render
+// sets it (core_prompt_structured).
 #[allow(dead_code)]
-fn core_prompt_output_fields_section(signature: &CoreValue) -> Result<String, AxError> {
+fn core_prompt_output_fields_section(signature: &CoreValue, structured: bool) -> Result<String, AxError> {
     let output_fields = core_prompt_get_output_fields(signature)?;
     let fields = core_prompt_render_output_fields(
         &output_fields,
@@ -20846,7 +21227,7 @@ fn core_prompt_output_fields_section(signature: &CoreValue) -> Result<String, Ax
     let mut output = format!(
         "**Output Fields**: You must generate the following fields:\n\n{fields}"
     );
-    if core_prompt_has_complex_fields(signature)? {
+    if structured {
         let mut shape = serde_json::Map::new();
         for field in output_fields {
             let name = core_get(&field, &CoreValue::from("name"), CoreValue::Null).text();
@@ -20907,8 +21288,10 @@ fn core_prompt_process_value(field: &CoreValue, value: &CoreValue) -> Result<Cor
                 return Ok(value.clone());
             }
         }
-        if matches!(name.as_str(), Some("image") | Some("audio") | Some("file") | Some("url"))
-            && matches!(value, CoreValue::Map(_))
+        // As TS processValue: image, file and url objects (and arrays of
+        // them) reach the field renderer as they are.
+        if matches!(name.as_str(), Some("image") | Some("file") | Some("url"))
+            && matches!(value, CoreValue::Map(_) | CoreValue::List(_))
         {
             return Ok(value.clone());
         }
@@ -21095,7 +21478,17 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     if !core_truthy(&options) {
         options = CoreValue::new_map();
     }
-    let has_complex_fields = core_prompt_has_complex_fields(&signature)?;
+    // As TS's structuredOutput option: AxGen renders with it set when a
+    // structured-output rung is selected; otherwise the signature decides.
+    let structured = match core_get(&options, &CoreValue::from("structured_output"), CoreValue::Null) {
+        CoreValue::Null => core_get(&options, &CoreValue::from("structuredOutput"), CoreValue::Null),
+        value => value,
+    };
+    let has_complex_fields = if structured.is_null() {
+        core_prompt_has_complex_fields(&signature)?
+    } else {
+        core_truthy(&structured)
+    };
     let output_fields = core_prompt_get_output_fields(&signature)?;
     let task_definition = core_prompt_task_definition_section(&signature, &options)?;
     let funcs = core_prompt_function_descriptors(&functions)?;
@@ -21168,7 +21561,7 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(
         &template_vars,
         CoreValue::from("outputFieldsSection"),
-        CoreValue::from_string(core_prompt_output_fields_section(&signature)?),
+        CoreValue::from_string(core_prompt_output_fields_section(&signature, has_complex_fields)?),
     )?;
     core_set(
         &template_vars,
@@ -23056,6 +23449,50 @@ fn core_axgen_check_streaming_assertion(args: &[CoreValue]) -> Result<CoreValue,
     core_axgen_assertion_outcome("pass", "message", CoreValue::Null)
 }
 
+static AI_WARNINGS_SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+static AI_WARNINGS_CAPTURED: Mutex<Option<Vec<String>>> = Mutex::new(None);
+
+// python: _core_ai_warn_once(key, message). TS console.warn, once per key per
+// process: a setting Ax could not send, such as a sampling parameter the
+// selected model rejects.
+#[allow(dead_code)]
+fn core_ai_warn_once(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let first = AI_WARNINGS_SHOWN
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(core_arg(args, 0).text());
+    if first {
+        let message = core_arg(args, 1).text();
+        let mut captured = AI_WARNINGS_CAPTURED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match captured.as_mut() {
+            Some(messages) => messages.push(message),
+            None => eprintln!("axllm: {message}"),
+        }
+    }
+    Ok(CoreValue::Null)
+}
+
+// Conformance hook: forgets the one-time warnings already shown and returns
+// the ones captured since the last call; with `capture`, collects new ones
+// instead of printing them.
+#[allow(dead_code)]
+fn ai_capture_warnings(capture: bool) -> Vec<String> {
+    AI_WARNINGS_SHOWN
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+    let mut captured = AI_WARNINGS_CAPTURED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let collected = captured.take().unwrap_or_default();
+    if capture {
+        *captured = Some(Vec::new());
+    }
+    collected
+}
+
 // python: _core_axgen_deprecation(key, message). Deprecated port behavior
 // warns once per key per process.
 #[allow(dead_code)]
@@ -23572,12 +24009,33 @@ impl CoreHost for GenPromptHost {
     }
     fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
         match name {
-            "render" => render_prompt(&[
-                self.signature.clone(),
-                core_arg(args, 0),
-                self.tools.clone(),
-                self.options.clone(),
-            ]),
+            "render" => {
+                // A render's own options win over the template's: AxGen passes
+                // the selected rung's structured_output, and under the function
+                // rung structured_output_function_name. Their extra_functions
+                // (the function rung's __axOutput) are listed after the
+                // template's tools, as TS lists them. A render without options
+                // renders as before.
+                let (tools, options) = match core_arg(args, 1) {
+                    render_options @ CoreValue::Map(_) => {
+                        let options = core_map_merge(&[self.options.clone(), render_options])?;
+                        let extra = core_get(&options, &CoreValue::from("extra_functions"), CoreValue::Null);
+                        core_map_delete(&[options.clone(), CoreValue::from("extra_functions")])?;
+                        let tools = CoreValue::new_list();
+                        for tool in core_iter(&self.tools)? {
+                            core_append(&tools, tool)?;
+                        }
+                        if core_truthy(&extra) {
+                            for tool in core_iter(&extra)? {
+                                core_append(&tools, tool)?;
+                            }
+                        }
+                        (tools, options)
+                    }
+                    _ => (self.tools.clone(), self.options.clone()),
+                };
+                render_prompt(&[self.signature.clone(), core_arg(args, 0), tools, options])
+            }
             other => Err(AxError::runtime(format!(
                 "AxPromptTemplate has no callable method '{other}'"
             ))),
@@ -24573,6 +25031,21 @@ fn core_agent_runtime_restore_state(args: &[CoreValue]) -> Result<CoreValue, AxE
 // python: _core_agent_runtime_close(session); None results normalize to
 // {"closed": True}.
 #[allow(dead_code)]
+// A runtime's language: a runtime config's "language", else the code runtime's
+// own, else JavaScript, TS's default runtime.
+fn core_agent_runtime_language(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let runtime = core_arg(args, 0);
+    let language = match core_host_try(&runtime, "language", &[]) {
+        Some(result) => result?.text(),
+        None => {
+            let raw = core_get(&runtime, &CoreValue::from("language"), CoreValue::Null);
+            if raw.is_null() { String::new() } else { raw.text() }
+        }
+    };
+    let trimmed = language.trim();
+    Ok(CoreValue::from_string(if trimmed.is_empty() { "JavaScript".to_string() } else { trimmed.to_string() }))
+}
+
 fn core_agent_runtime_close(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let session = core_arg(args, 0);
     let closed = || core_agent_map(&[("closed", CoreValue::Bool(true))]);
@@ -26601,6 +27074,46 @@ mod axgen_program_control_tests {
         program.streaming_forward(&mut client, json!({"question": "Say hi"}), options, |_| Ok(()))?;
         assert_eq!((reads.load(Ordering::SeqCst), writes.load(Ordering::SeqCst), client.chats), (0, 0, 2));
         assert_eq!(client.spoken, [json!("Hello there")]);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod axgen_prompt_render_options_tests {
+    use super::*;
+
+    #[test]
+    fn render_options_apply_to_one_render_only() -> AxResult<()> {
+        // The IR renders an AxGen prompt with the selected rung's options.
+        // They win for that render, and the template keeps its own tools and
+        // options: a render without options is as before.
+        let program = ax("question:string -> answer:string")?;
+        let state = core_gen_state(&program)?;
+        let template = core_get(&state, &CoreValue::from("prompt_template"), CoreValue::Null);
+        let system = |options: Option<Value>| -> AxResult<String> {
+            let mut args = vec![template.clone(), CoreValue::from("render"), core_value_from_json(&json!({"question": "Status?"}))];
+            args.extend(options.map(|options| core_value_from_json(&options)));
+            let messages = core_value_to_json(&core_object_call_method(&args)?);
+            Ok(messages[0]["content"].as_str().unwrap_or_default().to_string())
+        };
+        let plain = system(None)?;
+        let shape = "**Exact JSON shape**: `{\"answer\":\"<string>\"}`";
+        let output_function = json!({"name": "__axOutput", "description": "Emit the complete structured program output using the declared argument shape."});
+        let function_rung = system(Some(json!({
+            "structured_output": true,
+            "structured_output_function_name": "__axOutput",
+            "extra_functions": [output_function],
+        })))?;
+        assert!(function_rung.contains("- `__axOutput`: Emit the complete structured program output"), "{function_rung}");
+        assert!(function_rung.contains(shape) && function_rung.contains("Return the complete output by calling `__axOutput`."), "{function_rung}");
+        let native = system(Some(json!({"structured_output": true, "extra_functions": []})))?;
+        assert!(native.contains(shape) && native.contains("do not invent, rename, or wrap them"), "{native}");
+        assert!(!native.contains("__axOutput"), "{native}");
+        // The text contract, and a render without options after the others.
+        assert_eq!(system(Some(json!({"structured_output": false, "extra_functions": []})))?, plain);
+        assert_eq!(system(None)?, plain);
+        assert!(!plain.contains("__axOutput") && !plain.contains("Exact JSON shape"), "{plain}");
+        assert_eq!(core_value_to_json(&core_get(&state, &CoreValue::from("functions"), CoreValue::Null)), json!([]));
         Ok(())
     }
 }

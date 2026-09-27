@@ -465,11 +465,13 @@ def _core_prompt_input_fields_section(signature, values=None) -> str:
     return "**Input Fields**: The following fields will be provided to you:\n\n" + fields
 
 
-def _core_prompt_output_fields_section(signature) -> str:
+def _core_prompt_output_fields_section(signature, structured=None) -> str:
     output_fields = _core_prompt_get_output_fields(signature)
     fields = _core_prompt_render_output_fields(output_fields, _core_prompt_field_name_to_title(signature))
     shape = ""
-    if _core_prompt_has_complex_fields(signature):
+    if structured is None:
+        structured = _core_prompt_has_complex_fields(signature)
+    if structured:
         value = {field.name: _core_prompt_output_type_placeholder(field.type) for field in output_fields}
         shape = "\n\n**Exact JSON shape**: " + BT + _js_json_dumps(value) + BT
     return "**Output Fields**: You must generate the following fields:\n\n" + fields + shape
@@ -500,7 +502,10 @@ def _core_prompt_output_type_placeholder(field_type):
 def _core_prompt_structured(signature, values, functions, options) -> str:
     values = values or {}
     options = options or {}
-    has_complex_fields = _core_prompt_has_complex_fields(signature)
+    # As TS's structuredOutput option: AxGen renders with it set when a
+    # structured-output rung is selected; otherwise the signature decides.
+    structured = options.get("structured_output", options.get("structuredOutput"))
+    has_complex_fields = _core_prompt_has_complex_fields(signature) if structured is None else bool(structured)
     task_definition = _core_prompt_task_definition_section(signature, options)
     funcs = _core_prompt_function_descriptors(functions)
     template_vars = {
@@ -514,7 +519,7 @@ def _core_prompt_structured(signature, values, functions, options) -> str:
         "taskDefinitionText": task_definition,
         "functionsList": _core_prompt_render_functions_section(funcs) if funcs else "",
         "inputFieldsSection": _core_prompt_input_fields_section(signature, values),
-        "outputFieldsSection": _core_prompt_output_fields_section(signature),
+        "outputFieldsSection": _core_prompt_output_fields_section(signature, has_complex_fields),
         "structuredOutputFunctionName": options.get("structured_output_function_name") or "",
     }
     source = options.get("custom_template")
@@ -539,46 +544,154 @@ def _core_prompt_process_value(field, value):
             return value["transcript"]
         if isinstance(value, (dict, list)):
             return value
-    if field.type and field.type.name in ("image", "audio", "file", "url") and isinstance(value, dict):
+    # As TS processValue: image, file and url objects (and arrays of them)
+    # reach the field renderer as they are.
+    if field.type and field.type.name in ("image", "file", "url") and isinstance(value, (dict, list)):
         return value
     # JSON.stringify(value, null, 2): non-ASCII text stays UTF-8 and numbers
     # read as JavaScript writes them.
     return _js_json_dumps(value, indent=2)
 
 
+def _core_prompt_js_falsy(value):
+    # JavaScript's !value for a JSON value: objects and arrays are truthy.
+    if value is None or value is False or value == "":
+        return True
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and (value == 0 or value != value)
+
+
+# The snake_case aliases the provider mappings read, per media part type:
+# they become the declared camelCase keys (a camelCase key wins), so inputs
+# written with them keep working.
+_CORE_PROMPT_MEDIA_ALIASES = {
+    "image": (("mime_type", "mimeType"),),
+    "audio": (("audio", "data"), ("mime_type", "mimeType"), ("sample_rate", "sampleRate")),
+    "file": (("mime_type", "mimeType"), ("file_uri", "fileUri"), ("extracted_text", "extractedText")),
+    "url": (("cached_content", "cachedContent"),),
+}
+
+
+def _core_prompt_media_aliases(value, kind):
+    if not isinstance(value, dict):
+        return value
+    out = value
+    for alias, key in _CORE_PROMPT_MEDIA_ALIASES[kind]:
+        if alias in value and key not in value:
+            if out is value:
+                out = dict(value)
+            out[key] = value[alias]
+    return out
+
+
 def _core_prompt_audio_part(value):
     # TS defaultRenderInField: an audio part carries only its format (wav when
     # it has none) and its data.
-    if not isinstance(value, dict):
+    value = _core_prompt_media_aliases(value, "audio")
+    if _core_prompt_js_falsy(value):
+        raise ValueError("Audio field value is required.")
+    if not isinstance(value, (dict, list)):
         raise ValueError("Audio field value must be an object.")
-    if "data" not in value:
+    if not isinstance(value, dict) or "data" not in value:
         raise ValueError("Audio field must have data")
     audio_format = value.get("format")
-    return {"type": "audio", "format": "wav" if audio_format is None else audio_format, "data": value["data"]}
+    part = {"type": "audio", "format": "wav" if audio_format is None else audio_format, "data": value["data"]}
+    return _core_prompt_declared_keys(part, value, ("mimeType", "sampleRate", "channels", "cache", "transcription", "duration"))
+
+
+def _core_prompt_declared_keys(part, value, keys):
+    # The optional keys a media part type declares (TS AxChatRequest) that the
+    # value sets go on the part, so the provider or router that reads them
+    # gets them; other keys stay behind.
+    for key in keys:
+        if key in value:
+            part[key] = value[key]
+    return part
+
+
+def _core_prompt_image_part(value):
+    # TS defaultRenderInField: an image part carries the mime type, the data as
+    # `image`, and the image part's declared keys (details, which OpenAI reads
+    # as its image detail, cache, optimize and altText).
+    value = _core_prompt_media_aliases(value, "image")
+    if _core_prompt_js_falsy(value):
+        raise ValueError("Image field value is required.")
+    if not isinstance(value, (dict, list)):
+        raise ValueError("Image field value must be an object.")
+    if not isinstance(value, dict) or "mimeType" not in value:
+        raise ValueError("Image field must have mimeType")
+    if "data" not in value:
+        raise ValueError("Image field must have data")
+    part = {"type": "image", "mimeType": value["mimeType"], "image": value["data"]}
+    return _core_prompt_declared_keys(part, value, ("details", "cache", "optimize", "altText"))
+
+
+def _core_prompt_file_part(value):
+    # TS defaultRenderInField: a file part carries the mime type and either its
+    # data or its fileUri.
+    value = _core_prompt_media_aliases(value, "file")
+    if _core_prompt_js_falsy(value):
+        raise ValueError("File field value is required.")
+    if not isinstance(value, (dict, list)):
+        raise ValueError("File field value must be an object.")
+    if not isinstance(value, dict) or "mimeType" not in value:
+        raise ValueError("File field must have mimeType")
+    has_data = "data" in value
+    has_file_uri = "fileUri" in value
+    if not has_data and not has_file_uri:
+        raise ValueError("File field must have either data or fileUri")
+    if has_data and has_file_uri:
+        raise ValueError("File field cannot have both data and fileUri")
+    if has_file_uri:
+        part = {"type": "file", "mimeType": value["mimeType"], "fileUri": value["fileUri"]}
+    else:
+        part = {"type": "file", "mimeType": value["mimeType"], "data": value["data"]}
+    return _core_prompt_declared_keys(part, value, ("filename", "cache", "extractedText"))
+
+
+def _core_prompt_url_part(value):
+    # TS defaultRenderInField: a url part carries the url, and the title and
+    # description when they are set; a plain string is the url.
+    value = _core_prompt_media_aliases(value, "url")
+    if _core_prompt_js_falsy(value):
+        raise ValueError("URL field value is required.")
+    if isinstance(value, str):
+        value = {"url": value}
+    elif not isinstance(value, (dict, list)):
+        raise ValueError("URL field value must be a string or object.")
+    elif not isinstance(value, dict) or "url" not in value:
+        raise ValueError("URL field must have url property")
+    part = {"type": "url", "url": value["url"]}
+    if not _core_prompt_js_falsy(value.get("title")):
+        part["title"] = value["title"]
+    if not _core_prompt_js_falsy(value.get("description")):
+        part["description"] = value["description"]
+    return _core_prompt_declared_keys(part, value, ("cachedContent", "cache"))
+
+
+def _core_prompt_media_parts(field, value, build, kind):
+    # The field's title as a text part, then one media part per value.
+    parts = [{"type": "text", "text": f"{field.title}: "}]
+    if field.type.is_array:
+        if not isinstance(value, list):
+            raise ValueError(f"{kind} field value must be an array.")
+        parts.extend(build(item) for item in value)
+    else:
+        parts.append(build(value))
+    return parts
 
 
 def _core_prompt_default_render_in_field(field, value):
     typ = field.type.name if field.type else "string"
+    if typ == "image":
+        return _core_prompt_media_parts(field, value, _core_prompt_image_part, "Image")
     if typ == "audio" and not isinstance(value, str):
         # A string (a plain one, or an audio object's transcript) renders as
         # text below, like any text field.
-        parts = [{"type": "text", "text": f"{field.title}: "}]
-        if field.type.is_array:
-            if not isinstance(value, list):
-                raise ValueError("Audio field value must be an array.")
-            parts.extend(_core_prompt_audio_part(item) for item in value)
-        else:
-            parts.append(_core_prompt_audio_part(value))
-        return parts
-    if typ in ("image", "audio", "file", "url"):
-        if isinstance(value, list):
-            parts = [{"type": "text", "text": f"{field.title}: "}]
-            parts.extend(value)
-            return parts
-        if isinstance(value, dict):
-            part = dict(value)
-            part.setdefault("type", typ)
-            return [{"type": "text", "text": f"{field.title}: "}, part]
+        return _core_prompt_media_parts(field, value, _core_prompt_audio_part, "Audio")
+    if typ == "file":
+        return _core_prompt_media_parts(field, value, _core_prompt_file_part, "File")
+    if typ == "url":
+        return _core_prompt_media_parts(field, value, _core_prompt_url_part, "URL")
     part = {"type": "text", "text": f"{field.title}: {value}"}
     if getattr(field, "is_cached", False):
         part["cache"] = True
@@ -607,10 +720,14 @@ def _core_prompt_user_parts(signature, values: dict):
 
 
 def _core_prompt_combine_consecutive_text(parts, separator: str):
+    # TS combineConsecutiveStrings: a run of text parts becomes one, which is
+    # cached when any of them is.
     out = []
     for part in parts:
         if part.get("type") == "text" and out and out[-1].get("type") == "text":
             out[-1]["text"] = out[-1].get("text", "") + separator + part.get("text", "")
+            if part.get("cache"):
+                out[-1]["cache"] = True
         else:
             out.append(part)
     return out
@@ -733,11 +850,16 @@ class AxPromptTemplate:
         self.instruction = None
 
     def render(self, values: dict, options: dict | None = None):
+        # A render's own options (AxGen passes the selected rung's) win over
+        # the template's.
         render_options = dict(options or {})
         if self.instruction is not None:
             render_options["instruction"] = self.instruction
         if self.structured_output_function_name is not None:
-            render_options["structured_output_function_name"] = self.structured_output_function_name
+            render_options.setdefault("structured_output_function_name", self.structured_output_function_name)
         if self.custom_template is not None:
             render_options["custom_template"] = self.custom_template
-        return render_prompt(self.signature, values or {}, self.functions, render_options)
+        # extra_functions are listed after the template's own, as TS lists
+        # the __axOutput function of the function rung.
+        functions = list(self.functions) + list(render_options.pop("extra_functions", None) or [])
+        return render_prompt(self.signature, values or {}, functions, render_options)

@@ -8,7 +8,7 @@
 // order: 45
 // ax-example:end
 use axllm::{
-    set_usage_observer, AxAIClient, AxError, AxResult, AxUsageEvent, OpenAICompatibleClient,
+    set_usage_observer, AxAIClient, AxError, AxResult, AxUsageEvent,
 };
 use serde_json::json;
 use std::env;
@@ -26,13 +26,15 @@ fn main() -> AxResult<()> {
         captured.lock().unwrap().push(event);
     })));
 
-    let mut client = OpenAICompatibleClient::new(api_key, model).with_options(json!({
+    let mut client = axllm::ai("openai", json!({
+        "api_key": api_key,
+        "model": model,
         "usageContext": {
             "tenantId": "tenant-42",
             "feature": "support-chat",
             "attributes": {"environment": "example"}
         }
-    }));
+    }))?;
     let request_id = format!(
         "request-{}",
         SystemTime::now()

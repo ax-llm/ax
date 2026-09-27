@@ -172,7 +172,18 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   }
 
   public OpenAICompatibleClient(Map<String, Object> options) {
-    this("openai-compatible", "openai", options == null ? Map.of() : options, "gpt-4.1-mini", "text-embedding-3-small");
+    this("openai-compatible", "openai", withDefaultBaseUrl(options == null ? Map.of() : options), "gpt-4.1-mini", "text-embedding-3-small");
+  }
+
+  private static final java.util.Set<String> OPENAI_ENV_PROFILES = java.util.Set.of("openai", "openai-responses", "openai-compatible");
+
+  // Built directly without a base_url (or OPENAI_BASE_URL), the generic client
+  // talks to OpenAI, as it does in the other languages.
+  private static Map<String, Object> withDefaultBaseUrl(Map<String, Object> options) {
+    if (options.get("base_url") != null || options.get("baseUrl") != null || Core.env("OPENAI_BASE_URL") != null) return options;
+    Map<String, Object> resolved = new LinkedHashMap<>(options);
+    resolved.put("base_url", "https://api.openai.com/v1");
+    return resolved;
   }
 
   public OpenAICompatibleClient(String profile, String name, Map<String, Object> options, String defaultModel, String defaultEmbedModel) {
@@ -184,15 +195,32 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))))
     );
     this.profile = profile == null || profile.isBlank() ? "openai-compatible" : profile;
+    // Only the caller's settings: provider_build_chat_request adds the
+    // provider's sampling defaults (as its TS class starts from) under them,
+    // after dropping the explicit ones the model rejects.
+    this.modelConfig = new LinkedHashMap<>(Core.asMap(options.get("model_config")));
     if (this.profile.equals("typesafe")) {
-      this.modelConfig = new LinkedHashMap<>(Core.asMap(options.get("model_config")));
       Core.typesafe_require_number(this.options.getOrDefault("trueThreshold", this.options.getOrDefault("true_threshold", 0.5)), "trueThreshold", 0, 1);
     }
     Map<String, Object> resolvedOptions = Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))));
     this.descriptor = Core.asMap(Core.provider_resolve_descriptor(this.profile, resolvedOptions));
-    String descriptorBaseUrl = String.valueOf(this.descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1"));
-    this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", (this.profile.equals("typesafe") ? descriptorBaseUrl : System.getenv().getOrDefault("OPENAI_BASE_URL", descriptorBaseUrl))))).replaceAll("/+$", "");
-    this.apiKey = String.valueOf(options.getOrDefault("api_key", options.getOrDefault("apiKey", this.profile.equals("typesafe") ? System.getenv().getOrDefault("TYPESAFE_APIKEY", System.getenv("TYPESAFE_API_KEY")) : System.getenv("OPENAI_API_KEY"))));
+    // OPENAI_BASE_URL and OPENAI_API_KEY belong to OpenAI's own profiles and the
+    // generic client: any other provider's key never goes to that host, and the
+    // OpenAI key never goes to another provider.
+    boolean readsOpenAIEnv = OPENAI_ENV_PROFILES.contains(this.profile);
+    Object explicitBaseUrl = options.get("base_url") != null ? options.get("base_url") : options.get("baseUrl");
+    String envBaseUrl = readsOpenAIEnv ? Core.env("OPENAI_BASE_URL") : null;
+    Object descriptorBaseUrl = this.descriptor.get("baseUrl");
+    String resolvedBaseUrl = explicitBaseUrl != null ? String.valueOf(explicitBaseUrl)
+        : envBaseUrl != null && !envBaseUrl.isBlank() ? envBaseUrl
+        : descriptorBaseUrl != null ? String.valueOf(descriptorBaseUrl)
+        : "https://api.openai.com/v1";
+    this.baseUrl = resolvedBaseUrl.replaceAll("/+$", "");
+    Object explicitApiKey = options.get("api_key") != null ? options.get("api_key") : options.get("apiKey");
+    String envApiKey = this.profile.equals("typesafe")
+        ? (Core.env("TYPESAFE_APIKEY") != null ? Core.env("TYPESAFE_APIKEY") : Core.env("TYPESAFE_API_KEY"))
+        : readsOpenAIEnv ? Core.env("OPENAI_API_KEY") : null;
+    this.apiKey = explicitApiKey != null ? String.valueOf(explicitApiKey) : envApiKey;
     this.apiVersion = String.valueOf(this.descriptor.getOrDefault("apiVersion", options.getOrDefault("api_version", options.getOrDefault("apiVersion", ""))));
     Object timeout = options.getOrDefault("timeout", 60.0);
     this.timeoutSeconds = timeout instanceof Number n ? n.doubleValue() : 60.0;
@@ -202,7 +230,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (Core.truthy(this.descriptor.get("authRequired")) &&
         (this.apiKey == null || this.apiKey.isBlank() || "null".equals(this.apiKey)) &&
         this.credentialProvider == null) {
-      throw new AxAIServiceAuthenticationError(profile + " requires api_key or credential_provider", null, null, null, null);
+      throw new AxAIServiceAuthenticationError(String.valueOf(Core.provider_missing_api_key_message(this.profile)), null, null, null, null);
     }
   }
 
@@ -567,8 +595,18 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
     boolean binary = "binary".equals(String.valueOf(descriptor.get("response")));
     Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary, operationMethod("speak"), "speak",cancellation, mergedOptions(options));
-    return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request));
+    // As TS's axFetchJsonSpeech: a JSON body arrives parsed, and a binary one
+    // as base64 with its Content-Type, which names its mime type.
+    Object contentType = null;
+    if (raw instanceof BinaryBody body) {
+      raw = body.data();
+      contentType = body.contentType().isEmpty() ? null : body.contentType();
+    }
+    return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request, contentType));
   }
+
+  /** A binary response body as base64 text, with its Content-Type. */
+  record BinaryBody(String data, String contentType) {}
 
   public Iterable<Map<String, Object>> realtime(Iterable<?> events) {
     List<Map<String, Object>> out = new ArrayList<>();
@@ -960,7 +998,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (!method.equals("GET") && !method.equals("HEAD")) call.put(resolvedBodyKey, payload);
     call.put("stream", stream);
     Map<String, Object> errorRequest = errorRequest(call, errorOptions);
-    if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();return transportResult(value,errorRequest);}
+    if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();return binaryResponse?binaryTransportResult(value,errorRequest):transportResult(value,errorRequest);}
     if (credentialProvider == null && (apiKey == null || apiKey.isBlank() || "null".equals(apiKey))) throw new AxAIServiceAuthenticationError("api_key or credential_provider is required", null, null, null, errorRequest);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(requestUrl))
@@ -988,7 +1026,11 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         try { parsed = Json.parse(errorBody); } catch (RuntimeException ex) { parsed = errorBody; }
         throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest, null));
       }
-      return Base64.getEncoder().encodeToString(res.body());
+      // The bytes go on as base64 with their Content-Type; a JSON body (as TS
+      // reads one by its Content-Type) goes on parsed.
+      String contentType = res.headers().firstValue("content-type").orElse("");
+      if (contentType.contains("application/json")) return Json.parse(new String(res.body(), StandardCharsets.UTF_8));
+      return new BinaryBody(Base64.getEncoder().encodeToString(res.body()), contentType);
     }
     HttpResponse<String> res = sendCancellable(req, HttpResponse.BodyHandlers.ofString(), cancellation);
     String responseBody = res.body();
@@ -1166,6 +1208,25 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       for (Map.Entry<?, ?> entry : rawHeaders.entrySet()) headers.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
     }
     return headers;
+  }
+
+  // A transport's binary answer: `body` (base64 text or bytes) with its
+  // headers' Content-Type, or parsed `json`. A JSON Content-Type makes a text
+  // body JSON, as TS reads it.
+  private Object binaryTransportResult(Object result, Map<String, Object> request) {
+    String contentType = "";
+    if (result instanceof Map<?, ?> raw && raw.get("headers") instanceof Map<?, ?> headers) {
+      for (Map.Entry<?, ?> header : headers.entrySet()) {
+        if ("content-type".equalsIgnoreCase(String.valueOf(header.getKey()))) contentType = String.valueOf(header.getValue());
+      }
+    }
+    Object body = transportResult(result, request);
+    if (body instanceof byte[] bytes) body = Base64.getEncoder().encodeToString(bytes);
+    if (body instanceof String text) {
+      if (contentType.contains("application/json")) return Json.parse(text);
+      return new BinaryBody(text, contentType);
+    }
+    return body;
   }
 
   // TypeScript's includeRequestBodyInErrors: on unless the call or client options set it false.

@@ -75,8 +75,8 @@
           "role": "user",
           "content": "What is Ax?"
         }
-      ],
-      "temperature": 0
+      ]
     }
-  }
+  },
+  "expected_transport_json_absent": ["temperature", "top_p"]
 }

@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-cpp-ai/SKILL.md",
-      "digest": "sha256:e3e53e453edf564bcf67762bfc2c0017a16574608d431cb57961606b89ab1e87"
+      "digest": "sha256:58cfd5cfd52403af5dc6f0239fe52bac0f9c2c06fd47cbfcc625bbb0c1dad623"
     },
     {
       "name": "ax-cpp-typesafe",
@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-cpp-audio/SKILL.md",
-      "digest": "sha256:46c107f599978486ff69ad7c29875486639a27269523fd5ffa6887eec4496066"
+      "digest": "sha256:721ee4bd592608acc316241b07de73a9b5cdc58b4bb53163632159e859f1cf1d"
     },
     {
       "name": "ax-cpp-signature",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-cpp-agent/SKILL.md",
-      "digest": "sha256:88eff904a477059e4e002cbcde3a48474844933d9c93fc394ff372a320838305"
+      "digest": "sha256:2c21290a65ca5171fb928ed766fe9fb8a63e3a2197521d296da483384b7cb119"
     },
     {
       "name": "ax-cpp-agent-rlm",

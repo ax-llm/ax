@@ -17,16 +17,21 @@ int main() {
   const char* key = std::getenv("OPENAI_API_KEY"); if (!key) key = std::getenv("OPENAI_APIKEY");
   const char* endpoint = std::getenv("MCP_URL");
   if (!key || !endpoint) return 2;
-  auto transport = std::make_shared<axllm::AxMCPStreamableHTTPTransport>(endpoint);
+  // The repo's demo MCP server runs on http://127.0.0.1; any other endpoint
+  // keeps the default SSRF protection (https only, no local hosts).
+  std::string url(endpoint);
+  bool local = url.rfind("http://127.0.0.1", 0) == 0;
+  auto transport = std::make_shared<axllm::AxMCPStreamableHTTPTransport>(
+      url, axllm::object({{"ssrfProtection", axllm::object({{"requireHttps", !local}, {"allowLocalhost", local}, {"allowPrivateNetworks", local}})}}));
   auto mcp = std::make_shared<axllm::AxMCPClient>(transport, axllm::object({{"namespace", "inventory"}}));
   axllm::AxExecutionContext context({mcp});
   auto program = axllm::ax("request:string -> answer:string");
   context.attach(program);
-  axllm::OpenAICompatibleClient llm(axllm::object({{"api_key", key}, {"model", "gpt-5.4-mini"}}));
+  auto llm = axllm::ai("openai", axllm::object({{"api_key", key}, {"model", "gpt-5.4-mini"}}));
   auto catalog = mcp->inspect_catalog();
   std::cout << "MCP catalog: " << axllm::Core::iter(catalog.tools).size() << " tools, "
             << axllm::Core::iter(catalog.resources).size() << " resources, "
             << axllm::Core::iter(catalog.resource_templates).size() << " templates\n";
-  std::cout << axllm::stringify(program.forward(llm, axllm::object({{"request", "Reindex inventory."}}))) << "\n";
+  std::cout << axllm::stringify(program.forward(*llm, axllm::object({{"request", "Reindex inventory."}}))) << "\n";
   mcp->close();
 }

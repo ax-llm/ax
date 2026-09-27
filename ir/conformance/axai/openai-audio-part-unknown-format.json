@@ -1,0 +1,24 @@
+{
+  "expected_error_contains": "OpenAI audio chat input supports only wav and mp3 audio, received unknown format",
+  "kind": "ai_error",
+  "method": "chat",
+  "name": "openai-audio-part-unknown-format",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "data": "UklGRg==",
+            "type": "audio"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": []
+}

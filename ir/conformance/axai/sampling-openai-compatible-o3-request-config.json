@@ -1,0 +1,64 @@
+{
+  "base_url": "https://compatible.test/v1",
+  "expected_transport_json_absent": [
+    "temperature",
+    "top_p",
+    "n",
+    "presence_penalty",
+    "frequency_penalty",
+    "reasoning_effort"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "max_completion_tokens": 77
+    }
+  },
+  "expected_warnings": [
+    "Ax dropped temperature for o3: the model does not accept it.",
+    "Ax dropped topP for o3: the model does not accept it."
+  ],
+  "kind": "ai_chat",
+  "model": "o3",
+  "name": "sampling-openai-compatible-o3-request-config",
+  "provider": "openai-compatible",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "maxTokens": 77,
+      "stream": false,
+      "temperature": 0.5,
+      "topP": 0.8
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_sampling",
+        "model": "o3",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

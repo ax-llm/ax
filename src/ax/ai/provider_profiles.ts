@@ -678,28 +678,6 @@ const applyProfileChatRequest = <TModel>(
 
   applyRequestRules(payload, profile.request, options);
   applyRequestRules(payload, rule?.request, options);
-  if (profile.id === 'meta-chat' && Array.isArray(payload.messages)) {
-    payload.messages = (payload.messages as Array<Record<string, unknown>>).map(
-      (message) => ({
-        ...message,
-        ...(Array.isArray(message.content)
-          ? {
-              content: (message.content as Array<Record<string, unknown>>).map(
-                (part) => {
-                  if (part.type !== 'image_url') return part;
-                  const image = part.image_url as
-                    | Record<string, unknown>
-                    | undefined;
-                  if (!image || image.details === undefined) return part;
-                  const { details, ...rest } = image;
-                  return { ...part, image_url: { ...rest, detail: details } };
-                }
-              ),
-            }
-          : {}),
-      })
-    );
-  }
   return payload as AxAIOpenAIChatRequest<TModel>;
 };
 
@@ -937,6 +915,7 @@ export class AxAIOpenAIProfile<TModelKey = string> extends AxAIOpenAIBase<
     });
     this.setName(profile.name);
     this.setHeaders(async () => profileHeaders(profile, apiKey));
+    this.setExplicitModelConfigKeys(args.config);
     this.profileSpec = profile;
     this.profileApiURL = apiURL;
   }
@@ -1028,7 +1007,8 @@ export class AxAIOpenAIProfile<TModelKey = string> extends AxAIOpenAIBase<
         model,
         input: req.text,
         voice: voice ?? 'alloy',
-        response_format: format === 'pcm' ? 'pcm16' : format,
+        // OpenAI's `pcm` is 16-bit PCM; it rejects `pcm16`.
+        response_format: format === 'pcm16' ? 'pcm' : format,
         ...(req.speed !== undefined ? { speed: req.speed } : {}),
       };
     }
@@ -1253,6 +1233,7 @@ export class AxAIOpenAIResponsesProfile<
     });
     this.setName(profile.name);
     this.setHeaders(async () => profileHeaders(profile, apiKey));
+    this.setExplicitModelConfigKeys(args.config);
     this.profileSpec = profile;
     this.profileApiURL = apiURL;
   }

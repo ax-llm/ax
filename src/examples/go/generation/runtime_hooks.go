@@ -54,7 +54,7 @@ func main() {
 	if apiKey == "" { panic("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.") }
 	model := os.Getenv("AX_OPENAI_MODEL")
 	if model == "" { model = "gpt-5.4-mini" }
-	client := ax.NewOpenAICompatibleClient(map[string]ax.Value{
+	client := ax.NewAI("openai", map[string]ax.Value{
 		"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0),
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
