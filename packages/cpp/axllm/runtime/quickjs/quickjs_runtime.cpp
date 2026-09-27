@@ -1023,6 +1023,7 @@ function __ax_snapshot_json() {
   for (const key of Object.getOwnPropertyNames(globalThis)) {
     if (key.startsWith("__ax_")) continue;
     if (__ax_has_name(__ax_builtin_reserved, key) || __ax_has_name(sessionReserved, key)) continue;
+    if (__ax_has_name(globalThis.__ax_engine_globals, key)) continue;
     const value = globalThis[key];
     if (typeof value === "function" || typeof value === "undefined") continue;
     try { JSON.stringify(value); out[key] = value; } catch (_) {}
@@ -1034,9 +1035,14 @@ function __ax_clear_user_globals() {
   for (const key of Object.getOwnPropertyNames(globalThis)) {
     if (key.startsWith("__ax_")) continue;
     if (__ax_has_name(__ax_builtin_reserved, key) || __ax_has_name(sessionReserved, key)) continue;
+    if (__ax_has_name(globalThis.__ax_engine_globals, key)) continue;
     try { delete globalThis[key]; } catch (_) {}
   }
 }
+// The engine's own globals (Atomics, Map, the bootstrap functions, ...) are
+// not user bindings: the snapshot leaves them out, a replacing patch keeps
+// them, and a restored snapshot cannot overwrite them.
+globalThis.__ax_engine_globals = Object.getOwnPropertyNames(globalThis);
 )JS";
 
 static int quickjs_interrupt_handler(JSRuntime*, void* opaque) {
@@ -1069,6 +1075,7 @@ QuickJsCodeSession::QuickJsCodeSession(Value globals, Value options, Value runti
   JS_SetPropertyStr(context_, global, "__ax_host_call", JS_NewCFunction(context_, quickjs_host_call, "__ax_host_call", 2));
   JS_FreeValue(context_, global);
   JS_FreeValue(context_, JS_Eval(context_, bootstrap_source, std::strlen(bootstrap_source), "<ax-bootstrap>", JS_EVAL_TYPE_GLOBAL));
+  engine_globals_ = eval_json("JSON.stringify(globalThis.__ax_engine_globals)");
   set_global("__ax_session_reserved", reserved_);
   for (const auto& entry : value_entries(globals)) {
     if (is_host_callable(entry.second) && !contains_name(reserved_, entry.first)) Core::append(reserved_, entry.first);
@@ -1239,6 +1246,9 @@ Value QuickJsCodeSession::patch_globals(Value snapshot, Value) {
   for (const auto& entry : value_entries(bindings)) {
     if (entry.first.rfind("__ax_", 0) == 0 || is_host_callable(entry.second)) continue;
     if (contains_name(reserved_, entry.first) && !merge) continue;
+    // A snapshot saved before the engine's globals were left out (24.x
+    // listed Atomics as a binding) must not overwrite them.
+    if (contains_name(engine_globals_, entry.first)) continue;
     set_global(entry.first, entry.second);
   }
   return snapshot_globals(Value::object());

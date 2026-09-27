@@ -47,6 +47,8 @@ type Session struct {
 	// baseline names the globals present before the agent's code ran; the
 	// snapshot entries leave them out, as TS's AxJSRuntime does.
 	baseline []string
+	// protectedJSON holds the current reserved values behind their getters.
+	protectedJSON map[string]gojavm.Value
 }
 
 // usageInstructions is TypeScript's AxJSRuntime.getUsageInstructions() in its
@@ -250,9 +252,9 @@ func (s *Session) executeLocked(code string, options map[string]ax.Value) ax.Val
 	s.completion = nil
 	s.turnLogs = nil
 	s.installBuiltins()
-	// TS's distiller final: final(task, evidence) keeps the evidence as the
-	// distilledContext global the executor inherits.
-	_, _ = s.vm.RunString("__ax_install_final_evidence()")
+	// final is a protected global here, so TS's distiller final (the
+	// evidence kept as distilledContext) is the primitive's own
+	// (keepFinalEvidence), not the support script's wrapper.
 	timeoutMs := intOption(valueFromMap(options, "timeoutMs"), intOption(valueFromMap(s.runtimePolicy, "timeoutMs"), 5000))
 	var timer *time.Timer
 	if timeoutMs > 0 {
@@ -557,6 +559,9 @@ func axErrorCategory(err error) string {
 
 func (s *Session) setPrimitive(name string, builder func([]ax.Value) ax.Value) {
 	s.defineProtected(name, s.vm.ToValue(func(call gojavm.FunctionCall) gojavm.Value {
+		if name == "final" {
+			s.keepFinalEvidence(call.Arguments)
+		}
 		args := make([]ax.Value, 0, len(call.Arguments))
 		for _, arg := range call.Arguments {
 			args = append(args, normalizeExport(arg.Export()))
@@ -612,6 +617,11 @@ func truncateDiagnostic(line string, limit int) string {
 
 func (s *Session) restoreReservedGlobals() {
 	for name, value := range s.reservedValues {
+		// A defined reserved value is already read-only and frozen; keep its
+		// object identity across turns.
+		if _, defined := s.protectedJSON[name]; defined {
+			continue
+		}
 		s.defineProtectedJSON(name, value)
 	}
 }
@@ -686,13 +696,47 @@ function __ax_deepFreeze(value) {
 }
 
 func (s *Session) defineProtected(name string, value gojavm.Value) {
-	// Read-only for the actor's code; configurable so the host can update the
-	// value (a merge patch) and restore it after each turn.
-	_ = s.vm.GlobalObject().DefineDataProperty(name, value, gojavm.FLAG_FALSE, gojavm.FLAG_FALSE, gojavm.FLAG_TRUE)
+	_ = s.vm.GlobalObject().DefineDataProperty(name, value, gojavm.FLAG_FALSE, gojavm.FLAG_FALSE, gojavm.FLAG_FALSE)
 }
 
+// defineProtectedJSON defines a reserved value (inputs and the input
+// aliases) as a getter-only global the actor's code cannot write, delete or
+// redefine. The host can still update it (the executor's merge patch): the
+// getter reads the session's current value.
 func (s *Session) defineProtectedJSON(name string, value ax.Value) {
-	s.defineProtected(name, s.deepFreezeValue(s.toJSONValue(value)))
+	if s.protectedJSON == nil {
+		s.protectedJSON = map[string]gojavm.Value{}
+	}
+	_, defined := s.protectedJSON[name]
+	s.protectedJSON[name] = s.deepFreezeValue(s.toJSONValue(value))
+	if defined {
+		return
+	}
+	key := name
+	getter := s.vm.ToValue(func(gojavm.FunctionCall) gojavm.Value {
+		return s.protectedJSON[key]
+	})
+	_ = s.vm.GlobalObject().DefineAccessorProperty(key, getter, nil, gojavm.FLAG_FALSE, gojavm.FLAG_FALSE)
+}
+
+// keepFinalEvidence is TS's distiller final: final(task, evidence) keeps
+// the evidence object as the distilledContext global the executor inherits.
+// The executor's own final does not.
+func (s *Session) keepFinalEvidence(arguments []gojavm.Value) {
+	if len(arguments) != 2 {
+		return
+	}
+	if phase := s.vm.Get("__ax_phase"); phase != nil && !gojavm.IsUndefined(phase) && phase.String() == "executor" {
+		return
+	}
+	evidence, ok := arguments[1].(*gojavm.Object)
+	if !ok || evidence.ClassName() == "Array" {
+		return
+	}
+	if _, isFunction := gojavm.AssertFunction(evidence); isFunction {
+		return
+	}
+	_ = s.vm.Set("distilledContext", evidence)
 }
 
 func (s *Session) toJSONValue(value ax.Value) gojavm.Value {

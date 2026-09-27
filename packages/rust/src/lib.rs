@@ -102087,9 +102087,11 @@ fn _agent_render_runtime_state_summary(args: &[CoreValue]) -> Result<CoreValue, 
     let mut v_entry_count = CoreValue::Null;
     let mut v_globals = CoreValue::Null;
     let mut v_has_entries = CoreValue::Null;
+    let mut v_hidden_key = CoreValue::Null;
     let mut v_include_key = CoreValue::Null;
     let mut v_injected = CoreValue::Null;
     let mut v_injected_key = CoreValue::Null;
+    let mut v_internal_key = CoreValue::Null;
     let mut v_is_context_binding = CoreValue::Null;
     let mut v_is_distilled_binding = CoreValue::Null;
     let mut v_is_promoted_binding = CoreValue::Null;
@@ -102182,7 +102184,9 @@ fn _agent_render_runtime_state_summary(args: &[CoreValue]) -> Result<CoreValue, 
         let mut v_key = v_key;
         v_reserved_key = core_contains(&[v_reserved.clone(), v_key.clone()])?;
         v_injected_key = core_map_contains(&[v_injected.clone(), v_key.clone()])?;
-        v_skipped_key = core_or(&[v_reserved_key.clone(), v_injected_key.clone()])?;
+        v_internal_key = core_string_starts_with(&[v_key.clone(), CoreValue::from("__ax_")])?;
+        v_hidden_key = core_or(&[v_reserved_key.clone(), v_injected_key.clone()])?;
+        v_skipped_key = core_or(&[v_hidden_key.clone(), v_internal_key.clone()])?;
         v_allowed_key = core_not(&[v_skipped_key.clone()])?;
         v_under_limit = core_lt(&[v_count.clone(), v_max_entries.clone()])?;
         v_include_key = core_and(&[v_allowed_key.clone(), v_under_limit.clone()])?;

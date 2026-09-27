@@ -34342,7 +34342,9 @@ Value Core::_agent_render_runtime_state_summary(Value state, Value policy) {
   for (auto key : Core::iter(bindings)) {
     Value reserved_key = Core::contains(reserved, key);
     Value injected_key = Core::map_contains(injected, key);
-    Value skipped_key = Core::or_(reserved_key, injected_key);
+    Value internal_key = Core::string_starts_with(key, Value("__ax_"));
+    Value hidden_key = Core::or_(reserved_key, injected_key);
+    Value skipped_key = Core::or_(hidden_key, internal_key);
     Value allowed_key = Core::not_(skipped_key);
     Value under_limit = Core::lt(count, max_entries);
     Value include_key = Core::and_(allowed_key, under_limit);

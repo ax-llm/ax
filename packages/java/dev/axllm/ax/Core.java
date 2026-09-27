@@ -32712,7 +32712,9 @@ final class Core {
     for (Object key : Core.iter(bindings)) {
       Object reserved_key = Core.contains(reserved, key);
       Object injected_key = Core.mapContains(injected, key);
-      Object skipped_key = Core.or(reserved_key, injected_key);
+      Object internal_key = Core.stringStartsWith(key, "__ax_");
+      Object hidden_key = Core.or(reserved_key, injected_key);
+      Object skipped_key = Core.or(hidden_key, internal_key);
       Object allowed_key = Core.not(skipped_key);
       Object under_limit = Core.lt(count, max_entries);
       Object include_key = Core.and(allowed_key, under_limit);

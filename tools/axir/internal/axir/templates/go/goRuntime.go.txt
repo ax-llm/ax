@@ -13920,6 +13920,24 @@ func conformanceAssertLastRequestTail(fixture map[string]Value, client *conforma
 	assertEqual(tail, expected, "last request tail")
 }
 
+// conformanceAssertStageFirstRequests compares expected_stage_first_requests
+// with the pinned requests in full: every message's role and content.
+func conformanceAssertStageFirstRequests(fixture map[string]Value, client *conformanceScriptedAI) {
+	for _, raw := range asSlice(coreGet(fixture, "expected_stage_first_requests", Array())) {
+		spec := asMap(raw)
+		index := int(num(coreGet(spec, "index", 0)))
+		stage := display(coreGet(spec, "stage", ""))
+		if index >= len(client.Requests) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("no request %d for the %s stage", index, stage)})
+		}
+		actual := Array()
+		for _, message := range asSlice(coreGet(client.Requests[index], "chat_prompt", Array())) {
+			actual = append(actual, Object("role", coreGet(message, "role", nil), "content", coreGet(message, "content", nil)))
+		}
+		assertEqual(actual, coreGet(spec, "messages", Array()), stage+" first request")
+	}
+}
+
 // conformanceAssertRequestRoles compares expected_request_roles with the
 // chat_prompt message roles of every request, in order.
 func conformanceAssertRequestRoles(fixture map[string]Value, client *conformanceScriptedAI) {
@@ -16383,6 +16401,17 @@ func runConformanceAgentRuntimeReal(fixture map[string]Value) {
 	// Without these the real-engine gate passes vacuously on expected_request_contains
 	// -- which is how an executor->responder evidence drop could ride along on a real
 	// engine while the strict engines enforced it.
+	conformanceAssertStageFirstRequests(fixture, client)
+	conformanceAssertRequestRoles(fixture, client)
+	if expected := coreGet(fixture, "expected_transcript", nil); expected != nil {
+		// The real-engine fixtures register no observers: the transcript is
+		// each request's stage.
+		transcript := Array()
+		for _, request := range client.Requests {
+			transcript = append(transcript, "request:"+conformanceAgentRequestStage(request))
+		}
+		assertEqual(transcript, expected, "agent run transcript")
+	}
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
 		for _, item := range asSlice(expected) {
@@ -16934,20 +16963,7 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		assertEqual(actualStageRequests, expectedStageRequests, "exact agent stage request projection")
 	}
     expectedMCPCalls:=asMap(coreGet(fixture,"expected_mcp_calls",Object()));for _,key:=range orderedKeys(expectedMCPCalls){expected:=expectedMCPCalls[key];actual:=Array();for _,request:=range mcpTransports[key].Requests{if request["method"]=="tools/call"{params:=coreGet(request,"params",Object());actual=append(actual,Object("name",coreGet(params,"name",nil),"arguments",coreGet(params,"arguments",nil)))}};assertEqual(actual,expected,"delegated MCP calls "+key)}
-	// Each stage's first request in full: every message's role and content.
-	for _, raw := range asSlice(coreGet(fixture, "expected_stage_first_requests", Array())) {
-		spec := asMap(raw)
-		index := int(num(coreGet(spec, "index", 0)))
-		stage := display(coreGet(spec, "stage", ""))
-		if index >= len(client.Requests) {
-			panic(AxError{Category: "fixture", Message: fmt.Sprintf("no request %d for the %s stage", index, stage)})
-		}
-		actual := Array()
-		for _, message := range asSlice(coreGet(client.Requests[index], "chat_prompt", Array())) {
-			actual = append(actual, Object("role", coreGet(message, "role", nil), "content", coreGet(message, "content", nil)))
-		}
-		assertEqual(actual, coreGet(spec, "messages", Array()), stage+" first request")
-	}
+	conformanceAssertStageFirstRequests(fixture, client)
     for _,raw:=range asSlice(coreGet(fixture,"expected_request_checks",Array())){check:=asMap(raw);request:=client.Requests[int(num(check["index"]))];text:=stableStringify(request);for _,value:=range asSlice(coreGet(check,"contains",Array())){if !strings.Contains(text,display(value)){panic("Child request missing "+display(value))}};for _,value:=range asSlice(coreGet(check,"not_contains",Array())){if strings.Contains(text,display(value)){panic("Child request exposed "+display(value))}};if coreTruthy(check["functions_absent"])&&coreTruthy(coreGet(request,"functions",nil)){panic("Agent runtime tools leaked into native functions")}}
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)

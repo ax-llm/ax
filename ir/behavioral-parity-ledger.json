@@ -901,11 +901,14 @@
         "@agent_build_evidence_descriptor",
         "@agent_render_evidence_descriptor"
       ],
-      "fixtures": ["axagent-real/agent-runtime-real-ts-live-state.json"],
+      "fixtures": [
+        "axagent-real/agent-runtime-real-ts-live-state.json",
+        "axagent-real/agent-runtime-real-ts-no-user-variables.json"
+      ],
       "gate": "G1 real-engine antidote + G3 prompt-parity",
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
-      "state": "VERIFIED IN ALL FIVE ENGINES against a TypeScript golden recorded with TS's own AxJSRuntime (tools/axir/extractors/agent-streaming-goldens.ts real_runtime): the distiller makes variables of four types and logs, the executor reads them; every distiller and executor request is pinned (usage instructions, action log output, live state with provenance, evidence summary). Before: Go, Rust, Java and C++ lost the distiller's variables in the executor (a replacing patch), no port gave the executor inputs.distilledContext in the shared session, Python showed Python type names and repr, C++ and the others listed engine globals by hardcoded lists. scripts/axir-runtime-support.test.js checks the support script against the TS sources."
+      "state": "VERIFIED IN ALL FIVE ENGINES against two TypeScript goldens recorded with TS's own AxJSRuntime (tools/axir/extractors/agent-streaming-goldens.ts real_runtime): in one the distiller makes variables of four types and logs, the executor reads them; in the other the distiller makes no variable ('(no user variables)') and keeps empty evidence the executor still sees. Every distiller and executor request is pinned (usage instructions, action log output, live state with provenance, evidence summary); the Go runner now checks the pinned requests, request roles and transcript for agent_runtime_real as the other runners do. Before: Go, Rust, Java and C++ lost the distiller's variables in the executor (a replacing patch), no port gave the executor inputs.distilledContext in the shared session, Python showed Python type names and repr, Go showed its captured console output as '- __ax_stdout', and the C++ and Rust QuickJS sessions reported engine globals as user bindings ('- Atomics: {}', '- performance: {...}'); both now leave out the engine's own globals, captured after bootstrap, from the bindings snapshot, from a replacing patch's clear and from a restored snapshot. scripts/axir-runtime-support.test.js checks the support script against the TS sources."
     }
   ]
 }

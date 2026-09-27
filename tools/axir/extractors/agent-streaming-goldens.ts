@@ -1078,6 +1078,25 @@ const cases: Record<string, Case> = {
     first_requests: true,
     pin_stage_requests: ['distiller', 'executor'],
   },
+  // TS's AxJSRuntime again: a distiller turn that makes no variable (the
+  // live state has no user variables) and a final with empty evidence (the
+  // executor still sees the distilledContext global).
+  'agent-runtime-real-ts-no-user-variables': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      actor("console.log('checked')"),
+      actor('final("Answer the question", {})'),
+      actor('console.log(Object.keys(distilledContext).length)'),
+      actor('final("Answer the question", { answer: "none" })'),
+      { content: 'Answer: none' },
+    ],
+    runtime_script: [],
+    real_runtime: true,
+    first_requests: true,
+    pin_stage_requests: ['distiller', 'executor'],
+  },
   // Two forwards on one agent: each stage of the second run restores its own
   // earlier actions and says so.
   'agent-first-requests-second-forward': {

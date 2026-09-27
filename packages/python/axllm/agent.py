@@ -6100,7 +6100,9 @@ def _agent_render_runtime_state_summary(state: Any, policy: Any) -> str:
     for key in bindings:
         reserved_key = _core_contains(reserved, key)
         injected_key = _core_map_contains(injected, key)
-        skipped_key = _core_or(reserved_key, injected_key)
+        internal_key = _core_string_starts_with(key, "__ax_")
+        hidden_key = _core_or(reserved_key, injected_key)
+        skipped_key = _core_or(hidden_key, internal_key)
         allowed_key = _core_not(skipped_key)
         under_limit = _core_lt(count, max_entries)
         include_key = _core_and(allowed_key, under_limit)
