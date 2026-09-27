@@ -535,7 +535,7 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   if (status >= 400) {
     Value body;
     try { body = Core::json_parse(error_body); } catch (...) { body = Value(error_body); }
-    throw Core::as_error(Core::openai_normalize_error(static_cast<double>(status), body, Value()));
+    throw Core::as_error(Core::openai_normalize_error(static_cast<double>(status), body, Value(), Value()));
   }
 #endif
 }
@@ -1690,7 +1690,7 @@ static Value ai_error_object(const std::string& type, Value message, Value statu
   out["status"] = status;
   out["code"] = code;
   out["response_body"] = response_body;
-  out["request"] = request;
+  out["request"] = request.is_null() ? Value() : Core::_ai_error_request(request, Value());
   out["retryable"] = Core::truthy(retryable);
   return Value(out);
 }
@@ -1709,6 +1709,12 @@ Value Core::exception_value(const std::exception& error) {
     if (!ax->code.empty()) out["code"] = ax->code;
     out["retryable"] = ax->retryable;
     if (!ax->response_body.is_null()) out["response_body"] = ax->response_body;
+    if (!ax->url.empty() || !ax->request_body.is_null()) {
+      Object request;
+      if (!ax->url.empty()) request["url"] = ax->url;
+      if (!ax->request_body.is_null()) request["json"] = ax->request_body;
+      out["request"] = Value(std::move(request));
+    }
     if (const AxError* cause = ax->cause()) out["cause"] = exception_value(*cause);
     return Value(out);
   }
@@ -1811,6 +1817,11 @@ AxError Core::as_error(Value error) {
   if (error.is_object() && has_key(error, "__error")) {
     int status = get_key(error, "status").is_null() ? 0 : static_cast<int>(num(get_key(error, "status")));
     AxError out(str(get_key(error, "__error")), str(get_key(error, "message")), str(get_key(error, "__type")), status, str(get_key(error, "code")), truthy(get_key(error, "retryable")), get_key(error, "response_body"));
+    Value request = get_key(error, "request");
+    if (request.is_object()) {
+      out.url = str(Core::get(request, "url", Value("")));
+      out.request_body = Core::get(request, "json", Core::get(request, "data"));
+    }
     Value cause = get_key(error, "cause");
     if (!cause.is_null()) out.set_cause(std::make_shared<AxError>(as_error(cause)));
     return out;
@@ -2356,6 +2367,19 @@ Value Core::description_append(Value base, Value hint) {
   if (b.empty()) return Value(h);
   if (b.back() != '.') b.push_back('.');
   return Value(b + " " + h);
+}
+// JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+// - _ . ! ~ * ' ( ) becomes %XX.
+Value Core::url_encode_component(Value value) {
+  static constexpr char digits[] = "0123456789ABCDEF";
+  const std::string keep = "-_.!~*'()";
+  std::string out;
+  for (unsigned char c : value.is_null() ? std::string() : str(value)) {
+    bool alnum = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+    if (alnum || keep.find(static_cast<char>(c)) != std::string::npos) out.push_back(static_cast<char>(c));
+    else { out.push_back('%'); out.push_back(digits[c >> 4]); out.push_back(digits[c & 15]); }
+  }
+  return Value(out);
 }
 Value Core::url_valid(Value value) {
   return Value(value.is_string() && std::regex_search(str(value), std::regex("^[a-zA-Z][a-zA-Z0-9+.-]*://")));
@@ -4479,6 +4503,16 @@ static double ax_context_cache_expiry_ms(Value response) {
   return static_cast<double>(timegm(&tm)) * 1000.0;
 }
 
+// Gives a transport-level provider error the request TypeScript keeps on it:
+// Core's view (the URL, plus the body unless includeRequestBodyInErrors is
+// false), never the headers. An error that already has one keeps it.
+static void attach_error_request(AxError& error, const Value& call, const Value& options) {
+  if (!error.url.empty() || !error.request_body.is_null()) return;
+  Value view = Core::_ai_error_request(call, options);
+  error.url = str(Core::get(view, "url", Value("")));
+  error.request_body = Core::get(view, "json", Core::get(view, "data"));
+}
+
 Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, Value payload, Value model, const std::string& endpoint) {
   Value cfg_value = Core::get(options, "contextCache", Core::get(options, "context_cache"));
   bool supported = Core::truthy(Core::get(Core::get(Core::get(descriptor_, "features", Value::object()), "caching", Value::object()), "supported", false));
@@ -4487,7 +4521,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
   std::string explicit_name = str(Core::get(cfg, "name", Core::get(cfg, "cacheName", Core::get(cfg, "cache_name", ""))));
   if (!explicit_name.empty()) {
     Value cached = payload; Core::set(cached, "cachedContent", explicit_name);
-    return request_json(endpoint, cached, false, "json", false, operation_method("chat"));
+    return request_json(endpoint, cached, false, "json", false, operation_method("chat"), options);
   }
   Value prompts = Core::get(request, "chat_prompt", Core::get(request, "chatPrompt", Core::get(request, "messages", Value::array())));
   std::size_t non_system = 0, cached_count = 0;
@@ -4519,7 +4553,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
     std::string endpoint = str(Core::get(op, "path"));
     Value op_base = Core::get(op, "base_url");
     if (!op_base.is_null()) endpoint = strip_trailing_slashes(str(op_base)) + endpoint;
-    return request_json(endpoint, Core::get(op, "request", Value::object()), false, "json", false, str(Core::get(op, "method", "POST")));
+    return request_json(endpoint, Core::get(op, "request", Value::object()), false, "json", false, str(Core::get(op, "method", "POST")), options);
   };
   auto create = [&]() {
     try {
@@ -4535,14 +4569,14 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
       Value ops = Core::ai_gemini_cache_ops(cache_name, ttl_seconds, api_key_, model, cache_body, options); Value refreshed = call_op(Core::get(ops, "update")); double expires_at = ax_context_cache_expiry_ms(refreshed);
       if (expires_at <= now_ms()) throw AxError("ai_service", "Gemini cache refresh omitted a future expireTime");
       set_entry(object({{"cacheName", cache_name}, {"expiresAt", expires_at}}));
-    } catch (const AxError&) { if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat")); }
+    } catch (const AxError&) { if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options); }
   } else if (action == "create") {
-    if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat"));
+    if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
   } else if (action == "none") return Value();
   if (cache_name.empty()) return Value();
   Value cached = payload; object_mut(cached).erase("systemInstruction"); object_mut(cached).erase("tools"); object_mut(cached).erase("toolConfig");
   Value suffix = Value::array(); for (std::size_t i = std::min(cached_count, contents.size()); i < contents.size(); ++i) Core::append(suffix, contents[i]); Core::set(cached, "contents", suffix); Core::set(cached, "cachedContent", cache_name);
-  try { return request_json(endpoint, cached, false, "json", false, operation_method("chat")); }
+  try { return request_json(endpoint, cached, false, "json", false, operation_method("chat"), options); }
   catch (const AxError& error) {
     if (!Core::truthy(Core::ai_context_cache_rejection(error.status, error.response_body))) throw;
     Value recovery = Core::ai_context_cache_recovery(get_entry(), cache_name, external);
@@ -4550,7 +4584,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
       if (external) context_cache_registry_->set(tenant_namespace, cache_key, Core::get(recovery, "externalEntry", Value::object()));
       else if (Core::truthy(Core::get(recovery, "deleteInMemory", false))) object_mut(context_cache_entries_).erase(cache_key);
     }
-    return request_json(endpoint, payload, false, "json", false, operation_method("chat"));
+    return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
   }
 }
 
@@ -4575,7 +4609,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
     double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
     int attempt = 0;
     while (true) {
-      Value raw = request_json(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"));
+      Value raw = request_json(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"), options);
       std::vector<Value> events = iter_sse_json(raw);
       if (!events.empty()) {
         Value status = Core::provider_classify_stream_error_status(profile_, events[0]);
@@ -4597,7 +4631,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
   std::string endpoint = operation_path("chat", model);
   Value raw = context_cache_chat(request, options, payload, model, endpoint);
-  if (raw.is_null()) raw = request_json(endpoint, payload, false, "json", false, operation_method("chat"));
+  if (raw.is_null()) raw = request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
   return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : payload);
 }
 
@@ -4616,7 +4650,7 @@ Value OpenAICompatibleClient::do_embed(Value request, Value options) {
   Value payload = Core::provider_build_embed_request(profile_, request, options);
   Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
   std::string embed_url = str(Core::provider_embed_url(profile_, model, options));
-  Value raw = request_json(embed_url.empty() ? operation_path("embed", model) : embed_url, payload, false, "json", false, operation_method("embed"));
+  Value raw = request_json(embed_url.empty() ? operation_path("embed", model) : embed_url, payload, false, "json", false, operation_method("embed"), options);
   return Core::provider_normalize_embed_response(profile_, raw, name_, model);
 }
 
@@ -4781,7 +4815,7 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         });
         auto consume = [&](Value chunk) {
           Value raw = chunk;
-          if (raw.is_object() && has_key(raw, "status")) raw = transport_result(raw, call);
+          if (raw.is_object() && has_key(raw, "status")) raw = transport_result(raw, call, merged_options);
           if (raw.is_array()) {
             for (const auto& event : array_ref(raw)) {
               if (display(event) == "[DONE]") return false;
@@ -4795,15 +4829,23 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         try {
           transport_->stream(call, consume, current_cancellation_token());
           if (!retry_requested && !cancelled && !decoder.done_marker()) decoder.finish();
-        } catch (const AxError& error) {
+        } catch (AxError& error) {
           if (error.type == "AxAIServiceAbortedError") throw;
           if (auto token = current_cancellation_token(); token && token->is_cancelled()) throw AxAIServiceAbortedError(token->reason());
           if (provider_error) throw;
+          // The HTTP transport's own status, network and timeout errors keep
+          // the request as TypeScript's do.
+          attach_error_request(error, call, merged_options);
           // Retry transport/open failures before any SSE event. Once a provider
           // event exists, its normalized error is authoritative unless the
           // explicit transient-status classifier above requested a retry.
           if (!received_event && !delivered && stream_error_retryable(error) && attempt < max_retries) retry_requested = true;
-          else if (delivered) throw AxError("response", error.what(), "AxAIServiceStreamTerminatedError", error.status, error.code, true, error.response_body);
+          else if (delivered) {
+            AxError terminated("response", error.what(), "AxAIServiceStreamTerminatedError", error.status, error.code, true, error.response_body);
+            terminated.url = error.url;
+            terminated.request_body = error.request_body;
+            throw terminated;
+          }
           else throw;
         }
         if (retry_requested) {
@@ -5206,9 +5248,22 @@ std::string OpenAICompatibleClient::operation_method(const std::string& operatio
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
+  return request_json(endpoint, std::move(payload), stream, body_key, binary_response, method, options_);
+}
+
+Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options) {
   Value call = build_request(endpoint, std::move(payload), stream, body_key, binary_response, method);
-  if (transport_ != nullptr) return transport_result(transport_->call(call, current_cancellation_token()), call);
-  throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
+  if (transport_ == nullptr) throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
+  Value raw;
+  try {
+    raw = transport_->call(call, current_cancellation_token());
+  } catch (AxError& error) {
+    // A transport failure keeps the request as TypeScript's network and
+    // timeout errors do.
+    if (error.category == "network" || error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceTimeoutError") attach_error_request(error, call, error_options);
+    throw;
+  }
+  return transport_result(raw, call, error_options);
 }
 
 Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
@@ -5254,10 +5309,6 @@ std::string OpenAICompatibleClient::operation_path(const std::string& operation,
       pos += str(model).size();
     }
   }
-  if (str(Core::get(descriptor_, "auth")) == "api_key_query") {
-    std::string key = str(Core::get(descriptor_, "apiKeyQuery", "key"));
-    path += (path.find('?') == std::string::npos ? "?" : "&") + url_component(key) + "=" + url_component(api_key_);
-  }
   if (!api_version_.empty() && api_version_ != "null") {
     path += (path.find('?') == std::string::npos ? "?" : "&") + std::string("api-version=") + url_component(api_version_);
   }
@@ -5266,11 +5317,11 @@ std::string OpenAICompatibleClient::operation_path(const std::string& operation,
 
 // The request is not passed on: its headers hold the API key or credential
 // tokens, and a thrown AxError has no request field.
-Value OpenAICompatibleClient::transport_result(Value result, Value) {
+Value OpenAICompatibleClient::transport_result(Value result, Value request, Value options) {
   if (result.is_object() && Core::get(result, "status").is_number()) {
     int status = static_cast<int>(num(Core::get(result, "status", 200)));
     Value body = Core::get(result, "json", Core::get(result, "body", Core::get(result, "data")));
-    if (status >= 400) throw Core::as_error(Core::openai_normalize_error(status, body, Value()));
+    if (status >= 400) throw Core::as_error(Core::openai_normalize_error(status, body, request, options));
     return body;
   }
   return result;

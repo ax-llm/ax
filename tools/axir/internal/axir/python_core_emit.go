@@ -716,7 +716,11 @@ func pythonArgDefault(funcName, argName string) string {
 			return "None"
 		}
 	case "openai_normalize_error":
-		if argName == "request" {
+		if argName == "request" || argName == "options" {
+			return "None"
+		}
+	case "ai_error_request", "_ai_error_request":
+		if argName == "request" || argName == "options" {
 			return "None"
 		}
 	case "build_chat_request", "build_embed_request":

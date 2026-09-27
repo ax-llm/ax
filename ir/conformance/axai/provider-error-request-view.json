@@ -1,0 +1,217 @@
+{
+  "cases": [
+    {
+      "call": {
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        },
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "method": "POST",
+        "stream": false,
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected": {
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "url": "https://api.openai.com/v1/chat/completions"
+      }
+    },
+    {
+      "call": {
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        },
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "method": "POST",
+        "stream": false,
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected": {
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "options": {
+        "includeRequestBodyInErrors": true
+      }
+    },
+    {
+      "call": {
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        },
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "method": "POST",
+        "stream": false,
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected": {
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "options": {
+        "includeRequestBodyInErrors": false
+      }
+    },
+    {
+      "call": {
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        },
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "method": "POST",
+        "stream": false,
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected": {
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "options": {
+        "include_request_body_in_errors": false
+      }
+    },
+    {
+      "call": {
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        },
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "method": "POST",
+        "stream": false,
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "expected": {
+        "json": {
+          "messages": [
+            {
+              "content": "fixture-body-marker-2c9e",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-5.4-mini"
+        },
+        "url": "https://api.openai.com/v1/chat/completions"
+      },
+      "options": {
+        "include_request_body_in_errors": false,
+        "includeRequestBodyInErrors": true
+      }
+    },
+    {
+      "call": {
+        "data": {
+          "file": "fixture-body-marker-2c9e",
+          "model": "whisper-1"
+        },
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        },
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions"
+      },
+      "expected": {
+        "data": {
+          "file": "fixture-body-marker-2c9e",
+          "model": "whisper-1"
+        },
+        "url": "https://api.openai.com/v1/audio/transcriptions"
+      }
+    },
+    {
+      "call": {
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        },
+        "method": "GET",
+        "url": "https://api.typesafe.ai/v1/models"
+      },
+      "expected": {
+        "url": "https://api.typesafe.ai/v1/models"
+      }
+    },
+    {
+      "call": {
+        "headers": {
+          "Authorization": "Bearer sk-view-secret-3e1f",
+          "x-api-key": "sk-view-secret-3e1f",
+          "x-goog-api-key": "sk-view-secret-3e1f"
+        }
+      },
+      "expected": {}
+    },
+    {
+      "call": null,
+      "expected": null
+    }
+  ],
+  "kind": "ai_error_request",
+  "name": "provider-error-request-view",
+  "operation": "view"
+}

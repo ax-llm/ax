@@ -2432,15 +2432,6 @@ impl OpenAICompatibleClient {
         ])?).as_str().unwrap_or("/chat/completions").to_string();
         path = path.replace("{model}", &url_component_escape(model));
         let auth = descriptor.get("auth").and_then(Value::as_str).unwrap_or("bearer");
-        if auth == "api_key_query" {
-            let key_name = descriptor.get("apiKeyQuery").and_then(Value::as_str).unwrap_or("key");
-            let separator = if path.contains('?') { "&" } else { "?" };
-            path = format!(
-                "{path}{separator}{}={}",
-                url_component_escape(key_name),
-                url_component_escape(&self.api_key)
-            );
-        }
         let base = self
             .base_url_override
             .clone()
@@ -10566,6 +10557,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
         "ai_realtime" => run_ai_realtime_fixture(&fixture)?,
         "ai_context_cache" => run_ai_context_cache_fixture(&fixture)?,
+        "ai_error_request" => run_ai_error_request_fixture(&fixture)?,
         "ai_provider_descriptor"
         | "ai_provider_features"
         | "ai_provider_registry"
@@ -11035,15 +11027,15 @@ fn run_ai_support_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 // python: _run_ai_error / _run_ai_unsupported. Dispatches the real client
 // method and matches message, error type, and status on the failure.
 fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
-    let (mut client, _requests, _credential_requests) = fixture_client(fixture)?;
+    let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let default_method = if kind == "ai_unsupported" { "transcribe" } else { "chat" };
     let method = fixture
         .get("method")
         .and_then(Value::as_str)
         .unwrap_or(default_method);
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
-    // Fixture "options" are the call options when service_options configure the client.
-    let call_options = fixture.get("service_options").and(fixture.get("options")).cloned();
+    // Fixture "options" are the call options, as for ai_chat and ai_stream.
+    let call_options = fixture.get("options").filter(|options| options.is_object()).cloned();
     let result: AxResult<Value> = match (method, call_options) {
         ("stream", Some(options)) => client.stream_with_options(request, options).map(Value::Array),
         ("stream", None) => client.stream(request).map(Value::Array),
@@ -11056,9 +11048,15 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     let Err(err) = result else {
         return Err(AxError::new("fixture", "expected AxAI call to fail"));
     };
-    // Rust AI errors keep no request (AxError has no request field), so there is
-    // no expected_error_request to compare; this text check still fails if
-    // anything the error carries holds a secret or, where excluded, the body.
+    expect_ai_error_attributes(&err, fixture)?;
+    expect_transport_request_subset(fixture, &requests, &credential_requests)
+}
+
+// An AI error's type, status, message, and the strings it must never carry.
+// Rust AI errors keep no request until the next major (AxError has no request
+// field), so expected_error_request has nothing to compare; the text check
+// still fails if anything the error carries holds a secret or an excluded body.
+fn expect_ai_error_attributes(err: &AxError, fixture: &Value) -> AxResult<()> {
     let text = format!(
         "{err}\n{err:?}\n{}",
         serde_json::to_string(&err).unwrap_or_default()
@@ -11101,6 +11099,37 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
                 "fixture",
                 format!("expected status {expected}, got {actual}"),
             ));
+        }
+    }
+    Ok(())
+}
+
+// Core's error-request view called directly ("view"), and the provider error
+// normalizer given a raw call ("normalize").
+fn run_ai_error_request_fixture(fixture: &Value) -> AxResult<()> {
+    let operation = fixture.get("operation").and_then(Value::as_str).unwrap_or("view");
+    let cases = fixture.get("cases").and_then(Value::as_array).cloned().unwrap_or_default();
+    for (index, case) in cases.iter().enumerate() {
+        let arg = |key: &str| core_value_from_json(case.get(key).unwrap_or(&Value::Null));
+        match operation {
+            "view" => {
+                let actual = core_value_to_json(&_ai_error_request(&[arg("call"), arg("options")])?);
+                expect_json_equal(
+                    &format!("error request view case {index}"),
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            "normalize" => {
+                let error = openai_normalize_error(&[arg("status"), arg("body"), arg("call"), arg("options")])?;
+                expect_ai_error_attributes(&core_as_error(&error), case)?;
+            }
+            _ => {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("unsupported error-request operation {operation}"),
+                ))
+            }
         }
     }
     Ok(())
@@ -17712,6 +17741,20 @@ fn run_ai_realtime_fixture(fixture: &Value) -> AxResult<()> {
 
 fn run_ai_realtime_fixture_inner(client: &OpenAICompatibleClient, fixture: &Value) -> AxResult<()> {
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
+    if let Some(expected) = fixture.get("expected_ws_url") {
+        let provider = fixture.get("provider").and_then(Value::as_str).unwrap_or("openai");
+        let profile = provider_normalize_profile(&[CoreValue::from(provider)])?;
+        let model = fixture.get("model").or_else(|| request.get("model")).cloned().unwrap_or_else(|| json!(""));
+        let key = fixture.get("api_key").cloned().unwrap_or_else(|| json!("test-key"));
+        let options = fixture.get("service_options").or_else(|| fixture.get("options")).cloned().unwrap_or_else(|| json!({}));
+        let target = core_value_to_json(&provider_realtime_ws_url(&[
+            profile,
+            core_value_from_json(&model),
+            core_value_from_json(&key),
+            core_value_from_json(&options),
+        ])?);
+        expect_json_equal("realtime WebSocket URL", target.get("url").unwrap_or(&Value::Null), expected)?;
+    }
     if let Some(expected) = fixture.get("expected_setup") {
         expect_json_equal(
             "ai realtime setup",
@@ -19733,6 +19776,24 @@ fn core_media_valid_url_shape(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let v = core_arg(args, 0);
     let ok = v.as_str().is_some() || matches!(&v, CoreValue::Map(m) if m.borrow().contains("url"));
     Ok(CoreValue::Bool(ok))
+}
+
+// JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+// - _ . ! ~ * ' ( ) becomes %XX.
+fn core_url_encode_component(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text = match core_arg(args, 0) {
+        CoreValue::Null => String::new(),
+        value => value.text(),
+    };
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    Ok(CoreValue::from(out.as_str()))
 }
 
 fn core_url_valid(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -25329,7 +25390,6 @@ mod request_url_security_tests {
         assert_eq!(descriptor["auth"], "bearer");
         assert_eq!(descriptor["vertex"], true);
         assert!(descriptor.get("apiKeyHeader").is_none());
-        assert!(descriptor.get("apiKeyQuery").is_none());
         Ok(())
     }
 }

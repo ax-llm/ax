@@ -207,6 +207,11 @@ class AxError : public std::runtime_error {
   std::string code;
   bool retryable;
   Value response_body;
+  // A provider error's request URL and body, as TypeScript's AxAIServiceError
+  // keeps them. The body is null when includeRequestBodyInErrors is false, and
+  // request headers are never kept.
+  std::string url;
+  Value request_body;
   AxError(std::string category, std::string message);
   AxError(std::string category, std::string message, std::string type, int status = 0,
           std::string code = "", bool retryable = false, Value response_body = Value());
@@ -428,6 +433,7 @@ struct Core {
   static Value fields_from_map(Value fields);
   static Value description_append(Value base, Value hint);
   static Value url_valid(Value value);
+  static Value url_encode_component(Value value);
   static Value valid_image(Value value);
   static Value valid_audio(Value value);
   static Value valid_file(Value value);
@@ -625,7 +631,7 @@ struct Core {
   static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
   static Value _openai_stream_choice_impl(Value choice, Value index_ids, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value fold_chat_response_stream(Value events);
-  static Value openai_normalize_error(Value status, Value body, Value request);
+  static Value openai_normalize_error(Value status, Value body, Value request, Value options);
   static Value _fold_chat_stream_chunk_impl(Value target, Value chunk);
   static Value provider_normalize_profile(Value profile);
   static Value provider_profile_registry();
@@ -794,6 +800,7 @@ struct Core {
   static Value provider_require_expensive_model_confirmation(Value provider, Value model, Value client_options, Value options);
   static Value _gemini_vertex_embed_content_model_impl(Value model);
   static Value provider_embed_url(Value profile, Value model, Value options);
+  static Value _ai_error_request(Value request, Value options);
   static Value chat_session_mode_enabled(Value options);
   static Value fold_stream(Value events);
   static Value _render_audio_outputs_impl(Value gen, Value client, Value values, Value options);
@@ -1885,12 +1892,15 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
+  // error_options are the call's merged options; their includeRequestBodyInErrors
+  // decides whether a provider error keeps the request body.
+  Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options);
   Value build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
   std::string operation_method(const std::string& operation) const;
   std::string operation_path(const std::string& operation) const;
   std::string operation_path(const std::string& operation, Value model) const;
   Value headers() const;
-  Value transport_result(Value result, Value request);
+  Value transport_result(Value result, Value request, Value options);
   std::vector<Value> iter_sse_json(Value raw);
 };
 
