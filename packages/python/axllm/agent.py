@@ -2168,8 +2168,14 @@ class AxAgent:
 
     def evaluate_optimization_task(self, client, task: dict[str, Any], options: dict[str, Any] | None = None):
         opts = options or {}
+        # A runtime on the evolve or optimize call runs each task, as it runs a
+        # forward call (the agent may hold only a runtime descriptor), unless
+        # forward_options names one.
+        forward_options = dict(opts.get("forward_options") or {})
+        if opts.get("runtime") is not None and forward_options.get("runtime") is None:
+            forward_options["runtime"] = opts["runtime"]
         try:
-            output = self.forward(client, task.get("input") or task, opts.get("forward_options") or {})
+            output = self.forward(client, task.get("input") or task, forward_options)
             return _build_agent_eval_prediction(output, self.get_action_log(), self.get_usage(), self.export_trace())
         except AxAgentClarificationError as exc:
             return {

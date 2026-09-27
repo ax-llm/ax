@@ -16580,17 +16580,34 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
             .and_then(Value::as_str)
             .unwrap_or("Python")
             .to_string();
-        let runtime = ScriptedCodeRuntime::new(script, language, String::new());
-        let host = core_code_runtime_host_shared(
-            Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
-            core_runtime_capabilities_full(),
-        );
-        core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        let runtime = ScriptedCodeRuntime::new(script, language.clone(), String::new());
+        // runtime_on_evolve: the other ports' examples pass the runtime on the
+        // evolve call over a runtime descriptor. Rust takes no runtime per call;
+        // its example attaches the runtime with with_runtime over the
+        // descriptor, so the runner does that.
+        let runtime_on_evolve = fixture
+            .get("runtime_on_evolve")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let signature = fixture
             .get("signature")
             .and_then(Value::as_str)
             .unwrap_or("question:string -> answer:string");
-        let mut agent = agent_with_core_options(signature, agent_options)?;
+        let mut agent = if runtime_on_evolve {
+            core_set(
+                &agent_options,
+                CoreValue::from("runtime"),
+                core_value_from_json(&json!({"language": language})),
+            )?;
+            agent_with_core_options(signature, agent_options)?.with_runtime(Box::new(runtime))?
+        } else {
+            let host = core_code_runtime_host_shared(
+                Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
+                core_runtime_capabilities_full(),
+            );
+            core_set(&agent_options, CoreValue::from("runtime"), host)?;
+            agent_with_core_options(signature, agent_options)?
+        };
         let mut playbook_options = json!({"target":"responder","maxEpochs":1});
         if let (Some(target), Some(extra)) = (
             playbook_options.as_object_mut(),

@@ -523,13 +523,13 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 func skillAgentRuntimeText(target string) string {
 	switch target {
 	case "python":
-		return "Give the agent a code runtime on the constructor (`runtime`: a runtime object, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`{\"runtime\": AxQuickJsCodeRuntime()}`). The constructor's runtime wins; without one, a run uses the forward call's."
+		return "Give the agent a code runtime on the constructor (`runtime`: a runtime object, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`{\"runtime\": AxQuickJsCodeRuntime()}`). The constructor's runtime wins; without one, a run uses the forward call's. Playbook evolve and agent optimize take a runtime in their options the same way, and run each task on it."
 	case "go":
-		return "Give the agent a code runtime on the constructor (`\"runtime\"`: a `CodeRuntime`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`map[string]ax.Value{\"runtime\": axgoja.NewRuntime()}`). The constructor's runtime wins; without one, a run uses the forward call's."
+		return "Give the agent a code runtime on the constructor (`\"runtime\"`: a `CodeRuntime`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`map[string]ax.Value{\"runtime\": axgoja.NewRuntime()}`). The constructor's runtime wins; without one, a run uses the forward call's. Playbook evolve and agent optimize take a runtime in their options the same way, and run each task on it."
 	case "java":
-		return "Give the agent a code runtime on the constructor (`\"runtime\"`: an `AxCodeRuntime`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`Map.of(\"runtime\", runtime)`). The constructor's runtime wins; without one, a run uses the forward call's."
+		return "Give the agent a code runtime on the constructor (`\"runtime\"`: an `AxCodeRuntime`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`Map.of(\"runtime\", runtime)`). The constructor's runtime wins; without one, a run uses the forward call's. Playbook evolve and agent optimize take a runtime in their options the same way, and run each task on it."
 	case "cpp":
-		return "Give the agent a code runtime on the constructor (`\"runtime\"`: `axllm::Core::code_runtime_ref(runtime)`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call's options (`{\"runtime\", axllm::Core::code_runtime_ref(runtime)}`). The constructor's runtime wins; without one, a run uses the forward call's."
+		return "Give the agent a code runtime on the constructor (`\"runtime\"`: `axllm::Core::code_runtime_ref(runtime)`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call's options (`{\"runtime\", axllm::Core::code_runtime_ref(runtime)}`). The constructor's runtime wins; without one, a run uses the forward call's. Playbook evolve and agent optimize take a runtime in their options the same way, and run each task on it."
 	case "rust":
 		return "Attach the code runtime to the agent with `with_runtime(Box::new(runtime))`; Rust takes no runtime on the forward call."
 	default:

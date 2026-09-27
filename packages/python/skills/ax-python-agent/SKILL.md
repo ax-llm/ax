@@ -65,7 +65,7 @@ Use the provider-backed Astra examples under `src/examples/python/generation/`, 
 
 ## Where The Runtime Goes
 
-Give the agent a code runtime on the constructor (`runtime`: a runtime object, or a `{"language": ...}` config with the runtime passed per call) or on a forward call (`{"runtime": AxQuickJsCodeRuntime()}`). The constructor's runtime wins; without one, a run uses the forward call's.
+Give the agent a code runtime on the constructor (`runtime`: a runtime object, or a `{"language": ...}` config with the runtime passed per call) or on a forward call (`{"runtime": AxQuickJsCodeRuntime()}`). The constructor's runtime wins; without one, a run uses the forward call's. Playbook evolve and agent optimize take a runtime in their options the same way, and run each task on it.
 
 - A run with a runtime runs the RLM stages, as TypeScript's agent always does with its default JavaScript runtime: the distiller and the executor write code in the runtime's language and run it in the runtime.
 - A run without one runs the ports' runtime-less stages, which answer with a completion payload instead of code; TypeScript has no such mode.

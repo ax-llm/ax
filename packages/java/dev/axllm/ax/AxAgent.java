@@ -543,8 +543,13 @@ public final class AxAgent implements AxProgram {
 
   public Map<String, Object> evaluateOptimizationTask(AiClient client, Map<String, Object> task, Map<String, Object> options) {
     Map<String, Object> opts = options == null ? Map.of() : options;
+    // A runtime on the evolve or optimize call runs each task, as it runs a
+    // forward call (the agent may hold only a runtime descriptor), unless
+    // forward_options names one.
+    Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(opts.getOrDefault("forward_options", Map.of())));
+    if (opts.get("runtime") != null && forwardOptions.get("runtime") == null) forwardOptions.put("runtime", opts.get("runtime"));
     try {
-      Map<String, Object> output = forward(client, Core.asMap(task.getOrDefault("input", task)), Core.asMap(opts.getOrDefault("forward_options", Map.of())));
+      Map<String, Object> output = forward(client, Core.asMap(task.getOrDefault("input", task)), forwardOptions);
       return Core.asMap(Core._build_agent_eval_prediction(output, getActionLog(), getUsage(), exportTrace()));
     } catch (AxAgentClarificationException e) {
       Map<String, Object> out = new LinkedHashMap<>();
