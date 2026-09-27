@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
       "url": "ax-gen/SKILL.md",
-      "digest": "sha256:23e7c3695ae0af38bb1b69ca1334c7f5020d1c89451e927b65be7343de74e077"
+      "digest": "sha256:83dbe70ca357ae593b53d0d717894234769da0355177c32485f8935f44ca625a"
     },
     {
       "name": "ax-mcp",
