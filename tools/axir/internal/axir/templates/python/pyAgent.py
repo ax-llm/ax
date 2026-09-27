@@ -17,6 +17,8 @@ from .ai import (
     AxRuntimeHooks,
     AxTracer,
     _coerce_runtime_hooks,
+    _core_math_abs,
+    _core_math_floor,
     _merge_runtime_hooks,
     _runtime_hook_scope,
     _runtime_hooks_from_options,
@@ -28,6 +30,9 @@ from .gen import (
     AxGen,
     _core_ai_complete_once,
     _core_ai_client_features,
+    _core_axgen_deprecation,
+    _core_string_index_of,
+    _core_string_str,
     _core_tool_invoke,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
@@ -1559,58 +1564,22 @@ class AxAgentPlaybook:
                 return str(tool_errors[0]).split("\n", 1)[0][:100]
             if record.get("error"):
                 return error_signature(record.get("error"))
-            action_log = str(prediction.get("actionLog") or "")
+            # The action log as TS's prediction carries it: the executor's code
+            # steps as text.
+            action_log = _agent_playbook_action_log_text(prediction.get("actionLog"))
             match = re.search(r"^\s*(\w+Error:\s*.{0,60})", action_log, re.MULTILINE)
             return error_signature(match.group(1)) if match else "behavioral:no_error"
-
-        def failure_excerpt(record, signature):
-            if record.get("error"):
-                return f"Run threw: {record['error']}"
-            action_log = str((record.get("prediction") or {}).get("actionLog") or "")
-            if len(action_log) <= 2000:
-                return action_log
-            hit = action_log.find(signature[:40])
-            if hit < 0:
-                return action_log[-2000:]
-            start = max(0, hit - 1000)
-            return action_log[start : start + 2000]
 
         def collapse(value):
             return re.sub(r"\s+", " ", str(value or "")).strip()
 
         def mine_weakness(signature, records, proposal_index):
-            selected = records[:4]
-            bodies = [failure_excerpt(record, signature) for record in selected]
-            excerpts = "\n\n".join(
-                f"--- run {index + 1} ---\n{body}" for index, body in enumerate(bodies)
-            )
-            if not any(collapse(body) for body in bodies):
+            # TS's miner inputs: task summaries, action-log excerpts, function
+            # calls and tool errors of up to four records.
+            request = _agent_playbook_miner_inputs(signature, list(records), self.inner.render() or "")
+            if request is None:
                 return None
-            task_summaries = "\n".join(
-                f"- {record.get('task', {}).get('id') or f'#{index + 1}'} "
-                f"(score {float(record.get('score', 0)):.2f}): "
-                f"{_js_json_dumps(record.get('task', {}).get('input'), sort_keys=True, default=str, separators=(', ', ': '))[:240]}"
-                for index, record in enumerate(selected)
-            )
-            function_calls = [
-                call
-                for record in selected
-                for call in ((record.get("prediction") or {}).get("functionCalls") or [])
-            ][:20]
-            tool_errors = [
-                str(error)
-                for record in selected
-                for error in ((record.get("prediction") or {}).get("toolErrors") or [])
-            ][:10]
-            request = {
-                "clusterSignature": signature,
-                "taskSummaries": task_summaries,
-                "actionLogExcerpts": excerpts,
-                "functionCallSummary": "\n".join(_js_json_dumps(call, sort_keys=True, default=str, separators=(", ", ": ")) for call in function_calls) or None,
-                "toolErrors": "\n".join(tool_errors) or None,
-                "currentPlaybook": self.inner.render() or None,
-            }
-            request = {key: value for key, value in request.items() if value is not None}
+            excerpts = request["actionLogExcerpts"]
             miner = AxGen(_agent_playbook_weakness_miner_signature(), {"id": "agent.playbook.weakness-miner"})
             mined = miner.forward(teacher, request, dict(teacher_options))
             raw_quotes = mined.get("evidenceQuotes")
@@ -2118,15 +2087,12 @@ class AxAgent:
         raw = self._playbook_config
         config = dict(raw) if isinstance(raw, dict) else {}
         config.setdefault("maxReflectorRounds", 1)
-        seed = config.get("seed")
-        if seed is None and ("playbook" in config or "artifact" in config):
-            seed = config
+        # TS's `playbook` seed (a snapshot or a bare playbook), or the older
+        # `seed` key with a deprecation warning.
+        seed = _agent_playbook_config_seed(config)
         self.playbook(config)
         if seed is not None:
-            if isinstance(seed, dict) and "playbook" in seed:
-                self._playbook_handle.load(seed)
-            elif isinstance(seed, dict):
-                self._playbook_handle.load({"playbook": seed})
+            self._playbook_handle.load(seed)
 
     def _learn_playbook_failures(self, output):
         if self._playbook_handle is None or self._playbook_config in (None, False):

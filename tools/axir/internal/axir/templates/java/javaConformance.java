@@ -2076,6 +2076,16 @@ public final class Conformance {
         }
         assertEqual(prompts, testCase.get("expected_teacher_system_prompts"), label + " teacher system prompts");
       }
+      if (testCase.containsKey("expected_teacher_user_messages")) {
+        // Each teacher request's user message, in call order, byte for byte.
+        List<Object> messages = new ArrayList<>();
+        for (Map<String, Object> request : teacher.requests) {
+          for (Object message : Core.asList(request.get("chat_prompt"))) {
+            if (message instanceof Map<?, ?> map && "user".equals(map.get("role"))) messages.add(map.get("content"));
+          }
+        }
+        assertEqual(messages, testCase.get("expected_teacher_user_messages"), label + " teacher user messages");
+      }
       if (outcomes.isEmpty()) {
         if (expected.containsKey("outcome_count") && Core.asInt(expected.get("outcome_count")) == 0) continue;
         throw new FixtureError("playbook evolve " + testCase.get("name") + " produced no outcome: " + Json.stringify(actual));

@@ -5835,6 +5835,17 @@ module @ax.agent version "0.1" {
           }
           core.set %entry["tags"] = %tags
         }
+        // The stage that ran the entry, so an evaluated run's action log can
+        // keep the executor's steps, as TS's prediction does.
+        %has_stage = core.call intrinsic.map.contains(%entry, "stage")
+        core.if %has_stage {
+        } else {
+          %active_stage = core.get %state["active_stage"]
+          %stage_known = core.call intrinsic.is_not_none(%active_stage)
+          core.if %stage_known {
+            core.set %entry["stage"] = %active_stage
+          }
+        }
       }
       core.append %log, %entry
       core.set %state["action_log"] = %log
@@ -7695,6 +7706,321 @@ module @ax.agent version "0.1" {
         }
       }
       core.return %output
+    }
+  }
+
+  op ax.agent.semantic @agent_playbook_config_seed {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/playbookConfig.ts#isPlaybookSnapshotSeed"
+    type signature = "(json) -> json"
+    body @entry(%config: json) {
+      // The snapshot a `playbook` config seeds its playbook with, or none. As
+      // in TS, the seed is `playbook`: one with both `playbook` and `artifact`
+      // is a snapshot, anything else a bare playbook. The ports' older `seed`
+      // key (a snapshot, or a bare playbook) still works, with a deprecation
+      // warning: TS's `seed` is the engine's numeric random seed.
+      %none = core.call intrinsic.none()
+      %value = core.get %config["playbook"]
+      %value_is_object = core.type_is %value type "object"
+      core.if %value_is_object {
+        %has_playbook = core.call intrinsic.map.contains(%value, "playbook")
+        %has_artifact = core.call intrinsic.map.contains(%value, "artifact")
+        %is_snapshot = core.call intrinsic.and(%has_playbook, %has_artifact)
+        core.if %is_snapshot {
+          core.return %value
+        }
+        %bare = core.map
+        core.set %bare["playbook"] = %value
+        %config_artifact = core.get %config["artifact"]
+        %has_config_artifact = core.call intrinsic.is_not_none(%config_artifact)
+        core.if %has_config_artifact {
+          core.set %bare["artifact"] = %config_artifact
+        }
+        core.return %bare
+      }
+      %legacy = core.get %config["seed"]
+      %legacy_is_object = core.type_is %legacy type "object"
+      core.if %legacy_is_object {
+        core.call intrinsic.axgen.deprecation("agent-playbook-seed-snapshot", "A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed.")
+        %legacy_has_playbook = core.call intrinsic.map.contains(%legacy, "playbook")
+        core.if %legacy_has_playbook {
+          core.return %legacy
+        }
+        %wrapped = core.map
+        core.set %wrapped["playbook"] = %legacy
+        core.return %wrapped
+      }
+      %artifact = core.get %config["artifact"]
+      %has_artifact_only = core.call intrinsic.is_not_none(%artifact)
+      core.if %has_artifact_only {
+        %artifact_seed = core.map
+        core.set %artifact_seed["artifact"] = %artifact
+        core.return %artifact_seed
+      }
+      core.return %none
+    }
+  }
+
+  op ax.agent.semantic @agent_playbook_action_log_text {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/contextManager.ts#renderFullActionReplayEntry"
+    type signature = "(json) -> string"
+    body @entry(%action_log: json) {
+      // An evaluated run's action log as TS renders it into the prediction:
+      // the executor's code steps, each as a javascript fence and its result
+      // ("(no output)" when empty), separated by blank lines. A text log is
+      // kept as is.
+      %is_text = core.type_is %action_log type "string"
+      core.if %is_text {
+        core.return %action_log
+      }
+      %is_list = core.type_is %action_log type "list"
+      %not_list = core.call intrinsic.not(%is_list)
+      core.if %not_list {
+        core.return ""
+      }
+      %tagged = core.let false
+      core.for %probe in %action_log {
+        %probe_stage = core.get %probe["stage"]
+        %probe_has_stage = core.call intrinsic.is_not_none(%probe_stage)
+        core.if %probe_has_stage {
+          %tagged = core.let true
+        }
+      }
+      %parts = core.list
+      core.for %entry in %action_log {
+        %type = core.get %entry["type"] default ""
+        %is_step = core.call intrinsic.eq(%type, "runtime_step")
+        core.if %is_step {
+          %stage = core.get %entry["stage"] default "executor"
+          %is_executor = core.call intrinsic.eq(%stage, "executor")
+          %untagged = core.call intrinsic.not(%tagged)
+          %keep = core.call intrinsic.or(%is_executor, %untagged)
+          core.if %keep {
+            %code = core.get %entry["code"] default ""
+            %output = core.get %entry["output"] default ""
+            %output_empty = core.call intrinsic.eq(%output, "")
+            %is_error = core.get %entry["is_error"] default false
+            %error = core.get %entry["error"] default ""
+            %error_text = core.call intrinsic.ne(%error, "")
+            %use_error = core.call intrinsic.and(%output_empty, %is_error)
+            %use_error = core.call intrinsic.and(%use_error, %error_text)
+            core.if %use_error {
+              %output = core.let %error
+            }
+            %still_empty = core.call intrinsic.eq(%output, "")
+            core.if %still_empty {
+              %output = core.let "(no output)"
+            }
+            %part = core.call intrinsic.string.format("```javascript\n{}\n```\nResult:\n{}", %code, %output)
+            core.append %parts, %part
+          }
+        }
+      }
+      %text = core.call intrinsic.string.join("\n\n", %parts)
+      core.return %text
+    }
+  }
+
+  op ax.agent.semantic @agent_playbook_truncate {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts#truncate"
+    type signature = "(string, i64) -> string"
+    body @entry(%text: string, %max_chars: i64) {
+      %length = core.call intrinsic.len(%text)
+      %too_long = core.call intrinsic.gt(%length, %max_chars)
+      core.if %too_long {
+        %head = core.call intrinsic.string.slice(%text, 0, %max_chars)
+        %cut = core.call intrinsic.string.format("{}…", %head)
+        core.return %cut
+      }
+      core.return %text
+    }
+  }
+
+  op ax.agent.semantic @agent_playbook_score_text {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts#mineWeakness"
+    type signature = "(json) -> string"
+    body @entry(%score: json) {
+      // JavaScript's score.toFixed(2): the nearest hundredth, a tie rounding
+      // away from zero.
+      %negative = core.call intrinsic.lt(%score, 0)
+      %magnitude = core.call intrinsic.math.abs(%score)
+      %scaled = core.call intrinsic.mul(%magnitude, 100)
+      %shifted = core.call intrinsic.add(%scaled, 0.5)
+      %hundredths = core.call intrinsic.math.floor(%shifted)
+      %whole_float = core.call intrinsic.div(%hundredths, 100)
+      %whole = core.call intrinsic.math.floor(%whole_float)
+      %whole_hundredths = core.call intrinsic.mul(%whole, -100)
+      %fraction = core.call intrinsic.add(%hundredths, %whole_hundredths)
+      %whole_text = core.call intrinsic.string.str(%whole)
+      %fraction_text = core.call intrinsic.string.str(%fraction)
+      %one_digit = core.call intrinsic.lt(%fraction, 10)
+      core.if %one_digit {
+        %fraction_text = core.call intrinsic.string.format("0{}", %fraction_text)
+      }
+      %text = core.call intrinsic.string.format("{}.{}", %whole_text, %fraction_text)
+      %nonzero = core.call intrinsic.gt(%hundredths, 0)
+      %show_sign = core.call intrinsic.and(%negative, %nonzero)
+      core.if %show_sign {
+        %text = core.call intrinsic.string.format("-{}", %text)
+      }
+      core.return %text
+    }
+  }
+
+  op ax.agent.semantic @agent_playbook_miner_inputs {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts#mineWeakness"
+    type signature = "(string, list<json>, string) -> json"
+    body @entry(%signature: string, %records: list<json>, %current_playbook: string) {
+      // The weakness miner's inputs for one failure cluster, as TS's
+      // mineWeakness builds them: up to four records, each summarized from
+      // its task and score, excerpted from its action log around the
+      // signature, and its function calls and tool errors. None when no
+      // record has an excerpt or an error to quote.
+      %selected = core.list
+      core.for %record in %records {
+        %count = core.call intrinsic.len(%selected)
+        %room = core.call intrinsic.lt(%count, 4)
+        core.if %room {
+          core.append %selected, %record
+        }
+      }
+      %summaries = core.list
+      %excerpts = core.list
+      %calls = core.list
+      %errors = core.list
+      %position = core.let 0
+      %any_body = core.let false
+      %needle = core.call intrinsic.string.slice(%signature, 0, 40)
+      core.for %record in %selected {
+        %number = core.call intrinsic.add(%position, 1)
+        %position = core.let %number
+        %empty_map = core.map
+        %task = core.get %record["task"] default %empty_map
+        %number_text = core.call intrinsic.string.str(%number)
+        %default_label = core.call intrinsic.string.format("#{}", %number_text)
+        %label = core.get %task["id"] default %default_label
+        %input = core.get %task["input"]
+        %input_json = core.call intrinsic.json.stringify(%input)
+        %input_text = core.call @agent_playbook_truncate(%input_json, 240)
+        %score = core.get %record["score"] default 0
+        %score_text = core.call @agent_playbook_score_text(%score)
+        %summary = core.call intrinsic.string.format("- {} (score {}): {}", %label, %score_text, %input_text)
+        core.append %summaries, %summary
+        %prediction = core.get %record["prediction"] default %empty_map
+        %error = core.get %record["error"]
+        %error_is_map = core.type_is %error type "object"
+        core.if %error_is_map {
+          %error = core.get %error["message"] default ""
+        }
+        %has_error = core.call intrinsic.truthy(%error)
+        %body = core.let ""
+        core.if %has_error {
+          %body = core.call intrinsic.string.format("Run threw: {}", %error)
+        } else {
+          %raw_log = core.get %prediction["actionLog"]
+          %log = core.call @agent_playbook_action_log_text(%raw_log)
+          %log_length = core.call intrinsic.len(%log)
+          %fits = core.call intrinsic.lte(%log_length, 2000)
+          core.if %fits {
+            %body = core.let %log
+          } else {
+            %hit = core.call intrinsic.string.index_of(%log, %needle, 0)
+            %missing = core.call intrinsic.lt(%hit, 0)
+            core.if %missing {
+              %tail_start = core.call intrinsic.add(%log_length, -2000)
+              %body = core.call intrinsic.string.slice(%log, %tail_start)
+            } else {
+              %window_start = core.call intrinsic.add(%hit, -1000)
+              %before_zero = core.call intrinsic.lt(%window_start, 0)
+              core.if %before_zero {
+                %window_start = core.let 0
+              }
+              %window_end = core.call intrinsic.add(%window_start, 2000)
+              %body = core.call intrinsic.string.slice(%log, %window_start, %window_end)
+            }
+          }
+        }
+        %body_trimmed = core.string_trim %body
+        %body_present = core.call intrinsic.ne(%body_trimmed, "")
+        core.if %body_present {
+          %any_body = core.let true
+        }
+        %excerpt = core.call intrinsic.string.format("--- run {} ---\n{}", %number_text, %body)
+        core.append %excerpts, %excerpt
+        %empty_list = core.list
+        %record_calls = core.get %prediction["functionCalls"] default %empty_list
+        core.for %call in %record_calls {
+          %call_count = core.call intrinsic.len(%calls)
+          %call_room = core.call intrinsic.lt(%call_count, 20)
+          core.if %call_room {
+            %qualified = core.get %call["qualifiedName"] default ""
+            %arguments = core.get %call["arguments"]
+            %arguments_json = core.call intrinsic.json.stringify(%arguments)
+            %arguments_text = core.call @agent_playbook_truncate(%arguments_json, 120)
+            %line = core.call intrinsic.string.format("{}({})", %qualified, %arguments_text)
+            %call_error = core.get %call["error"]
+            %has_call_error = core.call intrinsic.truthy(%call_error)
+            core.if %has_call_error {
+              %call_error_text = core.call intrinsic.string.str(%call_error)
+              %call_error_cut = core.call @agent_playbook_truncate(%call_error_text, 120)
+              %line = core.call intrinsic.string.format("{} -> ERROR {}", %line, %call_error_cut)
+            }
+            core.append %calls, %line
+          }
+        }
+        %record_errors = core.get %prediction["toolErrors"] default %empty_list
+        core.for %tool_error in %record_errors {
+          %error_count = core.call intrinsic.len(%errors)
+          %error_room = core.call intrinsic.lt(%error_count, 10)
+          core.if %error_room {
+            %tool_error_text = core.call intrinsic.string.str(%tool_error)
+            core.append %errors, %tool_error_text
+          }
+        }
+      }
+      // No excerpt to ground a weakness in: the ports skip the miner call.
+      %no_body = core.call intrinsic.not(%any_body)
+      core.if %no_body {
+        %nothing = core.call intrinsic.none()
+        core.return %nothing
+      }
+      %inputs = core.map
+      core.set %inputs["clusterSignature"] = %signature
+      %summaries_text = core.call intrinsic.string.join("\n", %summaries)
+      core.set %inputs["taskSummaries"] = %summaries_text
+      %excerpts_text = core.call intrinsic.string.join("\n\n", %excerpts)
+      core.set %inputs["actionLogExcerpts"] = %excerpts_text
+      %call_total = core.call intrinsic.len(%calls)
+      %has_calls = core.call intrinsic.gt(%call_total, 0)
+      core.if %has_calls {
+        %calls_text = core.call intrinsic.string.join("\n", %calls)
+        core.set %inputs["functionCallSummary"] = %calls_text
+      }
+      %error_total = core.call intrinsic.len(%errors)
+      %has_errors = core.call intrinsic.gt(%error_total, 0)
+      core.if %has_errors {
+        %errors_text = core.call intrinsic.string.join("\n", %errors)
+        core.set %inputs["toolErrors"] = %errors_text
+      }
+      %has_playbook = core.call intrinsic.ne(%current_playbook, "")
+      core.if %has_playbook {
+        core.set %inputs["currentPlaybook"] = %current_playbook
+      }
+      core.return %inputs
     }
   }
 

@@ -2018,13 +2018,19 @@ func _core_string_title_from_camel(value Value) Value {
 	return strings.ToUpper(text[:1]) + text[1:]
 }
 func _core_string_format(template Value, args ...Value) Value {
+	// Each value fills the next {} after the previous one, so a value that
+	// itself contains {} is not formatted again.
 	out := display(template)
+	cursor := 0
 	for _, arg := range args {
-		idx := strings.Index(out, "{}")
+		idx := strings.Index(out[cursor:], "{}")
 		if idx < 0 {
 			break
 		}
-		out = out[:idx] + display(arg) + out[idx+2:]
+		idx += cursor
+		text := display(arg)
+		out = out[:idx] + text + out[idx+2:]
+		cursor = idx + len(text)
 	}
 	return out
 }
@@ -70186,26 +70192,32 @@ func _agent_runtime_append_action_log(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_runtime_append_action_log")
 	var v_state Value
 	var v_entry Value
+	var v_active_stage Value
 	var v_count Value
 	var v_empty_list Value
 	var v_entry_is_map Value
+	var v_has_stage Value
 	var v_has_tags Value
 	var v_has_turn Value
 	var v_is_error Value
 	var v_log Value
+	var v_stage_known Value
 	var v_tags Value
 	var v_turn Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_entry = args[1] }
 	_ = v_entry
+	_ = v_active_stage
 	_ = v_count
 	_ = v_empty_list
 	_ = v_entry_is_map
+	_ = v_has_stage
 	_ = v_has_tags
 	_ = v_has_turn
 	_ = v_is_error
 	_ = v_log
+	_ = v_stage_known
 	_ = v_tags
 	_ = v_turn
 	v_empty_list = MutableArray()
@@ -70232,6 +70244,18 @@ func _agent_runtime_append_action_log(args ...Value) (Value, error) {
 			// empty
 			}
 			if err := coreSet(v_entry, "tags", v_tags); err != nil { return nil, err }
+		}
+		v_has_stage = _core_map_contains(v_entry, "stage")
+		if coreTruthy(v_has_stage) {
+		// empty
+		} else {
+			v_active_stage = coreGet(v_state, "active_stage", nil)
+			v_stage_known = _core_is_not_none(v_active_stage)
+			if coreTruthy(v_stage_known) {
+				if err := coreSet(v_entry, "stage", v_active_stage); err != nil { return nil, err }
+			} else {
+			// empty
+			}
 		}
 	} else {
 	// empty
@@ -73855,6 +73879,616 @@ func _agent_finalize_citations(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_output, nil
+}
+
+func _agent_playbook_config_seed(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_playbook_config_seed")
+	var v_config Value
+	var v_artifact Value
+	var v_artifact_seed Value
+	var v_bare Value
+	var v_config_artifact Value
+	var v_has_artifact Value
+	var v_has_artifact_only Value
+	var v_has_config_artifact Value
+	var v_has_playbook Value
+	var v_is_snapshot Value
+	var v_legacy Value
+	var v_legacy_has_playbook Value
+	var v_legacy_is_object Value
+	var v_none Value
+	var v_value Value
+	var v_value_is_object Value
+	var v_wrapped Value
+	if len(args) > 0 { v_config = args[0] }
+	_ = v_config
+	_ = v_artifact
+	_ = v_artifact_seed
+	_ = v_bare
+	_ = v_config_artifact
+	_ = v_has_artifact
+	_ = v_has_artifact_only
+	_ = v_has_config_artifact
+	_ = v_has_playbook
+	_ = v_is_snapshot
+	_ = v_legacy
+	_ = v_legacy_has_playbook
+	_ = v_legacy_is_object
+	_ = v_none
+	_ = v_value
+	_ = v_value_is_object
+	_ = v_wrapped
+	v_none = _core_none()
+	v_value = coreGet(v_config, "playbook", nil)
+	v_value_is_object = coreTypeIs(v_value, "object")
+	if coreTruthy(v_value_is_object) {
+		v_has_playbook = _core_map_contains(v_value, "playbook")
+		v_has_artifact = _core_map_contains(v_value, "artifact")
+		v_is_snapshot = _core_and(v_has_playbook, v_has_artifact)
+		if coreTruthy(v_is_snapshot) {
+			return v_value, nil
+		} else {
+		// empty
+		}
+		v_bare = Object()
+		if err := coreSet(v_bare, "playbook", v_value); err != nil { return nil, err }
+		v_config_artifact = coreGet(v_config, "artifact", nil)
+		v_has_config_artifact = _core_is_not_none(v_config_artifact)
+		if coreTruthy(v_has_config_artifact) {
+			if err := coreSet(v_bare, "artifact", v_config_artifact); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		return v_bare, nil
+	} else {
+	// empty
+	}
+	v_legacy = coreGet(v_config, "seed", nil)
+	v_legacy_is_object = coreTypeIs(v_legacy, "object")
+	if coreTruthy(v_legacy_is_object) {
+		_core_axgen_deprecation("agent-playbook-seed-snapshot", "A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed.")
+		v_legacy_has_playbook = _core_map_contains(v_legacy, "playbook")
+		if coreTruthy(v_legacy_has_playbook) {
+			return v_legacy, nil
+		} else {
+		// empty
+		}
+		v_wrapped = Object()
+		if err := coreSet(v_wrapped, "playbook", v_legacy); err != nil { return nil, err }
+		return v_wrapped, nil
+	} else {
+	// empty
+	}
+	v_artifact = coreGet(v_config, "artifact", nil)
+	v_has_artifact_only = _core_is_not_none(v_artifact)
+	if coreTruthy(v_has_artifact_only) {
+		v_artifact_seed = Object()
+		if err := coreSet(v_artifact_seed, "artifact", v_artifact); err != nil { return nil, err }
+		return v_artifact_seed, nil
+	} else {
+	// empty
+	}
+	return v_none, nil
+}
+
+func _agent_playbook_action_log_text(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_playbook_action_log_text")
+	var v_action_log Value
+	var v_code Value
+	var v_entry Value
+	var v_error Value
+	var v_error_text Value
+	var v_is_error Value
+	var v_is_executor Value
+	var v_is_list Value
+	var v_is_step Value
+	var v_is_text Value
+	var v_keep Value
+	var v_not_list Value
+	var v_output Value
+	var v_output_empty Value
+	var v_part Value
+	var v_parts Value
+	var v_probe Value
+	var v_probe_has_stage Value
+	var v_probe_stage Value
+	var v_stage Value
+	var v_still_empty Value
+	var v_tagged Value
+	var v_text Value
+	var v_type Value
+	var v_untagged Value
+	var v_use_error Value
+	if len(args) > 0 { v_action_log = args[0] }
+	_ = v_action_log
+	_ = v_code
+	_ = v_entry
+	_ = v_error
+	_ = v_error_text
+	_ = v_is_error
+	_ = v_is_executor
+	_ = v_is_list
+	_ = v_is_step
+	_ = v_is_text
+	_ = v_keep
+	_ = v_not_list
+	_ = v_output
+	_ = v_output_empty
+	_ = v_part
+	_ = v_parts
+	_ = v_probe
+	_ = v_probe_has_stage
+	_ = v_probe_stage
+	_ = v_stage
+	_ = v_still_empty
+	_ = v_tagged
+	_ = v_text
+	_ = v_type
+	_ = v_untagged
+	_ = v_use_error
+	v_is_text = coreTypeIs(v_action_log, "string")
+	if coreTruthy(v_is_text) {
+		return v_action_log, nil
+	} else {
+	// empty
+	}
+	v_is_list = coreTypeIs(v_action_log, "list")
+	v_not_list = _core_not(v_is_list)
+	if coreTruthy(v_not_list) {
+		return "", nil
+	} else {
+	// empty
+	}
+	v_tagged = false
+	for _, v_probe = range coreIter(v_action_log) {
+		v_probe_stage = coreGet(v_probe, "stage", nil)
+		v_probe_has_stage = _core_is_not_none(v_probe_stage)
+		if coreTruthy(v_probe_has_stage) {
+			v_tagged = true
+		} else {
+		// empty
+		}
+	}
+	v_parts = MutableArray()
+	for _, v_entry = range coreIter(v_action_log) {
+		v_type = coreGet(v_entry, "type", "")
+		v_is_step = _core_eq(v_type, "runtime_step")
+		if coreTruthy(v_is_step) {
+			v_stage = coreGet(v_entry, "stage", "executor")
+			v_is_executor = _core_eq(v_stage, "executor")
+			v_untagged = _core_not(v_tagged)
+			v_keep = _core_or(v_is_executor, v_untagged)
+			if coreTruthy(v_keep) {
+				v_code = coreGet(v_entry, "code", "")
+				v_output = coreGet(v_entry, "output", "")
+				v_output_empty = _core_eq(v_output, "")
+				v_is_error = coreGet(v_entry, "is_error", false)
+				v_error = coreGet(v_entry, "error", "")
+				v_error_text = _core_ne(v_error, "")
+				v_use_error = _core_and(v_output_empty, v_is_error)
+				v_use_error = _core_and(v_use_error, v_error_text)
+				if coreTruthy(v_use_error) {
+					v_output = v_error
+				} else {
+				// empty
+				}
+				v_still_empty = _core_eq(v_output, "")
+				if coreTruthy(v_still_empty) {
+					v_output = "(no output)"
+				} else {
+				// empty
+				}
+				v_part = _core_string_format("```javascript\n{}\n```\nResult:\n{}", v_code, v_output)
+				v_parts = coreAppend(v_parts, v_part)
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_text = _core_string_join("\n\n", v_parts)
+	return v_text, nil
+}
+
+func _agent_playbook_truncate(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_playbook_truncate")
+	var v_text Value
+	var v_max_chars Value
+	var v_cut Value
+	var v_head Value
+	var v_length Value
+	var v_too_long Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	if len(args) > 1 { v_max_chars = args[1] }
+	_ = v_max_chars
+	_ = v_cut
+	_ = v_head
+	_ = v_length
+	_ = v_too_long
+	v_length = _core_len(v_text)
+	v_too_long = _core_gt(v_length, v_max_chars)
+	if coreTruthy(v_too_long) {
+		v_head = _core_string_slice(v_text, 0, v_max_chars)
+		v_cut = _core_string_format("{}…", v_head)
+		return v_cut, nil
+	} else {
+	// empty
+	}
+	return v_text, nil
+}
+
+func _agent_playbook_score_text(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_playbook_score_text")
+	var v_score Value
+	var v_fraction Value
+	var v_fraction_text Value
+	var v_hundredths Value
+	var v_magnitude Value
+	var v_negative Value
+	var v_nonzero Value
+	var v_one_digit Value
+	var v_scaled Value
+	var v_shifted Value
+	var v_show_sign Value
+	var v_text Value
+	var v_whole Value
+	var v_whole_float Value
+	var v_whole_hundredths Value
+	var v_whole_text Value
+	if len(args) > 0 { v_score = args[0] }
+	_ = v_score
+	_ = v_fraction
+	_ = v_fraction_text
+	_ = v_hundredths
+	_ = v_magnitude
+	_ = v_negative
+	_ = v_nonzero
+	_ = v_one_digit
+	_ = v_scaled
+	_ = v_shifted
+	_ = v_show_sign
+	_ = v_text
+	_ = v_whole
+	_ = v_whole_float
+	_ = v_whole_hundredths
+	_ = v_whole_text
+	v_negative = _core_lt(v_score, 0)
+	v_magnitude = _core_math_abs(v_score)
+	v_scaled = _core_mul(v_magnitude, 100)
+	v_shifted = _core_add(v_scaled, 0.5)
+	v_hundredths = _core_math_floor(v_shifted)
+	v_whole_float = _core_div(v_hundredths, 100)
+	v_whole = _core_math_floor(v_whole_float)
+	v_whole_hundredths = _core_mul(v_whole, -100)
+	v_fraction = _core_add(v_hundredths, v_whole_hundredths)
+	v_whole_text = _core_string_str(v_whole)
+	v_fraction_text = _core_string_str(v_fraction)
+	v_one_digit = _core_lt(v_fraction, 10)
+	if coreTruthy(v_one_digit) {
+		v_fraction_text = _core_string_format("0{}", v_fraction_text)
+	} else {
+	// empty
+	}
+	v_text = _core_string_format("{}.{}", v_whole_text, v_fraction_text)
+	v_nonzero = _core_gt(v_hundredths, 0)
+	v_show_sign = _core_and(v_negative, v_nonzero)
+	if coreTruthy(v_show_sign) {
+		v_text = _core_string_format("-{}", v_text)
+	} else {
+	// empty
+	}
+	return v_text, nil
+}
+
+func _agent_playbook_miner_inputs(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_playbook_miner_inputs")
+	var v_signature Value
+	var v_records Value
+	var v_current_playbook Value
+	var v_any_body Value
+	var v_arguments Value
+	var v_arguments_json Value
+	var v_arguments_text Value
+	var v_before_zero Value
+	var v_body Value
+	var v_body_present Value
+	var v_body_trimmed Value
+	var v_call Value
+	var v_call_count Value
+	var v_call_error Value
+	var v_call_error_cut Value
+	var v_call_error_text Value
+	var v_call_room Value
+	var v_call_total Value
+	var v_calls Value
+	var v_calls_text Value
+	var v_count Value
+	var v_default_label Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_error Value
+	var v_error_count Value
+	var v_error_is_map Value
+	var v_error_room Value
+	var v_error_total Value
+	var v_errors Value
+	var v_errors_text Value
+	var v_excerpt Value
+	var v_excerpts Value
+	var v_excerpts_text Value
+	var v_fits Value
+	var v_has_call_error Value
+	var v_has_calls Value
+	var v_has_error Value
+	var v_has_errors Value
+	var v_has_playbook Value
+	var v_hit Value
+	var v_input Value
+	var v_input_json Value
+	var v_input_text Value
+	var v_inputs Value
+	var v_label Value
+	var v_line Value
+	var v_log Value
+	var v_log_length Value
+	var v_missing Value
+	var v_needle Value
+	var v_no_body Value
+	var v_nothing Value
+	var v_number Value
+	var v_number_text Value
+	var v_position Value
+	var v_prediction Value
+	var v_qualified Value
+	var v_raw_log Value
+	var v_record Value
+	var v_record_calls Value
+	var v_record_errors Value
+	var v_room Value
+	var v_score Value
+	var v_score_text Value
+	var v_selected Value
+	var v_summaries Value
+	var v_summaries_text Value
+	var v_summary Value
+	var v_tail_start Value
+	var v_task Value
+	var v_tool_error Value
+	var v_tool_error_text Value
+	var v_window_end Value
+	var v_window_start Value
+	if len(args) > 0 { v_signature = args[0] }
+	_ = v_signature
+	if len(args) > 1 { v_records = args[1] }
+	_ = v_records
+	if len(args) > 2 { v_current_playbook = args[2] }
+	_ = v_current_playbook
+	_ = v_any_body
+	_ = v_arguments
+	_ = v_arguments_json
+	_ = v_arguments_text
+	_ = v_before_zero
+	_ = v_body
+	_ = v_body_present
+	_ = v_body_trimmed
+	_ = v_call
+	_ = v_call_count
+	_ = v_call_error
+	_ = v_call_error_cut
+	_ = v_call_error_text
+	_ = v_call_room
+	_ = v_call_total
+	_ = v_calls
+	_ = v_calls_text
+	_ = v_count
+	_ = v_default_label
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_error
+	_ = v_error_count
+	_ = v_error_is_map
+	_ = v_error_room
+	_ = v_error_total
+	_ = v_errors
+	_ = v_errors_text
+	_ = v_excerpt
+	_ = v_excerpts
+	_ = v_excerpts_text
+	_ = v_fits
+	_ = v_has_call_error
+	_ = v_has_calls
+	_ = v_has_error
+	_ = v_has_errors
+	_ = v_has_playbook
+	_ = v_hit
+	_ = v_input
+	_ = v_input_json
+	_ = v_input_text
+	_ = v_inputs
+	_ = v_label
+	_ = v_line
+	_ = v_log
+	_ = v_log_length
+	_ = v_missing
+	_ = v_needle
+	_ = v_no_body
+	_ = v_nothing
+	_ = v_number
+	_ = v_number_text
+	_ = v_position
+	_ = v_prediction
+	_ = v_qualified
+	_ = v_raw_log
+	_ = v_record
+	_ = v_record_calls
+	_ = v_record_errors
+	_ = v_room
+	_ = v_score
+	_ = v_score_text
+	_ = v_selected
+	_ = v_summaries
+	_ = v_summaries_text
+	_ = v_summary
+	_ = v_tail_start
+	_ = v_task
+	_ = v_tool_error
+	_ = v_tool_error_text
+	_ = v_window_end
+	_ = v_window_start
+	v_selected = MutableArray()
+	for _, v_record = range coreIter(v_records) {
+		v_count = _core_len(v_selected)
+		v_room = _core_lt(v_count, 4)
+		if coreTruthy(v_room) {
+			v_selected = coreAppend(v_selected, v_record)
+		} else {
+		// empty
+		}
+	}
+	v_summaries = MutableArray()
+	v_excerpts = MutableArray()
+	v_calls = MutableArray()
+	v_errors = MutableArray()
+	v_position = 0
+	v_any_body = false
+	v_needle = _core_string_slice(v_signature, 0, 40)
+	for _, v_record = range coreIter(v_selected) {
+		v_number = _core_add(v_position, 1)
+		v_position = v_number
+		v_empty_map = Object()
+		v_task = coreGet(v_record, "task", v_empty_map)
+		v_number_text = _core_string_str(v_number)
+		v_default_label = _core_string_format("#{}", v_number_text)
+		v_label = coreGet(v_task, "id", v_default_label)
+		v_input = coreGet(v_task, "input", nil)
+		v_input_json = _core_json_stringify(v_input)
+		{ v, err := _agent_playbook_truncate(v_input_json, 240); if err != nil { return nil, err }; v_input_text = v }
+		v_score = coreGet(v_record, "score", 0)
+		{ v, err := _agent_playbook_score_text(v_score); if err != nil { return nil, err }; v_score_text = v }
+		v_summary = _core_string_format("- {} (score {}): {}", v_label, v_score_text, v_input_text)
+		v_summaries = coreAppend(v_summaries, v_summary)
+		v_prediction = coreGet(v_record, "prediction", v_empty_map)
+		v_error = coreGet(v_record, "error", nil)
+		v_error_is_map = coreTypeIs(v_error, "object")
+		if coreTruthy(v_error_is_map) {
+			v_error = coreGet(v_error, "message", "")
+		} else {
+		// empty
+		}
+		v_has_error = _core_truthy(v_error)
+		v_body = ""
+		if coreTruthy(v_has_error) {
+			v_body = _core_string_format("Run threw: {}", v_error)
+		} else {
+			v_raw_log = coreGet(v_prediction, "actionLog", nil)
+			{ v, err := _agent_playbook_action_log_text(v_raw_log); if err != nil { return nil, err }; v_log = v }
+			v_log_length = _core_len(v_log)
+			v_fits = _core_lte(v_log_length, 2000)
+			if coreTruthy(v_fits) {
+				v_body = v_log
+			} else {
+				v_hit = _core_string_index_of(v_log, v_needle, 0)
+				v_missing = _core_lt(v_hit, 0)
+				if coreTruthy(v_missing) {
+					v_tail_start = _core_add(v_log_length, -2000)
+					v_body = _core_string_slice(v_log, v_tail_start)
+				} else {
+					v_window_start = _core_add(v_hit, -1000)
+					v_before_zero = _core_lt(v_window_start, 0)
+					if coreTruthy(v_before_zero) {
+						v_window_start = 0
+					} else {
+					// empty
+					}
+					v_window_end = _core_add(v_window_start, 2000)
+					v_body = _core_string_slice(v_log, v_window_start, v_window_end)
+				}
+			}
+		}
+		v_body_trimmed = coreStringTrim(v_body)
+		v_body_present = _core_ne(v_body_trimmed, "")
+		if coreTruthy(v_body_present) {
+			v_any_body = true
+		} else {
+		// empty
+		}
+		v_excerpt = _core_string_format("--- run {} ---\n{}", v_number_text, v_body)
+		v_excerpts = coreAppend(v_excerpts, v_excerpt)
+		v_empty_list = MutableArray()
+		v_record_calls = coreGet(v_prediction, "functionCalls", v_empty_list)
+		for _, v_call = range coreIter(v_record_calls) {
+			v_call_count = _core_len(v_calls)
+			v_call_room = _core_lt(v_call_count, 20)
+			if coreTruthy(v_call_room) {
+				v_qualified = coreGet(v_call, "qualifiedName", "")
+				v_arguments = coreGet(v_call, "arguments", nil)
+				v_arguments_json = _core_json_stringify(v_arguments)
+				{ v, err := _agent_playbook_truncate(v_arguments_json, 120); if err != nil { return nil, err }; v_arguments_text = v }
+				v_line = _core_string_format("{}({})", v_qualified, v_arguments_text)
+				v_call_error = coreGet(v_call, "error", nil)
+				v_has_call_error = _core_truthy(v_call_error)
+				if coreTruthy(v_has_call_error) {
+					v_call_error_text = _core_string_str(v_call_error)
+					{ v, err := _agent_playbook_truncate(v_call_error_text, 120); if err != nil { return nil, err }; v_call_error_cut = v }
+					v_line = _core_string_format("{} -> ERROR {}", v_line, v_call_error_cut)
+				} else {
+				// empty
+				}
+				v_calls = coreAppend(v_calls, v_line)
+			} else {
+			// empty
+			}
+		}
+		v_record_errors = coreGet(v_prediction, "toolErrors", v_empty_list)
+		for _, v_tool_error = range coreIter(v_record_errors) {
+			v_error_count = _core_len(v_errors)
+			v_error_room = _core_lt(v_error_count, 10)
+			if coreTruthy(v_error_room) {
+				v_tool_error_text = _core_string_str(v_tool_error)
+				v_errors = coreAppend(v_errors, v_tool_error_text)
+			} else {
+			// empty
+			}
+		}
+	}
+	v_no_body = _core_not(v_any_body)
+	if coreTruthy(v_no_body) {
+		v_nothing = _core_none()
+		return v_nothing, nil
+	} else {
+	// empty
+	}
+	v_inputs = Object()
+	if err := coreSet(v_inputs, "clusterSignature", v_signature); err != nil { return nil, err }
+	v_summaries_text = _core_string_join("\n", v_summaries)
+	if err := coreSet(v_inputs, "taskSummaries", v_summaries_text); err != nil { return nil, err }
+	v_excerpts_text = _core_string_join("\n\n", v_excerpts)
+	if err := coreSet(v_inputs, "actionLogExcerpts", v_excerpts_text); err != nil { return nil, err }
+	v_call_total = _core_len(v_calls)
+	v_has_calls = _core_gt(v_call_total, 0)
+	if coreTruthy(v_has_calls) {
+		v_calls_text = _core_string_join("\n", v_calls)
+		if err := coreSet(v_inputs, "functionCallSummary", v_calls_text); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_error_total = _core_len(v_errors)
+	v_has_errors = _core_gt(v_error_total, 0)
+	if coreTruthy(v_has_errors) {
+		v_errors_text = _core_string_join("\n", v_errors)
+		if err := coreSet(v_inputs, "toolErrors", v_errors_text); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_has_playbook = _core_ne(v_current_playbook, "")
+	if coreTruthy(v_has_playbook) {
+		if err := coreSet(v_inputs, "currentPlaybook", v_current_playbook); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_inputs, nil
 }
 
 func _agent_collect_covered_failure_signatures(args ...Value) (Value, error) {
@@ -91969,10 +92603,9 @@ func (a *AxAgent) attachConfiguredPlaybook() {
 	if config == nil {
 		config = Object()
 	}
-	seed := coreGet(config, "seed", nil)
-	if seed == nil && (coreGet(config, "playbook", nil) != nil || coreGet(config, "artifact", nil) != nil) {
-		seed = config
-	}
+	// TS's `playbook` seed (a snapshot or a bare playbook), or the older
+	// `seed` key with a deprecation warning.
+	seed := mustCore(_agent_playbook_config_seed(config))
 	options := cloneMap(config)
 	if coreGet(options, "maxReflectorRounds", nil) == nil && coreGet(options, "max_reflector_rounds", nil) == nil {
 		coreSet(options, "maxReflectorRounds", 1)
@@ -91988,11 +92621,7 @@ func (a *AxAgent) attachConfiguredPlaybook() {
 	coreSet(options, "studentAI", student)
 	handle := a.Playbook(options)
 	if seedMap, ok := seed.(map[string]Value); ok {
-		if coreGet(seedMap, "playbook", nil) != nil {
-			handle.Load(seedMap)
-		} else {
-			handle.Load(Object("playbook", seedMap))
-		}
+		handle.Load(seedMap)
 	}
 }
 
@@ -93494,37 +94123,12 @@ func playbookRecordSignature(record Value) string {
 	if value := coreGet(record, "error", nil); value != nil {
 		return playbookErrorSignature(display(value))
 	}
-	if match := agentPlaybookActionErrorPattern.FindStringSubmatch(display(coreGet(prediction, "actionLog", ""))); len(match) > 1 {
+	// The action log as TS's prediction carries it: the executor's code steps as text.
+	actionLog := display(mustCore(_agent_playbook_action_log_text(coreGet(prediction, "actionLog", nil))))
+	if match := agentPlaybookActionErrorPattern.FindStringSubmatch(actionLog); len(match) > 1 {
 		return playbookErrorSignature(match[1])
 	}
 	return "behavioral:no_error"
-}
-
-func playbookFailureExcerpt(record Value, signature string) string {
-	if value := coreGet(record, "error", nil); value != nil {
-		return "Run threw: " + display(value)
-	}
-	actionLog := display(coreGet(coreGet(record, "prediction", Object()), "actionLog", ""))
-	if len(actionLog) <= 2000 {
-		return actionLog
-	}
-	needle := signature
-	if len(needle) > 40 {
-		needle = needle[:40]
-	}
-	hit := strings.Index(actionLog, needle)
-	if hit < 0 {
-		return actionLog[len(actionLog)-2000:]
-	}
-	start := hit - 1000
-	if start < 0 {
-		start = 0
-	}
-	end := start + 2000
-	if end > len(actionLog) {
-		end = len(actionLog)
-	}
-	return actionLog[start:end]
 }
 
 func playbookComposeInstruction(base string, rendered string) string {
@@ -94010,57 +94614,14 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 	outcomes, weaknesses := Array(), Array()
 	for index, signature := range order {
 		records := clusters[signature]
-		selected := records
-		if len(selected) > 4 {
-			selected = selected[:4]
-		}
-		bodies := []string{}
-		excerptParts, taskParts := []string{}, []string{}
-		functionCalls, toolErrors := []string{}, []string{}
-		for recordIndex, record := range selected {
-			body := playbookFailureExcerpt(record, signature)
-			bodies = append(bodies, body)
-			excerptParts = append(excerptParts, fmt.Sprintf("--- run %d ---\n%s", recordIndex+1, body))
-			task := coreGet(record, "task", Object())
-			label := display(coreGet(task, "id", fmt.Sprintf("#%d", recordIndex+1)))
-			input := stableStringify(coreGet(task, "input", nil))
-			if len(input) > 240 {
-				input = input[:240]
-			}
-			taskParts = append(taskParts, fmt.Sprintf("- %s (score %.2f): %s", label, num(coreGet(record, "score", 0)), input))
-			prediction := coreGet(record, "prediction", Object())
-			for _, call := range asSlice(coreGet(prediction, "functionCalls", Array())) {
-				if len(functionCalls) < 20 {
-					functionCalls = append(functionCalls, stableStringify(call))
-				}
-			}
-			for _, toolError := range asSlice(coreGet(prediction, "toolErrors", Array())) {
-				if len(toolErrors) < 10 {
-					toolErrors = append(toolErrors, display(toolError))
-				}
-			}
-		}
-		hasBody := false
-		for _, body := range bodies {
-			if playbookCollapse(body) != "" {
-				hasBody = true
-				break
-			}
-		}
-		if !hasBody {
+		// TS's miner inputs: task summaries, action-log excerpts, function
+		// calls and tool errors of up to four records; none without an excerpt.
+		inputs := mustCore(_agent_playbook_miner_inputs(signature, records, p.Render()))
+		if inputs == nil {
 			continue
 		}
-		excerpts := strings.Join(excerptParts, "\n\n")
-		request := Object("clusterSignature", signature, "taskSummaries", strings.Join(taskParts, "\n"), "actionLogExcerpts", excerpts)
-		if len(functionCalls) > 0 {
-			coreSet(request, "functionCallSummary", strings.Join(functionCalls, "\n"))
-		}
-		if len(toolErrors) > 0 {
-			coreSet(request, "toolErrors", strings.Join(toolErrors, "\n"))
-		}
-		if rendered := p.Render(); strings.TrimSpace(rendered) != "" {
-			coreSet(request, "currentPlaybook", rendered)
-		}
+		request := asMap(inputs)
+		excerpts := display(coreGet(request, "actionLogExcerpts", ""))
 		miner := newSignatureProgram(agentPlaybookWeaknessMinerSignature(), Object("id", "agent.playbook.weakness-miner"))
 		mined, minerErr := miner.forward(ctx, teacherAI, request, cloneMap(minerOptions))
 		if minerErr != nil {
@@ -100030,6 +100591,18 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 				}
 			}
 			assertEqual(prompts, want, label+" teacher system prompts")
+		}
+		if want, ok := testCase["expected_teacher_user_messages"]; ok {
+			// Each teacher request's user message, in call order, byte for byte.
+			messages := Array()
+			for _, request := range teacher.Requests {
+				for _, message := range asSlice(coreGet(request, "chat_prompt", Array())) {
+					if display(coreGet(message, "role", "")) == "user" {
+						messages = append(messages, coreGet(message, "content", nil))
+					}
+				}
+			}
+			assertEqual(messages, want, label+" teacher user messages")
 		}
 		if len(outcomes) == 0 {
 			if expectedOutcomeCount != nil && int(num(expectedOutcomeCount)) == 0 {

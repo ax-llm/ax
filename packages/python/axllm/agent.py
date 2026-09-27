@@ -17,6 +17,8 @@ from .ai import (
     AxRuntimeHooks,
     AxTracer,
     _coerce_runtime_hooks,
+    _core_math_abs,
+    _core_math_floor,
     _merge_runtime_hooks,
     _runtime_hook_scope,
     _runtime_hooks_from_options,
@@ -28,6 +30,9 @@ from .gen import (
     AxGen,
     _core_ai_complete_once,
     _core_ai_client_features,
+    _core_axgen_deprecation,
+    _core_string_index_of,
+    _core_string_str,
     _core_tool_invoke,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
@@ -1568,58 +1573,22 @@ class AxAgentPlaybook:
                 return str(tool_errors[0]).split("\n", 1)[0][:100]
             if record.get("error"):
                 return error_signature(record.get("error"))
-            action_log = str(prediction.get("actionLog") or "")
+            # The action log as TS's prediction carries it: the executor's code
+            # steps as text.
+            action_log = _agent_playbook_action_log_text(prediction.get("actionLog"))
             match = re.search(r"^\s*(\w+Error:\s*.{0,60})", action_log, re.MULTILINE)
             return error_signature(match.group(1)) if match else "behavioral:no_error"
-
-        def failure_excerpt(record, signature):
-            if record.get("error"):
-                return f"Run threw: {record['error']}"
-            action_log = str((record.get("prediction") or {}).get("actionLog") or "")
-            if len(action_log) <= 2000:
-                return action_log
-            hit = action_log.find(signature[:40])
-            if hit < 0:
-                return action_log[-2000:]
-            start = max(0, hit - 1000)
-            return action_log[start : start + 2000]
 
         def collapse(value):
             return re.sub(r"\s+", " ", str(value or "")).strip()
 
         def mine_weakness(signature, records, proposal_index):
-            selected = records[:4]
-            bodies = [failure_excerpt(record, signature) for record in selected]
-            excerpts = "\n\n".join(
-                f"--- run {index + 1} ---\n{body}" for index, body in enumerate(bodies)
-            )
-            if not any(collapse(body) for body in bodies):
+            # TS's miner inputs: task summaries, action-log excerpts, function
+            # calls and tool errors of up to four records.
+            request = _agent_playbook_miner_inputs(signature, list(records), self.inner.render() or "")
+            if request is None:
                 return None
-            task_summaries = "\n".join(
-                f"- {record.get('task', {}).get('id') or f'#{index + 1}'} "
-                f"(score {float(record.get('score', 0)):.2f}): "
-                f"{_js_json_dumps(record.get('task', {}).get('input'), sort_keys=True, default=str, separators=(', ', ': '))[:240]}"
-                for index, record in enumerate(selected)
-            )
-            function_calls = [
-                call
-                for record in selected
-                for call in ((record.get("prediction") or {}).get("functionCalls") or [])
-            ][:20]
-            tool_errors = [
-                str(error)
-                for record in selected
-                for error in ((record.get("prediction") or {}).get("toolErrors") or [])
-            ][:10]
-            request = {
-                "clusterSignature": signature,
-                "taskSummaries": task_summaries,
-                "actionLogExcerpts": excerpts,
-                "functionCallSummary": "\n".join(_js_json_dumps(call, sort_keys=True, default=str, separators=(", ", ": ")) for call in function_calls) or None,
-                "toolErrors": "\n".join(tool_errors) or None,
-                "currentPlaybook": self.inner.render() or None,
-            }
-            request = {key: value for key, value in request.items() if value is not None}
+            excerpts = request["actionLogExcerpts"]
             miner = AxGen(_agent_playbook_weakness_miner_signature(), {"id": "agent.playbook.weakness-miner"})
             mined = miner.forward(teacher, request, dict(teacher_options))
             raw_quotes = mined.get("evidenceQuotes")
@@ -2127,15 +2096,12 @@ class AxAgent:
         raw = self._playbook_config
         config = dict(raw) if isinstance(raw, dict) else {}
         config.setdefault("maxReflectorRounds", 1)
-        seed = config.get("seed")
-        if seed is None and ("playbook" in config or "artifact" in config):
-            seed = config
+        # TS's `playbook` seed (a snapshot or a bare playbook), or the older
+        # `seed` key with a deprecation warning.
+        seed = _agent_playbook_config_seed(config)
         self.playbook(config)
         if seed is not None:
-            if isinstance(seed, dict) and "playbook" in seed:
-                self._playbook_handle.load(seed)
-            elif isinstance(seed, dict):
-                self._playbook_handle.load({"playbook": seed})
+            self._playbook_handle.load(seed)
 
     def _learn_playbook_failures(self, output):
         if self._playbook_handle is None or self._playbook_config in (None, False):
@@ -8149,6 +8115,16 @@ def _agent_runtime_append_action_log(state: Any, entry: Any) -> Any:
             else:
                 pass
             entry["tags"] = tags
+        has_stage = _core_map_contains(entry, "stage")
+        if has_stage:
+            pass
+        else:
+            active_stage = _core_get(state, "active_stage", None)
+            stage_known = _core_is_not_none(active_stage)
+            if stage_known:
+                entry["stage"] = active_stage
+            else:
+                pass
     else:
         pass
     log.append(entry)
@@ -9865,6 +9841,292 @@ def _agent_finalize_citations(state: Any, output: Any) -> Any:
     else:
         pass
     return output
+
+
+def _agent_playbook_config_seed(config: Any) -> Any:
+    _core_coverage_mark("_agent_playbook_config_seed")
+    none = _core_none()
+    value = _core_get(config, "playbook", None)
+    value_is_object = _core_type_is(value, "object")
+    if value_is_object:
+        has_playbook = _core_map_contains(value, "playbook")
+        has_artifact = _core_map_contains(value, "artifact")
+        is_snapshot = _core_and(has_playbook, has_artifact)
+        if is_snapshot:
+            return value
+        else:
+            pass
+        bare = {}
+        bare["playbook"] = value
+        config_artifact = _core_get(config, "artifact", None)
+        has_config_artifact = _core_is_not_none(config_artifact)
+        if has_config_artifact:
+            bare["artifact"] = config_artifact
+        else:
+            pass
+        return bare
+    else:
+        pass
+    legacy = _core_get(config, "seed", None)
+    legacy_is_object = _core_type_is(legacy, "object")
+    if legacy_is_object:
+        _core_axgen_deprecation("agent-playbook-seed-snapshot", "A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed.")
+        legacy_has_playbook = _core_map_contains(legacy, "playbook")
+        if legacy_has_playbook:
+            return legacy
+        else:
+            pass
+        wrapped = {}
+        wrapped["playbook"] = legacy
+        return wrapped
+    else:
+        pass
+    artifact = _core_get(config, "artifact", None)
+    has_artifact_only = _core_is_not_none(artifact)
+    if has_artifact_only:
+        artifact_seed = {}
+        artifact_seed["artifact"] = artifact
+        return artifact_seed
+    else:
+        pass
+    return none
+
+
+def _agent_playbook_action_log_text(action_log: Any) -> str:
+    _core_coverage_mark("_agent_playbook_action_log_text")
+    is_text = _core_type_is(action_log, "string")
+    if is_text:
+        return action_log
+    else:
+        pass
+    is_list = _core_type_is(action_log, "list")
+    not_list = _core_not(is_list)
+    if not_list:
+        return ""
+    else:
+        pass
+    tagged = False
+    for probe in action_log:
+        probe_stage = _core_get(probe, "stage", None)
+        probe_has_stage = _core_is_not_none(probe_stage)
+        if probe_has_stage:
+            tagged = True
+        else:
+            pass
+    parts = []
+    for entry in action_log:
+        type = _core_get(entry, "type", "")
+        is_step = _core_eq(type, "runtime_step")
+        if is_step:
+            stage = _core_get(entry, "stage", "executor")
+            is_executor = _core_eq(stage, "executor")
+            untagged = _core_not(tagged)
+            keep = _core_or(is_executor, untagged)
+            if keep:
+                code = _core_get(entry, "code", "")
+                output = _core_get(entry, "output", "")
+                output_empty = _core_eq(output, "")
+                is_error = _core_get(entry, "is_error", False)
+                error = _core_get(entry, "error", "")
+                error_text = _core_ne(error, "")
+                use_error = _core_and(output_empty, is_error)
+                use_error = _core_and(use_error, error_text)
+                if use_error:
+                    output = error
+                else:
+                    pass
+                still_empty = _core_eq(output, "")
+                if still_empty:
+                    output = "(no output)"
+                else:
+                    pass
+                part = _core_string_format("```javascript\n{}\n```\nResult:\n{}", code, output)
+                parts.append(part)
+            else:
+                pass
+        else:
+            pass
+    text = _core_string_join("\n\n", parts)
+    return text
+
+
+def _agent_playbook_truncate(text: str, max_chars: int) -> str:
+    _core_coverage_mark("_agent_playbook_truncate")
+    length = _core_len(text)
+    too_long = _core_gt(length, max_chars)
+    if too_long:
+        head = _core_string_slice(text, 0, max_chars)
+        cut = _core_string_format("{}…", head)
+        return cut
+    else:
+        pass
+    return text
+
+
+def _agent_playbook_score_text(score: Any) -> str:
+    _core_coverage_mark("_agent_playbook_score_text")
+    negative = _core_lt(score, 0)
+    magnitude = _core_math_abs(score)
+    scaled = _core_mul(magnitude, 100)
+    shifted = _core_add(scaled, 0.5)
+    hundredths = _core_math_floor(shifted)
+    whole_float = _core_div(hundredths, 100)
+    whole = _core_math_floor(whole_float)
+    whole_hundredths = _core_mul(whole, -100)
+    fraction = _core_add(hundredths, whole_hundredths)
+    whole_text = _core_string_str(whole)
+    fraction_text = _core_string_str(fraction)
+    one_digit = _core_lt(fraction, 10)
+    if one_digit:
+        fraction_text = _core_string_format("0{}", fraction_text)
+    else:
+        pass
+    text = _core_string_format("{}.{}", whole_text, fraction_text)
+    nonzero = _core_gt(hundredths, 0)
+    show_sign = _core_and(negative, nonzero)
+    if show_sign:
+        text = _core_string_format("-{}", text)
+    else:
+        pass
+    return text
+
+
+def _agent_playbook_miner_inputs(signature: str, records: list[Any], current_playbook: str) -> Any:
+    _core_coverage_mark("_agent_playbook_miner_inputs")
+    selected = []
+    for record in records:
+        count = _core_len(selected)
+        room = _core_lt(count, 4)
+        if room:
+            selected.append(record)
+        else:
+            pass
+    summaries = []
+    excerpts = []
+    calls = []
+    errors = []
+    position = 0
+    any_body = False
+    needle = _core_string_slice(signature, 0, 40)
+    for record in selected:
+        number = _core_add(position, 1)
+        position = number
+        empty_map = {}
+        task = _core_get(record, "task", empty_map)
+        number_text = _core_string_str(number)
+        default_label = _core_string_format("#{}", number_text)
+        label = _core_get(task, "id", default_label)
+        input = _core_get(task, "input", None)
+        input_json = _core_json_stringify(input)
+        input_text = _agent_playbook_truncate(input_json, 240)
+        score = _core_get(record, "score", 0)
+        score_text = _agent_playbook_score_text(score)
+        summary = _core_string_format("- {} (score {}): {}", label, score_text, input_text)
+        summaries.append(summary)
+        prediction = _core_get(record, "prediction", empty_map)
+        error = _core_get(record, "error", None)
+        error_is_map = _core_type_is(error, "object")
+        if error_is_map:
+            error = _core_get(error, "message", "")
+        else:
+            pass
+        has_error = _core_truthy(error)
+        body = ""
+        if has_error:
+            body = _core_string_format("Run threw: {}", error)
+        else:
+            raw_log = _core_get(prediction, "actionLog", None)
+            log = _agent_playbook_action_log_text(raw_log)
+            log_length = _core_len(log)
+            fits = _core_lte(log_length, 2000)
+            if fits:
+                body = log
+            else:
+                hit = _core_string_index_of(log, needle, 0)
+                missing = _core_lt(hit, 0)
+                if missing:
+                    tail_start = _core_add(log_length, -2000)
+                    body = _core_string_slice(log, tail_start)
+                else:
+                    window_start = _core_add(hit, -1000)
+                    before_zero = _core_lt(window_start, 0)
+                    if before_zero:
+                        window_start = 0
+                    else:
+                        pass
+                    window_end = _core_add(window_start, 2000)
+                    body = _core_string_slice(log, window_start, window_end)
+        body_trimmed = str(body).strip()
+        body_present = _core_ne(body_trimmed, "")
+        if body_present:
+            any_body = True
+        else:
+            pass
+        excerpt = _core_string_format("--- run {} ---\n{}", number_text, body)
+        excerpts.append(excerpt)
+        empty_list = []
+        record_calls = _core_get(prediction, "functionCalls", empty_list)
+        for call in record_calls:
+            call_count = _core_len(calls)
+            call_room = _core_lt(call_count, 20)
+            if call_room:
+                qualified = _core_get(call, "qualifiedName", "")
+                arguments = _core_get(call, "arguments", None)
+                arguments_json = _core_json_stringify(arguments)
+                arguments_text = _agent_playbook_truncate(arguments_json, 120)
+                line = _core_string_format("{}({})", qualified, arguments_text)
+                call_error = _core_get(call, "error", None)
+                has_call_error = _core_truthy(call_error)
+                if has_call_error:
+                    call_error_text = _core_string_str(call_error)
+                    call_error_cut = _agent_playbook_truncate(call_error_text, 120)
+                    line = _core_string_format("{} -> ERROR {}", line, call_error_cut)
+                else:
+                    pass
+                calls.append(line)
+            else:
+                pass
+        record_errors = _core_get(prediction, "toolErrors", empty_list)
+        for tool_error in record_errors:
+            error_count = _core_len(errors)
+            error_room = _core_lt(error_count, 10)
+            if error_room:
+                tool_error_text = _core_string_str(tool_error)
+                errors.append(tool_error_text)
+            else:
+                pass
+    no_body = _core_not(any_body)
+    if no_body:
+        nothing = _core_none()
+        return nothing
+    else:
+        pass
+    inputs = {}
+    inputs["clusterSignature"] = signature
+    summaries_text = _core_string_join("\n", summaries)
+    inputs["taskSummaries"] = summaries_text
+    excerpts_text = _core_string_join("\n\n", excerpts)
+    inputs["actionLogExcerpts"] = excerpts_text
+    call_total = _core_len(calls)
+    has_calls = _core_gt(call_total, 0)
+    if has_calls:
+        calls_text = _core_string_join("\n", calls)
+        inputs["functionCallSummary"] = calls_text
+    else:
+        pass
+    error_total = _core_len(errors)
+    has_errors = _core_gt(error_total, 0)
+    if has_errors:
+        errors_text = _core_string_join("\n", errors)
+        inputs["toolErrors"] = errors_text
+    else:
+        pass
+    has_playbook = _core_ne(current_playbook, "")
+    if has_playbook:
+        inputs["currentPlaybook"] = current_playbook
+    else:
+        pass
+    return inputs
 
 
 def _agent_collect_covered_failure_signatures(snapshot: Any) -> list[Any]:
