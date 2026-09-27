@@ -137,6 +137,42 @@ func TestNumberFormatCrossLanguageParity(t *testing.T) {
 	}
 }
 
+// TestDateFieldValueCrossLanguageParity keeps the axgen/date-field-values-*
+// corpus (TypeScript's date parsing with parse_dates on) and the date input
+// fixture dispatched by every runner, and the date zone intrinsic bound in
+// every language.
+func TestDateFieldValueCrossLanguageParity(t *testing.T) {
+	dispatch := map[string]struct{ source, marker string }{
+		"go":     {goRuntime + goConformance, `case "date_field_value":`},
+		"cpp":    {cppConformance, `kind == "date_field_value"`},
+		"java":   {javaConformance, `case "date_field_value" ->`},
+		"rust":   {rustLib, `"date_field_value" => run_date_field_value_fixture`},
+		"python": {pyConformance, `kind == "date_field_value"`},
+	}
+	for language, entry := range dispatch {
+		if !strings.Contains(entry.source, entry.marker) {
+			t.Errorf("DRIFT: date_field_value fixtures are not dispatched by the %s runner", language)
+		}
+		inputMarker := strings.ReplaceAll(strings.ReplaceAll(entry.marker, "date_field_value", "date_input"), "run_date_field_value_fixture", "run_date_input_fixture")
+		if !strings.Contains(entry.source, inputMarker) {
+			t.Errorf("DRIFT: date_input fixtures are not dispatched by the %s runner", language)
+		}
+	}
+	for language, bindings := range map[string]map[CoreIntrinsic]string{
+		"Python": coreIntrinsicPython,
+		"Rust":   coreIntrinsicRust,
+		"Cpp":    coreIntrinsicCpp,
+		"Java":   coreIntrinsicJava,
+	} {
+		if _, ok := bindings[IntrinsicDateZoneOffset]; !ok {
+			t.Errorf("DRIFT: intrinsic.date.zone_offset is not bound in coreIntrinsic%s", language)
+		}
+	}
+	if !coreIntrinsicGoRaising[IntrinsicDateZoneOffset] {
+		t.Errorf("DRIFT: intrinsic.date.zone_offset must return an error in Go")
+	}
+}
+
 // TestAgentPublicAPIParity is the G9 gate: cross-language public-API parity for AxAgent.
 //
 // The Rust agent shipped without optimize()/playbook(), and Go without optimize(), because no
@@ -2879,6 +2915,12 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 		}
 		kind := fmt.Sprint(fixture["kind"])
 		switch kind {
+		case "agent_streaming_forward":
+			for _, key := range []string{"signature", "input", "expected_deltas"} {
+				if _, ok := fixture[key]; !ok {
+					t.Fatalf("%s missing %s", file, key)
+				}
+			}
 		case "agent_forward":
 			if _, ok := fixture["signature"]; !ok {
 				t.Fatalf("%s missing signature", file)

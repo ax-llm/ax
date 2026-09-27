@@ -139,6 +139,58 @@ def _js_json_dumps(value, indent: int | None = None, sort_keys: bool = False, de
     return "".join(out)
 
 
+def _js_date_millis(value):
+    """Epoch milliseconds of a native date or time value, read as TypeScript
+    reads a Date: an aware datetime is its instant, a naive one is local time
+    (as datetime.timestamp() reads it, and as new Date(2024, 4, 9) does), and
+    a date is its UTC midnight (as new Date("2024-05-09") parses it). None
+    for anything else."""
+    import datetime as _datetime
+
+    if isinstance(value, _datetime.datetime):
+        instant = value if value.utcoffset() is not None else value.astimezone()
+        delta = instant - _datetime.datetime(1970, 1, 1, tzinfo=_datetime.timezone.utc)
+        return delta.days * 86400000 + delta.seconds * 1000 + delta.microseconds // 1000
+    if isinstance(value, _datetime.date):
+        return (value.toordinal() - 719163) * 86400000
+    return None
+
+
+def _js_iso_string(millis) -> str:
+    """Date.prototype.toISOString of epoch milliseconds."""
+    import datetime as _datetime
+
+    moment = _datetime.datetime(1970, 1, 1) + _datetime.timedelta(milliseconds=millis)
+    return f"{moment.year:04d}-{moment.month:02d}-{moment.day:02d}T{moment.hour:02d}:{moment.minute:02d}:{moment.second:02d}.{moment.microsecond // 1000:03d}Z"
+
+
+def _js_date_prompt_text(type_name, value):
+    """The prompt text TypeScript writes for a native date in a date-typed
+    field (processValue in src/ax/dsp/prompt.ts), or None when TS would not
+    see a Date: a date field's UTC day, a datetime without milliseconds, and
+    for a range with two dates the {start, end} JSON of those; a range object
+    holding anything else is its JSON with each date as toISOString."""
+    if type_name in ("date", "datetime"):
+        millis = _js_date_millis(value)
+        if millis is None:
+            return None
+        iso = _js_iso_string(millis)
+        return iso[: iso.index("T")] if type_name == "date" else iso[:-5] + "Z"
+    if type_name in ("dateRange", "datetimeRange") and isinstance(value, dict) and "start" in value and "end" in value:
+        start = _js_date_millis(value["start"])
+        end = _js_date_millis(value["end"])
+        if start is not None and end is not None:
+            if type_name == "dateRange":
+                bounds = {"start": _js_iso_string(start)[:10], "end": _js_iso_string(end)[:10]}
+            else:
+                bounds = {"start": _js_iso_string(start)[:-5] + "Z", "end": _js_iso_string(end)[:-5] + "Z"}
+            return _js_json_dumps(bounds, indent=2)
+        if any(_js_date_millis(item) is not None for item in value.values()):
+            dated = {key: (_js_iso_string(_js_date_millis(item)) if _js_date_millis(item) is not None else item) for key, item in value.items()}
+            return _js_json_dumps(dated, indent=2)
+    return None
+
+
 VALID_FIELD_TYPES = {
     "audio",
     "boolean",
@@ -779,13 +831,17 @@ def _core_fields_from_map(fields):
     return [item if isinstance(item, Field) else Field(name=name, type=item) for name, item in fields.items()]
 
 
+# A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts):
+# underscores become spaces, and a word starts at a capital after a lowercase
+# letter or digit, at the last capital of a run that begins a word, and at each
+# run of digits; words are separated by one space. userID is "User ID",
+# parseHTTPResponse "Parse HTTP Response", item123 "Item 123", field_2 "Field 2".
 def _title(name: str) -> str:
-    out = []
-    for i, ch in enumerate(name.replace("_", " ")):
-        if i > 0 and (ch.isupper() or ch.isdigit()):
-            out.append(" ")
-        out.append(ch)
-    text = "".join(out).strip()
+    text = name.replace("_", " ")
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    text = re.sub(r"([A-Z])([A-Z][a-z])", r"\1 \2", text)
+    text = re.sub(r"([^0-9])([0-9])", r"\1 \2", text)
+    text = re.sub(r"\s+", " ", text).strip()
     return text[:1].upper() + text[1:]
 
 

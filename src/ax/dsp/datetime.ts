@@ -207,6 +207,119 @@ const formatOffsetMinutes = (offsetMinutes: number) => {
   return `${sign}${hours}:${minutes}`;
 };
 
+// cspell:ignore goldens AKST AKDT EEST AEST AEDT ACST ACDT AWST NZST NZDT
+/**
+ * Time-zone abbreviations read at their literal UTC offset, in minutes, all
+ * year round: "PST" is -08:00 in July too. Matching is case-insensitive over
+ * ASCII letters.
+ *
+ * PST/PDT and CDT follow US usage. The tz database also uses PST for
+ * Philippine time (Asia/Manila, +08:00) and CDT for Cuban daylight time
+ * (America/Havana, -04:00); for those, give an IANA name (Asia/Manila,
+ * America/Havana) or a UTC offset.
+ *
+ * The ports' copy is written from this table by
+ * tools/axir/extractors/date-goldens.ts.
+ */
+export const timeZoneAbbreviationOffsets: Readonly<Record<string, number>> =
+  Object.freeze({
+    EST: -300,
+    EDT: -240,
+    CDT: -300,
+    MST: -420,
+    MDT: -360,
+    PST: -480,
+    PDT: -420,
+    AKST: -540,
+    AKDT: -480,
+    HST: -600,
+    HDT: -540,
+    ADT: -180,
+    NDT: -150,
+    WET: 0,
+    WEST: 60,
+    CET: 60,
+    CEST: 120,
+    EET: 120,
+    EEST: 180,
+    MSK: 180,
+    JST: 540,
+    KST: 540,
+    HKT: 480,
+    SGT: 480,
+    AEST: 600,
+    AEDT: 660,
+    ACST: 570,
+    ACDT: 630,
+    AWST: 480,
+    NZST: 720,
+    NZDT: 780,
+    WIB: 420,
+    PKT: 300,
+    NPT: 345,
+    SAST: 120,
+    CAT: 120,
+    EAT: 180,
+    WAT: 60,
+    BRT: -180,
+    ART: -180,
+  });
+
+/**
+ * Abbreviations that are rejected with a correction instead of being guessed:
+ * the ambiguous ones (BST is British Summer Time and Bangladesh Standard
+ * Time), and ICU's legacy short IDs, which Intl would otherwise map to a zone
+ * (BST to Asia/Dhaka, AST to America/Anchorage, VST to Asia/Saigon).
+ */
+export const rejectedTimeZoneAbbreviations: readonly string[] = Object.freeze([
+  'BST',
+  'IST',
+  'CST',
+  'AST',
+  'SST',
+  'NST',
+  'ECT',
+  'GST',
+  'ACT',
+  'AET',
+  'AGT',
+  'BET',
+  'CNT',
+  'CTT',
+  'IET',
+  'MIT',
+  'NET',
+  'PLT',
+  'PNT',
+  'PRT',
+  'VST',
+]);
+
+const timeZoneAbbreviationOffsetMap = new Map(
+  Object.entries(timeZoneAbbreviationOffsets)
+);
+const rejectedTimeZoneAbbreviationSet = new Set(rejectedTimeZoneAbbreviations);
+
+// The literal offset in minutes of an abbreviation, or undefined for a name
+// that is not one. Throws for a rejected abbreviation.
+const parseTimeZoneAbbreviation = (timeZone: string) => {
+  if (!/^[A-Za-z]+$/.test(timeZone)) {
+    return;
+  }
+
+  const key = timeZone.toUpperCase();
+  const offset = timeZoneAbbreviationOffsetMap.get(key);
+  if (offset !== undefined) {
+    return offset;
+  }
+
+  if (rejectedTimeZoneAbbreviationSet.has(key)) {
+    throw new Error(
+      `Ambiguous or unsupported time zone abbreviation "${timeZone}". Please provide an IANA time zone name or a UTC offset. For example, "Europe/London" or "+01:00".`
+    );
+  }
+};
+
 const normalizeDateTimeSeparator = (dateTime: string) =>
   dateTime.replace(/^(\d{4}-\d{2}-\d{2})[Tt ]/, '$1T');
 
@@ -370,6 +483,13 @@ const parseNamedTimeZoneDateTime = (dateTimeStr: string) => {
 
   if (offsetMinutes !== undefined) {
     return new Date(getUtcTimestamp(parts) - offsetMinutes * 60_000);
+  }
+
+  const abbreviationOffsetMinutes = parseTimeZoneAbbreviation(timeZone);
+  if (abbreviationOffsetMinutes !== undefined) {
+    return new Date(
+      getUtcTimestamp(parts) - abbreviationOffsetMinutes * 60_000
+    );
   }
 
   const temporalDate = parseTemporalNamedTimeZoneDateTime(

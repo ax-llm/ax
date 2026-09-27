@@ -1,0 +1,40 @@
+{
+  "cache_read_error": "cache read failed",
+  "calls": [
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "forward"
+    }
+  ],
+  "expected_cache_gets": 2,
+  "expected_cache_sets": [],
+  "expected_deltas": [null],
+  "expected_errors": ["cache read failed"],
+  "expected_outputs": [null],
+  "expected_request_count": 0,
+  "expected_requests": [0],
+  "kind": "flow_cache_sequence",
+  "name": "flow-cache-node-read-error-propagates",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: Paris",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "signature": "question:string -> answer:string"
+    }
+  ]
+}

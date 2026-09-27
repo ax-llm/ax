@@ -21,6 +21,7 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicFlowDispatchGroup:       true,
 	IntrinsicAgentStageForward:       true,
 	IntrinsicAgentNativeStageForward: true,
+	IntrinsicAgentStageStreamForward: true,
 	IntrinsicAgentRuntimeCreate:      true,
 	IntrinsicAgentRuntimeExecute:     true,
 	IntrinsicAgentRuntimeInspect:     true,
@@ -41,6 +42,7 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicAxGenSpeak:              true,
 	IntrinsicAxGenCallProcessor:      true,
 	IntrinsicAxGenCheckStreamAssert:  true,
+	IntrinsicDateZoneOffset:          true,
 	IntrinsicAxGenCacheRead:          true,
 	IntrinsicAxGenCacheWrite:         true,
 }

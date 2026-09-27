@@ -1,0 +1,678 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T14:30:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00Z"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T14:30:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30Z"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T14:30:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09t14:30:00z"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T14:30:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09 14:30:00Z"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T14:30:00.500Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00.5Z"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T14:30:00.123Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00.123456789Z"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-05-09T14:30:00.1234567890Z': Invalid date/time for 'When': Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-05-09T14:30:00.1234567890Z.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00.1234567890Z"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T14:30:00.500Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30.5Z"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-05-09T14:30:00.Z': Invalid date/time for 'When': Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-05-09T14:30:00.Z.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00.Z"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T09:00:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00+05:30"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T22:30:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00-08:00"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T09:00:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00+0530"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T22:30:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00-0800"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T09:30:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00+05"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T09:00:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00UTC+05:30"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T22:30:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00GMT-0800"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T09:00:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00utc+05:30"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-05-09T14:30:00gmt+5': Invalid date/time for 'When': Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-05-09T14:30:00gmt+5.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00gmt+5"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T09:00:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00 +05:30"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T09:00:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00 +05:30"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T14:30:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00  Z"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-05-09T14:30:00+24:00': Invalid date/time for 'When': Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-05-09T14:30:00+24:00.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00+24:00"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-05-09T14:30:00+05:60': Invalid date/time for 'When': Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-05-09T14:30:00+05:60.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00+05:60"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-09T14:30:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00-00:00"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-08T14:31:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00+23:59"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-05-08T19:00:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T00:30:00+05:30"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "2024-02-29T12:00:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-02-29T12:00:00Z"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2023-02-29T12:00:00Z': Invalid date/time for 'When': Invalid date and time values. Please ensure all components are correct.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2023-02-29T12:00:00Z.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2023-02-29T12:00:00Z"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-02-30T10:00:00Z': Invalid date/time for 'When': Invalid date and time values. Please ensure all components are correct.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-02-30T10:00:00Z.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-02-30T10:00:00Z"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-05-09T24:00:00Z': Invalid date/time for 'When': Invalid date and time values. Please ensure all components are correct.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-05-09T24:00:00Z.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T24:00:00Z"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-05-09T23:60:00Z': Invalid date/time for 'When': Invalid date and time values. Please ensure all components are correct.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-05-09T23:60:00Z.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T23:60:00Z"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-05-09T23:59:60Z': Invalid date/time for 'When': Invalid date and time values. Please ensure all components are correct.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-05-09T23:59:60Z.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T23:59:60Z"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-05-09': Invalid date/time for 'When': Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-05-09.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-05-09T14:30:00': Invalid date/time for 'When': Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-05-09T14:30:00.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09T14:30:00"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '2024-05-09 14:30': Invalid date/time for 'When': Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 2024-05-09 14:30.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-05-09 14:30"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value '14:30 2024-05-09': Invalid date/time for 'When': Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: 14:30 2024-05-09.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "14:30 2024-05-09"
+    },
+    {
+      "expected_error": "Field 'When' has an invalid value 'garbage': Invalid date/time for 'When': Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: garbage.. Provide a datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Ensure formatting exactly matches the expected type.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "garbage"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "-000001-12-31T19:00:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "0000-01-01T00:00:00+05:00"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "0000-12-31T23:59:59.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "0000-12-31T23:59:59Z"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "+010000-01-01T04:00:00.000Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "9999-12-31T23:00:00-05:00"
+    },
+    {
+      "expected": {
+        "has": true,
+        "value": "1969-12-31T23:59:59.999Z"
+      },
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "1969-12-31T23:59:59.999Z"
+    },
+    {
+      "expected_error": "Required field is missing: 'When'. After the \"When:\" label, provide a non-empty datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z). Do not use null, undefined, or leave it blank.",
+      "field": {
+        "is_optional": false,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": ""
+    },
+    {
+      "expected": {
+        "has": false
+      },
+      "field": {
+        "is_optional": true,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": ""
+    },
+    {
+      "expected": {
+        "has": false
+      },
+      "field": {
+        "is_optional": true,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "garbage"
+    },
+    {
+      "expected": {
+        "has": false
+      },
+      "field": {
+        "is_optional": true,
+        "name": "when",
+        "title": "When",
+        "type": {
+          "is_array": false,
+          "name": "datetime"
+        }
+      },
+      "text": "2024-02-30T10:00:00Z"
+    }
+  ],
+  "description": "datetime fields: Z and numeric offsets, the named-zone form, fractions (truncated to milliseconds), calendar and clock checks, extended ISO years",
+  "kind": "date_field_value",
+  "name": "date-field-values-datetime",
+  "parse_dates": true,
+  "ts_date_path": "Intl.DateTimeFormat (no globalThis.Temporal)"
+}

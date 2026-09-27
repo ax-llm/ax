@@ -821,6 +821,7 @@ module @ax.gen version "0.1" {
       core.append %ordered_messages, %user_message
       %output_fields = core.get %signature["output_fields"]
       core.call @append_structured_output_instruction(%ordered_messages, %output_fields, %selection)
+      %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
       %validation_feedback = core.get %runtime_options["validationFeedback"] default %validation_feedback_snake
       %has_validation_feedback = core.call intrinsic.truthy(%validation_feedback)
@@ -853,6 +854,7 @@ module @ax.gen version "0.1" {
       %max_steps_snake = core.get %runtime_options["max_steps"] default 25
       %max_steps = core.get %runtime_options["maxSteps"] default %max_steps_snake
       %step = core.let 0
+      %control_step = core.let -1
       core.loop {
         // A step is one model turn; validation retries stay inside it, as in TS.
         %steps_exhausted = core.call intrinsic.gte(%step, %max_steps)
@@ -861,6 +863,14 @@ module @ax.gen version "0.1" {
           %max_steps_error = core.call intrinsic.error.runtime(%max_steps_message)
           %max_steps_failed = core.call @generate_failed_impl(%max_steps_error)
           core.raise %max_steps_failed
+        }
+        // As in TS, run control updates queued for this run apply when a step
+        // starts, not on its retries.
+        %starts_step = core.call intrinsic.ne(%step, %control_step)
+        core.if %starts_step {
+          %control_step = core.let %step
+          %control_updates = core.call intrinsic.ai.control_take_pending(%client)
+          %messages = core.call @apply_control_updates_impl(%gen, %messages, %runtime_options, %control_updates)
         }
         %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
         %response = core.map
@@ -1071,6 +1081,27 @@ module @ax.gen version "0.1" {
             %feedback_thought = core.get %response["thought"] default ""
             %feedback_joined = core.call intrinsic.add(%thought_prefix, %feedback_thought)
             %thought_prefix = core.let %feedback_joined
+            core.continue
+          }
+          // As in TS, a run control update queued during the step (a steer or
+          // a thinking budget) takes another step, which applies it; the
+          // answer then comes from that step.
+          %control_pending = core.call intrinsic.ai.control_pending_count(%client)
+          %steered = core.call intrinsic.gt(%control_pending, 0)
+          core.if %steered {
+            %steered_content = core.get %response["content"] default ""
+            %steered_message = core.map
+            core.set %steered_message["role"] = "assistant"
+            core.set %steered_message["content"] = %steered_content
+            core.append %messages, %steered_message
+            core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
+            %steered_step = core.call intrinsic.add(%step, 1)
+            %step = core.let %steered_step
+            %attempt = core.let 0
+            %infra_attempt = core.let 0
+            %steered_thought = core.get %response["thought"] default ""
+            %steered_joined = core.call intrinsic.add(%thought_prefix, %steered_thought)
+            %thought_prefix = core.let %steered_joined
             core.continue
           }
           %public_outputs = core.get %parsed_bundle["outputs"]
@@ -2028,6 +2059,7 @@ module @ax.gen version "0.1" {
       core.append %ordered_messages, %user_message
       %output_fields = core.get %signature["output_fields"]
       core.call @append_structured_output_instruction(%ordered_messages, %output_fields, %selection)
+      %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
       %validation_feedback = core.get %runtime_options["validationFeedback"] default %validation_feedback_snake
       %has_validation_feedback = core.call intrinsic.truthy(%validation_feedback)
@@ -2139,6 +2171,19 @@ module @ax.gen version "0.1" {
               core.call @stream_yield_impl(%run, %control_version, %carried_index, %carried_delta)
             }
           }
+        }
+        // As in TS, run control updates queued for this run apply when a step
+        // starts, and each one starts a new version.
+        %control_updates = core.call intrinsic.ai.control_take_pending(%client)
+        %messages = core.call @apply_control_updates_impl(%gen, %messages, %runtime_options, %control_updates)
+        core.for %control_update in %control_updates {
+          %update_held_version = core.get %run["current_version"] default 0
+          %update_behind = core.call intrinsic.lt(%control_version, %update_held_version)
+          core.if %update_behind {
+            %control_version = core.let %update_held_version
+          }
+          %control_version = core.call intrinsic.add(%control_version, 1)
+          %committed = core.map
         }
         %infra_attempt = core.let 0
         %infra_error = core.call intrinsic.none()
@@ -2507,6 +2552,19 @@ module @ax.gen version "0.1" {
                 core.append %feedback_messages, %feedback_message
               }
               core.call intrinsic.axgen.memory_add_request(%gen, %feedback_messages)
+              %next_step = core.let true
+              core.break
+            }
+            // As in TS, a run control update queued during the step takes
+            // another step, which applies it.
+            %control_pending = core.call intrinsic.ai.control_pending_count(%client)
+            %steered = core.call intrinsic.gt(%control_pending, 0)
+            core.if %steered {
+              %steered_content = core.get %response["content"] default ""
+              %steered_message = core.map
+              core.set %steered_message["role"] = "assistant"
+              core.set %steered_message["content"] = %steered_content
+              core.append %messages, %steered_message
               %next_step = core.let true
               core.break
             }
@@ -2880,6 +2938,43 @@ module @ax.gen version "0.1" {
       %call_options = core.call intrinsic.map.merge(%empty, %options)
       %lookup = core.get %call_options["_ax_cache_lookup"]
       core.return %lookup
+    }
+  }
+
+  op ax.gen.semantic @apply_control_updates_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(AxGen, list<json>, json, json) -> list<json>"
+    body @entry(%gen: AxGen, %messages: list<json>, %runtime_options: json, %updates: json) {
+      // TS applies run control updates when a step starts: a steer joins the
+      // conversation as a user message and stays in memory, and a thinking
+      // level sets the thinking token budget of the requests that follow.
+      // Returns the conversation, which callers reassign: a port's list need
+      // not share the caller's.
+      %steers = core.list
+      core.for %update in %updates {
+        %kind = core.get %update["type"] default ""
+        %is_steer = core.call intrinsic.eq(%kind, "steer")
+        core.if %is_steer {
+          %text = core.get %update["text"] default ""
+          %message = core.map
+          core.set %message["role"] = "user"
+          core.set %message["content"] = %text
+          core.append %messages, %message
+          core.append %steers, %message
+        } else {
+          %level = core.get %update["level"]
+          core.set %runtime_options["thinkingTokenBudget"] = %level
+        }
+      }
+      %steer_count = core.call intrinsic.len(%steers)
+      %has_steers = core.call intrinsic.gt(%steer_count, 0)
+      core.if %has_steers {
+        core.call intrinsic.axgen.memory_add_request(%gen, %steers)
+      }
+      core.return %messages
     }
   }
 }

@@ -279,6 +279,20 @@
           "  }",
           "}"
         ]
+      },
+      "dates": {
+        "sourcePath": "src/examples/java/generation/DateFieldsExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "AxGen planner = new AxGen(",
+          "    AxSignature.create(\"emailText:string, sentAt:datetime -> meetingStartsAt:datetime, travelWindow:dateRange\"),",
+          "    Map.of(\"parseDates\", true));",
+          "Map<String, Object> out = planner.forward(client, Map.of(",
+          "    \"emailText\", emailText,",
+          "    \"sentAt\", Instant.parse(\"2024-05-02T16:30:00Z\")));",
+          "System.out.println(out.get(\"meetingStartsAt\")); // 2024-05-07T19:00:00.000Z"
+        ]
       }
     },
     "signatures": {
@@ -375,6 +389,42 @@
           "Map<String, Object> evolution = assistant.playbook(null).evolve(",
           "    dataset,",
           "    Map.of(\"verify\", true, \"maxProposals\", 1, \"runtime\", runtime));"
+        ]
+      },
+      "streaming": {
+        "sourcePath": "src/examples/java/short-agents/StreamingAgentExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "// The handbook stays in the agent's runtime, out of the prompt. With",
+          "// citations on, the answer cites the evidence it used, and ids the run",
+          "// never gathered are sent back to the model for a correction.",
+          "Consumer<List<Object>> onCitations = ids -> System.out.println(\"\\ncited: \" + ids);",
+          "AxAgent assistant = Ax.agent(",
+          "    \"question:string, handbook:string -> answer:string\",",
+          "    Map.of(",
+          "        \"contextFields\", List.of(\"handbook\"),",
+          "        \"runtime\", Map.of(\"language\", \"JavaScript\"),",
+          "        \"citations\", Map.of(\"onCitations\", onCitations)));",
+          "",
+          "// The distiller and the executor run first; then the responder's answer",
+          "// streams. Merge each delta and start over when the version changes (a retry).",
+          "try (AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime();",
+          "    AxGenDeltaStream stream = assistant.streamingForward(",
+          "        client(),",
+          "        Map.of(",
+          "            \"question\", \"I downgraded today. When does it take effect, and is my data safe if I delete the workspace?\",",
+          "            \"handbook\", HANDBOOK),",
+          "        Map.of(\"runtime\", runtime, \"max_actor_steps\", 12))) {",
+          "  long version = 0;",
+          "  for (AxGenDelta delta : stream) {",
+          "    if (delta.version() != version) {",
+          "      version = delta.version();",
+          "      System.out.println(\"\\n[retry: starting over]\");",
+          "    }",
+          "    if (delta.delta().get(\"answer\") instanceof String text) System.out.print(text);",
+          "  }",
+          "  System.out.println();"
         ]
       }
     },

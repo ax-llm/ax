@@ -1,0 +1,104 @@
+{
+  "expected_chat_log_shape": [
+    {
+      "name": "distiller",
+      "stage": "ctx"
+    },
+    {
+      "name": "responder",
+      "stage": "task"
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "Refunds"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": " take 30"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": " days."
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "Refunds take 30 days."
+  },
+  "expected_request_count": 2,
+  "expected_transcript": ["request:distiller", "request:responder"],
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "kind": "agent_streaming_forward",
+  "name": "agent-streaming-forward-direct-respond",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"respond(\\\"Refunds take 30 days.\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Refunds ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "take 30 ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "days.",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "respond(\"Refunds take 30 days.\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Refunds take 30 days.",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "respond"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

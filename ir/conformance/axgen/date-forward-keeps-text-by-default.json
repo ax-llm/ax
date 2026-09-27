@@ -1,0 +1,28 @@
+{
+  "description": "Port-only: without parse_dates (the default until the next major version) date fields keep the model text; TS always parses them.",
+  "expected_output": {
+    "due": "2024-05-09",
+    "when": "2024-05-09 14:30 America/New_York",
+    "span": "2024-05-09/2024-05-12",
+    "window": "{\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00+00:00\"}",
+    "note": "all set"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "date-forward-keeps-text-by-default",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Due: 2024-05-09\nWhen: 2024-05-09 14:30 America/New_York\nSpan: 2024-05-09/2024-05-12\nWindow: {\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00+00:00\"}\nNote: all set",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> due:date, when:datetime, span:dateRange, window:datetimeRange, note:string"
+}

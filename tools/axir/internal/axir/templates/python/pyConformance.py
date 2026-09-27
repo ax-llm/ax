@@ -3,11 +3,13 @@ from __future__ import annotations
 import copy
 import importlib
 import json
+import re
 import warnings
 import os
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,7 @@ from .ai import _snapshot_global_caching_function, set_caching_function
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
+    _stream_field_value_impl,
     ax,
     chat_session_create_state, chat_session_transition, chat_session_unresolved, chat_session_validate_required_arguments,
     fold_stream,
@@ -47,7 +50,6 @@ from .gen import (
 from .flow import (
     _FlowCallable,
     _flow_add_step,
-    _flow_cache_key,
     _flow_condition_from_spec,
     _flow_merge_parallel_results,
     _flow_mapper_from_spec,
@@ -88,7 +90,7 @@ from .agent import (
 from .prompt import AxPromptTemplate, collect_template_variable_names, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, RuntimeCapabilities, RuntimeEnvelope, RuntimeProtocolError
 from .runtime_quickjs import AxQuickJsCodeRuntime
-from .schema import strip_internal, to_json_schema, validate_output, validate_value
+from .schema import strip_internal, to_json_schema, validate_fields, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
 from .mcp import AxExecutionContext, AxEventCancellationToken, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventTarget, AxManualEventClock, AxMCPClient, AxMCPEventSource, AxMCPScriptedTransport, AxPushEventSource, AxSystemEventClock, event_continuation_match, event_map_input, event_normalize_mcp, event_path, event_retry_transition, event_route, event_route_commands, event_target, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, mcp_resource_subscription_ownership, mcp_resource_subscription_selection, run_mcp_conformance_fixture
@@ -111,11 +113,19 @@ class ConformanceScriptedAI(AxBaseAI):
         self.requests = []
         self.chat_options = []
         self.chat_calls = 0
+        # Called with each chat request's 1-based number while it is in
+        # flight, before the scripted answer (a fixture's control_steer).
+        self.on_request = None
+
+    def _note_request(self):
+        if self.on_request is not None:
+            self.on_request(len(self.requests))
 
     def _chat(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.chat_calls += 1
         self.requests.append(copy.deepcopy(request))
         self.chat_options.append(copy.deepcopy(options or {}))
+        self._note_request()
         if not self.responses:
             raise RuntimeError("scripted client exhausted")
         raw = self.responses.pop(0)
@@ -136,6 +146,7 @@ class ConformanceScriptedAI(AxBaseAI):
             self.chat_calls += 1
             self.requests.append(copy.deepcopy(request))
             self.chat_options.append(copy.deepcopy(options or {}))
+            self._note_request()
             raw = self.responses.pop(0)
             for event in raw["stream"]:
                 # An {"error": ...} entry fails the stream at that point.
@@ -576,12 +587,18 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_strip_internal(fixture)
         elif kind == "number_format":
             _run_number_format(fixture)
+        elif kind == "date_field_value":
+            _run_date_field_value(fixture)
+        elif kind == "date_input":
+            _run_date_input(fixture)
         elif kind == "forward":
             _run_forward(fixture)
         elif kind == "streaming_forward":
             _run_streaming_forward(fixture)
         elif kind == "cache_sequence":
             _run_cache_sequence(fixture)
+        elif kind == "flow_cache_sequence":
+            _run_flow_cache_sequence(fixture)
         elif kind == "ai_session_state":
             _run_ai_session_state(fixture)
         elif kind == "ai_session_events":
@@ -641,6 +658,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
         elif kind == "ai_context_cache":
             _run_ai_context_cache(fixture)
         elif kind == "agent_forward":
+            _run_agent_forward(fixture)
+        elif kind == "agent_streaming_forward":
             _run_agent_forward(fixture)
         elif kind == "agent_playbook_coverage":
             _run_agent_playbook_coverage(fixture)
@@ -1096,6 +1115,56 @@ def _run_validate_output(fixture):
     _assert_equal(result, fixture.get("expected_values", values), "validated output")
 
 
+def _run_date_field_value(fixture):
+    """TS validateAndParseFieldValue on date-typed fields with parse_dates
+    on: each case's {has, value}, or its exact error message."""
+    for index, case in enumerate(fixture.get("cases") or []):
+        field = dict(case["field"])
+        field["parse_dates"] = bool(fixture.get("parse_dates"))
+        label = f"case {index} {case['text'][:80]!r}"
+        try:
+            parsed = _stream_field_value_impl(field, case["text"])
+        except Exception as exc:
+            if "expected_error" not in case:
+                raise FixtureError(f"{label}: unexpected error {exc}") from exc
+            _assert_equal(str(exc), case["expected_error"], f"{label} error")
+            continue
+        if "expected_error" in case:
+            raise FixtureError(f"{label}: expected error {case['expected_error']!r}, got {parsed!r}")
+        actual = {"has": bool(parsed.get("has"))}
+        if actual["has"]:
+            actual["value"] = parsed.get("value")
+        _assert_equal(actual, case["expected"], label)
+
+
+def _native_date_values(value):
+    """Fixture date markers as Python values: {"$date": iso} is an aware
+    datetime, {"$date_only": "YYYY-MM-DD"} a date."""
+    import datetime as _datetime
+
+    if isinstance(value, list):
+        return [_native_date_values(item) for item in value]
+    if isinstance(value, dict):
+        if isinstance(value.get("$date"), str):
+            return _datetime.datetime.fromisoformat(value["$date"].replace("Z", "+00:00"))
+        if isinstance(value.get("$date_only"), str):
+            return _datetime.date.fromisoformat(value["$date_only"])
+        return {key: _native_date_values(item) for key, item in value.items()}
+    return value
+
+
+def _run_date_input(fixture):
+    """Native date inputs and range objects pass input validation and render
+    in the user prompt as TS renders Dates."""
+    sig = _build_signature(fixture)
+    for index, case in enumerate(fixture.get("cases") or []):
+        values = _native_date_values(case["values"])
+        label = f"case {index}"
+        validate_fields(sig.input_fields, values, "input")
+        messages = AxPromptTemplate(sig).render(values)
+        _assert_equal(messages[-1]["content"], case["expected_user_content"], label)
+
+
 def _run_number_format(fixture):
     """String(x) and JSON.stringify(x) for numbers parsed from text with float(),
     which also reaches NaN, the infinities and -0. String(x) is string.str and
@@ -1156,8 +1225,13 @@ def _run_forward(fixture):
             return fixture["result_picker_index"]
         gen.set_result_picker(pick_result)
     client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), speak_responses=fixture.get("speak_responses"), **_scripted_client_kwargs(fixture.get("client")))
+    forward_options = fixture.get("forward_options")
+    control_events = []
+    if fixture.get("control"):
+        forward_options = dict(forward_options or {})
+        control_events = _attach_fixture_control(fixture, client, forward_options)
     try:
-        output = gen.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
+        output = gen.forward(client, fixture.get("input") or {}, forward_options)
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
@@ -1176,6 +1250,9 @@ def _run_forward(fixture):
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "forward output")
+    if "expected_control_events" in fixture:
+        _assert_equal(control_events, fixture["expected_control_events"], "run control events")
+    _assert_request_roles(fixture, client)
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
     if fixture.get("expect_chat_path", True) and client.chat_calls == 0:
@@ -1276,6 +1353,35 @@ def _fixture_processor(spec, calls):
     return processor
 
 
+def _attach_fixture_control(fixture, client, run_options):
+    # A fixture's run control goes into run_options. Its lifecycle events are
+    # recorded, and with control_steer every event is, and the scripted
+    # client queues the steer while that request is in flight.
+    from .session import run_control
+    events = []
+    control = run_control()
+    steer = fixture.get("control_steer")
+    lifecycle = ("started", "completed", "failed", "aborted")
+    control.on_event(lambda event: events.append({"path": event.get("path"), "type": event.get("type")})
+        if steer or event.get("type") in lifecycle else None)
+    if steer:
+        def on_request(number):
+            if number == steer.get("during_request"):
+                control.steer(steer.get("text") or "")
+        client.on_request = on_request
+    run_options["control"] = control
+    return events
+
+
+def _assert_request_roles(fixture, client):
+    # The message roles of every request, in order.
+    expected = fixture.get("expected_request_roles")
+    if expected is None:
+        return
+    roles = [[message.get("role") for message in request.get("chat_prompt") or []] for request in client.requests]
+    _assert_equal(roles, expected, "request roles")
+
+
 def _assert_error_cause(fixture, exc):
     # "Generate failed: ..." keeps the failure it wraps as its cause.
     expected = fixture.get("expected_error_cause_contains")
@@ -1328,14 +1434,17 @@ def _run_cache_sequence(fixture):
                 call_options["caching_function"] = caching_function
             if call.get("control"):
                 call_options["control"] = run_control()
+            call_input = call.get("input") or {}
+            if call.get("reverse_input_keys"):
+                call_input = dict(reversed(list(call_input.items())))
             errors.append(None)
             if call.get("kind") == "streaming_forward":
                 deltas = []
-                outputs.append(gen._streaming_forward_with(client, call.get("input") or {}, call_options, deltas.append))
+                outputs.append(gen._streaming_forward_with(client, call_input, call_options, deltas.append))
                 deltas_per_call.append(deltas)
             else:
                 try:
-                    outputs.append(gen.forward(client, call.get("input") or {}, call_options))
+                    outputs.append(gen.forward(client, call_input, call_options))
                 except Exception as exc:  # noqa: BLE001 - compared with expected_errors
                     errors[-1] = str(exc).split("\n")[0]
                     outputs.append(None)
@@ -1354,6 +1463,74 @@ def _run_cache_sequence(fixture):
         raise FixtureError(f"expected {fixture.get('expected_cache_gets')} cache reads, got {len(reads)}")
     _assert_equal(writes, fixture.get("expected_cache_sets"), "cache writes")
     _assert_speak_requests(fixture, client)
+
+
+def _run_flow_cache_sequence(fixture):
+    # Several forward / streaming_forward calls on one AxFlow with one
+    # in-memory cache: each call's output, delta and requests, and every read
+    # and write of the cache, the flow's own entry and its AxGen nodes'.
+    from .session import run_control
+    store = {}
+    reads = []
+    writes = []
+
+    def caching_function(key, value=None):
+        if value is not None:
+            if fixture.get("cache_write_error"):
+                raise RuntimeError(fixture["cache_write_error"])
+            writes.append(copy.deepcopy(value))
+            store[key] = copy.deepcopy(value)
+            return None
+        reads.append(key)
+        if fixture.get("cache_read_error"):
+            raise RuntimeError(fixture["cache_read_error"])
+        hit = store.get(key)
+        return copy.deepcopy(hit) if hit is not None else None
+
+    cache_in = fixture.get("cache_in", "call")
+    fl = _build_flow(fixture)
+    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [])
+    previous_global = _snapshot_global_caching_function()
+    if cache_in == "global":
+        set_caching_function(caching_function)
+    outputs, deltas_per_call, requests, errors = [], [], [], []
+    try:
+        for call in fixture.get("calls") or []:
+            before = len(client.requests)
+            call_options = {}
+            if cache_in == "call":
+                call_options["caching_function"] = caching_function
+            if call.get("control"):
+                call_options["control"] = run_control()
+            call_input = call.get("input") or {}
+            if call.get("reverse_input_keys"):
+                call_input = dict(reversed(list(call_input.items())))
+            errors.append(None)
+            try:
+                if call.get("kind") == "streaming_forward":
+                    deltas = list(fl.streaming_forward(client, call_input, call_options))
+                    outputs.append(deltas[-1]["delta"] if deltas else None)
+                    deltas_per_call.append(deltas)
+                else:
+                    outputs.append(fl.forward(client, call_input, call_options))
+                    deltas_per_call.append(None)
+            except Exception as exc:  # noqa: BLE001 - compared with expected_errors
+                errors[-1] = str(exc).split("\n")[0]
+                outputs.append(None)
+                deltas_per_call.append(None)
+            requests.append(len(client.requests) - before)
+    finally:
+        set_caching_function(previous_global)
+    if any(error is not None for error in errors) or "expected_errors" in fixture:
+        _assert_equal(errors, fixture.get("expected_errors"), "flow cache sequence errors")
+    _assert_equal(outputs, fixture.get("expected_outputs"), "flow cache sequence outputs")
+    _assert_equal(deltas_per_call, fixture.get("expected_deltas"), "flow cache sequence deltas")
+    _assert_equal(requests, fixture.get("expected_requests"), "flow cache sequence requests per call")
+    if len(client.requests) != fixture.get("expected_request_count"):
+        raise FixtureError(f"expected {fixture.get('expected_request_count')} requests, got {len(client.requests)}")
+    if len(reads) != fixture.get("expected_cache_gets"):
+        raise FixtureError(f"expected {fixture.get('expected_cache_gets')} cache reads, got {len(reads)}")
+    _assert_equal(writes, fixture.get("expected_cache_sets"), "flow cache writes")
 
 
 def _run_streaming_forward(fixture):
@@ -1378,11 +1555,7 @@ def _run_streaming_forward(fixture):
     run_options = dict(fixture.get("forward_options") or {})
     control_events = []
     if fixture.get("control"):
-        from .session import run_control
-        control = run_control()
-        control.on_event(lambda event: control_events.append({"path": event.get("path"), "type": event.get("type")})
-            if event.get("type") in ("started", "completed", "failed", "aborted") else None)
-        run_options["control"] = control
+        control_events = _attach_fixture_control(fixture, client, run_options)
     deltas = []
     stop_after = fixture.get("stop_after_deltas")
     try:
@@ -1414,6 +1587,7 @@ def _run_streaming_forward(fixture):
             _assert_equal(output, fixture.get("expected_output"), "streaming output")
     if "expected_control_events" in fixture:
         _assert_equal(control_events, fixture["expected_control_events"], "run control events")
+    _assert_request_roles(fixture, client)
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
     _assert_speak_requests(fixture, client)
@@ -1494,13 +1668,6 @@ def _run_program_contract(fixture):
 def _run_flow(fixture):
     try:
         fl = _build_flow(fixture)
-        if fixture.get("operation") == "cache_key":
-            keys = [_flow_cache_key(item) for item in fixture.get("cache_key_inputs") or []]
-            if fixture.get("expected_cache_keys_equal") and len(set(keys)) != 1:
-                raise FixtureError(f"expected equal flow cache keys, got {keys}")
-            if fixture.get("expected_cache_keys_distinct") and len(set(keys)) != len(keys):
-                raise FixtureError(f"expected distinct flow cache keys, got {keys}")
-            return
         if "expected_plan" in fixture:
             _assert_equal(fl.get_plan(), fixture["expected_plan"], "flow plan")
         if "expected_plan_subset" in fixture:
@@ -1509,9 +1676,6 @@ def _run_flow(fixture):
             return
         client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], speak_responses=fixture.get("speak_responses"))
         forward_options = copy.deepcopy(fixture.get("forward_options") or {})
-        if "cache_seed_value" in fixture:
-            cache_store = forward_options.setdefault("cache_store", {})
-            cache_store[_flow_cache_key(fixture.get("input") or {})] = copy.deepcopy(fixture.get("cache_seed_value"))
         if fixture.get("operation") == "streaming":
             output = list(fl.streaming_forward(client, fixture.get("input") or {}, forward_options))
         else:
@@ -1543,12 +1707,6 @@ def _run_flow(fixture):
         _assert_list_subset(fl.get_traces(), fixture["expected_trace_subset"], "flow traces")
     if "expected_usage_subset" in fixture:
         _assert_subset(fl.get_usage(), fixture["expected_usage_subset"], "flow usage")
-    if "expected_cache_store_subset" in fixture:
-        cache_store = forward_options.get("cache_store") or forward_options.get("cacheStore") or {}
-        _assert_subset(cache_store, fixture["expected_cache_store_subset"], "flow cache store")
-    if "expected_cache_value_for_input" in fixture:
-        cache_store = forward_options.get("cache_store") or forward_options.get("cacheStore") or {}
-        _assert_equal(cache_store.get(_flow_cache_key(fixture.get("input") or {})), fixture["expected_cache_value_for_input"], "flow cache value")
     if "expected_components_subset" in fixture:
         _assert_list_subset(fl.get_optimizable_components(), fixture["expected_components_subset"], "flow components")
 
@@ -2189,6 +2347,39 @@ def _run_agent_forward(fixture):
     if "parent" in contexts: agent_options["executionContext"] = contexts["parent"]
     semantic_observer_transcript = []
     semantic_observers_enabled = "expected_observer_transcript" in fixture
+    # Observer calls, each marked with the number of model requests before it,
+    # so the transcript can interleave them with the requests.
+    observer_calls, observer_marks = [], []
+    def _recording_observer(label):
+        def observe(payload):
+            observer_marks.append((len(client.requests), label))
+            observer_calls.append({"callback": label, "payload": copy.deepcopy(payload)})
+        return observe
+    for label in fixture.get("observers") or []:
+        if label == "used_memories":
+            agent_options["onUsedMemories"] = _recording_observer(label)
+        elif label == "used_skills":
+            agent_options["onUsedSkills"] = _recording_observer(label)
+        elif label == "citations":
+            citations = agent_options.get("citations")
+            citations = dict(citations) if isinstance(citations, dict) else {}
+            citations["onCitations"] = _recording_observer(label)
+            agent_options["citations"] = citations
+        elif label == "playbook_update":
+            # The playbook's onUpdate after run-end learning, by its status.
+            playbook_options = agent_options.get("playbook")
+            playbook_options = dict(playbook_options) if isinstance(playbook_options, dict) else {}
+            record_update = _recording_observer(label)
+            playbook_options["onUpdate"] = lambda result, record_update=record_update: record_update({"status": result.get("status")})
+            agent_options["playbook"] = playbook_options
+    control_events = []
+    control_options = {}
+    if fixture.get("control"):
+        # The run lifecycle events, in order, with their paths; with
+        # control_steer every event, and the steer lands during that request.
+        control_events = _attach_fixture_control(fixture, client, control_options)
+    streaming = fixture.get("kind") == "agent_streaming_forward"
+    stream_deltas = []
     def _semantic_observer(label, throws=False):
         def observe(payload):
             semantic_observer_transcript.append({"callback": label, "payload": copy.deepcopy(payload or [])})
@@ -2229,8 +2420,13 @@ def _run_agent_forward(fixture):
     run_state_projections = []
     saved_runtime_state = None
     state_roundtrip_projection = {}
+    wall_clock_start = time.time()
+    playbook_state_before_forward = None
     try:
         ag = agent(fixture.get("signature"), agent_options)
+        if "expected_playbook_state_before_forward" in fixture:
+            handle = ag.get_playbook()
+            playbook_state_before_forward = copy.deepcopy(handle.get_state()) if handle is not None else None
         for child_spec in fixture.get("child_agents") or []:
             child_options = dict(child_spec.get("options") or {})
             owner = child_spec["namespace"]+"."+child_spec["name"]
@@ -2288,7 +2484,20 @@ def _run_agent_forward(fixture):
                     forward_options["onUsedSkills"] = _semantic_observer("forward.used_skills")
                 if "onUsedMemories" in forward_options:
                     forward_options["onUsedMemories"] = _semantic_observer("forward.used_memories")
-            output = ag.forward(client, fixture.get("input") or {}, forward_options)
+            forward_options.update(control_options)
+            if streaming:
+                stop_after = fixture.get("stop_after_deltas")
+                stream = ag.streaming_forward(client, fixture.get("input") or {}, forward_options)
+                try:
+                    for delta in stream:
+                        stream_deltas.append(delta)
+                        if len(stream_deltas) == stop_after:
+                            break
+                finally:
+                    stream.close()
+                output = ag.state.get("last_output") if stop_after is None else None
+            else:
+                output = ag.forward(client, fixture.get("input") or {}, forward_options)
     except AxAgentClarificationError as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
@@ -2296,6 +2505,7 @@ def _run_agent_forward(fixture):
                 _assert_subset(exc.clarification, fixture["expected_clarification"], "clarification")
             if ag is not None:
                 _assert_agent_trace(ag, fixture)
+            _assert_agent_run_projections(fixture, ag, client, stream_deltas, control_events, observer_calls, observer_marks)
             return
         raise
     except Exception as exc:
@@ -2303,12 +2513,14 @@ def _run_agent_forward(fixture):
         if expected and expected in str(exc):
             if ag is not None:
                 _assert_agent_trace(ag, fixture)
+            _assert_agent_run_projections(fixture, ag, client, stream_deltas, control_events, observer_calls, observer_marks)
             return
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected agent forward to fail")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "agent output")
+    _assert_agent_run_projections(fixture, ag, client, stream_deltas, control_events, observer_calls, observer_marks)
     if "expected_run_state_projections" in fixture:
         _assert_equal(run_state_projections, fixture["expected_run_state_projections"], "agent run state projections")
     if "expected_state_roundtrip_projection" in fixture:
@@ -2419,6 +2631,23 @@ def _run_agent_forward(fixture):
     if "expected_playbook_state" in fixture:
         handle = ag.get_playbook()
         _assert_equal(handle.get_state() if handle is not None else None, fixture["expected_playbook_state"], "agent playbook state")
+    if "expected_playbook_state_before_forward" in fixture:
+        _assert_equal(playbook_state_before_forward, fixture["expected_playbook_state_before_forward"], "agent playbook state before the first forward")
+    if fixture.get("expected_playbook_wall_clock"):
+        handle = ag.get_playbook()
+        state = handle.get_state() if handle is not None else {}
+        _assert_wall_clock_timestamps(
+            [(state.get("playbook") or {}).get("updatedAt"), ((state.get("artifact") or {}).get("playbook") or {}).get("updatedAt")],
+            wall_clock_start,
+            time.time(),
+            "agent playbook updatedAt",
+        )
+    if fixture.get("expected_playbook_config_unchanged"):
+        # The caller's playbook config, less the student client the runner
+        # added, is what the fixture passed.
+        config = agent_options.get("playbook")
+        config = {key: value for key, value in config.items() if key != "studentAI"} if isinstance(config, dict) else config
+        _assert_equal(config, (fixture.get("options") or {}).get("playbook"), "caller's playbook config")
     exported = ag.export_runtime_state()
     if "expected_runtime_contract_subset" in fixture:
         _assert_subset(ag.get_runtime_contract(), fixture["expected_runtime_contract_subset"], "runtime contract")
@@ -2439,6 +2668,45 @@ def _run_agent_forward(fixture):
     if runtime is not None and "expected_executed" in fixture:
         _assert_equal(runtime.executed, fixture["expected_executed"], "executed code")
     _assert_agent_trace(ag, fixture)
+
+
+def _agent_request_stage(request):
+    # Which part of the agent run sent a model request, by its system prompt.
+    prompt = request.get("chat_prompt") or request.get("chatPrompt") or []
+    system = ""
+    if prompt and isinstance(prompt[0], dict) and prompt[0].get("role") == "system":
+        system = str(prompt[0].get("content", ""))
+    if "You (`distiller`)" in system:
+        return "distiller"
+    if "You (`executor`)" in system:
+        return "executor"
+    if "`Generator answer`" in system or "`Question context`" in system:
+        return "playbook"
+    if "context-map Distiller" in system or "context-map Cartographer" in system:
+        return "context_map"
+    return "responder"
+
+
+def _assert_agent_run_projections(fixture, ag, client, deltas, control_events, observer_calls, observer_marks):
+    if fixture.get("kind") == "agent_streaming_forward" or "expected_deltas" in fixture:
+        _assert_equal(deltas, fixture.get("expected_deltas") or [], "agent streaming deltas")
+    if "expected_control_events" in fixture:
+        _assert_equal(control_events, fixture["expected_control_events"], "agent run control events")
+    _assert_request_roles(fixture, client)
+    if "expected_observer_calls" in fixture:
+        _assert_equal(observer_calls, fixture["expected_observer_calls"], "agent observer calls")
+    if "expected_transcript" in fixture:
+        marks = list(observer_marks)
+        transcript = []
+        for index, request in enumerate(client.requests):
+            while marks and marks[0][0] <= index:
+                transcript.append(marks.pop(0)[1])
+            transcript.append("request:" + _agent_request_stage(request))
+        transcript.extend(label for _, label in marks)
+        _assert_equal(transcript, fixture["expected_transcript"], "agent run transcript")
+    if "expected_chat_log_shape" in fixture and ag is not None:
+        shape = [{"name": entry.get("name"), "stage": entry.get("stage")} for entry in ag.get_chat_log()]
+        _assert_equal(shape, fixture["expected_chat_log_shape"], "agent chat log shape")
 
 
 def _assert_agent_trace(ag, fixture):
@@ -2516,6 +2784,15 @@ def _run_agent_playbook_evolve(fixture):
             _assert_equal(len(outcomes), expected["outcome_count"], f"playbook evolve {case.get('name')} outcome count")
         if "expected_teacher_request_count" in case and len(teacher.requests) != case["expected_teacher_request_count"]:
             raise FixtureError(f"playbook evolve {case.get('name')} expected {case['expected_teacher_request_count']} teacher requests, got {len(teacher.requests)}")
+        if "expected_teacher_system_prompts" in case:
+            # Each teacher request's system prompt, in call order, byte for byte.
+            prompts = [
+                message.get("content")
+                for request in teacher.requests
+                for message in (request.get("chat_prompt") or [])
+                if message.get("role") == "system"
+            ]
+            _assert_equal(prompts, case["expected_teacher_system_prompts"], f"playbook evolve {case.get('name')} teacher system prompts")
         if not outcomes:
             if expected.get("outcome_count") == 0:
                 continue
@@ -3695,6 +3972,21 @@ def _assert_equal(actual, expected, label):
         raise FixtureError(
             f"{label} mismatch\nactual: {json.dumps(actual, sort_keys=True)}\nexpected: {json.dumps(expected, sort_keys=True)}"
         )
+
+
+_ISO_MILLIS_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
+
+
+def _assert_wall_clock_timestamps(values, start, end, label):
+    """Each value is a UTC timestamp as JavaScript's toISOString writes it,
+    taken during the run: between start and end (seconds since the epoch),
+    with a second of slack for millisecond rounding."""
+    for value in values:
+        if not isinstance(value, str) or not _ISO_MILLIS_UTC.match(value):
+            raise FixtureError(f"{label} is not an ISO-8601 UTC millisecond timestamp: {value!r}")
+        stamp = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).timestamp()
+        if not start - 1 <= stamp <= end + 1:
+            raise FixtureError(f"{label} {value} is not the wall clock during the run")
 
 
 def _capture_error(errors, callback):

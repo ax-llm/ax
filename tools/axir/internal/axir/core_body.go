@@ -80,6 +80,8 @@ const (
 	IntrinsicProgramComponents         CoreIntrinsic = "intrinsic.program.components"
 	IntrinsicProgramApplyComponents    CoreIntrinsic = "intrinsic.program.apply_components"
 	IntrinsicAICompleteOnce            CoreIntrinsic = "intrinsic.ai.complete_once"
+	IntrinsicAIControlTakePending      CoreIntrinsic = "intrinsic.ai.control_take_pending"
+	IntrinsicAIControlPendingCount     CoreIntrinsic = "intrinsic.ai.control_pending_count"
 	IntrinsicAIClientFeatures          CoreIntrinsic = "intrinsic.ai.client_features"
 	IntrinsicRetrySleep                CoreIntrinsic = "intrinsic.retry.sleep"
 	IntrinsicExceptionMessage          CoreIntrinsic = "intrinsic.exception.message"
@@ -145,8 +147,10 @@ const (
 	IntrinsicAxGenRecordFunction       CoreIntrinsic = "intrinsic.axgen.record_function_call"
 	IntrinsicRunControlAborted         CoreIntrinsic = "intrinsic.run_control.aborted"
 	IntrinsicFlowDispatchGroup         CoreIntrinsic = "intrinsic.flow.dispatch_group"
+	IntrinsicFlowCachingFunction       CoreIntrinsic = "intrinsic.flow.caching_function"
 	IntrinsicAgentStageForward         CoreIntrinsic = "intrinsic.agent.stage_forward"
 	IntrinsicAgentNativeStageForward   CoreIntrinsic = "intrinsic.agent.native_stage_forward"
+	IntrinsicAgentStageStreamForward   CoreIntrinsic = "intrinsic.agent.stage_streaming_forward"
 	IntrinsicAgentStageChatLog         CoreIntrinsic = "intrinsic.agent.stage_chat_log"
 	IntrinsicAgentStageUsage           CoreIntrinsic = "intrinsic.agent.stage_usage"
 	IntrinsicAgentStageTraces          CoreIntrinsic = "intrinsic.agent.stage_traces"
@@ -186,6 +190,7 @@ const (
 	IntrinsicAxGenCheckStreamAssert    CoreIntrinsic = "intrinsic.axgen.check_streaming_assertion"
 	IntrinsicAxGenDeprecation          CoreIntrinsic = "intrinsic.axgen.deprecation"
 	IntrinsicAxGenSpeak                CoreIntrinsic = "intrinsic.axgen.speak"
+	IntrinsicDateZoneOffset            CoreIntrinsic = "intrinsic.date.zone_offset"
 	IntrinsicAxGenCachingFunction      CoreIntrinsic = "intrinsic.axgen.caching_function"
 	IntrinsicAxGenCacheRead            CoreIntrinsic = "intrinsic.axgen.cache_read"
 	IntrinsicAxGenCacheWrite           CoreIntrinsic = "intrinsic.axgen.cache_write"
@@ -234,6 +239,8 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicProgramComponents:         "_core_program_components",
 	IntrinsicProgramApplyComponents:    "_core_program_apply_components",
 	IntrinsicAICompleteOnce:            "_core_ai_complete_once",
+	IntrinsicAIControlTakePending:      "_core_ai_control_take_pending",
+	IntrinsicAIControlPendingCount:     "_core_ai_control_pending_count",
 	IntrinsicAIClientFeatures:          "_core_ai_client_features",
 	IntrinsicRetrySleep:                "_core_retry_sleep",
 	IntrinsicExceptionMessage:          "_core_exception_message",
@@ -299,8 +306,10 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAxGenRecordFunction:       "_core_axgen_record_function_call",
 	IntrinsicRunControlAborted:         "_core_run_control_aborted",
 	IntrinsicFlowDispatchGroup:         "_core_flow_dispatch_group",
+	IntrinsicFlowCachingFunction:       "_core_flow_caching_function",
 	IntrinsicAgentStageForward:         "_core_agent_stage_forward",
 	IntrinsicAgentNativeStageForward:   "_core_agent_native_stage_forward",
+	IntrinsicAgentStageStreamForward:   "_core_agent_stage_streaming_forward",
 	IntrinsicAgentStageChatLog:         "_core_agent_stage_chat_log",
 	IntrinsicAgentStageUsage:           "_core_agent_stage_usage",
 	IntrinsicAgentStageTraces:          "_core_agent_stage_traces",
@@ -340,6 +349,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAxGenCheckStreamAssert:    "_core_axgen_check_streaming_assertion",
 	IntrinsicAxGenDeprecation:          "_core_axgen_deprecation",
 	IntrinsicAxGenSpeak:                "_core_axgen_speak",
+	IntrinsicDateZoneOffset:            "_core_date_zone_offset",
 	IntrinsicAxGenCachingFunction:      "_core_axgen_caching_function",
 	IntrinsicAxGenCacheRead:            "_core_axgen_cache_read",
 	IntrinsicAxGenCacheWrite:           "_core_axgen_cache_write",
@@ -387,6 +397,8 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.program.components":                    true,
 	"intrinsic.program.apply_components":              true,
 	"intrinsic.ai.complete_once":                      true,
+	"intrinsic.ai.control_take_pending":               true,
+	"intrinsic.ai.control_pending_count":              true,
 	"intrinsic.ai.client_features":                    true,
 	"intrinsic.retry.sleep":                           true,
 	"intrinsic.exception.message":                     true,
@@ -404,6 +416,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.axgen.check_streaming_assertion":       true,
 	"intrinsic.axgen.deprecation":                     true,
 	"intrinsic.axgen.speak":                           true,
+	"intrinsic.date.zone_offset":                      true,
 	"intrinsic.axgen.caching_function":                true,
 	"intrinsic.axgen.cache_read":                      true,
 	"intrinsic.axgen.cache_write":                     true,
@@ -477,8 +490,10 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.axgen.record_function_call":            true,
 	"intrinsic.run_control.aborted":                   true,
 	"intrinsic.flow.dispatch_group":                   true,
+	"intrinsic.flow.caching_function":                 true,
 	"intrinsic.agent.stage_forward":                   true,
 	"intrinsic.agent.native_stage_forward":            true,
+	"intrinsic.agent.stage_streaming_forward":         true,
 	"intrinsic.agent.stage_chat_log":                  true,
 	"intrinsic.agent.stage_usage":                     true,
 	"intrinsic.agent.stage_traces":                    true,
@@ -773,8 +788,10 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.tool.invoke":                     intrinsicInfo("intrinsic.tool.invoke", 2, 2, true, "json"),
 	"intrinsic.run_control.aborted":             intrinsicInfo("intrinsic.run_control.aborted", 1, 1, false, "bool"),
 	"intrinsic.flow.dispatch_group":             intrinsicInfo("intrinsic.flow.dispatch_group", 5, 5, true, "json"),
+	"intrinsic.flow.caching_function":           intrinsicInfo("intrinsic.flow.caching_function", 1, 1, true, "json"),
 	"intrinsic.agent.stage_forward":             intrinsicInfo("intrinsic.agent.stage_forward", 4, 4, true, "json"),
 	"intrinsic.agent.native_stage_forward":      intrinsicInfo("intrinsic.agent.native_stage_forward", 6, 6, true, "json"),
+	"intrinsic.agent.stage_streaming_forward":   intrinsicInfo("intrinsic.agent.stage_streaming_forward", 6, 6, true, "json"),
 	"intrinsic.agent.stage_chat_log":            intrinsicInfo("intrinsic.agent.stage_chat_log", 1, 1, true, "list<json>"),
 	"intrinsic.agent.stage_usage":               intrinsicInfo("intrinsic.agent.stage_usage", 1, 1, true, "json"),
 	"intrinsic.agent.stage_traces":              intrinsicInfo("intrinsic.agent.stage_traces", 1, 1, true, "list<json>"),
@@ -794,6 +811,8 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.program.components":              intrinsicInfo("intrinsic.program.components", 1, 1, true, "list<json>"),
 	"intrinsic.program.apply_components":        intrinsicInfo("intrinsic.program.apply_components", 2, 2, true, "json"),
 	"intrinsic.ai.complete_once":                intrinsicInfo("intrinsic.ai.complete_once", 3, 3, true, "json"),
+	"intrinsic.ai.control_take_pending":         intrinsicInfo("intrinsic.ai.control_take_pending", 1, 1, true, "json"),
+	"intrinsic.ai.control_pending_count":        intrinsicInfo("intrinsic.ai.control_pending_count", 1, 1, true, "i64"),
 	"intrinsic.ai.client_features":              intrinsicInfo("intrinsic.ai.client_features", 2, 2, false, "json"),
 	"intrinsic.json.parse_strict":               intrinsicInfo("intrinsic.json.parse_strict", 1, 1, true, "json"),
 	"intrinsic.retry.sleep":                     intrinsicInfo("intrinsic.retry.sleep", 3, 3, true, "void"),
@@ -812,6 +831,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.axgen.check_streaming_assertion": intrinsicInfo("intrinsic.axgen.check_streaming_assertion", 3, 3, true, "json"),
 	"intrinsic.axgen.deprecation":               intrinsicInfo("intrinsic.axgen.deprecation", 2, 2, true, "void"),
 	"intrinsic.axgen.speak":                     intrinsicInfo("intrinsic.axgen.speak", 3, 3, true, "json"),
+	"intrinsic.date.zone_offset":                intrinsicInfo("intrinsic.date.zone_offset", 2, 2, true, "f64"),
 	"intrinsic.axgen.caching_function":          intrinsicInfo("intrinsic.axgen.caching_function", 2, 2, true, "json"),
 	"intrinsic.axgen.cache_read":                intrinsicInfo("intrinsic.axgen.cache_read", 2, 2, true, "json"),
 	"intrinsic.axgen.cache_write":               intrinsicInfo("intrinsic.axgen.cache_write", 3, 3, true, "void"),

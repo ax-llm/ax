@@ -320,6 +320,7 @@ struct Core {
   static Value math_abs(Value value);
   static Value string_codepoint_length(Value value);
   static Value string_utf16_units(Value value);
+  static Value date_zone_offset(Value name, Value epoch_ms);
   static Value math_is_finite(Value value);
   static Value math_floor(Value value);
   static Value math_log(Value value);
@@ -411,6 +412,12 @@ struct Core {
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
   static Value ai_complete_once(Value client, Value request, Value options);
+  // The run control updates a run's request boundary holds for its path:
+  // take_pending hands them to the forward, which applies them when a step
+  // starts (each is applied then), and pending_count counts them with no side
+  // effects. Another client, or a native chat session, has none.
+  static Value ai_control_take_pending(Value client);
+  static Value ai_control_pending_count(Value client);
   static Value ai_client_features(Value client, Value model);
   static Value retry_sleep(Value attempt, Value client, Value options);
   static Value tool_invoke(Value fn, Value params);
@@ -448,6 +455,7 @@ struct Core {
   static Value run_control_aborted(Value control);
   static Value agent_stage_forward(Value stage, Value client, Value values, Value options);
   static Value agent_native_stage_forward(Value stage,Value state,Value client,Value values,Value options,Value selected);
+  static Value agent_stage_streaming_forward(Value stage,Value state,Value client,Value values,Value options,Value sink);
   static Value agent_stage_chat_log(Value stage);
   static Value agent_stage_usage(Value stage);
   static Value agent_stage_traces(Value stage);
@@ -469,6 +477,9 @@ struct Core {
   static Value openai_normalize_stream_delta(Value raw, Value state);
   static Value openai_normalize_embed_response(Value raw);
   static Value flow_dispatch_group(Value flow, Value client, Value plans, Value state, Value options);
+  // An AxFlow's caching function: the call's "caching_function" (a
+  // caching_function() handle value), else the process-wide one, else null.
+  static Value flow_caching_function(Value options);
   // JS indexOf over bytes (the units of len and string_slice): the index of
   // needle at or after start (a negative start is 0), else -1.
   static Value string_index_of(Value text, Value needle, Value start);
@@ -1443,6 +1454,7 @@ class AxACE {
   AceCallable generator_;
   Value config_;
   Value initial_playbook_;
+  // The injected clock (the `now` option); empty for the wall clock.
   std::string now_;
   Value playbook_;
   std::vector<Value> generator_history_;
@@ -1451,6 +1463,7 @@ class AxACE {
   bool has_generator_ = false;
 
   Value empty_playbook() const;
+  std::string now() const;
   int int_config(const std::string& key, int fallback) const;
   std::string render_playbook() const;
   Value generator_output(const Value& prediction) const;
@@ -1501,7 +1514,11 @@ class AxPlaybook {
   std::unique_ptr<AxGen> curator_program_;
   std::function<void(const std::string&)> apply_hook_;
   AxAgent* agent_ = nullptr;
+  friend class AxAgent;
 
+  // An agent stage rebuild replaced the bound program: run and write into the
+  // new one.
+  void rebind_program(AxGen& program);
   Value run_generator(const Value& example);
   Value run_reflector(const Value& payload);
   Value run_curator(const Value& payload);
@@ -1548,6 +1565,20 @@ class AxAgent : public AxProgram {
   Value forward(AIClient& client, Value values, Value options = Value::object());
   Value forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation);
   Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
+  // Runs the agent and streams the responder's output, as TypeScript's
+  // streamingForward does. The distiller and the executor (or the
+  // direct-respond skip) run first without streaming; then `handler` gets
+  // each AxGenDelta of the responder as it streams (see
+  // AxGen::streaming_forward), on the calling thread, and this returns the
+  // responder's output. With citations surface "hidden" the deltas leave out
+  // the citation field, and the citations observer gets the streamed
+  // citations after the stream. Returning false from the handler stops the
+  // run without an exception and returns what was merged so far; an exception
+  // the handler throws stops the run and propagates. With a run control a run
+  // the handler stops ends with an "aborted" event. Under a run control the
+  // responder streams through the request boundary, as
+  // AxGen::streaming_forward does.
+  Value streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler);
   AxAgent& set_rate_limiter(AxRateLimiter limiter);
   AxAgent& set_tracer(std::shared_ptr<AxTracer> tracer);
   AxAgent& set_meter(std::shared_ptr<AxMeter> meter);
@@ -1607,11 +1638,21 @@ class AxAgent : public AxProgram {
   Value playbook_config_;
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   std::unique_ptr<AxPlaybook> playbook_handle_;
+  // The stage the playbook targets and whether it writes into that stage's
+  // prompt, kept to rebind the playbook when stages are rebuilt.
+  std::string playbook_target_ = "actor";
+  bool playbook_apply_ = true;
   std::function<void(Value)> citations_observer_;
   std::function<void(Value)> playbook_observer_;
   void refresh_observability() const;
-  void ensure_configured_playbook(AIClient& client);
+  void attach_configured_playbook();
+  AxGen* playbook_stage() const;
+  void bind_playbook_stage(AxPlaybook& handle, AxGen* stage);
+  void rebind_playbook();
+  void set_stage_instruction(AxGen& stage, Value instruction);
   void learn_playbook_failures(Value output);
+  std::unique_ptr<AxGen> make_responder(const Value& options);
+  Value run(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks, Value sink, const bool* consumer_stopped);
 };
 
 std::string stringify(const Value& value);

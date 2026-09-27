@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { mineWeakness } from '../../../src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.js';
 import {
   adjustEvalScoreForActions,
   buildAgentJudgeCriteria,
@@ -2854,4 +2855,145 @@ await (async () => {
       'playbook-evolve-teacher-inputs: expected one system prompt per teacher request'
     );
   }
+})();
+
+// --- agent playbook evolve: the weakness miner's system prompt -------------
+// The expected prompt is what TS's mineWeakness (weaknessMiner.ts) sends: its
+// signature and MINER_DESCRIPTION, with the inputs the scenario provides (a
+// cluster signature, task summaries, action-log excerpts and the seeded
+// playbook; no function calls or tool errors). The scenario is the ports'
+// agent-playbook-evolve script: its expensive teacher takes only the miner
+// call, because the playbook's own reflector and curator lack teacherOptions.
+await (async () => {
+  const agentOutDir = join(outRoot, 'ir/conformance/axagent');
+  mkdirSync(agentOutDir, { recursive: true });
+  const finalCode =
+    "final('Answer', {'answer': 'Ax composes typed LLM programs.'})";
+  const codeResponse = {
+    content: JSON.stringify({ pythonCode: finalCode }),
+  };
+  const finalStep = {
+    expected_code: finalCode,
+    result: {
+      type: 'final',
+      args: ['Answer', { answer: 'Ax composes typed LLM programs.' }],
+    },
+  };
+  const seedPlaybook = {
+    version: 1,
+    sections: {
+      failures_to_avoid: [
+        {
+          id: 'failures-to-avoid-00001',
+          section: 'failures_to_avoid',
+          content: 'Check the evidence before answering.',
+          helpfulCount: 0,
+          harmfulCount: 0,
+          createdAt: '2026-07-15T00:00:00.000Z',
+          updatedAt: '2026-07-15T00:00:00.000Z',
+        },
+      ],
+    },
+    updatedAt: '2026-07-15T00:00:00.000Z',
+  };
+  const minerAnswer = [
+    'Weakness Description: The agent does not verify its final step.',
+    'Root Cause: The final step is accepted without a check.',
+    'Proposed Guidance: Verify the final step before completing the task.',
+    'Evidence Quotes: ["Answer"]',
+    'Config Recommendations: []',
+  ].join('\n');
+
+  const systemPrompts: string[] = [];
+  const teacherAI = new AxMockAIService<string>({
+    name: 'mock',
+    features: { functions: false, streaming: false },
+    chatResponse: async (req) => {
+      for (const message of req.chatPrompt) {
+        if (message.role === 'system') systemPrompts.push(message.content);
+      }
+      return {
+        results: [{ index: 0, content: minerAnswer, finishReason: 'stop' }],
+      };
+    },
+  });
+  const weakness = await mineWeakness({
+    ai: teacherAI,
+    cluster: {
+      signature: 'behavioral:no_error',
+      records: [
+        {
+          task: { input: { question: 'Answer briefly.' } },
+          prediction: { actionLog: finalCode } as never,
+          score: 0,
+          passed: false,
+        },
+      ],
+      severity: 1,
+      taskIds: ['#1'],
+    },
+    currentPlaybook: renderPlaybook(seedPlaybook as unknown as AxACEPlaybook),
+    index: 0,
+  });
+  if (!weakness || systemPrompts.length !== 1) {
+    throw new Error(
+      'agent-playbook-evolve-miner-system-prompt: the miner did not run'
+    );
+  }
+
+  const fixture = {
+    name: 'agent-playbook-evolve-miner-system-prompt',
+    kind: 'agent_playbook_evolve',
+    signature: 'question:string -> answer:string',
+    runtime_language: 'Python',
+    options: {
+      name: 'qa',
+      description: 'Answer the question.',
+      contextFields: [],
+    },
+    responses: [
+      codeResponse,
+      codeResponse,
+      { content: 'Answer: Ax composes typed LLM programs.' },
+      codeResponse,
+    ],
+    runtime_script: [finalStep, finalStep],
+    seed: { playbook: seedPlaybook, artifact: { feedback: [], history: [] } },
+    dataset: {
+      train: [{ input: { question: 'Answer briefly.' }, score: 0 }],
+    },
+    teacher_client: {
+      model: 'premium-model',
+      options: {
+        modelInfo: [
+          {
+            completionTokenCostPer1M: 600,
+            isExpensive: true,
+            name: 'premium-model',
+            promptTokenCostPer1M: 150,
+          },
+        ],
+      },
+    },
+    cases: [
+      {
+        name: 'miner-system-prompt',
+        options: {
+          teacherOptions: { useExpensiveModel: 'yes' },
+          verify: true,
+          minHeldInGain: 0,
+          maxProposals: 1,
+          maxMetricCalls: 2,
+        },
+        expected: { outcome_count: 1 },
+        expected_teacher_request_count: 1,
+        expected_teacher_system_prompts: systemPrompts,
+      },
+    ],
+    teacher_responses: [{ content: minerAnswer }],
+  };
+  writeFileSync(
+    join(agentOutDir, 'agent-playbook-evolve-miner-system-prompt.json'),
+    `${JSON.stringify(stable(fixture), null, 2)}\n`
+  );
 })();

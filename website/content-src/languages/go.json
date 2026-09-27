@@ -300,6 +300,23 @@
           "\t}",
           "}"
         ]
+      },
+      "dates": {
+        "sourcePath": "src/examples/go/generation/date_fields.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "planner := ax.NewAx(`emailText:string, sentAt:datetime -> meetingStartsAt:datetime, travelWindow:dateRange`,",
+          "\tmap[string]ax.Value{\"parseDates\": true})",
+          "out, err := planner.Forward(ctx, client, map[string]ax.Value{",
+          "\t\"emailText\": emailText,",
+          "\t\"sentAt\":    time.Date(2024, 5, 2, 16, 30, 0, 0, time.UTC),",
+          "}, nil)",
+          "if err != nil {",
+          "\tpanic(err)",
+          "}",
+          "fmt.Println(out.(map[string]ax.Value)[\"meetingStartsAt\"]) // 2024-05-07T19:00:00.000Z"
+        ]
       }
     },
     "signatures": {
@@ -400,6 +417,41 @@
           "    ctx, dataset,",
           "    map[string]ax.Value{\"verify\": true, \"maxProposals\": 1, \"runtime\": runtime},",
           ")"
+        ]
+      },
+      "streaming": {
+        "sourcePath": "src/examples/go/short-agents/streaming_agent.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "// The handbook stays in the agent's runtime, out of the prompt. With",
+          "// citations on, the answer cites the evidence it used, and ids the run never",
+          "// gathered are sent back to the model for a correction.",
+          "assistant := ax.NewAgent(\"question:string, handbook:string -> answer:string\", map[string]ax.Value{",
+          "\t\"contextFields\": ax.Array(\"handbook\"),",
+          "\t\"runtime\":       ax.Object(\"language\", \"JavaScript\"),",
+          "\t\"citations\":     ax.Object(\"onCitations\", func(ids []ax.Value) { fmt.Printf(\"\\ncited: %v\\n\", ids) }),",
+          "})",
+          "",
+          "// The distiller and the executor run first; then the responder's answer",
+          "// streams. Merge each delta and start over when the version changes (a retry).",
+          "version := 0",
+          "for delta, err := range assistant.StreamingForward(ctx, openAIClient(), map[string]ax.Value{",
+          "\t\"question\": \"I downgraded today. When does it take effect, and is my data safe if I delete the workspace?\",",
+          "\t\"handbook\": handbook,",
+          "}, map[string]ax.Value{\"runtime\": axgoja.NewRuntime(), \"max_actor_steps\": 12}) {",
+          "\tif err != nil {",
+          "\t\tpanic(err)",
+          "\t}",
+          "\tif delta.Version != version {",
+          "\t\tversion = delta.Version",
+          "\t\tfmt.Println(\"\\n[retry: starting over]\")",
+          "\t}",
+          "\tif text, ok := delta.Delta[\"answer\"].(string); ok {",
+          "\t\tfmt.Print(text)",
+          "\t}",
+          "}",
+          "fmt.Println()"
         ]
       }
     },

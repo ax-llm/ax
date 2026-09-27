@@ -35,13 +35,13 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
     },
     {
+      "content": "{\"answer\":\"Paris\"}"
+    },
+    {
       "content": "{\"itemTags\":{\"dc-1\":\"helpful\"}}"
     },
     {
       "content": "{\"operations\":[{\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"France resolves to Paris\"}]}"
-    },
-    {
-      "content": "{\"answer\":\"Paris\"}"
     }
   ],
   "signature": "question:string -> answer:string"

@@ -1,0 +1,72 @@
+{
+  "calls": [
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "forward"
+    },
+    {
+      "input": {
+        "question": "Capital of Italy?"
+      },
+      "kind": "forward"
+    }
+  ],
+  "expected_cache_gets": 4,
+  "expected_cache_sets": [
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "Rome"
+    },
+    {
+      "answer": "Rome"
+    }
+  ],
+  "expected_deltas": [null, null],
+  "expected_outputs": [
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "Rome"
+    }
+  ],
+  "expected_request_count": 2,
+  "expected_requests": [1, 1],
+  "kind": "flow_cache_sequence",
+  "name": "flow-cache-different-inputs",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: Paris",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: Rome",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "signature": "question:string -> answer:string"
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "expected_output": {
+    "answer": "Refunds take 30 days."
+  },
+  "expected_request_count": 5,
+  "expected_transcript": [
+    "request:distiller",
+    "request:executor",
+    "request:responder",
+    "request:context_map",
+    "request:context_map"
+  ],
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "kind": "agent_forward",
+  "name": "agent-forward-context-map",
+  "options": {
+    "contextMap": {
+      "map": "## CONTEXT UNDERSTANDING\n[cu-1] Orders ship weekly"
+    },
+    "directResponse": "off",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: Refunds take 30 days."
+    },
+    {
+      "content": "{\"diagnosis\":\"refund window is reusable\",\"itemTags\":{}}"
+    },
+    {
+      "content": "{\"operations\":[{\"type\":\"ADD\",\"section\":\"reusable_results\",\"content\":\"Refund window = 30 days\"}]}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

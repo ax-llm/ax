@@ -1169,6 +1169,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("agent", "function", "Create an AxAgent from a signature and agent/runtime options.", []string{"name", "description", "runtime", "maxSteps", "context fields", "discovery", "recall", "functions", "skills", "skillsCatalog", "memoriesCatalog", "relevanceRanking", "load observers", "used observers", "citations", "playbook", "instruction", "instructionAddenda"}, "AxAgent"),
 				sym("AxAgent", "type", "RLM agent with Core-owned envelopes, complete runtime-state export/restore, traces, discovery, recall, loaded skills and memories, usage observers, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.", []string{"executor model", "runtime", "policy", "context", "skills", "memories", "relevance ranking", "observers", "runtime state", "optimizer metadata", "citations", "playbook"}, "agent program"),
 				sym("add_child_agent", "method", "Register an owned child agent for serialized delegation through the parent invocation boundary. Scoped controls use parent/namespace.name paths.", []string{"namespace", "name", "child", "independent conversation", "child usage"}, "parent agent"),
+				sym("agent_streaming_forward", "method", "Run the agent and stream the responder's deltas, as TypeScript's streamingForward does, after the distiller and executor run without streaming.", []string{"deltas", "versions", "hidden citations", "run control"}, "responder deltas"),
 			},
 		},
 		{
@@ -1275,6 +1276,8 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "AIClient.owned_worker_factory", "AiClient.ownedWorkerFactory", "axllm::AIClient::owned_worker_factory", "AxOwnedClientFactory.OwnedWorkerFactory", "AxAIClient::owned_worker_factory")
 	case "add_child_agent":
 		return mapTarget(target, "AxAgent.add_child_agent", "AxAgent.addChildAgent", "axllm::AxAgent::add_child_agent", "AxAgent.AddChildAgent", "AxAgent::with_child_agent")
+	case "agent_streaming_forward":
+		return mapTarget(target, "AxAgent.streaming_forward", "AxAgent.streamingForward", "axllm::AxAgent::streaming_forward", "AxAgent.StreamingForward", "AxAgent::streaming_forward")
 	case "owned_program_factory":
 		return mapTarget(target, "AxProgram.owned_worker_factory", "AxProgram.ownedWorkerFactory", "axllm::AxProgram::owned_worker_factory", "AxOwnedProgramFactory.OwnedWorkerFactory", "AxExecutableProgram::owned_worker_factory")
 	case "AxRunControl":
@@ -1386,6 +1389,8 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "AxSignature", "AxSignature", "axllm::Value signature", "axllm.AxSignature", "AxSignature")
 	case "add_child_agent":
 		return apiReferencePublicName(target, canonical) + "(namespace, name, child)"
+	case "agent_streaming_forward":
+		return mapTarget(target, "AxAgent.streaming_forward(client, values, options=None)", "AxAgent.streamingForward(client, values, options)", "axllm::AxAgent::streaming_forward(client, values, options, handler)", "(*AxAgent).StreamingForward(ctx, client, values, options)", "AxAgent::streaming_forward(&mut client, input, options, on_delta)")
 	case "run_control":
 		return apiReferencePublicName(target, canonical) + "()"
 	case "AxCachingFunction":
@@ -1933,6 +1938,8 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"prompt", "template_validate", "", "semantic"},
 		{"prompt", "number_format", "", "semantic"},
 		{"axgen", "forward", "", "semantic"},
+		{"axgen", "date_field_value", "", "semantic"},
+		{"axgen", "date_input", "", "semantic"},
 		{"axgen", "stream", "", "semantic"},
 		{"axai", "ai_chat", "", "transport-boundary"},
 		{"axai", "ai_typesafe_native", "", "transport-boundary"},
@@ -1955,6 +1962,7 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axai", "ai_error", "", "validation-error"},
 		{"axai", "ai_unsupported", "", "validation-error"},
 		{"axagent", "agent_forward", "", "semantic"},
+		{"axagent", "agent_streaming_forward", "", "semantic"},
 		{"axagent", "agent_runtime_adapter", "", "semantic"},
 		{"axagent", "agent_runtime_policy", "", "semantic"},
 		{"axagent", "agent_runtime_protocol", "", "transport-boundary"},
@@ -2407,7 +2415,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `python examples/adaptive_balancer_no_key.py`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport",
 				"- `python examples/cancellation_no_key.py`: one-shot provider cancellation with no transport attempt",
-				"- `python examples/axflow_program_graph.py`: AxFlow program graph",
+				"- `python examples/axflow_program_graph.py`: AxFlow program graph and a caching function, whose hits run no node and record no span",
 				"- `python examples/flow_mermaid.py`: portable Mermaid flow parsing and canonical round-trip",
 				"- `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `python examples/realtime_audio_events.py`: Grok/Gemini realtime audio setup, input, and event folding",
@@ -2487,7 +2495,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/AdaptiveBalancerNoKeyExample.java`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport",
 				"- `examples/CancellationNoKeyExample.java`: one-shot provider cancellation with no transport attempt",
-				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph",
+				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph and a caching function, whose hits run no node and record no span",
 				"- `examples/FlowMermaidExample.java`: portable Mermaid flow parsing and canonical round-trip",
 				"- `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `examples/RealtimeAudioEventsExample.java`: Grok/Gemini realtime audio setup, input, and event folding",
@@ -2714,7 +2722,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `cargo run --example cancellation_no_key`: one-shot provider cancellation with no transport attempt",
 				"- `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool",
 				"- `cargo run --example axgen_streaming_no_key`: `streaming_forward` field deltas, streaming assertions, field processor feedback, field transforms, and `AxFlow::streaming_forward` through a scripted streaming client",
-				"- `cargo run --example axflow_program_graph`: AxFlow program graph",
+				"- `cargo run --example axflow_program_graph`: AxFlow program graph and a caching function, whose hits run no node and record no span",
 				"- `cargo run --example flow_mermaid`: portable Mermaid flow parsing and canonical round-trip",
 				"- `cargo run --example audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `cargo run --example realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding",

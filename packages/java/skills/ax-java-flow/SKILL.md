@@ -89,6 +89,17 @@ Forward accepts the provider client and the public flow inputs.
 var output = parallelFlow.forward(client, Map.of("topicText", "Typed LLM workflows"));
 ```
 
+### Cache a flow
+
+An `AxCachingFunction` under `cachingFunction` in the `forward` or `streamingForward` options, or `AxGlobals.setCachingFunction(fn)` for the process, caches the flow's output as TypeScript does: a hit runs no node and records no span or metric, and a run `control` skips it. The `AxFlow` constructor takes none; the function also reaches the flow's AxGen nodes, which cache their own outputs.
+
+```java
+var output = parallelFlow.forward(
+    client,
+    Map.of("topicText", "Typed LLM workflows"),
+    Map.of("cachingFunction", cache));
+```
+
 Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/java/subsystems/flow/.
 
 ## Astra Session Work
@@ -105,6 +116,8 @@ MCP host policy applies to native background calls too. Configure authorizeToolC
 Register child agents before running the parent: add_child_agent(namespace, name, child) in Python/C++, AddChildAgent in Go, addChildAgent in Java, and with_child_agent in Rust. Registered children are available automatically as namespaced actor calls, such as team.researcher({question}). Calls use discovery, validation, and invocation accounting. Child invocation remains serialized on the owning run thread and owns a separate conversation. Retained callbacks reject calls after the run closes. Controls target paths such as root/team.researcher/executor. Child results return through the parent invocation log, and parent usage includes a children section.
 
 Attach the language-native run controller through forward options for steering, reasoning changes, cancellation, and lifecycle events. Queued and applied are different states. HTTP applies updates at a response boundary; an optional host WebSocket enables native steering. Do not manage response IDs, socket messages, or tool-result submission in application code.
+
+As in TypeScript, an update queued while a request is in flight applies when the next step starts. If that request gave the final answer, the run takes one more step to apply it, and the answer comes from that step; a steer stays in the conversation for the steps after it.
 
 A provisional answer is not successful completion while started tools remain unresolved. Cancellation closes the session, reports unresolved call IDs, and retains unresolved started calls in tool traces and native agent action logs; it cannot undo an external action. Handlers may cooperate through the invocation cancellation context. Late results from noncooperative work must not change a closed run or trigger replay.
 

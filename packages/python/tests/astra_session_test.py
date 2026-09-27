@@ -206,13 +206,29 @@ agent_program=agent('question -> answer',{'functions':[agent_tool],'directRespon
 assert agent_program.forward(ai('openai',model='gpt-6-astra',api_key='test',transport=agent_transport),{'question':'Find reference'},{'control':agent_control})=={'answer':'REF-42'}
 assert agent_calls==['REF-42'] and len(agent_requests)==6
 assert len([event for event in agent_control_events if event['type']=='applied'])==5
-assert {event['path'] for event in agent_control_events if event['type']=='started'}=={'root/distiller','root/executor','root/responder'}
+assert [event['path'] for event in agent_control_events if event['type']=='started']==['root','root/distiller','root/executor','root/responder']
 activity=[entry for entry in agent_program.state['action_log'] if entry.get('type')=='function_call']
 assert len(activity)==1 and activity[0]['qualified_name']=='tools.lookup',activity
 assert agent_program.state['function_call_traces'][0]['call_id']=='agent-call'
 assert agent_program.invoke_callable('tools.lookup',{'query':'REF-42'})['status']=='error'
 assert agent_calls==['REF-42'], 'native call executed again through actor machinery'
 print('python native agent tools, authority boundaries, action logs, and duplicate prevention passed')
+
+# Agent streams do not cover async run sessions yet: under a run control on a
+# session-capable client the stream fails before the distiller runs, with the
+# error AxGen deltas raise.
+stream_requests=[]
+def stream_session_transport(request):
+    stream_requests.append(request)
+    raise AssertionError('an agent stream under a run session sent a model request')
+stream_agent=agent('question -> answer',{'directResponse':'off'})
+try:
+    list(stream_agent.streaming_forward(ai('openai',model='gpt-6-astra',api_key='test',transport=stream_session_transport),{'question':'Find reference'},{'control':run_control()}))
+    raise AssertionError('an agent stream under a run session did not fail')
+except NotImplementedError as error:
+    assert 'do not cover async run sessions' in str(error), str(error)
+assert stream_requests==[], stream_requests
+print('python agent streams under a run session fail before any stage, as AxGen deltas do')
 
 # A real stalled HTTP body must close promptly when the run is cancelled.
 import socket

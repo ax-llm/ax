@@ -4,7 +4,7 @@ import os
 import copy
 import re
 from typing import Any
-from .signature import _js_number_text
+from .signature import _js_date_millis, _js_number_text
 from .signature import (
     _signature_describe_field_values_impl,
 )
@@ -119,6 +119,10 @@ def _core_type_is(value, type_name):
         return value is None
     if type_name == "json":
         return value is None or isinstance(value, (dict, list, str, int, float, bool))
+    if type_name == "date":
+        # A native date or time value, which a date or datetime field takes
+        # where TypeScript takes a Date.
+        return _js_date_millis(value) is not None
     return False
 
 
@@ -817,6 +821,32 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         else:
             pass
         return None
+    else:
+        pass
+    date_types = []
+    date_types.append("date")
+    date_types.append("datetime")
+    is_date_type = _core_contains(date_types, type_name)
+    is_native_date = _core_type_is(value, "date")
+    native_date_value = _core_and(is_date_type, is_native_date)
+    if native_date_value:
+        return None
+    else:
+        pass
+    range_types = []
+    range_types.append("dateRange")
+    range_types.append("datetimeRange")
+    is_range_type = _core_contains(range_types, type_name)
+    is_range_object = _core_type_is(value, "object")
+    range_object = _core_and(is_range_type, is_range_object)
+    if range_object:
+        has_start = _core_map_contains(value, "start")
+        has_end = _core_map_contains(value, "end")
+        has_bounds = _core_and(has_start, has_end)
+        if has_bounds:
+            return None
+        else:
+            pass
     else:
         pass
     string_types = []

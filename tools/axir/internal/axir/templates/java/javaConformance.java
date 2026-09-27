@@ -9,6 +9,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,10 @@ public final class Conformance {
       return this;
     }
 
+    // Called with each chat request's 1-based number while it is in flight,
+    // before the scripted answer (a fixture's control_steer).
+    java.util.function.IntConsumer onRequest;
+
     ConformanceScriptedAI(List<Object> responses, List<Object> streamEvents) {
       this(responses, streamEvents, Map.of());
     }
@@ -68,12 +73,25 @@ public final class Conformance {
 
     protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) {
       chatCalls++;
-      requests.add(new LinkedHashMap<>(request));
+      requests.add(sentRequest(request));
       chatOptions.add(new LinkedHashMap<>(options));
+      noteRequest();
       if (responses.isEmpty()) throw new RuntimeException("scripted client exhausted");
       Map<String, Object> raw = Core.asMap(responses.remove(0));
       if (raw.containsKey("error")) throw fixtureAIServiceError(Core.asMap(raw.get("error")));
       return Core.legacyResponseToChatResponse(raw);
+    }
+
+    // The request as sent: its chat_prompt is copied, since the forward goes
+    // on appending to the conversation it built the request from.
+    static Map<String, Object> sentRequest(Map<String, Object> request) {
+      Map<String, Object> sent = new LinkedHashMap<>(request);
+      if (sent.get("chat_prompt") instanceof List<?> prompt) sent.put("chat_prompt", Core.ownedCopy(prompt));
+      return sent;
+    }
+
+    private void noteRequest() {
+      if (onRequest != null) onRequest.accept(requests.size());
     }
 
     protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) {
@@ -88,8 +106,9 @@ public final class Conformance {
     public Iterable<Map<String, Object>> stream(Map<String, Object> request) {
       if (!responses.isEmpty() && Core.asMap(responses.get(0)).containsKey("stream")) {
         chatCalls++;
-        requests.add(new LinkedHashMap<>(request));
+        requests.add(sentRequest(request));
         chatOptions.add(new LinkedHashMap<>());
+        noteRequest();
         List<Object> chunks = Core.asList(Core.asMap(responses.remove(0)).get("stream"));
         return () -> new java.util.Iterator<Map<String, Object>>() {
           private int position;
@@ -626,6 +645,8 @@ public final class Conformance {
       case "validate_output" -> runValidateOutput(fixture);
       case "strip_internal" -> runStripInternal(fixture);
       case "number_format" -> runNumberFormat(fixture);
+      case "date_field_value" -> runDateFieldValue(fixture);
+      case "date_input" -> runDateInput(fixture);
       case "prompt" -> runPrompt(fixture);
       case "template" -> assertEqual(Core.render_template_content(fixture.get("template"), fixture.getOrDefault("vars", Map.of()), fixture.getOrDefault("context", "fixture-template")), fixture.getOrDefault("expected_output", ""), "template output");
       case "template_error" -> runTemplateError(fixture);
@@ -634,6 +655,7 @@ public final class Conformance {
       case "forward" -> runForward(fixture);
       case "streaming_forward" -> runStreamingForward(fixture);
       case "cache_sequence" -> runCacheSequence(fixture);
+      case "flow_cache_sequence" -> runFlowCacheSequence(fixture);
       case "ai_session_state" -> runAISessionState(fixture);
       case "ai_session_events" -> runAISessionEvents(fixture);
       case "ai_typesafe_native" -> {
@@ -668,6 +690,7 @@ public final class Conformance {
       case "ai_realtime" -> runAIRealtime(fixture);
       case "ai_context_cache" -> runAIContextCache(fixture);
       case "agent_forward" -> runAgentForward(fixture);
+      case "agent_streaming_forward" -> runAgentForward(fixture);
       case "agent_playbook_coverage" -> runAgentPlaybookCoverage(fixture);
       case "agent_playbook_evolve" -> runAgentPlaybookEvolve(fixture);
       case "agent_prompt" -> runAgentPrompt(fixture);
@@ -882,6 +905,67 @@ public final class Conformance {
       checkNumberFormat("json.pretty", input, String.valueOf(Core.jsonPretty(list)), "[\n  " + json + "\n]");
     }
   }
+  // TS validateAndParseFieldValue on date-typed fields with parse_dates on:
+  // each case's {has, value}, or its exact error message.
+  static void runDateFieldValue(Map<String, Object> fixture) {
+    boolean parseDates = Core.truthy(fixture.getOrDefault("parse_dates", false));
+    int index = 0;
+    for (Object item : Core.asList(fixture.get("cases"))) {
+      Map<String, Object> field = new LinkedHashMap<>(Core.asMap(Core.get(item, "field", Map.of())));
+      field.put("parse_dates", parseDates);
+      String text = String.valueOf(Core.get(item, "text", ""));
+      String label = "case " + index + " " + Json.stringify(text.length() > 80 ? text.substring(0, 80) : text);
+      index++;
+      Map<String, Object> caseMap = Core.asMap(item);
+      Object parsed;
+      try {
+        parsed = Core._stream_field_value_impl(field, text);
+      } catch (RuntimeException error) {
+        if (!caseMap.containsKey("expected_error")) throw new FixtureError(label + ": unexpected error " + error.getMessage());
+        assertEqual(error.getMessage(), caseMap.get("expected_error"), label + " error");
+        continue;
+      }
+      if (caseMap.containsKey("expected_error")) throw new FixtureError(label + ": expected error " + caseMap.get("expected_error") + ", got " + Json.stringify(parsed));
+      Map<String, Object> actual = new LinkedHashMap<>();
+      boolean has = Core.truthy(Core.get(parsed, "has", false));
+      actual.put("has", has);
+      if (has) actual.put("value", Core.get(parsed, "value", null));
+      assertEqual(actual, caseMap.get("expected"), label);
+    }
+  }
+  // Fixture date markers as java.time values: {"$date": iso} is an Instant
+  // (an OffsetDateTime when it has an offset), {"$date_only": "YYYY-MM-DD"} a
+  // LocalDate.
+  static Object nativeDateValues(Object value) {
+    if (value instanceof List<?> list) {
+      List<Object> out = new ArrayList<>();
+      for (Object item : list) out.add(nativeDateValues(item));
+      return out;
+    }
+    if (value instanceof Map<?, ?> map) {
+      Object instant = map.get("$date");
+      if (instant instanceof String iso) return iso.endsWith("Z") ? java.time.Instant.parse(iso) : java.time.OffsetDateTime.parse(iso);
+      Object day = map.get("$date_only");
+      if (day instanceof String text) return java.time.LocalDate.parse(text);
+      Map<String, Object> out = new LinkedHashMap<>();
+      for (Map.Entry<?, ?> entry : map.entrySet()) out.put(String.valueOf(entry.getKey()), nativeDateValues(entry.getValue()));
+      return out;
+    }
+    return value;
+  }
+  // Native date inputs and range objects pass input validation and render in
+  // the user prompt as TS renders Dates.
+  static void runDateInput(Map<String, Object> fixture) {
+    AxSignature sig = buildSignature(fixture);
+    int index = 0;
+    for (Object item : Core.asList(fixture.get("cases"))) {
+      Map<String, Object> values = Core.asMap(nativeDateValues(Core.get(item, "values", Map.of())));
+      Core.validate_fields(sig.inputs, values, "input");
+      List<Map<String, Object>> messages = new PromptTemplate(sig, List.of(), null, null).render(values);
+      assertEqual(messages.get(messages.size() - 1).get("content"), Core.get(item, "expected_user_content", null), "case " + index);
+      index++;
+    }
+  }
   static void checkNumberFormat(String label, String input, String actual, String expected) {
     if (!actual.equals(expected)) throw new FixtureError(label + " of " + input + ": expected " + expected + ", got " + actual);
   }
@@ -951,10 +1035,14 @@ public final class Conformance {
       });
     }
     ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())), Core.asMap(fixture.get("client"))).scriptSpeak(fixture);
-    Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of()))), fixture, error -> assertErrorCause(error, fixture));
+    Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+    List<Object> controlEvents = attachFixtureControl(fixture, client, forwardOptions);
+    Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions), fixture, error -> assertErrorCause(error, fixture));
     assertSpeakRequests(fixture, client);
     if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");
+    if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "run control events");
+    assertRequestRoles(fixture, client);
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
     // An expected failure (e.g. a gated expensive model) may stop before the provider call.
     if (!fixture.containsKey("expected_error_contains") && Boolean.TRUE.equals(fixture.getOrDefault("expect_chat_path", true)) && client.chatCalls == 0) throw new FixtureError("expected AxGen to use AxAIService.chat()");
@@ -1057,21 +1145,43 @@ public final class Conformance {
   }
 
   // control: true attaches a run control and records its lifecycle events as
-  // {type, path}, ignoring the other event types.
-  static List<Object> attachFixtureControl(Map<String, Object> fixture, Map<String, Object> runOptions) {
+  // {type, path}, ignoring the other event types. With control_steer
+  // {during_request, text} every event is recorded, and the scripted client
+  // steers while that request (1-based) is in flight.
+  static List<Object> attachFixtureControl(Map<String, Object> fixture, ConformanceScriptedAI client, Map<String, Object> runOptions) {
     List<Object> events = java.util.Collections.synchronizedList(new ArrayList<>());
     if (!Core.truthy(fixture.get("control"))) return events;
     AxRunControl control = new AxRunControl();
+    final Map<String, Object> steer = fixture.get("control_steer") instanceof Map<?, ?> spec ? Core.asMap(spec) : null;
     control.onEvent(event -> {
       Object type = event.get("type");
-      if (!List.of("started", "completed", "failed", "aborted").contains(String.valueOf(type))) return;
+      if (steer == null && !List.of("started", "completed", "failed", "aborted").contains(String.valueOf(type))) return;
       Map<String, Object> recorded = new LinkedHashMap<>();
       recorded.put("type", type);
       recorded.put("path", event.get("path"));
       events.add(recorded);
     });
+    if (steer != null) {
+      int during = Core.asInt(steer.getOrDefault("during_request", 1));
+      String text = String.valueOf(steer.getOrDefault("text", ""));
+      client.onRequest = number -> {
+        if (number == during) control.steer(text);
+      };
+    }
     runOptions.put("control", control);
     return events;
+  }
+
+  // expected_request_roles: the message roles of every request, in order.
+  static void assertRequestRoles(Map<String, Object> fixture, ConformanceScriptedAI client) {
+    if (!fixture.containsKey("expected_request_roles")) return;
+    List<Object> roles = new ArrayList<>();
+    for (Map<String, Object> request : client.requests) {
+      List<Object> requestRoles = new ArrayList<>();
+      for (Object message : Core.asList(request.get("chat_prompt"))) requestRoles.add(Core.asMap(message).get("role"));
+      roles.add(requestRoles);
+    }
+    assertEqual(roles, fixture.get("expected_request_roles"), "request roles");
   }
 
   static Map<String, Object> deltaEnvelope(AxGenDelta delta) {
@@ -1088,7 +1198,7 @@ public final class Conformance {
     AxGen gen = streamingFixtureGen(fixture, toolBuild, processorCalls);
     ConformanceScriptedAI client = streamingFixtureClient(fixture);
     Map<String, Object> runOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
-    List<Object> controlEvents = attachFixtureControl(fixture, runOptions);
+    List<Object> controlEvents = attachFixtureControl(fixture, client, runOptions);
     Map<String, Object> input = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of())));
     Object stopAfter = fixture.get("stop_after_deltas");
     List<Object> deltas = new ArrayList<>();
@@ -1118,6 +1228,7 @@ public final class Conformance {
       if (stopAfter == null) assertEqual(output, fixture.get("expected_output"), "streaming output");
     }
     if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "run control events");
+    assertRequestRoles(fixture, client);
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) {
       throw new FixtureError("expected " + fixture.get("expected_request_count") + " requests, got " + client.requests.size());
     }
@@ -1140,10 +1251,11 @@ public final class Conformance {
     List<Object> processorCalls = new ArrayList<>();
     AxGen gen = streamingFixtureGen(fixture, toolBuild, processorCalls);
     Map<String, Object> runOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
-    List<Object> controlEvents = attachFixtureControl(fixture, runOptions);
+    ConformanceScriptedAI client = streamingFixtureClient(fixture);
+    List<Object> controlEvents = attachFixtureControl(fixture, client, runOptions);
     List<Object> deltas = new ArrayList<>();
     RuntimeException failure = null;
-    try (AxGenDeltaStream stream = gen.streamingForward(streamingFixtureClient(fixture), new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of()))), runOptions)) {
+    try (AxGenDeltaStream stream = gen.streamingForward(client, new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of()))), runOptions)) {
       for (AxGenDelta delta : stream) deltas.add(deltaEnvelope(delta));
     } catch (RuntimeException error) {
       failure = error;
@@ -1166,21 +1278,9 @@ public final class Conformance {
   // and requests, and every cache read and write. cache_read_error and
   // cache_write_error make the cache throw that message.
   static void runCacheSequence(Map<String, Object> fixture) {
-    Map<String, Map<String, Object>> store = new java.util.HashMap<>();
     List<String> reads = new ArrayList<>();
     List<Object> writes = new ArrayList<>();
-    AxCachingFunction cache = (key, value) -> {
-      if (value != null) {
-        if (Core.truthy(fixture.get("cache_write_error"))) throw new RuntimeException(String.valueOf(fixture.get("cache_write_error")));
-        writes.add(Core.ownedCopy(value));
-        store.put(key, Core.asMap(Core.ownedCopy(value)));
-        return null;
-      }
-      reads.add(key);
-      if (Core.truthy(fixture.get("cache_read_error"))) throw new RuntimeException(String.valueOf(fixture.get("cache_read_error")));
-      Map<String, Object> hit = store.get(key);
-      return hit == null ? null : Core.asMap(Core.ownedCopy(hit));
-    };
+    AxCachingFunction cache = fixtureCachingFunction(fixture, reads, writes);
     String cacheIn = String.valueOf(fixture.getOrDefault("cache_in", "call"));
     Map<String, Object> options = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
     if ("constructor".equals(cacheIn)) options.put("cachingFunction", cache);
@@ -1201,6 +1301,14 @@ public final class Conformance {
         if ("call".equals(cacheIn)) callOptions.put("cachingFunction", cache);
         if (Core.truthy(call.get("control"))) callOptions.put("control", new AxRunControl());
         Map<String, Object> input = new LinkedHashMap<>(Core.asMap(call.getOrDefault("input", Map.of())));
+        if (Core.truthy(call.get("reverse_input_keys"))) {
+          // Fixture JSON sorts its keys; the call asks for them reversed.
+          List<Map.Entry<String, Object>> entries = new ArrayList<>(input.entrySet());
+          Collections.reverse(entries);
+          Map<String, Object> reversed = new LinkedHashMap<>();
+          for (Map.Entry<String, Object> entry : entries) reversed.put(entry.getKey(), entry.getValue());
+          input = reversed;
+        }
         errors.add(null);
         if ("streaming_forward".equals(call.get("kind"))) {
           List<Object> deltas = new ArrayList<>();
@@ -1228,6 +1336,88 @@ public final class Conformance {
     if (reads.size() != Core.asInt(fixture.get("expected_cache_gets"))) throw new FixtureError("expected " + fixture.get("expected_cache_gets") + " cache reads, got " + reads.size());
     assertEqual(writes, fixture.get("expected_cache_sets"), "cache writes");
     assertSpeakRequests(fixture, client);
+  }
+
+  // The in-memory caching function of a cache fixture: it records each read's
+  // key and each written value, and throws cache_read_error or
+  // cache_write_error (before recording the write) when the fixture sets them.
+  static AxCachingFunction fixtureCachingFunction(Map<String, Object> fixture, List<String> reads, List<Object> writes) {
+    Map<String, Map<String, Object>> store = new java.util.concurrent.ConcurrentHashMap<>();
+    return (key, value) -> {
+      if (value != null) {
+        if (Core.truthy(fixture.get("cache_write_error"))) throw new RuntimeException(String.valueOf(fixture.get("cache_write_error")));
+        writes.add(Core.ownedCopy(value));
+        store.put(key, Core.asMap(Core.ownedCopy(value)));
+        return null;
+      }
+      reads.add(key);
+      if (Core.truthy(fixture.get("cache_read_error"))) throw new RuntimeException(String.valueOf(fixture.get("cache_read_error")));
+      Map<String, Object> hit = store.get(key);
+      return hit == null ? null : Core.asMap(Core.ownedCopy(hit));
+    };
+  }
+
+  // Several forward / streamingForward calls on one AxFlow with one in-memory
+  // cache (cache_in: call or global): each call's output, deltas and
+  // requests, and every read and write of the cache, the flow's own entry and
+  // its AxGen nodes'. A streamed call's output is its last delta's delta.
+  static void runFlowCacheSequence(Map<String, Object> fixture) {
+    List<String> reads = java.util.Collections.synchronizedList(new ArrayList<>());
+    List<Object> writes = java.util.Collections.synchronizedList(new ArrayList<>());
+    AxCachingFunction cache = fixtureCachingFunction(fixture, reads, writes);
+    String cacheIn = String.valueOf(fixture.getOrDefault("cache_in", "call"));
+    AxFlow fl = buildFlow(fixture);
+    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), List.of());
+    List<Object> outputs = new ArrayList<>();
+    List<Object> deltasPerCall = new ArrayList<>();
+    List<Object> requests = new ArrayList<>();
+    List<Object> errors = new ArrayList<>();
+    AxCachingFunction previousGlobal = AxGlobals.cachingFunction();
+    if ("global".equals(cacheIn)) AxGlobals.setCachingFunction(cache);
+    try {
+      for (Object rawCall : Core.asList(fixture.getOrDefault("calls", List.of()))) {
+        Map<String, Object> call = Core.asMap(rawCall);
+        int before = client.requests.size();
+        Map<String, Object> callOptions = new LinkedHashMap<>();
+        if ("call".equals(cacheIn)) callOptions.put("cachingFunction", cache);
+        if (Core.truthy(call.get("control"))) callOptions.put("control", new AxRunControl());
+        Map<String, Object> input = new LinkedHashMap<>(Core.asMap(call.getOrDefault("input", Map.of())));
+        if (Core.truthy(call.get("reverse_input_keys"))) {
+          // Fixture JSON sorts its keys; the call asks for them reversed.
+          List<Map.Entry<String, Object>> entries = new ArrayList<>(input.entrySet());
+          Collections.reverse(entries);
+          Map<String, Object> reversed = new LinkedHashMap<>();
+          for (Map.Entry<String, Object> entry : entries) reversed.put(entry.getKey(), entry.getValue());
+          input = reversed;
+        }
+        errors.add(null);
+        try {
+          if ("streaming_forward".equals(call.get("kind"))) {
+            List<Object> deltas = new ArrayList<>();
+            for (Map<String, Object> delta : fl.streamingForward(client, input, callOptions)) deltas.add(Core.ownedCopy(delta));
+            outputs.add(deltas.isEmpty() ? null : Core.asMap(deltas.get(deltas.size() - 1)).get("delta"));
+            deltasPerCall.add(deltas);
+          } else {
+            outputs.add(fl.forward(client, input, callOptions));
+            deltasPerCall.add(null);
+          }
+        } catch (RuntimeException error) {
+          errors.set(errors.size() - 1, String.valueOf(error.getMessage()).split("\n", -1)[0]);
+          outputs.add(null);
+          deltasPerCall.add(null);
+        }
+        requests.add(client.requests.size() - before);
+      }
+    } finally {
+      AxGlobals.setCachingFunction(previousGlobal);
+    }
+    if (errors.stream().anyMatch(java.util.Objects::nonNull) || fixture.containsKey("expected_errors")) assertEqual(errors, fixture.get("expected_errors"), "flow cache sequence errors");
+    assertEqual(outputs, fixture.get("expected_outputs"), "flow cache sequence outputs");
+    assertEqual(deltasPerCall, fixture.get("expected_deltas"), "flow cache sequence deltas");
+    assertEqual(requests, fixture.get("expected_requests"), "flow cache sequence requests per call");
+    if (client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected " + fixture.get("expected_request_count") + " requests, got " + client.requests.size());
+    if (reads.size() != Core.asInt(fixture.get("expected_cache_gets"))) throw new FixtureError("expected " + fixture.get("expected_cache_gets") + " cache reads, got " + reads.size());
+    assertEqual(new ArrayList<>(writes), fixture.get("expected_cache_sets"), "flow cache writes");
   }
 
   static Object flowStateValue(Map<String, Object> state, Object field, Object fallback) {
@@ -1415,23 +1605,11 @@ public final class Conformance {
   static void runFlow(Map<String, Object> fixture) {
     try {
       AxFlow fl = buildFlow(fixture);
-      if ("cache_key".equals(fixture.get("operation"))) {
-        List<Object> keys = new ArrayList<>();
-        for (Object item : Core.asList(fixture.getOrDefault("cache_key_inputs", List.of()))) keys.add(Core._flow_cache_key(item));
-        if (Boolean.TRUE.equals(fixture.get("expected_cache_keys_equal")) && new java.util.HashSet<>(keys).size() != 1) throw new FixtureError("expected equal flow cache keys, got " + keys);
-        if (Boolean.TRUE.equals(fixture.get("expected_cache_keys_distinct")) && new java.util.HashSet<>(keys).size() != keys.size()) throw new FixtureError("expected distinct flow cache keys, got " + keys);
-        return;
-      }
       if (fixture.containsKey("expected_plan")) assertEqual(fl.getPlan(), fixture.get("expected_plan"), "flow plan");
       if (fixture.containsKey("expected_plan_subset")) assertListSubset(fl.getPlan(), fixture.get("expected_plan_subset"), "flow plan");
       if ("plan".equals(fixture.get("operation"))) return;
       ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of()))).scriptSpeak(fixture);
       Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
-      if (fixture.containsKey("cache_seed_value")) {
-        Map<String, Object> cacheStore = Core.asMap(forwardOptions.getOrDefault("cache_store", new LinkedHashMap<>()));
-        cacheStore.put(String.valueOf(Core._flow_cache_key(fixture.getOrDefault("input", Map.of()))), fixture.get("cache_seed_value"));
-        forwardOptions.put("cache_store", cacheStore);
-      }
       Object output = "streaming".equals(fixture.get("operation"))
         ? fl.streamingForward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions)
         : fl.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
@@ -1451,8 +1629,6 @@ public final class Conformance {
       }
       if (fixture.containsKey("expected_trace_subset")) assertListSubset(fl.getTraces(), fixture.get("expected_trace_subset"), "flow traces");
       if (fixture.containsKey("expected_usage_subset")) assertSubset(fl.getUsage(), fixture.get("expected_usage_subset"), "flow usage");
-      if (fixture.containsKey("expected_cache_store_subset")) assertSubset(Core.asMap(forwardOptions.getOrDefault("cache_store", forwardOptions.getOrDefault("cacheStore", Map.of()))), fixture.get("expected_cache_store_subset"), "flow cache store");
-      if (fixture.containsKey("expected_cache_value_for_input")) assertEqual(Core.asMap(forwardOptions.getOrDefault("cache_store", forwardOptions.getOrDefault("cacheStore", Map.of()))).get(String.valueOf(Core._flow_cache_key(fixture.getOrDefault("input", Map.of())))), fixture.get("expected_cache_value_for_input"), "flow cache value");
       if (fixture.containsKey("expected_components_subset")) assertListSubset(fl.getOptimizableComponents(), fixture.get("expected_components_subset"), "flow components");
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected flow fixture to fail");
     } catch (RuntimeException e) {
@@ -2024,6 +2200,16 @@ public final class Conformance {
       if (testCase.containsKey("expected_teacher_request_count") && teacher.requests.size() != Core.asInt(testCase.get("expected_teacher_request_count"))) {
         throw new FixtureError(label + " expected " + testCase.get("expected_teacher_request_count") + " teacher requests, got " + teacher.requests.size());
       }
+      if (testCase.containsKey("expected_teacher_system_prompts")) {
+        // Each teacher request's system prompt, in call order, byte for byte.
+        List<Object> prompts = new ArrayList<>();
+        for (Map<String, Object> request : teacher.requests) {
+          for (Object message : Core.asList(request.get("chat_prompt"))) {
+            if (message instanceof Map<?, ?> map && "system".equals(map.get("role"))) prompts.add(map.get("content"));
+          }
+        }
+        assertEqual(prompts, testCase.get("expected_teacher_system_prompts"), label + " teacher system prompts");
+      }
       if (outcomes.isEmpty()) {
         if (expected.containsKey("outcome_count") && Core.asInt(expected.get("outcome_count")) == 0) continue;
         throw new FixtureError("playbook evolve " + testCase.get("name") + " produced no outcome: " + Json.stringify(actual));
@@ -2096,6 +2282,53 @@ public final class Conformance {
     return heading + "\n\n" + String.join("\n", entries);
   }
 
+  // Which part of an agent run sent a model request, by its system prompt.
+  static String agentRequestStage(Map<String, Object> request) {
+    String system = "";
+    List<Object> prompt = Core.asList(request.getOrDefault("chat_prompt", request.getOrDefault("chatPrompt", List.of())));
+    if (!prompt.isEmpty()) {
+      Map<String, Object> first = Core.asMap(prompt.get(0));
+      if ("system".equals(first.get("role")) && first.get("content") instanceof String content) system = content;
+    }
+    if (system.contains("You (`distiller`)")) return "distiller";
+    if (system.contains("You (`executor`)")) return "executor";
+    if (system.contains("`Generator answer`") || system.contains("`Question context`")) return "playbook";
+    if (system.contains("context-map Distiller") || system.contains("context-map Cartographer")) return "context_map";
+    return "responder";
+  }
+
+  static void assertAgentRunProjections(Map<String, Object> fixture, AxAgent agent, ConformanceScriptedAI client, List<Object> deltas, List<Object> controlEvents, List<Object> observerCalls, List<Object[]> observerMarks) {
+    if ("agent_streaming_forward".equals(fixture.get("kind")) || fixture.containsKey("expected_deltas")) {
+      assertEqual(deltas, fixture.getOrDefault("expected_deltas", List.of()), "agent streaming deltas");
+    }
+    if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "agent run control events");
+    assertRequestRoles(fixture, client);
+    if (fixture.containsKey("expected_observer_calls")) assertEqual(new ArrayList<>(observerCalls), fixture.get("expected_observer_calls"), "agent observer calls");
+    if (fixture.containsKey("expected_transcript")) {
+      List<Object> transcript = new ArrayList<>();
+      List<Object[]> marks = new ArrayList<>(observerMarks);
+      int index = 0;
+      for (Map<String, Object> request : client.requests) {
+        while (!marks.isEmpty() && (Integer) marks.get(0)[0] <= index) transcript.add(marks.remove(0)[1]);
+        transcript.add("request:" + agentRequestStage(request));
+        index++;
+      }
+      for (Object[] mark : marks) transcript.add(mark[1]);
+      assertEqual(transcript, fixture.get("expected_transcript"), "agent run transcript");
+    }
+    if (fixture.containsKey("expected_chat_log_shape") && agent != null) {
+      List<Object> shape = new ArrayList<>();
+      for (Object rawEntry : agent.getChatLog()) {
+        Map<String, Object> entry = Core.asMap(rawEntry);
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("name", entry.get("name"));
+        item.put("stage", entry.get("stage"));
+        shape.add(item);
+      }
+      assertEqual(shape, fixture.get("expected_chat_log_shape"), "agent chat log shape");
+    }
+  }
+
   static void runAgentForward(Map<String, Object> fixture) {
     ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())));
     client.transcribeResponses.addAll(Core.asList(fixture.getOrDefault("transcribe_responses", List.of())));
@@ -2113,6 +2346,41 @@ public final class Conformance {
       if (agentOptions.containsKey("onUsedSkills")) agentOptions.put("onUsedSkills", semanticObserver.apply("constructor.used_skills", false));
       if (agentOptions.containsKey("onUsedMemories")) agentOptions.put("onUsedMemories", semanticObserver.apply("constructor.used_memories", false));
     }
+    // Observer calls, each marked with the number of model requests before it,
+    // so the transcript can interleave them with the requests.
+    List<Object> observerCalls = java.util.Collections.synchronizedList(new ArrayList<>());
+    List<Object[]> observerMarks = java.util.Collections.synchronizedList(new ArrayList<>());
+    for (Object rawLabel : Core.asList(fixture.getOrDefault("observers", List.of()))) {
+      String label = String.valueOf(rawLabel);
+      java.util.function.Consumer<Object> recorder = payload -> {
+        observerMarks.add(new Object[] {client.requests.size(), label});
+        observerCalls.add(Map.of("callback", label, "payload", payload == null ? List.of() : Core.ownedCopy(payload)));
+      };
+      switch (label) {
+        case "used_memories" -> agentOptions.put("onUsedMemories", recorder);
+        case "used_skills" -> agentOptions.put("onUsedSkills", recorder);
+        case "citations" -> {
+          Map<String, Object> citations = new LinkedHashMap<>(Core.asMap(agentOptions.getOrDefault("citations", Map.of())));
+          citations.put("onCitations", (java.util.function.Consumer<List<Object>>) payload -> recorder.accept(payload));
+          agentOptions.put("citations", citations);
+        }
+        case "playbook_update" -> {
+          // The playbook's onUpdate after run-end learning, by its status.
+          Map<String, Object> playbook = new LinkedHashMap<>(Core.asMap(agentOptions.getOrDefault("playbook", Map.of())));
+          playbook.put("onUpdate", (java.util.function.Consumer<Map<String, Object>>) update -> {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("status", update.get("status"));
+            recorder.accept(payload);
+          });
+          agentOptions.put("playbook", playbook);
+        }
+        default -> throw new FixtureError("unknown agent observer " + label);
+      }
+    }
+    boolean streaming = "agent_streaming_forward".equals(fixture.get("kind"));
+    List<Object> streamDeltas = new ArrayList<>();
+    Map<String, Object> controlOptions = new LinkedHashMap<>();
+    List<Object> controlEvents = attachFixtureControl(fixture, client, controlOptions);
     java.util.concurrent.atomic.AtomicBoolean observerCalled = new java.util.concurrent.atomic.AtomicBoolean(false);
     if (Boolean.TRUE.equals(fixture.get("observer_throws"))) {
       Map<String, Object> citations = new LinkedHashMap<>(Core.asMap(agentOptions.getOrDefault("citations", Map.of())));
@@ -2122,10 +2390,12 @@ public final class Conformance {
       });
       agentOptions.put("citations", citations);
     }
+    Map<String, Object> playbookConfig = null;
     if (agentOptions.get("playbook") instanceof Map<?, ?> rawPlaybook) {
       Map<String, Object> playbook = new LinkedHashMap<>(Core.asMap(rawPlaybook));
       playbook.putIfAbsent("studentAI", client);
       agentOptions.put("playbook", playbook);
+      playbookConfig = playbook;
     }
     ScriptedCodeRuntime runtime = null;
     if (fixture.containsKey("runtime_script")) {
@@ -2154,8 +2424,13 @@ public final class Conformance {
     List<Object> runStateProjections = new ArrayList<>();
     Map<String, Object> savedRuntimeState = null;
     Map<String, Object> stateRoundtripProjection = new LinkedHashMap<>();
+    java.time.Instant wallClockStart = java.time.Instant.now();
+    Object playbookStateBeforeForward = null;
     try {
       agent = Ax.agent(String.valueOf(fixture.get("signature")), agentOptions);
+      if (fixture.containsKey("expected_playbook_state_before_forward") && agent.getPlaybook() != null) {
+        playbookStateBeforeForward = Core.ownedCopy(agent.getPlaybook().getState());
+      }
       for (Object rawChild : Core.asList(fixture.getOrDefault("child_agents", List.of()))) {
         Map<String, Object> child = Core.asMap(rawChild);
         Map<String, Object> childOptions = new LinkedHashMap<>(Core.asMap(child.getOrDefault("options", Map.of())));
@@ -2214,7 +2489,19 @@ public final class Conformance {
           if (forwardOptions.containsKey("onUsedSkills")) forwardOptions.put("onUsedSkills", semanticObserver.apply("forward.used_skills", false));
           if (forwardOptions.containsKey("onUsedMemories")) forwardOptions.put("onUsedMemories", semanticObserver.apply("forward.used_memories", false));
         }
-        output = agent.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
+        forwardOptions.putAll(controlOptions);
+        if (streaming) {
+          Object stopAfter = fixture.get("stop_after_deltas");
+          try (AxGenDeltaStream stream = agent.streamingForward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions)) {
+            for (AxGenDelta delta : stream) {
+              streamDeltas.add(deltaEnvelope(delta));
+              if (stopAfter != null && streamDeltas.size() == Core.asInt(stopAfter)) break;
+            }
+          }
+          output = stopAfter == null ? agent.state.get("last_output") : null;
+        } else {
+          output = agent.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
+        }
       }
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected agent forward to fail");
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "agent output");
@@ -2227,15 +2514,18 @@ public final class Conformance {
       if (expected == null || !String.valueOf(e.getMessage()).contains(expected)) throw e;
       if (fixture.containsKey("expected_clarification")) assertSubset(e.clarification(), fixture.get("expected_clarification"), "clarification");
       if (agent != null) assertAgentTrace(agent, fixture);
+      assertAgentRunProjections(fixture, agent, client, streamDeltas, controlEvents, observerCalls, observerMarks);
       return;
     } catch (RuntimeException e) {
       String expected = (String) fixture.get("expected_error_contains");
       if (expected != null && String.valueOf(e.getMessage()).contains(expected)) {
         if (agent != null) assertAgentTrace(agent, fixture);
+        assertAgentRunProjections(fixture, agent, client, streamDeltas, controlEvents, observerCalls, observerMarks);
         return;
       }
       throw e;
     }
+    assertAgentRunProjections(fixture, agent, client, streamDeltas, controlEvents, observerCalls, observerMarks);
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected agent request count mismatch");
     Map<String, Object> exactProjection = Core.asMap(fixture.getOrDefault("exact_observable_projection", Map.of()));
     if (exactProjection.containsKey("stateRoundtrip")) assertEqual(stateRoundtripProjection, exactProjection.get("stateRoundtrip"), "exact agent state roundtrip projection");
@@ -2328,6 +2618,24 @@ public final class Conformance {
     if (fixture.containsKey("expected_playbook_state")) {
       AxPlaybook handle = agent.getPlaybook();
       assertEqual(handle == null ? null : handle.getState(), fixture.get("expected_playbook_state"), "agent playbook state");
+    }
+    if (fixture.containsKey("expected_playbook_state_before_forward")) {
+      assertEqual(playbookStateBeforeForward, fixture.get("expected_playbook_state_before_forward"), "agent playbook state before the first forward");
+    }
+    if (Boolean.TRUE.equals(fixture.get("expected_playbook_wall_clock"))) {
+      AxPlaybook handle = agent.getPlaybook();
+      Map<String, Object> state = handle == null ? Map.of() : handle.getState();
+      Map<String, Object> artifact = Core.asMap(state.get("artifact"));
+      assertWallClockTimestamps(
+          java.util.Arrays.asList(Core.asMap(state.get("playbook")).get("updatedAt"), Core.asMap(artifact.get("playbook")).get("updatedAt")),
+          wallClockStart, java.time.Instant.now(), "agent playbook updatedAt");
+    }
+    if (Boolean.TRUE.equals(fixture.get("expected_playbook_config_unchanged"))) {
+      // The caller's playbook config, less the student client the runner
+      // added, is what the fixture passed.
+      Map<String, Object> actual = new LinkedHashMap<>();
+      if (playbookConfig != null) for (Map.Entry<String, Object> entry : playbookConfig.entrySet()) if (!"studentAI".equals(entry.getKey())) actual.put(entry.getKey(), entry.getValue());
+      assertEqual(actual, Core.asMap(fixture.getOrDefault("options", Map.of())).get("playbook"), "caller's playbook config");
     }
     Map<String, Object> exported = agent.exportRuntimeState();
     if (fixture.containsKey("expected_runtime_contract_subset")) assertSubset(agent.getRuntimeContract(), fixture.get("expected_runtime_contract_subset"), "runtime contract");
@@ -3356,6 +3664,23 @@ public final class Conformance {
       return;
     }
     if (!canonical(actual).equals(canonical(expected))) throw new FixtureError(label + " mismatch\nactual: " + Json.stringify(actual) + "\nexpected: " + Json.stringify(expected));
+  }
+
+  private static final java.util.regex.Pattern ISO_MILLIS_UTC = java.util.regex.Pattern.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$");
+
+  // Each value is a UTC timestamp as JavaScript's toISOString writes it, taken
+  // during the run: between start and end, with a second of slack for
+  // millisecond rounding.
+  static void assertWallClockTimestamps(List<Object> values, java.time.Instant start, java.time.Instant end, String label) {
+    for (Object value : values) {
+      if (!(value instanceof String text) || !ISO_MILLIS_UTC.matcher(text).matches()) {
+        throw new FixtureError(label + " is not an ISO-8601 UTC millisecond timestamp: " + Json.stringify(value));
+      }
+      java.time.Instant stamp = java.time.Instant.parse(text);
+      if (stamp.isBefore(start.minusSeconds(1)) || stamp.isAfter(end.plusSeconds(1))) {
+        throw new FixtureError(label + " " + text + " is not the wall clock during the run");
+      }
+    }
   }
 	  static void assertSubset(Object actual, Object expected, String label) {
 	    if (expected instanceof Map<?, ?> exp) {

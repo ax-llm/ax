@@ -2,10 +2,14 @@ from __future__ import annotations
 import os
 
 from abc import ABC, abstractmethod
+import contextvars
 import copy
+from datetime import datetime, timezone
 import json
 import math
+import queue
 import re
+import threading
 from typing import Any
 
 from .ai import (
@@ -25,6 +29,8 @@ from .ai import (
 from .session import _core_run_control_aborted
 from .gen import (
     AxGen,
+    _StreamingConsumerStopped,
+    chat_session_mode_enabled,
     _core_ai_complete_once,
     _core_ai_client_features,
     _core_tool_invoke,
@@ -52,7 +58,6 @@ from .gen import (
 from .mcp import resolve_execution_context
 from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature, f as _signature_builder
 from .gen import (
-    chat_session_mode_enabled,
     chat_session_validate_required_arguments,
 )
 from .prompt import (
@@ -667,6 +672,12 @@ def _ace_option(options, *keys, default=None):
     return default
 
 
+def _ace_wall_clock():
+    """The current UTC time as JavaScript's toISOString writes it."""
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+
 class AxACE:
     """Agentic Context Engineering optimizer (Generator -> Reflector -> Curator).
 
@@ -702,8 +713,10 @@ class AxACE:
             else _ace_empty_playbook(None, self._now())
         )
 
+    # The injected clock (`now`), else the wall clock at each call, as TS's
+    # new Date().toISOString() stamps each playbook change.
     def _now(self):
-        return self.options.get("now") or "1970-01-01T00:00:00.000Z"
+        return self.options.get("now") or _ace_wall_clock()
 
     def reset(self):
         self.playbook = (
@@ -1057,19 +1070,38 @@ def _ace_curator_signature():
         .build()
     )
 
-_AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE = (
-    'clusterSignature:string "Shared error signature of the cluster", '
-    'taskSummaries:string "One line per failing task", '
-    'actionLogExcerpts:string "Excerpts of the failing runs, centered on the failure", '
-    'functionCallSummary?:string "Digest of runtime/tool calls in the failing runs", '
-    'toolErrors?:string "Tool errors observed", '
-    'currentPlaybook?:string "The failure-avoidance playbook currently applied" '
-    '-> weaknessDescription:string "The recurring weakness, one sentence", '
-    'rootCause:string "Why the runs fail, mechanically", '
-    'proposedGuidance:string "One concise imperative avoidance rule", '
-    'evidenceQuotes:json "Verbatim substrings copied from actionLogExcerpts", '
-    'configRecommendations?:json "Setup suggestions no prompt text can fix"'
+# The weakness miner's description and signature, as TS builds them
+# (src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts).
+_AGENT_PLAYBOOK_WEAKNESS_MINER_DESCRIPTION = (
+    "You are a failure analyst for an LLM agent harness. You receive one "
+    "cluster of failed agent runs sharing an error signature, with excerpts "
+    "of what the agent actually did. Identify the single recurring weakness, "
+    "its root cause, and one narrow, durable avoidance rule the agent should "
+    "recall while acting. Ground every claim: evidenceQuotes must be verbatim "
+    "substrings copied from the excerpts. Keep proposedGuidance concise, "
+    "imperative, and general to the failure mode (not one task). Use "
+    "configRecommendations only for setup problems no prompt text can fix "
+    "(missing tools, timeouts, model choice)."
 )
+
+
+def _agent_playbook_weakness_miner_signature():
+    return (
+        _signature_builder()
+        .input("clusterSignature", _signature_builder.string("Shared error signature of the cluster."))
+        .input("taskSummaries", _signature_builder.string("One line per failing task."))
+        .input("actionLogExcerpts", _signature_builder.string("Excerpts of the failing runs, centered on the failure."))
+        .input("functionCallSummary", _signature_builder.string("Digest of runtime/tool calls in the failing runs.").optional())
+        .input("toolErrors", _signature_builder.string("Tool errors observed.").optional())
+        .input("currentPlaybook", _signature_builder.string("The failure-avoidance playbook currently applied.").optional())
+        .output("weaknessDescription", _signature_builder.string("The recurring weakness, one sentence."))
+        .output("rootCause", _signature_builder.string("Why the runs fail, mechanically."))
+        .output("proposedGuidance", _signature_builder.string("The avoidance rule to add to the playbook — concise, imperative."))
+        .output("evidenceQuotes", _signature_builder.string("Verbatim substrings from actionLogExcerpts proving the weakness.").array())
+        .output("configRecommendations", _signature_builder.string("Setup/config suggestions no prompt text can fix.").array().optional())
+        .description(_AGENT_PLAYBOOK_WEAKNESS_MINER_DESCRIPTION)
+        .build()
+    )
 
 
 def _playbook_option(options, *keys, default=None):
@@ -1592,16 +1624,7 @@ class AxAgentPlaybook:
                 "currentPlaybook": self.inner.render() or None,
             }
             request = {key: value for key, value in request.items() if value is not None}
-            miner = AxGen(
-                _AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE,
-                {
-                    "id": "agent.playbook.weakness-miner",
-                    "instruction": (
-                        "Identify one recurring weakness and one narrow durable avoidance rule. "
-                        "Every evidence quote must be copied verbatim from actionLogExcerpts."
-                    ),
-                },
-            )
+            miner = AxGen(_agent_playbook_weakness_miner_signature(), {"id": "agent.playbook.weakness-miner"})
             mined = miner.forward(teacher, request, dict(teacher_options))
             raw_quotes = mined.get("evidenceQuotes")
             candidates = raw_quotes if isinstance(raw_quotes, list) else ([] if raw_quotes is None else [raw_quotes])
@@ -1745,6 +1768,10 @@ class AxAgent:
             self.options["executionContext"] = self.execution_context
         self._playbook_handle = None
         self._agent_playbook = None
+        # The stage the playbook targets and whether it writes into that
+        # stage's prompt, kept to rebind the playbook when the stages rebuild.
+        self._playbook_target = "actor"
+        self._playbook_apply = True
         self._playbook_config = self.options.get("playbook")
         self._rebuild_from_signature(signature)
         if self._playbook_config not in (None, False):
@@ -1768,8 +1795,17 @@ class AxAgent:
         actor_validation_retries = self.options.get("validation_retries", self.options.get("validationRetries", 1))
         self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": actor_validation_retries, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
         self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
-        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
+        responder_options = {"id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")}
+        # As in TS, the responder's validation budget is maxRetries (3 by
+        # default) unless validation_retries is set.
+        if "validation_retries" in self.options:
+            responder_options["validation_retries"] = self.options["validation_retries"]
+        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), responder_options)
+        if (_core_get(self.state, "citations", {}) or {}).get("enabled"):
+            state = self.state
+            self.responder.add_assert(lambda output: _agent_citation_assert(state, output))
         self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+        self._rebind_playbook()
 
     def add_child_agent(self, namespace: str, name: str, child: "AxAgent"):
         self.options = _agent_register_child(self.options, namespace, name, child, child.signature)
@@ -1802,18 +1838,90 @@ class AxAgent:
         options: dict[str, Any] | None = None,
         hooks: AxRuntimeHooks | None = None,
     ):
+        return self._run(client, values, options, hooks)
+
+    def streaming_forward(
+        self,
+        client,
+        values: dict[str, Any],
+        options: dict[str, Any] | None = None,
+        hooks: AxRuntimeHooks | None = None,
+    ):
+        """Run the agent and yield the responder's output as it streams.
+
+        As TypeScript's streamingForward does, the distiller and the executor
+        (or the direct-respond skip) run first without streaming; then this
+        yields the responder's ``{"version", "index", "delta"}`` deltas: merge
+        each index's deltas (strings and lists append, other values replace)
+        and start over when the version changes. With citations
+        ``surface: "hidden"`` the deltas leave out the citation field, and
+        ``onCitations`` gets the streamed citations after the stream. The run
+        works on a worker thread that waits while you handle each delta;
+        closing the generator stops the run, and with a run ``control`` the run
+        then ends with an ``aborted`` event. A run ``control`` on a client that
+        opens async model sessions is not covered yet and raises
+        ``NotImplementedError``, as AxGen deltas do.
+        """
+        return self._streaming_deltas(client, values, dict(options or {}), hooks)
+
+    def _streaming_deltas(self, client, values, options, hooks):
+        # The run works in a worker thread and hands each delta to this
+        # generator, then waits until the consumer asks for the next one, as
+        # TypeScript's async generator does.
+        deliveries = queue.Queue()
+        resume = threading.Semaphore(0)
+        stopped = threading.Event()
+
+        def sink(envelope):
+            if stopped.is_set():
+                raise _StreamingConsumerStopped("streaming consumer closed")
+            deliveries.put(("delta", copy.deepcopy(envelope)))
+            resume.acquire()
+            if stopped.is_set():
+                raise _StreamingConsumerStopped("streaming consumer closed")
+
+        def run():
+            try:
+                self._run(client, values, options, hooks, sink)
+                deliveries.put(("done", None))
+            except BaseException as error:  # noqa: BLE001 - re-raised in the consumer
+                deliveries.put(("error", error))
+
+        context = contextvars.copy_context()
+        worker = threading.Thread(target=context.run, args=(run,), daemon=True)
+        worker.start()
+        try:
+            while True:
+                kind, item = deliveries.get()
+                if kind == "error":
+                    raise item
+                if kind == "done":
+                    return
+                yield item
+                resume.release()
+        finally:
+            stopped.set()
+            resume.release()
+            worker.join()
+
+    def _run(self, client, values, options, hooks, sink=None):
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
+        attributes = {"ax.program.id": "root.agent", "ax.program.type": "AxAgent"}
+        if sink is not None:
+            attributes["ax.streaming"] = True
         with _runtime_hook_scope(
             call_hooks,
             self.runtime_hooks,
             span_name="ax_gen_agent_forward",
-            attributes={"ax.program.id": "root.agent", "ax.program.type": "AxAgent"},
+            attributes=attributes,
             metric_prefix="ax_gen_agent",
         ):
-            return self._forward_unscoped(client, values, _strip_runtime_hooks(options))
+            return self._forward_unscoped(client, values, _strip_runtime_hooks(options), sink)
 
-    def _forward_unscoped(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
+    def _forward_unscoped(self, client, values: dict[str, Any], options: dict[str, Any] | None = None, sink=None):
         options = dict(options or {})
+        if sink is not None:
+            _agent_check_stream_run_session(self, client, options)
         call_context = resolve_execution_context(options, self.execution_context)
         if call_context is not None or self.state.get("mcp_run_context_active"):
             modules = []
@@ -1864,16 +1972,44 @@ class AxAgent:
                     raise RuntimeError("Agent runtime callbacks must execute on the owning run thread")
                 return _agent_run_llm_query(binding.sub_gen, binding.client, params, binding.options)
             runtime.register_callable("llmQuery", llm_query)
+        # As TypeScript's forward and streamingForward do, a run control hears
+        # the run's own lifecycle at its path; each stage reports at
+        # <path>/<stage>.
+        control = options.get("control")
+        run_path = options.get("execution_path", options.get("executionPath", "root"))
+        if control is not None:
+            control._emit({"type": "started", "path": run_path})
         try:
-            output = _agent_forward(
-                self.state,
-                self.distiller,
-                self.executor,
-                self.responder,
-                client,
-                values or {},
-                options,
-            )
+            if sink is None:
+                output = _agent_forward(
+                    self.state,
+                    self.distiller,
+                    self.executor,
+                    self.responder,
+                    client,
+                    values or {},
+                    options,
+                )
+            else:
+                output = _agent_streaming_forward(
+                    self.state,
+                    self.distiller,
+                    self.executor,
+                    self.responder,
+                    client,
+                    values or {},
+                    options,
+                    sink,
+                )
+        except BaseException as error:
+            if control is not None:
+                if isinstance(error, _StreamingConsumerStopped):
+                    # The consumer stopped the stream early: the run ended on
+                    # purpose, as with control.abort().
+                    control._emit({"type": "aborted", "path": run_path})
+                else:
+                    control._emit({"type": "failed", "path": run_path, "error": str(error)})
+            raise
         finally:
             if invocation_binding is not None:
                 invocation_binding.active = False
@@ -1887,7 +2023,11 @@ class AxAgent:
                 citation_callback(list(_core_get(self.state, "last_citations", []) or []))
             except Exception:
                 pass
-        self._learn_playbook_failures(output)
+        # TS learns from the responder's answer after forward; a stream has
+        # no single answer to hand the playbook.
+        self._learn_playbook_failures(output if sink is None else {})
+        if control is not None:
+            control._emit({"type": "completed", "path": run_path})
         return output
 
     def test(self, runtime: AxCodeRuntime, code: str, context_field_values: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
@@ -2164,22 +2304,42 @@ class AxAgent:
             student = self.options.get("ai") or self.options.get("client")
         if student is None:
             raise ValueError("AxAgent.playbook(): studentAI is required when the agent has no default ai.")
-        stage = self.responder if target == "responder" else self.executor
+        self._playbook_target = target
+        self._playbook_apply = opts.get("apply") is not False
+        stage = self._playbook_stage()
         handle_options = dict(opts)
         handle_options["studentAI"] = student
         handle = AxPlaybook(stage, handle_options)
-        if opts.get("apply") is False:
+        self._bind_playbook_stage(handle, stage)
+        self._playbook_handle = handle
+        self._agent_playbook = AxAgentPlaybook(self, handle)
+        return self._agent_playbook
+
+    # The stage the playbook targets: the actor, or the responder.
+    def _playbook_stage(self):
+        return self.responder if self._playbook_target == "responder" else self.executor
+
+    # Point the playbook at an agent stage: the program it runs and the hook
+    # that writes the rendered playbook into the stage prompt.
+    def _bind_playbook_stage(self, handle, stage):
+        handle.program = stage
+        if not self._playbook_apply:
             handle._set_apply_hook(lambda _rendered: None)
+            return
         base = stage.signature.get_description() if hasattr(stage.signature, "get_description") else None
 
         def _apply(rendered):
             stage.signature.description = _playbook_compose_instruction(base, rendered)
 
-        if opts.get("apply") is not False:
-            handle._set_apply_hook(_apply)
-        self._playbook_handle = handle
-        self._agent_playbook = AxAgentPlaybook(self, handle)
-        return self._agent_playbook
+        handle._set_apply_hook(_apply)
+
+    # set_signature and add_child_agent rebuild the stages: point the playbook
+    # at the new stage and write it into that stage's prompt.
+    def _rebind_playbook(self):
+        if self._playbook_handle is None:
+            return
+        self._bind_playbook_stage(self._playbook_handle, self._playbook_stage())
+        self._playbook_handle.apply_to()
 
     def get_playbook(self):
         return self._agent_playbook
@@ -2416,6 +2576,36 @@ def _core_agent_native_stage_forward(stage, state, client, values, options, sele
         stage._base_functions=original_base
         stage.function_call_traces=[*previous,*records]
         _agent_record_native_calls(state,selected,records,options or {})
+
+
+def _core_agent_stage_streaming_forward(stage, state, client, values, options, sink):
+    # Streams the stage's AxGen deltas to sink, each through the agent's
+    # citation handling (hidden citations leave the delta).
+    def emit(envelope):
+        sink(_agent_stream_citation_delta(state, envelope))
+
+    return stage._streaming_forward_with(client, values or {}, options or {}, emit)
+
+
+def _agent_check_stream_run_session(agent, client, options):
+    # Until AxGen deltas cover async run sessions, an agent stream that would
+    # stream its responder through one fails before any stage runs, with the
+    # error AxGen deltas raise.
+    responder = agent.responder
+    run_options = {**responder.options, **_agent_stage_options(agent.state, "responder", options)}
+    model = str(run_options.get("model") or getattr(client, "model", "")) or None
+    session_capable = callable(getattr(client, "_pin_chat_run", None)) or (
+        callable(getattr(client, "open_chat_session", None))
+        and bool(getattr(client, "get_features", lambda model=None: {})(model).get("asyncTools"))
+    )
+    needs_session = run_options.get("control") is not None or any(
+        getattr(tool, "execution", "blocking") == "background" for tool in responder.functions
+    )
+    if chat_session_mode_enabled(run_options) and session_capable and needs_session:
+        raise NotImplementedError(
+            "streaming_forward deltas do not cover async run sessions (control or background tools "
+            "on a session-capable client) yet; use forward()."
+        )
 
 
 def _core_agent_stage_forward(stage, client, values, options):
@@ -9718,100 +9908,163 @@ def _resolve_agent_citations(options: Any, sig: Any) -> Any:
 
 def _agent_collect_citation_ids(ids: Any, node: Any, depth: int) -> Any:
     _core_coverage_mark("_agent_collect_citation_ids")
-    has_depth = _core_gte(depth, 0)
-    if has_depth:
-        is_object = _core_type_is(node, "object")
-        if is_object:
-            id = _core_get(node, "id", None)
-            id_is_string = _core_type_is(id, "string")
-            id_is_number = _core_type_is(id, "number")
-            valid_id = _core_or(id_is_string, id_is_number)
-            if valid_id:
-                id_text = _core_string_format("{}", id)
-                ids[id_text] = True
-            else:
-                pass
-            next_depth = _core_add(depth, -1)
-            children = _core_map_values(node)
-            for child in children:
-                ids = _agent_collect_citation_ids(ids, child, next_depth)
-        else:
-            is_list = _core_type_is(node, "list")
-            if is_list:
-                next_depth = _core_add(depth, -1)
-                for child in node:
-                    ids = _agent_collect_citation_ids(ids, child, next_depth)
-            else:
-                pass
+    in_depth = _core_gte(depth, 0)
+    out_of_depth = _core_not(in_depth)
+    if out_of_depth:
+        return ids
     else:
         pass
+    is_map = _core_type_is(node, "object")
+    is_list = _core_type_is(node, "list")
+    children = []
+    if is_map:
+        id = _core_get(node, "id", None)
+        id_is_string = _core_type_is(id, "string")
+        id_is_number = _core_type_is(id, "number")
+        valid_id = _core_or(id_is_string, id_is_number)
+        if valid_id:
+            id_text = _core_string_format("{}", id)
+            seen = _core_contains(ids, id_text)
+            unseen = _core_not(seen)
+            if unseen:
+                ids.append(id_text)
+            else:
+                pass
+        else:
+            pass
+        children = _core_map_values(node)
+    else:
+        pass
+    if is_list:
+        children = node
+    else:
+        pass
+    next_depth = _core_add(depth, -1)
+    for child in children:
+        child_is_map = _core_type_is(child, "object")
+        child_is_list = _core_type_is(child, "list")
+        child_is_node = _core_or(child_is_map, child_is_list)
+        if child_is_node:
+            ids = _agent_collect_citation_ids(ids, child, next_depth)
+        else:
+            pass
     return ids
 
 
-def _agent_validate_citations(state: Any, output: Any) -> bool:
-    _core_coverage_mark("_agent_validate_citations")
+def _agent_begin_citation_checks(state: Any, executor_payload: Any) -> None:
+    _core_coverage_mark("_agent_begin_citation_checks")
+    none = _core_none()
+    state["citation_valid_keys"] = none
     empty_map = {}
     citations = _core_get(state, "citations", empty_map)
     enabled = _core_get(citations, "enabled", False)
-    disabled = _core_not(enabled)
-    if disabled:
-        return True
+    if enabled:
+        empty_list = []
+        args = _core_get(executor_payload, "args", empty_list)
+        evidence = _core_list_get(args, 1, none)
+        evidence_is_map = _core_type_is(evidence, "object")
+        if evidence_is_map:
+            keys = []
+            top_keys = _core_map_keys(evidence)
+            for top_key in top_keys:
+                keys.append(top_key)
+            include_memory_ids = _core_get(citations, "includeMemoryIds", True)
+            if include_memory_ids:
+                evidence_values = _core_map_values(evidence)
+                for evidence_value in evidence_values:
+                    keys = _agent_collect_citation_ids(keys, evidence_value, 2)
+            else:
+                pass
+            state["citation_valid_keys"] = keys
+        else:
+            pass
     else:
         pass
-    evidence_present = _core_get(state, "responder_evidence_present", False)
-    no_evidence_contract = _core_not(evidence_present)
-    if no_evidence_contract:
-        return True
+    return None
+
+
+def _agent_end_citation_checks(state: Any) -> None:
+    _core_coverage_mark("_agent_end_citation_checks")
+    none = _core_none()
+    state["citation_valid_keys"] = none
+    return None
+
+
+def _agent_citation_assert(state: Any, output: Any) -> Any:
+    _core_coverage_mark("_agent_citation_assert")
+    none = _core_none()
+    keys = _core_get(state, "citation_valid_keys", None)
+    unchecked = _core_is_none(keys)
+    if unchecked:
+        return none
     else:
         pass
+    empty_map = {}
+    citations = _core_get(state, "citations", empty_map)
     field = _core_get(citations, "field", "evidenceCitations")
     raw = _core_get(output, field, None)
     missing = _core_is_none(raw)
     if missing:
-        return True
+        return none
     else:
         pass
-    ids = {}
-    evidence = _core_get(state, "responder_evidence", empty_map)
-    keys = _core_map_keys(evidence)
-    for key in keys:
-        ids[key] = True
-    include_memory_ids = _core_get(citations, "includeMemoryIds", True)
-    if include_memory_ids:
-        values = _core_map_values(evidence)
-        for value in values:
-            ids = _agent_collect_citation_ids(ids, value, 2)
-    else:
-        pass
-    empty_list = []
-    cited = empty_list
+    cited = []
     raw_is_list = _core_type_is(raw, "list")
     if raw_is_list:
-        cited = raw
+        for raw_item in raw:
+            cited.append(raw_item)
     else:
         cited.append(raw)
-    valid = True
-    for raw_id in cited:
-        id_text = _core_string_format("{}", raw_id)
-        known = _core_map_contains(ids, id_text)
+    invalid = []
+    for cited_item in cited:
+        cited_text = _core_string_format("{}", cited_item)
+        known = _core_contains(keys, cited_text)
         unknown = _core_not(known)
         if unknown:
-            valid = False
+            invalid.append(cited_text)
         else:
             pass
-    return valid
+    invalid_count = _core_len(invalid)
+    all_known = _core_eq(invalid_count, 0)
+    if all_known:
+        return none
+    else:
+        pass
+    key_count = _core_len(keys)
+    no_evidence = _core_eq(key_count, 0)
+    if no_evidence:
+        no_evidence_message = _core_string_format("This answer has no evidence to cite — leave {} empty.", field)
+        return no_evidence_message
+    else:
+        pass
+    invalid_text = _core_string_join(", ", invalid)
+    keys_text = _core_string_join(", ", keys)
+    message = _core_string_format("Invalid {} entries: {}. Cite only evidence ids that exist: {} — or leave the field empty.", field, invalid_text, keys_text)
+    return message
 
 
 def _agent_finalize_citations(state: Any, output: Any) -> Any:
     _core_coverage_mark("_agent_finalize_citations")
     empty_map = {}
-    empty_list = []
     citations = _core_get(state, "citations", empty_map)
     enabled = _core_get(citations, "enabled", False)
     if enabled:
         field = _core_get(citations, "field", "evidenceCitations")
-        raw = _core_get(output, field, empty_list)
-        state["last_citations"] = raw
+        raw = _core_get(output, field, None)
+        reported = []
+        raw_is_list = _core_type_is(raw, "list")
+        raw_present = _core_is_not_none(raw)
+        if raw_is_list:
+            for raw_item in raw:
+                raw_text = _core_string_format("{}", raw_item)
+                reported.append(raw_text)
+        else:
+            if raw_present:
+                raw_text = _core_string_format("{}", raw)
+                reported.append(raw_text)
+            else:
+                pass
+        state["last_citations"] = reported
         surface = _core_get(citations, "surface", "output")
         hidden = _core_eq(surface, "hidden")
         if hidden:
@@ -10244,6 +10497,10 @@ def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
     if has_cache:
         out["context_cache"] = cache
         out["contextCache"] = cache
+    else:
+        pass
+    if is_responder:
+        out = _agent_stage_parse_dates(out, base_options, stage_options, forward_options)
     else:
         pass
     return out
@@ -10893,6 +11150,322 @@ def _agent_run_llm_query(sub_gen: Any, client: Any, params: Any, options: Any) -
 
 def _agent_forward_impl(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_forward_impl")
+    prepared = _agent_run_actor_stages(state, distiller, executor, client, values, options)
+    values = _core_get(prepared, "values", None)
+    executor_payload = _core_get(prepared, "executor_payload", None)
+    responder_options = _core_get(prepared, "responder_options", None)
+    responder_values = _build_responder_inputs(state, values, executor_payload)
+    responder_request_event = {}
+    responder_request_event["stage"] = "responder"
+    responder_request_event["values"] = responder_values
+    responder_request_event["component_id"] = "agent.stage.responder"
+    _agent_record_trace_event(state, "stage_request", responder_request_event)
+    _agent_begin_citation_checks(state, executor_payload)
+    responder_output = {}
+    try:
+        responder_output = _agent_controlled_stage_forward(responder, client, responder_values, responder_options)
+    except Exception as responder_error:
+        _agent_end_citation_checks(state)
+        raise responder_error
+    _agent_end_citation_checks(state)
+    responder_output = _agent_finalize_citations(state, responder_output)
+    responder_response_event = {}
+    responder_response_event["stage"] = "responder"
+    responder_response_event["output"] = responder_output
+    responder_response_event["component_id"] = "agent.stage.responder"
+    _agent_record_trace_event(state, "stage_response", responder_response_event)
+    output = _agent_complete_run(state, distiller, executor, responder, client, options, responder_output)
+    return output
+
+
+def _agent_apply_run_context(state: Any, configured: Any, call: Any, modules: Any) -> Any:
+    _core_coverage_mark("_agent_apply_run_context")
+    empty_list = []
+    options = _core_map_merge(configured, call)
+    functions = _core_get(options, "functions", empty_list)
+    retained = []
+    for function in functions:
+        default_name = _core_get(function, "name", "")
+        namespace = _core_get(function, "namespace", default_name)
+        mcp = _core_string_starts_with(namespace, "mcp.")
+        ucp = _core_string_starts_with(namespace, "ucp.")
+        protocol = _core_or(mcp, ucp)
+        if protocol:
+            pass
+        else:
+            retained.append(function)
+    options["functions"] = retained
+    options = _agent_append_runtime_modules(options, modules)
+    inventory = _normalize_agent_callable_inventory(options)
+    split = _split_agent_callable_inventory(inventory)
+    catalog = _render_agent_discovery_catalog(split)
+    state["options"] = options
+    state["callable_inventory"] = inventory
+    state["callable_split"] = split
+    state["discovery_catalog"] = catalog
+    upgrade = _resolve_agent_auto_upgrade(options)
+    flags = _agent_policy_flags(options, split, upgrade)
+    policy = _normalize_agent_policy(options)
+    registry = _agent_policy_registry(policy, flags)
+    state["policy_flags"] = flags
+    state["policy_registry"] = registry
+    docs = _core_get(state, "discovered_tool_docs", empty_list)
+    retained_docs = []
+    for doc in docs:
+        name = _core_get(doc, "qualified_name", "")
+        mcp = _core_string_starts_with(name, "mcp.")
+        ucp = _core_string_starts_with(name, "ucp.")
+        protocol = _core_or(mcp, ucp)
+        if protocol:
+            pass
+        else:
+            retained_docs.append(doc)
+    state["discovered_tool_docs"] = retained_docs
+    prompt = _build_agent_actor_prompt_policy(state)
+    state["actor_prompt_policy"] = prompt
+    runtime = _core_get(state, "runtime_enabled", False)
+    if runtime:
+        executor = _render_rlm_executor_description(state, options)
+        distiller = _render_rlm_distiller_description(state, options)
+        responder = _render_rlm_responder_description(state, options)
+        state["executor_description_base"] = executor
+        state["distiller_description"] = distiller
+        state["responder_description"] = responder
+        _agent_refresh_actor_instruction(state)
+    else:
+        pass
+    state["mcp_run_context_active"] = True
+    return call
+
+
+def _agent_append_runtime_modules(options: Any, additional: Any) -> Any:
+    _core_coverage_mark("_agent_append_runtime_modules")
+    empty_map = {}
+    empty_list = []
+    out = _core_map_merge(empty_map, options)
+    functions = _core_get(options, "functions", empty_list)
+    modules = []
+    flat = []
+    for item in functions:
+        members = _core_get(item, "functions", None)
+        group = _core_type_is(members, "list")
+        if group:
+            modules.append(item)
+        else:
+            flat.append(item)
+    count = _core_len(flat)
+    has_flat = _core_gt(count, 0)
+    if has_flat:
+        module = {}
+        module["namespace"] = "tools"
+        module["title"] = "Tools"
+        module["alwaysInclude"] = True
+        module["functions"] = flat
+        modules.append(module)
+    else:
+        pass
+    for module in additional:
+        modules.append(module)
+    out["functions"] = modules
+    return out
+
+
+def _agent_register_child(options: Any, namespace: str, name: str, program: Any, signature: Any) -> Any:
+    _core_coverage_mark("_agent_register_child")
+    additional = []
+    options = _agent_append_runtime_modules(options, additional)
+    empty_map = {}
+    empty_list = []
+    out = _core_map_merge(empty_map, options)
+    fields = _core_get(signature, "input_fields", empty_list)
+    schema = _schema_to_json_schema_impl(fields, name, empty_map)
+    child = {}
+    child["name"] = name
+    child["kind"] = "agent"
+    child["execution"] = "blocking"
+    child["parameters"] = schema
+    child["program"] = program
+    description = _core_get(signature, "description", "Delegate to a child agent")
+    child["description"] = description
+    functions = _core_get(options, "functions", empty_list)
+    modules = []
+    found = False
+    for module in functions:
+        default_name = _core_get(module, "name", "tools")
+        module_namespace = _core_get(module, "namespace", default_name)
+        matches = _core_eq(module_namespace, namespace)
+        members = _core_get(module, "functions", None)
+        group = _core_type_is(members, "list")
+        matches = _core_and(matches, group)
+        if matches:
+            copy = _core_map_merge(empty_map, module)
+            children = []
+            for member in members:
+                children.append(member)
+            children.append(child)
+            copy["functions"] = children
+            modules.append(copy)
+            found = True
+        else:
+            modules.append(module)
+    if found:
+        pass
+    else:
+        module = {}
+        children = []
+        children.append(child)
+        module["namespace"] = namespace
+        module["functions"] = children
+        modules.append(module)
+    out["functions"] = modules
+    return out
+
+
+def _agent_child_options(state: Any, qualified: str, options: Any) -> Any:
+    _core_coverage_mark("_agent_child_options")
+    empty_map = {}
+    base = _core_get(state, "options", empty_map)
+    active = _core_get(state, "active_forward_options", empty_map)
+    parent = _core_map_merge(base, active)
+    parent = _core_map_merge(parent, options)
+    out = {}
+    keys = []
+    keys.append("control")
+    keys.append("asyncMode")
+    keys.append("async_mode")
+    keys.append("abortSignal")
+    keys.append("abort_signal")
+    keys.append("cancellation")
+    keys.append("executionContext")
+    keys.append("eventContext")
+    keys.append("protocol")
+    for key in keys:
+        value = _core_get(parent, key, None)
+        present = _core_is_not_none(value)
+        if present:
+            out[key] = value
+        else:
+            pass
+    inheritance = _core_get(parent, "mcpInheritance", "all")
+    out["mcpInheritanceFromParent"] = inheritance
+    snake_path = _core_get(parent, "execution_path", "root")
+    parent_path = _core_get(parent, "executionPath", snake_path)
+    path = _core_string_format("{}/{}", parent_path, qualified)
+    out["executionPath"] = path
+    out["execution_path"] = path
+    return out
+
+
+def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_forward")
+    none = _core_none()
+    active = _core_get(state, "forward_active", False)
+    if active:
+        error = _core_runtime_error("An agent cannot delegate recursively to an already active agent")
+        raise error
+    else:
+        pass
+    state["forward_active"] = True
+    state["active_client"] = client
+    state["active_forward_options"] = options
+    output = {}
+    try:
+        output = _agent_forward_impl(state, distiller, executor, responder, client, values, options)
+    except Exception as forward_error:
+        state["forward_active"] = False
+        state["active_client"] = none
+        state["active_forward_options"] = none
+        session = _core_get(state, "runtime_session", None)
+        try:
+            _agent_runtime_close_session(state, session)
+        except Exception as close_error:
+            pass
+        raise forward_error
+    state["forward_active"] = False
+    state["active_client"] = none
+    state["active_forward_options"] = none
+    return output
+
+
+def _agent_runtime_callable_names(state: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_callable_names")
+    empty_list = []
+    inventory = _core_get(state, "callable_inventory", empty_list)
+    names = []
+    for group in inventory:
+        callables = _core_get(group, "callables", empty_list)
+        for callable in callables:
+            name = _core_get(callable, "qualified_name", "")
+            names.append(name)
+    return names
+
+
+def _agent_callable_visible(state: Any, qualified: str) -> bool:
+    _core_coverage_mark("_agent_callable_visible")
+    empty_map = {}
+    empty_list = []
+    flags = _core_get(state, "policy_flags", empty_map)
+    discovery = _core_get(flags, "discoveryMode", False)
+    all_visible = _core_not(discovery)
+    inventory = _core_get(state, "callable_inventory", empty_list)
+    docs = _core_get(state, "discovered_tool_docs", empty_list)
+    for group in inventory:
+        group_always = _core_get(group, "always_include", False)
+        group_visible = _core_or(all_visible, group_always)
+        callables = _core_get(group, "callables", empty_list)
+        for callable in callables:
+            name = _core_get(callable, "qualified_name", "")
+            matches = _core_eq(name, qualified)
+            if matches:
+                always = _core_get(callable, "always_include", False)
+                visible = _core_or(group_visible, always)
+                for doc in docs:
+                    doc_name = _core_get(doc, "qualified_name", "")
+                    discovered = _core_eq(doc_name, qualified)
+                    visible = _core_or(visible, discovered)
+                return visible
+            else:
+                pass
+    return False
+
+
+def _agent_runtime_invoke_callable(state: Any, qualified: str, arguments: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_invoke_callable")
+    active = _core_get(state, "forward_active", False)
+    if active:
+        pass
+    else:
+        error = _core_runtime_error("Agent invocation belongs to a closed run")
+        raise error
+    visible = _agent_callable_visible(state, qualified)
+    if visible:
+        pass
+    else:
+        message = _core_string_format("Agent callable is not discovered: {}", qualified)
+        error = _core_runtime_error(message)
+        raise error
+    empty_map = {}
+    base = _core_get(state, "options", empty_map)
+    active_options = _core_get(state, "active_forward_options", empty_map)
+    options = _core_map_merge(base, active_options)
+    request = {}
+    request["qualified_name"] = qualified
+    request["args"] = arguments
+    result = _agent_execute_callable(state, request, options)
+    status = _core_get(result, "status", "ok")
+    failed = _core_eq(status, "error")
+    if failed:
+        message = _core_get(result, "error", "Agent callable failed")
+        error = _core_runtime_error(message)
+        raise error
+    else:
+        pass
+    value = _core_get(result, "value", result)
+    return value
+
+
+def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_run_actor_stages")
     empty_list = []
     empty_map = {}
     state["native_tool_names"] = empty_list
@@ -11196,241 +11769,167 @@ def _agent_forward_impl(state: Any, distiller: Any, executor: Any, responder: An
     _agent_apply_llm_checkpoint_summary(state, client, options)
     _agent_apply_context_management(state)
     _agent_apply_llm_tombstone_summary(state, client, options)
-    _agent_evolve_context_map(state, client, options)
+    used_memories_payload = _core_get(state, "used_memories", empty_list)
+    used_skills_payload = _core_get(state, "used_skills", empty_list)
+    _core_agent_observer_notify(state, options, "used_memories", used_memories_payload)
+    _core_agent_observer_notify(state, options, "used_skills", used_skills_payload)
+    prepared = {}
+    prepared["values"] = values
+    prepared["executor_payload"] = executor_payload
+    prepared["responder_options"] = responder_options
+    return prepared
+
+
+def _agent_complete_run(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, options: Any, output: Any) -> Any:
+    _core_coverage_mark("_agent_complete_run")
+    logs = _merge_agent_chat_log(state, distiller, executor, responder)
+    usage = _merge_agent_usage(state, distiller, executor, responder)
+    state["last_output"] = output
+    state["chat_log"] = logs
+    state["usage"] = usage
+    try:
+        _agent_evolve_context_map(state, client, options)
+    except Exception as context_map_error:
+        pass
+    _agent_build_failure_signals(state)
+    _agent_finalize_trace(state, "completed", output)
+    return output
+
+
+def _agent_stream_citation_delta(state: Any, envelope: Any) -> Any:
+    _core_coverage_mark("_agent_stream_citation_delta")
+    empty_map = {}
+    citations = _core_get(state, "citations", empty_map)
+    enabled = _core_get(citations, "enabled", False)
+    disabled = _core_not(enabled)
+    if disabled:
+        return envelope
+    else:
+        pass
+    field = _core_get(citations, "field", "evidenceCitations")
+    delta = _core_get(envelope, "delta", None)
+    delta_is_map = _core_type_is(delta, "object")
+    delta_not_map = _core_not(delta_is_map)
+    if delta_not_map:
+        return envelope
+    else:
+        pass
+    has_field = _core_map_contains(delta, field)
+    no_field = _core_not(has_field)
+    if no_field:
+        return envelope
+    else:
+        pass
+    version = _core_get(envelope, "version", None)
+    citation_version = _core_get(state, "stream_citation_version", None)
+    new_version = _core_ne(version, citation_version)
+    if new_version:
+        fresh = []
+        state["stream_citations"] = fresh
+        state["stream_citation_version"] = version
+    else:
+        pass
+    empty_list = []
+    accumulated = _core_get(state, "stream_citations", empty_list)
+    chunk = _core_get(delta, field, None)
+    chunk_is_list = _core_type_is(chunk, "list")
+    if chunk_is_list:
+        for chunk_item in chunk:
+            chunk_text = _core_string_format("{}", chunk_item)
+            accumulated.append(chunk_text)
+    else:
+        has_chunk = _core_is_not_none(chunk)
+        if has_chunk:
+            chunk_text = _core_string_format("{}", chunk)
+            accumulated.append(chunk_text)
+        else:
+            pass
+    state["stream_citations"] = accumulated
+    surface = _core_get(citations, "surface", "output")
+    hidden = _core_eq(surface, "hidden")
+    if hidden:
+        stripped_delta = {}
+        stripped_delta = _core_map_merge(stripped_delta, delta)
+        _core_map_delete(stripped_delta, field)
+        stripped = {}
+        stripped = _core_map_merge(stripped, envelope)
+        stripped["delta"] = stripped_delta
+        return stripped
+    else:
+        pass
+    return envelope
+
+
+def _agent_finalize_stream_citations(state: Any, output: Any) -> Any:
+    _core_coverage_mark("_agent_finalize_stream_citations")
+    empty_map = {}
+    citations = _core_get(state, "citations", empty_map)
+    enabled = _core_get(citations, "enabled", False)
+    if enabled:
+        empty_list = []
+        accumulated = _core_get(state, "stream_citations", empty_list)
+        state["last_citations"] = accumulated
+        field = _core_get(citations, "field", "evidenceCitations")
+        surface = _core_get(citations, "surface", "output")
+        hidden = _core_eq(surface, "hidden")
+        if hidden:
+            _core_map_delete(output, field)
+        else:
+            pass
+    else:
+        pass
+    return output
+
+
+def _agent_controlled_stage_streaming_forward(stage: Any, state: Any, client: Any, values: Any, options: Any, sink: Any) -> Any:
+    _core_coverage_mark("_agent_controlled_stage_streaming_forward")
+    control = _core_get(options, "control", None)
+    aborted = _core_run_control_aborted(control)
+    if aborted:
+        error = _core_runtime_error("Agent aborted before starting the next stage")
+        raise error
+    else:
+        pass
+    output = _core_agent_stage_streaming_forward(stage, state, client, values, options, sink)
+    return output
+
+
+def _agent_streaming_forward_impl(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any, sink: Any) -> Any:
+    _core_coverage_mark("_agent_streaming_forward_impl")
+    prepared = _agent_run_actor_stages(state, distiller, executor, client, values, options)
+    values = _core_get(prepared, "values", None)
+    executor_payload = _core_get(prepared, "executor_payload", None)
+    responder_options = _core_get(prepared, "responder_options", None)
     responder_values = _build_responder_inputs(state, values, executor_payload)
     responder_request_event = {}
     responder_request_event["stage"] = "responder"
     responder_request_event["values"] = responder_values
     responder_request_event["component_id"] = "agent.stage.responder"
     _agent_record_trace_event(state, "stage_request", responder_request_event)
-    responder_output = _agent_controlled_stage_forward(responder, client, responder_values, responder_options)
-    citation_retry_options = {}
-    citation_retry_options = _core_map_merge(citation_retry_options, responder_options)
-    citations_valid = _agent_validate_citations(state, responder_output)
-    citations_invalid = _core_not(citations_valid)
-    if citations_invalid:
-        invalid_citations_output = _core_json_stringify(responder_output)
-        citation_retry_feedback = _core_string_format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", invalid_citations_output)
-        citation_retry_options["validation_feedback"] = citation_retry_feedback
-        responder_output = _agent_controlled_stage_forward(responder, client, responder_values, citation_retry_options)
-        citations_valid = _agent_validate_citations(state, responder_output)
-    else:
-        pass
-    citations_invalid = _core_not(citations_valid)
-    if citations_invalid:
-        invalid_citations_output = _core_json_stringify(responder_output)
-        citation_retry_feedback = _core_string_format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", invalid_citations_output)
-        citation_retry_options["validation_feedback"] = citation_retry_feedback
-        responder_output = _agent_controlled_stage_forward(responder, client, responder_values, citation_retry_options)
-        citations_valid = _agent_validate_citations(state, responder_output)
-    else:
-        pass
-    citations_invalid = _core_not(citations_valid)
-    if citations_invalid:
-        error = _core_runtime_error("AxAgent responder returned citations that do not exist in the run evidence")
-        raise error
-    else:
-        pass
-    responder_output = _agent_finalize_citations(state, responder_output)
+    _agent_begin_citation_checks(state, executor_payload)
+    no_citations = []
+    no_citation_version = _core_none()
+    state["stream_citations"] = no_citations
+    state["stream_citation_version"] = no_citation_version
+    responder_output = {}
+    try:
+        responder_output = _agent_controlled_stage_streaming_forward(responder, state, client, responder_values, responder_options, sink)
+    except Exception as responder_error:
+        _agent_end_citation_checks(state)
+        raise responder_error
+    _agent_end_citation_checks(state)
+    responder_output = _agent_finalize_stream_citations(state, responder_output)
     responder_response_event = {}
     responder_response_event["stage"] = "responder"
     responder_response_event["output"] = responder_output
     responder_response_event["component_id"] = "agent.stage.responder"
     _agent_record_trace_event(state, "stage_response", responder_response_event)
-    logs = _merge_agent_chat_log(state, distiller, executor, responder)
-    usage = _merge_agent_usage(state, distiller, executor, responder)
-    state["last_output"] = responder_output
-    state["chat_log"] = logs
-    state["usage"] = usage
-    forward_used_memories = _core_get(state, "used_memories", empty_list)
-    forward_used_skills = _core_get(state, "used_skills", empty_list)
-    _core_agent_observer_notify(state, options, "used_memories", forward_used_memories)
-    _core_agent_observer_notify(state, options, "used_skills", forward_used_skills)
-    _agent_build_failure_signals(state)
-    _agent_finalize_trace(state, "completed", responder_output)
-    return responder_output
+    output = _agent_complete_run(state, distiller, executor, responder, client, options, responder_output)
+    return output
 
 
-def _agent_apply_run_context(state: Any, configured: Any, call: Any, modules: Any) -> Any:
-    _core_coverage_mark("_agent_apply_run_context")
-    empty_list = []
-    options = _core_map_merge(configured, call)
-    functions = _core_get(options, "functions", empty_list)
-    retained = []
-    for function in functions:
-        default_name = _core_get(function, "name", "")
-        namespace = _core_get(function, "namespace", default_name)
-        mcp = _core_string_starts_with(namespace, "mcp.")
-        ucp = _core_string_starts_with(namespace, "ucp.")
-        protocol = _core_or(mcp, ucp)
-        if protocol:
-            pass
-        else:
-            retained.append(function)
-    options["functions"] = retained
-    options = _agent_append_runtime_modules(options, modules)
-    inventory = _normalize_agent_callable_inventory(options)
-    split = _split_agent_callable_inventory(inventory)
-    catalog = _render_agent_discovery_catalog(split)
-    state["options"] = options
-    state["callable_inventory"] = inventory
-    state["callable_split"] = split
-    state["discovery_catalog"] = catalog
-    upgrade = _resolve_agent_auto_upgrade(options)
-    flags = _agent_policy_flags(options, split, upgrade)
-    policy = _normalize_agent_policy(options)
-    registry = _agent_policy_registry(policy, flags)
-    state["policy_flags"] = flags
-    state["policy_registry"] = registry
-    docs = _core_get(state, "discovered_tool_docs", empty_list)
-    retained_docs = []
-    for doc in docs:
-        name = _core_get(doc, "qualified_name", "")
-        mcp = _core_string_starts_with(name, "mcp.")
-        ucp = _core_string_starts_with(name, "ucp.")
-        protocol = _core_or(mcp, ucp)
-        if protocol:
-            pass
-        else:
-            retained_docs.append(doc)
-    state["discovered_tool_docs"] = retained_docs
-    prompt = _build_agent_actor_prompt_policy(state)
-    state["actor_prompt_policy"] = prompt
-    runtime = _core_get(state, "runtime_enabled", False)
-    if runtime:
-        executor = _render_rlm_executor_description(state, options)
-        distiller = _render_rlm_distiller_description(state, options)
-        responder = _render_rlm_responder_description(state, options)
-        state["executor_description_base"] = executor
-        state["distiller_description"] = distiller
-        state["responder_description"] = responder
-        _agent_refresh_actor_instruction(state)
-    else:
-        pass
-    state["mcp_run_context_active"] = True
-    return call
-
-
-def _agent_append_runtime_modules(options: Any, additional: Any) -> Any:
-    _core_coverage_mark("_agent_append_runtime_modules")
-    empty_map = {}
-    empty_list = []
-    out = _core_map_merge(empty_map, options)
-    functions = _core_get(options, "functions", empty_list)
-    modules = []
-    flat = []
-    for item in functions:
-        members = _core_get(item, "functions", None)
-        group = _core_type_is(members, "list")
-        if group:
-            modules.append(item)
-        else:
-            flat.append(item)
-    count = _core_len(flat)
-    has_flat = _core_gt(count, 0)
-    if has_flat:
-        module = {}
-        module["namespace"] = "tools"
-        module["title"] = "Tools"
-        module["alwaysInclude"] = True
-        module["functions"] = flat
-        modules.append(module)
-    else:
-        pass
-    for module in additional:
-        modules.append(module)
-    out["functions"] = modules
-    return out
-
-
-def _agent_register_child(options: Any, namespace: str, name: str, program: Any, signature: Any) -> Any:
-    _core_coverage_mark("_agent_register_child")
-    additional = []
-    options = _agent_append_runtime_modules(options, additional)
-    empty_map = {}
-    empty_list = []
-    out = _core_map_merge(empty_map, options)
-    fields = _core_get(signature, "input_fields", empty_list)
-    schema = _schema_to_json_schema_impl(fields, name, empty_map)
-    child = {}
-    child["name"] = name
-    child["kind"] = "agent"
-    child["execution"] = "blocking"
-    child["parameters"] = schema
-    child["program"] = program
-    description = _core_get(signature, "description", "Delegate to a child agent")
-    child["description"] = description
-    functions = _core_get(options, "functions", empty_list)
-    modules = []
-    found = False
-    for module in functions:
-        default_name = _core_get(module, "name", "tools")
-        module_namespace = _core_get(module, "namespace", default_name)
-        matches = _core_eq(module_namespace, namespace)
-        members = _core_get(module, "functions", None)
-        group = _core_type_is(members, "list")
-        matches = _core_and(matches, group)
-        if matches:
-            copy = _core_map_merge(empty_map, module)
-            children = []
-            for member in members:
-                children.append(member)
-            children.append(child)
-            copy["functions"] = children
-            modules.append(copy)
-            found = True
-        else:
-            modules.append(module)
-    if found:
-        pass
-    else:
-        module = {}
-        children = []
-        children.append(child)
-        module["namespace"] = namespace
-        module["functions"] = children
-        modules.append(module)
-    out["functions"] = modules
-    return out
-
-
-def _agent_child_options(state: Any, qualified: str, options: Any) -> Any:
-    _core_coverage_mark("_agent_child_options")
-    empty_map = {}
-    base = _core_get(state, "options", empty_map)
-    active = _core_get(state, "active_forward_options", empty_map)
-    parent = _core_map_merge(base, active)
-    parent = _core_map_merge(parent, options)
-    out = {}
-    keys = []
-    keys.append("control")
-    keys.append("asyncMode")
-    keys.append("async_mode")
-    keys.append("abortSignal")
-    keys.append("abort_signal")
-    keys.append("cancellation")
-    keys.append("executionContext")
-    keys.append("eventContext")
-    keys.append("protocol")
-    for key in keys:
-        value = _core_get(parent, key, None)
-        present = _core_is_not_none(value)
-        if present:
-            out[key] = value
-        else:
-            pass
-    inheritance = _core_get(parent, "mcpInheritance", "all")
-    out["mcpInheritanceFromParent"] = inheritance
-    snake_path = _core_get(parent, "execution_path", "root")
-    parent_path = _core_get(parent, "executionPath", snake_path)
-    path = _core_string_format("{}/{}", parent_path, qualified)
-    out["executionPath"] = path
-    out["execution_path"] = path
-    return out
-
-
-def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
-    _core_coverage_mark("_agent_forward")
+def _agent_streaming_forward(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any, sink: Any) -> Any:
+    _core_coverage_mark("_agent_streaming_forward")
     none = _core_none()
     active = _core_get(state, "forward_active", False)
     if active:
@@ -11443,7 +11942,7 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     state["active_forward_options"] = options
     output = {}
     try:
-        output = _agent_forward_impl(state, distiller, executor, responder, client, values, options)
+        output = _agent_streaming_forward_impl(state, distiller, executor, responder, client, values, options, sink)
     except Exception as forward_error:
         state["forward_active"] = False
         state["active_client"] = none
@@ -11460,80 +11959,27 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     return output
 
 
-def _agent_runtime_callable_names(state: Any) -> Any:
-    _core_coverage_mark("_agent_runtime_callable_names")
-    empty_list = []
-    inventory = _core_get(state, "callable_inventory", empty_list)
-    names = []
-    for group in inventory:
-        callables = _core_get(group, "callables", empty_list)
-        for callable in callables:
-            name = _core_get(callable, "qualified_name", "")
-            names.append(name)
-    return names
-
-
-def _agent_callable_visible(state: Any, qualified: str) -> bool:
-    _core_coverage_mark("_agent_callable_visible")
-    empty_map = {}
-    empty_list = []
-    flags = _core_get(state, "policy_flags", empty_map)
-    discovery = _core_get(flags, "discoveryMode", False)
-    all_visible = _core_not(discovery)
-    inventory = _core_get(state, "callable_inventory", empty_list)
-    docs = _core_get(state, "discovered_tool_docs", empty_list)
-    for group in inventory:
-        group_always = _core_get(group, "always_include", False)
-        group_visible = _core_or(all_visible, group_always)
-        callables = _core_get(group, "callables", empty_list)
-        for callable in callables:
-            name = _core_get(callable, "qualified_name", "")
-            matches = _core_eq(name, qualified)
-            if matches:
-                always = _core_get(callable, "always_include", False)
-                visible = _core_or(group_visible, always)
-                for doc in docs:
-                    doc_name = _core_get(doc, "qualified_name", "")
-                    discovered = _core_eq(doc_name, qualified)
-                    visible = _core_or(visible, discovered)
-                return visible
-            else:
-                pass
-    return False
-
-
-def _agent_runtime_invoke_callable(state: Any, qualified: str, arguments: Any) -> Any:
-    _core_coverage_mark("_agent_runtime_invoke_callable")
-    active = _core_get(state, "forward_active", False)
-    if active:
-        pass
-    else:
-        error = _core_runtime_error("Agent invocation belongs to a closed run")
-        raise error
-    visible = _agent_callable_visible(state, qualified)
-    if visible:
-        pass
-    else:
-        message = _core_string_format("Agent callable is not discovered: {}", qualified)
-        error = _core_runtime_error(message)
-        raise error
-    empty_map = {}
-    base = _core_get(state, "options", empty_map)
-    active_options = _core_get(state, "active_forward_options", empty_map)
-    options = _core_map_merge(base, active_options)
-    request = {}
-    request["qualified_name"] = qualified
-    request["args"] = arguments
-    result = _agent_execute_callable(state, request, options)
-    status = _core_get(result, "status", "ok")
-    failed = _core_eq(status, "error")
-    if failed:
-        message = _core_get(result, "error", "Agent callable failed")
-        error = _core_runtime_error(message)
-        raise error
+def _agent_stage_parse_dates(out: Any, base_options: Any, stage_options: Any, forward_options: Any) -> Any:
+    _core_coverage_mark("_agent_stage_parse_dates")
+    resolved = _core_none()
+    sources = []
+    sources.append(base_options)
+    sources.append(stage_options)
+    sources.append(forward_options)
+    for source in sources:
+        snake = _core_get(source, "parse_dates", None)
+        value = _core_get(source, "parseDates", snake)
+        chosen = _core_is_not_none(value)
+        if chosen:
+            resolved = value
+        else:
+            pass
+    has_choice = _core_is_not_none(resolved)
+    if has_choice:
+        out["parse_dates"] = resolved
+        out["parseDates"] = resolved
     else:
         pass
-    value = _core_get(result, "value", result)
-    return value
+    return out
 
 # END AXIR CORE EMITTED FUNCTIONS

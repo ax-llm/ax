@@ -320,6 +320,32 @@ module @ax.validate version "0.1" {
         }
         core.return
       }
+      // TS validateValue takes a Date for a date or datetime field and an
+      // object with start and end for a range, besides a string. The ports
+      // take their native date and time values where TS takes a Date.
+      %date_types = core.list
+      core.append %date_types, "date"
+      core.append %date_types, "datetime"
+      %is_date_type = core.call intrinsic.contains(%date_types, %type_name)
+      %is_native_date = core.type_is %value type "date"
+      %native_date_value = core.call intrinsic.and(%is_date_type, %is_native_date)
+      core.if %native_date_value {
+        core.return
+      }
+      %range_types = core.list
+      core.append %range_types, "dateRange"
+      core.append %range_types, "datetimeRange"
+      %is_range_type = core.call intrinsic.contains(%range_types, %type_name)
+      %is_range_object = core.type_is %value type "object"
+      %range_object = core.call intrinsic.and(%is_range_type, %is_range_object)
+      core.if %range_object {
+        %has_start = core.call intrinsic.map.contains(%value, "start")
+        %has_end = core.call intrinsic.map.contains(%value, "end")
+        %has_bounds = core.call intrinsic.and(%has_start, %has_end)
+        core.if %has_bounds {
+          core.return
+        }
+      }
       %string_types = core.list
       core.append %string_types, "string"
       core.append %string_types, "code"

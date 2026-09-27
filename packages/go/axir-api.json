@@ -775,6 +775,21 @@
             "child usage"
           ],
           "returns": "parent agent"
+        },
+        {
+          "target_name": "go",
+          "canonical_name": "agent_streaming_forward",
+          "public_name": "AxAgent.StreamingForward",
+          "kind": "method",
+          "description": "Run the agent and stream the responder's deltas, as TypeScript's streamingForward does, after the distiller and executor run without streaming.",
+          "form": "(*AxAgent).StreamingForward(ctx, client, values, options)",
+          "important_options": [
+            "deltas",
+            "versions",
+            "hidden citations",
+            "run control"
+          ],
+          "returns": "responder deltas"
         }
       ]
     },
