@@ -1,0 +1,64 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root/first",
+      "type": "started"
+    },
+    {
+      "path": "root/first",
+      "type": "failed"
+    },
+    {
+      "path": "root",
+      "type": "failed"
+    }
+  ],
+  "expected_error_contains": "Service fixture failure",
+  "expected_node_control_events": [],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "flow",
+  "name": "node-constructor-control-failed-under-flow-control",
+  "responses": [
+    {
+      "error": {
+        "message": "Service fixture failure",
+        "type": "response"
+      }
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "source": {
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "name": "node-constructor-control-failed-under-flow-control",
+    "observed": {
+      "error": "Generate failed: Service fixture failure"
+    },
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "tsDerived": true
+  },
+  "steps": [
+    {
+      "constructor_control": true,
+      "kind": "execute",
+      "name": "first",
+      "signature": "question:string -> answer:string"
+    }
+  ]
+}

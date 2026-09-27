@@ -13,6 +13,7 @@ import { AxFlowExecutionPlanner } from '../../../src/ax/flow/executionPlanner.js
 import { executeFlowSteps } from '../../../src/ax/flow/executor.js';
 import { flow } from '../../../src/ax/flow/flow.js';
 import { createFlowStep, toPlanStep } from '../../../src/ax/flow/steps.js';
+import { AxAIServiceResponseError } from '../../../src/ax/util/apicall.js';
 
 type Fixture = Record<string, unknown>;
 
@@ -1749,6 +1750,59 @@ const writeNodeControlPathFixtures = async () => {
       expected_node_control_events: node.events,
       expected_request_count: requests(),
     });
+  }
+  // A node that fails fails the flow: the flow control hears the node's
+  // failure at root/<node>, then the flow's own at root. The service error
+  // is one TS does not retry.
+  {
+    let requests = 0;
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async () => {
+        requests++;
+        throw new AxAIServiceResponseError(
+          'Service fixture failure',
+          'mock://chat'
+        );
+      },
+    });
+    const node = recorded();
+    const wf = flow<{ question: string }, { answer: string }>()
+      .node('first', new AxGen(signature, { control: node.control }))
+      .execute('first', (state) => ({ question: state.question }))
+      .returns((state) => ({
+        answer: String((state as any).firstResult.answer),
+      }));
+    const run = recorded();
+    let error = '';
+    try {
+      await wf.forward(ai, { question: 'Status?' }, { control: run.control });
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    }
+    if (!error.includes('Service fixture failure')) {
+      throw new Error(`expected the flow to fail, got: ${error}`);
+    }
+    const name = 'node-constructor-control-failed-under-flow-control';
+    writeFixture(flowDir, `${name}.json`, {
+      kind: 'flow',
+      name,
+      source: source(name, { error }),
+      input: { question: 'Status?' },
+      steps: [step],
+      returns: { answer: 'answer' },
+      // One scripted response: a retry would find none and fail otherwise.
+      responses: [
+        { error: { type: 'response', message: 'Service fixture failure' } },
+      ],
+      control: true,
+      expected_error_contains: 'Service fixture failure',
+      expected_control_events: run.events,
+      expected_node_control_events: node.events,
+    });
+    if (requests !== 1) {
+      throw new Error(`expected TS to send one request, sent ${requests}`);
+    }
   }
 };
 
