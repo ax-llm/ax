@@ -411,6 +411,12 @@ struct Core {
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
   static Value ai_complete_once(Value client, Value request, Value options);
+  // The run control updates a run's request boundary holds for its path:
+  // take_pending hands them to the forward, which applies them when a step
+  // starts (each is applied then), and pending_count counts them with no side
+  // effects. Another client, or a native chat session, has none.
+  static Value ai_control_take_pending(Value client);
+  static Value ai_control_pending_count(Value client);
   static Value ai_client_features(Value client, Value model);
   static Value retry_sleep(Value attempt, Value client, Value options);
   static Value tool_invoke(Value fn, Value params);
