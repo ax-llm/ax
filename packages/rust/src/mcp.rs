@@ -5254,7 +5254,8 @@ fn ax_mcp_base64_url_no_pad(bytes: &[u8]) -> String {
     }
     out
 }
-fn ax_mcp_sha256(input: &[u8]) -> [u8; 32] {
+// Also backs intrinsic.crypto.sha256_hex (AxGen cache keys) in lib.rs.
+pub(crate) fn ax_mcp_sha256(input: &[u8]) -> [u8; 32] {
     const K: [u32; 64] = [
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
         0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,

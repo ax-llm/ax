@@ -1,0 +1,95 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root/distiller",
+      "type": "started"
+    },
+    {
+      "path": "root/distiller",
+      "type": "completed"
+    },
+    {
+      "path": "root/executor",
+      "type": "started"
+    },
+    {
+      "path": "root/executor",
+      "type": "completed"
+    },
+    {
+      "path": "root/responder",
+      "type": "started"
+    },
+    {
+      "path": "root/responder",
+      "type": "completed"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_output": {
+    "answer": "Refunds take 30 days."
+  },
+  "expected_request_count": 3,
+  "expected_transcript": [
+    "request:distiller",
+    "request:executor",
+    "request:responder"
+  ],
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "kind": "agent_forward",
+  "name": "agent-forward-control",
+  "options": {
+    "directResponse": "off",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: Refunds take 30 days."
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

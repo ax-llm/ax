@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 
 import copy
+import hashlib
 import inspect
 import math
 import json
@@ -29,19 +30,49 @@ from .ai import (
     _runtime_hook_scope,
     _runtime_hooks_from_options,
     _strip_runtime_hooks,
+    _snapshot_global_caching_function,
     chat_response_to_completion,
     ai_merge_replay_metadata,
     fold_chat_response_stream,
 )
 from .prompt import AxPromptTemplate, _core_string_split
 from .schema import AxValidationError, _core_field_item, _core_url_valid, strip_internal, validate_fields, validate_output
-from .signature import AxSignature, _core_string_replace, _js_json_dumps, _js_number_text
+from .signature import AxSignature, _core_string_replace, _js_date_prompt_text, _js_json_dumps, _js_number_text
 from .mcp import resolve_execution_context
 # AXIR_CORE_IMPORTS
 
 
 class _StreamingConsumerStopped(AxAIServiceAbortedError):
     """The streaming_forward consumer stopped the run early."""
+
+
+def _core_json_stable_stringify(value):
+    return _js_json_dumps(value or {}, sort_keys=True)
+
+
+def _core_crypto_sha256_hex(text):
+    return hashlib.sha256(str(text).encode("utf-8")).hexdigest()
+
+
+def _core_axgen_caching_function(gen, options):
+    # The forward call's caching function, else the constructor's, else the
+    # process-wide one (set_caching_function).
+    for source in (options, getattr(gen, "options", None)):
+        if isinstance(source, dict):
+            caching_function = source.get("caching_function", source.get("cachingFunction"))
+            if caching_function is not None:
+                return caching_function
+    return _snapshot_global_caching_function()
+
+
+def _core_axgen_cache_read(caching_function, key):
+    # fn(key) returns the stored output, or None for a miss.
+    return caching_function(key)
+
+
+def _core_axgen_cache_write(caching_function, key, value):
+    caching_function(key, value)
+    return None
 
 
 def _call_optimizer_engine(engine, request: dict[str, Any], evaluator):
@@ -526,6 +557,13 @@ class AxGen:
         options: dict[str, Any] | None = None,
         hooks: AxRuntimeHooks | None = None,
     ):
+        # As in TS, the cache is read before the run's span and metrics, so a
+        # stored output records neither.
+        run_options = _strip_runtime_hooks(options) or {}
+        lookup = _cache_lookup_impl(self, values, run_options, False)
+        if lookup.get("hit"):
+            # A stored output's audio outputs are rendered, as TS does.
+            return _render_audio_outputs_impl(self, client, lookup.get("value"), run_options)
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -533,7 +571,7 @@ class AxGen:
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen"},
         ):
-            return self._forward_unscoped(client, values, _strip_runtime_hooks(options))
+            return self._forward_unscoped(client, values, {**run_options, "_ax_cache_lookup": lookup})
 
     def _forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_context = resolve_execution_context(options, self.execution_context)
@@ -673,7 +711,16 @@ class AxGen:
 
     def _streaming_forward_with(self, client, values, options, sink, hooks=None):
         # Runs the streaming forward, sending each {version, index, delta} to
-        # sink, and returns the merged output of the picked sample.
+        # sink, and returns the merged output of the picked sample. As in TS,
+        # the cache is read before the run's span and metrics, a read error
+        # is ignored, and a stored output arrives as one delta.
+        run_options = _strip_runtime_hooks(options) or {}
+        lookup = _cache_lookup_impl(self, values, run_options, True)
+        if lookup.get("hit"):
+            # A stored output's audio outputs are rendered, as TS does.
+            cached = _render_audio_outputs_impl(self, client, lookup.get("value"), run_options)
+            sink({"version": 0, "index": 0, "delta": cached})
+            return cached
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -681,7 +728,7 @@ class AxGen:
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen", "ax.streaming": True},
         ):
-            return self._streaming_forward_unscoped_with(client, values, _strip_runtime_hooks(options), sink)
+            return self._streaming_forward_unscoped_with(client, values, {**run_options, "_ax_cache_lookup": lookup}, sink)
 
     def _streaming_forward_unscoped_with(self, client, values, options, sink):
         run_options = {**self.options, **(options or {})}
@@ -847,6 +894,35 @@ def _core_string_drop_trailing_high_surrogate(value):
     if text and "\ud800" <= text[-1] <= "\udbff":
         return text[:-1]
     return text
+
+
+_DATE_ZONES: dict[str, Any] = {}
+# datetime covers years 1-9999. Offsets are constant before a zone's first
+# transition and follow its rule after the last, so an instant a day past
+# either end reads the same offset as the clamped one.
+_DATE_MIN_SECONDS = -62135510400  # 0001-01-02T00:00:00Z
+_DATE_MAX_SECONDS = 253402128000  # 9999-12-30T00:00:00Z
+
+
+def _core_date_zone_offset(name, epoch_ms):
+    """UTC offset in seconds of the IANA zone `name` at an instant (epoch
+    milliseconds), from the platform tz database through zoneinfo. Raises
+    for a zone the database does not have."""
+    import datetime as _datetime
+    import zoneinfo as _zoneinfo
+
+    key = str(name)
+    zone = _DATE_ZONES.get(key)
+    if zone is None:
+        try:
+            zone = _zoneinfo.ZoneInfo(key)
+        except (ValueError, OSError, _zoneinfo.ZoneInfoNotFoundError) as exc:
+            raise ValueError(f"unknown time zone {key}") from exc
+        _DATE_ZONES[key] = zone
+    seconds = math.floor(float(epoch_ms) / 1000)
+    seconds = min(max(seconds, _DATE_MIN_SECONDS), _DATE_MAX_SECONDS)
+    instant = _datetime.datetime(1970, 1, 1, tzinfo=_datetime.timezone.utc) + _datetime.timedelta(seconds=seconds)
+    return int(instant.astimezone(zone).utcoffset().total_seconds())
 
 def _core_math_is_finite(value): return math.isfinite(value)
 
@@ -1032,6 +1108,19 @@ def _core_accepts_options(method):
         return False
 
 
+def _core_ai_control_take_pending(client):
+    # The run control updates queued for this run, which the forward applies
+    # when a step starts, as TS does. Only a request boundary tracks them; a
+    # chat session applies its controls itself.
+    take = getattr(client, "_take_control_updates", None)
+    return take() if callable(take) else []
+
+
+def _core_ai_control_pending_count(client):
+    count = getattr(client, "_pending_control_count", None)
+    return int(count()) if callable(count) else 0
+
+
 def _core_ai_complete_once(client, request, options):
     # As in TS, a streamed forward folds the stream's chunks into one response.
     streaming = bool(((request or {}).get("model_config") or {}).get("stream"))
@@ -1139,6 +1228,15 @@ def _core_axgen_deprecation(key, message):
 def _core_axgen_emit_delta(sink, envelope):
     sink(envelope)
     return None
+
+
+def _core_axgen_speak(client, request, options):
+    # Backs intrinsic.axgen.speak: the AxGen audio output renderer calls the
+    # client's speak(), as TS calls ai.speak().
+    speak = getattr(client, "speak", None)
+    if not callable(speak):
+        raise RuntimeError("Audio speech not supported by this AI client")
+    return speak(request, options or {})
 
 
 def _core_axgen_call_processor(spec, value, context):
@@ -1276,7 +1374,11 @@ def _core_string_str(value):
     return _js_number_text(value) if isinstance(value, float) else str(value)
 
 
-def _core_axgen_value_text(value):
+def _core_axgen_value_text(value, type_name=None):
+    # A native date in a date-typed field reads as TS renders a Date.
+    dated = _js_date_prompt_text(type_name, value) if type_name else None
+    if dated is not None:
+        return dated
     if isinstance(value, str):
         return value
     return _js_json_dumps(value, sort_keys=True, separators=(", ", ": "))
@@ -1295,7 +1397,8 @@ def _core_axgen_format_values(gen, values, kind):
         name = _core_get(field, "name")
         if name in values:
             title = _core_get(field, "title", name)
-            lines.append(f"{title}: {_core_axgen_value_text(values[name])}")
+            field_type = _core_get(field, "type")
+            lines.append(f"{title}: {_core_axgen_value_text(values[name], _core_get(field_type, 'name', None))}")
     if not lines:
         for name, value in values.items():
             lines.append(f"{name}: {_core_axgen_value_text(value)}")

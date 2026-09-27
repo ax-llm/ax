@@ -30,7 +30,7 @@ public final class AxACE {
   private final Map<String, Object> options;
   private final Map<String, Object> config;
   private final Object initialPlaybook;
-  private final String now;
+  private final String injectedNow;
   private Object playbook;
   private final List<Object> generatorHistory = new ArrayList<>();
   private final List<Object> deltaHistory = new ArrayList<>();
@@ -62,10 +62,19 @@ public final class AxACE {
     }
     this.initialPlaybook = this.options.get("initialPlaybook");
     Object nowOpt = this.options.get("now");
-    this.now = nowOpt == null ? "1970-01-01T00:00:00.000Z" : String.valueOf(nowOpt);
+    this.injectedNow = nowOpt == null ? null : String.valueOf(nowOpt);
     this.playbook = this.initialPlaybook != null
       ? clone(this.initialPlaybook)
-      : Core._ace_empty_playbook(null, this.now);
+      : Core._ace_empty_playbook(null, now());
+  }
+
+  private static final java.time.format.DateTimeFormatter ISO_MILLIS_UTC =
+      java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(java.time.ZoneOffset.UTC);
+
+  // The injected clock (the `now` option), else the wall clock at each call,
+  // as TS's new Date().toISOString() stamps each playbook change.
+  private String now() {
+    return this.injectedNow != null ? this.injectedNow : ISO_MILLIS_UTC.format(java.time.Instant.now());
   }
 
   public String name() { return "ACE"; }
@@ -89,7 +98,7 @@ public final class AxACE {
   public void reset() {
     this.playbook = this.initialPlaybook != null
       ? clone(this.initialPlaybook)
-      : Core._ace_empty_playbook(null, this.now);
+      : Core._ace_empty_playbook(null, now());
     this.generatorHistory.clear();
     this.deltaHistory.clear();
   }
@@ -115,7 +124,7 @@ public final class AxACE {
     } else if (this.initialPlaybook != null) {
       this.playbook = clone(this.initialPlaybook);
     } else {
-      this.playbook = Core._ace_empty_playbook(null, this.now);
+      this.playbook = Core._ace_empty_playbook(null, now());
     }
     Map<String, Object> artifact = Core.asMap(state.getOrDefault("artifact", Map.of()));
     this.generatorHistory.clear();
@@ -235,7 +244,7 @@ public final class AxACE {
       applyOptions.put("allowDynamicSections", config.get("allowDynamicSections"));
       applyOptions.put("enableAutoPrune", true);
       applyOptions.put("protectedBulletIds", protectedIds);
-      Map<String, Object> result = Core.asMap(Core._ace_apply_curator_operations(this.playbook, resolved, applyOptions, this.now));
+      Map<String, Object> result = Core.asMap(Core._ace_apply_curator_operations(this.playbook, resolved, applyOptions, now()));
       this.playbook = result.get("playbook");
       appliedIds = Core.asList(result.getOrDefault("updatedBulletIds", List.of()));
       List<Object> autoRemoved = Core.asList(result.getOrDefault("autoRemoved", List.of()));
@@ -248,7 +257,7 @@ public final class AxACE {
     if (reflection instanceof Map<?, ?> reflectionMap) {
       for (Object tagObj : Core.asList(Core._ace_normalize_reflection_bullet_tags(reflectionMap))) {
         Map<String, Object> tag = Core.asMap(tagObj);
-        this.playbook = Core._ace_update_bullet_feedback(this.playbook, tag.get("id"), tag.get("tag"), this.now);
+        this.playbook = Core._ace_update_bullet_feedback(this.playbook, tag.get("id"), tag.get("tag"), now());
       }
     }
     if (!resolved.isEmpty() && !appliedIds.isEmpty()) {
@@ -261,7 +270,7 @@ public final class AxACE {
     feedbackEvent.put("generatorOutput", generatorOutput);
     feedbackEvent.put("reflection", reflection);
     feedbackEvent.put("curator", curatorResult);
-    feedbackEvent.put("timestamp", this.now);
+    feedbackEvent.put("timestamp", now());
     this.generatorHistory.add(feedbackEvent);
     if (!appliedIds.isEmpty() && curatorResult != null && !Core.asList(curatorResult.getOrDefault("operations", List.of())).isEmpty()) {
       Map<String, Object> delta = new LinkedHashMap<>();
@@ -342,7 +351,7 @@ public final class AxACE {
     if (reflection instanceof Map<?, ?> reflectionMap) {
       for (Object tagObj : Core.asList(Core._ace_normalize_reflection_bullet_tags(reflectionMap))) {
         Map<String, Object> tag = Core.asMap(tagObj);
-        this.playbook = Core._ace_update_bullet_feedback(this.playbook, tag.get("id"), tag.get("tag"), this.now);
+        this.playbook = Core._ace_update_bullet_feedback(this.playbook, tag.get("id"), tag.get("tag"), now());
       }
     }
     List<Object> appliedIds = new ArrayList<>();
@@ -353,7 +362,7 @@ public final class AxACE {
       applyOptions.put("allowDynamicSections", config.get("allowDynamicSections"));
       applyOptions.put("enableAutoPrune", true);
       applyOptions.put("protectedBulletIds", protectedIds);
-      Map<String, Object> result = Core.asMap(Core._ace_apply_curator_operations(this.playbook, resolved, applyOptions, this.now));
+      Map<String, Object> result = Core.asMap(Core._ace_apply_curator_operations(this.playbook, resolved, applyOptions, now()));
       this.playbook = result.get("playbook");
       appliedIds = Core.asList(result.getOrDefault("updatedBulletIds", List.of()));
       List<Object> autoRemoved = Core.asList(result.getOrDefault("autoRemoved", List.of()));
@@ -371,7 +380,7 @@ public final class AxACE {
     feedbackEvent.put("generatorOutput", generatorOutput);
     feedbackEvent.put("reflection", reflection);
     feedbackEvent.put("curator", curatorResult);
-    feedbackEvent.put("timestamp", this.now);
+    feedbackEvent.put("timestamp", now());
     this.generatorHistory.add(feedbackEvent);
     if (!appliedIds.isEmpty() && curatorResult != null && !Core.asList(curatorResult.getOrDefault("operations", List.of())).isEmpty()) {
       Map<String, Object> delta = new LinkedHashMap<>();

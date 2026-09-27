@@ -758,12 +758,37 @@ module @ax.gen version "0.1" {
       %base_options = core.get %gen["options"]
       %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
       core.call @apply_model_config_option_impl(%runtime_options, %base_options, %options)
+      // TS forward reads its cachingFunction first: a stored output comes
+      // back without a request, and an error from the read propagates. A
+      // host that read it before opening the run's telemetry, as TS does,
+      // passes that lookup, and only the store is left.
+      %cache_fn = core.call intrinsic.none()
+      %cache_key = core.let ""
+      %lookup = core.call @cache_lookup_option_impl(%options)
+      %looked_up = core.call intrinsic.is_not_none(%lookup)
+      core.if %looked_up {
+        %cache_fn = core.get %lookup["fn"]
+        %cache_key = core.get %lookup["key"] default ""
+      } else {
+        %read = core.call @cache_lookup_impl(%gen, %values, %options, false)
+        %read_hit = core.get %read["hit"] default false
+        core.if %read_hit {
+          // As in TS, a stored output's audio outputs are rendered.
+          %cached = core.get %read["value"]
+          %rendered_cached = core.call @render_audio_outputs_impl(%gen, %client, %cached, %options)
+          core.return %rendered_cached
+        }
+        %cache_fn = core.get %read["fn"]
+        %cache_key = core.get %read["key"] default ""
+      }
+      core.call intrinsic.map.delete(%runtime_options, "_ax_cache_lookup")
       // As in TS, a streamed forward returns what a streaming consumer merges.
       %stream_option = core.get %runtime_options["stream"] default false
       %streamed = core.call intrinsic.truthy(%stream_option)
       core.if %streamed {
         %no_sink = core.call intrinsic.none()
         %merged = core.call @streaming_forward(%gen, %client, %values, %options, %no_sink)
+        core.call @cache_store_impl(%cache_fn, %cache_key, %merged)
         core.return %merged
       }
       %signature = core.get %gen["signature"]
@@ -796,6 +821,7 @@ module @ax.gen version "0.1" {
       core.append %ordered_messages, %user_message
       %output_fields = core.get %signature["output_fields"]
       core.call @append_structured_output_instruction(%ordered_messages, %output_fields, %selection)
+      %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
       %validation_feedback = core.get %runtime_options["validationFeedback"] default %validation_feedback_snake
       %has_validation_feedback = core.call intrinsic.truthy(%validation_feedback)
@@ -828,6 +854,7 @@ module @ax.gen version "0.1" {
       %max_steps_snake = core.get %runtime_options["max_steps"] default 25
       %max_steps = core.get %runtime_options["maxSteps"] default %max_steps_snake
       %step = core.let 0
+      %control_step = core.let -1
       core.loop {
         // A step is one model turn; validation retries stay inside it, as in TS.
         %steps_exhausted = core.call intrinsic.gte(%step, %max_steps)
@@ -836,6 +863,14 @@ module @ax.gen version "0.1" {
           %max_steps_error = core.call intrinsic.error.runtime(%max_steps_message)
           %max_steps_failed = core.call @generate_failed_impl(%max_steps_error)
           core.raise %max_steps_failed
+        }
+        // As in TS, run control updates queued for this run apply when a step
+        // starts, not on its retries.
+        %starts_step = core.call intrinsic.ne(%step, %control_step)
+        core.if %starts_step {
+          %control_step = core.let %step
+          %control_updates = core.call intrinsic.ai.control_take_pending(%client)
+          %messages = core.call @apply_control_updates_impl(%gen, %messages, %runtime_options, %control_updates)
         }
         %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
         %response = core.map
@@ -893,6 +928,7 @@ module @ax.gen version "0.1" {
           %has_structured_call = core.call intrinsic.is_not_none(%structured_call)
           core.if %has_structured_call {
             %structured_failure = core.call intrinsic.none()
+            %structured_done = core.call intrinsic.none()
             %structured_stage = core.let "validation"
             core.try {
               %structured_args = core.call @structured_output_call_args(%structured_call)
@@ -910,8 +946,7 @@ module @ax.gen version "0.1" {
                 %structured_thought = core.get %response["thought"] default ""
                 %structured_public = core.call @with_output_thought_impl(%structured_stripped, %thought_field, %thought_prefix, %structured_thought)
                 core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
-                core.call @record_trace(%gen, %values, %structured_public, "ok")
-                core.return %structured_public
+                %structured_done = core.let %structured_public
               }
             } catch %structured_validation_error {
               %structured_retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
@@ -928,8 +963,17 @@ module @ax.gen version "0.1" {
               core.call intrinsic.axgen.memory_add_correction(%gen, %response, %structured_validation_error)
               core.continue
             }
+            // As in TS, the answer's audio outputs are rendered after the
+            // retries, where a speak() error surfaces as it is.
+            %structured_answered = core.call intrinsic.is_not_none(%structured_done)
+            core.if %structured_answered {
+              %structured_rendered = core.call @render_audio_outputs_impl(%gen, %client, %structured_done, %options)
+              core.call @record_trace(%gen, %values, %structured_rendered, "ok")
+              core.call @cache_store_impl(%cache_fn, %cache_key, %structured_rendered)
+              core.return %structured_rendered
+            }
             // Only a non-retryable assertion failure leaves the try without
-            // returning; it surfaces without a retry.
+            // an answer; it surfaces without a retry.
             %structured_fatal = core.call @generate_failed_impl(%structured_failure)
             core.raise %structured_fatal
           }
@@ -968,8 +1012,10 @@ module @ax.gen version "0.1" {
             %stop_thought = core.get %response["thought"] default ""
             %stop_public = core.call @with_output_thought_impl(%stop_output, %thought_field, %thought_prefix, %stop_thought)
             core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
-            core.call @record_trace(%gen, %values, %stop_public, "ok")
-            core.return %stop_public
+            %stop_rendered = core.call @render_audio_outputs_impl(%gen, %client, %stop_public, %options)
+            core.call @record_trace(%gen, %values, %stop_rendered, "ok")
+            core.call @cache_store_impl(%cache_fn, %cache_key, %stop_rendered)
+            core.return %stop_rendered
           }
         } else {
           %parsed_bundle = core.map
@@ -1035,14 +1081,39 @@ module @ax.gen version "0.1" {
             %thought_prefix = core.let %feedback_joined
             core.continue
           }
+          // As in TS, a run control update queued during the step (a steer or
+          // a thinking budget) takes another step, which applies it; the
+          // answer then comes from that step.
+          %control_pending = core.call intrinsic.ai.control_pending_count(%client)
+          %steered = core.call intrinsic.gt(%control_pending, 0)
+          core.if %steered {
+            %steered_content = core.get %response["content"] default ""
+            %steered_message = core.map
+            core.set %steered_message["role"] = "assistant"
+            core.set %steered_message["content"] = %steered_content
+            core.append %messages, %steered_message
+            core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
+            %steered_step = core.call intrinsic.add(%step, 1)
+            %step = core.let %steered_step
+            %attempt = core.let 0
+            %infra_attempt = core.let 0
+            %steered_thought = core.get %response["thought"] default ""
+            %steered_joined = core.call intrinsic.add(%thought_prefix, %steered_thought)
+            %thought_prefix = core.let %steered_joined
+            core.continue
+          }
           %public_outputs = core.get %parsed_bundle["outputs"]
           %structured_samples = core.get %parsed_bundle["samples"]
           %selected_index = core.call @select_sample_index(%structured_samples, %runtime_options)
           %empty_public = core.map
           %public_output = core.call intrinsic.list.get(%public_outputs, %selected_index, %empty_public)
           core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
-          core.call @record_trace(%gen, %values, %public_output, "ok")
-          core.return %public_output
+          // As in TS, the picked answer's audio outputs are rendered, and the
+          // trace and the cache get the rendered output.
+          %rendered_output = core.call @render_audio_outputs_impl(%gen, %client, %public_output, %options)
+          core.call @record_trace(%gen, %values, %rendered_output, "ok")
+          core.call @cache_store_impl(%cache_fn, %cache_key, %rendered_output)
+          core.return %rendered_output
         }
       }
       core.raise "unreachable AxGen forward loop exit"
@@ -1928,6 +1999,39 @@ module @ax.gen version "0.1" {
       %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
       core.call @apply_model_config_option_impl(%runtime_options, %base_options, %options)
       core.set %runtime_options["stream"] = true
+      // TS streamingForward reads its cachingFunction first and ignores an
+      // error from the read; a stored output comes back as one delta.
+      // Without a sink, forward reads and stores the cache itself; a host
+      // that read it before opening the run's telemetry passes that lookup.
+      %cache_fn = core.call intrinsic.none()
+      %cache_key = core.let ""
+      %has_sink = core.call intrinsic.is_not_none(%sink)
+      core.if %has_sink {
+        %lookup = core.call @cache_lookup_option_impl(%options)
+        %looked_up = core.call intrinsic.is_not_none(%lookup)
+        core.if %looked_up {
+          %cache_fn = core.get %lookup["fn"]
+          %cache_key = core.get %lookup["key"] default ""
+        } else {
+          %read = core.call @cache_lookup_impl(%gen, %values, %options, true)
+          %cache_fn = core.get %read["fn"]
+          %cache_key = core.get %read["key"] default ""
+          %read_hit = core.get %read["hit"] default false
+          core.if %read_hit {
+            // As in TS, a stored output's audio outputs are rendered before
+            // it goes out as one delta.
+            %cached = core.get %read["value"]
+            %rendered_cached = core.call @render_audio_outputs_impl(%gen, %client, %cached, %options)
+            %cached_envelope = core.map
+            core.set %cached_envelope["version"] = 0
+            core.set %cached_envelope["index"] = 0
+            core.set %cached_envelope["delta"] = %rendered_cached
+            core.call intrinsic.axgen.emit_delta(%sink, %cached_envelope)
+            core.return %rendered_cached
+          }
+        }
+      }
+      core.call intrinsic.map.delete(%runtime_options, "_ax_cache_lookup")
       %signature = core.get %gen["signature"]
       %model = core.get %runtime_options["model"]
       %features = core.call intrinsic.ai.client_features(%client, %model)
@@ -1953,6 +2057,7 @@ module @ax.gen version "0.1" {
       core.append %ordered_messages, %user_message
       %output_fields = core.get %signature["output_fields"]
       core.call @append_structured_output_instruction(%ordered_messages, %output_fields, %selection)
+      %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
       %validation_feedback = core.get %runtime_options["validationFeedback"] default %validation_feedback_snake
       %has_validation_feedback = core.call intrinsic.truthy(%validation_feedback)
@@ -2020,6 +2125,13 @@ module @ax.gen version "0.1" {
       %picker = core.get %runtime_options["resultPicker"] default %picker_snake
       %buffered = core.call intrinsic.is_not_none(%picker)
       %run = core.call @stream_run_state_impl(%sink, %buffered, %thought_field)
+      // The run's result renders its audio outputs where TS renders them
+      // (@render_stream_result_impl).
+      %render_audio = core.map
+      core.set %render_audio["gen"] = %gen
+      core.set %render_audio["client"] = %client
+      core.set %render_audio["options"] = %options
+      core.set %run["render_audio"] = %render_audio
       %committed = core.map
       %control_version = core.let 0
       %step = core.let 0
@@ -2057,6 +2169,19 @@ module @ax.gen version "0.1" {
               core.call @stream_yield_impl(%run, %control_version, %carried_index, %carried_delta)
             }
           }
+        }
+        // As in TS, run control updates queued for this run apply when a step
+        // starts, and each one starts a new version.
+        %control_updates = core.call intrinsic.ai.control_take_pending(%client)
+        %messages = core.call @apply_control_updates_impl(%gen, %messages, %runtime_options, %control_updates)
+        core.for %control_update in %control_updates {
+          %update_held_version = core.get %run["current_version"] default 0
+          %update_behind = core.call intrinsic.lt(%control_version, %update_held_version)
+          core.if %update_behind {
+            %control_version = core.let %update_held_version
+          }
+          %control_version = core.call intrinsic.add(%control_version, 1)
+          %committed = core.map
         }
         %infra_attempt = core.let 0
         %infra_error = core.call intrinsic.none()
@@ -2402,6 +2527,7 @@ module @ax.gen version "0.1" {
               %stop_output = core.call @stream_result_impl(%run, %runtime_options)
               core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
               core.call @record_trace(%gen, %values, %stop_output, "ok")
+              core.call @cache_store_streamed_impl(%cache_fn, %cache_key, %stop_output)
               core.return %stop_output
             }
             %is_feedback = core.call intrinsic.eq(%kind, "feedback")
@@ -2425,9 +2551,23 @@ module @ax.gen version "0.1" {
               %next_step = core.let true
               core.break
             }
+            // As in TS, a run control update queued during the step takes
+            // another step, which applies it.
+            %control_pending = core.call intrinsic.ai.control_pending_count(%client)
+            %steered = core.call intrinsic.gt(%control_pending, 0)
+            core.if %steered {
+              %steered_content = core.get %response["content"] default ""
+              %steered_message = core.map
+              core.set %steered_message["role"] = "assistant"
+              core.set %steered_message["content"] = %steered_content
+              core.append %messages, %steered_message
+              %next_step = core.let true
+              core.break
+            }
             %final_output = core.call @stream_result_impl(%run, %runtime_options)
             core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
             core.call @record_trace(%gen, %values, %final_output, "ok")
+            core.call @cache_store_streamed_impl(%cache_fn, %cache_key, %final_output)
             core.return %final_output
           }
           core.if %infra_retry {
@@ -2653,6 +2793,208 @@ module @ax.gen version "0.1" {
       core.set %message["role"] = "user"
       core.set %message["content"] = %parts
       core.return %message
+    }
+  }
+
+  op ax.gen.semantic @caching_function_option_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(AxGen, json) -> json"
+    body @entry(%gen: AxGen, %options: json) {
+      // The forward call's cachingFunction, else the AxGen constructor's,
+      // else the process-wide one; none without one, and none under a run
+      // control, the call's or, as a constructor default, the AxGen's, which
+      // bypasses the cache.
+      %empty = core.map
+      %call_options = core.call intrinsic.map.merge(%empty, %options)
+      %base_options = core.get %gen["options"] default %empty
+      %run_options = core.call intrinsic.map.merge(%base_options, %call_options)
+      %control = core.get %run_options["control"]
+      %controlled = core.call intrinsic.is_not_none(%control)
+      core.if %controlled {
+        %no_cache = core.call intrinsic.none()
+        core.return %no_cache
+      }
+      %cache_fn = core.call intrinsic.axgen.caching_function(%gen, %call_options)
+      core.return %cache_fn
+    }
+  }
+
+  op ax.gen.semantic @cache_key_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(AxGen, json) -> string"
+    body @entry(%gen: AxGen, %values: json) {
+      // computeCacheKey: the SHA-256 of the signature and the input values,
+      // in input field order, media data included. Each language writes the
+      // text its own way, so keys are deterministic but not shared across
+      // languages.
+      %signature = core.get %gen["signature"]
+      %description = core.get %signature["description"] default ""
+      %lines = core.list
+      %description_line = core.call intrinsic.string.format("description {}", %description)
+      core.append %lines, %description_line
+      %inputs = core.list
+      %input_fields = core.get %signature["input_fields"]
+      core.for %field in %input_fields {
+        %input_name = core.get %field["name"] default ""
+        %input_label = core.call @stream_field_type_label_impl(%field)
+        %input_optional = core.call @stream_field_flag_impl(%field, "is_optional", "isOptional")
+        %input_line = core.call intrinsic.string.format("input {} {} {}", %input_name, %input_label, %input_optional)
+        core.append %lines, %input_line
+        %input_value = core.get %values[%input_name]
+        core.append %inputs, %input_value
+      }
+      %output_fields = core.get %signature["output_fields"]
+      core.for %field in %output_fields {
+        %output_name = core.get %field["name"] default ""
+        %output_label = core.call @stream_field_type_label_impl(%field)
+        %output_optional = core.call @stream_field_flag_impl(%field, "is_optional", "isOptional")
+        %output_line = core.call intrinsic.string.format("output {} {} {}", %output_name, %output_label, %output_optional)
+        core.append %lines, %output_line
+      }
+      // Sorted keys, so the same values give the same key in every run.
+      %inputs_json = core.call intrinsic.json.stable_stringify(%inputs)
+      core.append %lines, %inputs_json
+      %text = core.call intrinsic.string.join("\n", %lines)
+      %key = core.call intrinsic.crypto.sha256_hex(%text)
+      core.return %key
+    }
+  }
+
+  op ax.gen.semantic @cache_store_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, string, json) -> void"
+    body @entry(%cache_fn: json, %key: string, %output: json) {
+      // TS stores the finished output and ignores an error from the store.
+      %no_cache = core.call intrinsic.is_none(%cache_fn)
+      core.if %no_cache {
+        core.return
+      }
+      core.try {
+        core.call intrinsic.axgen.cache_write(%cache_fn, %key, %output)
+      } catch %cache_write_error {
+      }
+      core.return
+    }
+  }
+
+  op ax.gen.semantic @cache_store_streamed_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, string, json) -> void"
+    body @entry(%cache_fn: json, %key: string, %output: json) {
+      // TS streamingForward stores only a run that yielded a delta, which
+      // leaves a non-empty merged output.
+      %output_count = core.call intrinsic.len(%output)
+      %yielded = core.call intrinsic.gt(%output_count, 0)
+      core.if %yielded {
+        core.call @cache_store_impl(%cache_fn, %key, %output)
+      }
+      core.return
+    }
+  }
+
+  op ax.gen.semantic @cache_lookup_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(AxGen, json, json, bool) -> json throws"
+    body @entry(%gen: AxGen, %values: json, %options: json, %ignore_read_errors: bool) {
+      // The forward's cache read: {fn, key, hit, value}, with fn none when
+      // the forward does not cache. Hosts call it before they open the
+      // run's span and metrics, as TS reads the cache before any telemetry,
+      // and pass the result to the forward as its _ax_cache_lookup option.
+      // A read error propagates unless ignore_read_errors, as for
+      // streamingForward.
+      %lookup = core.map
+      %cache_fn = core.call @caching_function_option_impl(%gen, %options)
+      core.set %lookup["fn"] = %cache_fn
+      core.set %lookup["key"] = ""
+      core.set %lookup["hit"] = false
+      %use_cache = core.call intrinsic.is_not_none(%cache_fn)
+      core.if %use_cache {
+        %cache_key = core.call @cache_key_impl(%gen, %values)
+        core.set %lookup["key"] = %cache_key
+        %cached = core.call intrinsic.none()
+        core.if %ignore_read_errors {
+          core.try {
+            %cached = core.call intrinsic.axgen.cache_read(%cache_fn, %cache_key)
+          } catch %cache_read_error {
+          }
+        } else {
+          %cached = core.call intrinsic.axgen.cache_read(%cache_fn, %cache_key)
+        }
+        %cache_hit = core.call intrinsic.is_not_none(%cached)
+        core.if %cache_hit {
+          core.set %lookup["hit"] = true
+          core.set %lookup["value"] = %cached
+        }
+      }
+      core.return %lookup
+    }
+  }
+
+  op ax.gen.semantic @cache_lookup_option_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json) -> json"
+    body @entry(%options: json) {
+      // The lookup a host already made for this forward, if any.
+      %empty = core.map
+      %call_options = core.call intrinsic.map.merge(%empty, %options)
+      %lookup = core.get %call_options["_ax_cache_lookup"]
+      core.return %lookup
+    }
+  }
+
+  op ax.gen.semantic @apply_control_updates_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(AxGen, list<json>, json, json) -> list<json>"
+    body @entry(%gen: AxGen, %messages: list<json>, %runtime_options: json, %updates: json) {
+      // TS applies run control updates when a step starts: a steer joins the
+      // conversation as a user message and stays in memory, and a thinking
+      // level sets the thinking token budget of the requests that follow.
+      // Returns the conversation, which callers reassign: a port's list need
+      // not share the caller's.
+      %steers = core.list
+      core.for %update in %updates {
+        %kind = core.get %update["type"] default ""
+        %is_steer = core.call intrinsic.eq(%kind, "steer")
+        core.if %is_steer {
+          %text = core.get %update["text"] default ""
+          %message = core.map
+          core.set %message["role"] = "user"
+          core.set %message["content"] = %text
+          core.append %messages, %message
+          core.append %steers, %message
+        } else {
+          %level = core.get %update["level"]
+          core.set %runtime_options["thinkingTokenBudget"] = %level
+        }
+      }
+      %steer_count = core.call intrinsic.len(%steers)
+      %has_steers = core.call intrinsic.gt(%steer_count, 0)
+      core.if %has_steers {
+        core.call intrinsic.axgen.memory_add_request(%gen, %steers)
+      }
+      core.return %messages
     }
   }
 }

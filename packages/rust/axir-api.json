@@ -122,6 +122,36 @@
             "event listener"
           ],
           "returns": "run controller"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxCachingFunction",
+          "public_name": "AxCachingFunction",
+          "kind": "type",
+          "description": "TypeScript's cachingFunction: read and store finished AxGen outputs by key. The forward call's function comes first, then the program's, then the process-wide one, and a run control skips the cache.",
+          "form": "Arc\u003cdyn Fn(\u0026str, Option\u003c\u0026Value\u003e) -\u003e AxResult\u003cOption\u003cValue\u003e\u003e + Send + Sync\u003e",
+          "important_options": [
+            "read",
+            "store",
+            "SHA-256 key",
+            "streamed hit as one delta"
+          ],
+          "returns": "stored output or miss",
+          "example": "let qa = ax(\"question:string -\u003e answer:string\")?.with_caching_function(cache);"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "set_caching_function",
+          "public_name": "set_caching_function",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide AxGen caching function.",
+          "form": "set_caching_function(Some(fn))",
+          "important_options": [
+            "caching function",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "set_caching_function(Some(cache));"
         }
       ]
     },
@@ -745,6 +775,21 @@
             "child usage"
           ],
           "returns": "parent agent"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "agent_streaming_forward",
+          "public_name": "AxAgent::streaming_forward",
+          "kind": "method",
+          "description": "Run the agent and stream the responder's deltas, as TypeScript's streamingForward does, after the distiller and executor run without streaming.",
+          "form": "AxAgent::streaming_forward(\u0026mut client, input, options, on_delta)",
+          "important_options": [
+            "deltas",
+            "versions",
+            "hidden citations",
+            "run control"
+          ],
+          "returns": "responder deltas"
         }
       ]
     },

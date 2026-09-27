@@ -4,7 +4,7 @@ import os
 import copy
 import re
 from typing import Any
-from .signature import _js_number_text
+from .signature import _js_date_millis, _js_number_text
 from .signature import (
     _signature_describe_field_values_impl,
 )
@@ -119,6 +119,10 @@ def _core_type_is(value, type_name):
         return value is None
     if type_name == "json":
         return value is None or isinstance(value, (dict, list, str, int, float, bool))
+    if type_name == "date":
+        # A native date or time value, which a date or datetime field takes
+        # where TypeScript takes a Date.
+        return _js_date_millis(value) is not None
     return False
 
 
@@ -353,6 +357,13 @@ def _validate_fields_impl(fields: list[Any], values: Any, context: str) -> None:
         if missing_or_null:
             required_missing = _core_not(is_optional)
             if required_missing:
+                is_input = _core_eq(context, "input")
+                if is_input:
+                    input_message = _core_string_format("Value for input field '{}' is required.", field_name)
+                    input_error = _core_validation_error(input_message)
+                    raise input_error
+                else:
+                    pass
                 message = _core_string_format("Required field is missing: '{}'", field_title)
                 error = _core_validation_error(message)
                 raise error
@@ -408,25 +419,6 @@ def _schema_json_type_impl(type_name: str) -> Any:
     else:
         pass
     return "string"
-
-
-def _validate_output_impl(fields: list[Any], values: Any) -> Any:
-    _core_coverage_mark("_validate_output_impl")
-    normalized = values
-    for field in fields:
-        field_name = _core_get(field, "name", None)
-        field_title = _core_get(field, "title", None)
-        has_name = _core_map_contains(normalized, field_name)
-        missing_name = _core_not(has_name)
-        has_title = _core_map_contains(normalized, field_title)
-        alias_title = _core_and(missing_name, has_title)
-        if alias_title:
-            title_value = _core_get(normalized, field_title, None)
-            normalized[field_name] = title_value
-        else:
-            pass
-    _validate_fields_impl(fields, normalized, "output")
-    return normalized
 
 
 def _schema_enhance_description_impl(base: Any, typ: FieldType) -> Any:
@@ -543,6 +535,25 @@ def _schema_enhance_description_impl(base: Any, typ: FieldType) -> Any:
     else:
         pass
     return base
+
+
+def _validate_output_impl(fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_validate_output_impl")
+    normalized = values
+    for field in fields:
+        field_name = _core_get(field, "name", None)
+        field_title = _core_get(field, "title", None)
+        has_name = _core_map_contains(normalized, field_name)
+        missing_name = _core_not(has_name)
+        has_title = _core_map_contains(normalized, field_title)
+        alias_title = _core_and(missing_name, has_title)
+        if alias_title:
+            title_value = _core_get(normalized, field_title, None)
+            normalized[field_name] = title_value
+        else:
+            pass
+    _validate_fields_impl(fields, normalized, "output")
+    return normalized
 
 
 def _validate_string_constraints_impl(value: str, field: Field) -> None:
@@ -752,7 +763,7 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         valid_image = _valid_image(value)
         invalid_image = _core_not(valid_image)
         if invalid_image:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'", field_name)
+            message = _core_string_format("Validation failed: Expected '{}' to be type '{}'", field_name, "object ({ mimeType: string; data: string })")
             error = _core_validation_error(message)
             raise error
         else:
@@ -765,7 +776,7 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         valid_audio = _valid_audio(value)
         invalid_audio = _core_not(valid_audio)
         if invalid_audio:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'", field_name)
+            message = _core_string_format("Validation failed: Expected '{}' to be type '{}'", field_name, "string or object ({ data: string; format?: string })")
             error = _core_validation_error(message)
             raise error
         else:
@@ -778,7 +789,7 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         valid_file = _valid_file(value)
         invalid_file = _core_not(valid_file)
         if invalid_file:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'", field_name)
+            message = _core_string_format("Validation failed: Expected '{}' to be type '{}'", field_name, "object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })")
             error = _core_validation_error(message)
             raise error
         else:
@@ -791,7 +802,7 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         valid_url_shape = _valid_url_shape(value)
         invalid_url_shape = _core_not(valid_url_shape)
         if invalid_url_shape:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'", field_name)
+            message = _core_string_format("Validation failed: Expected '{}' to be type '{}'", field_name, "string or object ({ url: string; title?: string; description?: string })")
             error = _core_validation_error(message)
             raise error
         else:
@@ -810,6 +821,32 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         else:
             pass
         return None
+    else:
+        pass
+    date_types = []
+    date_types.append("date")
+    date_types.append("datetime")
+    is_date_type = _core_contains(date_types, type_name)
+    is_native_date = _core_type_is(value, "date")
+    native_date_value = _core_and(is_date_type, is_native_date)
+    if native_date_value:
+        return None
+    else:
+        pass
+    range_types = []
+    range_types.append("dateRange")
+    range_types.append("datetimeRange")
+    is_range_type = _core_contains(range_types, type_name)
+    is_range_object = _core_type_is(value, "object")
+    range_object = _core_and(is_range_type, is_range_object)
+    if range_object:
+        has_start = _core_map_contains(value, "start")
+        has_end = _core_map_contains(value, "end")
+        has_bounds = _core_and(has_start, has_end)
+        if has_bounds:
+            return None
+        else:
+            pass
     else:
         pass
     string_types = []

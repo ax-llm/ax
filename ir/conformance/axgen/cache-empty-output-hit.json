@@ -1,0 +1,35 @@
+{
+  "calls": [
+    {
+      "input": {
+        "question": "Anything new?"
+      },
+      "kind": "forward"
+    },
+    {
+      "input": {
+        "question": "Anything new?"
+      },
+      "kind": "forward"
+    }
+  ],
+  "expected_cache_gets": 2,
+  "expected_cache_sets": [{}],
+  "expected_deltas": [null, null],
+  "expected_outputs": [{}, {}],
+  "expected_request_count": 1,
+  "expected_requests": [1, 0],
+  "kind": "cache_sequence",
+  "name": "cache-empty-output-hit",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Nothing to report.",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer?:string, note?:string"
+}

@@ -1,0 +1,24 @@
+{
+  "expected_chat_prompt_contains": ["\"First: a\\n\\nSecond:    \\n\""],
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "first": "a",
+    "second": "   "
+  },
+  "kind": "forward",
+  "name": "forward-required-input-whitespace",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: ok",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "first:string, second:string -> answer:string"
+}

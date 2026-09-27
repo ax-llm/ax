@@ -1,0 +1,32 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Generator answer`, `Question context`, `Snake case name`, `Key Insight`, `Item 1`, `Item 123`, `Field 2`, `Step 2 Result`, `X 2 Y`, `Value 99 Count`, `User ID`, `Api URL`, `Order ID`, `Parse HTTP Response`. Your task is to generate new fields: `Root cause`, `Error Identification`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nGenerator answer:\nQuestion context:\nSnake case name:\nKey Insight:\nItem 1:\nItem 123:\nField 2:\nStep 2 Result:\nX 2 Y:\nValue 99 Count:\nUser ID:\nApi URL:\nOrder ID:\nParse HTTP Response:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nRoot cause (wire key: `root_cause`): (This string field must be included)\nError Identification (wire key: `errorIdentification`): (This string field must be included)\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Generator answer: Paris\n\nQuestion context: European capitals\n\nSnake case name: snake\n\nKey Insight: Cite the source\n\nItem 1: first\n\nItem 123: third\n\nField 2: second field\n\nStep 2 Result: done\n\nX 2 Y: axis\n\nValue 99 Count: 99\n\nUser ID: u-1\n\nApi URL: https://example.com\n\nOrder ID: o-7\n\nParse HTTP Response: ok\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "apiURL": "https://example.com",
+    "field_2": "second field",
+    "generator_answer": "Paris",
+    "item1": "first",
+    "item123": "third",
+    "keyInsight": "Cite the source",
+    "orderID": "o-7",
+    "parseHTTPResponse": "ok",
+    "question_context": "European capitals",
+    "snake_case_name": "snake",
+    "step2Result": "done",
+    "userID": "u-1",
+    "value99Count": "99",
+    "x2Y": "axis"
+  },
+  "kind": "prompt",
+  "name": "field-titles-snake-and-camel-case",
+  "signature": "generator_answer:string, question_context:string, snake_case_name:string, keyInsight:string, item1:string, item123:string, field_2:string, step2Result:string, x2Y:string, value99Count:string, userID:string, apiURL:string, orderID:string, parseHTTPResponse:string -> root_cause:string, errorIdentification:string"
+}

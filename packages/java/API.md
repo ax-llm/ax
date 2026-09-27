@@ -97,6 +97,34 @@ Run control shared by active and future descendant programs. Cancellation report
 - Returns: `run controller`
 - Important options: steer, thinking token budget, target path, abort, event listener
 
+### `AxCachingFunction`
+
+TypeScript's cachingFunction: read and store finished AxGen outputs by key. The forward call's function comes first, then the program's, then the process-wide one, and a run control skips the cache.
+
+- Canonical Ax concept: `AxCachingFunction`
+- Kind: `type`
+- Form: `Map<String, Object> apply(String key, Map<String, Object> value)`
+- Returns: `stored output or miss`
+- Important options: read, store, SHA-256 key, streamed hit as one delta
+
+```java
+AxGen qa = new AxGen(Ax.s("question:string -> answer:string"), Map.of("cachingFunction", cache));
+```
+
+### `AxGlobals.setCachingFunction`
+
+Register, replace, or clear the process-wide AxGen caching function.
+
+- Canonical Ax concept: `set_caching_function`
+- Kind: `function`
+- Form: `AxGlobals.setCachingFunction(fn)`
+- Returns: `void`
+- Important options: caching function, clear
+
+```java
+AxGlobals.setCachingFunction(cache);
+```
+
 
 ## AxAI
 
@@ -540,6 +568,16 @@ Register an owned child agent for serialized delegation through the parent invoc
 - Form: `AxAgent.addChildAgent(namespace, name, child)`
 - Returns: `parent agent`
 - Important options: namespace, name, child, independent conversation, child usage
+
+### `AxAgent.streamingForward`
+
+Run the agent and stream the responder's deltas, as TypeScript's streamingForward does, after the distiller and executor run without streaming.
+
+- Canonical Ax concept: `agent_streaming_forward`
+- Kind: `method`
+- Form: `AxAgent.streamingForward(client, values, options)`
+- Returns: `responder deltas`
+- Important options: deltas, versions, hidden citations, run control
 
 
 ## Flow

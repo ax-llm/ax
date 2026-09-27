@@ -320,6 +320,8 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			"Attach the language-native run controller through forward options for steering, reasoning changes, cancellation, and lifecycle events. Queued and applied are different states. HTTP applies updates at a response boundary; an optional host WebSocket enables native steering. Do not manage response IDs, socket messages, or tool-result submission in application code.",
 			"",
+			"As in TypeScript, an update queued while a request is in flight applies when the next step starts. If that request gave the final answer, the run takes one more step to apply it, and the answer comes from that step; a steer stays in the conversation for the steps after it.",
+			"",
 			"A provisional answer is not successful completion while started tools remain unresolved. Cancellation closes the session, reports unresolved call IDs, and retains unresolved started calls in tool traces and native agent action logs; it cannot undo an external action. Handlers may cooperate through the invocation cancellation context. Late results from noncooperative work must not change a closed run or trigger replay.",
 			"",
 			"Java, C++, and Rust WebSocket adapters track activity when frames arrive. Consuming buffered events does not reactivate a completed response. When no response is active, steering is queued for the next response; an active successor can still receive native steering. Observe lifecycle timing instead of assuming native application.",
@@ -353,6 +355,10 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			skillFieldProcessorText(target),
 			"",
+			skillCachingFunctionText(target),
+			"",
+			skillAudioOutputText(target),
+			"",
 			skillNumberFormatText(target),
 			"",
 			"`maxSteps` / `max_steps` (default 25) caps the tool loop. Each model turn that calls tools is one step, and validation retries stay inside their step. Reaching the cap raises `Generate failed: Max steps reached: N`. A call to a stop function (`stopFunctions` / `stop_functions`) runs the tool and ends the forward, as in TypeScript: the output is empty apart from the earlier steps' thought, and the tool's result is not the output.",
@@ -363,6 +369,8 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			"`strictMode` / `strict_mode`, set on the constructor or the forward (the forward's wins), requires the answer to open with its first required field's label, as in TypeScript: an unlabeled answer, or one JSON object, is retried with a correction instead of being read as a single-field answer.",
 			"",
+			skillDateFieldsText(target),
+			"",
 			"`functionCall` / `function_call` sets the tool choice: `auto`, `none`, `required`, or `{ type: 'function', function: { name } }` to force one function. A forced call (`required` or named) applies to the first step only, as in TypeScript: later steps drop it together with the tools so the model can answer. Under the `function` structured-output rung the forced step withholds `__axOutput`, so the forcing reaches a user tool, and the next step forces `__axOutput`. A tool choice passed as `functionCallMode` is routed the same way.",
 			"",
 			"## Multi-Sampling",
@@ -371,6 +379,23 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"- Without a result picker, AxGen returns candidate 0. A result picker receives all `{ index, sample }` structured candidates and returns the winning list index; Core rejects an index outside `0..N-1`.",
 			"- Native callback surface: "+skillResultPickerSurface(target)+".",
 			"- OpenAI-compatible Chat and Gemini map multi-sampling to `n` and `candidateCount`. Anthropic rejects `n > 1` explicitly.",
+			"",
+		) + "\n"
+	}
+	agentStreamingGuide := ""
+	if spec.ID == "agent" {
+		agentStreamingGuide = readmeLines(
+			"## Streaming An Agent Run",
+			"",
+			skillAgentStreamingText(target),
+			"",
+			"- The distiller and the executor, or the direct-respond skip, run first without streaming, as in TypeScript. A clarification request or a stage failure raises before any delta.",
+			"- The deltas are the responder's AxGen deltas: merge each index's deltas (strings and lists append, other values replace) and start over when the version changes. A responder retry, such as a citation correction, streams a new version.",
+			"- With `citations` on, the responder's assertion checks the cited ids against the run's evidence and retries with TypeScript's correction message, in forward and streaming alike. With `surface: \"hidden\"` each delta leaves out the citation field, so a delta can be empty, and the citations observer gets the ids streamed in the last version that streamed any.",
+			"- As in forward, the used-memory and used-skill observers run before the responder, and the context map and the playbook learn after it.",
+			"- `parseDates` / `parse_dates` on the agent or on the forward call (the call's wins) reaches the responder, so its `date`, `datetime`, `dateRange` and `datetimeRange` output fields come back parsed as AxGen parses them, in forward outputs and streamed deltas alike. Without it they keep the model's text, as before.",
+			"- A run `control` hears the run at its own path (`root`) and each stage at `root/distiller`, `root/executor` and `root/responder`, in forward and streaming alike. Stopping the stream early ends the responder and the run as `aborted`. A steer queued while a stage's request is in flight makes that stage take another step, as AxGen does, and a steer without a target reaches every later stage too.",
+			"- "+skillAgentStreamingSessionText(target),
 			"",
 		) + "\n"
 	}
@@ -393,6 +418,18 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"- Provider-backed memory, skill, and observer lifecycle: `"+skillAgentMemoryExamplePath(target)+"`.",
 			"- Catalog-only search and relevance hints: the target's `smart-defaults-agent` example under `src/examples/"+target+"/long-agents/`.",
 			"- Website gallery: https://axllm.dev/"+target+"/examples/long-agents/.",
+			"",
+		) + "\n"
+	}
+	audioGuide := ""
+	if spec.ID == "audio" {
+		audioGuide = readmeLines(
+			"## Speech And Audio Fields",
+			"",
+			"- `speak()` returns TypeScript's speech result keys: `data` (base64 audio), `format`, `mimeType`, `transcript` (the spoken text), and `sampleRate` / `channels` when the mime type gives them. The older keys `audio`, `mime_type`, and `sample_rate` stay beside them until the next major version; read the TypeScript keys in new code. A binary speech body reaches the package without its Content-Type, so `mimeType` then comes from the format.",
+			"- "+skillAudioSpeakSurface(target)+"",
+			"- An AxGen `audio` output field becomes speech with the `renderAudio` / `render_audio` option (see the gen skill): the field then holds the `speak()` result, with the spoken text as its `transcript`.",
+			"- An audio input that is a string, or an audio object with a string `transcript` (a rendered audio output), reaches the model as text. Audio without a transcript goes as an audio part with only its `format` (`wav` when it has none) and `data`.",
 			"",
 		) + "\n"
 	}
@@ -459,7 +496,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		skillSnippet(target, spec.ID),
 		"```",
 		"",
-		expandedExamples+skillTypesafeGuide(target, spec.ID)+profileGuide+routingGuide+sessionGuide+genForwardGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
+		expandedExamples+skillTypesafeGuide(target, spec.ID)+profileGuide+routingGuide+sessionGuide+genForwardGuide+audioGuide+agentStreamingGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
 		"",
 		skillAPISurface(apiRef, spec.Sections),
 		"",
@@ -467,6 +504,36 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		"",
 		skillBulletList(guardrails),
 	)
+}
+
+func skillAgentStreamingText(target string) string {
+	switch target {
+	case "python":
+		return "`agent.streaming_forward(client, values, options)` runs the agent and yields the responder's `{\"version\", \"index\", \"delta\"}` deltas as TypeScript's `streamingForward` does. The run works on a worker thread that waits while you handle each delta; closing the generator stops the run."
+	case "go":
+		return "`(*AxAgent).StreamingForward(ctx, client, values, options)` runs the agent and returns an `iter.Seq2[AxGenDelta, error]` of the responder's deltas, as TypeScript's `streamingForward` does. The run works in its own goroutine; stopping the iteration cancels it, and an error ends the sequence as a final `(AxGenDelta{}, err)` pair."
+	case "java":
+		return "`agent.streamingForward(client, values, options)` runs the agent and returns an `AxGenDeltaStream` of the responder's deltas, as TypeScript's `streamingForward` does. Consume it once, in try-with-resources: the run starts on a worker thread with the iteration, and closing the stream stops it."
+	case "rust":
+		return "`agent.streaming_forward(&mut client, values, options, on_delta)` runs the agent, calls `on_delta` with each `AxGenDelta` of the responder as TypeScript's `streamingForward` yields it, and returns the responder's output. Returning `Err(error)` from `on_delta` stops the run, and `streaming_forward` returns that same error."
+	case "cpp":
+		return "`agent.streaming_forward(client, values, options, handler)` runs the agent, calls `handler(const AxGenDelta&)` with each delta of the responder as TypeScript's `streamingForward` yields it, on the calling thread, and returns the responder's output. Returning false stops the run without an exception; an exception the handler throws stops it and propagates."
+	default:
+		return "The agent streams the responder's deltas as TypeScript's `streamingForward` does."
+	}
+}
+
+func skillAgentStreamingSessionText(target string) string {
+	switch target {
+	case "python":
+		return "A run `control` on a client that opens async model sessions (such as `gpt-6-astra`) is not streamed through a session yet: `streaming_forward` raises `NotImplementedError` before any stage runs, as AxGen deltas do. Use `forward()` there."
+	case "java":
+		return "A run `control` on a client that opens async model sessions (such as `gpt-6-astra`) is not streamed through a session yet: the stream throws `UnsupportedOperationException` before any stage runs, as AxGen deltas do. Use `forward()` there."
+	case "go":
+		return "Under a run `control` the responder streams through the request boundary, as `AxGen.StreamingForward` does; it does not open an async model session yet."
+	default:
+		return "Under a run `control` the responder streams through the request boundary, as AxGen streaming does; on a client that opens async model sessions (such as `gpt-6-astra`) the session answers the responder in one chunk."
+	}
 }
 
 func skillStreamingForwardText(target string) string {
@@ -529,6 +596,20 @@ func skillNumberFormatText(target string) string {
 	}
 }
 
+func skillDateFieldsText(target string) string {
+	text := "`parseDates` / `parse_dates`, set on the constructor or the forward (the forward's wins), parses `date`, `datetime`, `dateRange` and `datetimeRange` output fields as TypeScript does in the text contract: `YYYY-MM-DD`; ISO 8601 with `Z` or an offset; or `YYYY-MM-DD HH:mm Zone` with an offset, `UTC`/`GMT`, an IANA zone name (matched without regard to case, with TypeScript's handling of DST gaps, which are an error, and overlaps, which take the earlier instant), or an abbreviation at its literal offset (`PST` is -08:00 all year; ambiguous ones such as `BST`, `IST` and `CST` are rejected; `PST`/`PDT` and `CDT` follow US usage, so for Philippine time (`PST`) or Cuban daylight time (`CDT`) give an IANA name (`Asia/Manila`, `America/Havana`) or a UTC offset); and ranges as `{\"start\", \"end\"}` JSON, a two-item array, `start/end`, or `start to end`. A value comes back as TypeScript's JSON of its `Date`: a `toISOString()` string such as `2024-05-09T18:30:00.000Z`, and `{\"start\", \"end\"}` of those for a range, in forward outputs and in streamed deltas. An unparseable value is a validation error that is retried with TypeScript's correction; an optional field's bad value is left out. Structured JSON answers keep the model's strings, as in TypeScript. Without the option date fields keep the model's text as before: that is the default until the next major version, which parses by default, and `parseDates: false` keeps today's behavior after that. "
+	switch target {
+	case "python":
+		return text + "Named zones resolve through the `zoneinfo` module (the platform tz database, or the `tzdata` package where there is none, as on Windows). A date or datetime input also takes a `datetime` (an aware one is its instant, a naive one is local time) or a `date` (its UTC midnight), rendered as TypeScript renders a `Date`: the UTC day for a date field and ISO 8601 without milliseconds for a datetime; a range input takes a `{\"start\", \"end\"}` dict, of dates or of strings."
+	case "go":
+		return text + "Named zones resolve through `time.LoadLocation` (the platform tz database, `$ZONEINFO`, or `time/tzdata` when your program imports it, which Windows builds without Go installed need). A date or datetime input also takes a `time.Time`, rendered as TypeScript renders a `Date`: the UTC day for a date field and ISO 8601 without milliseconds for a datetime; a range input takes a `{\"start\", \"end\"}` map, of `time.Time` values or of strings."
+	case "java":
+		return text + "Named zones resolve through `java.time`'s bundled tz database. A date or datetime input also takes an `Instant`, `OffsetDateTime`, `ZonedDateTime` or `java.util.Date` (its instant), a `LocalDateTime` (in the JVM's zone) or a `LocalDate` (its UTC midnight), rendered as TypeScript renders a `Date`: the UTC day for a date field and ISO 8601 without milliseconds for a datetime; a range input takes a `{\"start\", \"end\"}` map, of those or of strings."
+	default:
+		return text + "Named zones resolve through the platform tz database, read directly: TZif files under `$TZDIR`, then `/usr/share/zoneinfo` and the other usual directories, with the zone's POSIX rule past its last transition. Windows has no such directory, so set `TZDIR` to a zoneinfo directory there, or named zones fail as unrecognized (offsets and UTC still work). Date inputs are strings, since `Value` has no date type; a range input can also be a `{\"start\", \"end\"}` object, rendered as JSON."
+	}
+}
+
 func skillFieldProcessorText(target string) string {
 	switch target {
 	case "python":
@@ -544,6 +625,49 @@ func skillFieldProcessorText(target string) string {
 	default:
 		return "Field processors rewrite the field value, a port extension; TypeScript's feedback processors (a result sent back to the model for another step) are in progress for this language."
 	}
+}
+
+func skillCachingFunctionText(target string) string {
+	shared := " The call's function comes first, then the program's, then the process-wide one, and a run with a `control` skips the cache. As in TypeScript, a forward reads the cache before it opens the run's span or records metrics, so a hit sends no request and records neither; an error from the read propagates. A streaming forward yields a hit as one delta (version 0, index 0) and ignores an error from the read. Both store the finished output (the picked sample's, with a result picker) and ignore an error from the store. Keys are lowercase hex SHA-256 digests of the signature and the input values, media included; they differ from other languages' keys, so don't share one store across languages."
+	switch target {
+	case "python":
+		return "`caching_function` (or `cachingFunction`), a constructor or forward option, caches outputs as TypeScript's `cachingFunction` does: `fn(key)` returns a stored output, or `None` for a miss, and `fn(key, output)` stores one. `set_caching_function(fn)` sets a process-wide function, and `None` clears it." + shared
+	case "go":
+		return "An `AxCachingFunction` (`func(key string, value map[string]Value) (map[string]Value, error)`), passed as the `cachingFunction` (or `caching_function`) option of `NewAx` or of a forward call, caches outputs as TypeScript's `cachingFunction` does: a read passes a nil `value` and gets the stored output back, or a nil map for a miss (an empty map that is not nil is a hit with an empty output), and a store passes the output. `SetCachingFunction(fn)` sets a process-wide function, and `nil` clears it. It may be called from several goroutines at once." + shared
+	case "java":
+		return "An `AxCachingFunction` (`Map<String, Object> apply(String key, Map<String, Object> value) throws Exception`), passed as the `cachingFunction` (or `caching_function`) option of the `AxGen` constructor or of a forward call, caches outputs as TypeScript's `cachingFunction` does: `apply(key, null)` returns a stored output, or `null` for a miss, and `apply(key, output)` stores one. `AxGlobals.setCachingFunction(fn)` sets a process-wide function, and `null` clears it. It may be called from several threads at once, so keep it thread-safe." + shared
+	case "rust":
+		return "An `AxCachingFunction` (`Arc<dyn Fn(&str, Option<&Value>) -> AxResult<Option<Value>> + Send + Sync>`) caches outputs as TypeScript's `cachingFunction` does: `f(key, None)` returns `Ok(Some(output))` for a stored output or `Ok(None)` for a miss, and `f(key, Some(&output))` stores one. Set it on a program with `with_caching_function(f)`, for one call with `forward_with_caching_function(client, input, options, f)` or `streaming_forward_with_caching_function(client, input, options, f, on_delta)`, or process-wide with `set_caching_function(Some(f))`, where `None` clears it. A call's function covers that forward only, not programs its tools run. `owned_worker_factory()` workers keep the program's function." + shared + " `with_control(control)` gives a program a run control for every forward, as TypeScript's constructor `control` does; a call's control wins, and either one skips the cache."
+	case "cpp":
+		return "An `AxCachingFunction` (`std::function<std::optional<Value>(const std::string& key, const Value* value)>`) caches outputs as TypeScript's `cachingFunction` does: a read passes `value == nullptr` and gets the stored output back, or `std::nullopt` for a miss, and a store passes `&output` and its return is ignored. Set it on a program with `gen.set_caching_function(fn)`; for one call, make a handle with `auto cache = axllm::caching_function(fn);` and pass `{\"caching_function\", cache.value()}` in the `forward` or `streaming_forward` options, as a run control's `value()` is passed, keeping the handle alive for the call; or set it process-wide with `axllm::set_caching_function(fn)`. An empty function clears it." + shared
+	default:
+		return "A caching function (TypeScript's `cachingFunction`) is not available in this language yet."
+	}
+}
+
+func skillAudioSpeakSurface(target string) string {
+	switch target {
+	case "python":
+		return "The renderer calls the client's `speak(request, options)`, which every `AxAIService` has."
+	case "go":
+		return "The renderer calls the client's `Speak(ctx, request, options)`: `AxAIService` clients have it, and the `AIClient` interface does not require it, so a custom client without `Speak` cannot render audio."
+	case "java":
+		return "The renderer calls `AiClient.speak(request, options)`: `AxAIService` clients speak, and a client without speech throws `UnsupportedOperationException`."
+	case "rust":
+		return "The renderer calls `AxAIClient::speak(request)`, whose default returns an error; provider clients, routers, and balancers implement it."
+	case "cpp":
+		return "The renderer calls `AIClient::speak(request, options)`: `AxAIService` clients speak, and the base `AIClient` throws."
+	default:
+		return "The renderer calls the client's speech method."
+	}
+}
+
+func skillAudioOutputText(target string) string {
+	option := "`renderAudio` (or `render_audio`)"
+	if target == "python" {
+		option = "`render_audio` (or `renderAudio`)"
+	}
+	return option + ", a constructor or forward option (the forward's wins), renders `audio` output fields as TypeScript does: each audio output that holds text goes through the client's speak(), and the field becomes the speak() result, with the text as its `transcript` unless speak() gave one. The speak request is the forward options' `speech.speak` defaults, then `speech.fields.<field>`, then the text. It renders where TypeScript does: a forward's answer (streamed or not; with a result picker, only the picked sample), a cache hit, and a streaming forward's result when a result picker picks it, which then goes out as its one delta. Deltas that stream without a result picker stay text. The trace and the cache hold the rendered output, a rendered artifact passes through a cache hit untouched, and an error from speak() surfaces as it is, without a retry. Without the option an audio output keeps the model's text, as before, and the first such output logs a deprecation warning once per process; `false` keeps the text without the warning. Rendering becomes the default in the next major version."
 }
 
 func skillResultPickerSurface(target string) string {
@@ -943,6 +1067,7 @@ func skillFlowPatterns(target string) []skillPattern {
 			pattern("Fan-out and join", "Independent reads place research and audience analysis in one planner group. Owned clients and programs run concurrently; unsupported custom workers use a traced serial fallback.", readmeLines("parallel_flow = (", "    flow({\"id\": \"docs.parallelFlow\"})", "    .execute(\"research\", research, {\"reads\": [\"topicText\"], \"writes\": [\"researchResult\", \"factList\"]})", "    .execute(\"audience\", audience, {\"reads\": [\"topicText\"], \"writes\": [\"audienceResult\", \"audienceAngle\"]})", "    .execute(\"join\", join, {\"reads\": [\"factList\", \"audienceAngle\"], \"writes\": [\"joinResult\", \"briefText\"]})", "    .returns({\"briefText\": \"briefText\"})", ")")),
 			pattern("Draft, critique, revise", "A linear refinement pipeline makes each dependency explicit.", readmeLines("refine_flow = (", "    flow({\"id\": \"docs.refineFlow\"})", "    .execute(\"draft\", draft, {\"reads\": [\"topicText\"], \"writes\": [\"draftResult\", \"draftText\"]})", "    .execute(\"critique\", critique, {\"reads\": [\"draftText\"], \"writes\": [\"critiqueResult\", \"critiqueText\"]})", "    .execute(\"revise\", revise, {\"reads\": [\"draftText\", \"critiqueText\"], \"writes\": [\"reviseResult\", \"revisedText\"]})", "    .returns({\"revisedText\": \"revisedText\"})", ")")),
 			pattern("Run a flow", "Forward accepts the provider client and the public flow inputs.", readmeLines("output = parallel_flow.forward(client, {\"topicText\": \"Typed LLM workflows\"})")),
+			pattern("Cache a flow", "A `caching_function` (or `cachingFunction`) in the forward options, or `set_caching_function(fn)` for the process, caches the flow's output as TypeScript does: a hit runs no node and records no span or metric, and a run `control` skips it. The flow constructor takes none; the function also reaches the flow's AxGen nodes, which cache their own outputs.", readmeLines("output = parallel_flow.forward(", "    client,", "    {\"topicText\": \"Typed LLM workflows\"},", "    {\"caching_function\": cache},", ")")),
 		}
 	case "java":
 		return []skillPattern{
@@ -951,6 +1076,7 @@ func skillFlowPatterns(target string) []skillPattern {
 			pattern("Fan-out and join", "Independent reads place research and audience analysis in one planner group. Owned clients and programs run concurrently; unsupported custom workers use a traced serial fallback.", readmeLines("AxFlow parallelFlow = Ax.flow(Map.of(\"id\", \"docs.parallelFlow\"))", "    .execute(\"research\", research, Map.of(\"reads\", List.of(\"topicText\"), \"writes\", List.of(\"researchResult\", \"factList\")))", "    .execute(\"audience\", audience, Map.of(\"reads\", List.of(\"topicText\"), \"writes\", List.of(\"audienceResult\", \"audienceAngle\")))", "    .execute(\"join\", join, Map.of(\"reads\", List.of(\"factList\", \"audienceAngle\"), \"writes\", List.of(\"joinResult\", \"briefText\")))", "    .returns(Map.of(\"briefText\", \"briefText\"));")),
 			pattern("Draft, critique, revise", "A linear refinement pipeline makes each dependency explicit.", readmeLines("AxFlow refineFlow = Ax.flow(Map.of(\"id\", \"docs.refineFlow\"))", "    .execute(\"draft\", draft, Map.of(\"reads\", List.of(\"topicText\"), \"writes\", List.of(\"draftResult\", \"draftText\")))", "    .execute(\"critique\", critique, Map.of(\"reads\", List.of(\"draftText\"), \"writes\", List.of(\"critiqueResult\", \"critiqueText\")))", "    .execute(\"revise\", revise, Map.of(\"reads\", List.of(\"draftText\", \"critiqueText\"), \"writes\", List.of(\"reviseResult\", \"revisedText\")))", "    .returns(Map.of(\"revisedText\", \"revisedText\"));")),
 			pattern("Run a flow", "Forward accepts the provider client and the public flow inputs.", readmeLines("var output = parallelFlow.forward(client, Map.of(\"topicText\", \"Typed LLM workflows\"));")),
+			pattern("Cache a flow", "An `AxCachingFunction` under `cachingFunction` in the `forward` or `streamingForward` options, or `AxGlobals.setCachingFunction(fn)` for the process, caches the flow's output as TypeScript does: a hit runs no node and records no span or metric, and a run `control` skips it. The `AxFlow` constructor takes none; the function also reaches the flow's AxGen nodes, which cache their own outputs.", readmeLines("var output = parallelFlow.forward(", "    client,", "    Map.of(\"topicText\", \"Typed LLM workflows\"),", "    Map.of(\"cachingFunction\", cache));")),
 		}
 	case "go":
 		return []skillPattern{
@@ -960,6 +1086,7 @@ func skillFlowPatterns(target string) []skillPattern {
 			pattern("Draft, critique, revise", "A linear refinement pipeline makes each dependency explicit.", readmeLines("refineFlow := ax.NewFlow(map[string]ax.Value{\"id\": \"docs.refineFlow\"}).", "  Execute(\"draft\", draft, map[string]ax.Value{\"reads\": ax.Array(\"topicText\"), \"writes\": ax.Array(\"draftResult\", \"draftText\")}).", "  Execute(\"critique\", critique, map[string]ax.Value{\"reads\": ax.Array(\"draftText\"), \"writes\": ax.Array(\"critiqueResult\", \"critiqueText\")}).", "  Execute(\"revise\", revise, map[string]ax.Value{\"reads\": ax.Array(\"draftText\", \"critiqueText\"), \"writes\": ax.Array(\"reviseResult\", \"revisedText\")}).", "  Returns(map[string]ax.Value{\"revisedText\": \"revisedText\"})")),
 			pattern("Run a flow", "Forward accepts the context, provider client, public inputs, and options.", readmeLines("output, err := parallelFlow.Forward(", "  ctx, client,", "  map[string]ax.Value{\"topicText\": \"Typed LLM workflows\"},", "  nil,", ")")),
 			pattern("Stream a flow", "`StreamingForward` runs the whole flow, as `Forward` does, and yields its output as one update (`Version` 1, `Index` 0), as TypeScript's `streamingForward` does; an error ends the sequence.", readmeLines("for delta, err := range parallelFlow.StreamingForward(", "  ctx, client,", "  map[string]ax.Value{\"topicText\": \"Typed LLM workflows\"},", "  nil,", ") {", "  if err != nil {", "    return err", "  }", "  fmt.Println(delta.Version, delta.Delta)", "}")),
+			pattern("Cache a flow", "An `ax.AxCachingFunction` under `\"cachingFunction\"` (or `\"caching_function\"`) in the `Forward` or `StreamingForward` options, or `ax.SetCachingFunction(fn)` for the process, caches the flow's output as TypeScript does: a hit runs no node and records no span or metric, and a run `control` skips it. `ax.NewFlow` takes none; the function also reaches the flow's AxGen nodes, which cache their own outputs.", readmeLines("output, err := parallelFlow.Forward(", "  ctx, client,", "  map[string]ax.Value{\"topicText\": \"Typed LLM workflows\"},", "  map[string]ax.Value{\"cachingFunction\": cache},", ")")),
 		}
 	case "rust":
 		return []skillPattern{
@@ -969,6 +1096,7 @@ func skillFlowPatterns(target string) []skillPattern {
 			pattern("Draft, critique, revise", "A linear refinement pipeline makes each dependency explicit.", readmeLines("let mut refine_flow = axllm::flow(\"docs.refineFlow\")", "    .execute_with_options(\"draft\", draft, &json!({\"reads\": [\"topicText\"], \"writes\": [\"draftResult\", \"draftText\"]}))", "    .execute_with_options(\"critique\", critique, &json!({\"reads\": [\"draftText\"], \"writes\": [\"critiqueResult\", \"critiqueText\"]}))", "    .execute_with_options(\"revise\", revise, &json!({\"reads\": [\"draftText\", \"critiqueText\"], \"writes\": [\"reviseResult\", \"revisedText\"]}))", "    .returns(json!({\"revisedText\": \"revisedText\"}));")),
 			pattern("Run a flow", "Forward accepts the mutable provider client and public inputs.", readmeLines("let output = parallel_flow.forward(", "    &mut client,", "    json!({\"topicText\": \"Typed LLM workflows\"}),", ")?;")),
 			pattern("Stream a flow", "`streaming_forward` runs the whole flow, as `forward_with_options` does, and returns its output as one update (`version` 1, `index` 0), as TypeScript's `streamingForward` does.", readmeLines("let updates = parallel_flow.streaming_forward(", "    &mut client,", "    json!({\"topicText\": \"Typed LLM workflows\"}),", "    json!({}),", ")?;", "let output = &updates[0].delta;")),
+			pattern("Cache a flow", "For one call, `forward_with_caching_function(&mut client, input, options, f)` or `streaming_forward_with_caching_function(&mut client, input, options, f)` caches the flow's output as TypeScript does; `set_caching_function(Some(f))` covers the process. A hit runs no node and records no span or metric, and a run control skips it. A flow's constructor takes none; the flow's AxGen nodes use the same function and cache their own outputs.", readmeLines("let output = parallel_flow.forward_with_caching_function(", "    &mut client,", "    json!({\"topicText\": \"Typed LLM workflows\"}),", "    json!({}),", "    cache.clone(),", ")?;")),
 		}
 	case "cpp":
 		return []skillPattern{
@@ -977,6 +1105,7 @@ func skillFlowPatterns(target string) []skillPattern {
 			pattern("Fan-out and join", "Independent reads place research and audience analysis in one planner group. Owned clients and programs run concurrently; unsupported custom workers use a traced serial fallback.", readmeLines("auto parallel_flow = axllm::flow(axllm::object({{\"id\", \"docs.parallelFlow\"}}))", "    .execute(\"research\", research, axllm::object({{\"reads\", axllm::array({\"topicText\"})}, {\"writes\", axllm::array({\"researchResult\", \"factList\"})}}))", "    .execute(\"audience\", audience, axllm::object({{\"reads\", axllm::array({\"topicText\"})}, {\"writes\", axllm::array({\"audienceResult\", \"audienceAngle\"})}}))", "    .execute(\"join\", join, axllm::object({{\"reads\", axllm::array({\"factList\", \"audienceAngle\"})}, {\"writes\", axllm::array({\"joinResult\", \"briefText\"})}}))", "    .returns(axllm::object({{\"briefText\", \"briefText\"}}));")),
 			pattern("Draft, critique, revise", "A linear refinement pipeline makes each dependency explicit.", readmeLines("auto refine_flow = axllm::flow(axllm::object({{\"id\", \"docs.refineFlow\"}}))", "    .execute(\"draft\", draft, axllm::object({{\"reads\", axllm::array({\"topicText\"})}, {\"writes\", axllm::array({\"draftResult\", \"draftText\"})}}))", "    .execute(\"critique\", critique, axllm::object({{\"reads\", axllm::array({\"draftText\"})}, {\"writes\", axllm::array({\"critiqueResult\", \"critiqueText\"})}}))", "    .execute(\"revise\", revise, axllm::object({{\"reads\", axllm::array({\"draftText\", \"critiqueText\"})}, {\"writes\", axllm::array({\"reviseResult\", \"revisedText\"})}}))", "    .returns(axllm::object({{\"revisedText\", \"revisedText\"}}));")),
 			pattern("Run a flow", "Forward accepts the provider client and public inputs.", readmeLines("auto output = parallel_flow.forward(", "    client,", "    axllm::object({{\"topicText\", \"Typed LLM workflows\"}}));")),
+			pattern("Cache a flow", "Put an `axllm::caching_function(fn)` handle's `value()` under `\"caching_function\"` in the `forward` or `streaming_forward` options, keeping the handle alive for the call, or set one process-wide with `axllm::set_caching_function(fn)`. As in TypeScript, a hit runs no node and records no span or metric, and a run `control` skips it. An `AxFlow` takes none in its constructor; the flow's AxGen nodes use the same function and cache their own outputs.", readmeLines("auto cache = axllm::caching_function(fn);", "auto output = parallel_flow.forward(", "    client,", "    axllm::object({{\"topicText\", \"Typed LLM workflows\"}}),", "    axllm::object({{\"caching_function\", cache.value()}}));")),
 		}
 	default:
 		return nil

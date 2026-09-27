@@ -110,9 +110,15 @@ function tsChunk(chunk: ChunkSpec): AxChatResponse {
   return { results: (chunk.results ?? []).map(tsResult) };
 }
 
-function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
+function scriptedAI(
+  responses: ResponseSpec[],
+  features: JsonMap | undefined,
+  // Runs inside each request (1-based) before the scripted answer.
+  onRequest?: (request: number) => void
+) {
   const queue = clone(responses);
   let calls = 0;
+  // The chat prompt of each request, in call order.
   const prompts: Json[][] = [];
   const ai = new AxMockAIService({
     features: {
@@ -128,6 +134,7 @@ function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
     chatResponse: async (req) => {
       calls++;
       prompts.push(clone(req.chatPrompt) as unknown as Json[]);
+      onRequest?.(calls);
       const next = queue.shift();
       if (!next) throw new Error('scripted client exhausted');
       if ('error' in next) throw tsError(next.error);
@@ -290,6 +297,13 @@ type Case = {
   stop_functions?: string[];
   // Attach a run control and record its run lifecycle events.
   control?: boolean;
+  // Put that run control in the AxGen constructor's options instead of the
+  // forward call's.
+  constructor_control?: boolean;
+  // The scripted client steers the run control while this request (1-based)
+  // is in flight. The fixture then records every control event (queued and
+  // applied too) and each request's message roles.
+  control_steer?: { during_request: number; text: string };
   // The consumer stops the stream after this many deltas.
   stop_after_deltas?: number;
   responses: ResponseSpec[];
@@ -303,6 +317,9 @@ type Case = {
   // The chunks split a surrogate pair, which only runners whose strings can
   // hold a lone surrogate (UTF-16 or code points) can represent.
   requires_lone_surrogates?: boolean;
+  // Pin the first request's user message: its content as a JSON string
+  // literal, which every runner's JSON text of the chat prompt must contain.
+  pin_user_prompt?: boolean;
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -310,10 +327,22 @@ async function record(name: string, spec: Case): Promise<void> {
   const input = spec.input ?? { question: 'Status?' };
   const toolCalls: JsonMap[] = [];
   const processorCalls: JsonMap[] = [];
-  const { ai, calls, prompts } = scriptedAI(spec.responses, spec.features);
+  const control =
+    spec.control || spec.constructor_control ? runControl() : undefined;
+  const steer = spec.control_steer;
+  const { ai, calls, prompts } = scriptedAI(
+    spec.responses,
+    spec.features,
+    (request) => {
+      if (steer && control && request === steer.during_request) {
+        control.steer(steer.text);
+      }
+    }
+  );
   const gen = new AxGen(spec.signature, {
     ...tsOptions(spec.options),
     functions: tsTools(spec.tools ?? [], toolCalls),
+    ...(spec.constructor_control ? { control } : {}),
   });
   for (const assertion of spec.assertions ?? []) {
     gen.addAssert(tsAssert(assertion), assertion.message);
@@ -349,14 +378,16 @@ async function record(name: string, spec: Case): Promise<void> {
   }
 
   const controlEvents: JsonMap[] = [];
-  if (spec.control) {
-    const control = runControl();
+  if (control) {
     control.onEvent(({ type, path }) => {
-      if (['started', 'completed', 'failed', 'aborted'].includes(type)) {
+      if (
+        steer ||
+        ['started', 'completed', 'failed', 'aborted'].includes(type)
+      ) {
         controlEvents.push({ type, path });
       }
     });
-    forwardOptions.control = control;
+    if (!spec.constructor_control) forwardOptions.control = control;
   }
 
   const deltas: JsonMap[] = [];
@@ -407,11 +438,19 @@ async function record(name: string, spec: Case): Promise<void> {
     'stop_functions',
     'requires_lone_surrogates',
     'control',
+    'constructor_control',
+    'control_steer',
     'stop_after_deltas',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
   }
-  if (spec.control) fixture.expected_control_events = controlEvents;
+  if (control) fixture.expected_control_events = controlEvents;
+  if (steer) {
+    fixture.expected_request_contains = [steer.text];
+    fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
+      prompt.map((message) => message.role as Json)
+    );
+  }
   if (spec.tools) fixture.expected_tool_calls = toolCalls;
   if (spec.request_tail !== undefined) {
     fixture.expected_last_request_tail = (prompts().at(-1) ?? []).slice(
@@ -440,6 +479,14 @@ async function record(name: string, spec: Case): Promise<void> {
     }
   } else if (error === undefined) {
     fixture.expected_output = output;
+  }
+  if (spec.pin_user_prompt) {
+    const first = (prompts()[0] ?? []) as { role?: string; content?: Json }[];
+    const user = first.filter((message) => message.role === 'user').at(-1);
+    if (typeof user?.content !== 'string') {
+      throw new Error(`${name}: no text user message to pin`);
+    }
+    fixture.expected_chat_prompt_contains = [JSON.stringify(user.content)];
   }
   if (error !== undefined) {
     // Without an explicit substring, pin TypeScript's first line, or its
@@ -794,6 +841,81 @@ const cases: Record<string, Case> = {
     forward_options: { max_retries: 0 },
     error_contains: "Field 'Score' has an invalid value 'x': Invalid number",
     responses: [streamed(text('Answer: a\nScore: x'), done())],
+  },
+  // A steer queued while a request is in flight: TS's step loop continues
+  // while an update is pending, applies the steer as a user message at the
+  // next step (an applied event), and answers from the second request.
+  'streaming-forward-control-steer-continues': {
+    signature: 'question:string -> answer:string',
+    control: true,
+    control_steer: { during_request: 1, text: 'Answer in French.' },
+    responses: [
+      streamed(text('Answer: reply 1'), done()),
+      streamed(text('Answer: reply 2'), done()),
+    ],
+  },
+  'forward-control-steer-continues': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    control_steer: { during_request: 1, text: 'Answer in French.' },
+    responses: [
+      { results: [{ index: 0, content: 'Answer: reply 1' }] },
+      { results: [{ index: 0, content: 'Answer: reply 2' }] },
+    ],
+  },
+  // The applied steer stays in memory: the next step's request still
+  // carries it after the tool results.
+  'forward-control-steer-persists-across-tool-steps': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    control: true,
+    control_steer: { during_request: 1, text: 'Answer in French.' },
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            content: '',
+            function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      {
+        results: [
+          {
+            index: 0,
+            content: '',
+            function_calls: [call('call_2', 'lookup', '{"key":"b"}')],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      { results: [{ index: 0, content: 'Answer: done' }] },
+    ],
+  },
+  // Run options given to the AxGen constructor apply to every forward, as in
+  // TS: a run control there reports the run's lifecycle, and an
+  // executionPath there names the run's control path.
+  'forward-constructor-control-events': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    constructor_control: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
+  },
+  'streaming-forward-constructor-control-events': {
+    signature: 'question:string -> answer:string',
+    constructor_control: true,
+    responses: [streamed(text('Answer: ok'), done())],
+  },
+  'forward-constructor-execution-path': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    options: { executionPath: 'root/constructor' },
+    control: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
   },
   'streaming-forward-refusal-retry': {
     signature: 'question:string -> answer:string',
@@ -1723,5 +1845,70 @@ writeFixture('streaming-forward-field-transform', {
 });
 
 for (const [name, spec] of Object.entries(cases)) {
+  await record(name, spec);
+}
+
+// ----- required inputs -----
+// TS renders each input field through isProvidedValue (src/ax/dsp/prompt.ts):
+// a required input that is missing, null, an empty string or an empty array
+// fails the forward before any request with "Value for input field '<name>'
+// is required."; a whitespace-only string is a value and renders as is; an
+// optional input with an empty value is left out of the prompt.
+const answeredOk: ResponseSpec = {
+  results: [{ index: 0, content: 'Answer: ok' }],
+};
+const inputCases: Record<string, Case> = {
+  'forward-required-input-empty-string': {
+    kind: 'forward',
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a', second: '' },
+    responses: [answeredOk],
+  },
+  'forward-required-input-missing': {
+    kind: 'forward',
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a' },
+    responses: [answeredOk],
+  },
+  'forward-required-input-null': {
+    kind: 'forward',
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a', second: null },
+    responses: [answeredOk],
+  },
+  'forward-required-input-empty-array': {
+    kind: 'forward',
+    signature: 'first:string, second:string[] -> answer:string',
+    input: { first: 'a', second: [] },
+    responses: [answeredOk],
+  },
+  'forward-required-input-whitespace': {
+    kind: 'forward',
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a', second: '   ' },
+    responses: [answeredOk],
+    pin_user_prompt: true,
+  },
+  'forward-optional-input-empty-string': {
+    kind: 'forward',
+    signature: 'first:string, second?:string -> answer:string',
+    input: { first: 'a', second: '' },
+    responses: [answeredOk],
+    pin_user_prompt: true,
+  },
+  // A stream fails the same way, before any delta.
+  'streaming-forward-required-input-empty-string': {
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a', second: '' },
+    responses: [streamed(text('Answer: ok'), done())],
+  },
+  'streaming-forward-required-input-missing': {
+    signature: 'first:string, second:string -> answer:string',
+    input: { first: 'a' },
+    responses: [streamed(text('Answer: ok'), done())],
+  },
+};
+
+for (const [name, spec] of Object.entries(inputCases)) {
   await record(name, spec);
 }

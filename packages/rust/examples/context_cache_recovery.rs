@@ -69,8 +69,11 @@ fn main() -> AxResult<()> {
     ]);
     service(recovery.clone()).chat(request.clone())?;
     assert_eq!(recovery.methods(), vec!["POST", "POST", "POST"]);
+    // The old caches expire in two minutes: inside the 300-second refresh window,
+    // so the second chat refreshes them, and far enough out that a slow first
+    // chat cannot let them expire first.
     let refresh = Script::new(vec![
-        cache("cachedContents/old", 1),
+        cache("cachedContents/old", 120),
         success("old"),
         failure(500, "refresh failed"),
         cache("cachedContents/new", 3600),
@@ -84,7 +87,7 @@ fn main() -> AxResult<()> {
         vec!["POST", "POST", "PATCH", "POST", "POST"]
     );
     let fallback = Script::new(vec![
-        cache("cachedContents/old", 1),
+        cache("cachedContents/old", 120),
         success("old"),
         failure(500, "refresh failed"),
         failure(500, "recreate failed"),

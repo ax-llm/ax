@@ -29,10 +29,12 @@ func (c *scriptedClient) Stream(context.Context, map[string]ax.Value, map[string
 }
 
 func main() {
+	searches := 0
 	search := ax.Fn("search").WithHandler(func(args map[string]ax.Value) (ax.Value, error) {
 		if args["query"] != "ax docs" {
 			return nil, fmt.Errorf("unexpected query: %v", args["query"])
 		}
+		searches++
 		return ax.Object("title", "Ax docs"), nil
 	})
 	qa := ax.NewAx("query:string -> answer:string", nil)
@@ -57,6 +59,10 @@ func main() {
 	}
 	if out.(map[string]ax.Value)["answer"] != "Found Ax docs" {
 		panic(fmt.Sprintf("bad output: %v", out))
+	}
+	// The tool ran once, with the model's arguments.
+	if searches != 1 {
+		panic(fmt.Sprintf("search ran %d times", searches))
 	}
 	fmt.Println("go-axgen-ok")
 }

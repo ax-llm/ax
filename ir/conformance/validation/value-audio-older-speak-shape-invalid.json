@@ -1,0 +1,17 @@
+{
+  "expected_error_category": "validation",
+  "expected_error_contains": "Validation failed: Expected 'speech' to be type 'string or object ({ data: string; format?: string })'",
+  "field": {
+    "type": "audio"
+  },
+  "field_name": "speech",
+  "kind": "validate_value",
+  "name": "value-audio-older-speak-shape-invalid",
+  "ts_error_message": "Validation failed: Expected 'speech' to be type 'string or object ({ data: string; format?: string })' instead got '[object Object]'",
+  "ts_error_name": "Error",
+  "value": {
+    "audio": "SUQzBAA=",
+    "format": "mp3",
+    "transcript": "Hello there"
+  }
+}

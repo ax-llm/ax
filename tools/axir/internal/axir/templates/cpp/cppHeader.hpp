@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -169,10 +170,34 @@ struct AxCredentialRequest {
 };
 using AxCredentialProvider = std::function<std::map<std::string, std::string>(const AxCredentialRequest&)>;
 
+// TypeScript's cachingFunction for AxGen outputs. fn(key, nullptr) returns
+// the stored output, or std::nullopt for a miss; fn(key, &output) stores an
+// output, and what it returns is ignored. key is the lowercase hex SHA-256 of
+// the signature and the input values.
+using AxCachingFunction = std::function<std::optional<Value>(const std::string& key, const Value* value)>;
+
+// A caching function for a forward or streaming_forward call, passed as a run
+// control is: value() goes in the call options (or in the AxGen options) under
+// "caching_function". The function stays registered while a copy of the
+// handle lives; a value() used after that fails as expired.
+class AxCachingFunctionHandle {
+ public:
+  struct State;
+  explicit AxCachingFunctionHandle(AxCachingFunction fn);
+  Value value() const;
+
+ private:
+  std::shared_ptr<State> state_;
+};
+AxCachingFunctionHandle caching_function(AxCachingFunction fn);
+
 void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
 void set_tracer(std::shared_ptr<AxTracer> tracer);
 void set_meter(std::shared_ptr<AxMeter> meter);
+// The process-wide caching function, which AxGen uses when neither the call
+// nor the AxGen sets one; an empty function clears it.
+void set_caching_function(AxCachingFunction fn);
 
 class AxError : public std::runtime_error {
  public:
@@ -295,6 +320,7 @@ struct Core {
   static Value math_abs(Value value);
   static Value string_codepoint_length(Value value);
   static Value string_utf16_units(Value value);
+  static Value date_zone_offset(Value name, Value epoch_ms);
   static Value math_is_finite(Value value);
   static Value math_floor(Value value);
   static Value math_log(Value value);
@@ -337,8 +363,12 @@ struct Core {
   static Value string_remove_suffix(Value value, Value suffix);
   static Value string_words(Value value);
   static Value string_default_if_empty(Value value, Value fallback);
-  static Value string_format(Value templ, Value a = Value(), Value b = Value(), Value c = Value(),
-                             Value d = Value(), Value e = Value(), Value f = Value());
+  // intrinsic.string.format: each {} takes the next argument, in order.
+  template <typename... Args>
+  static Value string_format(Value templ, Args&&... args) {
+    return string_format_values(std::move(templ), std::vector<Value>{Value(std::forward<Args>(args))...});
+  }
+  static Value string_format_values(Value templ, const std::vector<Value>& args);
   static Value string_split(Value value, Value sep);
   static Value string_split_once(Value value, Value sep);
   static Value string_split_trim_nonempty(Value value, Value sep);
@@ -371,6 +401,8 @@ struct Core {
   // The error with a new message and the original as its cause; it keeps the
   // error's category, type and fields, so it raises as the same AxError class.
   static Value exception_rewrap(Value error, Value message);
+  // The lowercase hex SHA-256 of the text's UTF-8 bytes.
+  static Value crypto_sha256_hex(Value text);
   static Value exception_is_aborted(Value error);
   static Value exception_is_infrastructure(Value error);
   static Value exception_is_refusal(Value error);
@@ -384,6 +416,12 @@ struct Core {
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
   static Value ai_complete_once(Value client, Value request, Value options);
+  // The run control updates a run's request boundary holds for its path:
+  // take_pending hands them to the forward, which applies them when a step
+  // starts (each is applied then), and pending_count counts them with no side
+  // effects. Another client, or a native chat session, has none.
+  static Value ai_control_take_pending(Value client);
+  static Value ai_control_pending_count(Value client);
   static Value ai_client_features(Value client, Value model);
   static Value retry_sleep(Value attempt, Value client, Value options);
   static Value tool_invoke(Value fn, Value params);
@@ -421,6 +459,7 @@ struct Core {
   static Value run_control_aborted(Value control);
   static Value agent_stage_forward(Value stage, Value client, Value values, Value options);
   static Value agent_native_stage_forward(Value stage,Value state,Value client,Value values,Value options,Value selected);
+  static Value agent_stage_streaming_forward(Value stage,Value state,Value client,Value values,Value options,Value sink);
   static Value agent_stage_chat_log(Value stage);
   static Value agent_stage_usage(Value stage);
   static Value agent_stage_traces(Value stage);
@@ -435,12 +474,16 @@ struct Core {
   static Value agent_skill_search(Value state, Value searches);
   static Value agent_observer_notify(Value state, Value forward_options, Value kind, Value payload);
   static Value agent_transcribe(Value client, Value request, Value options);
+  static Value axgen_speak(Value client, Value request, Value options);
   static Value agent_callable_invoke(Value state, Value request, Value options);
   static Value stream_event_content_parts(Value event);
   static Value openai_normalize_chat_response(Value raw);
   static Value openai_normalize_stream_delta(Value raw, Value state);
   static Value openai_normalize_embed_response(Value raw);
   static Value flow_dispatch_group(Value flow, Value client, Value plans, Value state, Value options);
+  // An AxFlow's caching function: the call's "caching_function" (a
+  // caching_function() handle value), else the process-wide one, else null.
+  static Value flow_caching_function(Value options);
   // JS indexOf over bytes (the units of len and string_slice): the index of
   // needle at or after start (a negative start is 0), else -1.
   static Value string_index_of(Value text, Value needle, Value start);
@@ -457,6 +500,12 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  // AxGen cachingFunction seams: the call's, else the AxGen's own, else the
+  // process-wide caching function (a caching_function() handle value, or
+  // null); a read, whose errors propagate (null is a miss); and a write.
+  static Value axgen_caching_function(Value gen, Value options);
+  static Value axgen_cache_read(Value fn, Value key);
+  static Value axgen_cache_write(Value fn, Value key, Value value);
   // AXIR_CORE_CPP_DECLARATIONS
 
 };
@@ -506,6 +555,9 @@ class AIClient {
     (void)options;
     return Value::object();
   }
+  // Synthesizes speech for intrinsic.axgen.speak (the AxGen audio output
+  // renderer). AxAIService clients speak; a client without speech throws.
+  virtual Value speak(Value request, Value options);
 };
 
 class AxAIService : public AIClient {
@@ -1121,6 +1173,17 @@ class AxGen : public AxProgram {
   AxGen& set_demos(Value demos);
   AxGen& set_sample_count(int sample_count);
   AxGen& set_result_picker(std::function<int(const Value&)> result_picker);
+  // TypeScript's cachingFunction option. forward reads fn(key, nullptr) first,
+  // before the run's span and metrics, and returns a stored output without a
+  // request or telemetry (what the read throws propagates), then stores each
+  // output with fn(key, &output), ignoring what the store throws.
+  // streaming_forward sends a stored output as one {version 0, index 0}
+  // delta, ignores a failed read, and stores a run that yielded output. A
+  // call's "caching_function" option (a caching_function() handle value)
+  // comes before this function, and the process-wide
+  // axllm::set_caching_function() one after it; a run control bypasses the
+  // cache. An empty function clears it.
+  AxGen& set_caching_function(AxCachingFunction fn);
   AxGen& add_assert(Value assertion);
   AxGen& add_assert(std::function<Value(Value)> assertion);
   AxGen& add_assert(std::function<Value(Value)> assertion, std::string message);
@@ -1177,6 +1240,8 @@ class AxGen : public AxProgram {
   Value state_;
   AxMemory memory_;
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
+  // Keeps the caching function the options name registered.
+  std::optional<AxCachingFunctionHandle> caching_function_;
   void refresh_prompt_template();
 };
 
@@ -1393,6 +1458,7 @@ class AxACE {
   AceCallable generator_;
   Value config_;
   Value initial_playbook_;
+  // The injected clock (the `now` option); empty for the wall clock.
   std::string now_;
   Value playbook_;
   std::vector<Value> generator_history_;
@@ -1401,6 +1467,7 @@ class AxACE {
   bool has_generator_ = false;
 
   Value empty_playbook() const;
+  std::string now() const;
   int int_config(const std::string& key, int fallback) const;
   std::string render_playbook() const;
   Value generator_output(const Value& prediction) const;
@@ -1451,13 +1518,23 @@ class AxPlaybook {
   std::unique_ptr<AxGen> curator_program_;
   std::function<void(const std::string&)> apply_hook_;
   AxAgent* agent_ = nullptr;
+  friend class AxAgent;
 
+  // An agent stage rebuild replaced the bound program: run and write into the
+  // new one.
+  void rebind_program(AxGen& program);
   Value run_generator(const Value& example);
   Value run_reflector(const Value& payload);
   Value run_curator(const Value& payload);
   void bind_callables();
   void inject();
 };
+
+namespace detail {
+// The SHA-256 digest of input's bytes, for intrinsic.crypto.sha256_hex and the
+// MCP PKCE challenge.
+std::array<unsigned char, 32> sha256(const std::string& input);
+}
 
 namespace detail {
 // Optional owned protocol context; core-only programs need no MCP implementation.
@@ -1492,6 +1569,20 @@ class AxAgent : public AxProgram {
   Value forward(AIClient& client, Value values, Value options = Value::object());
   Value forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation);
   Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
+  // Runs the agent and streams the responder's output, as TypeScript's
+  // streamingForward does. The distiller and the executor (or the
+  // direct-respond skip) run first without streaming; then `handler` gets
+  // each AxGenDelta of the responder as it streams (see
+  // AxGen::streaming_forward), on the calling thread, and this returns the
+  // responder's output. With citations surface "hidden" the deltas leave out
+  // the citation field, and the citations observer gets the streamed
+  // citations after the stream. Returning false from the handler stops the
+  // run without an exception and returns what was merged so far; an exception
+  // the handler throws stops the run and propagates. With a run control a run
+  // the handler stops ends with an "aborted" event. Under a run control the
+  // responder streams through the request boundary, as
+  // AxGen::streaming_forward does.
+  Value streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler);
   AxAgent& set_rate_limiter(AxRateLimiter limiter);
   AxAgent& set_tracer(std::shared_ptr<AxTracer> tracer);
   AxAgent& set_meter(std::shared_ptr<AxMeter> meter);
@@ -1551,11 +1642,21 @@ class AxAgent : public AxProgram {
   Value playbook_config_;
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   std::unique_ptr<AxPlaybook> playbook_handle_;
+  // The stage the playbook targets and whether it writes into that stage's
+  // prompt, kept to rebind the playbook when stages are rebuilt.
+  std::string playbook_target_ = "actor";
+  bool playbook_apply_ = true;
   std::function<void(Value)> citations_observer_;
   std::function<void(Value)> playbook_observer_;
   void refresh_observability() const;
-  void ensure_configured_playbook(AIClient& client);
+  void attach_configured_playbook();
+  AxGen* playbook_stage() const;
+  void bind_playbook_stage(AxPlaybook& handle, AxGen* stage);
+  void rebind_playbook();
+  void set_stage_instruction(AxGen& stage, Value instruction);
   void learn_playbook_failures(Value output);
+  std::unique_ptr<AxGen> make_responder(const Value& options);
+  Value run(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks, Value sink, const bool* consumer_stopped);
 };
 
 std::string stringify(const Value& value);

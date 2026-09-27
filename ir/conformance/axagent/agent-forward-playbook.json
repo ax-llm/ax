@@ -1,0 +1,92 @@
+{
+  "expected_observer_calls": [
+    {
+      "callback": "playbook_update",
+      "payload": {
+        "status": "updated"
+      }
+    }
+  ],
+  "expected_output": {
+    "answer": "Refunds take 30 days."
+  },
+  "expected_request_count": 6,
+  "expected_transcript": [
+    "request:distiller",
+    "request:executor",
+    "request:executor",
+    "request:responder",
+    "request:playbook",
+    "request:playbook",
+    "playbook_update"
+  ],
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "kind": "agent_forward",
+  "name": "agent-forward-playbook",
+  "observers": ["playbook_update"],
+  "options": {
+    "directResponse": "off",
+    "playbook": {},
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"lookupPolicy()\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: Refunds take 30 days."
+    },
+    {
+      "content": "Reasoning: The executor called a helper that does not exist.\nError Identification: lookupPolicy is not defined.\nRoot Cause Analysis: The executor assumed a helper without checking.\nCorrect Approach: Read the policy from the evidence.\nKey Insight: Check that a helper exists before calling it.\nBullet Tags: []"
+    },
+    {
+      "content": "Reasoning: One avoidance rule covers the failure.\nOperations: [{\"type\":\"ADD\",\"section\":\"failures_to_avoid\",\"content\":\"Check that a helper exists before calling it.\"}]"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "lookupPolicy()",
+      "result": {
+        "error": "lookupPolicy is not defined",
+        "error_category": "runtime_error",
+        "is_error": true,
+        "kind": "error"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

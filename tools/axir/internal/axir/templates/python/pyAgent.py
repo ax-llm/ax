@@ -2,10 +2,14 @@ from __future__ import annotations
 import os
 
 from abc import ABC, abstractmethod
+import contextvars
 import copy
+from datetime import datetime, timezone
 import json
 import math
+import queue
 import re
+import threading
 from typing import Any
 
 from .ai import (
@@ -16,6 +20,8 @@ from .ai import (
     AxRuntimeHooks,
     AxTracer,
     _coerce_runtime_hooks,
+    _core_math_abs,
+    _core_math_floor,
     _merge_runtime_hooks,
     _runtime_hook_scope,
     _runtime_hooks_from_options,
@@ -25,8 +31,13 @@ from .ai import (
 from .session import _core_run_control_aborted
 from .gen import (
     AxGen,
+    _StreamingConsumerStopped,
+    chat_session_mode_enabled,
     _core_ai_complete_once,
     _core_ai_client_features,
+    _core_axgen_deprecation,
+    _core_string_index_of,
+    _core_string_str,
     _core_tool_invoke,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
@@ -50,7 +61,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .mcp import resolve_execution_context
-from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature
+from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature, f as _signature_builder
 # AXIR_CORE_IMPORTS
 
 
@@ -658,6 +669,12 @@ def _ace_option(options, *keys, default=None):
     return default
 
 
+def _ace_wall_clock():
+    """The current UTC time as JavaScript's toISOString writes it."""
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+
 class AxACE:
     """Agentic Context Engineering optimizer (Generator -> Reflector -> Curator).
 
@@ -693,8 +710,10 @@ class AxACE:
             else _ace_empty_playbook(None, self._now())
         )
 
+    # The injected clock (`now`), else the wall clock at each call, as TS's
+    # new Date().toISOString() stamps each playbook change.
     def _now(self):
-        return self.options.get("now") or "1970-01-01T00:00:00.000Z"
+        return self.options.get("now") or _ace_wall_clock()
 
     def reset(self):
         self.playbook = (
@@ -1003,44 +1022,83 @@ class AxACE:
         return curator_result
 
 
-_ACE_REFLECTOR_SIGNATURE = (
-    'question:string "Original task input serialized as JSON", '
-    'generator_answer:string "Generator output serialized as JSON", '
-    'generator_reasoning?:string "Generator reasoning trace", '
-    'playbook:string "Current context playbook rendered as markdown", '
-    'expected_answer?:string "Expected output when ground truth is available", '
-    'feedback?:string "External feedback or reward signal", '
-    'previous_reflection?:string "Most recent reflection JSON when running multi-round refinement" '
-    '-> reasoning:string "Step-by-step analysis of generator performance", '
-    'errorIdentification:string "Specific mistakes detected", '
-    'rootCauseAnalysis:string "Underlying cause of the error", '
-    'correctApproach:string "What the generator should do differently", '
-    'keyInsight:string "Reusable insight to remember", '
-    'bulletTags:json "Array of {id, tag} entries referencing playbook bullets"'
+# The reflector and curator signatures TS builds (src/ax/dsp/optimizers/ace.ts),
+# built with the field builder: a signature string cannot carry a description
+# with double quotes, as the curator's operations description has.
+def _ace_reflector_signature():
+    return (
+        _signature_builder()
+        .input("question", _signature_builder.string("Original task input serialized as JSON"))
+        .input("generator_answer", _signature_builder.string("Generator output serialized as JSON"))
+        .input("generator_reasoning", _signature_builder.string("Generator reasoning trace").optional())
+        .input("playbook", _signature_builder.string("Current context playbook rendered as markdown"))
+        .input("expected_answer", _signature_builder.string("Expected output when ground truth is available").optional())
+        .input("feedback", _signature_builder.string("External feedback or reward signal").optional())
+        .input("previous_reflection", _signature_builder.string("Most recent reflection JSON when running multi-round refinement").optional())
+        .output("reasoning", _signature_builder.string("Step-by-step analysis of generator performance"))
+        .output("errorIdentification", _signature_builder.string("Specific mistakes detected"))
+        .output("rootCauseAnalysis", _signature_builder.string("Underlying cause of the error"))
+        .output("correctApproach", _signature_builder.string("What the generator should do differently"))
+        .output("keyInsight", _signature_builder.string("Reusable insight to remember"))
+        .output("bulletTags", _signature_builder.json("Array of {id, tag} entries referencing playbook bullets"))
+        .build()
+    )
+
+
+_ACE_CURATOR_OPERATIONS_DESCRIPTION = (
+    'List of operations, each {type: "ADD"|"UPDATE"|"REMOVE", section, content}. '
+    "Emit an operation ONLY when the playbook should actually change. "
+    "If nothing should change, return an empty array — never emit an ADD whose content "
+    'just acknowledges that no change is needed (e.g. "No update required", '
+    '"Keep the existing rule unchanged"). '
+    "Each ADD content must be a standalone, reusable rule."
 )
 
-_ACE_CURATOR_SIGNATURE = (
-    'playbook:string "Current playbook serialized as JSON", '
-    'reflection:string "Latest reflection output serialized as JSON", '
-    'question_context:string "Original task input serialized as JSON", '
-    'token_budget?:number "Approximate token budget for curator response" '
-    '-> reasoning:string "Justification for the proposed updates", '
-    'operations:json "List of operations with type/section/content fields"'
+
+def _ace_curator_signature():
+    return (
+        _signature_builder()
+        .input("playbook", _signature_builder.string("Current playbook serialized as JSON"))
+        .input("reflection", _signature_builder.string("Latest reflection output serialized as JSON"))
+        .input("question_context", _signature_builder.string("Original task input serialized as JSON"))
+        .input("token_budget", _signature_builder.number("Approximate token budget for curator response").optional())
+        .output("reasoning", _signature_builder.string("Justification for the proposed updates"))
+        .output("operations", _signature_builder.json(_ACE_CURATOR_OPERATIONS_DESCRIPTION))
+        .build()
+    )
+
+# The weakness miner's description and signature, as TS builds them
+# (src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts).
+_AGENT_PLAYBOOK_WEAKNESS_MINER_DESCRIPTION = (
+    "You are a failure analyst for an LLM agent harness. You receive one "
+    "cluster of failed agent runs sharing an error signature, with excerpts "
+    "of what the agent actually did. Identify the single recurring weakness, "
+    "its root cause, and one narrow, durable avoidance rule the agent should "
+    "recall while acting. Ground every claim: evidenceQuotes must be verbatim "
+    "substrings copied from the excerpts. Keep proposedGuidance concise, "
+    "imperative, and general to the failure mode (not one task). Use "
+    "configRecommendations only for setup problems no prompt text can fix "
+    "(missing tools, timeouts, model choice)."
 )
 
-_AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE = (
-    'clusterSignature:string "Shared error signature of the cluster", '
-    'taskSummaries:string "One line per failing task", '
-    'actionLogExcerpts:string "Excerpts of the failing runs, centered on the failure", '
-    'functionCallSummary?:string "Digest of runtime/tool calls in the failing runs", '
-    'toolErrors?:string "Tool errors observed", '
-    'currentPlaybook?:string "The failure-avoidance playbook currently applied" '
-    '-> weaknessDescription:string "The recurring weakness, one sentence", '
-    'rootCause:string "Why the runs fail, mechanically", '
-    'proposedGuidance:string "One concise imperative avoidance rule", '
-    'evidenceQuotes:json "Verbatim substrings copied from actionLogExcerpts", '
-    'configRecommendations?:json "Setup suggestions no prompt text can fix"'
-)
+
+def _agent_playbook_weakness_miner_signature():
+    return (
+        _signature_builder()
+        .input("clusterSignature", _signature_builder.string("Shared error signature of the cluster."))
+        .input("taskSummaries", _signature_builder.string("One line per failing task."))
+        .input("actionLogExcerpts", _signature_builder.string("Excerpts of the failing runs, centered on the failure."))
+        .input("functionCallSummary", _signature_builder.string("Digest of runtime/tool calls in the failing runs.").optional())
+        .input("toolErrors", _signature_builder.string("Tool errors observed.").optional())
+        .input("currentPlaybook", _signature_builder.string("The failure-avoidance playbook currently applied.").optional())
+        .output("weaknessDescription", _signature_builder.string("The recurring weakness, one sentence."))
+        .output("rootCause", _signature_builder.string("Why the runs fail, mechanically."))
+        .output("proposedGuidance", _signature_builder.string("The avoidance rule to add to the playbook — concise, imperative."))
+        .output("evidenceQuotes", _signature_builder.string("Verbatim substrings from actionLogExcerpts proving the weakness.").array())
+        .output("configRecommendations", _signature_builder.string("Setup/config suggestions no prompt text can fix.").array().optional())
+        .description(_AGENT_PLAYBOOK_WEAKNESS_MINER_DESCRIPTION)
+        .build()
+    )
 
 
 def _playbook_option(options, *keys, default=None):
@@ -1166,12 +1224,12 @@ class AxPlaybook:
 
     def _get_reflector_program(self):
         if self._reflector_program is None:
-            self._reflector_program = AxGen(_ACE_REFLECTOR_SIGNATURE, {"validation_retries": 1, "id": "ace.reflector"})
+            self._reflector_program = AxGen(_ace_reflector_signature(), {"validation_retries": 1, "id": "ace.reflector"})
         return self._reflector_program
 
     def _get_curator_program(self):
         if self._curator_program is None:
-            self._curator_program = AxGen(_ACE_CURATOR_SIGNATURE, {"validation_retries": 1, "id": "ace.curator"})
+            self._curator_program = AxGen(_ace_curator_signature(), {"validation_retries": 1, "id": "ace.curator"})
         return self._curator_program
 
     def _program_fields(self):
@@ -1511,68 +1569,23 @@ class AxAgentPlaybook:
                 return str(tool_errors[0]).split("\n", 1)[0][:100]
             if record.get("error"):
                 return error_signature(record.get("error"))
-            action_log = str(prediction.get("actionLog") or "")
+            # The action log as TS's prediction carries it: the executor's code
+            # steps as text.
+            action_log = _agent_playbook_action_log_text(prediction.get("actionLog"))
             match = re.search(r"^\s*(\w+Error:\s*.{0,60})", action_log, re.MULTILINE)
             return error_signature(match.group(1)) if match else "behavioral:no_error"
-
-        def failure_excerpt(record, signature):
-            if record.get("error"):
-                return f"Run threw: {record['error']}"
-            action_log = str((record.get("prediction") or {}).get("actionLog") or "")
-            if len(action_log) <= 2000:
-                return action_log
-            hit = action_log.find(signature[:40])
-            if hit < 0:
-                return action_log[-2000:]
-            start = max(0, hit - 1000)
-            return action_log[start : start + 2000]
 
         def collapse(value):
             return re.sub(r"\s+", " ", str(value or "")).strip()
 
         def mine_weakness(signature, records, proposal_index):
-            selected = records[:4]
-            bodies = [failure_excerpt(record, signature) for record in selected]
-            excerpts = "\n\n".join(
-                f"--- run {index + 1} ---\n{body}" for index, body in enumerate(bodies)
-            )
-            if not any(collapse(body) for body in bodies):
+            # TS's miner inputs: task summaries, action-log excerpts, function
+            # calls and tool errors of up to four records.
+            request = _agent_playbook_miner_inputs(signature, list(records), self.inner.render() or "")
+            if request is None:
                 return None
-            task_summaries = "\n".join(
-                f"- {record.get('task', {}).get('id') or f'#{index + 1}'} "
-                f"(score {float(record.get('score', 0)):.2f}): "
-                f"{_js_json_dumps(record.get('task', {}).get('input'), sort_keys=True, default=str, separators=(', ', ': '))[:240]}"
-                for index, record in enumerate(selected)
-            )
-            function_calls = [
-                call
-                for record in selected
-                for call in ((record.get("prediction") or {}).get("functionCalls") or [])
-            ][:20]
-            tool_errors = [
-                str(error)
-                for record in selected
-                for error in ((record.get("prediction") or {}).get("toolErrors") or [])
-            ][:10]
-            request = {
-                "clusterSignature": signature,
-                "taskSummaries": task_summaries,
-                "actionLogExcerpts": excerpts,
-                "functionCallSummary": "\n".join(_js_json_dumps(call, sort_keys=True, default=str, separators=(", ", ": ")) for call in function_calls) or None,
-                "toolErrors": "\n".join(tool_errors) or None,
-                "currentPlaybook": self.inner.render() or None,
-            }
-            request = {key: value for key, value in request.items() if value is not None}
-            miner = AxGen(
-                _AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE,
-                {
-                    "id": "agent.playbook.weakness-miner",
-                    "instruction": (
-                        "Identify one recurring weakness and one narrow durable avoidance rule. "
-                        "Every evidence quote must be copied verbatim from actionLogExcerpts."
-                    ),
-                },
-            )
+            excerpts = request["actionLogExcerpts"]
+            miner = AxGen(_agent_playbook_weakness_miner_signature(), {"id": "agent.playbook.weakness-miner"})
             mined = miner.forward(teacher, request, dict(teacher_options))
             raw_quotes = mined.get("evidenceQuotes")
             candidates = raw_quotes if isinstance(raw_quotes, list) else ([] if raw_quotes is None else [raw_quotes])
@@ -1716,6 +1729,10 @@ class AxAgent:
             self.options["executionContext"] = self.execution_context
         self._playbook_handle = None
         self._agent_playbook = None
+        # The stage the playbook targets and whether it writes into that
+        # stage's prompt, kept to rebind the playbook when the stages rebuild.
+        self._playbook_target = "actor"
+        self._playbook_apply = True
         self._playbook_config = self.options.get("playbook")
         self._rebuild_from_signature(signature)
         if self._playbook_config not in (None, False):
@@ -1739,8 +1756,17 @@ class AxAgent:
         actor_validation_retries = self.options.get("validation_retries", self.options.get("validationRetries", 1))
         self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": actor_validation_retries, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
         self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
-        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
+        responder_options = {"id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")}
+        # As in TS, the responder's validation budget is maxRetries (3 by
+        # default) unless validation_retries is set.
+        if "validation_retries" in self.options:
+            responder_options["validation_retries"] = self.options["validation_retries"]
+        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), responder_options)
+        if (_core_get(self.state, "citations", {}) or {}).get("enabled"):
+            state = self.state
+            self.responder.add_assert(lambda output: _agent_citation_assert(state, output))
         self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+        self._rebind_playbook()
 
     def add_child_agent(self, namespace: str, name: str, child: "AxAgent"):
         self.options = _agent_register_child(self.options, namespace, name, child, child.signature)
@@ -1773,18 +1799,90 @@ class AxAgent:
         options: dict[str, Any] | None = None,
         hooks: AxRuntimeHooks | None = None,
     ):
+        return self._run(client, values, options, hooks)
+
+    def streaming_forward(
+        self,
+        client,
+        values: dict[str, Any],
+        options: dict[str, Any] | None = None,
+        hooks: AxRuntimeHooks | None = None,
+    ):
+        """Run the agent and yield the responder's output as it streams.
+
+        As TypeScript's streamingForward does, the distiller and the executor
+        (or the direct-respond skip) run first without streaming; then this
+        yields the responder's ``{"version", "index", "delta"}`` deltas: merge
+        each index's deltas (strings and lists append, other values replace)
+        and start over when the version changes. With citations
+        ``surface: "hidden"`` the deltas leave out the citation field, and
+        ``onCitations`` gets the streamed citations after the stream. The run
+        works on a worker thread that waits while you handle each delta;
+        closing the generator stops the run, and with a run ``control`` the run
+        then ends with an ``aborted`` event. A run ``control`` on a client that
+        opens async model sessions is not covered yet and raises
+        ``NotImplementedError``, as AxGen deltas do.
+        """
+        return self._streaming_deltas(client, values, dict(options or {}), hooks)
+
+    def _streaming_deltas(self, client, values, options, hooks):
+        # The run works in a worker thread and hands each delta to this
+        # generator, then waits until the consumer asks for the next one, as
+        # TypeScript's async generator does.
+        deliveries = queue.Queue()
+        resume = threading.Semaphore(0)
+        stopped = threading.Event()
+
+        def sink(envelope):
+            if stopped.is_set():
+                raise _StreamingConsumerStopped("streaming consumer closed")
+            deliveries.put(("delta", copy.deepcopy(envelope)))
+            resume.acquire()
+            if stopped.is_set():
+                raise _StreamingConsumerStopped("streaming consumer closed")
+
+        def run():
+            try:
+                self._run(client, values, options, hooks, sink)
+                deliveries.put(("done", None))
+            except BaseException as error:  # noqa: BLE001 - re-raised in the consumer
+                deliveries.put(("error", error))
+
+        context = contextvars.copy_context()
+        worker = threading.Thread(target=context.run, args=(run,), daemon=True)
+        worker.start()
+        try:
+            while True:
+                kind, item = deliveries.get()
+                if kind == "error":
+                    raise item
+                if kind == "done":
+                    return
+                yield item
+                resume.release()
+        finally:
+            stopped.set()
+            resume.release()
+            worker.join()
+
+    def _run(self, client, values, options, hooks, sink=None):
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
+        attributes = {"ax.program.id": "root.agent", "ax.program.type": "AxAgent"}
+        if sink is not None:
+            attributes["ax.streaming"] = True
         with _runtime_hook_scope(
             call_hooks,
             self.runtime_hooks,
             span_name="ax_gen_agent_forward",
-            attributes={"ax.program.id": "root.agent", "ax.program.type": "AxAgent"},
+            attributes=attributes,
             metric_prefix="ax_gen_agent",
         ):
-            return self._forward_unscoped(client, values, _strip_runtime_hooks(options))
+            return self._forward_unscoped(client, values, _strip_runtime_hooks(options), sink)
 
-    def _forward_unscoped(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
+    def _forward_unscoped(self, client, values: dict[str, Any], options: dict[str, Any] | None = None, sink=None):
         options = dict(options or {})
+        if sink is not None:
+            _agent_check_stream_run_session(self, client, options)
         call_context = resolve_execution_context(options, self.execution_context)
         if call_context is not None or self.state.get("mcp_run_context_active"):
             modules = []
@@ -1835,16 +1933,44 @@ class AxAgent:
                     raise RuntimeError("Agent runtime callbacks must execute on the owning run thread")
                 return _agent_run_llm_query(binding.sub_gen, binding.client, params, binding.options)
             runtime.register_callable("llmQuery", llm_query)
+        # As TypeScript's forward and streamingForward do, a run control hears
+        # the run's own lifecycle at its path; each stage reports at
+        # <path>/<stage>.
+        control = options.get("control")
+        run_path = options.get("execution_path", options.get("executionPath", "root"))
+        if control is not None:
+            control._emit({"type": "started", "path": run_path})
         try:
-            output = _agent_forward(
-                self.state,
-                self.distiller,
-                self.executor,
-                self.responder,
-                client,
-                values or {},
-                options,
-            )
+            if sink is None:
+                output = _agent_forward(
+                    self.state,
+                    self.distiller,
+                    self.executor,
+                    self.responder,
+                    client,
+                    values or {},
+                    options,
+                )
+            else:
+                output = _agent_streaming_forward(
+                    self.state,
+                    self.distiller,
+                    self.executor,
+                    self.responder,
+                    client,
+                    values or {},
+                    options,
+                    sink,
+                )
+        except BaseException as error:
+            if control is not None:
+                if isinstance(error, _StreamingConsumerStopped):
+                    # The consumer stopped the stream early: the run ended on
+                    # purpose, as with control.abort().
+                    control._emit({"type": "aborted", "path": run_path})
+                else:
+                    control._emit({"type": "failed", "path": run_path, "error": str(error)})
+            raise
         finally:
             if invocation_binding is not None:
                 invocation_binding.active = False
@@ -1858,7 +1984,11 @@ class AxAgent:
                 citation_callback(list(_core_get(self.state, "last_citations", []) or []))
             except Exception:
                 pass
-        self._learn_playbook_failures(output)
+        # TS learns from the responder's answer after forward; a stream has
+        # no single answer to hand the playbook.
+        self._learn_playbook_failures(output if sink is None else {})
+        if control is not None:
+            control._emit({"type": "completed", "path": run_path})
         return output
 
     def test(self, runtime: AxCodeRuntime, code: str, context_field_values: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
@@ -2074,15 +2204,12 @@ class AxAgent:
         raw = self._playbook_config
         config = dict(raw) if isinstance(raw, dict) else {}
         config.setdefault("maxReflectorRounds", 1)
-        seed = config.get("seed")
-        if seed is None and ("playbook" in config or "artifact" in config):
-            seed = config
+        # TS's `playbook` seed (a snapshot or a bare playbook), or the older
+        # `seed` key with a deprecation warning.
+        seed = _agent_playbook_config_seed(config)
         self.playbook(config)
         if seed is not None:
-            if isinstance(seed, dict) and "playbook" in seed:
-                self._playbook_handle.load(seed)
-            elif isinstance(seed, dict):
-                self._playbook_handle.load({"playbook": seed})
+            self._playbook_handle.load(seed)
 
     def _learn_playbook_failures(self, output):
         if self._playbook_handle is None or self._playbook_config in (None, False):
@@ -2135,22 +2262,42 @@ class AxAgent:
             student = self.options.get("ai") or self.options.get("client")
         if student is None:
             raise ValueError("AxAgent.playbook(): studentAI is required when the agent has no default ai.")
-        stage = self.responder if target == "responder" else self.executor
+        self._playbook_target = target
+        self._playbook_apply = opts.get("apply") is not False
+        stage = self._playbook_stage()
         handle_options = dict(opts)
         handle_options["studentAI"] = student
         handle = AxPlaybook(stage, handle_options)
-        if opts.get("apply") is False:
+        self._bind_playbook_stage(handle, stage)
+        self._playbook_handle = handle
+        self._agent_playbook = AxAgentPlaybook(self, handle)
+        return self._agent_playbook
+
+    # The stage the playbook targets: the actor, or the responder.
+    def _playbook_stage(self):
+        return self.responder if self._playbook_target == "responder" else self.executor
+
+    # Point the playbook at an agent stage: the program it runs and the hook
+    # that writes the rendered playbook into the stage prompt.
+    def _bind_playbook_stage(self, handle, stage):
+        handle.program = stage
+        if not self._playbook_apply:
             handle._set_apply_hook(lambda _rendered: None)
+            return
         base = stage.signature.get_description() if hasattr(stage.signature, "get_description") else None
 
         def _apply(rendered):
             stage.signature.description = _playbook_compose_instruction(base, rendered)
 
-        if opts.get("apply") is not False:
-            handle._set_apply_hook(_apply)
-        self._playbook_handle = handle
-        self._agent_playbook = AxAgentPlaybook(self, handle)
-        return self._agent_playbook
+        handle._set_apply_hook(_apply)
+
+    # set_signature and add_child_agent rebuild the stages: point the playbook
+    # at the new stage and write it into that stage's prompt.
+    def _rebind_playbook(self):
+        if self._playbook_handle is None:
+            return
+        self._bind_playbook_stage(self._playbook_handle, self._playbook_stage())
+        self._playbook_handle.apply_to()
 
     def get_playbook(self):
         return self._agent_playbook
@@ -2387,6 +2534,36 @@ def _core_agent_native_stage_forward(stage, state, client, values, options, sele
         stage._base_functions=original_base
         stage.function_call_traces=[*previous,*records]
         _agent_record_native_calls(state,selected,records,options or {})
+
+
+def _core_agent_stage_streaming_forward(stage, state, client, values, options, sink):
+    # Streams the stage's AxGen deltas to sink, each through the agent's
+    # citation handling (hidden citations leave the delta).
+    def emit(envelope):
+        sink(_agent_stream_citation_delta(state, envelope))
+
+    return stage._streaming_forward_with(client, values or {}, options or {}, emit)
+
+
+def _agent_check_stream_run_session(agent, client, options):
+    # Until AxGen deltas cover async run sessions, an agent stream that would
+    # stream its responder through one fails before any stage runs, with the
+    # error AxGen deltas raise.
+    responder = agent.responder
+    run_options = {**responder.options, **_agent_stage_options(agent.state, "responder", options)}
+    model = str(run_options.get("model") or getattr(client, "model", "")) or None
+    session_capable = callable(getattr(client, "_pin_chat_run", None)) or (
+        callable(getattr(client, "open_chat_session", None))
+        and bool(getattr(client, "get_features", lambda model=None: {})(model).get("asyncTools"))
+    )
+    needs_session = run_options.get("control") is not None or any(
+        getattr(tool, "execution", "blocking") == "background" for tool in responder.functions
+    )
+    if chat_session_mode_enabled(run_options) and session_capable and needs_session:
+        raise NotImplementedError(
+            "streaming_forward deltas do not cover async run sessions (control or background tools "
+            "on a session-capable client) yet; use forward()."
+        )
 
 
 def _core_agent_stage_forward(stage, client, values, options):

@@ -21,12 +21,14 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicFlowDispatchGroup:       true,
 	IntrinsicAgentStageForward:       true,
 	IntrinsicAgentNativeStageForward: true,
+	IntrinsicAgentStageStreamForward: true,
 	IntrinsicAgentRuntimeCreate:      true,
 	IntrinsicAgentRuntimeExecute:     true,
 	IntrinsicAgentRuntimeInspect:     true,
 	IntrinsicAgentRuntimeExport:      true,
 	IntrinsicAgentRuntimeRestore:     true,
 	IntrinsicPromptStructured:        true,
+	IntrinsicPromptUserContent:       true,
 	IntrinsicStringFindQuoted:        true,
 	IntrinsicStringSplitQuoted:       true,
 	IntrinsicStringSplitTopLevel:     true,
@@ -37,8 +39,12 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicAIStreamOpen:            true,
 	IntrinsicAIStreamNext:            true,
 	IntrinsicAxGenEmitDelta:          true,
+	IntrinsicAxGenSpeak:              true,
 	IntrinsicAxGenCallProcessor:      true,
 	IntrinsicAxGenCheckStreamAssert:  true,
+	IntrinsicDateZoneOffset:          true,
+	IntrinsicAxGenCacheRead:          true,
+	IntrinsicAxGenCacheWrite:         true,
 }
 
 func BuildGoCore(model AxRuntimeModel) (string, error) {

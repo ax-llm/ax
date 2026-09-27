@@ -12,6 +12,7 @@ public final class AxGlobals {
   private static final AtomicReference<AxRateLimiter> RATE_LIMITER = new AtomicReference<>();
   private static final AtomicReference<AxTracer> TRACER = new AtomicReference<>();
   private static final AtomicReference<AxMeter> METER = new AtomicReference<>();
+  private static final AtomicReference<AxCachingFunction> CACHING_FUNCTION = new AtomicReference<>();
   private static final ThreadLocal<Frame> FRAME = new ThreadLocal<>();
   private static final Map<AxMeter, Instruments> INSTRUMENTS = new IdentityHashMap<>();
 
@@ -28,6 +29,19 @@ public final class AxGlobals {
 
   public static void setRateLimiter(AxRateLimiter limiter) {
     RATE_LIMITER.set(limiter);
+  }
+
+  /**
+   * Sets the process-wide {@link AxCachingFunction}; {@code null} clears it. AxGen uses it when
+   * neither the forward call nor the constructor options set {@code cachingFunction}, and reads it
+   * at each call.
+   */
+  public static void setCachingFunction(AxCachingFunction cachingFunction) {
+    CACHING_FUNCTION.set(cachingFunction);
+  }
+
+  static AxCachingFunction cachingFunction() {
+    return CACHING_FUNCTION.get();
   }
 
   public static void setTracer(AxTracer tracer) {

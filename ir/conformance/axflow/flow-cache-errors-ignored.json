@@ -1,0 +1,48 @@
+{
+  "cache_read_error": "cache read failed",
+  "cache_write_error": "cache write failed",
+  "calls": [
+    {
+      "input": {
+        "firstName": "Ada",
+        "lastName": "Lovelace"
+      },
+      "kind": "forward"
+    },
+    {
+      "input": {
+        "firstName": "Ada",
+        "lastName": "Lovelace"
+      },
+      "kind": "forward"
+    }
+  ],
+  "expected_cache_gets": 2,
+  "expected_cache_sets": [],
+  "expected_deltas": [null, null],
+  "expected_outputs": [
+    {
+      "fullName": "Ada Lovelace"
+    },
+    {
+      "fullName": "Ada Lovelace"
+    }
+  ],
+  "expected_request_count": 0,
+  "expected_requests": [0, 0],
+  "kind": "flow_cache_sequence",
+  "name": "flow-cache-errors-ignored",
+  "responses": [],
+  "returns": {
+    "fullName": "fullName"
+  },
+  "steps": [
+    {
+      "kind": "map",
+      "name": "fullName",
+      "output": {
+        "fullName": "Ada Lovelace"
+      }
+    }
+  ]
+}

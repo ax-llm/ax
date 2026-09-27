@@ -158,6 +158,71 @@ export function writeProviderDataJson(repoRoot, kind, value) {
   );
 }
 
+// The date data files tools/axir/extractors/date-goldens.ts writes. The
+// abbreviation tables are copied from TypeScript source and always compared.
+// The zone-name table is a snapshot of what V8/ICU accepts on the Node that
+// wrote it (with that machine's tz database names as candidates), so it is
+// compared, and rewritten, only on a Node and machine that match the source
+// it records; anywhere else the check says it skipped.
+const dateDataFiles = ['date-zone-abbreviations.json', 'date-time-zones.json'];
+const zoneTableFile = 'date-time-zones.json';
+
+export function sameZoneTableSource(left, right) {
+  const a = left?.source ?? {};
+  const b = right?.source ?? {};
+  return (
+    a.icu === b.icu &&
+    a.tz === b.tz &&
+    a.tzdata_candidates === b.tzdata_candidates
+  );
+}
+
+function readJsonIfExists(file) {
+  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : undefined;
+}
+
+export function compareDateData(repoRoot, generatedRoot, write) {
+  const failures = [];
+  for (const name of dateDataFiles) {
+    const generatedPath = path.join(
+      generatedRoot,
+      'ir',
+      'axcore',
+      'data',
+      name
+    );
+    const repoPath = path.join(repoRoot, 'ir', 'axcore', 'data', name);
+    const generated = readJsonIfExists(generatedPath);
+    if (generated === undefined) {
+      failures.push(`date-goldens did not write ir/axcore/data/${name}`);
+      continue;
+    }
+    const current = readJsonIfExists(repoPath);
+    if (
+      name === zoneTableFile &&
+      current !== undefined &&
+      !sameZoneTableSource(current, generated)
+    ) {
+      const source = (table) =>
+        `ICU ${table.source?.icu} tz ${table.source?.tz} tzdata ${table.source?.tzdata_candidates}`;
+      console.log(
+        `skipped ir/axcore/data/${name}: it was written on ${source(current)}, this run has ${source(generated)}`
+      );
+      continue;
+    }
+    const same =
+      current !== undefined &&
+      JSON.stringify(current) === JSON.stringify(generated);
+    if (same) continue;
+    if (write) {
+      writeFileSync(repoPath, readFileSync(generatedPath, 'utf8'));
+    } else {
+      failures.push(`stale data ir/axcore/data/${name}`);
+    }
+  }
+  return failures;
+}
+
 export function compareValues(actual, expected, label = '$') {
   const diffs = [];
   compareAt(actual, expected, label, diffs);
@@ -395,7 +460,31 @@ async function runSync({ repoRoot, write }) {
       'axgen-streaming-goldens.ts',
       'AxGen streaming'
     );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'axgen-audio-goldens.ts',
+      'AxGen audio'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'date-goldens.ts',
+      'AxGen dates'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'axgen-cache-goldens.ts',
+      'AxGen cache'
+    );
     runConformanceExtractor(repoRoot, tempRoot, 'flow-goldens.ts', 'AxFlow');
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'flow-cache-goldens.ts',
+      'AxFlow cache'
+    );
     runConformanceExtractor(
       repoRoot,
       tempRoot,
@@ -417,6 +506,12 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(repoRoot, tempRoot, 'agent-goldens.ts', 'AxAgent', {
       AXIR_AGENT_PARITY_ONLY: '1',
     });
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'agent-streaming-goldens.ts',
+      'AxAgent streaming'
+    );
     const failures = [
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axai', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'signature', write),
@@ -429,6 +524,7 @@ async function runSync({ repoRoot, write }) {
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axmcp', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axoptimize', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axagent', write),
+      ...compareDateData(repoRoot, tempRoot, write),
       ...(await checkProviderCatalog(repoRoot, tempRoot, write)),
     ];
     if (failures.length > 0) {

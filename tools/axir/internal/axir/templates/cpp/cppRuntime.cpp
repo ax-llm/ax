@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -524,15 +525,17 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   // may report it as CURLE_WRITE_ERROR (or another callback-abort code), but the
   // handler decision is authoritative once callback exceptions are excluded.
   if (context.cancelled || (cancelled && cancelled->load())) return;
+  // Provider errors never take the transport request: its headers hold the API
+  // key or credential tokens, and AxError has no request field to carry anyway.
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
-    if (rc == CURLE_OPERATION_TIMEDOUT) throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), request, false));
+    if (rc == CURLE_OPERATION_TIMEDOUT) throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), Value(), false));
     throw AxError("network", message, "AxAIServiceNetworkError", 0, "", true);
   }
   if (status >= 400) {
     Value body;
     try { body = Core::json_parse(error_body); } catch (...) { body = Value(error_body); }
-    throw Core::as_error(Core::openai_normalize_error(static_cast<double>(status), body, request));
+    throw Core::as_error(Core::openai_normalize_error(static_cast<double>(status), body, Value()));
   }
 #endif
 }
@@ -678,7 +681,7 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
     if (rc == CURLE_OPERATION_TIMEDOUT) {
-      throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), request, false));
+      throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), Value(), false));
     }
     throw AxError("network", message);
   }
@@ -758,6 +761,329 @@ Value Core::string_utf16_units(Value value) {
   return Value(units);
 }
 Value Core::string_codepoint_length(Value value) { size_t count = 0; for (unsigned char byte : str(value)) if ((byte & 0xc0) != 0x80) ++count; return Value(static_cast<double>(count)); }
+
+// ----- intrinsic.date.zone_offset: the platform tz database -----
+// A std-only reader for TZif files (RFC 8536): $TZDIR, then the usual
+// zoneinfo directories. Past the last transition the POSIX TZ footer rule
+// decides; before the first, the zone's first local time type.
+namespace {
+
+struct DateTzRuleDate {
+  char kind = 'n';  // 'J' (1-365, no Feb 29), 'n' (0-365), 'M' (month.week.day)
+  long long day = 0, week = 0, month = 0, time = 7200;
+};
+
+struct DateTzRule {
+  long long std_offset = 0;
+  bool has_dst = false;
+  long long dst_offset = 0;
+  DateTzRuleDate start, end;
+};
+
+struct DateTzZone {
+  std::vector<long long> transitions;
+  std::vector<size_t> transition_types;
+  std::vector<long long> offsets;
+  bool has_footer = false;
+  DateTzRule footer;
+};
+
+long long date_floor_div(long long value, long long divisor) {
+  long long quotient = value / divisor;
+  if ((value % divisor != 0) && ((value < 0) != (divisor < 0))) --quotient;
+  return quotient;
+}
+
+long long date_days_from_civil(long long year, long long month, long long day) {
+  long long y = month <= 2 ? year - 1 : year;
+  long long era = date_floor_div(y, 400);
+  long long yoe = y - era * 400;
+  long long mp = (month + 9) % 12;
+  long long doy = (153 * mp + 2) / 5 + day - 1;
+  long long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + doe - 719468;
+}
+
+long long date_year_of_days(long long days) {
+  long long z = days + 719468;
+  long long era = date_floor_div(z, 146097);
+  long long doe = z - era * 146097;
+  long long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  long long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  long long mp = (5 * doy + 2) / 153;
+  long long month = mp < 10 ? mp + 3 : mp - 9;
+  return yoe + era * 400 + (month <= 2 ? 1 : 0);
+}
+
+bool date_is_leap(long long year) { return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0; }
+
+// The UTC second of a rule date's local time in `year`, for a zone at
+// `offset` seconds east of UTC.
+long long date_rule_instant(long long year, const DateTzRuleDate& rule, long long offset) {
+  long long first = date_days_from_civil(year, 1, 1);
+  long long day = 0;
+  if (rule.kind == 'J') {
+    day = first + rule.day - 1 + ((date_is_leap(year) && rule.day >= 60) ? 1 : 0);
+  } else if (rule.kind == 'n') {
+    day = first + rule.day;
+  } else {
+    long long month_first = date_days_from_civil(year, rule.month, 1);
+    // 1970-01-01 was a Thursday (4).
+    long long weekday = ((month_first + 4) % 7 + 7) % 7;
+    day = month_first + ((rule.day - weekday) % 7 + 7) % 7 + (rule.week - 1) * 7;
+    long long next_month = rule.month == 12 ? date_days_from_civil(year + 1, 1, 1) : date_days_from_civil(year, rule.month + 1, 1);
+    while (day >= next_month) day -= 7;
+  }
+  return day * 86400 + rule.time - offset;
+}
+
+long long date_rule_offset(const DateTzRule& rule, long long seconds) {
+  if (!rule.has_dst) return rule.std_offset;
+  long long year = date_year_of_days(date_floor_div(seconds + rule.std_offset, 86400));
+  // The latest DST start or end at or before the instant, over the
+  // neighbouring years, decides. Of two at the same instant the later one in
+  // the sequence wins: a permanent-DST footer such as
+  // "XXX-2<+01>-1,0/0,J365/23" ends one year where the next begins.
+  bool found = false, dst = false;
+  long long best = 0;
+  for (long long y = year - 1; y <= year + 1; ++y) {
+    const long long begins = date_rule_instant(y, rule.start, rule.std_offset);
+    const long long ends = date_rule_instant(y, rule.end, rule.dst_offset);
+    for (int pick = 0; pick < 2; ++pick) {
+      const long long at = pick == 0 ? begins : ends;
+      if (at <= seconds && (!found || at >= best)) {
+        found = true;
+        best = at;
+        dst = pick == 0;
+      }
+    }
+  }
+  return found && dst ? rule.dst_offset : rule.std_offset;
+}
+
+// [+-]hh[:mm[:ss]] as seconds.
+bool date_tz_parse_seconds(const std::string& text, size_t& at, long long& out) {
+  long long sign = 1;
+  if (at < text.size() && (text[at] == '+' || text[at] == '-')) {
+    if (text[at] == '-') sign = -1;
+    ++at;
+  }
+  long long parts[3] = {0, 0, 0};
+  for (int index = 0; index < 3; ++index) {
+    if (index > 0) {
+      if (at < text.size() && text[at] == ':') ++at;
+      else break;
+    }
+    const size_t start = at;
+    while (at < text.size() && std::isdigit(static_cast<unsigned char>(text[at]))) parts[index] = parts[index] * 10 + (text[at++] - '0');
+    if (at == start) return false;
+  }
+  out = sign * (parts[0] * 3600 + parts[1] * 60 + parts[2]);
+  return true;
+}
+
+bool date_tz_parse_name(const std::string& text, size_t& at) {
+  if (at < text.size() && text[at] == '<') {
+    while (at < text.size() && text[at] != '>') ++at;
+    if (at >= text.size()) return false;
+    ++at;
+    return true;
+  }
+  const size_t start = at;
+  while (at < text.size() && std::isalpha(static_cast<unsigned char>(text[at]))) ++at;
+  return at > start;
+}
+
+bool date_tz_parse_number(const std::string& text, size_t& at, long long& out) {
+  const size_t start = at;
+  out = 0;
+  while (at < text.size() && std::isdigit(static_cast<unsigned char>(text[at]))) out = out * 10 + (text[at++] - '0');
+  return at > start;
+}
+
+bool date_tz_parse_rule_date(const std::string& text, size_t& at, DateTzRuleDate& date) {
+  if (at < text.size() && text[at] == 'J') {
+    ++at;
+    date.kind = 'J';
+    if (!date_tz_parse_number(text, at, date.day)) return false;
+  } else if (at < text.size() && text[at] == 'M') {
+    ++at;
+    date.kind = 'M';
+    if (!date_tz_parse_number(text, at, date.month) || at >= text.size() || text[at] != '.') return false;
+    ++at;
+    if (!date_tz_parse_number(text, at, date.week) || at >= text.size() || text[at] != '.') return false;
+    ++at;
+    if (!date_tz_parse_number(text, at, date.day)) return false;
+    if (date.month < 1 || date.month > 12 || date.week < 1 || date.week > 5 || date.day > 6) return false;
+  } else {
+    date.kind = 'n';
+    if (!date_tz_parse_number(text, at, date.day)) return false;
+  }
+  if (at < text.size() && text[at] == '/') {
+    ++at;
+    if (!date_tz_parse_seconds(text, at, date.time)) return false;
+  }
+  return true;
+}
+
+// A POSIX TZ string such as "EST5EDT,M3.2.0,M11.1.0" or "<+0530>-5:30".
+bool date_tz_parse_rule(const std::string& text, DateTzRule& rule) {
+  size_t at = 0;
+  long long value = 0;
+  if (!date_tz_parse_name(text, at) || !date_tz_parse_seconds(text, at, value)) return false;
+  rule.std_offset = -value;
+  if (at >= text.size()) return true;
+  if (!date_tz_parse_name(text, at)) return false;
+  rule.has_dst = true;
+  rule.dst_offset = rule.std_offset + 3600;
+  if (at < text.size() && text[at] != ',') {
+    if (!date_tz_parse_seconds(text, at, value)) return false;
+    rule.dst_offset = -value;
+  }
+  if (at >= text.size()) {
+    // POSIX leaves the rule to the implementation; this is the US one.
+    rule.start = DateTzRuleDate{'M', 0, 2, 3, 7200};
+    rule.end = DateTzRuleDate{'M', 0, 1, 11, 7200};
+    return true;
+  }
+  if (text[at] != ',') return false;
+  ++at;
+  if (!date_tz_parse_rule_date(text, at, rule.start) || at >= text.size() || text[at] != ',') return false;
+  ++at;
+  if (!date_tz_parse_rule_date(text, at, rule.end)) return false;
+  return at == text.size();
+}
+
+bool date_tzif_u32(const std::string& data, size_t at, unsigned long& out) {
+  if (at + 4 > data.size()) return false;
+  out = (static_cast<unsigned long>(static_cast<unsigned char>(data[at])) << 24) |
+        (static_cast<unsigned long>(static_cast<unsigned char>(data[at + 1])) << 16) |
+        (static_cast<unsigned long>(static_cast<unsigned char>(data[at + 2])) << 8) |
+        static_cast<unsigned long>(static_cast<unsigned char>(data[at + 3]));
+  return true;
+}
+
+bool date_tzif_counts(const std::string& data, size_t at, size_t counts[6]) {
+  for (int index = 0; index < 6; ++index) {
+    unsigned long value = 0;
+    if (!date_tzif_u32(data, at + 20 + index * 4, value)) return false;
+    counts[index] = static_cast<size_t>(value);
+  }
+  return true;
+}
+
+bool date_parse_tzif(const std::string& data, DateTzZone& zone) {
+  if (data.size() < 44 || data.compare(0, 4, "TZif") != 0) return false;
+  const char version = data[4];
+  size_t counts[6];
+  if (!date_tzif_counts(data, 0, counts)) return false;
+  size_t at = 44;
+  size_t time_size = 4;
+  if (version >= '2') {
+    const size_t v1_size = counts[3] * 5 + counts[4] * 6 + counts[5] + counts[2] * 8 + counts[1] + counts[0];
+    const size_t second = 44 + v1_size;
+    if (second + 44 > data.size() || data.compare(second, 4, "TZif") != 0 || !date_tzif_counts(data, second, counts)) return false;
+    at = second + 44;
+    time_size = 8;
+  }
+  const size_t isut = counts[0], isstd = counts[1], leap = counts[2], time = counts[3], typ = counts[4], chars = counts[5];
+  const size_t data_size = time * time_size + time + typ * 6 + chars + leap * (time_size + 4) + isstd + isut;
+  if (at + data_size > data.size() || typ == 0) return false;
+  for (size_t index = 0; index < time; ++index) {
+    const size_t offset = at + index * time_size;
+    if (time_size == 8) {
+      unsigned long high = 0, low = 0;
+      date_tzif_u32(data, offset, high);
+      date_tzif_u32(data, offset + 4, low);
+      const unsigned long long bits = (static_cast<unsigned long long>(high) << 32) | low;
+      zone.transitions.push_back(static_cast<long long>(bits));
+    } else {
+      unsigned long value = 0;
+      date_tzif_u32(data, offset, value);
+      zone.transitions.push_back(static_cast<long long>(static_cast<int32_t>(static_cast<uint32_t>(value))));
+    }
+  }
+  at += time * time_size;
+  for (size_t index = 0; index < time; ++index) {
+    const size_t type_index = static_cast<unsigned char>(data[at + index]);
+    if (type_index >= typ) return false;
+    zone.transition_types.push_back(type_index);
+  }
+  at += time;
+  for (size_t index = 0; index < typ; ++index) {
+    unsigned long value = 0;
+    date_tzif_u32(data, at + index * 6, value);
+    zone.offsets.push_back(static_cast<long long>(static_cast<int32_t>(static_cast<uint32_t>(value))));
+  }
+  at += typ * 6 + chars + leap * (time_size + 4) + isstd + isut;
+  if (version >= '2' && at < data.size() && data[at] == '\n') {
+    const size_t end = data.find('\n', at + 1);
+    if (end != std::string::npos && end > at + 1) {
+      zone.has_footer = date_tz_parse_rule(data.substr(at + 1, end - at - 1), zone.footer);
+    }
+  }
+  return true;
+}
+
+long long date_zone_offset_at(const DateTzZone& zone, long long seconds) {
+  if (zone.transitions.empty()) return zone.has_footer ? date_rule_offset(zone.footer, seconds) : zone.offsets[0];
+  if (seconds < zone.transitions.front()) return zone.offsets[0];
+  const size_t index = static_cast<size_t>(std::upper_bound(zone.transitions.begin(), zone.transitions.end(), seconds) - zone.transitions.begin()) - 1;
+  if (index + 1 == zone.transitions.size() && zone.has_footer) return date_rule_offset(zone.footer, seconds);
+  return zone.offsets[zone.transition_types[index]];
+}
+
+std::shared_ptr<DateTzZone> date_zone_load(const std::string& name) {
+  static std::mutex mutex;
+  static std::map<std::string, std::shared_ptr<DateTzZone>> zones;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    const auto found = zones.find(name);
+    if (found != zones.end()) return found->second;
+  }
+  bool safe = !name.empty() && name[0] != '/' && name.find('\\') == std::string::npos && name.find('\0') == std::string::npos;
+  if (safe) {
+    size_t start = 0;
+    while (start <= name.size()) {
+      const size_t slash = name.find('/', start);
+      const std::string part = name.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+      if (part.empty() || part == "." || part == "..") safe = false;
+      if (slash == std::string::npos) break;
+      start = slash + 1;
+    }
+  }
+  std::shared_ptr<DateTzZone> loaded;
+  if (safe) {
+    std::vector<std::string> dirs;
+    if (const char* tzdir = std::getenv("TZDIR")) {
+      if (*tzdir) dirs.emplace_back(tzdir);
+    }
+    for (const char* dir : {"/usr/share/zoneinfo", "/usr/lib/zoneinfo", "/usr/share/lib/zoneinfo", "/etc/zoneinfo"}) dirs.emplace_back(dir);
+    for (const auto& dir : dirs) {
+      std::ifstream file(dir + "/" + name, std::ios::binary);
+      if (!file) continue;
+      std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+      auto zone = std::make_shared<DateTzZone>();
+      if (date_parse_tzif(data, *zone)) {
+        loaded = zone;
+        break;
+      }
+    }
+  }
+  std::lock_guard<std::mutex> lock(mutex);
+  zones[name] = loaded;
+  return loaded;
+}
+
+}  // namespace
+
+Value Core::date_zone_offset(Value name, Value epoch_ms) {
+  const std::string zone_name = str(name);
+  const auto zone = date_zone_load(zone_name);
+  if (!zone) throw AxError("runtime", "unknown time zone " + zone_name);
+  const long long seconds = static_cast<long long>(std::floor(num(epoch_ms) / 1000.0));
+  return Value(static_cast<double>(date_zone_offset_at(*zone, seconds)));
+}
 Value Core::math_is_finite(Value value) { return Value(std::isfinite(num(value))); }
 Value Core::math_floor(Value value) { return Value(std::floor(num(value))); }
 Value Core::math_log(Value value) { return Value(std::log(num(value))); }
@@ -879,6 +1205,8 @@ Value Core::type_is(Value value, Value type_name) {
   if (t == "boolean") return Value(value.is_bool());
   if (t == "null") return Value(value.is_null());
   if (t == "json") return Value(true);
+  // No native date type: date and datetime fields take strings here.
+  if (t == "date") return Value(false);
   return Value(false);
 }
 Value Core::regex_match(Value pattern, Value value) {
@@ -972,13 +1300,13 @@ Value Core::string_words(Value value) {
 Value Core::string_default_if_empty(Value value, Value fallback) {
   return truthy(string_trim(value)) ? string_trim(value) : fallback;
 }
-Value Core::string_format(Value templ, Value a, Value b, Value c, Value d, Value e, Value f) {
+Value Core::string_format_values(Value templ, const std::vector<Value>& args) {
   // Each value fills the next {} after the previous one, so a value that
-  // itself contains {} is not formatted again.
+  // itself contains {} is not formatted again. A null value fills its {} as
+  // well (display() writes it as the empty string, as Go's does).
   std::string out = str(templ);
   size_t cursor = 0;
-  for (const auto& arg : Array{a, b, c, d, e, f}) {
-    if (arg.is_null()) continue;
+  for (const auto& arg : args) {
     size_t pos = out.find("{}", cursor);
     if (pos == std::string::npos) break;
     std::string text = display(arg);
@@ -1400,6 +1728,63 @@ Value Core::exception_rewrap(Value error, Value message) {
   wrapped["cause"] = error;
   return Value(std::move(wrapped));
 }
+namespace detail {
+std::array<unsigned char, 32> sha256(const std::string& input) {
+  static constexpr std::array<std::uint32_t, 64> constants = {
+      0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+      0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+      0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+      0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+      0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+      0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+      0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+      0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2};
+  auto rotate = [](std::uint32_t value, unsigned count) { return (value >> count) | (value << (32 - count)); };
+  std::vector<unsigned char> bytes(input.begin(), input.end());
+  const std::uint64_t bit_length = static_cast<std::uint64_t>(bytes.size()) * 8;
+  bytes.push_back(0x80);
+  while (bytes.size() % 64 != 56) bytes.push_back(0);
+  for (int shift = 56; shift >= 0; shift -= 8) bytes.push_back(static_cast<unsigned char>(bit_length >> shift));
+  std::array<std::uint32_t, 8> hash = {0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19};
+  for (std::size_t offset = 0; offset < bytes.size(); offset += 64) {
+    std::array<std::uint32_t, 64> words{};
+    for (std::size_t index = 0; index < 16; ++index) {
+      const std::size_t at = offset + index * 4;
+      words[index] = (static_cast<std::uint32_t>(bytes[at]) << 24) | (static_cast<std::uint32_t>(bytes[at + 1]) << 16) |
+                     (static_cast<std::uint32_t>(bytes[at + 2]) << 8) | bytes[at + 3];
+    }
+    for (std::size_t index = 16; index < 64; ++index) {
+      const auto s0 = rotate(words[index - 15], 7) ^ rotate(words[index - 15], 18) ^ (words[index - 15] >> 3);
+      const auto s1 = rotate(words[index - 2], 17) ^ rotate(words[index - 2], 19) ^ (words[index - 2] >> 10);
+      words[index] = words[index - 16] + s0 + words[index - 7] + s1;
+    }
+    auto state = hash;
+    for (std::size_t index = 0; index < 64; ++index) {
+      const auto sum1 = rotate(state[4], 6) ^ rotate(state[4], 11) ^ rotate(state[4], 25);
+      const auto choice = (state[4] & state[5]) ^ (~state[4] & state[6]);
+      const auto temporary1 = state[7] + sum1 + choice + constants[index] + words[index];
+      const auto sum0 = rotate(state[0], 2) ^ rotate(state[0], 13) ^ rotate(state[0], 22);
+      const auto majority = (state[0] & state[1]) ^ (state[0] & state[2]) ^ (state[1] & state[2]);
+      const auto temporary2 = sum0 + majority;
+      state = {temporary1 + temporary2,state[0],state[1],state[2],state[3] + temporary1,state[4],state[5],state[6]};
+    }
+    for (std::size_t index = 0; index < hash.size(); ++index) hash[index] += state[index];
+  }
+  std::array<unsigned char, 32> digest{};
+  for (std::size_t index = 0; index < hash.size(); ++index) for (int byte = 0; byte < 4; ++byte) digest[index * 4 + byte] = static_cast<unsigned char>(hash[index] >> (24 - byte * 8));
+  return digest;
+}
+}  // namespace detail
+Value Core::crypto_sha256_hex(Value text) {
+  static constexpr char digits[] = "0123456789abcdef";
+  std::string hex;
+  hex.reserve(64);
+  for (unsigned char byte : detail::sha256(str(text))) {
+    hex.push_back(digits[byte >> 4]);
+    hex.push_back(digits[byte & 0x0f]);
+  }
+  return Value(std::move(hex));
+}
 Value Core::exception_is_aborted(Value error) {
   return Value(error.is_object() &&
                (str(get_key(error, "__type")) == "AxAIServiceAbortedError" ||
@@ -1496,7 +1881,12 @@ Value Core::legacy_response_to_chat_response(Value raw) {
   if (!get_key(raw, "results").is_null()) return raw;
   Array calls;
   for (const auto& item : array_ref(get_key(raw, "function_calls"))) {
-    Object call = object_ref(item);
+    // A call already in TS's nested {id, type, function} shape is kept; a
+    // flat {id, name, params} one is nested.
+    if (get_key(item, "function").is_object()) {
+      calls.push_back(item);
+      continue;
+    }
     Object fn;
     fn["name"] = get_key(item, "name");
     fn["params"] = get_key(item, "params");
@@ -1571,6 +1961,13 @@ Value Core::ai_client_features(Value client, Value model) {
   }
   return object({{"functions", true}, {"structured_outputs", true}});
 }
+Value Core::axgen_speak(Value client, Value request, Value options) {
+  // Backs intrinsic.axgen.speak: the AxGen audio output renderer calls the
+  // client's speak(), as TS calls ai.speak().
+  AIClient* registered = registered_client(str(get_key(client, "__client_id")));
+  if (registered == nullptr) throw AxError("runtime", "Audio speech not supported by this AI client");
+  return registered->speak(request, options);
+}
 Value Core::agent_transcribe(Value client, Value request, Value options) {
   // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
   // text before the agent loop (the client passes through @agent_forward as a real client).
@@ -1621,6 +2018,19 @@ Value Core::agent_native_stage_forward(Value stage,Value state,Value client,Valu
   Value records=gen->get_function_call_traces();set(target,"functions",original);Value combined=parse_json(stringify(previous));for(const auto& record:array_ref(records))append(combined,record);set(target,"function_call_traces",combined);
   _agent_record_native_calls(state,selected,records,options);
   if(failure)std::rethrow_exception(failure);return output;
+}
+
+// Streams the stage's AxGen deltas to sink, each through the agent's
+// citation handling (hidden citations leave the delta).
+Value Core::agent_stage_streaming_forward(Value stage,Value state,Value client,Value values,Value options,Value sink) {
+  auto* gen=dynamic_cast<AxGen*>(registered_stage(str(get_key(stage,"__agent_stage_id"))));
+  auto* ai=registered_client(str(get_key(client,"__client_id")));
+  if(!gen||!ai)throw AxError("runtime","The agent's streamed stage requires an AxGen and an AI client");
+  return gen->streaming_forward(*ai,values,options,[state,sink](const AxGenDelta& delta) {
+    Value envelope=object({{"version",Value(static_cast<double>(delta.version))},{"index",Value(static_cast<double>(delta.index))},{"delta",delta.delta}});
+    Core::axgen_emit_delta(sink,Core::_agent_stream_citation_delta(state,envelope));
+    return true;
+  });
 }
 
 Value Core::agent_stage_forward(Value stage, Value client, Value values, Value options) {
@@ -1857,15 +2267,23 @@ Value Core::agent_callable_invoke(Value state, Value request, Value options_arg)
   return object({{"status", "error"}, {"error", std::string("unknown callable: ") + qualified}});
 }
 
+// A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts):
+// underscores become spaces, and a word starts at a capital after a lowercase
+// letter or digit, at the last capital of a run that begins a word, and at each
+// run of digits; words are separated by one space. userID is "User ID",
+// parseHTTPResponse "Parse HTTP Response", item123 "Item 123", field_2 "Field 2".
 static std::string titleize(const std::string& name) {
-  std::string spaced;
-  for (size_t i = 0; i < name.size(); ++i) {
-    char ch = name[i] == '_' ? ' ' : name[i];
-    if (i > 0 && (std::isupper(static_cast<unsigned char>(ch)) || std::isdigit(static_cast<unsigned char>(ch)))) spaced.push_back(' ');
-    spaced.push_back(ch);
-  }
-  Value trimmed = Core::string_trim(spaced);
-  std::string out = str(trimmed);
+  static const std::regex camel_boundary("([a-z0-9])([A-Z])");
+  static const std::regex acronym_boundary("([A-Z])([A-Z][a-z])");
+  static const std::regex digit_boundary("([^0-9])([0-9])");
+  static const std::regex spaces("\\s+");
+  std::string text = name;
+  std::replace(text.begin(), text.end(), '_', ' ');
+  text = std::regex_replace(text, camel_boundary, "$1 $2");
+  text = std::regex_replace(text, acronym_boundary, "$1 $2");
+  text = std::regex_replace(text, digit_boundary, "$1 $2");
+  text = std::regex_replace(text, spaces, " ");
+  std::string out = str(Core::string_trim(text));
   if (!out.empty()) out[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[0])));
   return out;
 }
@@ -2304,14 +2722,40 @@ Value Core::prompt_structured(Value signature, Value values, Value functions, Va
   if (!get_key(options, "custom_template").is_null()) { source = str(get_key(options, "custom_template")); context = "inline-template"; }
   return string_trim(render_template_content(source, Value(vars), context));
 }
+// TS's audio part: only the format (wav when there is none) and the data.
+static Value prompt_audio_part(const Value& value) {
+  if (!value.is_object()) throw AxError("runtime", "Audio field value must be an object.");
+  if (object_ref(value).count("data") == 0) throw AxError("runtime", "Audio field must have data");
+  Value format = get_key(value, "format");
+  return Value(Object{{"type", "audio"}, {"format", format.is_null() ? Value("wav") : format}, {"data", get_key(value, "data")}});
+}
 Value Core::prompt_user_content(Value signature, Value values) {
   Array parts;
+  bool audio_parts = false;
   for (const auto& field : prompt_inputs_for_values(signature, values)) {
     std::string name = str(get_key(field, "name"));
     Value value = get_key(values, name);
     if (!prompt_provided(value)) {
       if (truthy(get_key(field, "isOptional")) || truthy(get_key(field, "isInternal"))) continue;
       throw AxError("runtime", "Value for input field '" + name + "' is required.");
+    }
+    Value type = get_key(field, "type");
+    if (str(get_key(type, "name")) == "audio") {
+      // As TS: an audio object with a transcript (what an AxGen audio output
+      // renders to), like a plain string, reaches the model as text; other
+      // audio goes as audio parts.
+      if (value.is_object() && get_key(value, "transcript").is_string()) value = get_key(value, "transcript");
+      if (!value.is_string()) {
+        parts.emplace_back(Value(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": \n"}}));
+        if (truthy(get_key(type, "isArray"))) {
+          if (!value.is_array()) throw AxError("runtime", "Audio field value must be an array.");
+          for (const auto& item : array_ref(value)) parts.emplace_back(prompt_audio_part(item));
+        } else {
+          parts.emplace_back(prompt_audio_part(value));
+        }
+        audio_parts = true;
+        continue;
+      }
     }
     std::string rendered = value.is_string() ? str(value) : pretty_stringify(value);
     Value part(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": " + rendered + "\n"}});
@@ -2320,7 +2764,21 @@ Value Core::prompt_user_content(Value signature, Value values) {
   }
   bool all_text = true;
   for (const auto& part : parts) if (str(get_key(part, "type")) != "text" || truthy(get_key(part, "cache"))) all_text = false;
-  if (!all_text) return Value(parts);
+  if (!all_text && !audio_parts) return Value(parts);
+  if (!all_text) {
+    // As TS: consecutive text parts join with a newline.
+    Array combined;
+    for (const auto& part : parts) {
+      if (str(get_key(part, "type")) == "text" && !combined.empty() && str(get_key(combined.back(), "type")) == "text") {
+        Value& previous = combined.back();
+        Core::set(previous, "text", str(get_key(previous, "text")) + "\n" + str(get_key(part, "text")));
+        if (truthy(get_key(part, "cache"))) Core::set(previous, "cache", true);
+        continue;
+      }
+      combined.push_back(part);
+    }
+    return Value(combined);
+  }
   std::string out;
   for (size_t i = 0; i < parts.size(); ++i) {
     if (i) out += "\n";
@@ -3023,6 +3481,11 @@ Value AIClient::chat(Value request, Value options, const AxCancellationToken* ca
   try { Value response = chat(std::move(request), std::move(options)); if (cancellation) cancellation->throw_if_cancelled(); return response; }
   catch (...) { if(cancellation&&cancellation->is_cancelled())throw AxAIServiceAbortedError(cancellation->reason());throw; }
 }
+Value AIClient::speak(Value request, Value options) {
+  (void)request;
+  (void)options;
+  throw AxError("runtime", "Audio speech not supported by this AI client");
+}
 
 std::string AxAIService::get_id() { return get_name() + "-id"; }
 std::string AxAIService::get_name() { return "ai"; }
@@ -3560,6 +4023,126 @@ Value Core::axgen_deprecation(Value key, Value message) {
   } catch (...) {
   }
   return Value();
+}
+
+// Caching functions the AxGen IR reaches through {"__caching_function_id"}
+// markers, as run controls are reached: the registry holds each handle's
+// state weakly, and a handle (the caller's, an AxGen's or the process-wide
+// one) keeps it registered.
+struct AxCachingFunctionHandle::State {
+  std::string id;
+  AxCachingFunction fn;
+};
+
+namespace {
+
+struct CachingFunctionRegistry {
+  std::mutex mutex;
+  std::uint64_t next_id = 0;
+  std::map<std::string, std::weak_ptr<AxCachingFunctionHandle::State>> handles;
+  std::optional<AxCachingFunctionHandle> global;
+};
+
+CachingFunctionRegistry& caching_function_registry() {
+  static CachingFunctionRegistry registry;
+  return registry;
+}
+
+std::shared_ptr<AxCachingFunctionHandle::State> registered_caching_function(const Value& marker) {
+  std::string id = str(get_key(marker, "__caching_function_id"));
+  if (id.empty()) throw AxError("validation", "The caching_function option must be an axllm::caching_function() handle value");
+  auto& registry = caching_function_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  auto it = registry.handles.find(id);
+  auto state = it == registry.handles.end() ? nullptr : it->second.lock();
+  if (!state) throw AxError("validation", "Caching function handle has expired");
+  return state;
+}
+
+// Calls the caching function outside the registry lock. What it throws that
+// is not a std::exception becomes an AxError, so the IR, which catches
+// std::exception, ignores it where TypeScript ignores a cache error.
+std::optional<Value> call_caching_function(const Value& marker, const Value& key, const Value* value) {
+  auto state = registered_caching_function(marker);
+  try {
+    return state->fn(str(key), value);
+  } catch (const std::exception&) {
+    throw;
+  } catch (...) {
+    throw AxError("runtime", "caching function threw a non-standard exception");
+  }
+}
+
+// The process-wide caching function as a run starts: holding it keeps the
+// function the run resolved registered until the run ends, as TypeScript
+// keeps the function it read.
+std::optional<AxCachingFunctionHandle> global_caching_function() {
+  auto& registry = caching_function_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  return registry.global;
+}
+
+}  // namespace
+
+AxCachingFunctionHandle::AxCachingFunctionHandle(AxCachingFunction fn) : state_(std::make_shared<State>()) {
+  if (!fn) throw AxError("validation", "Caching function must be callable");
+  state_->fn = std::move(fn);
+  auto& registry = caching_function_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  state_->id = "__caching_function_" + std::to_string(++registry.next_id);
+  for (auto it = registry.handles.begin(); it != registry.handles.end();) {
+    if (it->second.expired()) it = registry.handles.erase(it);
+    else ++it;
+  }
+  registry.handles[state_->id] = state_;
+}
+
+Value AxCachingFunctionHandle::value() const { return object({{"__caching_function_id", state_->id}}); }
+
+AxCachingFunctionHandle caching_function(AxCachingFunction fn) { return AxCachingFunctionHandle(std::move(fn)); }
+
+// TS: options.cachingFunction ?? this.options.cachingFunction ??
+// axGlobals.cachingFunction.
+Value Core::axgen_caching_function(Value gen, Value options) {
+  Value gen_options = get_key(gen, "options");
+  for (const Value* source : {&options, &gen_options}) {
+    Value marker = get_key(*source, "caching_function", get_key(*source, "cachingFunction"));
+    if (!marker.is_null()) return marker;
+  }
+  auto global = global_caching_function();
+  return global ? global->value() : Value();
+}
+
+// TS AxFlow: options.cachingFunction ?? axGlobals.cachingFunction. A flow's
+// constructor takes none; its AxGen nodes get the call's options, so they
+// cache through the same function.
+Value Core::flow_caching_function(Value options) {
+  Value marker = get_key(options, "caching_function", get_key(options, "cachingFunction"));
+  if (!marker.is_null()) return marker;
+  auto global = global_caching_function();
+  return global ? global->value() : Value();
+}
+
+// fn(key) returns the stored output, or nothing for a miss. A copy comes back,
+// so the caller's output does not share state with the cache.
+Value Core::axgen_cache_read(Value fn, Value key) {
+  std::optional<Value> cached = call_caching_function(fn, key, nullptr);
+  return cached ? clone_usage_value(*cached) : Value();
+}
+
+// fn(key, output) stores a copy of the output; the IR ignores what it throws.
+Value Core::axgen_cache_write(Value fn, Value key, Value value) {
+  Value stored = clone_usage_value(value);
+  call_caching_function(fn, key, &stored);
+  return Value();
+}
+
+void set_caching_function(AxCachingFunction fn) {
+  std::optional<AxCachingFunctionHandle> next;
+  if (fn) next.emplace(std::move(fn));
+  auto& registry = caching_function_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  registry.global.swap(next);
 }
 
 void set_usage_observer(AxUsageObserver observer) {
@@ -4652,7 +5235,7 @@ Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value p
   // Signals the transport to return the raw body as base64 instead of JSON.
   if (binary_response) Core::set(call, "binary", Value(true));
   Core::set(call, "timeout", timeout_seconds_);
-  if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) throw Core::as_error(Core::ai_error_auth("api_key or credential_provider is required", Value(), Value(), Value(), call));
+  if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) throw Core::as_error(Core::ai_error_auth("api_key or credential_provider is required", Value(), Value(), Value(), Value()));
   return call;
 }
 
@@ -4681,11 +5264,13 @@ std::string OpenAICompatibleClient::operation_path(const std::string& operation,
   return path;
 }
 
-Value OpenAICompatibleClient::transport_result(Value result, Value request) {
+// The request is not passed on: its headers hold the API key or credential
+// tokens, and a thrown AxError has no request field.
+Value OpenAICompatibleClient::transport_result(Value result, Value) {
   if (result.is_object() && Core::get(result, "status").is_number()) {
     int status = static_cast<int>(num(Core::get(result, "status", 200)));
     Value body = Core::get(result, "json", Core::get(result, "body", Core::get(result, "data")));
-    if (status >= 400) throw Core::as_error(Core::openai_normalize_error(status, body, request));
+    if (status >= 400) throw Core::as_error(Core::openai_normalize_error(status, body, Value()));
     return body;
   }
   return result;
@@ -4926,6 +5511,22 @@ AxGen& AxGen::set_result_picker(std::function<int(const Value&)> result_picker) 
   Value options = Core::get(state_, "options", Value::object());
   Core::set(options, "resultPicker", object({{"__result_picker_id", id}}));
   Core::set(state_, "options", options);
+  return *this;
+}
+
+// The AxGen's own caching function is its options' caching_function, as the
+// TypeScript constructor option; options another AxGen shares are copied, not
+// changed.
+AxGen& AxGen::set_caching_function(AxCachingFunction fn) {
+  std::optional<AxCachingFunctionHandle> handle;
+  if (fn) handle.emplace(std::move(fn));
+  Value options(object_ref(Core::get(state_, "options", Value::object())));
+  Core::map_delete(options, "cachingFunction");
+  Core::map_delete(options, "caching_function");
+  if (handle) Core::set(options, "caching_function", handle->value());
+  Core::set(state_, "options", options);
+  caching_function_ = std::move(handle);
+  refresh_prompt_template();
   return *this;
 }
 
@@ -5778,7 +6379,7 @@ AxACE::AxACE(Value options) {
     if (!value.is_null()) Core::set(config_, key, value);
   }
   Value now_value = Core::get(options, "now");
-  now_ = now_value.is_null() ? std::string("1970-01-01T00:00:00.000Z") : display(now_value);
+  now_ = now_value.is_null() ? std::string() : display(now_value);
   initial_playbook_ = Core::get(options, "initialPlaybook");
   playbook_ = initial_playbook_.is_null() ? empty_playbook() : initial_playbook_;
 }
@@ -5793,7 +6394,23 @@ void AxACE::set_callables(AceCallable reflector, AceCallable curator, AceCallabl
 std::string AxACE::name() const { return "ACE"; }
 std::string AxACE::version() const { return "axir-ace-v1"; }
 
-Value AxACE::empty_playbook() const { return Core::_ace_empty_playbook(Value(), Value(now_)); }
+Value AxACE::empty_playbook() const { return Core::_ace_empty_playbook(Value(), Value(now())); }
+
+// The injected clock (the `now` option), else the wall clock at each call, as
+// TS's new Date().toISOString() stamps each playbook change.
+std::string AxACE::now() const {
+  if (!now_.empty()) return now_;
+  auto current = std::chrono::system_clock::now();
+  std::time_t seconds = std::chrono::system_clock::to_time_t(current);
+  auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(current.time_since_epoch()).count() % 1000;
+  std::tm parts{};
+  gmtime_r(&seconds, &parts);
+  char text[32];
+  std::strftime(text, sizeof(text), "%Y-%m-%dT%H:%M:%S", &parts);
+  char out[40];
+  std::snprintf(out, sizeof(out), "%s.%03dZ", text, static_cast<int>(millis));
+  return out;
+}
 
 int AxACE::int_config(const std::string& key, int fallback) const {
   Value value = Core::get(config_, key);
@@ -5928,7 +6545,7 @@ std::vector<Value> AxACE::apply_operations(std::vector<Value>& resolved, Value& 
   Core::set(options, "allowDynamicSections", Core::get(config_, "allowDynamicSections"));
   Core::set(options, "enableAutoPrune", Value(true));
   Core::set(options, "protectedBulletIds", protected_ids);
-  Value result = Core::_ace_apply_curator_operations(playbook_, Value(resolved), options, Value(now_));
+  Value result = Core::_ace_apply_curator_operations(playbook_, Value(resolved), options, Value(now()));
   playbook_ = Core::get(result, "playbook");
   std::vector<Value> applied_ids;
   for (const auto& item : Core::iter(Core::get(result, "updatedBulletIds", Value::array()))) applied_ids.push_back(item);
@@ -5943,7 +6560,7 @@ std::vector<Value> AxACE::apply_operations(std::vector<Value>& resolved, Value& 
 
 void AxACE::apply_bullet_tags(const Value& reflection) {
   for (const auto& tag : Core::iter(Core::_ace_normalize_reflection_bullet_tags(reflection))) {
-    playbook_ = Core::_ace_update_bullet_feedback(playbook_, Core::get(tag, "id"), Core::get(tag, "tag"), Value(now_));
+    playbook_ = Core::_ace_update_bullet_feedback(playbook_, Core::get(tag, "id"), Core::get(tag, "tag"), Value(now()));
   }
 }
 
@@ -5992,7 +6609,7 @@ Value AxACE::compile(const std::vector<Value>& examples, const AceCallable& metr
       Core::set(feedback_event, "generatorOutput", generator_out);
       Core::set(feedback_event, "reflection", reflection);
       Core::set(feedback_event, "curator", curator_result);
-      Core::set(feedback_event, "timestamp", Value(now_));
+      Core::set(feedback_event, "timestamp", Value(now()));
       generator_history_.push_back(feedback_event);
       bool has_ops = !curator_result.is_null() && !Core::iter(Core::get(curator_result, "operations", Value::array())).empty();
       if (!applied_ids.empty() && has_ops) {
@@ -6045,7 +6662,7 @@ Value AxACE::apply_online_update(Value args) {
   Core::set(feedback_event, "generatorOutput", generator_out);
   Core::set(feedback_event, "reflection", reflection);
   Core::set(feedback_event, "curator", curator_result);
-  Core::set(feedback_event, "timestamp", Value(now_));
+  Core::set(feedback_event, "timestamp", Value(now()));
   generator_history_.push_back(feedback_event);
   bool has_ops = !curator_result.is_null() && !Core::iter(Core::get(curator_result, "operations", Value::array())).empty();
   if (!applied_ids.empty() && has_ops) {
@@ -6060,41 +6677,93 @@ Value AxACE::apply_online_update(Value args) {
   return curator_result;
 }
 
-static const char* kAceReflectorSignature =
-    "question:string \"Original task input serialized as JSON\", "
-    "generator_answer:string \"Generator output serialized as JSON\", "
-    "generator_reasoning?:string \"Generator reasoning trace\", "
-    "playbook:string \"Current context playbook rendered as markdown\", "
-    "expected_answer?:string \"Expected output when ground truth is available\", "
-    "feedback?:string \"External feedback or reward signal\", "
-    "previous_reflection?:string \"Most recent reflection JSON when running multi-round refinement\" "
-    "-> reasoning:string \"Step-by-step analysis of generator performance\", "
-    "errorIdentification:string \"Specific mistakes detected\", "
-    "rootCauseAnalysis:string \"Underlying cause of the error\", "
-    "correctApproach:string \"What the generator should do differently\", "
-    "keyInsight:string \"Reusable insight to remember\", "
-    "bulletTags:json \"Array of {id, tag} entries referencing playbook bullets\"";
+// The reflector and curator signatures TS builds (src/ax/dsp/optimizers/ace.ts),
+// assembled from Field records: a signature string cannot carry a description
+// with double quotes, as the curator's operations description has.
+static Value ace_field(const std::string& name, const std::string& type, const std::string& description, bool optional = false) {
+  return Core::record_new("Field", Value(Object{{"name", name},
+                                                {"type", Core::record_new("FieldType", Value(Object{{"name", type}}))},
+                                                {"description", description},
+                                                {"isOptional", optional}}));
+}
 
-static const char* kAceCuratorSignature =
-    "playbook:string \"Current playbook serialized as JSON\", "
-    "reflection:string \"Latest reflection output serialized as JSON\", "
-    "question_context:string \"Original task input serialized as JSON\", "
-    "token_budget?:number \"Approximate token budget for curator response\" "
-    "-> reasoning:string \"Justification for the proposed updates\", "
-    "operations:json \"List of operations with type/section/content fields\"";
+static Value ace_signature(Array inputs, Array outputs) {
+  Value sig(Object{{"description", Value()}, {"inputs", Value(std::move(inputs))}, {"outputs", Value(std::move(outputs))}});
+  Core::validate_signature(sig);
+  return sig;
+}
 
-static const char* kAgentPlaybookWeaknessMinerSignature =
-    "clusterSignature:string \"Shared error signature of the cluster\", "
-    "taskSummaries:string \"One line per failing task\", "
-    "actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", "
-    "functionCallSummary?:string \"Digest of runtime/tool calls\", "
-    "toolErrors?:string \"Tool errors observed\", "
-    "currentPlaybook?:string \"Current failure-avoidance playbook\" "
-    "-> weaknessDescription:string \"Recurring weakness\", "
-    "rootCause:string \"Mechanical root cause\", "
-    "proposedGuidance:string \"One concise imperative avoidance rule\", "
-    "evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", "
-    "configRecommendations?:json \"Setup suggestions no prompt text can fix\"";
+static Value ace_reflector_signature() {
+  return ace_signature(
+      {ace_field("question", "string", "Original task input serialized as JSON"),
+       ace_field("generator_answer", "string", "Generator output serialized as JSON"),
+       ace_field("generator_reasoning", "string", "Generator reasoning trace", true),
+       ace_field("playbook", "string", "Current context playbook rendered as markdown"),
+       ace_field("expected_answer", "string", "Expected output when ground truth is available", true),
+       ace_field("feedback", "string", "External feedback or reward signal", true),
+       ace_field("previous_reflection", "string", "Most recent reflection JSON when running multi-round refinement", true)},
+      {ace_field("reasoning", "string", "Step-by-step analysis of generator performance"),
+       ace_field("errorIdentification", "string", "Specific mistakes detected"),
+       ace_field("rootCauseAnalysis", "string", "Underlying cause of the error"),
+       ace_field("correctApproach", "string", "What the generator should do differently"),
+       ace_field("keyInsight", "string", "Reusable insight to remember"),
+       ace_field("bulletTags", "json", "Array of {id, tag} entries referencing playbook bullets")});
+}
+
+static const char* kAceCuratorOperationsDescription =
+    "List of operations, each {type: \"ADD\"|\"UPDATE\"|\"REMOVE\", section, content}. "
+    "Emit an operation ONLY when the playbook should actually change. "
+    "If nothing should change, return an empty array \xE2\x80\x94 never emit an ADD whose content "
+    "just acknowledges that no change is needed (e.g. \"No update required\", "
+    "\"Keep the existing rule unchanged\"). "
+    "Each ADD content must be a standalone, reusable rule.";
+
+static Value ace_curator_signature() {
+  return ace_signature(
+      {ace_field("playbook", "string", "Current playbook serialized as JSON"),
+       ace_field("reflection", "string", "Latest reflection output serialized as JSON"),
+       ace_field("question_context", "string", "Original task input serialized as JSON"),
+       ace_field("token_budget", "number", "Approximate token budget for curator response", true)},
+      {ace_field("reasoning", "string", "Justification for the proposed updates"),
+       ace_field("operations", "json", kAceCuratorOperationsDescription)});
+}
+
+// The weakness miner's description and signature, as TS builds them
+// (src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts).
+static const char* kAgentPlaybookWeaknessMinerDescription =
+    "You are a failure analyst for an LLM agent harness. You receive one "
+    "cluster of failed agent runs sharing an error signature, with excerpts "
+    "of what the agent actually did. Identify the single recurring weakness, "
+    "its root cause, and one narrow, durable avoidance rule the agent should "
+    "recall while acting. Ground every claim: evidenceQuotes must be verbatim "
+    "substrings copied from the excerpts. Keep proposedGuidance concise, "
+    "imperative, and general to the failure mode (not one task). Use "
+    "configRecommendations only for setup problems no prompt text can fix "
+    "(missing tools, timeouts, model choice).";
+
+static Value ace_array_field(const std::string& name, const std::string& type, const std::string& description, bool optional = false) {
+  return Core::record_new("Field", Value(Object{{"name", name},
+                                                {"type", Core::record_new("FieldType", Value(Object{{"name", type}, {"is_array", true}}))},
+                                                {"description", description},
+                                                {"isOptional", optional}}));
+}
+
+static Value agent_playbook_weakness_miner_signature() {
+  Value sig = ace_signature(
+      {ace_field("clusterSignature", "string", "Shared error signature of the cluster."),
+       ace_field("taskSummaries", "string", "One line per failing task."),
+       ace_field("actionLogExcerpts", "string", "Excerpts of the failing runs, centered on the failure."),
+       ace_field("functionCallSummary", "string", "Digest of runtime/tool calls in the failing runs.", true),
+       ace_field("toolErrors", "string", "Tool errors observed.", true),
+       ace_field("currentPlaybook", "string", "The failure-avoidance playbook currently applied.", true)},
+      {ace_field("weaknessDescription", "string", "The recurring weakness, one sentence."),
+       ace_field("rootCause", "string", "Why the runs fail, mechanically."),
+       ace_field("proposedGuidance", "string", "The avoidance rule to add to the playbook \xE2\x80\x94 concise, imperative."),
+       ace_array_field("evidenceQuotes", "string", "Verbatim substrings from actionLogExcerpts proving the weakness."),
+       ace_array_field("configRecommendations", "string", "Setup/config suggestions no prompt text can fix.", true)});
+  Core::set(sig, "description", Value(kAgentPlaybookWeaknessMinerDescription));
+  return sig;
+}
 
 static std::string playbook_compose_instruction(const std::string& base, const std::string& rendered) {
   std::vector<std::string> parts;
@@ -6252,24 +6921,13 @@ static std::string playbook_record_signature(const Value& record) {
   }
   Value error = Core::get(record, "error");
   if (!error.is_null()) return playbook_error_signature(display(error));
-  std::string action_log = display(Core::get(prediction, "actionLog", Value("")));
+  // The action log as TS's prediction carries it: the executor's code steps as text.
+  std::string action_log = display(Core::_agent_playbook_action_log_text(Core::get(prediction, "actionLog")));
   std::smatch match;
   if (std::regex_search(action_log, match, std::regex("^\\s*(\\w+Error:\\s*.{0,60})", std::regex_constants::multiline))) {
     return playbook_error_signature(match[1].str());
   }
   return "behavioral:no_error";
-}
-
-static std::string playbook_failure_excerpt(const Value& record, const std::string& signature) {
-  Value error = Core::get(record, "error");
-  if (!error.is_null()) return "Run threw: " + display(error);
-  std::string action_log = display(Core::get(Core::get(record, "prediction", Value::object()), "actionLog", Value("")));
-  if (action_log.size() <= 2000) return action_log;
-  std::string needle = signature.substr(0, std::min<size_t>(40, signature.size()));
-  size_t hit = action_log.find(needle);
-  if (hit == std::string::npos) return action_log.substr(action_log.size() - 2000);
-  size_t start = hit > 1000 ? hit - 1000 : 0;
-  return action_log.substr(start, std::min<size_t>(2000, action_log.size() - start));
 }
 
 AxPlaybook::AxPlaybook(AxGen& program, AIClient& student, AIClient* teacher, Value options)
@@ -6320,7 +6978,7 @@ Value AxPlaybook::run_generator(const Value& example) {
 // As in TS, the question holds the example's input fields and the expected
 // answer its output fields.
 Value AxPlaybook::run_reflector(const Value& payload) {
-  if (!reflector_program_) reflector_program_ = std::make_unique<AxGen>(s(kAceReflectorSignature));
+  if (!reflector_program_) reflector_program_ = std::make_unique<AxGen>(ace_reflector_signature());
   size_t max_chars = playbook_max_serialized_chars(engine_);
   Value example = Core::get(payload, "question");
   Value request = Value::object();
@@ -6345,7 +7003,7 @@ Value AxPlaybook::run_reflector(const Value& payload) {
 
 // The real LLM curator: a focused AxGen sub-program driven by the teacher.
 Value AxPlaybook::run_curator(const Value& payload) {
-  if (!curator_program_) curator_program_ = std::make_unique<AxGen>(s(kAceCuratorSignature));
+  if (!curator_program_) curator_program_ = std::make_unique<AxGen>(ace_curator_signature());
   Value question_context = playbook_field_values(Core::get(payload, "question_context"), program_, "inputs");
   Value request = Value::object();
   Core::set(request, "playbook", Value(playbook_input(Core::get(payload, "playbook", Value("")), engine_.get_playbook())));
@@ -6395,6 +7053,11 @@ Value AxPlaybook::update(Value args) {
   Value result = engine_.apply_online_update(args.is_null() ? Value::object() : args);
   inject();
   return result;
+}
+
+void AxPlaybook::rebind_program(AxGen& program) {
+  program_ = &program;
+  base_instruction_ = display(program.get_instruction());
 }
 
 void AxPlaybook::apply_to(AxGen* program) {
@@ -6535,59 +7198,14 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
   size_t index = 0;
   for (const auto& cluster : ranked) {
     ++index;
-    std::vector<Value> selected(cluster.second.begin(), cluster.second.begin() + std::min<size_t>(4, cluster.second.size()));
-    std::vector<std::string> bodies;
-    std::string excerpts;
-    std::string task_summaries;
-    std::vector<std::string> function_calls;
-    std::vector<std::string> tool_errors;
-    for (size_t record_index = 0; record_index < selected.size(); ++record_index) {
-      const Value& record = selected[record_index];
-      std::string body = playbook_failure_excerpt(record, cluster.first);
-      bodies.push_back(body);
-      if (!excerpts.empty()) excerpts += "\n\n";
-      excerpts += "--- run " + std::to_string(record_index + 1) + " ---\n" + body;
-      Value task = Core::get(record, "task", Value::object());
-      std::string label = Core::get(task, "id").is_null() ? "#" + std::to_string(record_index + 1) : display(Core::get(task, "id"));
-      std::string input = stringify(Core::get(task, "input"));
-      if (input.size() > 240) input.resize(240);
-      if (!task_summaries.empty()) task_summaries += "\n";
-      std::ostringstream score_text;
-      score_text << std::fixed << std::setprecision(2) << num(Core::get(record, "score", Value(0)));
-      task_summaries += "- " + label + " (score " + score_text.str() + "): " + input;
-      Value prediction = Core::get(record, "prediction", Value::object());
-      for (const auto& call : Core::iter(Core::get(prediction, "functionCalls", Value::array()))) {
-        if (function_calls.size() < 20) function_calls.push_back(stringify(call));
-      }
-      for (const auto& error : Core::iter(Core::get(prediction, "toolErrors", Value::array()))) {
-        if (tool_errors.size() < 10) tool_errors.push_back(display(error));
-      }
-    }
-    bool has_body = std::any_of(bodies.begin(), bodies.end(), [](const std::string& body) { return !playbook_collapse(body).empty(); });
-    if (!has_body) continue;
-    Value miner_request = object({
-        {"clusterSignature", Value(cluster.first)},
-        {"taskSummaries", Value(task_summaries)},
-        {"actionLogExcerpts", Value(excerpts)},
-    });
-    if (!function_calls.empty()) {
-      std::string joined;
-      for (const auto& call : function_calls) { if (!joined.empty()) joined += "\n"; joined += call; }
-      Core::set(miner_request, "functionCallSummary", Value(joined));
-    }
-    if (!tool_errors.empty()) {
-      std::string joined;
-      for (const auto& error : tool_errors) { if (!joined.empty()) joined += "\n"; joined += error; }
-      Core::set(miner_request, "toolErrors", Value(joined));
-    }
-    std::string current_playbook = render();
-    if (!playbook_collapse(current_playbook).empty()) Core::set(miner_request, "currentPlaybook", Value(current_playbook));
+    // TS's miner inputs: task summaries, action-log excerpts, function calls
+    // and tool errors of up to four records; none without an excerpt.
+    Value miner_request = Core::_agent_playbook_miner_inputs(Value(cluster.first), Value(Array(cluster.second.begin(), cluster.second.end())), Value(render()));
+    if (!miner_request.is_object()) continue;
+    std::string excerpts = display(Core::get(miner_request, "actionLogExcerpts", Value("")));
     Value mined;
     try {
-      AxGen miner(s(kAgentPlaybookWeaknessMinerSignature), object({
-          {"id", "agent.playbook.weakness-miner"},
-          {"instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."},
-      }));
+      AxGen miner(agent_playbook_weakness_miner_signature(), object({{"id", "agent.playbook.weakness-miner"}}));
       mined = miner.forward(*teacher_, miner_request, Core::map_merge(Value::object(), miner_options));
     } catch (...) {
       continue;
@@ -6805,6 +7423,15 @@ static bool axgen_runs_in_session(const Value& state, const Value& run_options) 
 }
 
 Value AxGen::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  auto global_cache = global_caching_function();  // held for the run
+  // As in TS, the cache is read before the run's span and metrics, so a hit
+  // records neither; a read error propagates. A miss hands the lookup to the
+  // run, which then only stores.
+  Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(false));
+  // A stored output's audio outputs are rendered, as TS does.
+  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::_render_audio_outputs_impl(state_, Core::client_ref(client), Core::get(lookup, "value"), options);
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_ax_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_forward", "ax_gen_generation",
                          object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}}));
@@ -6880,6 +7507,21 @@ struct AxGenDeltaConsumer {
 
 Value AxGen::streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler) {
   if (!handler) throw AxError("runtime", "AxGen::streaming_forward: handler must be callable");
+  auto global_cache = global_caching_function();  // held for the run
+  // As in TS, the cache is read before the run's span and metrics, and a
+  // read error is ignored: a hit is one {version 0, index 0} delta with no
+  // telemetry. A miss hands the lookup to the run, which then only stores.
+  Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(true));
+  if (Core::truthy(Core::get(lookup, "hit", false))) {
+    // A stored output's audio outputs are rendered, as TS does.
+    Value cached = Core::_render_audio_outputs_impl(state_, Core::client_ref(client), Core::get(lookup, "value"), options);
+    AxGenDelta delta;
+    delta.delta = clone_usage_value(cached);
+    handler(delta);
+    return cached;
+  }
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_ax_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(AxRuntimeHooks{}, program_hooks, "ax_gen_forward", "ax_gen_generation",
                          object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}, {"ax.streaming", true}}));
@@ -6932,8 +7574,8 @@ AxGen& AxGen::set_meter(std::shared_ptr<AxMeter> meter) {
 std::function<std::shared_ptr<AxProgram>()> AxGen::owned_worker_factory() const {
   auto options=Core::get(state_,"options",Value::object());
   if(!Core::get(options,"execution_context",Core::get(options,"executionContext")).is_null())return {};
-  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;
-  return [snapshot,hooks] {auto state=parse_json(snapshot);auto worker=std::make_shared<AxGen>(Core::get(state,"signature"),Core::get(state,"options"),*hooks);worker->state_=state;worker->memory_.value_ref()=Core::get(state,"memory",Value::array());worker->refresh_prompt_template();return worker;};
+  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;auto cache=caching_function_;
+  return [snapshot,hooks,cache] {auto state=parse_json(snapshot);auto worker=std::make_shared<AxGen>(Core::get(state,"signature"),Core::get(state,"options"),*hooks);worker->state_=state;worker->caching_function_=cache;worker->memory_.value_ref()=Core::get(state,"memory",Value::array());worker->refresh_prompt_template();return worker;};
 }
 std::function<std::shared_ptr<AxProgram>()> AxFlow::owned_worker_factory() const {
   std::vector<std::pair<std::size_t,std::function<std::shared_ptr<AxProgram>()>>> factories;
@@ -7107,6 +7749,13 @@ Value AxFlow::forward(AIClient& client, Value values, Value options, const AxCan
 }
 
 Value AxFlow::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  // As in TS, the flow reads its cache before its span and metrics, so a hit
+  // records neither (and streaming_forward sends it as its one delta). A miss
+  // hands the lookup to the run, which then only stores.
+  Value lookup = Core::_flow_cache_lookup_impl(state_, values, options);
+  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::get(lookup, "value");
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_ax_flow_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
                          object({{"ax.program.id", Core::get(state_, "program_id", "root.flow")}, {"ax.program.type", "AxFlow"}}));
@@ -7199,8 +7848,24 @@ AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
-  responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  attach_configured_playbook();
+}
+
+// The responder stage. As in TypeScript, its validation budget is maxRetries
+// unless validation_retries is set, and with citations on it asserts that the
+// cited ids exist in the run's evidence.
+std::unique_ptr<AxGen> AxAgent::make_responder(const Value& options) {
+  Value responder_options = object({{"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}});
+  Value retries = Core::get(options, "validation_retries");
+  if (!retries.is_null()) Core::set(responder_options, "validation_retries", retries);
+  auto responder = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), responder_options);
+  if (Core::truthy(Core::get(Core::get(state_, "citations", Value::object()), "enabled", false))) {
+    Value state = state_;
+    responder->add_assert([state](Value output) { return Core::_agent_citation_assert(state, output); });
+  }
+  return responder;
 }
 
 AxAgent& AxAgent::set_signature(Value signature) {
@@ -7209,8 +7874,9 @@ AxAgent& AxAgent::set_signature(Value signature) {
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
-  responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  rebind_playbook();
   return *this;
 }
 
@@ -7218,13 +7884,13 @@ Value AxAgent::get_instruction() const { return Core::get(state_, "stage_instruc
 
 AxAgent& AxAgent::set_instruction(Value instruction) {
   Value composed = Core::_agent_set_instruction(state_, display(instruction));
-  executor_->set_instruction(composed);
+  set_stage_instruction(*executor_, composed);
   return *this;
 }
 
 AxAgent& AxAgent::add_actor_instruction(Value addendum) {
   Value composed = Core::_agent_add_actor_instruction(state_, display(addendum));
-  executor_->set_instruction(composed);
+  set_stage_instruction(*executor_, composed);
   return *this;
 }
 
@@ -7237,21 +7903,39 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxCa
 }
 
 Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  return run(client, std::move(values), std::move(options), hooks, Value(), nullptr);
+}
+
+Value AxAgent::streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler) {
+  if (!handler) throw AxError("runtime", "AxAgent::streaming_forward: handler must be callable");
+  AxGenDeltaConsumer consumer(std::move(handler));
+  AxGenSinkRegistration registration([&consumer](Value envelope) { consumer.deliver(envelope); });
+  try {
+    return run(client, std::move(values), std::move(options), AxRuntimeHooks{}, registration.marker(), &consumer.stopped);
+  } catch (...) {
+    if (consumer.error) std::rethrow_exception(consumer.error);
+    if (!consumer.stopped) throw;
+  }
+  return consumer.result();
+}
+
+// forward, and with a sink the streaming forward.
+Value AxAgent::run(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks, Value sink, const bool* consumer_stopped) {
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
-  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_agent_forward", "ax_gen_agent",
-                         object({{"ax.program.id", "root.agent"}, {"ax.program.type", "AxAgent"}}));
+  Value attributes = object({{"ax.program.id", "root.agent"}, {"ax.program.type", "AxAgent"}});
+  if (!sink.is_null()) Core::set(attributes, "ax.streaming", true);
+  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_agent_forward", "ax_gen_agent", attributes);
   auto call_context=execution_context_ ? execution_context_ : detail::MCPRunScope::current();
   detail::MCPRunScope context_scope(call_context);
   if(call_context || Core::truthy(Core::get(state_,"mcp_run_context_active",false))) {
     Value modules=call_context ? call_context->agent_modules() : Value::array();
     Core::_agent_apply_run_context(state_,options_,options,modules);
     if(Core::truthy(Core::get(state_,"runtime_enabled",false))) {
-      distiller_->set_instruction(Core::get(state_,"distiller_description"));
-      executor_->set_instruction(Core::get(state_,"executor_description"));
-      responder_->set_instruction(Core::get(state_,"responder_description"));
+      set_stage_instruction(*distiller_, Core::get(state_,"distiller_description"));
+      set_stage_instruction(*executor_, Core::get(state_,"executor_description"));
+      set_stage_instruction(*responder_, Core::get(state_,"responder_description"));
     }
   }
-  ensure_configured_playbook(client);
   // Wire the built-in llmQuery primitive onto the runtime carried in agent
   // options (the same runtime the actor loop will create sessions on),
   // mirroring the Go/Python/Rust/Java wrappers. The logic lives in the
@@ -7285,14 +7969,42 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
       });
     }
   }
-  Value output = Core::_agent_forward(
-      state_,
-      Core::agent_stage_ref(*distiller_),
-      Core::agent_stage_ref(*executor_),
-      Core::agent_stage_ref(*responder_),
-      Core::client_ref(client),
-      std::move(values),
-      std::move(options));
+  // As TypeScript's forward and streamingForward do, a run control hears the
+  // run's own lifecycle at its path; each stage reports at <path>/<stage>.
+  auto control = resolve_control(options);
+  std::string run_path = display(Core::get(options, "execution_path", Core::get(options, "executionPath", "root")));
+  if (control) control->emit(object({{"type", "started"}, {"path", run_path}}));
+  Value output;
+  try {
+    if (sink.is_null()) {
+      output = Core::_agent_forward(
+          state_,
+          Core::agent_stage_ref(*distiller_),
+          Core::agent_stage_ref(*executor_),
+          Core::agent_stage_ref(*responder_),
+          Core::client_ref(client),
+          std::move(values),
+          std::move(options));
+    } else {
+      output = Core::_agent_streaming_forward(
+          state_,
+          Core::agent_stage_ref(*distiller_),
+          Core::agent_stage_ref(*executor_),
+          Core::agent_stage_ref(*responder_),
+          Core::client_ref(client),
+          std::move(values),
+          std::move(options),
+          sink);
+    }
+  } catch (const std::exception& error) {
+    if (control) {
+      // A consumer that stopped the stream early ended the run on purpose, as
+      // control.abort() does.
+      if (consumer_stopped && *consumer_stopped) control->emit(object({{"type", "aborted"}, {"path", run_path}}));
+      else control->emit(object({{"type", "failed"}, {"path", run_path}, {"error", std::string(error.what())}}));
+    }
+    throw;
+  }
   if (citations_observer_) {
     try {
       citations_observer_(Core::get(state_, "last_citations", Value::array()));
@@ -7300,7 +8012,10 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
       // Citation observers are informational and must not fail forward().
     }
   }
-  learn_playbook_failures(output);
+  // TS learns from the responder's answer after forward; a stream has no
+  // single answer to hand the playbook.
+  learn_playbook_failures(sink.is_null() ? output : Value::object());
+  if (control) control->emit(object({{"type", "completed"}, {"path", run_path}}));
   return output;
 }
 
@@ -7356,8 +8071,9 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
-  responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  rebind_playbook();
   return *this;
 }
 
@@ -7442,7 +8158,7 @@ AxAgent& AxAgent::apply_optimized_components(Value component_map) {
   executor_->apply_optimized_components(component_map);
   responder_->apply_optimized_components(component_map);
   Value composed = Core::_agent_apply_optimized_components(state_, component_map);
-  executor_->set_instruction(composed);
+  set_stage_instruction(*executor_, composed);
   return *this;
 }
 AxAgent& AxAgent::apply_optimization(Value artifact) {
@@ -7537,41 +8253,95 @@ AxPlaybook& AxAgent::playbook(AIClient& student, Value options, AIClient* teache
     if (teacher != nullptr || (options.is_object() && !Core::iter(Core::map_keys(options)).empty())) {
       throw AxError("validation", "AxAgent.playbook(): this agent already has a playbook; call playbook() without options to use it.");
     }
+    // A moved agent leaves the handle's back-pointer on the old object.
+    playbook_handle_->bind_agent(*this);
     return *playbook_handle_;
   }
   if (!options.is_object()) options = Value::object();
-  std::string target = display(Core::get(options, "target", Value("actor")));
-  AxGen* stage = target == "responder" ? responder_.get() : executor_.get();
+  playbook_target_ = display(Core::get(options, "target", Value("actor")));
+  playbook_apply_ = !Core::truthy(Core::eq(Core::get(options, "apply"), Value(false)));
+  AxGen* stage = playbook_stage();
   auto handle = std::make_unique<AxPlaybook>(*stage, student, teacher, options);
-  if (Core::truthy(Core::eq(Core::get(options, "apply"), Value(false)))) {
-    handle->set_apply_hook([](const std::string&) {});
-  } else {
-    std::string base = display(stage->get_instruction());
-    AxGen* stage_ptr = stage;
-    handle->set_apply_hook([stage_ptr, base](const std::string& rendered) {
-      stage_ptr->set_instruction(Value(playbook_compose_instruction(base, rendered)));
-    });
-  }
+  bind_playbook_stage(*handle, stage);
   handle->bind_agent(*this);
   playbook_handle_ = std::move(handle);
   return *playbook_handle_;
 }
 
-AxPlaybook* AxAgent::get_playbook() const { return playbook_handle_.get(); }
+// The stage the playbook targets: the actor, or the responder.
+AxGen* AxAgent::playbook_stage() const { return playbook_target_ == "responder" ? responder_.get() : executor_.get(); }
 
-void AxAgent::ensure_configured_playbook(AIClient& client) {
+// Point the playbook at an agent stage: the program it runs and the hook that
+// writes the rendered playbook into the stage prompt.
+void AxAgent::bind_playbook_stage(AxPlaybook& handle, AxGen* stage) {
+  handle.rebind_program(*stage);
+  if (!playbook_apply_) {
+    handle.set_apply_hook([](const std::string&) {});
+    return;
+  }
+  std::string base = display(stage->get_instruction());
+  handle.set_apply_hook([stage, base](const std::string& rendered) {
+    stage->set_instruction(Value(playbook_compose_instruction(base, rendered)));
+  });
+}
+
+// Point the playbook at its stage again and write it into that stage's prompt:
+// set_signature and add_tool_module replace the stage AxGen objects (the old
+// ones are freed), and set_stage_instruction rewrites the stage's instruction.
+void AxAgent::rebind_playbook() {
+  if (!playbook_handle_) return;
+  bind_playbook_stage(*playbook_handle_, playbook_stage());
+  playbook_handle_->apply_to();
+}
+
+// Write an agent stage's instruction. The stage the playbook targets gets the
+// rendered playbook composed on top, as TS keeps it in the stage prompt, so a
+// stage instruction, an actor addendum, optimized components or the run-context
+// refresh never drop it.
+void AxAgent::set_stage_instruction(AxGen& stage, Value instruction) {
+  stage.set_instruction(std::move(instruction));
+  if (playbook_handle_ && playbook_stage() == &stage) rebind_playbook();
+}
+
+AxPlaybook* AxAgent::get_playbook() const {
+  // The playbook is attached at construction, so a moved agent leaves the
+  // handle's back-pointer on the old object: point it here again.
+  if (playbook_handle_) playbook_handle_->bind_agent(const_cast<AxAgent&>(*this));
+  return playbook_handle_.get();
+}
+
+// The configured playbook's client under one of keys, a Core::client_ref.
+static AIClient* playbook_config_client(const Value& options, std::initializer_list<const char*> keys) {
+  for (const char* key : keys) {
+    Value ref = Core::get(options, key);
+    if (ref.is_null()) continue;
+    if (AIClient* client = registered_client(str(Core::get(ref, "__client_id", Value(""))))) return client;
+  }
+  return nullptr;
+}
+
+// Attach the `playbook` config's playbook at construction, as TS, Python and
+// Java do, so get_playbook() has it before the first forward. Its student is
+// the config's studentAI, else the agent's ai or client (Core::client_ref
+// values); a config without one is invalid, as in TS.
+void AxAgent::attach_configured_playbook() {
   if (playbook_handle_ || playbook_config_.is_null() || (playbook_config_.is_bool() && !Core::truthy(playbook_config_))) return;
-  Value config = playbook_config_.is_object() ? playbook_config_ : Value::object();
+  // A copy: the caller's config Value is shared and must not change.
+  Value config = Core::map_merge(Value::object(), playbook_config_.is_object() ? playbook_config_ : Value::object());
   if (Core::get(config, "maxReflectorRounds", Value()).is_null() && Core::get(config, "max_reflector_rounds", Value()).is_null()) {
     Core::set(config, "maxReflectorRounds", 1);
   }
-  Value seed = Core::get(config, "seed", Value());
-  if (seed.is_null() && (!Core::get(config, "playbook", Value()).is_null() || !Core::get(config, "artifact", Value()).is_null())) seed = config;
-  AxPlaybook& handle = playbook(client, config);
-  if (seed.is_object()) {
-    if (!Core::get(seed, "playbook", Value()).is_null()) handle.load(seed);
-    else handle.load(object({{"playbook", seed}}));
+  AIClient* student = playbook_config_client(config, {"studentAI", "student_ai", "student", "client", "ai"});
+  if (student == nullptr) student = playbook_config_client(options_, {"ai", "client"});
+  if (student == nullptr) {
+    throw AxError("validation", "AxAgent: the `playbook` config option requires studentAI when the agent has no default ai.");
   }
+  AIClient* teacher = playbook_config_client(config, {"teacherAI", "teacher_ai", "teacher"});
+  // TS's `playbook` seed (a snapshot or a bare playbook), or the older `seed`
+  // key with a deprecation warning.
+  Value seed = Core::_agent_playbook_config_seed(config);
+  AxPlaybook& handle = playbook(*student, config, teacher);
+  if (seed.is_object()) handle.load(seed);
 }
 
 void AxAgent::learn_playbook_failures(Value output) {

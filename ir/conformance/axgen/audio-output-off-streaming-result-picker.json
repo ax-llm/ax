@@ -1,0 +1,66 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "speech": "Second take",
+        "summary": "Two"
+      },
+      "index": 1,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "speech": "Second take",
+    "summary": "Two"
+  },
+  "expected_request_count": 1,
+  "expected_speak_requests": [],
+  "forward_options": {
+    "sample_count": 2
+  },
+  "input": {
+    "question": "Say hi"
+  },
+  "kind": "streaming_forward",
+  "name": "audio-output-off-streaming-result-picker",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Speech: First take\nSummary: One",
+              "index": 0
+            },
+            {
+              "content": "Speech: Second take\nSummary: Two",
+              "index": 1
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            },
+            {
+              "finish_reason": "stop",
+              "index": 1
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "result_picker_index": 1,
+  "signature": "question:string -> speech:audio, summary:string",
+  "speak_responses": [
+    {
+      "data": "SUQzBAA=",
+      "format": "mp3",
+      "mimeType": "audio/mpeg",
+      "transcript": "Second take"
+    }
+  ]
+}

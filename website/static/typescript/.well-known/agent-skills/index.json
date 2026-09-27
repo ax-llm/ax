@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:b6888f9cb1f30f20ef9fd8257ba926fdab977c1e590dfebf3003e32ffaeae7b5"
+      "digest": "sha256:6db978623e380310e41db0d0df7d50a806f1f18abf7be5df80407392a1c3855a"
     },
     {
       "name": "ax-typesafe",
@@ -27,21 +27,21 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct audio code with @ax-llm/ax. Use when the user asks about ai.transcribe(), ai.speak(), signature audio inputs or outputs, agent audio behavior, .chat() conversational audio, OpenAI audio or realtime models, Gemini Live native audio, Grok Voice Agent models, voices, formats, transcripts, or how audio fits with structured outputs.",
       "url": "ax-audio/SKILL.md",
-      "digest": "sha256:41f6d9a95b138c976d9dcf2477129892c4cc862e7548cd7e321af5d0d59b5219"
+      "digest": "sha256:8fa99e7b3ddc8e7e9acb41e2d3192b508b2c2788978ac554680f2ada9883eb0e"
     },
     {
       "name": "ax-signature",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.",
       "url": "ax-signature/SKILL.md",
-      "digest": "sha256:c59e37818b43e79199ab08c304d8d99994ffcfe5e2f4106a13e6b2b0a8a1a3c6"
+      "digest": "sha256:cb2557bbe7203d5c583555bf6ed77f5db23c9baaa9963b17cc489395c64ae673"
     },
     {
       "name": "ax-gen",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
       "url": "ax-gen/SKILL.md",
-      "digest": "sha256:63c5232900f54227f1017f215fe0cca87d1dceffb48f858848f02902fd5dff53"
+      "digest": "sha256:496c1b45e3c177c628756e2ef7672cdc9d2e4b26ce493f35c4a2c7d470eb01ee"
     },
     {
       "name": "ax-mcp",
@@ -55,14 +55,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.",
       "url": "ax-flow/SKILL.md",
-      "digest": "sha256:dd5b89fd8b636489b1f1af0373f13c4712837c755323b88daa66d2108b344e29"
+      "digest": "sha256:10128ea1cd5ea0a837cd1dd9659a73d29beb1daf5234a9831086f7583c624d15"
     },
     {
       "name": "ax-agent",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:6e309a176e2bed2f04a641fb6487dc2c16cf0cb47c6e1f47286585f4f53a95b9"
+      "digest": "sha256:e5e11ed2c8c6b30ebaac3f0e5a6b202d5a3177bc2823216b65c2941dbe505f86"
     },
     {
       "name": "ax-agent-rlm",

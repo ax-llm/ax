@@ -87,6 +87,14 @@ module @ax.validate version "0.1" {
         core.if %missing_or_null {
           %required_missing = core.call intrinsic.not(%is_optional)
           core.if %required_missing {
+            // A forward's inputs fail as TS fails rendering them
+            // (src/ax/dsp/prompt.ts), by field name.
+            %is_input = core.call intrinsic.eq(%context, "input")
+            core.if %is_input {
+              %input_message = core.call intrinsic.string.format("Value for input field '{}' is required.", %field_name)
+              %input_error = core.call intrinsic.error.validation(%input_message)
+              core.raise %input_error
+            }
             %message = core.call intrinsic.string.format("Required field is missing: '{}'", %field_title)
             %error = core.call intrinsic.error.validation(%message)
             core.raise %error
@@ -262,7 +270,7 @@ module @ax.validate version "0.1" {
         %valid_image = core.call intrinsic.media.valid_image(%value)
         %invalid_image = core.call intrinsic.not(%valid_image)
         core.if %invalid_image {
-          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'", %field_name)
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type '{}'", %field_name, "object ({ mimeType: string; data: string })")
           %error = core.call intrinsic.error.validation(%message)
           core.raise %error
         }
@@ -273,7 +281,7 @@ module @ax.validate version "0.1" {
         %valid_audio = core.call intrinsic.media.valid_audio(%value)
         %invalid_audio = core.call intrinsic.not(%valid_audio)
         core.if %invalid_audio {
-          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'", %field_name)
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type '{}'", %field_name, "string or object ({ data: string; format?: string })")
           %error = core.call intrinsic.error.validation(%message)
           core.raise %error
         }
@@ -284,7 +292,7 @@ module @ax.validate version "0.1" {
         %valid_file = core.call intrinsic.media.valid_file(%value)
         %invalid_file = core.call intrinsic.not(%valid_file)
         core.if %invalid_file {
-          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'", %field_name)
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type '{}'", %field_name, "object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })")
           %error = core.call intrinsic.error.validation(%message)
           core.raise %error
         }
@@ -295,7 +303,7 @@ module @ax.validate version "0.1" {
         %valid_url_shape = core.call intrinsic.media.valid_url_shape(%value)
         %invalid_url_shape = core.call intrinsic.not(%valid_url_shape)
         core.if %invalid_url_shape {
-          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'", %field_name)
+          %message = core.call intrinsic.string.format("Validation failed: Expected '{}' to be type '{}'", %field_name, "string or object ({ url: string; title?: string; description?: string })")
           %error = core.call intrinsic.error.validation(%message)
           core.raise %error
         }
@@ -311,6 +319,32 @@ module @ax.validate version "0.1" {
           }
         }
         core.return
+      }
+      // TS validateValue takes a Date for a date or datetime field and an
+      // object with start and end for a range, besides a string. The ports
+      // take their native date and time values where TS takes a Date.
+      %date_types = core.list
+      core.append %date_types, "date"
+      core.append %date_types, "datetime"
+      %is_date_type = core.call intrinsic.contains(%date_types, %type_name)
+      %is_native_date = core.type_is %value type "date"
+      %native_date_value = core.call intrinsic.and(%is_date_type, %is_native_date)
+      core.if %native_date_value {
+        core.return
+      }
+      %range_types = core.list
+      core.append %range_types, "dateRange"
+      core.append %range_types, "datetimeRange"
+      %is_range_type = core.call intrinsic.contains(%range_types, %type_name)
+      %is_range_object = core.type_is %value type "object"
+      %range_object = core.call intrinsic.and(%is_range_type, %is_range_object)
+      core.if %range_object {
+        %has_start = core.call intrinsic.map.contains(%value, "start")
+        %has_end = core.call intrinsic.map.contains(%value, "end")
+        %has_bounds = core.call intrinsic.and(%has_start, %has_end)
+        core.if %has_bounds {
+          core.return
+        }
       }
       %string_types = core.list
       core.append %string_types, "string"

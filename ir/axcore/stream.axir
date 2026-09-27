@@ -1097,8 +1097,15 @@ module @ax.stream version "0.1" {
         core.set %out["value"] = %class_name
         core.return %out
       }
-      // Date and datetime fields keep their text, as the ports' forward does;
-      // TS parses them into Date values.
+      // Date-typed fields keep their text unless the caller opted in with
+      // parse_dates (see @date_parse_fields_impl); TS always parses them.
+      %parse_dates = core.get %field["parse_dates"] default false
+      %dated = core.call @date_is_date_type_impl(%name)
+      %parse = core.call intrinsic.and(%parse_dates, %dated)
+      core.if %parse {
+        %date_out = core.call @date_convert_field_value_impl(%field, %name, %value, %may_skip)
+        core.return %date_out
+      }
       core.return %out
     }
   }
@@ -3839,7 +3846,8 @@ module @ax.stream version "0.1" {
         core.return %empty_output
       }
       %empty_delta = core.map
-      %output = core.get %picked["delta"] default %empty_delta
+      %picked_delta = core.get %picked["delta"] default %empty_delta
+      %output = core.call @render_stream_result_impl(%run, %picked_delta)
       %sink = core.get %run["sink"]
       %has_sink = core.call intrinsic.is_not_none(%sink)
       %send_picked = core.call intrinsic.and(%buffered, %has_sink)

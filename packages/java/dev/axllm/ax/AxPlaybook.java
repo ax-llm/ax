@@ -18,49 +18,35 @@ import java.util.regex.Pattern;
  * {@code Ax.optimize} hides GEPA.
  */
 public final class AxPlaybook {
-  private static final String REFLECTOR_SIGNATURE =
-      "question:string \"Original task input serialized as JSON\", "
-          + "generator_answer:string \"Generator output serialized as JSON\", "
-          + "generator_reasoning?:string \"Generator reasoning trace\", "
-          + "playbook:string \"Current context playbook rendered as markdown\", "
-          + "expected_answer?:string \"Expected output when ground truth is available\", "
-          + "feedback?:string \"External feedback or reward signal\", "
-          + "previous_reflection?:string \"Most recent reflection JSON when running multi-round refinement\" "
-          + "-> reasoning:string \"Step-by-step analysis of generator performance\", "
-          + "errorIdentification:string \"Specific mistakes detected\", "
-          + "rootCauseAnalysis:string \"Underlying cause of the error\", "
-          + "correctApproach:string \"What the generator should do differently\", "
-          + "keyInsight:string \"Reusable insight to remember\", "
-          + "bulletTags:json \"Array of {id, tag} entries referencing playbook bullets\"";
-  private static final String CURATOR_SIGNATURE =
-      "playbook:string \"Current playbook serialized as JSON\", "
-          + "reflection:string \"Latest reflection output serialized as JSON\", "
-          + "question_context:string \"Original task input serialized as JSON\", "
-          + "token_budget?:number \"Approximate token budget for curator response\" "
-          + "-> reasoning:string \"Justification for the proposed updates\", "
-          + "operations:json \"List of operations with type/section/content fields\"";
-  private static final String WEAKNESS_MINER_SIGNATURE =
-      "clusterSignature:string \"Shared error signature of the cluster\", "
-          + "taskSummaries:string \"One line per failing task\", "
-          + "actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", "
-          + "functionCallSummary?:string \"Digest of runtime/tool calls\", "
-          + "toolErrors?:string \"Tool errors observed\", "
-          + "currentPlaybook?:string \"Current failure-avoidance playbook\" "
-          + "-> weaknessDescription:string \"Recurring weakness\", "
-          + "rootCause:string \"Mechanical root cause\", "
-          + "proposedGuidance:string \"One concise imperative avoidance rule\", "
-          + "evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", "
-          + "configRecommendations?:json \"Setup suggestions no prompt text can fix\"";
+  private static final String CURATOR_OPERATIONS_DESCRIPTION =
+      "List of operations, each {type: \"ADD\"|\"UPDATE\"|\"REMOVE\", section, content}. "
+          + "Emit an operation ONLY when the playbook should actually change. "
+          + "If nothing should change, return an empty array — never emit an ADD whose content "
+          + "just acknowledges that no change is needed (e.g. \"No update required\", "
+          + "\"Keep the existing rule unchanged\"). "
+          + "Each ADD content must be a standalone, reusable rule.";
+  // The weakness miner's description, as TS writes it
+  // (src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts).
+  private static final String WEAKNESS_MINER_DESCRIPTION =
+      "You are a failure analyst for an LLM agent harness. You receive one "
+          + "cluster of failed agent runs sharing an error signature, with excerpts "
+          + "of what the agent actually did. Identify the single recurring weakness, "
+          + "its root cause, and one narrow, durable avoidance rule the agent should "
+          + "recall while acting. Ground every claim: evidenceQuotes must be verbatim "
+          + "substrings copied from the excerpts. Keep proposedGuidance concise, "
+          + "imperative, and general to the failure mode (not one task). Use "
+          + "configRecommendations only for setup problems no prompt text can fix "
+          + "(missing tools, timeouts, model choice).";
   private static final Pattern ERROR_SIGNATURE = Pattern.compile("^(\\w+Error:\\s*.{0,60})", Pattern.MULTILINE);
   private static final Pattern ACTION_ERROR_SIGNATURE = Pattern.compile("^\\s*(\\w+Error:\\s*.{0,60})", Pattern.MULTILINE);
 
-  private final AxGen program;
+  private AxGen program;
   private final AxACE engine;
   private final AiClient studentAI;
   private final AiClient teacherAI;
   private final Map<String, Object> teacherOptions;
   private final boolean verbose;
-  private final String baseInstruction;
+  private String baseInstruction;
   private boolean started = false;
   private java.util.function.Consumer<String> applyHook;
   private AxGen reflectorProgram;
@@ -71,6 +57,12 @@ public final class AxPlaybook {
   AxPlaybook bindAgent(AxAgent agent) {
     this.agent = agent;
     return this;
+  }
+
+  // Bind the playbook to another program: an agent rebuilds its stages.
+  void rebindProgram(AxGen program) {
+    this.program = program;
+    this.baseInstruction = program == null ? null : program.getInstruction();
   }
 
   public AxPlaybook(AxGen program, Map<String, Object> options) {
@@ -112,16 +104,69 @@ public final class AxPlaybook {
     return prediction;
   }
 
+  // The reflector and curator signatures TS builds (src/ax/dsp/optimizers/ace.ts),
+  // built with the field builder: a signature string cannot carry a description
+  // with double quotes, as the curator's operations description has.
+  static AxSignature reflectorSignature() {
+    Field.Factory f = Ax.f();
+    return f.call()
+        .input("question", f.string("Original task input serialized as JSON"))
+        .input("generator_answer", f.string("Generator output serialized as JSON"))
+        .input("generator_reasoning", f.string("Generator reasoning trace").optional())
+        .input("playbook", f.string("Current context playbook rendered as markdown"))
+        .input("expected_answer", f.string("Expected output when ground truth is available").optional())
+        .input("feedback", f.string("External feedback or reward signal").optional())
+        .input("previous_reflection", f.string("Most recent reflection JSON when running multi-round refinement").optional())
+        .output("reasoning", f.string("Step-by-step analysis of generator performance"))
+        .output("errorIdentification", f.string("Specific mistakes detected"))
+        .output("rootCauseAnalysis", f.string("Underlying cause of the error"))
+        .output("correctApproach", f.string("What the generator should do differently"))
+        .output("keyInsight", f.string("Reusable insight to remember"))
+        .output("bulletTags", f.json("Array of {id, tag} entries referencing playbook bullets"))
+        .build();
+  }
+
+  // The weakness miner's signature, as TS builds it.
+  static AxSignature weaknessMinerSignature() {
+    Field.Factory f = Ax.f();
+    return f.call()
+        .input("clusterSignature", f.string("Shared error signature of the cluster."))
+        .input("taskSummaries", f.string("One line per failing task."))
+        .input("actionLogExcerpts", f.string("Excerpts of the failing runs, centered on the failure."))
+        .input("functionCallSummary", f.string("Digest of runtime/tool calls in the failing runs.").optional())
+        .input("toolErrors", f.string("Tool errors observed.").optional())
+        .input("currentPlaybook", f.string("The failure-avoidance playbook currently applied.").optional())
+        .output("weaknessDescription", f.string("The recurring weakness, one sentence."))
+        .output("rootCause", f.string("Why the runs fail, mechanically."))
+        .output("proposedGuidance", f.string("The avoidance rule to add to the playbook — concise, imperative."))
+        .output("evidenceQuotes", f.string("Verbatim substrings from actionLogExcerpts proving the weakness.").array())
+        .output("configRecommendations", f.string("Setup/config suggestions no prompt text can fix.").array().optional())
+        .description(WEAKNESS_MINER_DESCRIPTION)
+        .build();
+  }
+
+  static AxSignature curatorSignature() {
+    Field.Factory f = Ax.f();
+    return f.call()
+        .input("playbook", f.string("Current playbook serialized as JSON"))
+        .input("reflection", f.string("Latest reflection output serialized as JSON"))
+        .input("question_context", f.string("Original task input serialized as JSON"))
+        .input("token_budget", f.number("Approximate token budget for curator response").optional())
+        .output("reasoning", f.string("Justification for the proposed updates"))
+        .output("operations", f.json(CURATOR_OPERATIONS_DESCRIPTION))
+        .build();
+  }
+
   private AxGen reflector() {
     if (this.reflectorProgram == null) {
-      this.reflectorProgram = Ax.ax(REFLECTOR_SIGNATURE);
+      this.reflectorProgram = Ax.ax(reflectorSignature());
     }
     return this.reflectorProgram;
   }
 
   private AxGen curator() {
     if (this.curatorProgram == null) {
-      this.curatorProgram = Ax.ax(CURATOR_SIGNATURE);
+      this.curatorProgram = Ax.ax(curatorSignature());
     }
     return this.curatorProgram;
   }
@@ -224,18 +269,9 @@ public final class AxPlaybook {
       return line.substring(0, Math.min(100, line.length()));
     }
     if (record.get("error") != null) return extractErrorSignature(record.get("error"));
-    Matcher actionError = ACTION_ERROR_SIGNATURE.matcher(String.valueOf(prediction.getOrDefault("actionLog", "")));
+    // The action log as TS's prediction carries it: the executor's code steps as text.
+    Matcher actionError = ACTION_ERROR_SIGNATURE.matcher(String.valueOf(Core._agent_playbook_action_log_text(prediction.get("actionLog"))));
     return actionError.find() ? extractErrorSignature(actionError.group(1)) : "behavioral:no_error";
-  }
-
-  private static String failureExcerpt(Map<String, Object> record, String signature) {
-    if (record.get("error") != null) return "Run threw: " + record.get("error");
-    String actionLog = String.valueOf(Core.get(record.get("prediction"), "actionLog", ""));
-    if (actionLog.length() <= 2000) return actionLog;
-    int hit = actionLog.indexOf(signature.substring(0, Math.min(40, signature.length())));
-    if (hit < 0) return actionLog.substring(actionLog.length() - 2000);
-    int start = Math.max(0, hit - 1000);
-    return actionLog.substring(start, Math.min(actionLog.length(), start + 2000));
   }
 
   private static List<Object> coerceList(Object value) {
@@ -245,49 +281,16 @@ public final class AxPlaybook {
 
   private Map<String, Object> mineWeakness(
       String signature, List<Map<String, Object>> records, int proposalIndex, AiClient teacher, Map<String, Object> teacherOptions) {
-    List<Map<String, Object>> selected = records.subList(0, Math.min(4, records.size()));
-    List<String> bodies = new ArrayList<>();
-    StringBuilder excerpts = new StringBuilder();
-    StringBuilder taskSummaries = new StringBuilder();
-    List<String> functionCalls = new ArrayList<>();
-    List<String> toolErrors = new ArrayList<>();
-    for (int i = 0; i < selected.size(); i++) {
-      Map<String, Object> record = selected.get(i);
-      String body = failureExcerpt(record, signature);
-      bodies.add(body);
-      if (i > 0) excerpts.append("\n\n");
-      excerpts.append("--- run ").append(i + 1).append(" ---\n").append(body);
-      Map<String, Object> task = Core.asMap(record.get("task"));
-      String taskId = task.get("id") == null ? "#" + (i + 1) : String.valueOf(task.get("id"));
-      String input = Json.stringify(task.get("input"));
-      if (input.length() > 240) input = input.substring(0, 240);
-      if (i > 0) taskSummaries.append('\n');
-      taskSummaries.append("- ").append(taskId).append(" (score ")
-          .append(String.format("%.2f", ((Number) record.getOrDefault("score", 0)).doubleValue()))
-          .append("): ").append(input);
-      Map<String, Object> prediction = Core.asMap(record.get("prediction"));
-      for (Object call : Core.asList(prediction.getOrDefault("functionCalls", List.of()))) {
-        if (functionCalls.size() < 20) functionCalls.add(Json.stringify(call));
-      }
-      for (Object error : Core.asList(prediction.getOrDefault("toolErrors", List.of()))) {
-        if (toolErrors.size() < 10) toolErrors.add(String.valueOf(error));
-      }
-    }
-    if (bodies.stream().noneMatch(body -> !collapse(body).isEmpty())) return null;
-    Map<String, Object> request = new LinkedHashMap<>();
-    request.put("clusterSignature", signature);
-    request.put("taskSummaries", taskSummaries.toString());
-    request.put("actionLogExcerpts", excerpts.toString());
-    if (!functionCalls.isEmpty()) request.put("functionCallSummary", String.join("\n", functionCalls));
-    if (!toolErrors.isEmpty()) request.put("toolErrors", String.join("\n", toolErrors));
-    String currentPlaybook = render();
-    if (!currentPlaybook.isBlank()) request.put("currentPlaybook", currentPlaybook);
+    // TS's miner inputs: task summaries, action-log excerpts, function calls
+    // and tool errors of up to four records; none without an excerpt.
+    Object inputs = Core._agent_playbook_miner_inputs(signature, new ArrayList<Object>(records), render());
+    if (!(inputs instanceof Map<?, ?>)) return null;
+    Map<String, Object> request = new LinkedHashMap<>(Core.asMap(inputs));
+    String excerpts = String.valueOf(request.getOrDefault("actionLogExcerpts", ""));
 
-    AxGen miner = new AxGen(AxSignature.create(WEAKNESS_MINER_SIGNATURE), Map.of(
-        "id", "agent.playbook.weakness-miner",
-        "instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."));
+    AxGen miner = new AxGen(weaknessMinerSignature(), Map.of("id", "agent.playbook.weakness-miner"));
     Map<String, Object> mined = miner.forward(teacher, request, new LinkedHashMap<>(teacherOptions));
-    String haystack = collapse(excerpts.toString());
+    String haystack = collapse(excerpts);
     List<Object> evidence = new ArrayList<>();
     for (Object quote : coerceList(mined.get("evidenceQuotes"))) {
       String text = String.valueOf(quote);

@@ -1,0 +1,68 @@
+{
+  "expected_output": {
+    "card": {
+      "title": "Greeting"
+    },
+    "intro": {
+      "data": "SUQzBAA=",
+      "format": "mp3",
+      "mimeType": "audio/mpeg",
+      "transcript": "Hi there"
+    },
+    "speech": {
+      "data": "UklGRg==",
+      "format": "wav"
+    }
+  },
+  "expected_request_count": 1,
+  "expected_speak_requests": [
+    {
+      "text": "Hi there"
+    }
+  ],
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "forward_options": {
+    "renderAudio": true
+  },
+  "input": {
+    "question": "Say hi"
+  },
+  "kind": "forward",
+  "name": "audio-output-forward-artifact-passes-through",
+  "options": {
+    "structured_output_mode": "function"
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "__axOutput",
+                "params": "{\"speech\":{\"data\":\"UklGRg==\",\"format\":\"wav\"},\"intro\":\"Hi there\",\"card\":{\"title\":\"Greeting\"}}"
+              },
+              "id": "output_1",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> speech:audio, intro:audio, card:object{title:string}",
+  "speak_responses": [
+    {
+      "data": "SUQzBAA=",
+      "format": "mp3",
+      "mimeType": "audio/mpeg",
+      "transcript": "Hi there"
+    }
+  ]
+}

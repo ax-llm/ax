@@ -122,6 +122,36 @@
             "event listener"
           ],
           "returns": "run controller"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxCachingFunction",
+          "public_name": "AxCachingFunction",
+          "kind": "type",
+          "description": "TypeScript's cachingFunction: read and store finished AxGen outputs by key. The forward call's function comes first, then the program's, then the process-wide one, and a run control skips the cache.",
+          "form": "Map\u003cString, Object\u003e apply(String key, Map\u003cString, Object\u003e value)",
+          "important_options": [
+            "read",
+            "store",
+            "SHA-256 key",
+            "streamed hit as one delta"
+          ],
+          "returns": "stored output or miss",
+          "example": "AxGen qa = new AxGen(Ax.s(\"question:string -\u003e answer:string\"), Map.of(\"cachingFunction\", cache));"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "set_caching_function",
+          "public_name": "AxGlobals.setCachingFunction",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide AxGen caching function.",
+          "form": "AxGlobals.setCachingFunction(fn)",
+          "important_options": [
+            "caching function",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "AxGlobals.setCachingFunction(cache);"
         }
       ]
     },
@@ -745,6 +775,21 @@
             "child usage"
           ],
           "returns": "parent agent"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "agent_streaming_forward",
+          "public_name": "AxAgent.streamingForward",
+          "kind": "method",
+          "description": "Run the agent and stream the responder's deltas, as TypeScript's streamingForward does, after the distiller and executor run without streaming.",
+          "form": "AxAgent.streamingForward(client, values, options)",
+          "important_options": [
+            "deltas",
+            "versions",
+            "hidden citations",
+            "run control"
+          ],
+          "returns": "responder deltas"
         }
       ]
     },

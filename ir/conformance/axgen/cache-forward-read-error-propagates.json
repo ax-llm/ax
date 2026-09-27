@@ -1,0 +1,31 @@
+{
+  "cache_read_error": "cache offline",
+  "calls": [
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "forward"
+    }
+  ],
+  "expected_cache_gets": 1,
+  "expected_cache_sets": [],
+  "expected_deltas": [null],
+  "expected_errors": ["cache offline"],
+  "expected_outputs": [null],
+  "expected_request_count": 0,
+  "expected_requests": [0],
+  "kind": "cache_sequence",
+  "name": "cache-forward-read-error-propagates",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: Paris",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

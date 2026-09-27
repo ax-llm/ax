@@ -32,6 +32,12 @@
       },
       {
         "suite": "axagent",
+        "kind": "agent_streaming_forward",
+        "runner": "python:axagent",
+        "category": "semantic"
+      },
+      {
+        "suite": "axagent",
         "kind": "agent_runtime_adapter",
         "runner": "python:axagent",
         "category": "semantic"
@@ -295,6 +301,18 @@
       {
         "suite": "axgen",
         "kind": "forward",
+        "runner": "python:axgen",
+        "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "date_field_value",
+        "runner": "python:axgen",
+        "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "date_input",
         "runner": "python:axgen",
         "category": "semantic"
       },

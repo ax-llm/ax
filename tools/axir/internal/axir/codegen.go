@@ -278,6 +278,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AxFieldProcessorContext.java":                   javaAxFieldProcessorContext,
 		"dev/axllm/ax/AxFieldProcessorMode.java":                      javaAxFieldProcessorMode,
 		"dev/axllm/ax/AxStreamingAssertion.java":                      javaAxStreamingAssertion,
+		"dev/axllm/ax/AxCachingFunction.java":                         javaAxCachingFunction,
 		"dev/axllm/ax/AxBootstrapFewShot.java":                        javaAxBootstrapFewShot,
 		"dev/axllm/ax/AxACE.java":                                     javaAxACE,
 		"dev/axllm/ax/AxGEPA.java":                                    javaAxGEPA,
@@ -1112,6 +1113,8 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("AxGen", "type", "Structured generation program with indexed multi-sampling, winner selection, forward, streaming, optimization, trace, usage, and tool-call behavior.", []string{"signature", "functions", "examples", "demos", "sample count", "result picker", "memory", "prompt template"}, "program object"),
 				sym("run_control", "function", "Create a controller for scoped steering, reasoning updates, cancellation, and queued/applied lifecycle events. Pass it through forward options.", nil, "AxRunControl"),
 				sym("AxRunControl", "type", "Run control shared by active and future descendant programs. Cancellation reports unresolved work and does not undo external effects.", []string{"steer", "thinking token budget", "target path", "abort", "event listener"}, "run controller"),
+				sym("AxCachingFunction", "type", "TypeScript's cachingFunction: read and store finished AxGen outputs by key. The forward call's function comes first, then the program's, then the process-wide one, and a run control skips the cache.", []string{"read", "store", "SHA-256 key", "streamed hit as one delta"}, "stored output or miss"),
+				sym("set_caching_function", "function", "Register, replace, or clear the process-wide AxGen caching function.", []string{"caching function", "clear"}, "void"),
 			},
 		},
 		{
@@ -1166,6 +1169,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("agent", "function", "Create an AxAgent from a signature and agent/runtime options.", []string{"name", "description", "runtime", "maxSteps", "context fields", "discovery", "recall", "functions", "skills", "skillsCatalog", "memoriesCatalog", "relevanceRanking", "load observers", "used observers", "citations", "playbook", "instruction", "instructionAddenda"}, "AxAgent"),
 				sym("AxAgent", "type", "RLM agent with Core-owned envelopes, complete runtime-state export/restore, traces, discovery, recall, loaded skills and memories, usage observers, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.", []string{"executor model", "runtime", "policy", "context", "skills", "memories", "relevance ranking", "observers", "runtime state", "optimizer metadata", "citations", "playbook"}, "agent program"),
 				sym("add_child_agent", "method", "Register an owned child agent for serialized delegation through the parent invocation boundary. Scoped controls use parent/namespace.name paths.", []string{"namespace", "name", "child", "independent conversation", "child usage"}, "parent agent"),
+				sym("agent_streaming_forward", "method", "Run the agent and stream the responder's deltas, as TypeScript's streamingForward does, after the distiller and executor run without streaming.", []string{"deltas", "versions", "hidden citations", "run control"}, "responder deltas"),
 			},
 		},
 		{
@@ -1272,10 +1276,16 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "AIClient.owned_worker_factory", "AiClient.ownedWorkerFactory", "axllm::AIClient::owned_worker_factory", "AxOwnedClientFactory.OwnedWorkerFactory", "AxAIClient::owned_worker_factory")
 	case "add_child_agent":
 		return mapTarget(target, "AxAgent.add_child_agent", "AxAgent.addChildAgent", "axllm::AxAgent::add_child_agent", "AxAgent.AddChildAgent", "AxAgent::with_child_agent")
+	case "agent_streaming_forward":
+		return mapTarget(target, "AxAgent.streaming_forward", "AxAgent.streamingForward", "axllm::AxAgent::streaming_forward", "AxAgent.StreamingForward", "AxAgent::streaming_forward")
 	case "owned_program_factory":
 		return mapTarget(target, "AxProgram.owned_worker_factory", "AxProgram.ownedWorkerFactory", "axllm::AxProgram::owned_worker_factory", "AxOwnedProgramFactory.OwnedWorkerFactory", "AxExecutableProgram::owned_worker_factory")
 	case "AxRunControl":
 		return mapTarget(target, "AxRunControl", "AxRunControl", "axllm::AxRunControl", "axllm.AxRunControl", "AxRunControl")
+	case "AxCachingFunction":
+		return mapTarget(target, "Callable[[str, dict | None], dict | None]", "AxCachingFunction", "axllm::AxCachingFunction", "axllm.AxCachingFunction", "AxCachingFunction")
+	case "set_caching_function":
+		return mapTarget(target, "set_caching_function", "AxGlobals.setCachingFunction", "axllm::set_caching_function", "axllm.SetCachingFunction", "set_caching_function")
 	case "ax":
 		return mapTarget(target, "ax", "Ax.ax", "axllm::ax", "axllm.NewAx", "ax")
 	case "typesafe":
@@ -1379,8 +1389,14 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "AxSignature", "AxSignature", "axllm::Value signature", "axllm.AxSignature", "AxSignature")
 	case "add_child_agent":
 		return apiReferencePublicName(target, canonical) + "(namespace, name, child)"
+	case "agent_streaming_forward":
+		return mapTarget(target, "AxAgent.streaming_forward(client, values, options=None)", "AxAgent.streamingForward(client, values, options)", "axllm::AxAgent::streaming_forward(client, values, options, handler)", "(*AxAgent).StreamingForward(ctx, client, values, options)", "AxAgent::streaming_forward(&mut client, input, options, on_delta)")
 	case "run_control":
 		return apiReferencePublicName(target, canonical) + "()"
+	case "AxCachingFunction":
+		return mapTarget(target, "caching_function(key, output=None)", "Map<String, Object> apply(String key, Map<String, Object> value)", "std::optional<Value>(const std::string& key, const Value* value)", "func(key string, value map[string]Value) (map[string]Value, error)", "Arc<dyn Fn(&str, Option<&Value>) -> AxResult<Option<Value>> + Send + Sync>")
+	case "set_caching_function":
+		return mapTarget(target, "set_caching_function(fn)", "AxGlobals.setCachingFunction(fn)", "axllm::set_caching_function(fn)", "axllm.SetCachingFunction(fn)", "set_caching_function(Some(fn))")
 	case "ax":
 		return mapTarget(target, "ax(signature, options=None)", "Ax.ax(signature)", "axllm::ax(signature, options)", "axllm.NewAx(signature, options)", "ax(spec: &str)")
 	case "AxGen":
@@ -1539,6 +1555,16 @@ func apiReferenceExample(target, canonical string) string {
 		)
 	case "run_control":
 		return mapTarget(target, "control = run_control()", "var control = Ax.runControl();", "auto control = axllm::run_control();", "control := axllm.RunControl()", "let control = run_control();")
+	case "AxCachingFunction":
+		return mapTarget(target,
+			`qa = ax("question:string -> answer:string", {"caching_function": cache})`,
+			`AxGen qa = new AxGen(Ax.s("question:string -> answer:string"), Map.of("cachingFunction", cache));`,
+			`auto qa = axllm::ax("question:string -> answer:string"); qa.set_caching_function(cache);`,
+			`qa := axllm.NewAx("question:string -> answer:string", map[string]axllm.Value{"cachingFunction": cache})`,
+			`let qa = ax("question:string -> answer:string")?.with_caching_function(cache);`,
+		)
+	case "set_caching_function":
+		return mapTarget(target, `set_caching_function(cache)`, `AxGlobals.setCachingFunction(cache);`, `axllm::set_caching_function(cache);`, `axllm.SetCachingFunction(cache)`, `set_caching_function(Some(cache));`)
 	case "ax":
 		return mapTarget(target,
 			`qa = ax("question:string -> answer:string")`,
@@ -1912,6 +1938,8 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"prompt", "template_validate", "", "semantic"},
 		{"prompt", "number_format", "", "semantic"},
 		{"axgen", "forward", "", "semantic"},
+		{"axgen", "date_field_value", "", "semantic"},
+		{"axgen", "date_input", "", "semantic"},
 		{"axgen", "stream", "", "semantic"},
 		{"axai", "ai_chat", "", "transport-boundary"},
 		{"axai", "ai_typesafe_native", "", "transport-boundary"},
@@ -1934,6 +1962,7 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axai", "ai_error", "", "validation-error"},
 		{"axai", "ai_unsupported", "", "validation-error"},
 		{"axagent", "agent_forward", "", "semantic"},
+		{"axagent", "agent_streaming_forward", "", "semantic"},
 		{"axagent", "agent_runtime_adapter", "", "semantic"},
 		{"axagent", "agent_runtime_policy", "", "semantic"},
 		{"axagent", "agent_runtime_protocol", "", "transport-boundary"},
@@ -2380,13 +2409,13 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			NoKeyExamples: readmeLines(
 				"- `python examples/signature_schema.py`: signature parsing and JSON schema generation",
 				"- `python examples/model_catalog.py`: model catalog, named profiles, thinking levels, and service tiers",
-				"- `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client and tool",
+				"- `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client, a tool, and a caching function",
 				"- `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport",
 				"- `python examples/runtime_hooks_no_key.py`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `python examples/adaptive_balancer_no_key.py`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport",
 				"- `python examples/cancellation_no_key.py`: one-shot provider cancellation with no transport attempt",
-				"- `python examples/axflow_program_graph.py`: AxFlow program graph",
+				"- `python examples/axflow_program_graph.py`: AxFlow program graph and a caching function, whose hits run no node and record no span",
 				"- `python examples/flow_mermaid.py`: portable Mermaid flow parsing and canonical round-trip",
 				"- `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `python examples/realtime_audio_events.py`: Grok/Gemini realtime audio setup, input, and event folding",
@@ -2460,13 +2489,13 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/SignatureSchemaExample.java`: signature parsing and JSON schema generation",
 				"- `examples/ModelCatalogExample.java`: model catalog, named profiles, thinking levels, and service tiers",
 				"- `examples/AxGenScriptedClientToolExample.java`: AxGen with a scripted client and tool",
-				"- `examples/AxGenStreamingNoKeyExample.java`: `streamingForward` deltas with streaming assertions, streaming and feedback field processors, transforms, early close, and cancellation through a scripted streaming client and a scripted OpenAI SSE transport",
+				"- `examples/AxGenStreamingNoKeyExample.java`: `streamingForward` deltas with streaming assertions, streaming and feedback field processors, transforms, early close, and cancellation through a scripted streaming client and a scripted OpenAI SSE transport, and `AxCachingFunction` hits, which send no request and record no span or metric, from the constructor, the forward call and `AxGlobals.setCachingFunction`",
 				"- `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport",
 				"- `examples/RuntimeHooksNoKeyExample.java`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `examples/AdaptiveBalancerNoKeyExample.java`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport",
 				"- `examples/CancellationNoKeyExample.java`: one-shot provider cancellation with no transport attempt",
-				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph",
+				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph and a caching function, whose hits run no node and record no span",
 				"- `examples/FlowMermaidExample.java`: portable Mermaid flow parsing and canonical round-trip",
 				"- `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `examples/RealtimeAudioEventsExample.java`: Grok/Gemini realtime audio setup, input, and event folding",
@@ -2535,7 +2564,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/signature_schema.cpp`: signature parsing and JSON schema generation",
 				"- `examples/model_catalog.cpp`: model catalog, named profiles, thinking levels, and service tiers",
 				"- `examples/axgen_scripted_client_tool.cpp`: AxGen with a scripted client and tool",
-				"- `examples/axgen_streaming_no_key.cpp`: `streaming_forward` field deltas with a streaming assertion, feedback, streaming and transform field processors, stopping, cancellation, and run control through a scripted SSE transport",
+				"- `examples/axgen_streaming_no_key.cpp`: `streaming_forward` field deltas with a streaming assertion, feedback, streaming and transform field processors, stopping, cancellation, and run control through a scripted SSE transport, and `AxCachingFunction` hits from the generator, a per-call `caching_function` handle and `set_caching_function`",
 				"- `examples/provider_mapping_no_key.cpp`: provider mapping through a scripted transport",
 				"- `examples/runtime_hooks_no_key.cpp`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `examples/adaptive_balancer_no_key.cpp`: adaptive balancer state, scoring, and stable route keys without a provider key",
@@ -2693,7 +2722,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `cargo run --example cancellation_no_key`: one-shot provider cancellation with no transport attempt",
 				"- `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool",
 				"- `cargo run --example axgen_streaming_no_key`: `streaming_forward` field deltas, streaming assertions, field processor feedback, field transforms, and `AxFlow::streaming_forward` through a scripted streaming client",
-				"- `cargo run --example axflow_program_graph`: AxFlow program graph",
+				"- `cargo run --example axflow_program_graph`: AxFlow program graph and a caching function, whose hits run no node and record no span",
 				"- `cargo run --example flow_mermaid`: portable Mermaid flow parsing and canonical round-trip",
 				"- `cargo run --example audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `cargo run --example realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding",

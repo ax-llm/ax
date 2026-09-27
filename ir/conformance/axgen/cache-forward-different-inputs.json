@@ -1,0 +1,66 @@
+{
+  "calls": [
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "forward"
+    },
+    {
+      "input": {
+        "question": "Capital of Italy?"
+      },
+      "kind": "forward"
+    },
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "forward"
+    }
+  ],
+  "expected_cache_gets": 3,
+  "expected_cache_sets": [
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "Rome"
+    }
+  ],
+  "expected_deltas": [null, null, null],
+  "expected_outputs": [
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "Rome"
+    },
+    {
+      "answer": "Paris"
+    }
+  ],
+  "expected_request_count": 2,
+  "expected_requests": [1, 1, 0],
+  "kind": "cache_sequence",
+  "name": "cache-forward-different-inputs",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: Paris",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: Rome",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -1,0 +1,198 @@
+{
+  "cases": [
+    {
+      "expected_user_content": "Question: When?\n\nDue: 2024-05-09\n",
+      "native": true,
+      "values": {
+        "due": {
+          "$date": "2024-05-09T23:30:00.000Z"
+        },
+        "question": "When?"
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nDue: 2024-05-10\n",
+      "native": true,
+      "values": {
+        "due": {
+          "$date": "2024-05-09T23:30:00.000-05:00"
+        },
+        "question": "When?"
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nDue: 2024-05-09\n",
+      "native": true,
+      "values": {
+        "due": {
+          "$date_only": "2024-05-09"
+        },
+        "question": "When?"
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nDue: 2024-05-09\n",
+      "native": false,
+      "values": {
+        "due": "2024-05-09",
+        "question": "When?"
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nWhen: 2024-05-09T14:30:00Z\n",
+      "native": true,
+      "values": {
+        "question": "When?",
+        "when": {
+          "$date": "2024-05-09T14:30:00.250Z"
+        }
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nWhen: 2024-05-09T09:00:00Z\n",
+      "native": true,
+      "values": {
+        "question": "When?",
+        "when": {
+          "$date": "2024-05-09T14:30:00+05:30"
+        }
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nWhen: 2024-05-09T00:00:00Z\n",
+      "native": true,
+      "values": {
+        "question": "When?",
+        "when": {
+          "$date_only": "2024-05-09"
+        }
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nWhen: 2024-05-09 14:30 America/New_York\n",
+      "native": false,
+      "values": {
+        "question": "When?",
+        "when": "2024-05-09 14:30 America/New_York"
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nSpan: {\n  \"start\": \"2024-05-09\",\n  \"end\": \"2024-05-12\"\n}\n",
+      "native": true,
+      "values": {
+        "question": "When?",
+        "span": {
+          "end": {
+            "$date_only": "2024-05-12"
+          },
+          "start": {
+            "$date_only": "2024-05-09"
+          }
+        }
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nSpan: {\n  \"start\": \"2024-05-09\",\n  \"end\": \"2024-05-11\"\n}\n",
+      "native": true,
+      "values": {
+        "question": "When?",
+        "span": {
+          "end": {
+            "$date": "2024-05-12T01:00:00+05:30"
+          },
+          "start": {
+            "$date": "2024-05-09T23:30:00Z"
+          }
+        }
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nSpan: {\n  \"end\": \"2024-05-12\",\n  \"start\": \"2024-05-09\"\n}\n",
+      "native": false,
+      "values": {
+        "question": "When?",
+        "span": {
+          "end": "2024-05-12",
+          "start": "2024-05-09"
+        }
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nSpan: {\n  \"end\": \"2024-05-12\",\n  \"start\": \"2024-05-09T10:00:00.500Z\"\n}\n",
+      "native": true,
+      "values": {
+        "question": "When?",
+        "span": {
+          "end": "2024-05-12",
+          "start": {
+            "$date": "2024-05-09T10:00:00.500Z"
+          }
+        }
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nSpan: 2024-05-09/2024-05-12\n",
+      "native": false,
+      "values": {
+        "question": "When?",
+        "span": "2024-05-09/2024-05-12"
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nWindow: {\n  \"start\": \"2024-05-09T14:30:00Z\",\n  \"end\": \"2024-05-09T15:30:00Z\"\n}\n",
+      "native": true,
+      "values": {
+        "question": "When?",
+        "window": {
+          "end": {
+            "$date": "2024-05-09T15:30:00Z"
+          },
+          "note": "kept out",
+          "start": {
+            "$date": "2024-05-09T14:30:00.250Z"
+          }
+        }
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nWindow: {\n  \"end\": \"2024-05-09T15:30:00Z\",\n  \"start\": \"2024-05-09T14:30:00Z\"\n}\n",
+      "native": false,
+      "values": {
+        "question": "When?",
+        "window": {
+          "end": "2024-05-09T15:30:00Z",
+          "start": "2024-05-09T14:30:00Z"
+        }
+      }
+    },
+    {
+      "expected_user_content": "Question: When?\n\nDue: 2024-05-09\n\nWhen: 2024-05-09T14:30:00Z\n\nSpan: {\n  \"start\": \"2024-05-09\",\n  \"end\": \"2024-05-12\"\n}\n\nWindow: {\n  \"end\": \"2024-05-09T15:30:00Z\",\n  \"start\": \"2024-05-09T14:30:00Z\"\n}\n",
+      "native": true,
+      "values": {
+        "due": {
+          "$date_only": "2024-05-09"
+        },
+        "question": "When?",
+        "span": {
+          "end": {
+            "$date_only": "2024-05-12"
+          },
+          "start": {
+            "$date_only": "2024-05-09"
+          }
+        },
+        "when": {
+          "$date": "2024-05-09T14:30:00Z"
+        },
+        "window": {
+          "end": "2024-05-09T15:30:00Z",
+          "start": "2024-05-09T14:30:00Z"
+        }
+      }
+    }
+  ],
+  "description": "native date and time inputs and {start, end} range objects, rendered as TS renders Dates in the user prompt; native: true cases need a native date type",
+  "kind": "date_input",
+  "name": "date-input-values",
+  "signature": "question:string, due?:date, when?:datetime, span?:dateRange, window?:datetimeRange -> answer:string"
+}

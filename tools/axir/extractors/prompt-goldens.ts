@@ -421,6 +421,41 @@ stringPrompt(
   { ticket: 'Checkout is down' }
 );
 
+// Field titles follow TS's toTitle (src/ax/dsp/sig.ts): a snake_case name keeps
+// its later words lowercase ("Generator answer"), a camelCase name starts a
+// word at each capital ("Key Insight") but keeps a run of capitals together
+// ("User ID", "Parse HTTP Response"), a digit run starts a word ("Item 123"),
+// and words are separated by one space ("Field 2").
+stringPrompt(
+  'field-titles-snake-and-camel-case',
+  'generator_answer:string, question_context:string, snake_case_name:string, keyInsight:string, item1:string, item123:string, field_2:string, step2Result:string, x2Y:string, value99Count:string, userID:string, apiURL:string, orderID:string, parseHTTPResponse:string -> root_cause:string, errorIdentification:string',
+  {
+    generator_answer: 'Paris',
+    question_context: 'European capitals',
+    snake_case_name: 'snake',
+    keyInsight: 'Cite the source',
+    item1: 'first',
+    item123: 'third',
+    field_2: 'second field',
+    step2Result: 'done',
+    x2Y: 'axis',
+    value99Count: '99',
+    userID: 'u-1',
+    apiURL: 'https://example.com',
+    orderID: 'o-7',
+    parseHTTPResponse: 'ok',
+  }
+);
+
+// JSON and array outputs keep the `field name: value` text contract: TS asks
+// for one JSON object (and prints its shape) only when an output is an object
+// or an array of objects.
+stringPrompt(
+  'json-and-array-outputs-text-contract',
+  'question:string -> tags:string[], details:json',
+  { question: 'What is Ax?' }
+);
+
 // Object input values render as JSON.stringify(value, null, 2): two-space
 // indentation, keys in insertion order, {} and [] for empty containers, and
 // non-ASCII text (including non-BMP emoji) as UTF-8 rather than \u escapes.
@@ -433,6 +468,46 @@ stringPrompt('json-input-pretty-json', 'plan:json -> answer:string', {
     count: 3,
   },
 });
+
+// Audio inputs: a plain string, and an audio object with a transcript (what an
+// AxGen audio output renders to), reach the model as text; audio without a
+// transcript is an audio part with only its format (wav when it has none) and
+// its data.
+stringPrompt(
+  'audio-input-transcript-as-text',
+  'speech:audio -> summary:string',
+  {
+    speech: {
+      data: 'SUQzBAA=',
+      format: 'mp3',
+      mimeType: 'audio/mpeg',
+      transcript: 'Hello there',
+    },
+  }
+);
+stringPrompt(
+  'audio-input-plain-string-as-text',
+  'speech:audio -> summary:string',
+  { speech: 'Hello there' }
+);
+stringPrompt(
+  'audio-input-object-as-audio-part',
+  'question:string, speech:audio -> summary:string',
+  {
+    question: 'What is said?',
+    speech: { data: 'SUQzBAA=', format: 'mp3', mimeType: 'audio/mpeg' },
+  }
+);
+stringPrompt(
+  'audio-input-format-defaults-to-wav',
+  'speech:audio -> summary:string',
+  { speech: { data: 'UklGRg==' } }
+);
+stringPrompt(
+  'audio-input-array-as-audio-parts',
+  'clips:audio[] -> summary:string',
+  { clips: [{ data: 'SUQzBAA=', format: 'mp3' }, { data: 'UklGRg==' }] }
+);
 
 // Numbers in prompt JSON render as JSON.stringify writes them (Number's
 // toString): shortest round-trip digits, integral values without ".0",
