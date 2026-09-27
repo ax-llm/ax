@@ -2120,6 +2120,7 @@ static void assert_agent_run_projections(const Value& fixture, AxAgent* ag, cons
 
 static void run_agent_forward(Value fixture) {
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"));
+  client.script_speak(fixture);
   client.transcribe_responses = as_array(Core::get(fixture, "transcribe_responses", Value::array()));
   Value agent_options = Core::get(fixture, "options", Value::object());
   Value semantic_observer_transcript = Value::array();
@@ -2312,6 +2313,7 @@ static void run_agent_forward(Value fixture) {
     }
     if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent forward to fail");
     if (!Core::get(fixture, "expected_output").is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "agent output");
+    assert_speak_requests(fixture, client);
     if (!Core::get(fixture, "expected_run_state_projections").is_null()) assert_equal(run_state_projections, Core::get(fixture, "expected_run_state_projections"), "agent run state projections");
     if (!Core::get(fixture, "expected_state_roundtrip_projection").is_null()) assert_equal(state_roundtrip_projection, Core::get(fixture, "expected_state_roundtrip_projection"), "agent state roundtrip projection");
     if (!Core::get(fixture, "expected_observer_transcript").is_null()) assert_equal(semantic_observer_transcript, Core::get(fixture, "expected_observer_transcript"), "agent observer transcript");

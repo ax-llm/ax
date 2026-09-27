@@ -137,11 +137,22 @@ export const axMapOpenAIInputAudioPart = (
     };
   }
 
+  // Chat Completions takes only data and format: it answers HTTP 400 to any
+  // other input_audio key ("Unknown parameter:
+  // 'messages[0].content[1].input_audio.mimeType'"). The realtime path keeps
+  // the mime type, rate and channels for its own checks.
+  const inputFormat = resolveOpenAIInputAudioFormat(part);
+  if (!options?.allowPcm16) {
+    return {
+      type: 'input_audio',
+      input_audio: { data: part.data, format: inputFormat },
+    };
+  }
   return {
     type: 'input_audio',
     input_audio: {
       data: part.data,
-      format: resolveOpenAIInputAudioFormat(part),
+      format: inputFormat,
       mimeType: part.mimeType,
       sampleRate: part.sampleRate,
       channels: part.channels,

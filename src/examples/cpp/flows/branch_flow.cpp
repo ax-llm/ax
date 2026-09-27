@@ -39,5 +39,9 @@ int main() {
                               {"writes", axllm::array({"responderResult", "response"})}}))
       .returns(axllm::object({{"route", "route"}, {"response", "response"}}));
   axllm::Value output = program.forward(*client, axllm::object({{"request", "A customer says checkout is down for their enterprise account."}}));
+  for (const char* key : {"route", "response"}) {
+    std::string text = axllm::stringify(axllm::Core::get(output, key));
+    if (text == "null" || text == "\"\"" || text == "[]") throw std::runtime_error(std::string("flow output field ") + key + " is empty: " + axllm::stringify(output));
+  }
   std::cout << axllm::stringify(output) << "\n";
 }

@@ -2366,7 +2366,7 @@ def _semantic_available_skills_index(system):
 
 
 def _run_agent_forward(fixture):
-    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"))
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), speak_responses=fixture.get("speak_responses"))
     runtime = None
     agent_options = copy.deepcopy(fixture.get("options") or {})
     mcp_transports, context_clients = {}, {}
@@ -2565,6 +2565,7 @@ def _run_agent_forward(fixture):
         raise FixtureError("expected agent forward to fail")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "agent output")
+    _assert_speak_requests(fixture, client)
     _assert_agent_run_projections(fixture, ag, client, stream_deltas, control_events, observer_calls, observer_marks)
     if "expected_run_state_projections" in fixture:
         _assert_equal(run_state_projections, fixture["expected_run_state_projections"], "agent run state projections")

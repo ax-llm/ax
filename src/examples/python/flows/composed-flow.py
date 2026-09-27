@@ -28,7 +28,8 @@ program = (
     flow({"id": "examples.composedFlow"})
     .execute("step", step)
     .map("note", lambda state: {"note": "Mapped flow state after the provider-backed step."})
-    .returns({"outline": "step", "brief": "note"})
+    .returns({"outline": "outline", "brief": "note"})
 )
 output = program.forward(client, {"topic": "How Ax moves from typed generation to agents, flows, and optimization"})
+assert all(output.get(key) for key in ("outline", "brief")), output
 print(json.dumps(output, indent=2, sort_keys=True))

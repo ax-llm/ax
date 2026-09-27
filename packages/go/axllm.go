@@ -10626,227 +10626,65 @@ func normalize_token_usage(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _openai_content_part_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_content_part_impl")
+func _url_part_text_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_url_part_text_impl")
 	var v_part Value
-	var v_audio_alt Value
-	var v_audio_error Value
-	var v_audio_message Value
 	var v_cached Value
 	var v_cached_snake Value
-	var v_data Value
-	var v_data_url Value
-	var v_details Value
-	var v_error Value
-	var v_file Value
-	var v_file_data Value
-	var v_filename Value
-	var v_format Value
-	var v_format_ok Value
-	var v_has_filename Value
-	var v_has_uri Value
-	var v_image Value
-	var v_image_raw Value
-	var v_image_url Value
-	var v_image_value Value
-	var v_input_audio Value
-	var v_is_audio Value
-	var v_is_data_url Value
-	var v_is_file Value
-	var v_is_image Value
-	var v_is_image_file Value
-	var v_is_mp3 Value
-	var v_is_text Value
-	var v_is_uri_video Value
-	var v_is_url Value
-	var v_is_video_file Value
-	var v_is_wav Value
-	var v_message Value
-	var v_mime Value
-	var v_mime_raw Value
-	var v_mime_snake Value
-	var v_out Value
-	var v_resolved_uri Value
+	var v_description Value
+	var v_has_cached Value
+	var v_has_description Value
+	var v_has_title Value
+	var v_has_url Value
+	var v_lines Value
 	var v_text Value
-	var v_type Value
-	var v_uri Value
-	var v_uri_snake Value
+	var v_title Value
 	var v_url Value
-	var v_video_url Value
 	if len(args) > 0 { v_part = args[0] }
 	_ = v_part
-	_ = v_audio_alt
-	_ = v_audio_error
-	_ = v_audio_message
 	_ = v_cached
 	_ = v_cached_snake
-	_ = v_data
-	_ = v_data_url
-	_ = v_details
-	_ = v_error
-	_ = v_file
-	_ = v_file_data
-	_ = v_filename
-	_ = v_format
-	_ = v_format_ok
-	_ = v_has_filename
-	_ = v_has_uri
-	_ = v_image
-	_ = v_image_raw
-	_ = v_image_url
-	_ = v_image_value
-	_ = v_input_audio
-	_ = v_is_audio
-	_ = v_is_data_url
-	_ = v_is_file
-	_ = v_is_image
-	_ = v_is_image_file
-	_ = v_is_mp3
-	_ = v_is_text
-	_ = v_is_uri_video
-	_ = v_is_url
-	_ = v_is_video_file
-	_ = v_is_wav
-	_ = v_message
-	_ = v_mime
-	_ = v_mime_raw
-	_ = v_mime_snake
-	_ = v_out
-	_ = v_resolved_uri
+	_ = v_description
+	_ = v_has_cached
+	_ = v_has_description
+	_ = v_has_title
+	_ = v_has_url
+	_ = v_lines
 	_ = v_text
-	_ = v_type
-	_ = v_uri
-	_ = v_uri_snake
+	_ = v_title
 	_ = v_url
-	_ = v_video_url
-	v_type = coreGet(v_part, "type", nil)
-	v_is_text = _core_eq(v_type, "text")
-	if coreTruthy(v_is_text) {
-		v_text = coreGet(v_part, "text", "")
-		v_out = Object()
-		if err := coreSet(v_out, "type", "text"); err != nil { return nil, err }
-		if err := coreSet(v_out, "text", v_text); err != nil { return nil, err }
-		return v_out, nil
+	v_cached_snake = coreGet(v_part, "cached_content", nil)
+	v_cached = coreGet(v_part, "cachedContent", v_cached_snake)
+	v_has_cached = _core_is_not_none(v_cached)
+	if coreTruthy(v_has_cached) {
+		return v_cached, nil
 	} else {
 	// empty
 	}
-	v_is_image = _core_eq(v_type, "image")
-	if coreTruthy(v_is_image) {
-		v_mime_snake = coreGet(v_part, "mime_type", nil)
-		v_mime_raw = coreGet(v_part, "mimeType", v_mime_snake)
-		v_mime = _core_coalesce(v_mime_raw, "image/png")
-		v_image_value = coreGet(v_part, "image", nil)
-		v_image_raw = coreGet(v_part, "data", v_image_value)
-		v_image = _core_coalesce(v_image_raw, "")
-		v_is_data_url = _core_string_starts_with(v_image, "data:")
-		v_url = ""
-		if coreTruthy(v_is_data_url) {
-			v_url = v_image
-		} else {
-			v_url = _core_string_format("data:{};base64,{}", v_mime, v_image)
-		}
-		v_details = coreGet(v_part, "details", "auto")
-		v_image_url = Object()
-		if err := coreSet(v_image_url, "url", v_url); err != nil { return nil, err }
-		if err := coreSet(v_image_url, "detail", v_details); err != nil { return nil, err }
-		v_out = Object()
-		if err := coreSet(v_out, "type", "image_url"); err != nil { return nil, err }
-		if err := coreSet(v_out, "image_url", v_image_url); err != nil { return nil, err }
-		return v_out, nil
+	v_lines = MutableArray()
+	v_title = coreGet(v_part, "title", nil)
+	v_has_title = _core_truthy(v_title)
+	if coreTruthy(v_has_title) {
+		v_lines = coreAppend(v_lines, v_title)
 	} else {
 	// empty
 	}
-	v_is_audio = _core_eq(v_type, "audio")
-	if coreTruthy(v_is_audio) {
-		v_audio_alt = coreGet(v_part, "audio", nil)
-		v_data = coreGet(v_part, "data", v_audio_alt)
-		v_format = coreGet(v_part, "format", nil)
-		v_is_wav = _core_eq(v_format, "wav")
-		v_is_mp3 = _core_eq(v_format, "mp3")
-		v_format_ok = _core_or(v_is_wav, v_is_mp3)
-		if coreTruthy(v_format_ok) {
-			v_out = Object()
-			if err := coreSet(v_out, "type", "input_audio"); err != nil { return nil, err }
-			v_input_audio = Object()
-			if err := coreSet(v_input_audio, "data", v_data); err != nil { return nil, err }
-			if err := coreSet(v_input_audio, "format", v_format); err != nil { return nil, err }
-			if err := coreSet(v_out, "input_audio", v_input_audio); err != nil { return nil, err }
-			return v_out, nil
-		} else {
-		// empty
-		}
-		v_audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", v_format)
-		v_audio_error = _core_ai_error_unsupported(v_audio_message)
-		return nil, asError(v_audio_error)
+	v_description = coreGet(v_part, "description", nil)
+	v_has_description = _core_truthy(v_description)
+	if coreTruthy(v_has_description) {
+		v_lines = coreAppend(v_lines, v_description)
 	} else {
 	// empty
 	}
-	v_is_file = _core_eq(v_type, "file")
-	if coreTruthy(v_is_file) {
-		v_out = Object()
-		v_mime_snake = coreGet(v_part, "mime_type", "application/octet-stream")
-		v_mime = coreGet(v_part, "mimeType", v_mime_snake)
-		v_uri_snake = coreGet(v_part, "file_uri", nil)
-		v_uri = coreGet(v_part, "fileUri", v_uri_snake)
-		v_has_uri = _core_truthy(v_uri)
-		v_is_image_file = _core_string_starts_with(v_mime, "image/")
-		v_is_video_file = _core_string_starts_with(v_mime, "video/")
-		v_is_uri_video = _core_and(v_is_video_file, v_has_uri)
-		if coreTruthy(v_is_image_file) {
-			if err := coreSet(v_out, "type", "image_url"); err != nil { return nil, err }
-			v_image_url = Object()
-			v_data = coreGet(v_part, "data", "")
-			v_data_url = _core_string_format("data:{};base64,{}", v_mime, v_data)
-			v_resolved_uri = _core_coalesce(v_uri, v_data_url)
-			if err := coreSet(v_image_url, "url", v_resolved_uri); err != nil { return nil, err }
-			if err := coreSet(v_image_url, "detail", "auto"); err != nil { return nil, err }
-			if err := coreSet(v_out, "image_url", v_image_url); err != nil { return nil, err }
-		} else {
-			if coreTruthy(v_is_uri_video) {
-				if err := coreSet(v_out, "type", "video_url"); err != nil { return nil, err }
-				v_video_url = Object()
-				if err := coreSet(v_video_url, "url", v_uri); err != nil { return nil, err }
-				if err := coreSet(v_out, "video_url", v_video_url); err != nil { return nil, err }
-			} else {
-				if err := coreSet(v_out, "type", "file"); err != nil { return nil, err }
-				v_file = Object()
-				if coreTruthy(v_has_uri) {
-					if err := coreSet(v_file, "file_url", v_uri); err != nil { return nil, err }
-				} else {
-					v_data = coreGet(v_part, "data", "")
-					v_file_data = _core_string_format("data:{};base64,{}", v_mime, v_data)
-					if err := coreSet(v_file, "file_data", v_file_data); err != nil { return nil, err }
-				}
-				v_filename = coreGet(v_part, "filename", nil)
-				v_has_filename = _core_is_not_none(v_filename)
-				if coreTruthy(v_has_filename) {
-					if err := coreSet(v_file, "filename", v_filename); err != nil { return nil, err }
-				} else {
-				// empty
-				}
-				if err := coreSet(v_out, "file", v_file); err != nil { return nil, err }
-			}
-		}
-		return v_out, nil
+	v_url = coreGet(v_part, "url", nil)
+	v_has_url = _core_truthy(v_url)
+	if coreTruthy(v_has_url) {
+		v_lines = coreAppend(v_lines, v_url)
 	} else {
 	// empty
 	}
-	v_is_url = _core_eq(v_type, "url")
-	if coreTruthy(v_is_url) {
-		v_out = Object()
-		if err := coreSet(v_out, "type", "text"); err != nil { return nil, err }
-		v_cached_snake = coreGet(v_part, "cached_content", nil)
-		v_cached = coreGet(v_part, "cachedContent", v_cached_snake)
-		v_url = coreGet(v_part, "url", "")
-		v_text = _core_coalesce(v_cached, v_url)
-		if err := coreSet(v_out, "text", v_text); err != nil { return nil, err }
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", v_type)
-	v_error = _core_ai_error_unsupported(v_message)
-	return nil, asError(v_error)
+	v_text = _core_string_join("\n", v_lines)
+	return v_text, nil
 }
 
 func typesafe_normalize_chat_response(args ...Value) (Value, error) {
@@ -10958,6 +10796,255 @@ func typesafe_normalize_chat_response(args ...Value) (Value, error) {
 	if err := coreSet(v_response, "modelUsage", v_model_usage); err != nil { return nil, err }
 	if err := coreSet(v_response, "providerMetadata", v_metadata); err != nil { return nil, err }
 	return v_response, nil
+}
+
+func _openai_content_part_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_content_part_impl")
+	var v_part Value
+	var v_audio_alt Value
+	var v_audio_error Value
+	var v_audio_message Value
+	var v_audio_mime Value
+	var v_audio_mime_snake Value
+	var v_data Value
+	var v_data_url Value
+	var v_details Value
+	var v_error Value
+	var v_file Value
+	var v_file_data Value
+	var v_filename Value
+	var v_format Value
+	var v_format_ok Value
+	var v_has_audio_format Value
+	var v_has_audio_mime Value
+	var v_has_filename Value
+	var v_has_resolved_format Value
+	var v_has_uri Value
+	var v_image Value
+	var v_image_raw Value
+	var v_image_url Value
+	var v_image_value Value
+	var v_input_audio Value
+	var v_is_audio Value
+	var v_is_data_url Value
+	var v_is_file Value
+	var v_is_image Value
+	var v_is_image_file Value
+	var v_is_mp3 Value
+	var v_is_text Value
+	var v_is_uri_video Value
+	var v_is_url Value
+	var v_is_video_file Value
+	var v_is_wav Value
+	var v_message Value
+	var v_mime Value
+	var v_mime_raw Value
+	var v_mime_snake Value
+	var v_out Value
+	var v_received Value
+	var v_resolved_uri Value
+	var v_text Value
+	var v_type Value
+	var v_uri Value
+	var v_uri_snake Value
+	var v_url Value
+	var v_video_url Value
+	if len(args) > 0 { v_part = args[0] }
+	_ = v_part
+	_ = v_audio_alt
+	_ = v_audio_error
+	_ = v_audio_message
+	_ = v_audio_mime
+	_ = v_audio_mime_snake
+	_ = v_data
+	_ = v_data_url
+	_ = v_details
+	_ = v_error
+	_ = v_file
+	_ = v_file_data
+	_ = v_filename
+	_ = v_format
+	_ = v_format_ok
+	_ = v_has_audio_format
+	_ = v_has_audio_mime
+	_ = v_has_filename
+	_ = v_has_resolved_format
+	_ = v_has_uri
+	_ = v_image
+	_ = v_image_raw
+	_ = v_image_url
+	_ = v_image_value
+	_ = v_input_audio
+	_ = v_is_audio
+	_ = v_is_data_url
+	_ = v_is_file
+	_ = v_is_image
+	_ = v_is_image_file
+	_ = v_is_mp3
+	_ = v_is_text
+	_ = v_is_uri_video
+	_ = v_is_url
+	_ = v_is_video_file
+	_ = v_is_wav
+	_ = v_message
+	_ = v_mime
+	_ = v_mime_raw
+	_ = v_mime_snake
+	_ = v_out
+	_ = v_received
+	_ = v_resolved_uri
+	_ = v_text
+	_ = v_type
+	_ = v_uri
+	_ = v_uri_snake
+	_ = v_url
+	_ = v_video_url
+	v_type = coreGet(v_part, "type", nil)
+	v_is_text = _core_eq(v_type, "text")
+	if coreTruthy(v_is_text) {
+		v_text = coreGet(v_part, "text", "")
+		v_out = Object()
+		if err := coreSet(v_out, "type", "text"); err != nil { return nil, err }
+		if err := coreSet(v_out, "text", v_text); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_is_image = _core_eq(v_type, "image")
+	if coreTruthy(v_is_image) {
+		v_mime_snake = coreGet(v_part, "mime_type", nil)
+		v_mime_raw = coreGet(v_part, "mimeType", v_mime_snake)
+		v_mime = _core_coalesce(v_mime_raw, "image/png")
+		v_image_value = coreGet(v_part, "image", nil)
+		v_image_raw = coreGet(v_part, "data", v_image_value)
+		v_image = _core_coalesce(v_image_raw, "")
+		v_is_data_url = _core_string_starts_with(v_image, "data:")
+		v_url = ""
+		if coreTruthy(v_is_data_url) {
+			v_url = v_image
+		} else {
+			v_url = _core_string_format("data:{};base64,{}", v_mime, v_image)
+		}
+		v_details = coreGet(v_part, "details", "auto")
+		v_image_url = Object()
+		if err := coreSet(v_image_url, "url", v_url); err != nil { return nil, err }
+		if err := coreSet(v_image_url, "detail", v_details); err != nil { return nil, err }
+		v_out = Object()
+		if err := coreSet(v_out, "type", "image_url"); err != nil { return nil, err }
+		if err := coreSet(v_out, "image_url", v_image_url); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_is_audio = _core_eq(v_type, "audio")
+	if coreTruthy(v_is_audio) {
+		v_audio_alt = coreGet(v_part, "audio", nil)
+		v_data = coreGet(v_part, "data", v_audio_alt)
+		v_format = coreGet(v_part, "format", nil)
+		v_audio_mime_snake = coreGet(v_part, "mime_type", nil)
+		v_audio_mime = coreGet(v_part, "mimeType", v_audio_mime_snake)
+		v_has_audio_format = _core_is_not_none(v_format)
+		if coreTruthy(v_has_audio_format) {
+		// empty
+		} else {
+			{ v, err := _audio_format_from_mime_type_impl(v_audio_mime); if err != nil { return nil, err }; v_format = v }
+		}
+		v_is_wav = _core_eq(v_format, "wav")
+		v_is_mp3 = _core_eq(v_format, "mp3")
+		v_format_ok = _core_or(v_is_wav, v_is_mp3)
+		if coreTruthy(v_format_ok) {
+			v_out = Object()
+			if err := coreSet(v_out, "type", "input_audio"); err != nil { return nil, err }
+			v_input_audio = Object()
+			if err := coreSet(v_input_audio, "data", v_data); err != nil { return nil, err }
+			if err := coreSet(v_input_audio, "format", v_format); err != nil { return nil, err }
+			if err := coreSet(v_out, "input_audio", v_input_audio); err != nil { return nil, err }
+			return v_out, nil
+		} else {
+		// empty
+		}
+		v_received = "unknown format"
+		v_has_audio_mime = _core_is_not_none(v_audio_mime)
+		if coreTruthy(v_has_audio_mime) {
+			v_received = v_audio_mime
+		} else {
+		// empty
+		}
+		v_has_resolved_format = _core_is_not_none(v_format)
+		if coreTruthy(v_has_resolved_format) {
+			v_received = v_format
+		} else {
+		// empty
+		}
+		v_audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", v_received)
+		v_audio_error = _core_ai_error_unsupported(v_audio_message)
+		return nil, asError(v_audio_error)
+	} else {
+	// empty
+	}
+	v_is_file = _core_eq(v_type, "file")
+	if coreTruthy(v_is_file) {
+		v_out = Object()
+		v_mime_snake = coreGet(v_part, "mime_type", "application/octet-stream")
+		v_mime = coreGet(v_part, "mimeType", v_mime_snake)
+		v_uri_snake = coreGet(v_part, "file_uri", nil)
+		v_uri = coreGet(v_part, "fileUri", v_uri_snake)
+		v_has_uri = _core_truthy(v_uri)
+		v_is_image_file = _core_string_starts_with(v_mime, "image/")
+		v_is_video_file = _core_string_starts_with(v_mime, "video/")
+		v_is_uri_video = _core_and(v_is_video_file, v_has_uri)
+		if coreTruthy(v_is_image_file) {
+			if err := coreSet(v_out, "type", "image_url"); err != nil { return nil, err }
+			v_image_url = Object()
+			v_data = coreGet(v_part, "data", "")
+			v_data_url = _core_string_format("data:{};base64,{}", v_mime, v_data)
+			v_resolved_uri = _core_coalesce(v_uri, v_data_url)
+			if err := coreSet(v_image_url, "url", v_resolved_uri); err != nil { return nil, err }
+			if err := coreSet(v_image_url, "detail", "auto"); err != nil { return nil, err }
+			if err := coreSet(v_out, "image_url", v_image_url); err != nil { return nil, err }
+		} else {
+			if coreTruthy(v_is_uri_video) {
+				if err := coreSet(v_out, "type", "video_url"); err != nil { return nil, err }
+				v_video_url = Object()
+				if err := coreSet(v_video_url, "url", v_uri); err != nil { return nil, err }
+				if err := coreSet(v_out, "video_url", v_video_url); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_out, "type", "file"); err != nil { return nil, err }
+				v_file = Object()
+				if coreTruthy(v_has_uri) {
+					if err := coreSet(v_file, "file_url", v_uri); err != nil { return nil, err }
+				} else {
+					v_data = coreGet(v_part, "data", "")
+					v_file_data = _core_string_format("data:{};base64,{}", v_mime, v_data)
+					if err := coreSet(v_file, "file_data", v_file_data); err != nil { return nil, err }
+				}
+				v_filename = coreGet(v_part, "filename", nil)
+				v_has_filename = _core_is_not_none(v_filename)
+				if coreTruthy(v_has_filename) {
+					if err := coreSet(v_file, "filename", v_filename); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+				if err := coreSet(v_out, "file", v_file); err != nil { return nil, err }
+			}
+		}
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_is_url = _core_eq(v_type, "url")
+	if coreTruthy(v_is_url) {
+		v_out = Object()
+		if err := coreSet(v_out, "type", "text"); err != nil { return nil, err }
+		{ v, err := _url_part_text_impl(v_part); if err != nil { return nil, err }; v_text = v }
+		if err := coreSet(v_out, "text", v_text); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", v_type)
+	v_error = _core_ai_error_unsupported(v_message)
+	return nil, asError(v_error)
 }
 
 func typesafe_response_context(args ...Value) (Value, error) {
@@ -11242,77 +11329,6 @@ func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _openai_tool_spec_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_tool_spec_impl")
-	var v_fn Value
-	var v_description Value
-	var v_function Value
-	var v_has_parameters Value
-	var v_name Value
-	var v_out Value
-	var v_parameters Value
-	if len(args) > 0 { v_fn = args[0] }
-	_ = v_fn
-	_ = v_description
-	_ = v_function
-	_ = v_has_parameters
-	_ = v_name
-	_ = v_out
-	_ = v_parameters
-	v_name = coreGet(v_fn, "name", nil)
-	v_description = coreGet(v_fn, "description", "")
-	v_parameters = coreGet(v_fn, "parameters", nil)
-	v_function = Object()
-	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_function, "description", v_description); err != nil { return nil, err }
-	v_has_parameters = _core_truthy(v_parameters)
-	if coreTruthy(v_has_parameters) {
-		if err := coreSet(v_function, "parameters", v_parameters); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_out = Object()
-	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
-	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
-	return v_out, nil
-}
-
-func openai_build_embed_request(args ...Value) (Value, error) {
-	axirCoverageMark("openai_build_embed_request")
-	var v_request Value
-	var v_dimensions Value
-	var v_embed_model_snake Value
-	var v_empty_texts Value
-	var v_has_dimensions Value
-	var v_model Value
-	var v_payload Value
-	var v_texts Value
-	if len(args) > 0 { v_request = args[0] }
-	_ = v_request
-	_ = v_dimensions
-	_ = v_embed_model_snake
-	_ = v_empty_texts
-	_ = v_has_dimensions
-	_ = v_model
-	_ = v_payload
-	_ = v_texts
-	v_embed_model_snake = coreGet(v_request, "embed_model", nil)
-	v_model = coreGet(v_request, "embedModel", v_embed_model_snake)
-	v_empty_texts = MutableArray()
-	v_texts = coreGet(v_request, "texts", v_empty_texts)
-	v_payload = Object()
-	if err := coreSet(v_payload, "model", v_model); err != nil { return nil, err }
-	if err := coreSet(v_payload, "input", v_texts); err != nil { return nil, err }
-	v_dimensions = coreGet(v_request, "dimensions", nil)
-	v_has_dimensions = _core_truthy(v_dimensions)
-	if coreTruthy(v_has_dimensions) {
-		if err := coreSet(v_payload, "dimensions", v_dimensions); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_payload, nil
-}
-
 func _ai_model_usage_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_ai_model_usage_impl")
 	var v_ai_name Value
@@ -11350,21 +11366,39 @@ func _ai_model_usage_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func openai_normalize_chat_response(args ...Value) (Value, error) {
-	axirCoverageMark("openai_normalize_chat_response")
-	var v_raw Value
-	var v_ai_name Value
-	var v_model Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_ai_name = args[1] }
-	_ = v_ai_name
-	if len(args) > 2 { v_model = args[2] }
-	_ = v_model
-	_ = v_response
-	{ v, err := _openai_normalize_chat_response_impl(v_raw, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
+func _openai_tool_spec_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_tool_spec_impl")
+	var v_fn Value
+	var v_description Value
+	var v_function Value
+	var v_has_parameters Value
+	var v_name Value
+	var v_out Value
+	var v_parameters Value
+	if len(args) > 0 { v_fn = args[0] }
+	_ = v_fn
+	_ = v_description
+	_ = v_function
+	_ = v_has_parameters
+	_ = v_name
+	_ = v_out
+	_ = v_parameters
+	v_name = coreGet(v_fn, "name", nil)
+	v_description = coreGet(v_fn, "description", "")
+	v_parameters = coreGet(v_fn, "parameters", nil)
+	v_function = Object()
+	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_function, "description", v_description); err != nil { return nil, err }
+	v_has_parameters = _core_truthy(v_parameters)
+	if coreTruthy(v_has_parameters) {
+		if err := coreSet(v_function, "parameters", v_parameters); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
+	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func ai_merge_replay_metadata(args ...Value) (Value, error) {
@@ -11533,6 +11567,59 @@ func ai_merge_replay_metadata(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func openai_build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("openai_build_embed_request")
+	var v_request Value
+	var v_dimensions Value
+	var v_embed_model_snake Value
+	var v_empty_texts Value
+	var v_has_dimensions Value
+	var v_model Value
+	var v_payload Value
+	var v_texts Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_dimensions
+	_ = v_embed_model_snake
+	_ = v_empty_texts
+	_ = v_has_dimensions
+	_ = v_model
+	_ = v_payload
+	_ = v_texts
+	v_embed_model_snake = coreGet(v_request, "embed_model", nil)
+	v_model = coreGet(v_request, "embedModel", v_embed_model_snake)
+	v_empty_texts = MutableArray()
+	v_texts = coreGet(v_request, "texts", v_empty_texts)
+	v_payload = Object()
+	if err := coreSet(v_payload, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_payload, "input", v_texts); err != nil { return nil, err }
+	v_dimensions = coreGet(v_request, "dimensions", nil)
+	v_has_dimensions = _core_truthy(v_dimensions)
+	if coreTruthy(v_has_dimensions) {
+		if err := coreSet(v_payload, "dimensions", v_dimensions); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_payload, nil
+}
+
+func openai_normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_chat_response")
+	var v_raw Value
+	var v_ai_name Value
+	var v_model Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_ai_name = args[1] }
+	_ = v_ai_name
+	if len(args) > 2 { v_model = args[2] }
+	_ = v_model
+	_ = v_response
+	{ v, err := _openai_normalize_chat_response_impl(v_raw, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
 func _openai_usage_with_service_tier(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_usage_with_service_tier")
 	var v_raw Value
@@ -11672,6 +11759,146 @@ func _openai_normalize_chat_response_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
 	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
 	return v_out, nil
+}
+
+func _chat_result_to_completion(args ...Value) (Value, error) {
+	axirCoverageMark("_chat_result_to_completion")
+	var v_result Value
+	var v_fallback_index Value
+	var v_call Value
+	var v_calls Value
+	var v_compat_call Value
+	var v_completion Value
+	var v_content Value
+	var v_empty_calls Value
+	var v_finish Value
+	var v_finish_snake Value
+	var v_flat_has_name Value
+	var v_flat_name Value
+	var v_flat_params Value
+	var v_fn Value
+	var v_fn_has_name Value
+	var v_fn_is_map Value
+	var v_function_calls Value
+	var v_has_finish Value
+	var v_has_images Value
+	var v_has_name Value
+	var v_has_phase Value
+	var v_has_thought Value
+	var v_has_thought_blocks Value
+	var v_id Value
+	var v_images Value
+	var v_index Value
+	var v_name Value
+	var v_params Value
+	var v_phase Value
+	var v_thought Value
+	var v_thought_blocks Value
+	if len(args) > 0 { v_result = args[0] }
+	_ = v_result
+	if len(args) > 1 { v_fallback_index = args[1] }
+	_ = v_fallback_index
+	_ = v_call
+	_ = v_calls
+	_ = v_compat_call
+	_ = v_completion
+	_ = v_content
+	_ = v_empty_calls
+	_ = v_finish
+	_ = v_finish_snake
+	_ = v_flat_has_name
+	_ = v_flat_name
+	_ = v_flat_params
+	_ = v_fn
+	_ = v_fn_has_name
+	_ = v_fn_is_map
+	_ = v_function_calls
+	_ = v_has_finish
+	_ = v_has_images
+	_ = v_has_name
+	_ = v_has_phase
+	_ = v_has_thought
+	_ = v_has_thought_blocks
+	_ = v_id
+	_ = v_images
+	_ = v_index
+	_ = v_name
+	_ = v_params
+	_ = v_phase
+	_ = v_thought
+	_ = v_thought_blocks
+	v_content = coreGet(v_result, "content", "")
+	v_calls = MutableArray()
+	v_empty_calls = MutableArray()
+	v_function_calls = coreGet(v_result, "function_calls", v_empty_calls)
+	for _, v_call = range coreIter(v_function_calls) {
+		v_fn = coreGet(v_call, "function", nil)
+		v_id = coreGet(v_call, "id", nil)
+		v_flat_name = coreGet(v_call, "name", nil)
+		v_name = coreGet(v_fn, "name", v_flat_name)
+		v_flat_params = coreGet(v_call, "params", nil)
+		v_params = coreGet(v_fn, "params", v_flat_params)
+		v_fn_is_map = coreTypeIs(v_fn, "object")
+		v_fn_has_name = false
+		if coreTruthy(v_fn_is_map) {
+			v_fn_has_name = _core_map_contains(v_fn, "name")
+		} else {
+		// empty
+		}
+		v_flat_has_name = _core_map_contains(v_call, "name")
+		v_has_name = _core_or(v_fn_has_name, v_flat_has_name)
+		v_compat_call = Object()
+		if err := coreSet(v_compat_call, "id", v_id); err != nil { return nil, err }
+		if coreTruthy(v_has_name) {
+			if err := coreSet(v_compat_call, "name", v_name); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		if err := coreSet(v_compat_call, "params", v_params); err != nil { return nil, err }
+		v_calls = coreAppend(v_calls, v_compat_call)
+	}
+	v_index = coreGet(v_result, "index", v_fallback_index)
+	v_thought = coreGet(v_result, "thought", nil)
+	v_has_thought = _core_is_not_none(v_thought)
+	v_thought_blocks = coreGet(v_result, "thought_blocks", nil)
+	v_has_thought_blocks = _core_is_not_none(v_thought_blocks)
+	v_completion = Object()
+	if err := coreSet(v_completion, "index", v_index); err != nil { return nil, err }
+	if err := coreSet(v_completion, "content", v_content); err != nil { return nil, err }
+	if err := coreSet(v_completion, "function_calls", v_calls); err != nil { return nil, err }
+	if coreTruthy(v_has_thought) {
+		if err := coreSet(v_completion, "thought", v_thought); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_has_thought_blocks) {
+		if err := coreSet(v_completion, "thought_blocks", v_thought_blocks); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_images = coreGet(v_result, "images", nil)
+	v_has_images = _core_is_not_none(v_images)
+	if coreTruthy(v_has_images) {
+		if err := coreSet(v_completion, "images", v_images); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_phase = coreGet(v_result, "phase", nil)
+	v_has_phase = _core_is_not_none(v_phase)
+	if coreTruthy(v_has_phase) {
+		if err := coreSet(v_completion, "phase", v_phase); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_finish_snake = coreGet(v_result, "finish_reason", nil)
+	v_finish = coreGet(v_result, "finishReason", v_finish_snake)
+	v_has_finish = _core_is_not_none(v_finish)
+	if coreTruthy(v_has_finish) {
+		if err := coreSet(v_completion, "finish_reason", v_finish); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_completion, nil
 }
 
 func _openai_normalize_choice_impl(args ...Value) (Value, error) {
@@ -11837,208 +12064,6 @@ func _openai_normalize_choice_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _chat_result_to_completion(args ...Value) (Value, error) {
-	axirCoverageMark("_chat_result_to_completion")
-	var v_result Value
-	var v_fallback_index Value
-	var v_call Value
-	var v_calls Value
-	var v_compat_call Value
-	var v_completion Value
-	var v_content Value
-	var v_empty_calls Value
-	var v_finish Value
-	var v_finish_snake Value
-	var v_flat_has_name Value
-	var v_flat_name Value
-	var v_flat_params Value
-	var v_fn Value
-	var v_fn_has_name Value
-	var v_fn_is_map Value
-	var v_function_calls Value
-	var v_has_finish Value
-	var v_has_images Value
-	var v_has_name Value
-	var v_has_phase Value
-	var v_has_thought Value
-	var v_has_thought_blocks Value
-	var v_id Value
-	var v_images Value
-	var v_index Value
-	var v_name Value
-	var v_params Value
-	var v_phase Value
-	var v_thought Value
-	var v_thought_blocks Value
-	if len(args) > 0 { v_result = args[0] }
-	_ = v_result
-	if len(args) > 1 { v_fallback_index = args[1] }
-	_ = v_fallback_index
-	_ = v_call
-	_ = v_calls
-	_ = v_compat_call
-	_ = v_completion
-	_ = v_content
-	_ = v_empty_calls
-	_ = v_finish
-	_ = v_finish_snake
-	_ = v_flat_has_name
-	_ = v_flat_name
-	_ = v_flat_params
-	_ = v_fn
-	_ = v_fn_has_name
-	_ = v_fn_is_map
-	_ = v_function_calls
-	_ = v_has_finish
-	_ = v_has_images
-	_ = v_has_name
-	_ = v_has_phase
-	_ = v_has_thought
-	_ = v_has_thought_blocks
-	_ = v_id
-	_ = v_images
-	_ = v_index
-	_ = v_name
-	_ = v_params
-	_ = v_phase
-	_ = v_thought
-	_ = v_thought_blocks
-	v_content = coreGet(v_result, "content", "")
-	v_calls = MutableArray()
-	v_empty_calls = MutableArray()
-	v_function_calls = coreGet(v_result, "function_calls", v_empty_calls)
-	for _, v_call = range coreIter(v_function_calls) {
-		v_fn = coreGet(v_call, "function", nil)
-		v_id = coreGet(v_call, "id", nil)
-		v_flat_name = coreGet(v_call, "name", nil)
-		v_name = coreGet(v_fn, "name", v_flat_name)
-		v_flat_params = coreGet(v_call, "params", nil)
-		v_params = coreGet(v_fn, "params", v_flat_params)
-		v_fn_is_map = coreTypeIs(v_fn, "object")
-		v_fn_has_name = false
-		if coreTruthy(v_fn_is_map) {
-			v_fn_has_name = _core_map_contains(v_fn, "name")
-		} else {
-		// empty
-		}
-		v_flat_has_name = _core_map_contains(v_call, "name")
-		v_has_name = _core_or(v_fn_has_name, v_flat_has_name)
-		v_compat_call = Object()
-		if err := coreSet(v_compat_call, "id", v_id); err != nil { return nil, err }
-		if coreTruthy(v_has_name) {
-			if err := coreSet(v_compat_call, "name", v_name); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-		if err := coreSet(v_compat_call, "params", v_params); err != nil { return nil, err }
-		v_calls = coreAppend(v_calls, v_compat_call)
-	}
-	v_index = coreGet(v_result, "index", v_fallback_index)
-	v_thought = coreGet(v_result, "thought", nil)
-	v_has_thought = _core_is_not_none(v_thought)
-	v_thought_blocks = coreGet(v_result, "thought_blocks", nil)
-	v_has_thought_blocks = _core_is_not_none(v_thought_blocks)
-	v_completion = Object()
-	if err := coreSet(v_completion, "index", v_index); err != nil { return nil, err }
-	if err := coreSet(v_completion, "content", v_content); err != nil { return nil, err }
-	if err := coreSet(v_completion, "function_calls", v_calls); err != nil { return nil, err }
-	if coreTruthy(v_has_thought) {
-		if err := coreSet(v_completion, "thought", v_thought); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	if coreTruthy(v_has_thought_blocks) {
-		if err := coreSet(v_completion, "thought_blocks", v_thought_blocks); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_images = coreGet(v_result, "images", nil)
-	v_has_images = _core_is_not_none(v_images)
-	if coreTruthy(v_has_images) {
-		if err := coreSet(v_completion, "images", v_images); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_phase = coreGet(v_result, "phase", nil)
-	v_has_phase = _core_is_not_none(v_phase)
-	if coreTruthy(v_has_phase) {
-		if err := coreSet(v_completion, "phase", v_phase); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_finish_snake = coreGet(v_result, "finish_reason", nil)
-	v_finish = coreGet(v_result, "finishReason", v_finish_snake)
-	v_has_finish = _core_is_not_none(v_finish)
-	if coreTruthy(v_has_finish) {
-		if err := coreSet(v_completion, "finish_reason", v_finish); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_completion, nil
-}
-
-func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_normalize_tool_calls_impl")
-	var v_calls Value
-	var v_call Value
-	var v_fn Value
-	var v_function Value
-	var v_id Value
-	var v_name Value
-	var v_normalized Value
-	var v_out Value
-	var v_params Value
-	var v_params_is_string Value
-	var v_parse_error Value
-	var v_parsed_params Value
-	if len(args) > 0 { v_calls = args[0] }
-	_ = v_calls
-	_ = v_call
-	_ = v_fn
-	_ = v_function
-	_ = v_id
-	_ = v_name
-	_ = v_normalized
-	_ = v_out
-	_ = v_params
-	_ = v_params_is_string
-	_ = v_parse_error
-	_ = v_parsed_params
-	v_out = MutableArray()
-	for _, v_call = range coreIter(v_calls) {
-		v_fn = coreGet(v_call, "function", nil)
-		v_params = coreGet(v_fn, "arguments", nil)
-		v_params_is_string = coreTypeIs(v_params, "string")
-		if coreTruthy(v_params_is_string) {
-			{
-				__flow, __err := func() (coreFlow, error) {
-					{ v, err := _core_json_parse(v_params); if err != nil { return coreFlow{}, err }; v_parsed_params = v }
-					v_params = v_parsed_params
-					return coreFlow{}, nil
-				}()
-				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-				if __err != nil {
-					v_parse_error = errorValue(__err)
-				// empty
-				}
-			}
-		} else {
-		// empty
-		}
-		v_id = coreGet(v_call, "id", nil)
-		v_name = coreGet(v_fn, "name", nil)
-		v_function = Object()
-		if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-		if err := coreSet(v_function, "params", v_params); err != nil { return nil, err }
-		v_normalized = Object()
-		if err := coreSet(v_normalized, "id", v_id); err != nil { return nil, err }
-		if err := coreSet(v_normalized, "type", "function"); err != nil { return nil, err }
-		if err := coreSet(v_normalized, "function", v_function); err != nil { return nil, err }
-		v_out = coreAppend(v_out, v_normalized)
-	}
-	return v_out, nil
-}
-
 func chat_response_to_completion(args ...Value) (Value, error) {
 	axirCoverageMark("chat_response_to_completion")
 	var v_response Value
@@ -12176,107 +12201,65 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _openai_finish_reason_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_finish_reason_impl")
-	var v_value Value
-	var v_is_call Value
-	var v_is_content_filter Value
-	var v_is_function_call Value
-	var v_is_length Value
-	var v_is_stop Value
-	var v_is_tool_calls Value
-	var v_none Value
-	if len(args) > 0 { v_value = args[0] }
-	_ = v_value
-	_ = v_is_call
-	_ = v_is_content_filter
-	_ = v_is_function_call
-	_ = v_is_length
-	_ = v_is_stop
-	_ = v_is_tool_calls
-	_ = v_none
-	v_is_stop = _core_eq(v_value, "stop")
-	if coreTruthy(v_is_stop) {
-		return "stop", nil
-	} else {
-	// empty
-	}
-	v_is_length = _core_eq(v_value, "length")
-	if coreTruthy(v_is_length) {
-		return "length", nil
-	} else {
-	// empty
-	}
-	v_is_content_filter = _core_eq(v_value, "content_filter")
-	if coreTruthy(v_is_content_filter) {
-		return "error", nil
-	} else {
-	// empty
-	}
-	v_is_tool_calls = _core_eq(v_value, "tool_calls")
-	v_is_function_call = _core_eq(v_value, "function_call")
-	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
-	if coreTruthy(v_is_call) {
-		return "function_call", nil
-	} else {
-	// empty
-	}
-	v_none = _core_none()
-	return v_none, nil
-}
-
-func openai_normalize_embed_response(args ...Value) (Value, error) {
-	axirCoverageMark("openai_normalize_embed_response")
-	var v_raw Value
-	var v_ai_name Value
-	var v_model Value
-	var v_data Value
-	var v_embedding Value
-	var v_embeddings Value
-	var v_empty_data Value
-	var v_item Value
-	var v_model_usage Value
+func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_normalize_tool_calls_impl")
+	var v_calls Value
+	var v_call Value
+	var v_fn Value
+	var v_function Value
+	var v_id Value
+	var v_name Value
+	var v_normalized Value
 	var v_out Value
-	var v_raw_model Value
-	var v_raw_usage Value
-	var v_remote_id Value
-	var v_usage Value
-	var v_used_model Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_ai_name = args[1] }
-	_ = v_ai_name
-	if len(args) > 2 { v_model = args[2] }
-	_ = v_model
-	_ = v_data
-	_ = v_embedding
-	_ = v_embeddings
-	_ = v_empty_data
-	_ = v_item
-	_ = v_model_usage
+	var v_params Value
+	var v_params_is_string Value
+	var v_parse_error Value
+	var v_parsed_params Value
+	if len(args) > 0 { v_calls = args[0] }
+	_ = v_calls
+	_ = v_call
+	_ = v_fn
+	_ = v_function
+	_ = v_id
+	_ = v_name
+	_ = v_normalized
 	_ = v_out
-	_ = v_raw_model
-	_ = v_raw_usage
-	_ = v_remote_id
-	_ = v_usage
-	_ = v_used_model
-	v_embeddings = MutableArray()
-	v_empty_data = MutableArray()
-	v_data = coreGet(v_raw, "data", v_empty_data)
-	for _, v_item = range coreIter(v_data) {
-		v_embedding = coreGet(v_item, "embedding", nil)
-		v_embeddings = coreAppend(v_embeddings, v_embedding)
+	_ = v_params
+	_ = v_params_is_string
+	_ = v_parse_error
+	_ = v_parsed_params
+	v_out = MutableArray()
+	for _, v_call = range coreIter(v_calls) {
+		v_fn = coreGet(v_call, "function", nil)
+		v_params = coreGet(v_fn, "arguments", nil)
+		v_params_is_string = coreTypeIs(v_params, "string")
+		if coreTruthy(v_params_is_string) {
+			{
+				__flow, __err := func() (coreFlow, error) {
+					{ v, err := _core_json_parse(v_params); if err != nil { return coreFlow{}, err }; v_parsed_params = v }
+					v_params = v_parsed_params
+					return coreFlow{}, nil
+				}()
+				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+				if __err != nil {
+					v_parse_error = errorValue(__err)
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		v_id = coreGet(v_call, "id", nil)
+		v_name = coreGet(v_fn, "name", nil)
+		v_function = Object()
+		if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+		if err := coreSet(v_function, "params", v_params); err != nil { return nil, err }
+		v_normalized = Object()
+		if err := coreSet(v_normalized, "id", v_id); err != nil { return nil, err }
+		if err := coreSet(v_normalized, "type", "function"); err != nil { return nil, err }
+		if err := coreSet(v_normalized, "function", v_function); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_normalized)
 	}
-	v_raw_model = coreGet(v_raw, "model", nil)
-	v_used_model = _core_coalesce(v_raw_model, v_model)
-	v_raw_usage = coreGet(v_raw, "usage", nil)
-	{ v, err := _openai_usage_with_service_tier(v_raw, v_raw_usage); if err != nil { return nil, err }; v_usage = v }
-	{ v, err := _ai_model_usage_impl(v_ai_name, v_used_model, v_usage); if err != nil { return nil, err }; v_model_usage = v }
-	v_remote_id = coreGet(v_raw, "id", nil)
-	v_out = Object()
-	if err := coreSet(v_out, "embeddings", v_embeddings); err != nil { return nil, err }
-	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
-	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -12366,24 +12349,53 @@ func ai_context_cache_rejection(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func openai_normalize_stream_delta(args ...Value) (Value, error) {
-	axirCoverageMark("openai_normalize_stream_delta")
-	var v_raw Value
-	var v_state Value
-	var v_ai_name Value
-	var v_model Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_state = args[1] }
-	_ = v_state
-	if len(args) > 2 { v_ai_name = args[2] }
-	_ = v_ai_name
-	if len(args) > 3 { v_model = args[3] }
-	_ = v_model
-	_ = v_response
-	{ v, err := _openai_normalize_stream_delta_impl(v_raw, v_state, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
+func _openai_finish_reason_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_finish_reason_impl")
+	var v_value Value
+	var v_is_call Value
+	var v_is_content_filter Value
+	var v_is_function_call Value
+	var v_is_length Value
+	var v_is_stop Value
+	var v_is_tool_calls Value
+	var v_none Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_is_call
+	_ = v_is_content_filter
+	_ = v_is_function_call
+	_ = v_is_length
+	_ = v_is_stop
+	_ = v_is_tool_calls
+	_ = v_none
+	v_is_stop = _core_eq(v_value, "stop")
+	if coreTruthy(v_is_stop) {
+		return "stop", nil
+	} else {
+	// empty
+	}
+	v_is_length = _core_eq(v_value, "length")
+	if coreTruthy(v_is_length) {
+		return "length", nil
+	} else {
+	// empty
+	}
+	v_is_content_filter = _core_eq(v_value, "content_filter")
+	if coreTruthy(v_is_content_filter) {
+		return "error", nil
+	} else {
+	// empty
+	}
+	v_is_tool_calls = _core_eq(v_value, "tool_calls")
+	v_is_function_call = _core_eq(v_value, "function_call")
+	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
+	if coreTruthy(v_is_call) {
+		return "function_call", nil
+	} else {
+	// empty
+	}
+	v_none = _core_none()
+	return v_none, nil
 }
 
 func ai_context_cache_expiry(args ...Value) (Value, error) {
@@ -12410,6 +12422,185 @@ func ai_context_cache_expiry(args ...Value) (Value, error) {
 	// empty
 	}
 	return 0, nil
+}
+
+func openai_normalize_embed_response(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_embed_response")
+	var v_raw Value
+	var v_ai_name Value
+	var v_model Value
+	var v_data Value
+	var v_embedding Value
+	var v_embeddings Value
+	var v_empty_data Value
+	var v_item Value
+	var v_model_usage Value
+	var v_out Value
+	var v_raw_model Value
+	var v_raw_usage Value
+	var v_remote_id Value
+	var v_usage Value
+	var v_used_model Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_ai_name = args[1] }
+	_ = v_ai_name
+	if len(args) > 2 { v_model = args[2] }
+	_ = v_model
+	_ = v_data
+	_ = v_embedding
+	_ = v_embeddings
+	_ = v_empty_data
+	_ = v_item
+	_ = v_model_usage
+	_ = v_out
+	_ = v_raw_model
+	_ = v_raw_usage
+	_ = v_remote_id
+	_ = v_usage
+	_ = v_used_model
+	v_embeddings = MutableArray()
+	v_empty_data = MutableArray()
+	v_data = coreGet(v_raw, "data", v_empty_data)
+	for _, v_item = range coreIter(v_data) {
+		v_embedding = coreGet(v_item, "embedding", nil)
+		v_embeddings = coreAppend(v_embeddings, v_embedding)
+	}
+	v_raw_model = coreGet(v_raw, "model", nil)
+	v_used_model = _core_coalesce(v_raw_model, v_model)
+	v_raw_usage = coreGet(v_raw, "usage", nil)
+	{ v, err := _openai_usage_with_service_tier(v_raw, v_raw_usage); if err != nil { return nil, err }; v_usage = v }
+	{ v, err := _ai_model_usage_impl(v_ai_name, v_used_model, v_usage); if err != nil { return nil, err }; v_model_usage = v }
+	v_remote_id = coreGet(v_raw, "id", nil)
+	v_out = Object()
+	if err := coreSet(v_out, "embeddings", v_embeddings); err != nil { return nil, err }
+	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func ai_context_cache_plan(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_plan")
+	var v_configured Value
+	var v_supported Value
+	var v_explicit_name Value
+	var v_existing Value
+	var v_now Value
+	var v_refresh_window_ms Value
+	var v_create_eligible Value
+	var v_cache_name Value
+	var v_cache_name_length Value
+	var v_disabled Value
+	var v_enabled Value
+	var v_existing_object Value
+	var v_expires_at Value
+	var v_explicit_length Value
+	var v_future Value
+	var v_has_explicit Value
+	var v_has_name Value
+	var v_needs_refresh Value
+	var v_out Value
+	var v_refresh_at Value
+	var v_valid Value
+	if len(args) > 0 { v_configured = args[0] }
+	_ = v_configured
+	if len(args) > 1 { v_supported = args[1] }
+	_ = v_supported
+	if len(args) > 2 { v_explicit_name = args[2] }
+	_ = v_explicit_name
+	if len(args) > 3 { v_existing = args[3] }
+	_ = v_existing
+	if len(args) > 4 { v_now = args[4] }
+	_ = v_now
+	if len(args) > 5 { v_refresh_window_ms = args[5] }
+	_ = v_refresh_window_ms
+	if len(args) > 6 { v_create_eligible = args[6] }
+	_ = v_create_eligible
+	_ = v_cache_name
+	_ = v_cache_name_length
+	_ = v_disabled
+	_ = v_enabled
+	_ = v_existing_object
+	_ = v_expires_at
+	_ = v_explicit_length
+	_ = v_future
+	_ = v_has_explicit
+	_ = v_has_name
+	_ = v_needs_refresh
+	_ = v_out
+	_ = v_refresh_at
+	_ = v_valid
+	v_out = Object()
+	if err := coreSet(v_out, "action", "none"); err != nil { return nil, err }
+	if err := coreSet(v_out, "managed", false); err != nil { return nil, err }
+	v_enabled = _core_and(v_configured, v_supported)
+	v_disabled = _core_not(v_enabled)
+	if coreTruthy(v_disabled) {
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_explicit_length = _core_len(v_explicit_name)
+	v_has_explicit = _core_gt(v_explicit_length, 0)
+	if coreTruthy(v_has_explicit) {
+		if err := coreSet(v_out, "action", "use"); err != nil { return nil, err }
+		if err := coreSet(v_out, "cacheName", v_explicit_name); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_existing_object = coreTypeIs(v_existing, "object")
+	if coreTruthy(v_existing_object) {
+		v_cache_name = coreGet(v_existing, "cacheName", "")
+		v_expires_at = coreGet(v_existing, "expiresAt", 0)
+		v_cache_name_length = _core_len(v_cache_name)
+		v_has_name = _core_gt(v_cache_name_length, 0)
+		v_future = _core_gt(v_expires_at, v_now)
+		v_valid = _core_and(v_has_name, v_future)
+		if coreTruthy(v_valid) {
+			v_refresh_at = _core_add(v_now, v_refresh_window_ms)
+			v_needs_refresh = _core_lt(v_expires_at, v_refresh_at)
+			if err := coreSet(v_out, "managed", true); err != nil { return nil, err }
+			if err := coreSet(v_out, "cacheName", v_cache_name); err != nil { return nil, err }
+			if coreTruthy(v_needs_refresh) {
+				if err := coreSet(v_out, "action", "refresh"); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_out, "action", "use"); err != nil { return nil, err }
+			}
+			return v_out, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	if coreTruthy(v_create_eligible) {
+		if err := coreSet(v_out, "action", "create"); err != nil { return nil, err }
+		if err := coreSet(v_out, "managed", true); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
+func openai_normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_stream_delta")
+	var v_raw Value
+	var v_state Value
+	var v_ai_name Value
+	var v_model Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	if len(args) > 2 { v_ai_name = args[2] }
+	_ = v_ai_name
+	if len(args) > 3 { v_model = args[3] }
+	_ = v_model
+	_ = v_response
+	{ v, err := _openai_normalize_stream_delta_impl(v_raw, v_state, v_ai_name, v_model, "none", "none"); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
 }
 
 func _openai_normalize_stream_delta_impl(args ...Value) (Value, error) {
@@ -12531,107 +12722,183 @@ func _openai_normalize_stream_delta_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func ai_context_cache_plan(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_plan")
-	var v_configured Value
-	var v_supported Value
-	var v_explicit_name Value
-	var v_existing Value
-	var v_now Value
-	var v_refresh_window_ms Value
-	var v_create_eligible Value
+func ai_context_cache_recovery(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_recovery")
+	var v_current_entry Value
 	var v_cache_name Value
-	var v_cache_name_length Value
-	var v_disabled Value
-	var v_enabled Value
-	var v_existing_object Value
-	var v_expires_at Value
-	var v_explicit_length Value
-	var v_future Value
-	var v_has_explicit Value
-	var v_has_name Value
-	var v_needs_refresh Value
+	var v_external_registry Value
+	var v_current_name Value
+	var v_empty Value
+	var v_entry_object Value
+	var v_matches Value
 	var v_out Value
-	var v_refresh_at Value
-	var v_valid Value
-	if len(args) > 0 { v_configured = args[0] }
-	_ = v_configured
-	if len(args) > 1 { v_supported = args[1] }
-	_ = v_supported
-	if len(args) > 2 { v_explicit_name = args[2] }
-	_ = v_explicit_name
-	if len(args) > 3 { v_existing = args[3] }
-	_ = v_existing
-	if len(args) > 4 { v_now = args[4] }
-	_ = v_now
-	if len(args) > 5 { v_refresh_window_ms = args[5] }
-	_ = v_refresh_window_ms
-	if len(args) > 6 { v_create_eligible = args[6] }
-	_ = v_create_eligible
+	var v_tombstone Value
+	if len(args) > 0 { v_current_entry = args[0] }
+	_ = v_current_entry
+	if len(args) > 1 { v_cache_name = args[1] }
 	_ = v_cache_name
-	_ = v_cache_name_length
-	_ = v_disabled
-	_ = v_enabled
-	_ = v_existing_object
-	_ = v_expires_at
-	_ = v_explicit_length
-	_ = v_future
-	_ = v_has_explicit
-	_ = v_has_name
-	_ = v_needs_refresh
+	if len(args) > 2 { v_external_registry = args[2] }
+	_ = v_external_registry
+	_ = v_current_name
+	_ = v_empty
+	_ = v_entry_object
+	_ = v_matches
 	_ = v_out
-	_ = v_refresh_at
-	_ = v_valid
+	_ = v_tombstone
 	v_out = Object()
-	if err := coreSet(v_out, "action", "none"); err != nil { return nil, err }
-	if err := coreSet(v_out, "managed", false); err != nil { return nil, err }
-	v_enabled = _core_and(v_configured, v_supported)
-	v_disabled = _core_not(v_enabled)
-	if coreTruthy(v_disabled) {
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_explicit_length = _core_len(v_explicit_name)
-	v_has_explicit = _core_gt(v_explicit_length, 0)
-	if coreTruthy(v_has_explicit) {
-		if err := coreSet(v_out, "action", "use"); err != nil { return nil, err }
-		if err := coreSet(v_out, "cacheName", v_explicit_name); err != nil { return nil, err }
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_existing_object = coreTypeIs(v_existing, "object")
-	if coreTruthy(v_existing_object) {
-		v_cache_name = coreGet(v_existing, "cacheName", "")
-		v_expires_at = coreGet(v_existing, "expiresAt", 0)
-		v_cache_name_length = _core_len(v_cache_name)
-		v_has_name = _core_gt(v_cache_name_length, 0)
-		v_future = _core_gt(v_expires_at, v_now)
-		v_valid = _core_and(v_has_name, v_future)
-		if coreTruthy(v_valid) {
-			v_refresh_at = _core_add(v_now, v_refresh_window_ms)
-			v_needs_refresh = _core_lt(v_expires_at, v_refresh_at)
-			if err := coreSet(v_out, "managed", true); err != nil { return nil, err }
-			if err := coreSet(v_out, "cacheName", v_cache_name); err != nil { return nil, err }
-			if coreTruthy(v_needs_refresh) {
-				if err := coreSet(v_out, "action", "refresh"); err != nil { return nil, err }
+	if err := coreSet(v_out, "invalidated", false); err != nil { return nil, err }
+	if err := coreSet(v_out, "deleteInMemory", false); err != nil { return nil, err }
+	v_entry_object = coreTypeIs(v_current_entry, "object")
+	if coreTruthy(v_entry_object) {
+		v_current_name = coreGet(v_current_entry, "cacheName", "")
+		v_matches = _core_eq(v_current_name, v_cache_name)
+		if coreTruthy(v_matches) {
+			if err := coreSet(v_out, "invalidated", true); err != nil { return nil, err }
+			if coreTruthy(v_external_registry) {
+				v_empty = Object()
+				v_tombstone = _core_map_merge(v_current_entry, v_empty)
+				if err := coreSet(v_tombstone, "expiresAt", 0); err != nil { return nil, err }
+				if err := coreSet(v_out, "externalEntry", v_tombstone); err != nil { return nil, err }
 			} else {
-				if err := coreSet(v_out, "action", "use"); err != nil { return nil, err }
+				if err := coreSet(v_out, "deleteInMemory", true); err != nil { return nil, err }
 			}
-			return v_out, nil
 		} else {
 		// empty
 		}
 	} else {
 	// empty
 	}
-	if coreTruthy(v_create_eligible) {
-		if err := coreSet(v_out, "action", "create"); err != nil { return nil, err }
-		if err := coreSet(v_out, "managed", true); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func ai_gemini_cache_ops(args ...Value) (Value, error) {
+	axirCoverageMark("ai_gemini_cache_ops")
+	var v_cache_name Value
+	var v_ttl_seconds Value
+	var v_api_key Value
+	var v_model Value
+	var v_create_body Value
+	var v_options Value
+	var v_cache_base_url Value
+	var v_create Value
+	var v_create_copy Value
+	var v_create_is_object Value
+	var v_create_path Value
+	var v_create_request Value
+	var v_delete_op Value
+	var v_delete_path Value
+	var v_descriptor Value
+	var v_empty Value
+	var v_empty_request Value
+	var v_has_cache_base_url Value
+	var v_is_vertex Value
+	var v_model_resource Value
+	var v_out Value
+	var v_parent Value
+	var v_ttl Value
+	var v_update Value
+	var v_update_path Value
+	var v_update_request Value
+	if len(args) > 0 { v_cache_name = args[0] }
+	_ = v_cache_name
+	if len(args) > 1 { v_ttl_seconds = args[1] }
+	_ = v_ttl_seconds
+	if len(args) > 2 { v_api_key = args[2] }
+	_ = v_api_key
+	if len(args) > 3 { v_model = args[3] }
+	_ = v_model
+	if len(args) > 4 { v_create_body = args[4] }
+	_ = v_create_body
+	if len(args) > 5 { v_options = args[5] }
+	_ = v_options
+	_ = v_cache_base_url
+	_ = v_create
+	_ = v_create_copy
+	_ = v_create_is_object
+	_ = v_create_path
+	_ = v_create_request
+	_ = v_delete_op
+	_ = v_delete_path
+	_ = v_descriptor
+	_ = v_empty
+	_ = v_empty_request
+	_ = v_has_cache_base_url
+	_ = v_is_vertex
+	_ = v_model_resource
+	_ = v_out
+	_ = v_parent
+	_ = v_ttl
+	_ = v_update
+	_ = v_update_path
+	_ = v_update_request
+	v_ttl = _core_string_format("{}s", v_ttl_seconds)
+	{ v, err := provider_resolve_descriptor("google-gemini", v_options); if err != nil { return nil, err }; v_descriptor = v }
+	v_is_vertex = coreGet(v_descriptor, "vertex", false)
+	v_create_path = "/cachedContents"
+	v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
+	v_delete_path = _core_string_format("/{}", v_cache_name)
+	if coreTruthy(v_is_vertex) {
+		v_parent = coreGet(v_descriptor, "vertexParent", "")
+		v_create_path = _core_string_format("/{}/cachedContents", v_parent)
+		v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
+		v_delete_path = _core_string_format("/{}", v_cache_name)
 	} else {
 	// empty
 	}
+	v_create_request = Object()
+	v_create_is_object = coreTypeIs(v_create_body, "object")
+	if coreTruthy(v_create_is_object) {
+		v_empty = Object()
+		v_create_copy = _core_map_merge(v_create_body, v_empty)
+		v_create_request = v_create_copy
+	} else {
+	// empty
+	}
+	v_model_resource = _core_string_format("models/{}", v_model)
+	if coreTruthy(v_is_vertex) {
+		v_parent = coreGet(v_descriptor, "vertexParent", "")
+		v_model_resource = _core_string_format("{}/publishers/google/models/{}", v_parent, v_model)
+	} else {
+	// empty
+	}
+	if err := coreSet(v_create_request, "model", v_model_resource); err != nil { return nil, err }
+	if err := coreSet(v_create_request, "ttl", v_ttl); err != nil { return nil, err }
+	v_update_request = Object()
+	if err := coreSet(v_update_request, "ttl", v_ttl); err != nil { return nil, err }
+	v_empty_request = Object()
+	v_create = Object()
+	if err := coreSet(v_create, "method", "POST"); err != nil { return nil, err }
+	if err := coreSet(v_create, "path", v_create_path); err != nil { return nil, err }
+	if err := coreSet(v_create, "request", v_create_request); err != nil { return nil, err }
+	v_cache_base_url = coreGet(v_descriptor, "vertexCacheBaseUrl", nil)
+	v_has_cache_base_url = _core_truthy(v_cache_base_url)
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_create, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_update = Object()
+	if err := coreSet(v_update, "method", "PATCH"); err != nil { return nil, err }
+	if err := coreSet(v_update, "path", v_update_path); err != nil { return nil, err }
+	if err := coreSet(v_update, "request", v_update_request); err != nil { return nil, err }
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_update, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_delete_op = Object()
+	if err := coreSet(v_delete_op, "method", "DELETE"); err != nil { return nil, err }
+	if err := coreSet(v_delete_op, "path", v_delete_path); err != nil { return nil, err }
+	if err := coreSet(v_delete_op, "request", v_empty_request); err != nil { return nil, err }
+	if coreTruthy(v_has_cache_base_url) {
+		if err := coreSet(v_delete_op, "base_url", v_cache_base_url); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "create", v_create); err != nil { return nil, err }
+	if err := coreSet(v_out, "update", v_update); err != nil { return nil, err }
+	if err := coreSet(v_out, "delete", v_delete_op); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -12822,184 +13089,115 @@ func _openai_stream_choice_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func ai_context_cache_recovery(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_recovery")
-	var v_current_entry Value
-	var v_cache_name Value
-	var v_external_registry Value
-	var v_current_name Value
-	var v_empty Value
-	var v_entry_object Value
-	var v_matches Value
-	var v_out Value
-	var v_tombstone Value
-	if len(args) > 0 { v_current_entry = args[0] }
-	_ = v_current_entry
-	if len(args) > 1 { v_cache_name = args[1] }
-	_ = v_cache_name
-	if len(args) > 2 { v_external_registry = args[2] }
-	_ = v_external_registry
-	_ = v_current_name
-	_ = v_empty
-	_ = v_entry_object
-	_ = v_matches
-	_ = v_out
-	_ = v_tombstone
-	v_out = Object()
-	if err := coreSet(v_out, "invalidated", false); err != nil { return nil, err }
-	if err := coreSet(v_out, "deleteInMemory", false); err != nil { return nil, err }
-	v_entry_object = coreTypeIs(v_current_entry, "object")
-	if coreTruthy(v_entry_object) {
-		v_current_name = coreGet(v_current_entry, "cacheName", "")
-		v_matches = _core_eq(v_current_name, v_cache_name)
-		if coreTruthy(v_matches) {
-			if err := coreSet(v_out, "invalidated", true); err != nil { return nil, err }
-			if coreTruthy(v_external_registry) {
-				v_empty = Object()
-				v_tombstone = _core_map_merge(v_current_entry, v_empty)
-				if err := coreSet(v_tombstone, "expiresAt", 0); err != nil { return nil, err }
-				if err := coreSet(v_out, "externalEntry", v_tombstone); err != nil { return nil, err }
-			} else {
-				if err := coreSet(v_out, "deleteInMemory", true); err != nil { return nil, err }
-			}
+func fold_chat_response_stream(args ...Value) (Value, error) {
+	axirCoverageMark("fold_chat_response_stream")
+	var v_events Value
+	var v_candidate Value
+	var v_candidate_index Value
+	var v_chunk Value
+	var v_chunks Value
+	var v_empty_chunks Value
+	var v_event Value
+	var v_event_usage Value
+	var v_found_usage Value
+	var v_has_response Value
+	var v_has_routing Value
+	var v_has_usage Value
+	var v_index Value
+	var v_missing_target Value
+	var v_new_calls Value
+	var v_new_target Value
+	var v_raw_event Value
+	var v_response Value
+	var v_results Value
+	var v_router_envelope Value
+	var v_same_index Value
+	var v_target Value
+	var v_usage Value
+	var v_usage_snake Value
+	if len(args) > 0 { v_events = args[0] }
+	_ = v_events
+	_ = v_candidate
+	_ = v_candidate_index
+	_ = v_chunk
+	_ = v_chunks
+	_ = v_empty_chunks
+	_ = v_event
+	_ = v_event_usage
+	_ = v_found_usage
+	_ = v_has_response
+	_ = v_has_routing
+	_ = v_has_usage
+	_ = v_index
+	_ = v_missing_target
+	_ = v_new_calls
+	_ = v_new_target
+	_ = v_raw_event
+	_ = v_response
+	_ = v_results
+	_ = v_router_envelope
+	_ = v_same_index
+	_ = v_target
+	_ = v_usage
+	_ = v_usage_snake
+	v_results = MutableArray()
+	v_usage = _core_none()
+	for _, v_raw_event = range coreIter(v_events) {
+		v_event = v_raw_event
+		v_has_routing = _core_map_contains(v_raw_event, "routing")
+		v_has_response = _core_map_contains(v_raw_event, "response")
+		v_router_envelope = _core_and(v_has_routing, v_has_response)
+		if coreTruthy(v_router_envelope) {
+			v_event = coreGet(v_raw_event, "response", nil)
 		} else {
 		// empty
 		}
+		v_empty_chunks = MutableArray()
+		v_chunks = coreGet(v_event, "results", v_empty_chunks)
+		for _, v_chunk = range coreIter(v_chunks) {
+			v_index = coreGet(v_chunk, "index", 0)
+			v_target = _core_none()
+			for _, v_candidate = range coreIter(v_results) {
+				v_candidate_index = coreGet(v_candidate, "index", nil)
+				v_same_index = _core_eq(v_candidate_index, v_index)
+				if coreTruthy(v_same_index) {
+					v_target = v_candidate
+				} else {
+				// empty
+				}
+			}
+			v_missing_target = _core_is_none(v_target)
+			if coreTruthy(v_missing_target) {
+				v_new_target = Object()
+				if err := coreSet(v_new_target, "index", v_index); err != nil { return nil, err }
+				if err := coreSet(v_new_target, "content", ""); err != nil { return nil, err }
+				v_new_calls = MutableArray()
+				if err := coreSet(v_new_target, "function_calls", v_new_calls); err != nil { return nil, err }
+				v_results = coreAppend(v_results, v_new_target)
+				v_target = v_new_target
+			} else {
+			// empty
+			}
+			if _, err := _fold_chat_stream_chunk_impl(v_target, v_chunk); err != nil { return nil, err }
+		}
+		v_usage_snake = coreGet(v_event, "model_usage", nil)
+		v_event_usage = coreGet(v_event, "modelUsage", v_usage_snake)
+		v_has_usage = _core_is_not_none(v_event_usage)
+		if coreTruthy(v_has_usage) {
+			v_usage = v_event_usage
+		} else {
+		// empty
+		}
+	}
+	v_response = Object()
+	if err := coreSet(v_response, "results", v_results); err != nil { return nil, err }
+	v_found_usage = _core_is_not_none(v_usage)
+	if coreTruthy(v_found_usage) {
+		if err := coreSet(v_response, "model_usage", v_usage); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	return v_out, nil
-}
-
-func ai_gemini_cache_ops(args ...Value) (Value, error) {
-	axirCoverageMark("ai_gemini_cache_ops")
-	var v_cache_name Value
-	var v_ttl_seconds Value
-	var v_api_key Value
-	var v_model Value
-	var v_create_body Value
-	var v_options Value
-	var v_cache_base_url Value
-	var v_create Value
-	var v_create_copy Value
-	var v_create_is_object Value
-	var v_create_path Value
-	var v_create_request Value
-	var v_delete_op Value
-	var v_delete_path Value
-	var v_descriptor Value
-	var v_empty Value
-	var v_empty_request Value
-	var v_has_cache_base_url Value
-	var v_is_vertex Value
-	var v_model_resource Value
-	var v_out Value
-	var v_parent Value
-	var v_ttl Value
-	var v_update Value
-	var v_update_path Value
-	var v_update_request Value
-	if len(args) > 0 { v_cache_name = args[0] }
-	_ = v_cache_name
-	if len(args) > 1 { v_ttl_seconds = args[1] }
-	_ = v_ttl_seconds
-	if len(args) > 2 { v_api_key = args[2] }
-	_ = v_api_key
-	if len(args) > 3 { v_model = args[3] }
-	_ = v_model
-	if len(args) > 4 { v_create_body = args[4] }
-	_ = v_create_body
-	if len(args) > 5 { v_options = args[5] }
-	_ = v_options
-	_ = v_cache_base_url
-	_ = v_create
-	_ = v_create_copy
-	_ = v_create_is_object
-	_ = v_create_path
-	_ = v_create_request
-	_ = v_delete_op
-	_ = v_delete_path
-	_ = v_descriptor
-	_ = v_empty
-	_ = v_empty_request
-	_ = v_has_cache_base_url
-	_ = v_is_vertex
-	_ = v_model_resource
-	_ = v_out
-	_ = v_parent
-	_ = v_ttl
-	_ = v_update
-	_ = v_update_path
-	_ = v_update_request
-	v_ttl = _core_string_format("{}s", v_ttl_seconds)
-	{ v, err := provider_resolve_descriptor("google-gemini", v_options); if err != nil { return nil, err }; v_descriptor = v }
-	v_is_vertex = coreGet(v_descriptor, "vertex", false)
-	v_create_path = "/cachedContents"
-	v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
-	v_delete_path = _core_string_format("/{}", v_cache_name)
-	if coreTruthy(v_is_vertex) {
-		v_parent = coreGet(v_descriptor, "vertexParent", "")
-		v_create_path = _core_string_format("/{}/cachedContents", v_parent)
-		v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
-		v_delete_path = _core_string_format("/{}", v_cache_name)
-	} else {
-	// empty
-	}
-	v_create_request = Object()
-	v_create_is_object = coreTypeIs(v_create_body, "object")
-	if coreTruthy(v_create_is_object) {
-		v_empty = Object()
-		v_create_copy = _core_map_merge(v_create_body, v_empty)
-		v_create_request = v_create_copy
-	} else {
-	// empty
-	}
-	v_model_resource = _core_string_format("models/{}", v_model)
-	if coreTruthy(v_is_vertex) {
-		v_parent = coreGet(v_descriptor, "vertexParent", "")
-		v_model_resource = _core_string_format("{}/publishers/google/models/{}", v_parent, v_model)
-	} else {
-	// empty
-	}
-	if err := coreSet(v_create_request, "model", v_model_resource); err != nil { return nil, err }
-	if err := coreSet(v_create_request, "ttl", v_ttl); err != nil { return nil, err }
-	v_update_request = Object()
-	if err := coreSet(v_update_request, "ttl", v_ttl); err != nil { return nil, err }
-	v_empty_request = Object()
-	v_create = Object()
-	if err := coreSet(v_create, "method", "POST"); err != nil { return nil, err }
-	if err := coreSet(v_create, "path", v_create_path); err != nil { return nil, err }
-	if err := coreSet(v_create, "request", v_create_request); err != nil { return nil, err }
-	v_cache_base_url = coreGet(v_descriptor, "vertexCacheBaseUrl", nil)
-	v_has_cache_base_url = _core_truthy(v_cache_base_url)
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_create, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_update = Object()
-	if err := coreSet(v_update, "method", "PATCH"); err != nil { return nil, err }
-	if err := coreSet(v_update, "path", v_update_path); err != nil { return nil, err }
-	if err := coreSet(v_update, "request", v_update_request); err != nil { return nil, err }
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_update, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_delete_op = Object()
-	if err := coreSet(v_delete_op, "method", "DELETE"); err != nil { return nil, err }
-	if err := coreSet(v_delete_op, "path", v_delete_path); err != nil { return nil, err }
-	if err := coreSet(v_delete_op, "request", v_empty_request); err != nil { return nil, err }
-	if coreTruthy(v_has_cache_base_url) {
-		if err := coreSet(v_delete_op, "base_url", v_cache_base_url); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_out = Object()
-	if err := coreSet(v_out, "create", v_create); err != nil { return nil, err }
-	if err := coreSet(v_out, "update", v_update); err != nil { return nil, err }
-	if err := coreSet(v_out, "delete", v_delete_op); err != nil { return nil, err }
-	return v_out, nil
+	return v_response, nil
 }
 
 func openai_normalize_error(args ...Value) (Value, error) {
@@ -13112,168 +13310,6 @@ func openai_normalize_error(args ...Value) (Value, error) {
 	v_retryable = _core_or(v_retry_more, v_is_529)
 	v_error = _core_ai_error_status(v_message, v_status, v_code, v_body, v_request, v_retryable)
 	return v_error, nil
-}
-
-func fold_chat_response_stream(args ...Value) (Value, error) {
-	axirCoverageMark("fold_chat_response_stream")
-	var v_events Value
-	var v_candidate Value
-	var v_candidate_index Value
-	var v_chunk Value
-	var v_chunks Value
-	var v_empty_chunks Value
-	var v_event Value
-	var v_event_usage Value
-	var v_found_usage Value
-	var v_has_response Value
-	var v_has_routing Value
-	var v_has_usage Value
-	var v_index Value
-	var v_missing_target Value
-	var v_new_calls Value
-	var v_new_target Value
-	var v_raw_event Value
-	var v_response Value
-	var v_results Value
-	var v_router_envelope Value
-	var v_same_index Value
-	var v_target Value
-	var v_usage Value
-	var v_usage_snake Value
-	if len(args) > 0 { v_events = args[0] }
-	_ = v_events
-	_ = v_candidate
-	_ = v_candidate_index
-	_ = v_chunk
-	_ = v_chunks
-	_ = v_empty_chunks
-	_ = v_event
-	_ = v_event_usage
-	_ = v_found_usage
-	_ = v_has_response
-	_ = v_has_routing
-	_ = v_has_usage
-	_ = v_index
-	_ = v_missing_target
-	_ = v_new_calls
-	_ = v_new_target
-	_ = v_raw_event
-	_ = v_response
-	_ = v_results
-	_ = v_router_envelope
-	_ = v_same_index
-	_ = v_target
-	_ = v_usage
-	_ = v_usage_snake
-	v_results = MutableArray()
-	v_usage = _core_none()
-	for _, v_raw_event = range coreIter(v_events) {
-		v_event = v_raw_event
-		v_has_routing = _core_map_contains(v_raw_event, "routing")
-		v_has_response = _core_map_contains(v_raw_event, "response")
-		v_router_envelope = _core_and(v_has_routing, v_has_response)
-		if coreTruthy(v_router_envelope) {
-			v_event = coreGet(v_raw_event, "response", nil)
-		} else {
-		// empty
-		}
-		v_empty_chunks = MutableArray()
-		v_chunks = coreGet(v_event, "results", v_empty_chunks)
-		for _, v_chunk = range coreIter(v_chunks) {
-			v_index = coreGet(v_chunk, "index", 0)
-			v_target = _core_none()
-			for _, v_candidate = range coreIter(v_results) {
-				v_candidate_index = coreGet(v_candidate, "index", nil)
-				v_same_index = _core_eq(v_candidate_index, v_index)
-				if coreTruthy(v_same_index) {
-					v_target = v_candidate
-				} else {
-				// empty
-				}
-			}
-			v_missing_target = _core_is_none(v_target)
-			if coreTruthy(v_missing_target) {
-				v_new_target = Object()
-				if err := coreSet(v_new_target, "index", v_index); err != nil { return nil, err }
-				if err := coreSet(v_new_target, "content", ""); err != nil { return nil, err }
-				v_new_calls = MutableArray()
-				if err := coreSet(v_new_target, "function_calls", v_new_calls); err != nil { return nil, err }
-				v_results = coreAppend(v_results, v_new_target)
-				v_target = v_new_target
-			} else {
-			// empty
-			}
-			if _, err := _fold_chat_stream_chunk_impl(v_target, v_chunk); err != nil { return nil, err }
-		}
-		v_usage_snake = coreGet(v_event, "model_usage", nil)
-		v_event_usage = coreGet(v_event, "modelUsage", v_usage_snake)
-		v_has_usage = _core_is_not_none(v_event_usage)
-		if coreTruthy(v_has_usage) {
-			v_usage = v_event_usage
-		} else {
-		// empty
-		}
-	}
-	v_response = Object()
-	if err := coreSet(v_response, "results", v_results); err != nil { return nil, err }
-	v_found_usage = _core_is_not_none(v_usage)
-	if coreTruthy(v_found_usage) {
-		if err := coreSet(v_response, "model_usage", v_usage); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_response, nil
-}
-
-func provider_normalize_profile(args ...Value) (Value, error) {
-	axirCoverageMark("provider_normalize_profile")
-	var v_profile Value
-	var v_aliases Value
-	var v_normalized Value
-	var v_provider_id Value
-	if len(args) > 0 { v_profile = args[0] }
-	_ = v_profile
-	_ = v_aliases
-	_ = v_normalized
-	_ = v_provider_id
-	v_normalized = _core_string_lower(v_profile)
-	{ v, err := _core_json_parse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n"); if err != nil { return nil, err }; v_aliases = v }
-	v_provider_id = coreGet(v_aliases, v_normalized, "")
-	return v_provider_id, nil
-}
-
-func provider_profile_registry(args ...Value) (Value, error) {
-	axirCoverageMark("provider_profile_registry")
-	var v_registry Value
-	_ = v_registry
-	{ v, err := _core_json_parse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n"); if err != nil { return nil, err }; v_registry = v }
-	return v_registry, nil
-}
-
-func provider_resolve_profile(args ...Value) (Value, error) {
-	axirCoverageMark("provider_resolve_profile")
-	var v_profile Value
-	var v_aliases Value
-	var v_is_known Value
-	var v_normalized Value
-	var v_provider_id Value
-	var v_resolved Value
-	if len(args) > 0 { v_profile = args[0] }
-	_ = v_profile
-	_ = v_aliases
-	_ = v_is_known
-	_ = v_normalized
-	_ = v_provider_id
-	_ = v_resolved
-	v_normalized = _core_string_lower(v_profile)
-	{ v, err := _core_json_parse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n"); if err != nil { return nil, err }; v_aliases = v }
-	v_is_known = _core_map_contains(v_aliases, v_normalized)
-	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
-	v_resolved = Object()
-	if err := coreSet(v_resolved, "id", v_provider_id); err != nil { return nil, err }
-	if err := coreSet(v_resolved, "known", v_is_known); err != nil { return nil, err }
-	if err := coreSet(v_resolved, "input", v_profile); err != nil { return nil, err }
-	return v_resolved, nil
 }
 
 func _fold_chat_stream_chunk_impl(args ...Value) (Value, error) {
@@ -13476,6 +13512,57 @@ func _fold_chat_stream_chunk_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return nil, nil
+}
+
+func provider_normalize_profile(args ...Value) (Value, error) {
+	axirCoverageMark("provider_normalize_profile")
+	var v_profile Value
+	var v_aliases Value
+	var v_normalized Value
+	var v_provider_id Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	_ = v_aliases
+	_ = v_normalized
+	_ = v_provider_id
+	v_normalized = _core_string_lower(v_profile)
+	{ v, err := _core_json_parse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n"); if err != nil { return nil, err }; v_aliases = v }
+	v_provider_id = coreGet(v_aliases, v_normalized, "")
+	return v_provider_id, nil
+}
+
+func provider_profile_registry(args ...Value) (Value, error) {
+	axirCoverageMark("provider_profile_registry")
+	var v_registry Value
+	_ = v_registry
+	{ v, err := _core_json_parse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n"); if err != nil { return nil, err }; v_registry = v }
+	return v_registry, nil
+}
+
+func provider_resolve_profile(args ...Value) (Value, error) {
+	axirCoverageMark("provider_resolve_profile")
+	var v_profile Value
+	var v_aliases Value
+	var v_is_known Value
+	var v_normalized Value
+	var v_provider_id Value
+	var v_resolved Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	_ = v_aliases
+	_ = v_is_known
+	_ = v_normalized
+	_ = v_provider_id
+	_ = v_resolved
+	v_normalized = _core_string_lower(v_profile)
+	{ v, err := _core_json_parse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n"); if err != nil { return nil, err }; v_aliases = v }
+	v_is_known = _core_map_contains(v_aliases, v_normalized)
+	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
+	v_resolved = Object()
+	if err := coreSet(v_resolved, "id", v_provider_id); err != nil { return nil, err }
+	if err := coreSet(v_resolved, "known", v_is_known); err != nil { return nil, err }
+	if err := coreSet(v_resolved, "input", v_profile); err != nil { return nil, err }
+	return v_resolved, nil
 }
 
 func provider_model_catalog_summary(args ...Value) (Value, error) {
@@ -21363,7 +21450,9 @@ func provider_build_speak_request(args ...Value) (Value, error) {
 	var v_dialect Value
 	var v_gemini_payload Value
 	var v_is_gemini Value
+	var v_is_mistral Value
 	var v_is_xai Value
+	var v_mistral_payload Value
 	var v_operation Value
 	var v_payload Value
 	var v_provider_id Value
@@ -21376,7 +21465,9 @@ func provider_build_speak_request(args ...Value) (Value, error) {
 	_ = v_dialect
 	_ = v_gemini_payload
 	_ = v_is_gemini
+	_ = v_is_mistral
 	_ = v_is_xai
+	_ = v_mistral_payload
 	_ = v_operation
 	_ = v_payload
 	_ = v_provider_id
@@ -21387,6 +21478,7 @@ func provider_build_speak_request(args ...Value) (Value, error) {
 	v_dialect = coreGet(v_operation, "dialect", "openai-speech")
 	v_is_gemini = _core_eq(v_dialect, "gemini-generate-content")
 	v_is_xai = _core_eq(v_dialect, "xai-speech")
+	v_is_mistral = _core_eq(v_dialect, "mistral-speech")
 	v_payload = Object()
 	if coreTruthy(v_is_gemini) {
 		{ v, err := _gemini_build_speak_request(v_request); if err != nil { return nil, err }; v_gemini_payload = v }
@@ -21396,8 +21488,13 @@ func provider_build_speak_request(args ...Value) (Value, error) {
 			{ v, err := _grok_build_speak_request(v_request); if err != nil { return nil, err }; v_xai_payload = v }
 			v_payload = v_xai_payload
 		} else {
-			{ v, err := openai_responses_build_speak_request(v_request); if err != nil { return nil, err }; v_responses_payload = v }
-			v_payload = v_responses_payload
+			if coreTruthy(v_is_mistral) {
+				{ v, err := _mistral_build_speak_request(v_request); if err != nil { return nil, err }; v_mistral_payload = v }
+				v_payload = v_mistral_payload
+			} else {
+				{ v, err := openai_responses_build_speak_request(v_request); if err != nil { return nil, err }; v_responses_payload = v }
+				v_payload = v_responses_payload
+			}
 		}
 	}
 	return v_payload, nil
@@ -22074,34 +22171,45 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	var v_profile Value
 	var v_raw Value
 	var v_request Value
+	var v_content_type Value
+	var v_binary_speech Value
 	var v_data Value
 	var v_descriptor Value
 	var v_dialect Value
 	var v_format Value
 	var v_gemini_out Value
 	var v_is_gemini Value
+	var v_json_speech Value
 	var v_operation Value
 	var v_operations Value
 	var v_out Value
 	var v_provider_id Value
+	var v_raw_is_text Value
 	var v_speech Value
+	var v_transcript Value
 	if len(args) > 0 { v_profile = args[0] }
 	_ = v_profile
 	if len(args) > 1 { v_raw = args[1] }
 	_ = v_raw
 	if len(args) > 2 { v_request = args[2] }
 	_ = v_request
+	if len(args) > 3 { v_content_type = args[3] }
+	_ = v_content_type
+	_ = v_binary_speech
 	_ = v_data
 	_ = v_descriptor
 	_ = v_dialect
 	_ = v_format
 	_ = v_gemini_out
 	_ = v_is_gemini
+	_ = v_json_speech
 	_ = v_operation
 	_ = v_operations
 	_ = v_out
 	_ = v_provider_id
+	_ = v_raw_is_text
 	_ = v_speech
+	_ = v_transcript
 	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
 	{ v, err := provider_descriptor(v_provider_id); if err != nil { return nil, err }; v_descriptor = v }
 	v_operations = coreGet(v_descriptor, "operations", nil)
@@ -22114,13 +22222,22 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	v_data = coreGet(v_raw, "audio", v_raw)
+	{ v, err := _speech_request_text_impl(v_request); if err != nil { return nil, err }; v_transcript = v }
 	v_format = coreGet(v_request, "format", "mp3")
+	v_raw_is_text = coreTypeIs(v_raw, "string")
+	v_speech = Object()
+	if coreTruthy(v_raw_is_text) {
+		{ v, err := _speech_binary_response_impl(v_raw, v_content_type, v_format, v_transcript); if err != nil { return nil, err }; v_binary_speech = v }
+		v_speech = v_binary_speech
+	} else {
+		{ v, err := _speech_json_response_impl(v_raw, v_format, v_transcript); if err != nil { return nil, err }; v_json_speech = v }
+		v_speech = v_json_speech
+	}
 	v_out = Object()
+	v_data = coreGet(v_speech, "data", nil)
 	if err := coreSet(v_out, "audio", v_data); err != nil { return nil, err }
-	if err := coreSet(v_out, "format", v_format); err != nil { return nil, err }
-	{ v, err := _speech_response_ts_keys_impl(v_out, v_raw, v_request); if err != nil { return nil, err }; v_speech = v }
-	return v_speech, nil
+	v_out = _core_map_merge(v_out, v_speech)
+	return v_out, nil
 }
 
 func provider_normalize_realtime_event(args ...Value) (Value, error) {
@@ -22976,8 +23093,6 @@ func _openai_responses_content_part_impl(args ...Value) (Value, error) {
 	var v_part Value
 	var v_role Value
 	var v_audio_alt Value
-	var v_cached Value
-	var v_cached_snake Value
 	var v_data Value
 	var v_data_url Value
 	var v_details Value
@@ -22988,6 +23103,7 @@ func _openai_responses_content_part_impl(args ...Value) (Value, error) {
 	var v_filename Value
 	var v_format Value
 	var v_has_filename Value
+	var v_has_format Value
 	var v_has_uri Value
 	var v_image_url Value
 	var v_input_audio Value
@@ -23016,8 +23132,6 @@ func _openai_responses_content_part_impl(args ...Value) (Value, error) {
 	if len(args) > 1 { v_role = args[1] }
 	_ = v_role
 	_ = v_audio_alt
-	_ = v_cached
-	_ = v_cached_snake
 	_ = v_data
 	_ = v_data_url
 	_ = v_details
@@ -23028,6 +23142,7 @@ func _openai_responses_content_part_impl(args ...Value) (Value, error) {
 	_ = v_filename
 	_ = v_format
 	_ = v_has_filename
+	_ = v_has_format
 	_ = v_has_uri
 	_ = v_image_url
 	_ = v_input_audio
@@ -23091,12 +23206,17 @@ func _openai_responses_content_part_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_is_audio) {
 		v_audio_alt = coreGet(v_part, "audio", nil)
 		v_data = coreGet(v_part, "data", v_audio_alt)
-		v_format = coreGet(v_part, "format", "wav")
+		v_format = coreGet(v_part, "format", nil)
 		v_out = Object()
 		if err := coreSet(v_out, "type", "input_audio"); err != nil { return nil, err }
 		v_input_audio = Object()
 		if err := coreSet(v_input_audio, "data", v_data); err != nil { return nil, err }
-		if err := coreSet(v_input_audio, "format", v_format); err != nil { return nil, err }
+		v_has_format = _core_is_not_none(v_format)
+		if coreTruthy(v_has_format) {
+			if err := coreSet(v_input_audio, "format", v_format); err != nil { return nil, err }
+		} else {
+		// empty
+		}
 		if err := coreSet(v_out, "input_audio", v_input_audio); err != nil { return nil, err }
 		if _, err := _openai_responses_copy_cache_control_impl(v_out, v_part); err != nil { return nil, err }
 		return v_out, nil
@@ -23152,10 +23272,7 @@ func _openai_responses_content_part_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_is_url) {
 		v_out = Object()
 		if err := coreSet(v_out, "type", "input_text"); err != nil { return nil, err }
-		v_cached_snake = coreGet(v_part, "cached_content", nil)
-		v_cached = coreGet(v_part, "cachedContent", v_cached_snake)
-		v_url = coreGet(v_part, "url", "")
-		v_text = _core_coalesce(v_cached, v_url)
+		{ v, err := _url_part_text_impl(v_part); if err != nil { return nil, err }; v_text = v }
 		if err := coreSet(v_out, "text", v_text); err != nil { return nil, err }
 		if _, err := _openai_responses_copy_cache_control_impl(v_out, v_part); err != nil { return nil, err }
 		return v_out, nil
@@ -24134,6 +24251,64 @@ func openai_responses_build_transcribe_request(args ...Value) (Value, error) {
 func openai_responses_build_speak_request(args ...Value) (Value, error) {
 	axirCoverageMark("openai_responses_build_speak_request")
 	var v_request Value
+	var v_has_speed Value
+	var v_has_voice Value
+	var v_is_pcm16 Value
+	var v_payload Value
+	var v_request_input Value
+	var v_response_format Value
+	var v_speak_input Value
+	var v_speak_model Value
+	var v_speed Value
+	var v_voice Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_has_speed
+	_ = v_has_voice
+	_ = v_is_pcm16
+	_ = v_payload
+	_ = v_request_input
+	_ = v_response_format
+	_ = v_speak_input
+	_ = v_speak_model
+	_ = v_speed
+	_ = v_voice
+	v_payload = Object()
+	{ v, err := _speech_request_model_impl(v_request, "gpt-4o-mini-tts"); if err != nil { return nil, err }; v_speak_model = v }
+	v_request_input = coreGet(v_request, "input", "")
+	v_speak_input = coreGet(v_request, "text", v_request_input)
+	{ v, err := _speech_request_voice_impl(v_request); if err != nil { return nil, err }; v_voice = v }
+	v_has_voice = _core_is_not_none(v_voice)
+	if coreTruthy(v_has_voice) {
+	// empty
+	} else {
+		v_voice = "alloy"
+	}
+	v_response_format = coreGet(v_request, "format", "mp3")
+	v_is_pcm16 = _core_eq(v_response_format, "pcm16")
+	if coreTruthy(v_is_pcm16) {
+		v_response_format = "pcm"
+	} else {
+	// empty
+	}
+	if err := coreSet(v_payload, "model", v_speak_model); err != nil { return nil, err }
+	if err := coreSet(v_payload, "input", v_speak_input); err != nil { return nil, err }
+	if err := coreSet(v_payload, "voice", v_voice); err != nil { return nil, err }
+	if err := coreSet(v_payload, "response_format", v_response_format); err != nil { return nil, err }
+	v_speed = coreGet(v_request, "speed", nil)
+	v_has_speed = _core_is_not_none(v_speed)
+	if coreTruthy(v_has_speed) {
+		if err := coreSet(v_payload, "speed", v_speed); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_payload, nil
+}
+
+func _mistral_build_speak_request(args ...Value) (Value, error) {
+	axirCoverageMark("_mistral_build_speak_request")
+	var v_request Value
+	var v_has_voice Value
 	var v_payload Value
 	var v_request_input Value
 	var v_response_format Value
@@ -24142,6 +24317,7 @@ func openai_responses_build_speak_request(args ...Value) (Value, error) {
 	var v_voice Value
 	if len(args) > 0 { v_request = args[0] }
 	_ = v_request
+	_ = v_has_voice
 	_ = v_payload
 	_ = v_request_input
 	_ = v_response_format
@@ -24149,16 +24325,65 @@ func openai_responses_build_speak_request(args ...Value) (Value, error) {
 	_ = v_speak_model
 	_ = v_voice
 	v_payload = Object()
-	v_speak_model = coreGet(v_request, "model", "tts-1")
+	{ v, err := _speech_request_model_impl(v_request, "voxtral-mini-tts-2603"); if err != nil { return nil, err }; v_speak_model = v }
 	v_request_input = coreGet(v_request, "input", "")
 	v_speak_input = coreGet(v_request, "text", v_request_input)
-	v_voice = coreGet(v_request, "voice", "alloy")
 	v_response_format = coreGet(v_request, "format", "mp3")
 	if err := coreSet(v_payload, "model", v_speak_model); err != nil { return nil, err }
 	if err := coreSet(v_payload, "input", v_speak_input); err != nil { return nil, err }
-	if err := coreSet(v_payload, "voice", v_voice); err != nil { return nil, err }
 	if err := coreSet(v_payload, "response_format", v_response_format); err != nil { return nil, err }
+	{ v, err := _speech_request_voice_impl(v_request); if err != nil { return nil, err }; v_voice = v }
+	v_has_voice = _core_truthy(v_voice)
+	if coreTruthy(v_has_voice) {
+		if err := coreSet(v_payload, "voice_id", v_voice); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	return v_payload, nil
+}
+
+func _speech_request_model_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_speech_request_model_impl")
+	var v_request Value
+	var v_fallback Value
+	var v_is_text Value
+	var v_model Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	if len(args) > 1 { v_fallback = args[1] }
+	_ = v_fallback
+	_ = v_is_text
+	_ = v_model
+	v_model = coreGet(v_request, "model", nil)
+	v_is_text = coreTypeIs(v_model, "string")
+	if coreTruthy(v_is_text) {
+		return v_model, nil
+	} else {
+	// empty
+	}
+	return v_fallback, nil
+}
+
+func _speech_request_voice_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_speech_request_voice_impl")
+	var v_request Value
+	var v_is_object Value
+	var v_voice Value
+	var v_voice_id Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_is_object
+	_ = v_voice
+	_ = v_voice_id
+	v_voice = coreGet(v_request, "voice", nil)
+	v_is_object = coreTypeIs(v_voice, "object")
+	if coreTruthy(v_is_object) {
+		v_voice_id = coreGet(v_voice, "id", nil)
+		return v_voice_id, nil
+	} else {
+	// empty
+	}
+	return v_voice, nil
 }
 
 func _grok_build_transcribe_request(args ...Value) (Value, error) {
@@ -24208,6 +24433,7 @@ func _grok_build_speak_request(args ...Value) (Value, error) {
 	var v_codec Value
 	var v_format Value
 	var v_has_sample_rate Value
+	var v_has_speed Value
 	var v_is_pcm16 Value
 	var v_is_pcm_like Value
 	var v_is_raw Value
@@ -24218,6 +24444,7 @@ func _grok_build_speak_request(args ...Value) (Value, error) {
 	var v_request_input Value
 	var v_sample_rate Value
 	var v_sample_rate_alt Value
+	var v_speed Value
 	var v_text Value
 	var v_voice Value
 	var v_voice_id Value
@@ -24226,6 +24453,7 @@ func _grok_build_speak_request(args ...Value) (Value, error) {
 	_ = v_codec
 	_ = v_format
 	_ = v_has_sample_rate
+	_ = v_has_speed
 	_ = v_is_pcm16
 	_ = v_is_pcm_like
 	_ = v_is_raw
@@ -24236,6 +24464,7 @@ func _grok_build_speak_request(args ...Value) (Value, error) {
 	_ = v_request_input
 	_ = v_sample_rate
 	_ = v_sample_rate_alt
+	_ = v_speed
 	_ = v_text
 	_ = v_voice
 	_ = v_voice_id
@@ -24274,6 +24503,13 @@ func _grok_build_speak_request(args ...Value) (Value, error) {
 	if err := coreSet(v_payload, "voice_id", v_voice_id); err != nil { return nil, err }
 	if err := coreSet(v_payload, "language", v_language); err != nil { return nil, err }
 	if err := coreSet(v_payload, "output_format", v_output_format); err != nil { return nil, err }
+	v_speed = coreGet(v_request, "speed", nil)
+	v_has_speed = _core_is_not_none(v_speed)
+	if coreTruthy(v_has_speed) {
+		if err := coreSet(v_payload, "speed", v_speed); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	return v_payload, nil
 }
 
@@ -24485,204 +24721,114 @@ func _gemini_normalize_speak_response(args ...Value) (Value, error) {
 	axirCoverageMark("_gemini_normalize_speak_response")
 	var v_raw Value
 	var v_request Value
-	var v_audio Value
-	var v_candidate Value
-	var v_candidates Value
-	var v_content Value
 	var v_data Value
-	var v_empty_candidates Value
-	var v_empty_parts Value
-	var v_format Value
-	var v_has_audio Value
-	var v_has_data Value
-	var v_has_mime Value
-	var v_inline_data Value
-	var v_is_l16_mime Value
-	var v_is_linear16 Value
-	var v_is_pcm16_mime Value
-	var v_is_pcm_mime Value
-	var v_is_wav_mime Value
-	var v_mime_lower Value
+	var v_has_named_mime Value
 	var v_mime_params Value
-	var v_mime_type Value
+	var v_named_mime Value
+	var v_none Value
 	var v_out Value
-	var v_part Value
-	var v_part_mime Value
-	var v_parts Value
 	var v_speech Value
+	var v_transcript Value
 	if len(args) > 0 { v_raw = args[0] }
 	_ = v_raw
 	if len(args) > 1 { v_request = args[1] }
 	_ = v_request
-	_ = v_audio
-	_ = v_candidate
-	_ = v_candidates
-	_ = v_content
 	_ = v_data
-	_ = v_empty_candidates
-	_ = v_empty_parts
-	_ = v_format
-	_ = v_has_audio
-	_ = v_has_data
-	_ = v_has_mime
-	_ = v_inline_data
-	_ = v_is_l16_mime
-	_ = v_is_linear16
-	_ = v_is_pcm16_mime
-	_ = v_is_pcm_mime
-	_ = v_is_wav_mime
-	_ = v_mime_lower
+	_ = v_has_named_mime
 	_ = v_mime_params
-	_ = v_mime_type
+	_ = v_named_mime
+	_ = v_none
 	_ = v_out
-	_ = v_part
-	_ = v_part_mime
-	_ = v_parts
 	_ = v_speech
-	v_audio = coreGet(v_raw, "audio", nil)
-	v_format = coreGet(v_request, "format", "wav")
-	v_mime_type = ""
-	v_empty_candidates = MutableArray()
-	v_candidates = coreGet(v_raw, "candidates", v_empty_candidates)
-	for _, v_candidate = range coreIter(v_candidates) {
-		v_content = coreGet(v_candidate, "content", nil)
-		v_empty_parts = MutableArray()
-		v_parts = coreGet(v_content, "parts", v_empty_parts)
-		for _, v_part = range coreIter(v_parts) {
-			v_inline_data = coreGet(v_part, "inlineData", nil)
-			v_data = coreGet(v_inline_data, "data", nil)
-			v_has_data = _core_is_not_none(v_data)
-			if coreTruthy(v_has_data) {
-				v_audio = v_data
-				v_part_mime = coreGet(v_inline_data, "mimeType", "")
-				v_mime_type = v_part_mime
-			} else {
-			// empty
-			}
-		}
-	}
-	v_has_audio = _core_is_not_none(v_audio)
-	if coreTruthy(v_has_audio) {
-	// empty
-	} else {
-		v_audio = v_raw
-	}
-	v_mime_lower = _core_string_lower(v_mime_type)
-	v_is_pcm_mime = _core_contains(v_mime_lower, "pcm")
-	if coreTruthy(v_is_pcm_mime) {
-		v_format = "pcm"
-	} else {
-	// empty
-	}
-	v_is_pcm16_mime = _core_contains(v_mime_lower, "pcm16")
-	v_is_l16_mime = _core_contains(v_mime_lower, "l16")
-	v_is_linear16 = _core_or(v_is_pcm16_mime, v_is_l16_mime)
-	if coreTruthy(v_is_linear16) {
-		v_format = "pcm16"
-	} else {
-	// empty
-	}
-	v_is_wav_mime = _core_contains(v_mime_lower, "wav")
-	if coreTruthy(v_is_wav_mime) {
-		v_format = "wav"
-	} else {
-	// empty
-	}
+	_ = v_transcript
+	{ v, err := _speech_request_text_impl(v_request); if err != nil { return nil, err }; v_transcript = v }
+	v_none = _core_none()
+	{ v, err := _speech_json_response_impl(v_raw, v_none, v_transcript); if err != nil { return nil, err }; v_speech = v }
 	v_out = Object()
-	if err := coreSet(v_out, "audio", v_audio); err != nil { return nil, err }
-	if err := coreSet(v_out, "format", v_format); err != nil { return nil, err }
-	v_has_mime = _core_truthy(v_mime_type)
-	if coreTruthy(v_has_mime) {
-		if err := coreSet(v_out, "mime_type", v_mime_type); err != nil { return nil, err }
-		{ v, err := _audio_mime_params_impl(v_mime_type); if err != nil { return nil, err }; v_mime_params = v }
+	v_data = coreGet(v_speech, "data", nil)
+	if err := coreSet(v_out, "audio", v_data); err != nil { return nil, err }
+	{ v, err := _speech_json_named_mime_type_impl(v_raw); if err != nil { return nil, err }; v_named_mime = v }
+	v_has_named_mime = _core_truthy(v_named_mime)
+	if coreTruthy(v_has_named_mime) {
+		if err := coreSet(v_out, "mime_type", v_named_mime); err != nil { return nil, err }
+		{ v, err := _audio_mime_params_impl(v_named_mime); if err != nil { return nil, err }; v_mime_params = v }
 		v_out = _core_map_merge(v_out, v_mime_params)
 	} else {
 	// empty
 	}
-	{ v, err := _speech_response_ts_keys_impl(v_out, v_raw, v_request); if err != nil { return nil, err }; v_speech = v }
-	return v_speech, nil
+	v_out = _core_map_merge(v_out, v_speech)
+	return v_out, nil
 }
 
-func _speech_response_ts_keys_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_speech_response_ts_keys_impl")
-	var v_out Value
-	var v_raw Value
+func _speech_request_text_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_speech_request_text_impl")
 	var v_request Value
-	var v_camel_is_text Value
-	var v_channels Value
+	var v_request_input Value
+	var v_text Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_request_input
+	_ = v_text
+	v_request_input = coreGet(v_request, "input", nil)
+	v_text = coreGet(v_request, "text", v_request_input)
+	return v_text, nil
+}
+
+func _speech_response_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_speech_response_impl")
 	var v_data Value
 	var v_format Value
-	var v_has_channels Value
-	var v_has_mime Value
-	var v_has_sample_rate Value
-	var v_has_text Value
 	var v_mime_type Value
+	var v_transcript Value
+	var v_channels Value
+	var v_has_channels Value
+	var v_has_format Value
+	var v_has_mime_format Value
+	var v_has_sample_rate Value
+	var v_has_transcript Value
+	var v_mime_format Value
+	var v_out Value
 	var v_params Value
-	var v_raw_is_object Value
-	var v_raw_mime_camel Value
-	var v_raw_mime_snake Value
-	var v_read_raw_mime Value
-	var v_request_input Value
 	var v_sample_rate Value
-	var v_snake_is_text Value
-	var v_text Value
-	if len(args) > 0 { v_out = args[0] }
-	_ = v_out
-	if len(args) > 1 { v_raw = args[1] }
-	_ = v_raw
-	if len(args) > 2 { v_request = args[2] }
-	_ = v_request
-	_ = v_camel_is_text
-	_ = v_channels
+	if len(args) > 0 { v_data = args[0] }
 	_ = v_data
+	if len(args) > 1 { v_format = args[1] }
 	_ = v_format
-	_ = v_has_channels
-	_ = v_has_mime
-	_ = v_has_sample_rate
-	_ = v_has_text
+	if len(args) > 2 { v_mime_type = args[2] }
 	_ = v_mime_type
+	if len(args) > 3 { v_transcript = args[3] }
+	_ = v_transcript
+	_ = v_channels
+	_ = v_has_channels
+	_ = v_has_format
+	_ = v_has_mime_format
+	_ = v_has_sample_rate
+	_ = v_has_transcript
+	_ = v_mime_format
+	_ = v_out
 	_ = v_params
-	_ = v_raw_is_object
-	_ = v_raw_mime_camel
-	_ = v_raw_mime_snake
-	_ = v_read_raw_mime
-	_ = v_request_input
 	_ = v_sample_rate
-	_ = v_snake_is_text
-	_ = v_text
-	v_data = coreGet(v_out, "audio", nil)
+	v_out = Object()
 	if err := coreSet(v_out, "data", v_data); err != nil { return nil, err }
-	v_format = coreGet(v_out, "format", nil)
-	v_mime_type = coreGet(v_out, "mime_type", "")
-	v_has_mime = _core_truthy(v_mime_type)
-	v_raw_is_object = coreTypeIs(v_raw, "object")
-	v_read_raw_mime = _core_not(v_has_mime)
-	v_read_raw_mime = _core_and(v_read_raw_mime, v_raw_is_object)
-	if coreTruthy(v_read_raw_mime) {
-		v_raw_mime_snake = coreGet(v_raw, "mime_type", nil)
-		v_snake_is_text = coreTypeIs(v_raw_mime_snake, "string")
-		if coreTruthy(v_snake_is_text) {
-			v_mime_type = v_raw_mime_snake
+	v_has_format = _core_is_not_none(v_format)
+	if coreTruthy(v_has_format) {
+		if err := coreSet(v_out, "format", v_format); err != nil { return nil, err }
+	} else {
+		{ v, err := _audio_format_from_mime_type_impl(v_mime_type); if err != nil { return nil, err }; v_mime_format = v }
+		v_has_mime_format = _core_is_not_none(v_mime_format)
+		if coreTruthy(v_has_mime_format) {
+			if err := coreSet(v_out, "format", v_mime_format); err != nil { return nil, err }
 		} else {
 		// empty
 		}
-		v_raw_mime_camel = coreGet(v_raw, "mimeType", nil)
-		v_camel_is_text = coreTypeIs(v_raw_mime_camel, "string")
-		if coreTruthy(v_camel_is_text) {
-			v_mime_type = v_raw_mime_camel
-		} else {
-		// empty
-		}
-		v_has_mime = _core_truthy(v_mime_type)
-	} else {
-	// empty
-	}
-	if coreTruthy(v_has_mime) {
-	// empty
-	} else {
-		{ v, err := _audio_mime_type_impl(v_format); if err != nil { return nil, err }; v_mime_type = v }
 	}
 	if err := coreSet(v_out, "mimeType", v_mime_type); err != nil { return nil, err }
+	v_has_transcript = _core_is_not_none(v_transcript)
+	if coreTruthy(v_has_transcript) {
+		if err := coreSet(v_out, "transcript", v_transcript); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	{ v, err := _audio_mime_params_impl(v_mime_type); if err != nil { return nil, err }; v_params = v }
 	v_sample_rate = coreGet(v_params, "sample_rate", nil)
 	v_has_sample_rate = _core_is_not_none(v_sample_rate)
@@ -24698,15 +24844,580 @@ func _speech_response_ts_keys_impl(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	v_request_input = coreGet(v_request, "input", nil)
-	v_text = coreGet(v_request, "text", v_request_input)
-	v_has_text = _core_is_not_none(v_text)
-	if coreTruthy(v_has_text) {
-		if err := coreSet(v_out, "transcript", v_text); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _speech_binary_response_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_speech_binary_response_impl")
+	var v_data Value
+	var v_content_type Value
+	var v_format Value
+	var v_transcript Value
+	var v_has_content_type Value
+	var v_mime_type Value
+	var v_speech Value
+	if len(args) > 0 { v_data = args[0] }
+	_ = v_data
+	if len(args) > 1 { v_content_type = args[1] }
+	_ = v_content_type
+	if len(args) > 2 { v_format = args[2] }
+	_ = v_format
+	if len(args) > 3 { v_transcript = args[3] }
+	_ = v_transcript
+	_ = v_has_content_type
+	_ = v_mime_type
+	_ = v_speech
+	{ v, err := _audio_mime_type_impl(v_format); if err != nil { return nil, err }; v_mime_type = v }
+	v_has_content_type = _core_truthy(v_content_type)
+	if coreTruthy(v_has_content_type) {
+		v_mime_type = v_content_type
 	} else {
 	// empty
 	}
-	return v_out, nil
+	{ v, err := _speech_response_impl(v_data, v_format, v_mime_type, v_transcript); if err != nil { return nil, err }; v_speech = v }
+	return v_speech, nil
+}
+
+func _speech_json_response_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_speech_json_response_impl")
+	var v_json Value
+	var v_format Value
+	var v_transcript Value
+	var v_data Value
+	var v_data_is_text Value
+	var v_error Value
+	var v_has_mime Value
+	var v_json_is_object Value
+	var v_mime_type Value
+	var v_older Value
+	var v_older_is_text Value
+	var v_speech Value
+	if len(args) > 0 { v_json = args[0] }
+	_ = v_json
+	if len(args) > 1 { v_format = args[1] }
+	_ = v_format
+	if len(args) > 2 { v_transcript = args[2] }
+	_ = v_transcript
+	_ = v_data
+	_ = v_data_is_text
+	_ = v_error
+	_ = v_has_mime
+	_ = v_json_is_object
+	_ = v_mime_type
+	_ = v_older
+	_ = v_older_is_text
+	_ = v_speech
+	{ v, err := _speech_json_data_impl(v_json); if err != nil { return nil, err }; v_data = v }
+	v_data_is_text = coreTypeIs(v_data, "string")
+	if coreTruthy(v_data_is_text) {
+	// empty
+	} else {
+		v_json_is_object = coreTypeIs(v_json, "object")
+		v_older = _core_none()
+		if coreTruthy(v_json_is_object) {
+			v_older = coreGet(v_json, "audio", nil)
+		} else {
+		// empty
+		}
+		v_older_is_text = coreTypeIs(v_older, "string")
+		if coreTruthy(v_older_is_text) {
+			_core_axgen_deprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")
+			v_data = v_older
+		} else {
+			v_error = _core_ai_error_response("Speech response JSON did not include audio data", v_json)
+			return nil, asError(v_error)
+		}
+	}
+	{ v, err := _speech_json_named_mime_type_impl(v_json); if err != nil { return nil, err }; v_mime_type = v }
+	v_has_mime = _core_truthy(v_mime_type)
+	if coreTruthy(v_has_mime) {
+	// empty
+	} else {
+		{ v, err := _audio_mime_type_impl(v_format); if err != nil { return nil, err }; v_mime_type = v }
+	}
+	{ v, err := _speech_response_impl(v_data, v_format, v_mime_type, v_transcript); if err != nil { return nil, err }; v_speech = v }
+	return v_speech, nil
+}
+
+func _speech_json_data_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_speech_json_data_impl")
+	var v_json Value
+	var v_audio Value
+	var v_audio_data Value
+	var v_audio_data_camel Value
+	var v_audio_inner Value
+	var v_audio_is_object Value
+	var v_data Value
+	var v_has_any Value
+	var v_has_audio_data Value
+	var v_has_audio_data_camel Value
+	var v_has_audio_inner Value
+	var v_has_camel Value
+	var v_has_data Value
+	var v_has_inline_data Value
+	var v_has_output_data Value
+	var v_has_snake_data Value
+	var v_inline Value
+	var v_inline_data Value
+	var v_inline_is_object Value
+	var v_json_is_object Value
+	var v_none Value
+	var v_output Value
+	var v_output_audio Value
+	var v_output_audio_is_object Value
+	var v_output_data Value
+	var v_output_is_object Value
+	var v_part Value
+	var v_parts Value
+	var v_snake Value
+	var v_snake_data Value
+	var v_snake_is_object Value
+	if len(args) > 0 { v_json = args[0] }
+	_ = v_json
+	_ = v_audio
+	_ = v_audio_data
+	_ = v_audio_data_camel
+	_ = v_audio_inner
+	_ = v_audio_is_object
+	_ = v_data
+	_ = v_has_any
+	_ = v_has_audio_data
+	_ = v_has_audio_data_camel
+	_ = v_has_audio_inner
+	_ = v_has_camel
+	_ = v_has_data
+	_ = v_has_inline_data
+	_ = v_has_output_data
+	_ = v_has_snake_data
+	_ = v_inline
+	_ = v_inline_data
+	_ = v_inline_is_object
+	_ = v_json_is_object
+	_ = v_none
+	_ = v_output
+	_ = v_output_audio
+	_ = v_output_audio_is_object
+	_ = v_output_data
+	_ = v_output_is_object
+	_ = v_part
+	_ = v_parts
+	_ = v_snake
+	_ = v_snake_data
+	_ = v_snake_is_object
+	v_none = _core_none()
+	v_json_is_object = coreTypeIs(v_json, "object")
+	if coreTruthy(v_json_is_object) {
+	// empty
+	} else {
+		return v_none, nil
+	}
+	v_audio_data = coreGet(v_json, "audio_data", nil)
+	v_has_audio_data = _core_is_not_none(v_audio_data)
+	if coreTruthy(v_has_audio_data) {
+		return v_audio_data, nil
+	} else {
+	// empty
+	}
+	v_audio_data_camel = coreGet(v_json, "audioData", nil)
+	v_has_audio_data_camel = _core_is_not_none(v_audio_data_camel)
+	if coreTruthy(v_has_audio_data_camel) {
+		return v_audio_data_camel, nil
+	} else {
+	// empty
+	}
+	v_data = coreGet(v_json, "data", nil)
+	v_has_data = _core_is_not_none(v_data)
+	if coreTruthy(v_has_data) {
+		return v_data, nil
+	} else {
+	// empty
+	}
+	v_audio = coreGet(v_json, "audio", nil)
+	v_audio_is_object = coreTypeIs(v_audio, "object")
+	if coreTruthy(v_audio_is_object) {
+		v_audio_inner = coreGet(v_audio, "data", nil)
+		v_has_audio_inner = _core_is_not_none(v_audio_inner)
+		if coreTruthy(v_has_audio_inner) {
+			return v_audio_inner, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_output = coreGet(v_json, "output", nil)
+	v_output_is_object = coreTypeIs(v_output, "object")
+	if coreTruthy(v_output_is_object) {
+		v_output_audio = coreGet(v_output, "audio", nil)
+		v_output_audio_is_object = coreTypeIs(v_output_audio, "object")
+		if coreTruthy(v_output_audio_is_object) {
+			v_output_data = coreGet(v_output_audio, "data", nil)
+			v_has_output_data = _core_is_not_none(v_output_data)
+			if coreTruthy(v_has_output_data) {
+				return v_output_data, nil
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	{ v, err := _speech_json_candidate_parts_impl(v_json); if err != nil { return nil, err }; v_parts = v }
+	for _, v_part = range coreIter(v_parts) {
+		v_inline = coreGet(v_part, "inlineData", nil)
+		v_inline_data = _core_none()
+		v_inline_is_object = coreTypeIs(v_inline, "object")
+		if coreTruthy(v_inline_is_object) {
+			v_inline_data = coreGet(v_inline, "data", nil)
+		} else {
+		// empty
+		}
+		v_snake = coreGet(v_part, "inline_data", nil)
+		v_snake_data = _core_none()
+		v_snake_is_object = coreTypeIs(v_snake, "object")
+		if coreTruthy(v_snake_is_object) {
+			v_snake_data = coreGet(v_snake, "data", nil)
+		} else {
+		// empty
+		}
+		v_has_inline_data = _core_truthy(v_inline_data)
+		v_has_snake_data = _core_truthy(v_snake_data)
+		v_has_any = _core_or(v_has_inline_data, v_has_snake_data)
+		if coreTruthy(v_has_any) {
+			v_has_camel = _core_is_not_none(v_inline_data)
+			if coreTruthy(v_has_camel) {
+				return v_inline_data, nil
+			} else {
+			// empty
+			}
+			break
+		} else {
+		// empty
+		}
+	}
+	for _, v_part = range coreIter(v_parts) {
+		v_snake = coreGet(v_part, "inline_data", nil)
+		v_snake_is_object = coreTypeIs(v_snake, "object")
+		if coreTruthy(v_snake_is_object) {
+			v_snake_data = coreGet(v_snake, "data", nil)
+			v_has_snake_data = _core_truthy(v_snake_data)
+			if coreTruthy(v_has_snake_data) {
+				return v_snake_data, nil
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_none, nil
+}
+
+func _speech_json_candidate_parts_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_speech_json_candidate_parts_impl")
+	var v_json Value
+	var v_candidate Value
+	var v_candidate_is_object Value
+	var v_candidates Value
+	var v_candidates_is_list Value
+	var v_content Value
+	var v_content_is_object Value
+	var v_content_parts Value
+	var v_content_parts_is_list Value
+	var v_count Value
+	var v_has_candidate Value
+	var v_json_is_object Value
+	var v_no_candidate Value
+	var v_parts Value
+	if len(args) > 0 { v_json = args[0] }
+	_ = v_json
+	_ = v_candidate
+	_ = v_candidate_is_object
+	_ = v_candidates
+	_ = v_candidates_is_list
+	_ = v_content
+	_ = v_content_is_object
+	_ = v_content_parts
+	_ = v_content_parts_is_list
+	_ = v_count
+	_ = v_has_candidate
+	_ = v_json_is_object
+	_ = v_no_candidate
+	_ = v_parts
+	v_parts = MutableArray()
+	v_json_is_object = coreTypeIs(v_json, "object")
+	if coreTruthy(v_json_is_object) {
+	// empty
+	} else {
+		return v_parts, nil
+	}
+	v_candidates = coreGet(v_json, "candidates", nil)
+	v_candidates_is_list = coreTypeIs(v_candidates, "list")
+	if coreTruthy(v_candidates_is_list) {
+	// empty
+	} else {
+		return v_parts, nil
+	}
+	v_count = _core_len(v_candidates)
+	v_has_candidate = _core_gt(v_count, 0)
+	if coreTruthy(v_has_candidate) {
+	// empty
+	} else {
+		return v_parts, nil
+	}
+	v_no_candidate = _core_none()
+	v_candidate = _core_list_get(v_candidates, 0, v_no_candidate)
+	v_candidate_is_object = coreTypeIs(v_candidate, "object")
+	if coreTruthy(v_candidate_is_object) {
+	// empty
+	} else {
+		return v_parts, nil
+	}
+	v_content = coreGet(v_candidate, "content", nil)
+	v_content_is_object = coreTypeIs(v_content, "object")
+	if coreTruthy(v_content_is_object) {
+	// empty
+	} else {
+		return v_parts, nil
+	}
+	v_content_parts = coreGet(v_content, "parts", nil)
+	v_content_parts_is_list = coreTypeIs(v_content_parts, "list")
+	if coreTruthy(v_content_parts_is_list) {
+		return v_content_parts, nil
+	} else {
+	// empty
+	}
+	return v_parts, nil
+}
+
+func _speech_json_named_mime_type_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_speech_json_named_mime_type_impl")
+	var v_json Value
+	var v_camel Value
+	var v_camel_is_text Value
+	var v_has_inline_mime Value
+	var v_has_snake_mime Value
+	var v_inline Value
+	var v_inline_is_object Value
+	var v_inline_mime Value
+	var v_inline_snake Value
+	var v_inline_snake_is_object Value
+	var v_json_is_object Value
+	var v_none Value
+	var v_part Value
+	var v_parts Value
+	var v_snake Value
+	var v_snake_is_text Value
+	var v_snake_mime Value
+	if len(args) > 0 { v_json = args[0] }
+	_ = v_json
+	_ = v_camel
+	_ = v_camel_is_text
+	_ = v_has_inline_mime
+	_ = v_has_snake_mime
+	_ = v_inline
+	_ = v_inline_is_object
+	_ = v_inline_mime
+	_ = v_inline_snake
+	_ = v_inline_snake_is_object
+	_ = v_json_is_object
+	_ = v_none
+	_ = v_part
+	_ = v_parts
+	_ = v_snake
+	_ = v_snake_is_text
+	_ = v_snake_mime
+	v_none = _core_none()
+	v_json_is_object = coreTypeIs(v_json, "object")
+	if coreTruthy(v_json_is_object) {
+	// empty
+	} else {
+		return v_none, nil
+	}
+	v_camel = coreGet(v_json, "mimeType", nil)
+	v_camel_is_text = coreTypeIs(v_camel, "string")
+	if coreTruthy(v_camel_is_text) {
+		return v_camel, nil
+	} else {
+	// empty
+	}
+	v_snake = coreGet(v_json, "mime_type", nil)
+	v_snake_is_text = coreTypeIs(v_snake, "string")
+	if coreTruthy(v_snake_is_text) {
+		return v_snake, nil
+	} else {
+	// empty
+	}
+	{ v, err := _speech_json_candidate_parts_impl(v_json); if err != nil { return nil, err }; v_parts = v }
+	for _, v_part = range coreIter(v_parts) {
+		v_inline = coreGet(v_part, "inlineData", nil)
+		v_inline_is_object = coreTypeIs(v_inline, "object")
+		if coreTruthy(v_inline_is_object) {
+			v_inline_mime = coreGet(v_inline, "mimeType", nil)
+			v_has_inline_mime = _core_truthy(v_inline_mime)
+			if coreTruthy(v_has_inline_mime) {
+				return v_inline_mime, nil
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	for _, v_part = range coreIter(v_parts) {
+		v_inline_snake = coreGet(v_part, "inline_data", nil)
+		v_inline_snake_is_object = coreTypeIs(v_inline_snake, "object")
+		if coreTruthy(v_inline_snake_is_object) {
+			v_snake_mime = coreGet(v_inline_snake, "mime_type", nil)
+			v_has_snake_mime = _core_truthy(v_snake_mime)
+			if coreTruthy(v_has_snake_mime) {
+				return v_snake_mime, nil
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_none, nil
+}
+
+func _audio_format_from_mime_type_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_audio_format_from_mime_type_impl")
+	var v_mime_type Value
+	var v_has_text Value
+	var v_is_aac Value
+	var v_is_alaw Value
+	var v_is_basic Value
+	var v_is_flac Value
+	var v_is_l16 Value
+	var v_is_linear16 Value
+	var v_is_mp3 Value
+	var v_is_mpeg Value
+	var v_is_mpeg_or_mp3 Value
+	var v_is_mulaw Value
+	var v_is_ogg Value
+	var v_is_opus Value
+	var v_is_pcm Value
+	var v_is_pcm16 Value
+	var v_is_text Value
+	var v_is_ulaw Value
+	var v_is_ulaw_or_basic Value
+	var v_is_wav Value
+	var v_mt Value
+	var v_none Value
+	if len(args) > 0 { v_mime_type = args[0] }
+	_ = v_mime_type
+	_ = v_has_text
+	_ = v_is_aac
+	_ = v_is_alaw
+	_ = v_is_basic
+	_ = v_is_flac
+	_ = v_is_l16
+	_ = v_is_linear16
+	_ = v_is_mp3
+	_ = v_is_mpeg
+	_ = v_is_mpeg_or_mp3
+	_ = v_is_mulaw
+	_ = v_is_ogg
+	_ = v_is_opus
+	_ = v_is_pcm
+	_ = v_is_pcm16
+	_ = v_is_text
+	_ = v_is_ulaw
+	_ = v_is_ulaw_or_basic
+	_ = v_is_wav
+	_ = v_mt
+	_ = v_none
+	v_none = _core_none()
+	v_is_text = coreTypeIs(v_mime_type, "string")
+	if coreTruthy(v_is_text) {
+	// empty
+	} else {
+		return v_none, nil
+	}
+	v_mt = _core_string_lower(v_mime_type)
+	v_has_text = _core_truthy(v_mt)
+	if coreTruthy(v_has_text) {
+	// empty
+	} else {
+		return v_none, nil
+	}
+	v_is_wav = _core_contains(v_mt, "wav")
+	if coreTruthy(v_is_wav) {
+		return "wav", nil
+	} else {
+	// empty
+	}
+	v_is_mpeg = _core_contains(v_mt, "mpeg")
+	v_is_mp3 = _core_contains(v_mt, "mp3")
+	v_is_mpeg_or_mp3 = _core_or(v_is_mpeg, v_is_mp3)
+	if coreTruthy(v_is_mpeg_or_mp3) {
+		return "mp3", nil
+	} else {
+	// empty
+	}
+	v_is_flac = _core_contains(v_mt, "flac")
+	if coreTruthy(v_is_flac) {
+		return "flac", nil
+	} else {
+	// empty
+	}
+	v_is_opus = _core_contains(v_mt, "opus")
+	if coreTruthy(v_is_opus) {
+		return "opus", nil
+	} else {
+	// empty
+	}
+	v_is_aac = _core_contains(v_mt, "aac")
+	if coreTruthy(v_is_aac) {
+		return "aac", nil
+	} else {
+	// empty
+	}
+	v_is_ogg = _core_contains(v_mt, "ogg")
+	if coreTruthy(v_is_ogg) {
+		return "ogg", nil
+	} else {
+	// empty
+	}
+	v_is_mulaw = _core_contains(v_mt, "mulaw")
+	if coreTruthy(v_is_mulaw) {
+		return "mulaw", nil
+	} else {
+	// empty
+	}
+	v_is_ulaw = _core_contains(v_mt, "ulaw")
+	v_is_basic = _core_contains(v_mt, "basic")
+	v_is_ulaw_or_basic = _core_or(v_is_ulaw, v_is_basic)
+	if coreTruthy(v_is_ulaw_or_basic) {
+		return "ulaw", nil
+	} else {
+	// empty
+	}
+	v_is_alaw = _core_contains(v_mt, "alaw")
+	if coreTruthy(v_is_alaw) {
+		return "alaw", nil
+	} else {
+	// empty
+	}
+	v_is_pcm16 = _core_contains(v_mt, "pcm16")
+	v_is_l16 = _core_contains(v_mt, "l16")
+	v_is_linear16 = _core_or(v_is_pcm16, v_is_l16)
+	if coreTruthy(v_is_linear16) {
+		return "pcm16", nil
+	} else {
+	// empty
+	}
+	v_is_pcm = _core_contains(v_mt, "pcm")
+	if coreTruthy(v_is_pcm) {
+		return "pcm", nil
+	} else {
+	// empty
+	}
+	return v_none, nil
 }
 
 func _audio_mime_type_impl(args ...Value) (Value, error) {
@@ -28859,8 +29570,6 @@ func _anthropic_content_part_impl(args ...Value) (Value, error) {
 	var v_part Value
 	var v_cache Value
 	var v_cache_control Value
-	var v_cached Value
-	var v_cached_snake Value
 	var v_data Value
 	var v_error Value
 	var v_file_uri Value
@@ -28884,13 +29593,10 @@ func _anthropic_content_part_impl(args ...Value) (Value, error) {
 	var v_source Value
 	var v_text Value
 	var v_type Value
-	var v_url Value
 	if len(args) > 0 { v_part = args[0] }
 	_ = v_part
 	_ = v_cache
 	_ = v_cache_control
-	_ = v_cached
-	_ = v_cached_snake
 	_ = v_data
 	_ = v_error
 	_ = v_file_uri
@@ -28914,7 +29620,6 @@ func _anthropic_content_part_impl(args ...Value) (Value, error) {
 	_ = v_source
 	_ = v_text
 	_ = v_type
-	_ = v_url
 	v_type = coreGet(v_part, "type", "text")
 	v_is_text = _core_eq(v_type, "text")
 	if coreTruthy(v_is_text) {
@@ -29024,10 +29729,7 @@ func _anthropic_content_part_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_is_url) {
 		v_out = Object()
 		if err := coreSet(v_out, "type", "text"); err != nil { return nil, err }
-		v_cached_snake = coreGet(v_part, "cached_content", nil)
-		v_cached = coreGet(v_part, "cachedContent", v_cached_snake)
-		v_url = coreGet(v_part, "url", "")
-		v_text = _core_coalesce(v_cached, v_url)
+		{ v, err := _url_part_text_impl(v_part); if err != nil { return nil, err }; v_text = v }
 		if err := coreSet(v_out, "text", v_text); err != nil { return nil, err }
 		v_cache = coreGet(v_part, "cache", false)
 		if coreTruthy(v_cache) {
@@ -76732,6 +77434,7 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	}
 	if coreTruthy(v_is_responder) {
 		{ v, err := _agent_stage_parse_dates(v_out, v_base_options, v_stage_options, v_forward_options); if err != nil { return nil, err }; v_out = v }
+		{ v, err := _agent_stage_render_audio(v_out, v_base_options, v_stage_options, v_forward_options); if err != nil { return nil, err }; v_out = v }
 	} else {
 	// empty
 	}
@@ -79877,6 +80580,59 @@ func _agent_streaming_forward(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "active_client", v_none); err != nil { return nil, err }
 	if err := coreSet(v_state, "active_forward_options", v_none); err != nil { return nil, err }
 	return v_output, nil
+}
+
+func _agent_stage_render_audio(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_stage_render_audio")
+	var v_out Value
+	var v_base_options Value
+	var v_stage_options Value
+	var v_forward_options Value
+	var v_chosen Value
+	var v_has_choice Value
+	var v_resolved Value
+	var v_snake Value
+	var v_source Value
+	var v_sources Value
+	var v_value Value
+	if len(args) > 0 { v_out = args[0] }
+	_ = v_out
+	if len(args) > 1 { v_base_options = args[1] }
+	_ = v_base_options
+	if len(args) > 2 { v_stage_options = args[2] }
+	_ = v_stage_options
+	if len(args) > 3 { v_forward_options = args[3] }
+	_ = v_forward_options
+	_ = v_chosen
+	_ = v_has_choice
+	_ = v_resolved
+	_ = v_snake
+	_ = v_source
+	_ = v_sources
+	_ = v_value
+	v_resolved = _core_none()
+	v_sources = MutableArray()
+	v_sources = coreAppend(v_sources, v_base_options)
+	v_sources = coreAppend(v_sources, v_stage_options)
+	v_sources = coreAppend(v_sources, v_forward_options)
+	for _, v_source = range coreIter(v_sources) {
+		v_snake = coreGet(v_source, "render_audio", nil)
+		v_value = coreGet(v_source, "renderAudio", v_snake)
+		v_chosen = _core_is_not_none(v_value)
+		if coreTruthy(v_chosen) {
+			v_resolved = v_value
+		} else {
+		// empty
+		}
+	}
+	v_has_choice = _core_is_not_none(v_resolved)
+	if coreTruthy(v_has_choice) {
+		if err := coreSet(v_out, "render_audio", v_resolved); err != nil { return nil, err }
+		if err := coreSet(v_out, "renderAudio", v_resolved); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func _agent_stage_parse_dates(args ...Value) (Value, error) {
@@ -90617,9 +91373,20 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	out := Object("status", float64(resp.StatusCode))
 	if coreTruthy(coreGet(req, "binaryResponse", false)) {
 		// Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
-		// be UTF-8 decoded / JSON-parsed; return the bytes as a base64 string so
-		// the speak normalizer's `raw["audio"] default raw` picks it up.
-		coreSet(out, "json", base64.StdEncoding.EncodeToString(data))
+		// be UTF-8 decoded: the bytes go on as base64 with their Content-Type,
+		// which names their mime type. A JSON body (as TS reads one by its
+		// Content-Type) goes on parsed.
+		contentType := resp.Header.Get("Content-Type")
+		if strings.Contains(contentType, "application/json") {
+			parsed, parseErr := parseJSONErr(string(data))
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			coreSet(out, "json", parsed)
+		} else {
+			coreSet(out, "json", base64.StdEncoding.EncodeToString(data))
+		}
+		coreSet(out, "headers", Object("content-type", contentType))
 	} else if coreTruthy(coreGet(req, "stream", false)) {
 		coreSet(out, "body", string(data))
 	} else if len(data) > 0 {
@@ -91704,6 +92471,21 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	return out
 }
 
+// transportContentType is the Content-Type header of a transport response, if
+// it names one.
+func transportContentType(raw Value) string {
+	headers, ok := coreGet(raw, "headers", nil).(map[string]Value)
+	if !ok {
+		return ""
+	}
+	for key, value := range headers {
+		if key != "__order" && strings.EqualFold(key, "content-type") {
+			return display(value)
+		}
+	}
+	return ""
+}
+
 func normalizeTransportPayload(raw Value) Value {
 	status := int(num(coreGet(raw, "status", 200)))
 	body := coreGet(raw, "json", coreGet(raw, "body", coreGet(raw, "data", raw)))
@@ -91737,7 +92519,22 @@ func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]V
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
 		}
-		return mustCore(provider_normalize_speak_response(c.Profile, normalizeTransportPayload(raw), request))
+		// As TS's axFetchJsonSpeech: a JSON body (by its Content-Type) is read
+		// as JSON, and a binary one as base64 with its Content-Type.
+		payload := normalizeTransportPayload(raw)
+		contentType := transportContentType(raw)
+		if text, ok := payload.(string); ok && strings.Contains(contentType, "application/json") {
+			parsed, parseErr := parseJSONErr(text)
+			if parseErr != nil {
+				panic(AxError{Category: "response", Message: parseErr.Error()})
+			}
+			payload = parsed
+		}
+		var contentTypeValue Value
+		if contentType != "" {
+			contentTypeValue = contentType
+		}
+		return mustCore(provider_normalize_speak_response(c.Profile, payload, request, contentTypeValue))
 	})
 	return value, normalizeContextError(ctx, err)
 }
@@ -103047,7 +103844,7 @@ func conformanceAgentRequestStage(request map[string]Value) string {
 }
 
 func runConformanceAgentForward(fixture map[string]Value) {
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
+	client := conformanceScriptSpeak(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, fixture)
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	observerTranscript := MutableArray()
 	semanticObserversEnabled := coreGet(fixture, "expected_observer_transcript", nil) != nil
@@ -103316,6 +104113,7 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 		assertEqual(output, expected, "agent output")
 	}
+	conformanceAssertSpeakRequests(fixture, client)
 	assertRunProjections()
 	if expected := coreGet(fixture, "expected_run_state_projections", nil); expected != nil {
 		assertEqual(runStateProjections, expected, "agent run state projections")
@@ -104461,7 +105259,6 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 	fields := goPromptInputFields(sig, values)
 	parts := []Value{}
 	allText := true
-	audioParts := false
 	for _, field := range fields {
 		value := coreGet(values, field.Name, nil)
 		// As TS renders an input field (src/ax/dsp/prompt.ts): a required input
@@ -104472,7 +105269,8 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 			}
 			panic(AxError{Category: "runtime", Message: "Value for input field '" + field.Name + "' is required."})
 		}
-		if field.Type.Name == "audio" {
+		kind := field.Type.Name
+		if kind == "audio" {
 			// As TS: an audio object with a transcript (what an AxGen audio
 			// output renders to), like a plain string, reaches the model as
 			// text; other audio goes as audio parts.
@@ -104481,23 +105279,25 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 					value = transcript
 				}
 			}
-			if _, isText := value.(string); !isText {
-				parts = append(parts, Object("type", "text", "text", field.Title+": \n"))
-				if field.Type.IsArray {
-					items, ok := value.([]Value)
-					if !ok {
-						panic(AxError{Category: "runtime", Message: "Audio field value must be an array."})
-					}
-					for _, item := range items {
-						parts = append(parts, goPromptAudioPart(item))
-					}
-				} else {
-					parts = append(parts, goPromptAudioPart(value))
+		}
+		_, isText := value.(string)
+		// As TS defaultRenderInField: image, file and url values, and audio
+		// that is not text, go out as media parts after a text part with the
+		// field's title.
+		if kind == "image" || kind == "file" || kind == "url" || (kind == "audio" && !isText) {
+			parts = append(parts, Object("type", "text", "text", field.Title+": \n"))
+			if field.Type.IsArray {
+				if !goPromptIsList(value) {
+					panic(AxError{Category: "runtime", Message: goPromptMediaLabel(kind) + " field value must be an array."})
 				}
-				allText = false
-				audioParts = true
-				continue
+				for _, item := range asSlice(value) {
+					parts = append(parts, goPromptMediaPart(kind, item))
+				}
+			} else {
+				parts = append(parts, goPromptMediaPart(kind, value))
 			}
+			allText = false
+			continue
 		}
 		valueText := goPromptValueText(value)
 		// A time.Time in a date-typed field reads as TS renders a Date.
@@ -104511,9 +105311,6 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 			allText = false
 		}
 		parts = append(parts, part)
-		if field.Type.Name == "image" || field.Type.Name == "file" || field.Type.Name == "url" {
-			allText = false
-		}
 	}
 	if allText {
 		lines := []string{}
@@ -104522,10 +105319,8 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 		}
 		return strings.Join(lines, "\n")
 	}
-	if !audioParts {
-		return parts
-	}
-	// As TS: consecutive text parts join with a newline.
+	// As TS combineConsecutiveStrings: in a message with media, each run of
+	// text parts joins with a newline and is cached when any of them is.
 	combined := []Value{}
 	for _, part := range parts {
 		if display(coreGet(part, "type", "")) == "text" && len(combined) > 0 && display(coreGet(combined[len(combined)-1], "type", "")) == "text" {
@@ -104541,22 +105336,197 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 	return combined
 }
 
+func goPromptMediaLabel(kind string) string {
+	switch kind {
+	case "image":
+		return "Image"
+	case "audio":
+		return "Audio"
+	case "file":
+		return "File"
+	}
+	return "URL"
+}
+
+// goPromptMediaAliases turns the snake_case aliases the provider mappings
+// read into the part type's declared camelCase keys (a camelCase key wins),
+// so inputs written with them keep working.
+func goPromptMediaAliases(kind string, value Value) Value {
+	object, ok := value.(map[string]Value)
+	if !ok {
+		return value
+	}
+	var aliases [][2]string
+	switch kind {
+	case "image":
+		aliases = [][2]string{{"mime_type", "mimeType"}}
+	case "audio":
+		aliases = [][2]string{{"audio", "data"}, {"mime_type", "mimeType"}, {"sample_rate", "sampleRate"}}
+	case "file":
+		aliases = [][2]string{{"mime_type", "mimeType"}, {"file_uri", "fileUri"}, {"extracted_text", "extractedText"}}
+	default:
+		aliases = [][2]string{{"cached_content", "cachedContent"}}
+	}
+	var out map[string]Value
+	for _, alias := range aliases {
+		item, hasAlias := object[alias[0]]
+		_, hasKey := object[alias[1]]
+		if hasAlias && !hasKey {
+			if out == nil {
+				out = cloneMap(object)
+			}
+			coreSet(out, alias[1], item)
+		}
+	}
+	if out == nil {
+		return value
+	}
+	return out
+}
+
+func goPromptMediaPart(kind string, value Value) Value {
+	value = goPromptMediaAliases(kind, value)
+	switch kind {
+	case "image":
+		return goPromptImagePart(value)
+	case "audio":
+		return goPromptAudioPart(value)
+	case "file":
+		return goPromptFilePart(value)
+	}
+	return goPromptURLPart(value)
+}
+
+func goPromptIsList(value Value) bool {
+	switch value.(type) {
+	case []Value, *AxArray:
+		return true
+	}
+	return false
+}
+
+// goPromptJSFalsy is JavaScript's !value for a JSON value: objects and arrays
+// are truthy.
+func goPromptJSFalsy(value Value) bool {
+	switch v := value.(type) {
+	case nil:
+		return true
+	case bool:
+		return !v
+	case string:
+		return v == ""
+	case int:
+		return v == 0
+	case int64:
+		return v == 0
+	case float64:
+		return v == 0 || v != v
+	}
+	return false
+}
+
+// goPromptMediaObject checks a media value as TS's validators do and returns
+// it as a map.
+func goPromptMediaObject(value Value, label string, requiredKey string) map[string]Value {
+	if goPromptJSFalsy(value) {
+		panic(AxError{Category: "runtime", Message: label + " field value is required."})
+	}
+	object, isObject := value.(map[string]Value)
+	if !isObject && !goPromptIsList(value) {
+		panic(AxError{Category: "runtime", Message: label + " field value must be an object."})
+	}
+	if !isObject {
+		panic(AxError{Category: "runtime", Message: label + " field must have " + requiredKey})
+	}
+	if _, ok := object[requiredKey]; !ok {
+		panic(AxError{Category: "runtime", Message: label + " field must have " + requiredKey})
+	}
+	return object
+}
+
+// goPromptImagePart is TS's image part: the mime type, the data as `image`,
+// and the details the provider reads (OpenAI's image detail).
+func goPromptImagePart(value Value) Value {
+	image := goPromptMediaObject(value, "Image", "mimeType")
+	data, hasData := image["data"]
+	if !hasData {
+		panic(AxError{Category: "runtime", Message: "Image field must have data"})
+	}
+	part := Object("type", "image", "mimeType", image["mimeType"], "image", data)
+	return goPromptDeclaredKeys(part, image, "details", "cache", "optimize", "altText")
+}
+
+// goPromptDeclaredKeys copies the optional keys a media part type declares
+// (TS AxChatRequest) that the value sets onto the part, so the provider or
+// router that reads them gets them; other keys stay behind.
+func goPromptDeclaredKeys(part map[string]Value, value map[string]Value, keys ...string) Value {
+	for _, key := range keys {
+		if item, ok := value[key]; ok {
+			coreSet(part, key, item)
+		}
+	}
+	return part
+}
+
 // goPromptAudioPart is TS's audio part: only the format (wav when there is
 // none) and the data.
 func goPromptAudioPart(value Value) Value {
-	audio, ok := value.(map[string]Value)
-	if !ok {
-		panic(AxError{Category: "runtime", Message: "Audio field value must be an object."})
-	}
-	data, hasData := audio["data"]
-	if !hasData {
-		panic(AxError{Category: "runtime", Message: "Audio field must have data"})
-	}
+	audio := goPromptMediaObject(value, "Audio", "data")
 	format := audio["format"]
 	if format == nil {
 		format = "wav"
 	}
-	return Object("type", "audio", "format", format, "data", data)
+	part := Object("type", "audio", "format", format, "data", audio["data"])
+	return goPromptDeclaredKeys(part, audio, "mimeType", "sampleRate", "channels", "cache", "transcription", "duration")
+}
+
+// goPromptFilePart is TS's file part: the mime type and either the data or
+// the fileUri.
+func goPromptFilePart(value Value) Value {
+	file := goPromptMediaObject(value, "File", "mimeType")
+	data, hasData := file["data"]
+	fileURI, hasFileURI := file["fileUri"]
+	if !hasData && !hasFileURI {
+		panic(AxError{Category: "runtime", Message: "File field must have either data or fileUri"})
+	}
+	if hasData && hasFileURI {
+		panic(AxError{Category: "runtime", Message: "File field cannot have both data and fileUri"})
+	}
+	part := Object("type", "file", "mimeType", file["mimeType"], "data", data)
+	if hasFileURI {
+		part = Object("type", "file", "mimeType", file["mimeType"], "fileUri", fileURI)
+	}
+	return goPromptDeclaredKeys(part, file, "filename", "cache", "extractedText")
+}
+
+// goPromptURLPart is TS's url part: the url, and the title and description
+// when they are set; a plain string is the url.
+func goPromptURLPart(value Value) Value {
+	if goPromptJSFalsy(value) {
+		panic(AxError{Category: "runtime", Message: "URL field value is required."})
+	}
+	if url, ok := value.(string); ok {
+		return Object("type", "url", "url", url)
+	}
+	link, isObject := value.(map[string]Value)
+	if !isObject && !goPromptIsList(value) {
+		panic(AxError{Category: "runtime", Message: "URL field value must be a string or object."})
+	}
+	if !isObject {
+		panic(AxError{Category: "runtime", Message: "URL field must have url property"})
+	}
+	url, hasURL := link["url"]
+	if !hasURL {
+		panic(AxError{Category: "runtime", Message: "URL field must have url property"})
+	}
+	part := Object("type", "url", "url", url)
+	if title := link["title"]; !goPromptJSFalsy(title) {
+		coreSet(part, "title", title)
+	}
+	if description := link["description"]; !goPromptJSFalsy(description) {
+		coreSet(part, "description", description)
+	}
+	return goPromptDeclaredKeys(part, link, "cachedContent", "cache")
 }
 func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value, options map[string]Value) string {
 	// As TypeScript's structuredOutput option: AxGen renders with it set when

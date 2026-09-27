@@ -21,8 +21,12 @@ fn openai_client() -> AxResult<OpenAICompatibleClient> {
 fn main() -> AxResult<()> {
     let mut client = openai_client()?;
     let step = ax("topic:string -> outline:string[]")?;
-    let mut program = axllm::flow("examples.composedFlow").execute("step", step).returns(json!({"step": "step"}));
+    let mut program = axllm::flow("examples.composedFlow").execute("step", step).returns(json!({"outline": "outline"}));
     let output = program.forward(&mut client, json!({"topic": "How Ax moves from typed generation to agents, flows, and optimization"}))?;
+    for key in ["outline"] {
+        let value = &output[key];
+        assert!(!value.is_null() && value != "" && *value != json!([]), "flow output field {key} is empty: {output}");
+    }
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }

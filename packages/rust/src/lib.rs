@@ -3838,13 +3838,26 @@ impl OpenAICompatibleClient {
         }
         let raw = request_builder.js_json(&body).send()?.error_for_status()?;
         // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
-        // be UTF-8 decoded or parsed as JSON; return the bytes as a base64 string
-        // so the speak normalizer can pass it through to the `audio` field.
-        let response: Value = if binary {
-            Value::String(encode_base64(&raw.bytes()?))
-        } else {
-            raw.json()?
-        };
+        // be UTF-8 decoded: the bytes go on as base64 with their Content-Type,
+        // which names their mime type. A JSON body (as TS reads one by its
+        // Content-Type) goes on parsed.
+        if binary {
+            let content_type = raw
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            let response: Value = if content_type.contains("application/json") {
+                raw.json()?
+            } else {
+                Value::String(encode_base64(&raw.bytes()?))
+            };
+            return Ok(
+                json!({"status": 200, "json": response, "headers": {"content-type": content_type}}),
+            );
+        }
+        let response: Value = raw.json()?;
         Ok(json!({"status": 200, "json": response}))
     }
 
@@ -4085,11 +4098,25 @@ impl OpenAICompatibleClient {
             "mistral" => self.post_json("/audio/speech", body, binary, "speak")?,
             _ => self.post_json("/audio/speech", body, binary, "speak")?,
         };
-        let payload = normalize_passthrough_response(raw)?;
+        // As TS's axFetchJsonSpeech: a JSON body (by its Content-Type) is read
+        // as JSON, and a binary one as base64 with its Content-Type.
+        let content_type = transport_content_type(&raw);
+        let mut payload = normalize_passthrough_response(raw)?;
+        if content_type.contains("application/json") {
+            if let Value::String(text) = &payload {
+                payload = serde_json::from_str(text).map_err(AxError::from)?;
+            }
+        }
+        let content_type_value = if content_type.is_empty() {
+            CoreValue::Null
+        } else {
+            CoreValue::from(content_type.as_str())
+        };
         let normalized = provider_normalize_speak_response(&[
             CoreValue::from(profile.as_str()),
             core_value_from_json(&payload),
             core_value_from_json(&request),
+            content_type_value,
         ])?;
         Ok(core_value_to_json(&normalized))
     }
@@ -5442,6 +5469,20 @@ fn normalize_openai_response(
 
 // python: _transport_result. Raises openai_normalize_error for status >= 400
 // and unwraps {status, json|body|data} transport envelopes otherwise.
+/// The Content-Type header of a transport response, if it names one.
+fn transport_content_type(response: &Value) -> String {
+    response
+        .get("headers")
+        .and_then(Value::as_object)
+        .and_then(|headers| {
+            headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("content-type"))
+                .and_then(|(_, value)| value.as_str().map(str::to_string))
+        })
+        .unwrap_or_default()
+}
+
 fn normalize_passthrough_response(response: Value) -> AxResult<Value> {
     // Responses objects have a string status (for example "completed"). Only
     // numeric HTTP statuses identify a transport envelope.
@@ -18699,7 +18740,8 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             .get("features")
             .cloned()
             .unwrap_or_else(router_default_features),
-    );
+    )
+    .with_speak_responses(fixture);
     client.transcribe_responses = fixture
         .get("transcribe_responses")
         .and_then(Value::as_array)
@@ -19205,6 +19247,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("agent output", &output, expected)?;
     }
+    expect_fixture_speak_requests(fixture, &client.speak_requests)?;
     if let Some(expected) = fixture.get("expected_run_state_projections") {
         expect_json_equal(
             "agent run state projections",
@@ -28365,6 +28408,8 @@ fn core_prompt_combine_consecutive_text(
             _ => None,
         };
         if let Some(prev) = merge_target {
+            // TS combineConsecutiveStrings: the joined part is cached when any
+            // of its text parts is.
             let prev_text = core_get(&prev, &CoreValue::from("text"), CoreValue::from("")).text();
             let part_text = core_get(&part, &CoreValue::from("text"), CoreValue::from("")).text();
             core_set(
@@ -28372,6 +28417,9 @@ fn core_prompt_combine_consecutive_text(
                 CoreValue::from("text"),
                 CoreValue::from_string(format!("{prev_text}{separator}{part_text}")),
             )?;
+            if core_truthy(&core_get(&part, &CoreValue::from("cache"), CoreValue::Null)) {
+                core_set(&prev, CoreValue::from("cache"), CoreValue::Bool(true))?;
+            }
         } else {
             core_append(&out, part)?;
         }
@@ -28379,17 +28427,223 @@ fn core_prompt_combine_consecutive_text(
     Ok(out)
 }
 
+// JavaScript's !value for a JSON value: objects and arrays are truthy.
+#[allow(dead_code)]
+fn core_prompt_js_falsy(value: &CoreValue) -> bool {
+    match value {
+        CoreValue::Null => true,
+        CoreValue::Bool(b) => !*b,
+        CoreValue::Str(s) => s.is_empty(),
+        CoreValue::Num(n) => *n == 0.0 || n.is_nan(),
+        _ => false,
+    }
+}
+
+// Checks a media value as TS's validators do.
+#[allow(dead_code)]
+fn core_prompt_media_object(
+    value: &CoreValue,
+    label: &str,
+    required_key: &str,
+) -> Result<(), AxError> {
+    if core_prompt_js_falsy(value) {
+        return Err(AxError::runtime(format!(
+            "{label} field value is required."
+        )));
+    }
+    let has_key = match value {
+        CoreValue::Map(map) => map.borrow().contains(required_key),
+        CoreValue::List(_) => false,
+        _ => {
+            return Err(AxError::runtime(format!(
+                "{label} field value must be an object."
+            )))
+        }
+    };
+    if !has_key {
+        return Err(AxError::runtime(format!(
+            "{label} field must have {required_key}"
+        )));
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn core_prompt_has_key(value: &CoreValue, key: &str) -> bool {
+    matches!(value, CoreValue::Map(map) if map.borrow().contains(key))
+}
+
+// The optional keys a media part type declares (TS AxChatRequest) that the
+// value sets go on the part, so the provider or router that reads them gets
+// them; other keys stay behind.
+#[allow(dead_code)]
+fn core_prompt_declared_keys(
+    part: CoreValue,
+    value: &CoreValue,
+    keys: &[&str],
+) -> Result<CoreValue, AxError> {
+    for key in keys {
+        if core_prompt_has_key(value, key) {
+            core_set(
+                &part,
+                CoreValue::from(*key),
+                core_get(value, &CoreValue::from(*key), CoreValue::Null),
+            )?;
+        }
+    }
+    Ok(part)
+}
+
+// TS defaultRenderInField: an image part carries the mime type, the data as
+// `image`, and the details the provider reads (OpenAI's image detail).
+#[allow(dead_code)]
+fn core_prompt_image_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    core_prompt_media_object(value, "Image", "mimeType")?;
+    if !core_prompt_has_key(value, "data") {
+        return Err(AxError::runtime("Image field must have data"));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("image"))?;
+    core_set(
+        &part,
+        CoreValue::from("mimeType"),
+        core_get(value, &CoreValue::from("mimeType"), CoreValue::Null),
+    )?;
+    core_set(
+        &part,
+        CoreValue::from("image"),
+        core_get(value, &CoreValue::from("data"), CoreValue::Null),
+    )?;
+    core_prompt_declared_keys(part, value, &["details", "cache", "optimize", "altText"])
+}
+
+// TS defaultRenderInField: a file part carries the mime type and either its
+// data or its fileUri.
+#[allow(dead_code)]
+fn core_prompt_file_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    core_prompt_media_object(value, "File", "mimeType")?;
+    let has_data = core_prompt_has_key(value, "data");
+    let has_file_uri = core_prompt_has_key(value, "fileUri");
+    if !has_data && !has_file_uri {
+        return Err(AxError::runtime(
+            "File field must have either data or fileUri",
+        ));
+    }
+    if has_data && has_file_uri {
+        return Err(AxError::runtime(
+            "File field cannot have both data and fileUri",
+        ));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("file"))?;
+    core_set(
+        &part,
+        CoreValue::from("mimeType"),
+        core_get(value, &CoreValue::from("mimeType"), CoreValue::Null),
+    )?;
+    let key = if has_file_uri { "fileUri" } else { "data" };
+    core_set(
+        &part,
+        CoreValue::from(key),
+        core_get(value, &CoreValue::from(key), CoreValue::Null),
+    )?;
+    core_prompt_declared_keys(part, value, &["filename", "cache", "extractedText"])
+}
+
+// TS defaultRenderInField: a url part carries the url, and the title and
+// description when they are set; a plain string is the url.
+#[allow(dead_code)]
+fn core_prompt_url_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    if core_prompt_js_falsy(value) {
+        return Err(AxError::runtime("URL field value is required."));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("url"))?;
+    if matches!(value, CoreValue::Str(_)) {
+        core_set(&part, CoreValue::from("url"), value.clone())?;
+        return Ok(part);
+    }
+    if !matches!(value, CoreValue::Map(_) | CoreValue::List(_)) {
+        return Err(AxError::runtime(
+            "URL field value must be a string or object.",
+        ));
+    }
+    if !core_prompt_has_key(value, "url") {
+        return Err(AxError::runtime("URL field must have url property"));
+    }
+    core_set(
+        &part,
+        CoreValue::from("url"),
+        core_get(value, &CoreValue::from("url"), CoreValue::Null),
+    )?;
+    for key in ["title", "description"] {
+        let item = core_get(value, &CoreValue::from(key), CoreValue::Null);
+        if !core_prompt_js_falsy(&item) {
+            core_set(&part, CoreValue::from(key), item)?;
+        }
+    }
+    core_prompt_declared_keys(part, value, &["cachedContent", "cache"])
+}
+
+// The snake_case aliases the provider mappings read become the part type's
+// declared camelCase keys (a camelCase key wins), so inputs written with them
+// keep working.
+#[allow(dead_code)]
+fn core_prompt_media_aliases(kind: &str, value: &CoreValue) -> Result<CoreValue, AxError> {
+    let CoreValue::Map(map) = value else {
+        return Ok(value.clone());
+    };
+    let aliases: &[(&str, &str)] = match kind {
+        "image" => &[("mime_type", "mimeType")],
+        "audio" => &[
+            ("audio", "data"),
+            ("mime_type", "mimeType"),
+            ("sample_rate", "sampleRate"),
+        ],
+        "file" => &[
+            ("mime_type", "mimeType"),
+            ("file_uri", "fileUri"),
+            ("extracted_text", "extractedText"),
+        ],
+        _ => &[("cached_content", "cachedContent")],
+    };
+    let mut out: Option<CoreValue> = None;
+    for (alias, key) in aliases {
+        let (has_alias, has_key) = {
+            let borrowed = map.borrow();
+            (borrowed.contains(alias), borrowed.contains(key))
+        };
+        if has_alias && !has_key {
+            if out.is_none() {
+                let copy = CoreValue::new_map();
+                for (entry_key, item) in map.borrow().entries.clone() {
+                    core_set(&copy, CoreValue::from(entry_key.as_str()), item)?;
+                }
+                out = Some(copy);
+            }
+            let item = core_get(value, &CoreValue::from(*alias), CoreValue::Null);
+            core_set(out.as_ref().unwrap(), CoreValue::from(*key), item)?;
+        }
+    }
+    Ok(out.unwrap_or_else(|| value.clone()))
+}
+
+#[allow(dead_code)]
+fn core_prompt_media_part(kind: &str, value: &CoreValue) -> Result<CoreValue, AxError> {
+    let value = &core_prompt_media_aliases(kind, value)?;
+    match kind {
+        "image" => core_prompt_image_part(value),
+        "audio" => core_prompt_audio_part(value),
+        "file" => core_prompt_file_part(value),
+        _ => core_prompt_url_part(value),
+    }
+}
+
 // TS defaultRenderInField: an audio part carries only its format (wav when it
 // has none) and its data.
 #[allow(dead_code)]
 fn core_prompt_audio_part(value: &CoreValue) -> Result<CoreValue, AxError> {
-    let has_data = match value {
-        CoreValue::Map(map) => map.borrow().contains("data"),
-        _ => return Err(AxError::runtime("Audio field value must be an object.")),
-    };
-    if !has_data {
-        return Err(AxError::runtime("Audio field must have data"));
-    }
+    core_prompt_media_object(value, "Audio", "data")?;
     let format = core_get(value, &CoreValue::from("format"), CoreValue::Null);
     let part = CoreValue::new_map();
     core_set(&part, CoreValue::from("type"), CoreValue::from("audio"))?;
@@ -28407,7 +28661,18 @@ fn core_prompt_audio_part(value: &CoreValue) -> Result<CoreValue, AxError> {
         CoreValue::from("data"),
         core_get(value, &CoreValue::from("data"), CoreValue::Null),
     )?;
-    Ok(part)
+    core_prompt_declared_keys(
+        part,
+        value,
+        &[
+            "mimeType",
+            "sampleRate",
+            "channels",
+            "cache",
+            "transcription",
+            "duration",
+        ],
+    )
 }
 
 #[allow(dead_code)]
@@ -28422,9 +28687,18 @@ fn core_prompt_default_render_in_field(
         "string".to_string()
     };
     let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
-    if typ == "audio" && !matches!(value, CoreValue::Str(_)) {
-        // A string (a plain one, or an audio object's transcript) renders as
-        // text below, like any text field.
+    // As TS: image, file and url values, and audio that is not text (a plain
+    // string or an audio object's transcript renders as text below), go out
+    // as media parts after a text part with the title.
+    let media = matches!(typ.as_str(), "image" | "file" | "url")
+        || (typ == "audio" && !matches!(value, CoreValue::Str(_)));
+    if media {
+        let label = match typ.as_str() {
+            "image" => "Image",
+            "audio" => "Audio",
+            "file" => "File",
+            _ => "URL",
+        };
         let parts = CoreValue::new_list();
         let text_part = CoreValue::new_map();
         core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
@@ -28440,54 +28714,17 @@ fn core_prompt_default_render_in_field(
             CoreValue::Null,
         )) {
             if !matches!(value, CoreValue::List(_)) {
-                return Err(AxError::runtime("Audio field value must be an array."));
+                return Err(AxError::runtime(format!(
+                    "{label} field value must be an array."
+                )));
             }
             for item in core_iter(value)? {
-                core_append(&parts, core_prompt_audio_part(&item)?)?;
+                core_append(&parts, core_prompt_media_part(&typ, &item)?)?;
             }
         } else {
-            core_append(&parts, core_prompt_audio_part(value)?)?;
+            core_append(&parts, core_prompt_media_part(&typ, value)?)?;
         }
         return Ok(parts);
-    }
-    if matches!(typ.as_str(), "image" | "audio" | "file" | "url") {
-        if matches!(value, CoreValue::List(_)) {
-            let parts = CoreValue::new_list();
-            let text_part = CoreValue::new_map();
-            core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
-            core_set(
-                &text_part,
-                CoreValue::from("text"),
-                CoreValue::from_string(format!("{title}: ")),
-            )?;
-            core_append(&parts, text_part)?;
-            for item in core_iter(value)? {
-                core_append(&parts, item)?;
-            }
-            return Ok(parts);
-        }
-        if let CoreValue::Map(map) = value {
-            let part = CoreValue::new_map();
-            for (key, item) in map.borrow().entries.clone() {
-                core_set(&part, CoreValue::from(key.as_str()), item)?;
-            }
-            let has_type = matches!(&part, CoreValue::Map(m) if m.borrow().contains("type"));
-            if !has_type {
-                core_set(
-                    &part,
-                    CoreValue::from("type"),
-                    CoreValue::from_string(typ.clone()),
-                )?;
-            }
-            let text_part = CoreValue::new_map();
-            core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
-            core_set(
-                &text_part,
-                CoreValue::from("text"),
-                CoreValue::from_string(format!("{title}: ")),
-            )?;
-            return Ok(CoreValue::list_from(vec![text_part, part]));
-        }
     }
     let part = CoreValue::new_map();
     core_set(&part, CoreValue::from("type"), CoreValue::from("text"))?;
@@ -28902,10 +29139,10 @@ fn core_prompt_process_value(field: &CoreValue, value: &CoreValue) -> Result<Cor
                 return Ok(value.clone());
             }
         }
-        if matches!(
-            name.as_str(),
-            Some("image") | Some("audio") | Some("file") | Some("url")
-        ) && matches!(value, CoreValue::Map(_))
+        // As TS processValue: image, file and url objects (and arrays of
+        // them) reach the field renderer as they are.
+        if matches!(name.as_str(), Some("image") | Some("file") | Some("url"))
+            && matches!(value, CoreValue::Map(_) | CoreValue::List(_))
         {
             return Ok(value.clone());
         }
@@ -42255,221 +42492,48 @@ fn normalize_token_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_content_part_impl");
+fn _url_part_text_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_url_part_text_impl");
     let mut v_part = core_arg(args, 0);
-    let mut v_audio_alt = CoreValue::Null;
-    let mut v_audio_error = CoreValue::Null;
-    let mut v_audio_message = CoreValue::Null;
     let mut v_cached = CoreValue::Null;
     let mut v_cached_snake = CoreValue::Null;
-    let mut v_data = CoreValue::Null;
-    let mut v_data_url = CoreValue::Null;
-    let mut v_details = CoreValue::Null;
-    let mut v_error = CoreValue::Null;
-    let mut v_file = CoreValue::Null;
-    let mut v_file_data = CoreValue::Null;
-    let mut v_filename = CoreValue::Null;
-    let mut v_format = CoreValue::Null;
-    let mut v_format_ok = CoreValue::Null;
-    let mut v_has_filename = CoreValue::Null;
-    let mut v_has_uri = CoreValue::Null;
-    let mut v_image = CoreValue::Null;
-    let mut v_image_raw = CoreValue::Null;
-    let mut v_image_url = CoreValue::Null;
-    let mut v_image_value = CoreValue::Null;
-    let mut v_input_audio = CoreValue::Null;
-    let mut v_is_audio = CoreValue::Null;
-    let mut v_is_data_url = CoreValue::Null;
-    let mut v_is_file = CoreValue::Null;
-    let mut v_is_image = CoreValue::Null;
-    let mut v_is_image_file = CoreValue::Null;
-    let mut v_is_mp3 = CoreValue::Null;
-    let mut v_is_text = CoreValue::Null;
-    let mut v_is_uri_video = CoreValue::Null;
-    let mut v_is_url = CoreValue::Null;
-    let mut v_is_video_file = CoreValue::Null;
-    let mut v_is_wav = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_mime = CoreValue::Null;
-    let mut v_mime_raw = CoreValue::Null;
-    let mut v_mime_snake = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_resolved_uri = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_has_cached = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_has_title = CoreValue::Null;
+    let mut v_has_url = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
     let mut v_text = CoreValue::Null;
-    let mut v_type = CoreValue::Null;
-    let mut v_uri = CoreValue::Null;
-    let mut v_uri_snake = CoreValue::Null;
+    let mut v_title = CoreValue::Null;
     let mut v_url = CoreValue::Null;
-    let mut v_video_url = CoreValue::Null;
-    v_type = core_get(&v_part, &CoreValue::from("type"), CoreValue::Null);
-    v_is_text = core_eq(&[v_type.clone(), CoreValue::from("text")])?;
-    if core_truthy(&v_is_text) {
-        v_text = core_get(&v_part, &CoreValue::from("text"), CoreValue::from(""));
-        v_out = CoreValue::new_map();
-        core_set(&v_out, CoreValue::from("type"), CoreValue::from("text"))?;
-        core_set(&v_out, CoreValue::from("text"), v_text.clone())?;
-        return Ok(v_out.clone());
+    v_cached_snake = core_get(&v_part, &CoreValue::from("cached_content"), CoreValue::Null);
+    v_cached = core_get(
+        &v_part,
+        &CoreValue::from("cachedContent"),
+        v_cached_snake.clone(),
+    );
+    v_has_cached = core_is_not_none(&[v_cached.clone()])?;
+    if core_truthy(&v_has_cached) {
+        return Ok(v_cached.clone());
     }
-    v_is_image = core_eq(&[v_type.clone(), CoreValue::from("image")])?;
-    if core_truthy(&v_is_image) {
-        v_mime_snake = core_get(&v_part, &CoreValue::from("mime_type"), CoreValue::Null);
-        v_mime_raw = core_get(&v_part, &CoreValue::from("mimeType"), v_mime_snake.clone());
-        v_mime = core_coalesce(&[v_mime_raw.clone(), CoreValue::from("image/png")])?;
-        v_image_value = core_get(&v_part, &CoreValue::from("image"), CoreValue::Null);
-        v_image_raw = core_get(&v_part, &CoreValue::from("data"), v_image_value.clone());
-        v_image = core_coalesce(&[v_image_raw.clone(), CoreValue::from("")])?;
-        v_is_data_url = core_string_starts_with(&[v_image.clone(), CoreValue::from("data:")])?;
-        v_url = CoreValue::from("");
-        if core_truthy(&v_is_data_url) {
-            v_url = v_image.clone();
-        } else {
-            v_url = core_string_format(&[
-                CoreValue::from("data:{};base64,{}"),
-                v_mime.clone(),
-                v_image.clone(),
-            ])?;
-        }
-        v_details = core_get(
-            &v_part,
-            &CoreValue::from("details"),
-            CoreValue::from("auto"),
-        );
-        v_image_url = CoreValue::new_map();
-        core_set(&v_image_url, CoreValue::from("url"), v_url.clone())?;
-        core_set(&v_image_url, CoreValue::from("detail"), v_details.clone())?;
-        v_out = CoreValue::new_map();
-        core_set(
-            &v_out,
-            CoreValue::from("type"),
-            CoreValue::from("image_url"),
-        )?;
-        core_set(&v_out, CoreValue::from("image_url"), v_image_url.clone())?;
-        return Ok(v_out.clone());
+    v_lines = CoreValue::new_list();
+    v_title = core_get(&v_part, &CoreValue::from("title"), CoreValue::Null);
+    v_has_title = core_truthy_value(&[v_title.clone()])?;
+    if core_truthy(&v_has_title) {
+        core_append(&v_lines, v_title.clone())?;
     }
-    v_is_audio = core_eq(&[v_type.clone(), CoreValue::from("audio")])?;
-    if core_truthy(&v_is_audio) {
-        v_audio_alt = core_get(&v_part, &CoreValue::from("audio"), CoreValue::Null);
-        v_data = core_get(&v_part, &CoreValue::from("data"), v_audio_alt.clone());
-        v_format = core_get(&v_part, &CoreValue::from("format"), CoreValue::Null);
-        v_is_wav = core_eq(&[v_format.clone(), CoreValue::from("wav")])?;
-        v_is_mp3 = core_eq(&[v_format.clone(), CoreValue::from("mp3")])?;
-        v_format_ok = core_or(&[v_is_wav.clone(), v_is_mp3.clone()])?;
-        if core_truthy(&v_format_ok) {
-            v_out = CoreValue::new_map();
-            core_set(
-                &v_out,
-                CoreValue::from("type"),
-                CoreValue::from("input_audio"),
-            )?;
-            v_input_audio = CoreValue::new_map();
-            core_set(&v_input_audio, CoreValue::from("data"), v_data.clone())?;
-            core_set(&v_input_audio, CoreValue::from("format"), v_format.clone())?;
-            core_set(
-                &v_out,
-                CoreValue::from("input_audio"),
-                v_input_audio.clone(),
-            )?;
-            return Ok(v_out.clone());
-        }
-        v_audio_message = core_string_format(&[
-            CoreValue::from("OpenAI audio chat input supports only wav and mp3 audio, received {}"),
-            v_format.clone(),
-        ])?;
-        v_audio_error = core_ai_error_unsupported(&[v_audio_message.clone()])?;
-        return Err(core_as_error(&v_audio_error));
+    v_description = core_get(&v_part, &CoreValue::from("description"), CoreValue::Null);
+    v_has_description = core_truthy_value(&[v_description.clone()])?;
+    if core_truthy(&v_has_description) {
+        core_append(&v_lines, v_description.clone())?;
     }
-    v_is_file = core_eq(&[v_type.clone(), CoreValue::from("file")])?;
-    if core_truthy(&v_is_file) {
-        v_out = CoreValue::new_map();
-        v_mime_snake = core_get(
-            &v_part,
-            &CoreValue::from("mime_type"),
-            CoreValue::from("application/octet-stream"),
-        );
-        v_mime = core_get(&v_part, &CoreValue::from("mimeType"), v_mime_snake.clone());
-        v_uri_snake = core_get(&v_part, &CoreValue::from("file_uri"), CoreValue::Null);
-        v_uri = core_get(&v_part, &CoreValue::from("fileUri"), v_uri_snake.clone());
-        v_has_uri = core_truthy_value(&[v_uri.clone()])?;
-        v_is_image_file = core_string_starts_with(&[v_mime.clone(), CoreValue::from("image/")])?;
-        v_is_video_file = core_string_starts_with(&[v_mime.clone(), CoreValue::from("video/")])?;
-        v_is_uri_video = core_and(&[v_is_video_file.clone(), v_has_uri.clone()])?;
-        if core_truthy(&v_is_image_file) {
-            core_set(
-                &v_out,
-                CoreValue::from("type"),
-                CoreValue::from("image_url"),
-            )?;
-            v_image_url = CoreValue::new_map();
-            v_data = core_get(&v_part, &CoreValue::from("data"), CoreValue::from(""));
-            v_data_url = core_string_format(&[
-                CoreValue::from("data:{};base64,{}"),
-                v_mime.clone(),
-                v_data.clone(),
-            ])?;
-            v_resolved_uri = core_coalesce(&[v_uri.clone(), v_data_url.clone()])?;
-            core_set(&v_image_url, CoreValue::from("url"), v_resolved_uri.clone())?;
-            core_set(
-                &v_image_url,
-                CoreValue::from("detail"),
-                CoreValue::from("auto"),
-            )?;
-            core_set(&v_out, CoreValue::from("image_url"), v_image_url.clone())?;
-        } else {
-            if core_truthy(&v_is_uri_video) {
-                core_set(
-                    &v_out,
-                    CoreValue::from("type"),
-                    CoreValue::from("video_url"),
-                )?;
-                v_video_url = CoreValue::new_map();
-                core_set(&v_video_url, CoreValue::from("url"), v_uri.clone())?;
-                core_set(&v_out, CoreValue::from("video_url"), v_video_url.clone())?;
-            } else {
-                core_set(&v_out, CoreValue::from("type"), CoreValue::from("file"))?;
-                v_file = CoreValue::new_map();
-                if core_truthy(&v_has_uri) {
-                    core_set(&v_file, CoreValue::from("file_url"), v_uri.clone())?;
-                } else {
-                    v_data = core_get(&v_part, &CoreValue::from("data"), CoreValue::from(""));
-                    v_file_data = core_string_format(&[
-                        CoreValue::from("data:{};base64,{}"),
-                        v_mime.clone(),
-                        v_data.clone(),
-                    ])?;
-                    core_set(&v_file, CoreValue::from("file_data"), v_file_data.clone())?;
-                }
-                v_filename = core_get(&v_part, &CoreValue::from("filename"), CoreValue::Null);
-                v_has_filename = core_is_not_none(&[v_filename.clone()])?;
-                if core_truthy(&v_has_filename) {
-                    core_set(&v_file, CoreValue::from("filename"), v_filename.clone())?;
-                }
-                core_set(&v_out, CoreValue::from("file"), v_file.clone())?;
-            }
-        }
-        return Ok(v_out.clone());
+    v_url = core_get(&v_part, &CoreValue::from("url"), CoreValue::Null);
+    v_has_url = core_truthy_value(&[v_url.clone()])?;
+    if core_truthy(&v_has_url) {
+        core_append(&v_lines, v_url.clone())?;
     }
-    v_is_url = core_eq(&[v_type.clone(), CoreValue::from("url")])?;
-    if core_truthy(&v_is_url) {
-        v_out = CoreValue::new_map();
-        core_set(&v_out, CoreValue::from("type"), CoreValue::from("text"))?;
-        v_cached_snake = core_get(&v_part, &CoreValue::from("cached_content"), CoreValue::Null);
-        v_cached = core_get(
-            &v_part,
-            &CoreValue::from("cachedContent"),
-            v_cached_snake.clone(),
-        );
-        v_url = core_get(&v_part, &CoreValue::from("url"), CoreValue::from(""));
-        v_text = core_coalesce(&[v_cached.clone(), v_url.clone()])?;
-        core_set(&v_out, CoreValue::from("text"), v_text.clone())?;
-        return Ok(v_out.clone());
-    }
-    v_message = core_string_format(&[
-        CoreValue::from("OpenAI-compatible beta does not support content part type: {}"),
-        v_type.clone(),
-    ])?;
-    v_error = core_ai_error_unsupported(&[v_message.clone()])?;
-    return Err(core_as_error(&v_error));
+    v_text = core_string_join_intrinsic(&[CoreValue::from("\n"), v_lines.clone()])?;
+    return Ok(v_text.clone());
 }
 
 #[allow(
@@ -42598,6 +42662,247 @@ fn typesafe_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxE
         v_metadata.clone(),
     )?;
     return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_content_part_impl");
+    let mut v_part = core_arg(args, 0);
+    let mut v_audio_alt = CoreValue::Null;
+    let mut v_audio_error = CoreValue::Null;
+    let mut v_audio_message = CoreValue::Null;
+    let mut v_audio_mime = CoreValue::Null;
+    let mut v_audio_mime_snake = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_data_url = CoreValue::Null;
+    let mut v_details = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_file = CoreValue::Null;
+    let mut v_file_data = CoreValue::Null;
+    let mut v_filename = CoreValue::Null;
+    let mut v_format = CoreValue::Null;
+    let mut v_format_ok = CoreValue::Null;
+    let mut v_has_audio_format = CoreValue::Null;
+    let mut v_has_audio_mime = CoreValue::Null;
+    let mut v_has_filename = CoreValue::Null;
+    let mut v_has_resolved_format = CoreValue::Null;
+    let mut v_has_uri = CoreValue::Null;
+    let mut v_image = CoreValue::Null;
+    let mut v_image_raw = CoreValue::Null;
+    let mut v_image_url = CoreValue::Null;
+    let mut v_image_value = CoreValue::Null;
+    let mut v_input_audio = CoreValue::Null;
+    let mut v_is_audio = CoreValue::Null;
+    let mut v_is_data_url = CoreValue::Null;
+    let mut v_is_file = CoreValue::Null;
+    let mut v_is_image = CoreValue::Null;
+    let mut v_is_image_file = CoreValue::Null;
+    let mut v_is_mp3 = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_is_uri_video = CoreValue::Null;
+    let mut v_is_url = CoreValue::Null;
+    let mut v_is_video_file = CoreValue::Null;
+    let mut v_is_wav = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_mime = CoreValue::Null;
+    let mut v_mime_raw = CoreValue::Null;
+    let mut v_mime_snake = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_received = CoreValue::Null;
+    let mut v_resolved_uri = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_uri = CoreValue::Null;
+    let mut v_uri_snake = CoreValue::Null;
+    let mut v_url = CoreValue::Null;
+    let mut v_video_url = CoreValue::Null;
+    v_type = core_get(&v_part, &CoreValue::from("type"), CoreValue::Null);
+    v_is_text = core_eq(&[v_type.clone(), CoreValue::from("text")])?;
+    if core_truthy(&v_is_text) {
+        v_text = core_get(&v_part, &CoreValue::from("text"), CoreValue::from(""));
+        v_out = CoreValue::new_map();
+        core_set(&v_out, CoreValue::from("type"), CoreValue::from("text"))?;
+        core_set(&v_out, CoreValue::from("text"), v_text.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_is_image = core_eq(&[v_type.clone(), CoreValue::from("image")])?;
+    if core_truthy(&v_is_image) {
+        v_mime_snake = core_get(&v_part, &CoreValue::from("mime_type"), CoreValue::Null);
+        v_mime_raw = core_get(&v_part, &CoreValue::from("mimeType"), v_mime_snake.clone());
+        v_mime = core_coalesce(&[v_mime_raw.clone(), CoreValue::from("image/png")])?;
+        v_image_value = core_get(&v_part, &CoreValue::from("image"), CoreValue::Null);
+        v_image_raw = core_get(&v_part, &CoreValue::from("data"), v_image_value.clone());
+        v_image = core_coalesce(&[v_image_raw.clone(), CoreValue::from("")])?;
+        v_is_data_url = core_string_starts_with(&[v_image.clone(), CoreValue::from("data:")])?;
+        v_url = CoreValue::from("");
+        if core_truthy(&v_is_data_url) {
+            v_url = v_image.clone();
+        } else {
+            v_url = core_string_format(&[
+                CoreValue::from("data:{};base64,{}"),
+                v_mime.clone(),
+                v_image.clone(),
+            ])?;
+        }
+        v_details = core_get(
+            &v_part,
+            &CoreValue::from("details"),
+            CoreValue::from("auto"),
+        );
+        v_image_url = CoreValue::new_map();
+        core_set(&v_image_url, CoreValue::from("url"), v_url.clone())?;
+        core_set(&v_image_url, CoreValue::from("detail"), v_details.clone())?;
+        v_out = CoreValue::new_map();
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("image_url"),
+        )?;
+        core_set(&v_out, CoreValue::from("image_url"), v_image_url.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_is_audio = core_eq(&[v_type.clone(), CoreValue::from("audio")])?;
+    if core_truthy(&v_is_audio) {
+        v_audio_alt = core_get(&v_part, &CoreValue::from("audio"), CoreValue::Null);
+        v_data = core_get(&v_part, &CoreValue::from("data"), v_audio_alt.clone());
+        v_format = core_get(&v_part, &CoreValue::from("format"), CoreValue::Null);
+        v_audio_mime_snake = core_get(&v_part, &CoreValue::from("mime_type"), CoreValue::Null);
+        v_audio_mime = core_get(
+            &v_part,
+            &CoreValue::from("mimeType"),
+            v_audio_mime_snake.clone(),
+        );
+        v_has_audio_format = core_is_not_none(&[v_format.clone()])?;
+        if core_truthy(&v_has_audio_format) {
+        } else {
+            v_format = _audio_format_from_mime_type_impl(&[v_audio_mime.clone()])?;
+        }
+        v_is_wav = core_eq(&[v_format.clone(), CoreValue::from("wav")])?;
+        v_is_mp3 = core_eq(&[v_format.clone(), CoreValue::from("mp3")])?;
+        v_format_ok = core_or(&[v_is_wav.clone(), v_is_mp3.clone()])?;
+        if core_truthy(&v_format_ok) {
+            v_out = CoreValue::new_map();
+            core_set(
+                &v_out,
+                CoreValue::from("type"),
+                CoreValue::from("input_audio"),
+            )?;
+            v_input_audio = CoreValue::new_map();
+            core_set(&v_input_audio, CoreValue::from("data"), v_data.clone())?;
+            core_set(&v_input_audio, CoreValue::from("format"), v_format.clone())?;
+            core_set(
+                &v_out,
+                CoreValue::from("input_audio"),
+                v_input_audio.clone(),
+            )?;
+            return Ok(v_out.clone());
+        }
+        v_received = CoreValue::from("unknown format");
+        v_has_audio_mime = core_is_not_none(&[v_audio_mime.clone()])?;
+        if core_truthy(&v_has_audio_mime) {
+            v_received = v_audio_mime.clone();
+        }
+        v_has_resolved_format = core_is_not_none(&[v_format.clone()])?;
+        if core_truthy(&v_has_resolved_format) {
+            v_received = v_format.clone();
+        }
+        v_audio_message = core_string_format(&[
+            CoreValue::from("OpenAI audio chat input supports only wav and mp3 audio, received {}"),
+            v_received.clone(),
+        ])?;
+        v_audio_error = core_ai_error_unsupported(&[v_audio_message.clone()])?;
+        return Err(core_as_error(&v_audio_error));
+    }
+    v_is_file = core_eq(&[v_type.clone(), CoreValue::from("file")])?;
+    if core_truthy(&v_is_file) {
+        v_out = CoreValue::new_map();
+        v_mime_snake = core_get(
+            &v_part,
+            &CoreValue::from("mime_type"),
+            CoreValue::from("application/octet-stream"),
+        );
+        v_mime = core_get(&v_part, &CoreValue::from("mimeType"), v_mime_snake.clone());
+        v_uri_snake = core_get(&v_part, &CoreValue::from("file_uri"), CoreValue::Null);
+        v_uri = core_get(&v_part, &CoreValue::from("fileUri"), v_uri_snake.clone());
+        v_has_uri = core_truthy_value(&[v_uri.clone()])?;
+        v_is_image_file = core_string_starts_with(&[v_mime.clone(), CoreValue::from("image/")])?;
+        v_is_video_file = core_string_starts_with(&[v_mime.clone(), CoreValue::from("video/")])?;
+        v_is_uri_video = core_and(&[v_is_video_file.clone(), v_has_uri.clone()])?;
+        if core_truthy(&v_is_image_file) {
+            core_set(
+                &v_out,
+                CoreValue::from("type"),
+                CoreValue::from("image_url"),
+            )?;
+            v_image_url = CoreValue::new_map();
+            v_data = core_get(&v_part, &CoreValue::from("data"), CoreValue::from(""));
+            v_data_url = core_string_format(&[
+                CoreValue::from("data:{};base64,{}"),
+                v_mime.clone(),
+                v_data.clone(),
+            ])?;
+            v_resolved_uri = core_coalesce(&[v_uri.clone(), v_data_url.clone()])?;
+            core_set(&v_image_url, CoreValue::from("url"), v_resolved_uri.clone())?;
+            core_set(
+                &v_image_url,
+                CoreValue::from("detail"),
+                CoreValue::from("auto"),
+            )?;
+            core_set(&v_out, CoreValue::from("image_url"), v_image_url.clone())?;
+        } else {
+            if core_truthy(&v_is_uri_video) {
+                core_set(
+                    &v_out,
+                    CoreValue::from("type"),
+                    CoreValue::from("video_url"),
+                )?;
+                v_video_url = CoreValue::new_map();
+                core_set(&v_video_url, CoreValue::from("url"), v_uri.clone())?;
+                core_set(&v_out, CoreValue::from("video_url"), v_video_url.clone())?;
+            } else {
+                core_set(&v_out, CoreValue::from("type"), CoreValue::from("file"))?;
+                v_file = CoreValue::new_map();
+                if core_truthy(&v_has_uri) {
+                    core_set(&v_file, CoreValue::from("file_url"), v_uri.clone())?;
+                } else {
+                    v_data = core_get(&v_part, &CoreValue::from("data"), CoreValue::from(""));
+                    v_file_data = core_string_format(&[
+                        CoreValue::from("data:{};base64,{}"),
+                        v_mime.clone(),
+                        v_data.clone(),
+                    ])?;
+                    core_set(&v_file, CoreValue::from("file_data"), v_file_data.clone())?;
+                }
+                v_filename = core_get(&v_part, &CoreValue::from("filename"), CoreValue::Null);
+                v_has_filename = core_is_not_none(&[v_filename.clone()])?;
+                if core_truthy(&v_has_filename) {
+                    core_set(&v_file, CoreValue::from("filename"), v_filename.clone())?;
+                }
+                core_set(&v_out, CoreValue::from("file"), v_file.clone())?;
+            }
+        }
+        return Ok(v_out.clone());
+    }
+    v_is_url = core_eq(&[v_type.clone(), CoreValue::from("url")])?;
+    if core_truthy(&v_is_url) {
+        v_out = CoreValue::new_map();
+        core_set(&v_out, CoreValue::from("type"), CoreValue::from("text"))?;
+        v_text = _url_part_text_impl(&[v_part.clone()])?;
+        core_set(&v_out, CoreValue::from("text"), v_text.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_message = core_string_format(&[
+        CoreValue::from("OpenAI-compatible beta does not support content part type: {}"),
+        v_type.clone(),
+    ])?;
+    v_error = core_ai_error_unsupported(&[v_message.clone()])?;
+    return Err(core_as_error(&v_error));
 }
 
 #[allow(
@@ -42915,86 +43220,6 @@ fn _openai_tool_call_to_provider_impl(args: &[CoreValue]) -> Result<CoreValue, A
     unreachable_code,
     clippy::all
 )]
-fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_tool_spec_impl");
-    let mut v_fn = core_arg(args, 0);
-    let mut v_description = CoreValue::Null;
-    let mut v_function = CoreValue::Null;
-    let mut v_has_parameters = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_parameters = CoreValue::Null;
-    v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-    v_description = core_get(&v_fn, &CoreValue::from("description"), CoreValue::from(""));
-    v_parameters = core_get(&v_fn, &CoreValue::from("parameters"), CoreValue::Null);
-    v_function = CoreValue::new_map();
-    core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
-    core_set(
-        &v_function,
-        CoreValue::from("description"),
-        v_description.clone(),
-    )?;
-    v_has_parameters = core_truthy_value(&[v_parameters.clone()])?;
-    if core_truthy(&v_has_parameters) {
-        core_set(
-            &v_function,
-            CoreValue::from("parameters"),
-            v_parameters.clone(),
-        )?;
-    }
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
-    core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_build_embed_request");
-    let mut v_request = core_arg(args, 0);
-    let mut v_dimensions = CoreValue::Null;
-    let mut v_embed_model_snake = CoreValue::Null;
-    let mut v_empty_texts = CoreValue::Null;
-    let mut v_has_dimensions = CoreValue::Null;
-    let mut v_model = CoreValue::Null;
-    let mut v_payload = CoreValue::Null;
-    let mut v_texts = CoreValue::Null;
-    v_embed_model_snake = core_get(&v_request, &CoreValue::from("embed_model"), CoreValue::Null);
-    v_model = core_get(
-        &v_request,
-        &CoreValue::from("embedModel"),
-        v_embed_model_snake.clone(),
-    );
-    v_empty_texts = CoreValue::new_list();
-    v_texts = core_get(&v_request, &CoreValue::from("texts"), v_empty_texts.clone());
-    v_payload = CoreValue::new_map();
-    core_set(&v_payload, CoreValue::from("model"), v_model.clone())?;
-    core_set(&v_payload, CoreValue::from("input"), v_texts.clone())?;
-    v_dimensions = core_get(&v_request, &CoreValue::from("dimensions"), CoreValue::Null);
-    v_has_dimensions = core_truthy_value(&[v_dimensions.clone()])?;
-    if core_truthy(&v_has_dimensions) {
-        core_set(
-            &v_payload,
-            CoreValue::from("dimensions"),
-            v_dimensions.clone(),
-        )?;
-    }
-    return Ok(v_payload.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ai_model_usage_impl");
     let mut v_ai_name = core_arg(args, 0);
@@ -43026,20 +43251,37 @@ fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_normalize_chat_response");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_ai_name = core_arg(args, 1);
-    let mut v_model = core_arg(args, 2);
-    let mut v_response = CoreValue::Null;
-    v_response = _openai_normalize_chat_response_impl(&[
-        v_raw.clone(),
-        v_ai_name.clone(),
-        v_model.clone(),
-        CoreValue::from("none"),
-        CoreValue::from("none"),
-    ])?;
-    return Ok(v_response.clone());
+fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_tool_spec_impl");
+    let mut v_fn = core_arg(args, 0);
+    let mut v_description = CoreValue::Null;
+    let mut v_function = CoreValue::Null;
+    let mut v_has_parameters = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parameters = CoreValue::Null;
+    v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+    v_description = core_get(&v_fn, &CoreValue::from("description"), CoreValue::from(""));
+    v_parameters = core_get(&v_fn, &CoreValue::from("parameters"), CoreValue::Null);
+    v_function = CoreValue::new_map();
+    core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
+    core_set(
+        &v_function,
+        CoreValue::from("description"),
+        v_description.clone(),
+    )?;
+    v_has_parameters = core_truthy_value(&[v_parameters.clone()])?;
+    if core_truthy(&v_has_parameters) {
+        core_set(
+            &v_function,
+            CoreValue::from("parameters"),
+            v_parameters.clone(),
+        )?;
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
+    core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -43194,6 +43436,69 @@ fn ai_merge_replay_metadata(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_build_embed_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_dimensions = CoreValue::Null;
+    let mut v_embed_model_snake = CoreValue::Null;
+    let mut v_empty_texts = CoreValue::Null;
+    let mut v_has_dimensions = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_payload = CoreValue::Null;
+    let mut v_texts = CoreValue::Null;
+    v_embed_model_snake = core_get(&v_request, &CoreValue::from("embed_model"), CoreValue::Null);
+    v_model = core_get(
+        &v_request,
+        &CoreValue::from("embedModel"),
+        v_embed_model_snake.clone(),
+    );
+    v_empty_texts = CoreValue::new_list();
+    v_texts = core_get(&v_request, &CoreValue::from("texts"), v_empty_texts.clone());
+    v_payload = CoreValue::new_map();
+    core_set(&v_payload, CoreValue::from("model"), v_model.clone())?;
+    core_set(&v_payload, CoreValue::from("input"), v_texts.clone())?;
+    v_dimensions = core_get(&v_request, &CoreValue::from("dimensions"), CoreValue::Null);
+    v_has_dimensions = core_truthy_value(&[v_dimensions.clone()])?;
+    if core_truthy(&v_has_dimensions) {
+        core_set(
+            &v_payload,
+            CoreValue::from("dimensions"),
+            v_dimensions.clone(),
+        )?;
+    }
+    return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_normalize_chat_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_ai_name = core_arg(args, 1);
+    let mut v_model = core_arg(args, 2);
+    let mut v_response = CoreValue::Null;
+    v_response = _openai_normalize_chat_response_impl(&[
+        v_raw.clone(),
+        v_ai_name.clone(),
+        v_model.clone(),
+        CoreValue::from("none"),
+        CoreValue::from("none"),
+    ])?;
+    return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_usage_with_service_tier(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_usage_with_service_tier");
     let mut v_raw = core_arg(args, 0);
@@ -43320,6 +43625,139 @@ fn _openai_normalize_chat_response_impl(args: &[CoreValue]) -> Result<CoreValue,
         v_model_usage.clone(),
     )?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_chat_result_to_completion");
+    let mut v_result = core_arg(args, 0);
+    let mut v_fallback_index = core_arg(args, 1);
+    let mut v_call = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_compat_call = CoreValue::Null;
+    let mut v_completion = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_empty_calls = CoreValue::Null;
+    let mut v_finish = CoreValue::Null;
+    let mut v_finish_snake = CoreValue::Null;
+    let mut v_flat_has_name = CoreValue::Null;
+    let mut v_flat_name = CoreValue::Null;
+    let mut v_flat_params = CoreValue::Null;
+    let mut v_fn = CoreValue::Null;
+    let mut v_fn_has_name = CoreValue::Null;
+    let mut v_fn_is_map = CoreValue::Null;
+    let mut v_function_calls = CoreValue::Null;
+    let mut v_has_finish = CoreValue::Null;
+    let mut v_has_images = CoreValue::Null;
+    let mut v_has_name = CoreValue::Null;
+    let mut v_has_phase = CoreValue::Null;
+    let mut v_has_thought = CoreValue::Null;
+    let mut v_has_thought_blocks = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_images = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_phase = CoreValue::Null;
+    let mut v_thought = CoreValue::Null;
+    let mut v_thought_blocks = CoreValue::Null;
+    v_content = core_get(&v_result, &CoreValue::from("content"), CoreValue::from(""));
+    v_calls = CoreValue::new_list();
+    v_empty_calls = CoreValue::new_list();
+    v_function_calls = core_get(
+        &v_result,
+        &CoreValue::from("function_calls"),
+        v_empty_calls.clone(),
+    );
+    for v_call in core_iter(&v_function_calls)? {
+        let mut v_call = v_call;
+        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+        v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+        v_flat_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
+        v_name = core_get(&v_fn, &CoreValue::from("name"), v_flat_name.clone());
+        v_flat_params = core_get(&v_call, &CoreValue::from("params"), CoreValue::Null);
+        v_params = core_get(&v_fn, &CoreValue::from("params"), v_flat_params.clone());
+        v_fn_is_map = core_type_is(&v_fn, CoreValue::from("object"));
+        v_fn_has_name = CoreValue::Bool(false);
+        if core_truthy(&v_fn_is_map) {
+            v_fn_has_name = core_map_contains(&[v_fn.clone(), CoreValue::from("name")])?;
+        }
+        v_flat_has_name = core_map_contains(&[v_call.clone(), CoreValue::from("name")])?;
+        v_has_name = core_or(&[v_fn_has_name.clone(), v_flat_has_name.clone()])?;
+        v_compat_call = CoreValue::new_map();
+        core_set(&v_compat_call, CoreValue::from("id"), v_id.clone())?;
+        if core_truthy(&v_has_name) {
+            core_set(&v_compat_call, CoreValue::from("name"), v_name.clone())?;
+        }
+        core_set(&v_compat_call, CoreValue::from("params"), v_params.clone())?;
+        core_append(&v_calls, v_compat_call.clone())?;
+    }
+    v_index = core_get(
+        &v_result,
+        &CoreValue::from("index"),
+        v_fallback_index.clone(),
+    );
+    v_thought = core_get(&v_result, &CoreValue::from("thought"), CoreValue::Null);
+    v_has_thought = core_is_not_none(&[v_thought.clone()])?;
+    v_thought_blocks = core_get(
+        &v_result,
+        &CoreValue::from("thought_blocks"),
+        CoreValue::Null,
+    );
+    v_has_thought_blocks = core_is_not_none(&[v_thought_blocks.clone()])?;
+    v_completion = CoreValue::new_map();
+    core_set(&v_completion, CoreValue::from("index"), v_index.clone())?;
+    core_set(&v_completion, CoreValue::from("content"), v_content.clone())?;
+    core_set(
+        &v_completion,
+        CoreValue::from("function_calls"),
+        v_calls.clone(),
+    )?;
+    if core_truthy(&v_has_thought) {
+        core_set(&v_completion, CoreValue::from("thought"), v_thought.clone())?;
+    }
+    if core_truthy(&v_has_thought_blocks) {
+        core_set(
+            &v_completion,
+            CoreValue::from("thought_blocks"),
+            v_thought_blocks.clone(),
+        )?;
+    }
+    v_images = core_get(&v_result, &CoreValue::from("images"), CoreValue::Null);
+    v_has_images = core_is_not_none(&[v_images.clone()])?;
+    if core_truthy(&v_has_images) {
+        core_set(&v_completion, CoreValue::from("images"), v_images.clone())?;
+    }
+    v_phase = core_get(&v_result, &CoreValue::from("phase"), CoreValue::Null);
+    v_has_phase = core_is_not_none(&[v_phase.clone()])?;
+    if core_truthy(&v_has_phase) {
+        core_set(&v_completion, CoreValue::from("phase"), v_phase.clone())?;
+    }
+    v_finish_snake = core_get(
+        &v_result,
+        &CoreValue::from("finish_reason"),
+        CoreValue::Null,
+    );
+    v_finish = core_get(
+        &v_result,
+        &CoreValue::from("finishReason"),
+        v_finish_snake.clone(),
+    );
+    v_has_finish = core_is_not_none(&[v_finish.clone()])?;
+    if core_truthy(&v_has_finish) {
+        core_set(
+            &v_completion,
+            CoreValue::from("finish_reason"),
+            v_finish.clone(),
+        )?;
+    }
+    return Ok(v_completion.clone());
 }
 
 #[allow(
@@ -43508,204 +43946,6 @@ fn _openai_normalize_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
-fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_chat_result_to_completion");
-    let mut v_result = core_arg(args, 0);
-    let mut v_fallback_index = core_arg(args, 1);
-    let mut v_call = CoreValue::Null;
-    let mut v_calls = CoreValue::Null;
-    let mut v_compat_call = CoreValue::Null;
-    let mut v_completion = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
-    let mut v_empty_calls = CoreValue::Null;
-    let mut v_finish = CoreValue::Null;
-    let mut v_finish_snake = CoreValue::Null;
-    let mut v_flat_has_name = CoreValue::Null;
-    let mut v_flat_name = CoreValue::Null;
-    let mut v_flat_params = CoreValue::Null;
-    let mut v_fn = CoreValue::Null;
-    let mut v_fn_has_name = CoreValue::Null;
-    let mut v_fn_is_map = CoreValue::Null;
-    let mut v_function_calls = CoreValue::Null;
-    let mut v_has_finish = CoreValue::Null;
-    let mut v_has_images = CoreValue::Null;
-    let mut v_has_name = CoreValue::Null;
-    let mut v_has_phase = CoreValue::Null;
-    let mut v_has_thought = CoreValue::Null;
-    let mut v_has_thought_blocks = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_images = CoreValue::Null;
-    let mut v_index = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    let mut v_phase = CoreValue::Null;
-    let mut v_thought = CoreValue::Null;
-    let mut v_thought_blocks = CoreValue::Null;
-    v_content = core_get(&v_result, &CoreValue::from("content"), CoreValue::from(""));
-    v_calls = CoreValue::new_list();
-    v_empty_calls = CoreValue::new_list();
-    v_function_calls = core_get(
-        &v_result,
-        &CoreValue::from("function_calls"),
-        v_empty_calls.clone(),
-    );
-    for v_call in core_iter(&v_function_calls)? {
-        let mut v_call = v_call;
-        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-        v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-        v_flat_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
-        v_name = core_get(&v_fn, &CoreValue::from("name"), v_flat_name.clone());
-        v_flat_params = core_get(&v_call, &CoreValue::from("params"), CoreValue::Null);
-        v_params = core_get(&v_fn, &CoreValue::from("params"), v_flat_params.clone());
-        v_fn_is_map = core_type_is(&v_fn, CoreValue::from("object"));
-        v_fn_has_name = CoreValue::Bool(false);
-        if core_truthy(&v_fn_is_map) {
-            v_fn_has_name = core_map_contains(&[v_fn.clone(), CoreValue::from("name")])?;
-        }
-        v_flat_has_name = core_map_contains(&[v_call.clone(), CoreValue::from("name")])?;
-        v_has_name = core_or(&[v_fn_has_name.clone(), v_flat_has_name.clone()])?;
-        v_compat_call = CoreValue::new_map();
-        core_set(&v_compat_call, CoreValue::from("id"), v_id.clone())?;
-        if core_truthy(&v_has_name) {
-            core_set(&v_compat_call, CoreValue::from("name"), v_name.clone())?;
-        }
-        core_set(&v_compat_call, CoreValue::from("params"), v_params.clone())?;
-        core_append(&v_calls, v_compat_call.clone())?;
-    }
-    v_index = core_get(
-        &v_result,
-        &CoreValue::from("index"),
-        v_fallback_index.clone(),
-    );
-    v_thought = core_get(&v_result, &CoreValue::from("thought"), CoreValue::Null);
-    v_has_thought = core_is_not_none(&[v_thought.clone()])?;
-    v_thought_blocks = core_get(
-        &v_result,
-        &CoreValue::from("thought_blocks"),
-        CoreValue::Null,
-    );
-    v_has_thought_blocks = core_is_not_none(&[v_thought_blocks.clone()])?;
-    v_completion = CoreValue::new_map();
-    core_set(&v_completion, CoreValue::from("index"), v_index.clone())?;
-    core_set(&v_completion, CoreValue::from("content"), v_content.clone())?;
-    core_set(
-        &v_completion,
-        CoreValue::from("function_calls"),
-        v_calls.clone(),
-    )?;
-    if core_truthy(&v_has_thought) {
-        core_set(&v_completion, CoreValue::from("thought"), v_thought.clone())?;
-    }
-    if core_truthy(&v_has_thought_blocks) {
-        core_set(
-            &v_completion,
-            CoreValue::from("thought_blocks"),
-            v_thought_blocks.clone(),
-        )?;
-    }
-    v_images = core_get(&v_result, &CoreValue::from("images"), CoreValue::Null);
-    v_has_images = core_is_not_none(&[v_images.clone()])?;
-    if core_truthy(&v_has_images) {
-        core_set(&v_completion, CoreValue::from("images"), v_images.clone())?;
-    }
-    v_phase = core_get(&v_result, &CoreValue::from("phase"), CoreValue::Null);
-    v_has_phase = core_is_not_none(&[v_phase.clone()])?;
-    if core_truthy(&v_has_phase) {
-        core_set(&v_completion, CoreValue::from("phase"), v_phase.clone())?;
-    }
-    v_finish_snake = core_get(
-        &v_result,
-        &CoreValue::from("finish_reason"),
-        CoreValue::Null,
-    );
-    v_finish = core_get(
-        &v_result,
-        &CoreValue::from("finishReason"),
-        v_finish_snake.clone(),
-    );
-    v_has_finish = core_is_not_none(&[v_finish.clone()])?;
-    if core_truthy(&v_has_finish) {
-        core_set(
-            &v_completion,
-            CoreValue::from("finish_reason"),
-            v_finish.clone(),
-        )?;
-    }
-    return Ok(v_completion.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_normalize_tool_calls_impl");
-    let mut v_calls = core_arg(args, 0);
-    let mut v_call = CoreValue::Null;
-    let mut v_fn = CoreValue::Null;
-    let mut v_function = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_normalized = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    let mut v_params_is_string = CoreValue::Null;
-    let mut v_parse_error = CoreValue::Null;
-    let mut v_parsed_params = CoreValue::Null;
-    v_out = CoreValue::new_list();
-    for v_call in core_iter(&v_calls)? {
-        let mut v_call = v_call;
-        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-        v_params = core_get(&v_fn, &CoreValue::from("arguments"), CoreValue::Null);
-        v_params_is_string = core_type_is(&v_params, CoreValue::from("string"));
-        if core_truthy(&v_params_is_string) {
-            let __core_try: Result<CoreFlow, AxError> = (|| {
-                v_parsed_params = core_json_parse(&[v_params.clone()])?;
-                v_params = v_parsed_params.clone();
-                Ok(CoreFlow::Normal)
-            })();
-            match __core_try {
-                Ok(CoreFlow::Normal) => {}
-                Ok(CoreFlow::Return(value)) => return Ok(value),
-                Ok(CoreFlow::Break) => break,
-                Ok(CoreFlow::Continue) => continue,
-                Err(__core_caught) => {
-                    v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-                }
-            }
-        }
-        v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-        v_function = CoreValue::new_map();
-        core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
-        core_set(&v_function, CoreValue::from("params"), v_params.clone())?;
-        v_normalized = CoreValue::new_map();
-        core_set(&v_normalized, CoreValue::from("id"), v_id.clone())?;
-        core_set(
-            &v_normalized,
-            CoreValue::from("type"),
-            CoreValue::from("function"),
-        )?;
-        core_set(
-            &v_normalized,
-            CoreValue::from("function"),
-            v_function.clone(),
-        )?;
-        core_append(&v_out, v_normalized.clone())?;
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("chat_response_to_completion");
     let mut v_response = core_arg(args, 0);
@@ -43834,85 +44074,61 @@ fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
-fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_finish_reason_impl");
-    let mut v_value = core_arg(args, 0);
-    let mut v_is_call = CoreValue::Null;
-    let mut v_is_content_filter = CoreValue::Null;
-    let mut v_is_function_call = CoreValue::Null;
-    let mut v_is_length = CoreValue::Null;
-    let mut v_is_stop = CoreValue::Null;
-    let mut v_is_tool_calls = CoreValue::Null;
-    let mut v_none = CoreValue::Null;
-    v_is_stop = core_eq(&[v_value.clone(), CoreValue::from("stop")])?;
-    if core_truthy(&v_is_stop) {
-        return Ok(CoreValue::from("stop"));
-    }
-    v_is_length = core_eq(&[v_value.clone(), CoreValue::from("length")])?;
-    if core_truthy(&v_is_length) {
-        return Ok(CoreValue::from("length"));
-    }
-    v_is_content_filter = core_eq(&[v_value.clone(), CoreValue::from("content_filter")])?;
-    if core_truthy(&v_is_content_filter) {
-        return Ok(CoreValue::from("error"));
-    }
-    v_is_tool_calls = core_eq(&[v_value.clone(), CoreValue::from("tool_calls")])?;
-    v_is_function_call = core_eq(&[v_value.clone(), CoreValue::from("function_call")])?;
-    v_is_call = core_or(&[v_is_tool_calls.clone(), v_is_function_call.clone()])?;
-    if core_truthy(&v_is_call) {
-        return Ok(CoreValue::from("function_call"));
-    }
-    v_none = core_none(&[])?;
-    return Ok(v_none.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn openai_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_normalize_embed_response");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_ai_name = core_arg(args, 1);
-    let mut v_model = core_arg(args, 2);
-    let mut v_data = CoreValue::Null;
-    let mut v_embedding = CoreValue::Null;
-    let mut v_embeddings = CoreValue::Null;
-    let mut v_empty_data = CoreValue::Null;
-    let mut v_item = CoreValue::Null;
-    let mut v_model_usage = CoreValue::Null;
+fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_normalize_tool_calls_impl");
+    let mut v_calls = core_arg(args, 0);
+    let mut v_call = CoreValue::Null;
+    let mut v_fn = CoreValue::Null;
+    let mut v_function = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
     let mut v_out = CoreValue::Null;
-    let mut v_raw_model = CoreValue::Null;
-    let mut v_raw_usage = CoreValue::Null;
-    let mut v_remote_id = CoreValue::Null;
-    let mut v_usage = CoreValue::Null;
-    let mut v_used_model = CoreValue::Null;
-    v_embeddings = CoreValue::new_list();
-    v_empty_data = CoreValue::new_list();
-    v_data = core_get(&v_raw, &CoreValue::from("data"), v_empty_data.clone());
-    for v_item in core_iter(&v_data)? {
-        let mut v_item = v_item;
-        v_embedding = core_get(&v_item, &CoreValue::from("embedding"), CoreValue::Null);
-        core_append(&v_embeddings, v_embedding.clone())?;
+    let mut v_params = CoreValue::Null;
+    let mut v_params_is_string = CoreValue::Null;
+    let mut v_parse_error = CoreValue::Null;
+    let mut v_parsed_params = CoreValue::Null;
+    v_out = CoreValue::new_list();
+    for v_call in core_iter(&v_calls)? {
+        let mut v_call = v_call;
+        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+        v_params = core_get(&v_fn, &CoreValue::from("arguments"), CoreValue::Null);
+        v_params_is_string = core_type_is(&v_params, CoreValue::from("string"));
+        if core_truthy(&v_params_is_string) {
+            let __core_try: Result<CoreFlow, AxError> = (|| {
+                v_parsed_params = core_json_parse(&[v_params.clone()])?;
+                v_params = v_parsed_params.clone();
+                Ok(CoreFlow::Normal)
+            })();
+            match __core_try {
+                Ok(CoreFlow::Normal) => {}
+                Ok(CoreFlow::Return(value)) => return Ok(value),
+                Ok(CoreFlow::Break) => break,
+                Ok(CoreFlow::Continue) => continue,
+                Err(__core_caught) => {
+                    v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                }
+            }
+        }
+        v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+        v_function = CoreValue::new_map();
+        core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
+        core_set(&v_function, CoreValue::from("params"), v_params.clone())?;
+        v_normalized = CoreValue::new_map();
+        core_set(&v_normalized, CoreValue::from("id"), v_id.clone())?;
+        core_set(
+            &v_normalized,
+            CoreValue::from("type"),
+            CoreValue::from("function"),
+        )?;
+        core_set(
+            &v_normalized,
+            CoreValue::from("function"),
+            v_function.clone(),
+        )?;
+        core_append(&v_out, v_normalized.clone())?;
     }
-    v_raw_model = core_get(&v_raw, &CoreValue::from("model"), CoreValue::Null);
-    v_used_model = core_coalesce(&[v_raw_model.clone(), v_model.clone()])?;
-    v_raw_usage = core_get(&v_raw, &CoreValue::from("usage"), CoreValue::Null);
-    v_usage = _openai_usage_with_service_tier(&[v_raw.clone(), v_raw_usage.clone()])?;
-    v_model_usage =
-        _ai_model_usage_impl(&[v_ai_name.clone(), v_used_model.clone(), v_usage.clone()])?;
-    v_remote_id = core_get(&v_raw, &CoreValue::from("id"), CoreValue::Null);
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("embeddings"), v_embeddings.clone())?;
-    core_set(&v_out, CoreValue::from("remote_id"), v_remote_id.clone())?;
-    core_set(
-        &v_out,
-        CoreValue::from("model_usage"),
-        v_model_usage.clone(),
-    )?;
     return Ok(v_out.clone());
 }
 
@@ -43987,22 +44203,36 @@ fn ai_context_cache_rejection(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn openai_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_normalize_stream_delta");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_state = core_arg(args, 1);
-    let mut v_ai_name = core_arg(args, 2);
-    let mut v_model = core_arg(args, 3);
-    let mut v_response = CoreValue::Null;
-    v_response = _openai_normalize_stream_delta_impl(&[
-        v_raw.clone(),
-        v_state.clone(),
-        v_ai_name.clone(),
-        v_model.clone(),
-        CoreValue::from("none"),
-        CoreValue::from("none"),
-    ])?;
-    return Ok(v_response.clone());
+fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_finish_reason_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_is_call = CoreValue::Null;
+    let mut v_is_content_filter = CoreValue::Null;
+    let mut v_is_function_call = CoreValue::Null;
+    let mut v_is_length = CoreValue::Null;
+    let mut v_is_stop = CoreValue::Null;
+    let mut v_is_tool_calls = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    v_is_stop = core_eq(&[v_value.clone(), CoreValue::from("stop")])?;
+    if core_truthy(&v_is_stop) {
+        return Ok(CoreValue::from("stop"));
+    }
+    v_is_length = core_eq(&[v_value.clone(), CoreValue::from("length")])?;
+    if core_truthy(&v_is_length) {
+        return Ok(CoreValue::from("length"));
+    }
+    v_is_content_filter = core_eq(&[v_value.clone(), CoreValue::from("content_filter")])?;
+    if core_truthy(&v_is_content_filter) {
+        return Ok(CoreValue::from("error"));
+    }
+    v_is_tool_calls = core_eq(&[v_value.clone(), CoreValue::from("tool_calls")])?;
+    v_is_function_call = core_eq(&[v_value.clone(), CoreValue::from("function_call")])?;
+    v_is_call = core_or(&[v_is_tool_calls.clone(), v_is_function_call.clone()])?;
+    if core_truthy(&v_is_call) {
+        return Ok(CoreValue::from("function_call"));
+    }
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
 }
 
 #[allow(
@@ -44026,6 +44256,170 @@ fn ai_context_cache_expiry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(CoreValue::Num(0f64));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn openai_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_normalize_embed_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_ai_name = core_arg(args, 1);
+    let mut v_model = core_arg(args, 2);
+    let mut v_data = CoreValue::Null;
+    let mut v_embedding = CoreValue::Null;
+    let mut v_embeddings = CoreValue::Null;
+    let mut v_empty_data = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_model_usage = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_raw_model = CoreValue::Null;
+    let mut v_raw_usage = CoreValue::Null;
+    let mut v_remote_id = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    let mut v_used_model = CoreValue::Null;
+    v_embeddings = CoreValue::new_list();
+    v_empty_data = CoreValue::new_list();
+    v_data = core_get(&v_raw, &CoreValue::from("data"), v_empty_data.clone());
+    for v_item in core_iter(&v_data)? {
+        let mut v_item = v_item;
+        v_embedding = core_get(&v_item, &CoreValue::from("embedding"), CoreValue::Null);
+        core_append(&v_embeddings, v_embedding.clone())?;
+    }
+    v_raw_model = core_get(&v_raw, &CoreValue::from("model"), CoreValue::Null);
+    v_used_model = core_coalesce(&[v_raw_model.clone(), v_model.clone()])?;
+    v_raw_usage = core_get(&v_raw, &CoreValue::from("usage"), CoreValue::Null);
+    v_usage = _openai_usage_with_service_tier(&[v_raw.clone(), v_raw_usage.clone()])?;
+    v_model_usage =
+        _ai_model_usage_impl(&[v_ai_name.clone(), v_used_model.clone(), v_usage.clone()])?;
+    v_remote_id = core_get(&v_raw, &CoreValue::from("id"), CoreValue::Null);
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("embeddings"), v_embeddings.clone())?;
+    core_set(&v_out, CoreValue::from("remote_id"), v_remote_id.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("model_usage"),
+        v_model_usage.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn ai_context_cache_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_context_cache_plan");
+    let mut v_configured = core_arg(args, 0);
+    let mut v_supported = core_arg(args, 1);
+    let mut v_explicit_name = core_arg(args, 2);
+    let mut v_existing = core_arg(args, 3);
+    let mut v_now = core_arg(args, 4);
+    let mut v_refresh_window_ms = core_arg(args, 5);
+    let mut v_create_eligible = core_arg(args, 6);
+    let mut v_cache_name = CoreValue::Null;
+    let mut v_cache_name_length = CoreValue::Null;
+    let mut v_disabled = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_existing_object = CoreValue::Null;
+    let mut v_expires_at = CoreValue::Null;
+    let mut v_explicit_length = CoreValue::Null;
+    let mut v_future = CoreValue::Null;
+    let mut v_has_explicit = CoreValue::Null;
+    let mut v_has_name = CoreValue::Null;
+    let mut v_needs_refresh = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_refresh_at = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("action"), CoreValue::from("none"))?;
+    core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(false))?;
+    v_enabled = core_and(&[v_configured.clone(), v_supported.clone()])?;
+    v_disabled = core_not(&[v_enabled.clone()])?;
+    if core_truthy(&v_disabled) {
+        return Ok(v_out.clone());
+    }
+    v_explicit_length = core_len(&[v_explicit_name.clone()])?;
+    v_has_explicit = core_gt(&[v_explicit_length.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_explicit) {
+        core_set(&v_out, CoreValue::from("action"), CoreValue::from("use"))?;
+        core_set(
+            &v_out,
+            CoreValue::from("cacheName"),
+            v_explicit_name.clone(),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_existing_object = core_type_is(&v_existing, CoreValue::from("object"));
+    if core_truthy(&v_existing_object) {
+        v_cache_name = core_get(
+            &v_existing,
+            &CoreValue::from("cacheName"),
+            CoreValue::from(""),
+        );
+        v_expires_at = core_get(
+            &v_existing,
+            &CoreValue::from("expiresAt"),
+            CoreValue::Num(0f64),
+        );
+        v_cache_name_length = core_len(&[v_cache_name.clone()])?;
+        v_has_name = core_gt(&[v_cache_name_length.clone(), CoreValue::Num(0f64)])?;
+        v_future = core_gt(&[v_expires_at.clone(), v_now.clone()])?;
+        v_valid = core_and(&[v_has_name.clone(), v_future.clone()])?;
+        if core_truthy(&v_valid) {
+            v_refresh_at = core_add(&[v_now.clone(), v_refresh_window_ms.clone()])?;
+            v_needs_refresh = core_lt(&[v_expires_at.clone(), v_refresh_at.clone()])?;
+            core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(true))?;
+            core_set(&v_out, CoreValue::from("cacheName"), v_cache_name.clone())?;
+            if core_truthy(&v_needs_refresh) {
+                core_set(
+                    &v_out,
+                    CoreValue::from("action"),
+                    CoreValue::from("refresh"),
+                )?;
+            } else {
+                core_set(&v_out, CoreValue::from("action"), CoreValue::from("use"))?;
+            }
+            return Ok(v_out.clone());
+        }
+    }
+    if core_truthy(&v_create_eligible) {
+        core_set(&v_out, CoreValue::from("action"), CoreValue::from("create"))?;
+        core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(true))?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn openai_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_normalize_stream_delta");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_ai_name = core_arg(args, 2);
+    let mut v_model = core_arg(args, 3);
+    let mut v_response = CoreValue::Null;
+    v_response = _openai_normalize_stream_delta_impl(&[
+        v_raw.clone(),
+        v_state.clone(),
+        v_ai_name.clone(),
+        v_model.clone(),
+        CoreValue::from("none"),
+        CoreValue::from("none"),
+    ])?;
+    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -44138,283 +44532,6 @@ fn _openai_normalize_stream_delta_impl(args: &[CoreValue]) -> Result<CoreValue, 
         &v_out,
         CoreValue::from("model_usage"),
         v_model_usage.clone(),
-    )?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn ai_context_cache_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("ai_context_cache_plan");
-    let mut v_configured = core_arg(args, 0);
-    let mut v_supported = core_arg(args, 1);
-    let mut v_explicit_name = core_arg(args, 2);
-    let mut v_existing = core_arg(args, 3);
-    let mut v_now = core_arg(args, 4);
-    let mut v_refresh_window_ms = core_arg(args, 5);
-    let mut v_create_eligible = core_arg(args, 6);
-    let mut v_cache_name = CoreValue::Null;
-    let mut v_cache_name_length = CoreValue::Null;
-    let mut v_disabled = CoreValue::Null;
-    let mut v_enabled = CoreValue::Null;
-    let mut v_existing_object = CoreValue::Null;
-    let mut v_expires_at = CoreValue::Null;
-    let mut v_explicit_length = CoreValue::Null;
-    let mut v_future = CoreValue::Null;
-    let mut v_has_explicit = CoreValue::Null;
-    let mut v_has_name = CoreValue::Null;
-    let mut v_needs_refresh = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_refresh_at = CoreValue::Null;
-    let mut v_valid = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("action"), CoreValue::from("none"))?;
-    core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(false))?;
-    v_enabled = core_and(&[v_configured.clone(), v_supported.clone()])?;
-    v_disabled = core_not(&[v_enabled.clone()])?;
-    if core_truthy(&v_disabled) {
-        return Ok(v_out.clone());
-    }
-    v_explicit_length = core_len(&[v_explicit_name.clone()])?;
-    v_has_explicit = core_gt(&[v_explicit_length.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_has_explicit) {
-        core_set(&v_out, CoreValue::from("action"), CoreValue::from("use"))?;
-        core_set(
-            &v_out,
-            CoreValue::from("cacheName"),
-            v_explicit_name.clone(),
-        )?;
-        return Ok(v_out.clone());
-    }
-    v_existing_object = core_type_is(&v_existing, CoreValue::from("object"));
-    if core_truthy(&v_existing_object) {
-        v_cache_name = core_get(
-            &v_existing,
-            &CoreValue::from("cacheName"),
-            CoreValue::from(""),
-        );
-        v_expires_at = core_get(
-            &v_existing,
-            &CoreValue::from("expiresAt"),
-            CoreValue::Num(0f64),
-        );
-        v_cache_name_length = core_len(&[v_cache_name.clone()])?;
-        v_has_name = core_gt(&[v_cache_name_length.clone(), CoreValue::Num(0f64)])?;
-        v_future = core_gt(&[v_expires_at.clone(), v_now.clone()])?;
-        v_valid = core_and(&[v_has_name.clone(), v_future.clone()])?;
-        if core_truthy(&v_valid) {
-            v_refresh_at = core_add(&[v_now.clone(), v_refresh_window_ms.clone()])?;
-            v_needs_refresh = core_lt(&[v_expires_at.clone(), v_refresh_at.clone()])?;
-            core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(true))?;
-            core_set(&v_out, CoreValue::from("cacheName"), v_cache_name.clone())?;
-            if core_truthy(&v_needs_refresh) {
-                core_set(
-                    &v_out,
-                    CoreValue::from("action"),
-                    CoreValue::from("refresh"),
-                )?;
-            } else {
-                core_set(&v_out, CoreValue::from("action"), CoreValue::from("use"))?;
-            }
-            return Ok(v_out.clone());
-        }
-    }
-    if core_truthy(&v_create_eligible) {
-        core_set(&v_out, CoreValue::from("action"), CoreValue::from("create"))?;
-        core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(true))?;
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_stream_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_stream_choice_impl");
-    let mut v_choice = core_arg(args, 0);
-    let mut v_index_ids = core_arg(args, 1);
-    let mut v_reasoning_content_mode = core_arg(args, 2);
-    let mut v_reasoning_details_mode = core_arg(args, 3);
-    let mut v_arguments = CoreValue::Null;
-    let mut v_call = CoreValue::Null;
-    let mut v_call_id = CoreValue::Null;
-    let mut v_call_index = CoreValue::Null;
-    let mut v_calls = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
-    let mut v_data = CoreValue::Null;
-    let mut v_delta = CoreValue::Null;
-    let mut v_detail = CoreValue::Null;
-    let mut v_detail_block = CoreValue::Null;
-    let mut v_detail_blocks = CoreValue::Null;
-    let mut v_detail_id = CoreValue::Null;
-    let mut v_empty_delta = CoreValue::Null;
-    let mut v_empty_tool_calls = CoreValue::Null;
-    let mut v_encrypted = CoreValue::Null;
-    let mut v_finish_reason = CoreValue::Null;
-    let mut v_finish_reason_raw = CoreValue::Null;
-    let mut v_fn = CoreValue::Null;
-    let mut v_function = CoreValue::Null;
-    let mut v_has_call_id = CoreValue::Null;
-    let mut v_has_detail_id = CoreValue::Null;
-    let mut v_has_details_mode = CoreValue::Null;
-    let mut v_has_reasoning_content = CoreValue::Null;
-    let mut v_has_reasoning_details = CoreValue::Null;
-    let mut v_has_reasoning_mode = CoreValue::Null;
-    let mut v_has_stable_id = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_include_reasoning_content = CoreValue::Null;
-    let mut v_include_reasoning_details = CoreValue::Null;
-    let mut v_index = CoreValue::Null;
-    let mut v_is_no_details = CoreValue::Null;
-    let mut v_is_no_reasoning = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_normalized = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_reasoning_content = CoreValue::Null;
-    let mut v_reasoning_details = CoreValue::Null;
-    let mut v_stable_id = CoreValue::Null;
-    let mut v_thought_block = CoreValue::Null;
-    let mut v_thought_blocks = CoreValue::Null;
-    let mut v_tool_calls = CoreValue::Null;
-    let mut v_type = CoreValue::Null;
-    v_empty_delta = CoreValue::new_map();
-    v_delta = core_get(&v_choice, &CoreValue::from("delta"), v_empty_delta.clone());
-    v_calls = CoreValue::new_list();
-    v_empty_tool_calls = CoreValue::new_list();
-    v_tool_calls = core_get(
-        &v_delta,
-        &CoreValue::from("tool_calls"),
-        v_empty_tool_calls.clone(),
-    );
-    for v_call in core_iter(&v_tool_calls)? {
-        let mut v_call = v_call;
-        v_call_index = core_get(&v_call, &CoreValue::from("index"), CoreValue::Num(0f64));
-        v_call_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-        v_has_call_id = core_truthy_value(&[v_call_id.clone()])?;
-        if core_truthy(&v_has_call_id) {
-            core_set(&v_index_ids, v_call_index.clone(), v_call_id.clone())?;
-        }
-        v_stable_id = core_get(&v_index_ids, &v_call_index.clone(), CoreValue::Null);
-        v_has_stable_id = core_truthy_value(&[v_stable_id.clone()])?;
-        if core_truthy(&v_has_stable_id) {
-            v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-            v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-            v_arguments = core_get(&v_fn, &CoreValue::from("arguments"), CoreValue::Null);
-            v_function = CoreValue::new_map();
-            core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
-            core_set(&v_function, CoreValue::from("params"), v_arguments.clone())?;
-            v_normalized = CoreValue::new_map();
-            core_set(&v_normalized, CoreValue::from("id"), v_stable_id.clone())?;
-            core_set(
-                &v_normalized,
-                CoreValue::from("type"),
-                CoreValue::from("function"),
-            )?;
-            core_set(
-                &v_normalized,
-                CoreValue::from("function"),
-                v_function.clone(),
-            )?;
-            core_append(&v_calls, v_normalized.clone())?;
-        }
-    }
-    v_index = core_get(&v_choice, &CoreValue::from("index"), CoreValue::Num(0f64));
-    v_id = core_string_str(&[v_index.clone()])?;
-    v_content = core_get(&v_delta, &CoreValue::from("content"), CoreValue::Null);
-    v_reasoning_content = core_get(&v_delta, &v_reasoning_content_mode.clone(), CoreValue::Null);
-    v_has_reasoning_content = core_truthy_value(&[v_reasoning_content.clone()])?;
-    v_is_no_reasoning = core_eq(&[v_reasoning_content_mode.clone(), CoreValue::from("none")])?;
-    v_has_reasoning_mode = core_not(&[v_is_no_reasoning.clone()])?;
-    v_include_reasoning_content = core_and(&[
-        v_has_reasoning_mode.clone(),
-        v_has_reasoning_content.clone(),
-    ])?;
-    v_finish_reason_raw = core_get(
-        &v_choice,
-        &CoreValue::from("finish_reason"),
-        CoreValue::Null,
-    );
-    v_finish_reason = _openai_finish_reason_impl(&[v_finish_reason_raw.clone()])?;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("index"), v_index.clone())?;
-    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
-    core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
-    if core_truthy(&v_include_reasoning_content) {
-        core_set(
-            &v_out,
-            CoreValue::from("thought"),
-            v_reasoning_content.clone(),
-        )?;
-        v_thought_blocks = CoreValue::new_list();
-        v_thought_block = CoreValue::new_map();
-        core_set(
-            &v_thought_block,
-            CoreValue::from("data"),
-            v_reasoning_content.clone(),
-        )?;
-        core_set(
-            &v_thought_block,
-            CoreValue::from("encrypted"),
-            CoreValue::Bool(false),
-        )?;
-        core_append(&v_thought_blocks, v_thought_block.clone())?;
-        core_set(
-            &v_out,
-            CoreValue::from("thought_blocks"),
-            v_thought_blocks.clone(),
-        )?;
-    }
-    v_is_no_details = core_eq(&[v_reasoning_details_mode.clone(), CoreValue::from("none")])?;
-    v_has_details_mode = core_not(&[v_is_no_details.clone()])?;
-    v_reasoning_details = core_get(&v_delta, &v_reasoning_details_mode.clone(), CoreValue::Null);
-    v_has_reasoning_details = core_truthy_value(&[v_reasoning_details.clone()])?;
-    v_include_reasoning_details =
-        core_and(&[v_has_details_mode.clone(), v_has_reasoning_details.clone()])?;
-    if core_truthy(&v_include_reasoning_details) {
-        v_detail_blocks = CoreValue::new_list();
-        for v_detail in core_iter(&v_reasoning_details)? {
-            let mut v_detail = v_detail;
-            v_detail_block = CoreValue::new_map();
-            v_data = core_json_stringify(&[v_detail.clone()])?;
-            core_set(&v_detail_block, CoreValue::from("data"), v_data.clone())?;
-            v_type = core_get(&v_detail, &CoreValue::from("type"), CoreValue::from(""));
-            v_encrypted = core_contains(&[v_type.clone(), CoreValue::from("encrypted")])?;
-            core_set(
-                &v_detail_block,
-                CoreValue::from("encrypted"),
-                v_encrypted.clone(),
-            )?;
-            v_detail_id = core_get(&v_detail, &CoreValue::from("id"), CoreValue::Null);
-            v_has_detail_id = core_truthy_value(&[v_detail_id.clone()])?;
-            if core_truthy(&v_has_detail_id) {
-                core_set(
-                    &v_detail_block,
-                    CoreValue::from("signature"),
-                    v_detail_id.clone(),
-                )?;
-            }
-            core_append(&v_detail_blocks, v_detail_block.clone())?;
-        }
-        core_set(
-            &v_out,
-            CoreValue::from("thought_blocks"),
-            v_detail_blocks.clone(),
-        )?;
-    }
-    core_set(&v_out, CoreValue::from("function_calls"), v_calls.clone())?;
-    core_set(
-        &v_out,
-        CoreValue::from("finish_reason"),
-        v_finish_reason.clone(),
     )?;
     return Ok(v_out.clone());
 }
@@ -44652,103 +44769,185 @@ fn ai_gemini_cache_ops(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_normalize_error");
-    let mut v_status = core_arg(args, 0);
-    let mut v_body = core_arg(args, 1);
-    let mut v_request = core_arg(args, 2);
-    let mut v_body_is_object = CoreValue::Null;
-    let mut v_body_text = CoreValue::Null;
-    let mut v_code = CoreValue::Null;
-    let mut v_code_value = CoreValue::Null;
-    let mut v_error = CoreValue::Null;
-    let mut v_error_body = CoreValue::Null;
-    let mut v_error_is_object = CoreValue::Null;
-    let mut v_is_401 = CoreValue::Null;
-    let mut v_is_403 = CoreValue::Null;
-    let mut v_is_408 = CoreValue::Null;
-    let mut v_is_429 = CoreValue::Null;
-    let mut v_is_500 = CoreValue::Null;
-    let mut v_is_502 = CoreValue::Null;
-    let mut v_is_503 = CoreValue::Null;
-    let mut v_is_504 = CoreValue::Null;
-    let mut v_is_529 = CoreValue::Null;
-    let mut v_is_auth = CoreValue::Null;
-    let mut v_is_timeout = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_message_value = CoreValue::Null;
-    let mut v_retry_left = CoreValue::Null;
-    let mut v_retry_more = CoreValue::Null;
-    let mut v_retry_right = CoreValue::Null;
-    let mut v_retry_some = CoreValue::Null;
-    let mut v_retryable = CoreValue::Null;
-    v_message = v_body.clone();
-    v_code = core_none(&[])?;
-    v_body_is_object = core_type_is(&v_body, CoreValue::from("object"));
-    if core_truthy(&v_body_is_object) {
-        v_error_body = core_get(&v_body, &CoreValue::from("error"), v_body.clone());
-        v_error_is_object = core_type_is(&v_error_body, CoreValue::from("object"));
-        if core_truthy(&v_error_is_object) {
-            v_body_text = core_string_str(&[v_body.clone()])?;
-            v_message_value = core_get(
-                &v_error_body,
-                &CoreValue::from("message"),
-                v_body_text.clone(),
-            );
-            v_code_value = core_get(&v_error_body, &CoreValue::from("code"), CoreValue::Null);
-            v_message = v_message_value.clone();
-            v_code = v_code_value.clone();
-        } else {
-            v_message_value = core_string_str(&[v_error_body.clone()])?;
-            v_message = v_message_value.clone();
+fn _openai_stream_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_stream_choice_impl");
+    let mut v_choice = core_arg(args, 0);
+    let mut v_index_ids = core_arg(args, 1);
+    let mut v_reasoning_content_mode = core_arg(args, 2);
+    let mut v_reasoning_details_mode = core_arg(args, 3);
+    let mut v_arguments = CoreValue::Null;
+    let mut v_call = CoreValue::Null;
+    let mut v_call_id = CoreValue::Null;
+    let mut v_call_index = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_delta = CoreValue::Null;
+    let mut v_detail = CoreValue::Null;
+    let mut v_detail_block = CoreValue::Null;
+    let mut v_detail_blocks = CoreValue::Null;
+    let mut v_detail_id = CoreValue::Null;
+    let mut v_empty_delta = CoreValue::Null;
+    let mut v_empty_tool_calls = CoreValue::Null;
+    let mut v_encrypted = CoreValue::Null;
+    let mut v_finish_reason = CoreValue::Null;
+    let mut v_finish_reason_raw = CoreValue::Null;
+    let mut v_fn = CoreValue::Null;
+    let mut v_function = CoreValue::Null;
+    let mut v_has_call_id = CoreValue::Null;
+    let mut v_has_detail_id = CoreValue::Null;
+    let mut v_has_details_mode = CoreValue::Null;
+    let mut v_has_reasoning_content = CoreValue::Null;
+    let mut v_has_reasoning_details = CoreValue::Null;
+    let mut v_has_reasoning_mode = CoreValue::Null;
+    let mut v_has_stable_id = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_include_reasoning_content = CoreValue::Null;
+    let mut v_include_reasoning_details = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_is_no_details = CoreValue::Null;
+    let mut v_is_no_reasoning = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_reasoning_content = CoreValue::Null;
+    let mut v_reasoning_details = CoreValue::Null;
+    let mut v_stable_id = CoreValue::Null;
+    let mut v_thought_block = CoreValue::Null;
+    let mut v_thought_blocks = CoreValue::Null;
+    let mut v_tool_calls = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    v_empty_delta = CoreValue::new_map();
+    v_delta = core_get(&v_choice, &CoreValue::from("delta"), v_empty_delta.clone());
+    v_calls = CoreValue::new_list();
+    v_empty_tool_calls = CoreValue::new_list();
+    v_tool_calls = core_get(
+        &v_delta,
+        &CoreValue::from("tool_calls"),
+        v_empty_tool_calls.clone(),
+    );
+    for v_call in core_iter(&v_tool_calls)? {
+        let mut v_call = v_call;
+        v_call_index = core_get(&v_call, &CoreValue::from("index"), CoreValue::Num(0f64));
+        v_call_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+        v_has_call_id = core_truthy_value(&[v_call_id.clone()])?;
+        if core_truthy(&v_has_call_id) {
+            core_set(&v_index_ids, v_call_index.clone(), v_call_id.clone())?;
+        }
+        v_stable_id = core_get(&v_index_ids, &v_call_index.clone(), CoreValue::Null);
+        v_has_stable_id = core_truthy_value(&[v_stable_id.clone()])?;
+        if core_truthy(&v_has_stable_id) {
+            v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+            v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+            v_arguments = core_get(&v_fn, &CoreValue::from("arguments"), CoreValue::Null);
+            v_function = CoreValue::new_map();
+            core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
+            core_set(&v_function, CoreValue::from("params"), v_arguments.clone())?;
+            v_normalized = CoreValue::new_map();
+            core_set(&v_normalized, CoreValue::from("id"), v_stable_id.clone())?;
+            core_set(
+                &v_normalized,
+                CoreValue::from("type"),
+                CoreValue::from("function"),
+            )?;
+            core_set(
+                &v_normalized,
+                CoreValue::from("function"),
+                v_function.clone(),
+            )?;
+            core_append(&v_calls, v_normalized.clone())?;
         }
     }
-    v_is_401 = core_eq(&[v_status.clone(), CoreValue::Num(401f64)])?;
-    v_is_403 = core_eq(&[v_status.clone(), CoreValue::Num(403f64)])?;
-    v_is_auth = core_or(&[v_is_401.clone(), v_is_403.clone()])?;
-    if core_truthy(&v_is_auth) {
-        v_error = core_ai_error_auth(&[
-            v_message.clone(),
-            v_status.clone(),
-            v_code.clone(),
-            v_body.clone(),
-            v_request.clone(),
-        ])?;
-        return Ok(v_error.clone());
-    }
-    v_is_408 = core_eq(&[v_status.clone(), CoreValue::Num(408f64)])?;
-    v_is_504 = core_eq(&[v_status.clone(), CoreValue::Num(504f64)])?;
-    v_is_timeout = core_or(&[v_is_408.clone(), v_is_504.clone()])?;
-    if core_truthy(&v_is_timeout) {
-        v_error = core_ai_error_timeout(&[
-            v_message.clone(),
-            v_status.clone(),
-            v_code.clone(),
-            v_body.clone(),
-            v_request.clone(),
-            CoreValue::Bool(true),
-        ])?;
-        return Ok(v_error.clone());
-    }
-    v_is_429 = core_eq(&[v_status.clone(), CoreValue::Num(429f64)])?;
-    v_is_500 = core_eq(&[v_status.clone(), CoreValue::Num(500f64)])?;
-    v_is_502 = core_eq(&[v_status.clone(), CoreValue::Num(502f64)])?;
-    v_is_503 = core_eq(&[v_status.clone(), CoreValue::Num(503f64)])?;
-    v_is_529 = core_eq(&[v_status.clone(), CoreValue::Num(529f64)])?;
-    v_retry_left = core_or(&[v_is_429.clone(), v_is_500.clone()])?;
-    v_retry_right = core_or(&[v_is_502.clone(), v_is_503.clone()])?;
-    v_retry_some = core_or(&[v_retry_left.clone(), v_retry_right.clone()])?;
-    v_retry_more = core_or(&[v_retry_some.clone(), v_is_504.clone()])?;
-    v_retryable = core_or(&[v_retry_more.clone(), v_is_529.clone()])?;
-    v_error = core_ai_error_status(&[
-        v_message.clone(),
-        v_status.clone(),
-        v_code.clone(),
-        v_body.clone(),
-        v_request.clone(),
-        v_retryable.clone(),
+    v_index = core_get(&v_choice, &CoreValue::from("index"), CoreValue::Num(0f64));
+    v_id = core_string_str(&[v_index.clone()])?;
+    v_content = core_get(&v_delta, &CoreValue::from("content"), CoreValue::Null);
+    v_reasoning_content = core_get(&v_delta, &v_reasoning_content_mode.clone(), CoreValue::Null);
+    v_has_reasoning_content = core_truthy_value(&[v_reasoning_content.clone()])?;
+    v_is_no_reasoning = core_eq(&[v_reasoning_content_mode.clone(), CoreValue::from("none")])?;
+    v_has_reasoning_mode = core_not(&[v_is_no_reasoning.clone()])?;
+    v_include_reasoning_content = core_and(&[
+        v_has_reasoning_mode.clone(),
+        v_has_reasoning_content.clone(),
     ])?;
-    return Ok(v_error.clone());
+    v_finish_reason_raw = core_get(
+        &v_choice,
+        &CoreValue::from("finish_reason"),
+        CoreValue::Null,
+    );
+    v_finish_reason = _openai_finish_reason_impl(&[v_finish_reason_raw.clone()])?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("index"), v_index.clone())?;
+    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
+    if core_truthy(&v_include_reasoning_content) {
+        core_set(
+            &v_out,
+            CoreValue::from("thought"),
+            v_reasoning_content.clone(),
+        )?;
+        v_thought_blocks = CoreValue::new_list();
+        v_thought_block = CoreValue::new_map();
+        core_set(
+            &v_thought_block,
+            CoreValue::from("data"),
+            v_reasoning_content.clone(),
+        )?;
+        core_set(
+            &v_thought_block,
+            CoreValue::from("encrypted"),
+            CoreValue::Bool(false),
+        )?;
+        core_append(&v_thought_blocks, v_thought_block.clone())?;
+        core_set(
+            &v_out,
+            CoreValue::from("thought_blocks"),
+            v_thought_blocks.clone(),
+        )?;
+    }
+    v_is_no_details = core_eq(&[v_reasoning_details_mode.clone(), CoreValue::from("none")])?;
+    v_has_details_mode = core_not(&[v_is_no_details.clone()])?;
+    v_reasoning_details = core_get(&v_delta, &v_reasoning_details_mode.clone(), CoreValue::Null);
+    v_has_reasoning_details = core_truthy_value(&[v_reasoning_details.clone()])?;
+    v_include_reasoning_details =
+        core_and(&[v_has_details_mode.clone(), v_has_reasoning_details.clone()])?;
+    if core_truthy(&v_include_reasoning_details) {
+        v_detail_blocks = CoreValue::new_list();
+        for v_detail in core_iter(&v_reasoning_details)? {
+            let mut v_detail = v_detail;
+            v_detail_block = CoreValue::new_map();
+            v_data = core_json_stringify(&[v_detail.clone()])?;
+            core_set(&v_detail_block, CoreValue::from("data"), v_data.clone())?;
+            v_type = core_get(&v_detail, &CoreValue::from("type"), CoreValue::from(""));
+            v_encrypted = core_contains(&[v_type.clone(), CoreValue::from("encrypted")])?;
+            core_set(
+                &v_detail_block,
+                CoreValue::from("encrypted"),
+                v_encrypted.clone(),
+            )?;
+            v_detail_id = core_get(&v_detail, &CoreValue::from("id"), CoreValue::Null);
+            v_has_detail_id = core_truthy_value(&[v_detail_id.clone()])?;
+            if core_truthy(&v_has_detail_id) {
+                core_set(
+                    &v_detail_block,
+                    CoreValue::from("signature"),
+                    v_detail_id.clone(),
+                )?;
+            }
+            core_append(&v_detail_blocks, v_detail_block.clone())?;
+        }
+        core_set(
+            &v_out,
+            CoreValue::from("thought_blocks"),
+            v_detail_blocks.clone(),
+        )?;
+    }
+    core_set(&v_out, CoreValue::from("function_calls"), v_calls.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("finish_reason"),
+        v_finish_reason.clone(),
+    )?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -44861,56 +45060,103 @@ fn fold_chat_response_stream(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn provider_normalize_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("provider_normalize_profile");
-    let mut v_profile = core_arg(args, 0);
-    let mut v_aliases = CoreValue::Null;
-    let mut v_normalized = CoreValue::Null;
-    let mut v_provider_id = CoreValue::Null;
-    v_normalized = core_string_lower(&[v_profile.clone()])?;
-    v_aliases = core_json_parse(&[CoreValue::from("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n")])?;
-    v_provider_id = core_get(&v_aliases, &v_normalized.clone(), CoreValue::from(""));
-    return Ok(v_provider_id.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn provider_profile_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("provider_profile_registry");
-    let mut v_registry = CoreValue::Null;
-    v_registry = core_json_parse(&[CoreValue::from("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n")])?;
-    return Ok(v_registry.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn provider_resolve_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("provider_resolve_profile");
-    let mut v_profile = core_arg(args, 0);
-    let mut v_aliases = CoreValue::Null;
-    let mut v_is_known = CoreValue::Null;
-    let mut v_normalized = CoreValue::Null;
-    let mut v_provider_id = CoreValue::Null;
-    let mut v_resolved = CoreValue::Null;
-    v_normalized = core_string_lower(&[v_profile.clone()])?;
-    v_aliases = core_json_parse(&[CoreValue::from("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n")])?;
-    v_is_known = core_map_contains(&[v_aliases.clone(), v_normalized.clone()])?;
-    v_provider_id = provider_normalize_profile(&[v_profile.clone()])?;
-    v_resolved = CoreValue::new_map();
-    core_set(&v_resolved, CoreValue::from("id"), v_provider_id.clone())?;
-    core_set(&v_resolved, CoreValue::from("known"), v_is_known.clone())?;
-    core_set(&v_resolved, CoreValue::from("input"), v_profile.clone())?;
-    return Ok(v_resolved.clone());
+fn openai_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_normalize_error");
+    let mut v_status = core_arg(args, 0);
+    let mut v_body = core_arg(args, 1);
+    let mut v_request = core_arg(args, 2);
+    let mut v_body_is_object = CoreValue::Null;
+    let mut v_body_text = CoreValue::Null;
+    let mut v_code = CoreValue::Null;
+    let mut v_code_value = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_error_body = CoreValue::Null;
+    let mut v_error_is_object = CoreValue::Null;
+    let mut v_is_401 = CoreValue::Null;
+    let mut v_is_403 = CoreValue::Null;
+    let mut v_is_408 = CoreValue::Null;
+    let mut v_is_429 = CoreValue::Null;
+    let mut v_is_500 = CoreValue::Null;
+    let mut v_is_502 = CoreValue::Null;
+    let mut v_is_503 = CoreValue::Null;
+    let mut v_is_504 = CoreValue::Null;
+    let mut v_is_529 = CoreValue::Null;
+    let mut v_is_auth = CoreValue::Null;
+    let mut v_is_timeout = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_message_value = CoreValue::Null;
+    let mut v_retry_left = CoreValue::Null;
+    let mut v_retry_more = CoreValue::Null;
+    let mut v_retry_right = CoreValue::Null;
+    let mut v_retry_some = CoreValue::Null;
+    let mut v_retryable = CoreValue::Null;
+    v_message = v_body.clone();
+    v_code = core_none(&[])?;
+    v_body_is_object = core_type_is(&v_body, CoreValue::from("object"));
+    if core_truthy(&v_body_is_object) {
+        v_error_body = core_get(&v_body, &CoreValue::from("error"), v_body.clone());
+        v_error_is_object = core_type_is(&v_error_body, CoreValue::from("object"));
+        if core_truthy(&v_error_is_object) {
+            v_body_text = core_string_str(&[v_body.clone()])?;
+            v_message_value = core_get(
+                &v_error_body,
+                &CoreValue::from("message"),
+                v_body_text.clone(),
+            );
+            v_code_value = core_get(&v_error_body, &CoreValue::from("code"), CoreValue::Null);
+            v_message = v_message_value.clone();
+            v_code = v_code_value.clone();
+        } else {
+            v_message_value = core_string_str(&[v_error_body.clone()])?;
+            v_message = v_message_value.clone();
+        }
+    }
+    v_is_401 = core_eq(&[v_status.clone(), CoreValue::Num(401f64)])?;
+    v_is_403 = core_eq(&[v_status.clone(), CoreValue::Num(403f64)])?;
+    v_is_auth = core_or(&[v_is_401.clone(), v_is_403.clone()])?;
+    if core_truthy(&v_is_auth) {
+        v_error = core_ai_error_auth(&[
+            v_message.clone(),
+            v_status.clone(),
+            v_code.clone(),
+            v_body.clone(),
+            v_request.clone(),
+        ])?;
+        return Ok(v_error.clone());
+    }
+    v_is_408 = core_eq(&[v_status.clone(), CoreValue::Num(408f64)])?;
+    v_is_504 = core_eq(&[v_status.clone(), CoreValue::Num(504f64)])?;
+    v_is_timeout = core_or(&[v_is_408.clone(), v_is_504.clone()])?;
+    if core_truthy(&v_is_timeout) {
+        v_error = core_ai_error_timeout(&[
+            v_message.clone(),
+            v_status.clone(),
+            v_code.clone(),
+            v_body.clone(),
+            v_request.clone(),
+            CoreValue::Bool(true),
+        ])?;
+        return Ok(v_error.clone());
+    }
+    v_is_429 = core_eq(&[v_status.clone(), CoreValue::Num(429f64)])?;
+    v_is_500 = core_eq(&[v_status.clone(), CoreValue::Num(500f64)])?;
+    v_is_502 = core_eq(&[v_status.clone(), CoreValue::Num(502f64)])?;
+    v_is_503 = core_eq(&[v_status.clone(), CoreValue::Num(503f64)])?;
+    v_is_529 = core_eq(&[v_status.clone(), CoreValue::Num(529f64)])?;
+    v_retry_left = core_or(&[v_is_429.clone(), v_is_500.clone()])?;
+    v_retry_right = core_or(&[v_is_502.clone(), v_is_503.clone()])?;
+    v_retry_some = core_or(&[v_retry_left.clone(), v_retry_right.clone()])?;
+    v_retry_more = core_or(&[v_retry_some.clone(), v_is_504.clone()])?;
+    v_retryable = core_or(&[v_retry_more.clone(), v_is_529.clone()])?;
+    v_error = core_ai_error_status(&[
+        v_message.clone(),
+        v_status.clone(),
+        v_code.clone(),
+        v_body.clone(),
+        v_request.clone(),
+        v_retryable.clone(),
+    ])?;
+    return Ok(v_error.clone());
 }
 
 #[allow(
@@ -45132,6 +45378,65 @@ fn _fold_chat_stream_chunk_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
         )?;
     }
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_normalize_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_normalize_profile");
+    let mut v_profile = core_arg(args, 0);
+    let mut v_aliases = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_provider_id = CoreValue::Null;
+    v_normalized = core_string_lower(&[v_profile.clone()])?;
+    v_aliases = core_json_parse(&[CoreValue::from("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n")])?;
+    v_provider_id = core_get(&v_aliases, &v_normalized.clone(), CoreValue::from(""));
+    return Ok(v_provider_id.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_profile_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_profile_registry");
+    let mut v_registry = CoreValue::Null;
+    v_registry = core_json_parse(&[CoreValue::from("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n")])?;
+    return Ok(v_registry.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_resolve_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_resolve_profile");
+    let mut v_profile = core_arg(args, 0);
+    let mut v_aliases = CoreValue::Null;
+    let mut v_is_known = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_provider_id = CoreValue::Null;
+    let mut v_resolved = CoreValue::Null;
+    v_normalized = core_string_lower(&[v_profile.clone()])?;
+    v_aliases = core_json_parse(&[CoreValue::from("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n")])?;
+    v_is_known = core_map_contains(&[v_aliases.clone(), v_normalized.clone()])?;
+    v_provider_id = provider_normalize_profile(&[v_profile.clone()])?;
+    v_resolved = CoreValue::new_map();
+    core_set(&v_resolved, CoreValue::from("id"), v_provider_id.clone())?;
+    core_set(&v_resolved, CoreValue::from("known"), v_is_known.clone())?;
+    core_set(&v_resolved, CoreValue::from("input"), v_profile.clone())?;
+    return Ok(v_resolved.clone());
 }
 
 #[allow(
@@ -53801,7 +54106,9 @@ fn provider_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_dialect = CoreValue::Null;
     let mut v_gemini_payload = CoreValue::Null;
     let mut v_is_gemini = CoreValue::Null;
+    let mut v_is_mistral = CoreValue::Null;
     let mut v_is_xai = CoreValue::Null;
+    let mut v_mistral_payload = CoreValue::Null;
     let mut v_operation = CoreValue::Null;
     let mut v_payload = CoreValue::Null;
     let mut v_provider_id = CoreValue::Null;
@@ -53820,6 +54127,7 @@ fn provider_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError
         CoreValue::from("gemini-generate-content"),
     ])?;
     v_is_xai = core_eq(&[v_dialect.clone(), CoreValue::from("xai-speech")])?;
+    v_is_mistral = core_eq(&[v_dialect.clone(), CoreValue::from("mistral-speech")])?;
     v_payload = CoreValue::new_map();
     if core_truthy(&v_is_gemini) {
         v_gemini_payload = _gemini_build_speak_request(&[v_request.clone()])?;
@@ -53829,8 +54137,13 @@ fn provider_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError
             v_xai_payload = _grok_build_speak_request(&[v_request.clone()])?;
             v_payload = v_xai_payload.clone();
         } else {
-            v_responses_payload = openai_responses_build_speak_request(&[v_request.clone()])?;
-            v_payload = v_responses_payload.clone();
+            if core_truthy(&v_is_mistral) {
+                v_mistral_payload = _mistral_build_speak_request(&[v_request.clone()])?;
+                v_payload = v_mistral_payload.clone();
+            } else {
+                v_responses_payload = openai_responses_build_speak_request(&[v_request.clone()])?;
+                v_payload = v_responses_payload.clone();
+            }
         }
     }
     return Ok(v_payload.clone());
@@ -54492,17 +54805,22 @@ fn provider_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_profile = core_arg(args, 0);
     let mut v_raw = core_arg(args, 1);
     let mut v_request = core_arg(args, 2);
+    let mut v_content_type = core_arg(args, 3);
+    let mut v_binary_speech = CoreValue::Null;
     let mut v_data = CoreValue::Null;
     let mut v_descriptor = CoreValue::Null;
     let mut v_dialect = CoreValue::Null;
     let mut v_format = CoreValue::Null;
     let mut v_gemini_out = CoreValue::Null;
     let mut v_is_gemini = CoreValue::Null;
+    let mut v_json_speech = CoreValue::Null;
     let mut v_operation = CoreValue::Null;
     let mut v_operations = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_provider_id = CoreValue::Null;
+    let mut v_raw_is_text = CoreValue::Null;
     let mut v_speech = CoreValue::Null;
+    let mut v_transcript = CoreValue::Null;
     v_provider_id = provider_normalize_profile(&[v_profile.clone()])?;
     v_descriptor = provider_descriptor(&[v_provider_id.clone()])?;
     v_operations = core_get(
@@ -54524,17 +54842,32 @@ fn provider_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, Ax
         v_gemini_out = _gemini_normalize_speak_response(&[v_raw.clone(), v_request.clone()])?;
         return Ok(v_gemini_out.clone());
     }
-    v_data = core_get(&v_raw, &CoreValue::from("audio"), v_raw.clone());
+    v_transcript = _speech_request_text_impl(&[v_request.clone()])?;
     v_format = core_get(
         &v_request,
         &CoreValue::from("format"),
         CoreValue::from("mp3"),
     );
+    v_raw_is_text = core_type_is(&v_raw, CoreValue::from("string"));
+    v_speech = CoreValue::new_map();
+    if core_truthy(&v_raw_is_text) {
+        v_binary_speech = _speech_binary_response_impl(&[
+            v_raw.clone(),
+            v_content_type.clone(),
+            v_format.clone(),
+            v_transcript.clone(),
+        ])?;
+        v_speech = v_binary_speech.clone();
+    } else {
+        v_json_speech =
+            _speech_json_response_impl(&[v_raw.clone(), v_format.clone(), v_transcript.clone()])?;
+        v_speech = v_json_speech.clone();
+    }
     v_out = CoreValue::new_map();
+    v_data = core_get(&v_speech, &CoreValue::from("data"), CoreValue::Null);
     core_set(&v_out, CoreValue::from("audio"), v_data.clone())?;
-    core_set(&v_out, CoreValue::from("format"), v_format.clone())?;
-    v_speech = _speech_response_ts_keys_impl(&[v_out.clone(), v_raw.clone(), v_request.clone()])?;
-    return Ok(v_speech.clone());
+    v_out = core_map_merge(&[v_out.clone(), v_speech.clone()])?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -55577,8 +55910,6 @@ fn _openai_responses_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, 
     let mut v_part = core_arg(args, 0);
     let mut v_role = core_arg(args, 1);
     let mut v_audio_alt = CoreValue::Null;
-    let mut v_cached = CoreValue::Null;
-    let mut v_cached_snake = CoreValue::Null;
     let mut v_data = CoreValue::Null;
     let mut v_data_url = CoreValue::Null;
     let mut v_details = CoreValue::Null;
@@ -55589,6 +55920,7 @@ fn _openai_responses_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, 
     let mut v_filename = CoreValue::Null;
     let mut v_format = CoreValue::Null;
     let mut v_has_filename = CoreValue::Null;
+    let mut v_has_format = CoreValue::Null;
     let mut v_has_uri = CoreValue::Null;
     let mut v_image_url = CoreValue::Null;
     let mut v_input_audio = CoreValue::Null;
@@ -55662,7 +55994,7 @@ fn _openai_responses_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, 
     if core_truthy(&v_is_audio) {
         v_audio_alt = core_get(&v_part, &CoreValue::from("audio"), CoreValue::Null);
         v_data = core_get(&v_part, &CoreValue::from("data"), v_audio_alt.clone());
-        v_format = core_get(&v_part, &CoreValue::from("format"), CoreValue::from("wav"));
+        v_format = core_get(&v_part, &CoreValue::from("format"), CoreValue::Null);
         v_out = CoreValue::new_map();
         core_set(
             &v_out,
@@ -55671,7 +56003,10 @@ fn _openai_responses_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, 
         )?;
         v_input_audio = CoreValue::new_map();
         core_set(&v_input_audio, CoreValue::from("data"), v_data.clone())?;
-        core_set(&v_input_audio, CoreValue::from("format"), v_format.clone())?;
+        v_has_format = core_is_not_none(&[v_format.clone()])?;
+        if core_truthy(&v_has_format) {
+            core_set(&v_input_audio, CoreValue::from("format"), v_format.clone())?;
+        }
         core_set(
             &v_out,
             CoreValue::from("input_audio"),
@@ -55757,14 +56092,7 @@ fn _openai_responses_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, 
             CoreValue::from("type"),
             CoreValue::from("input_text"),
         )?;
-        v_cached_snake = core_get(&v_part, &CoreValue::from("cached_content"), CoreValue::Null);
-        v_cached = core_get(
-            &v_part,
-            &CoreValue::from("cachedContent"),
-            v_cached_snake.clone(),
-        );
-        v_url = core_get(&v_part, &CoreValue::from("url"), CoreValue::from(""));
-        v_text = core_coalesce(&[v_cached.clone(), v_url.clone()])?;
+        v_text = _url_part_text_impl(&[v_part.clone()])?;
         core_set(&v_out, CoreValue::from("text"), v_text.clone())?;
         _openai_responses_copy_cache_control_impl(&[v_out.clone(), v_part.clone()])?;
         return Ok(v_out.clone());
@@ -56887,34 +57215,40 @@ fn openai_responses_build_transcribe_request(args: &[CoreValue]) -> Result<CoreV
 fn openai_responses_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("openai_responses_build_speak_request");
     let mut v_request = core_arg(args, 0);
+    let mut v_has_speed = CoreValue::Null;
+    let mut v_has_voice = CoreValue::Null;
+    let mut v_is_pcm16 = CoreValue::Null;
     let mut v_payload = CoreValue::Null;
     let mut v_request_input = CoreValue::Null;
     let mut v_response_format = CoreValue::Null;
     let mut v_speak_input = CoreValue::Null;
     let mut v_speak_model = CoreValue::Null;
+    let mut v_speed = CoreValue::Null;
     let mut v_voice = CoreValue::Null;
     v_payload = CoreValue::new_map();
-    v_speak_model = core_get(
-        &v_request,
-        &CoreValue::from("model"),
-        CoreValue::from("tts-1"),
-    );
+    v_speak_model =
+        _speech_request_model_impl(&[v_request.clone(), CoreValue::from("gpt-4o-mini-tts")])?;
     v_request_input = core_get(&v_request, &CoreValue::from("input"), CoreValue::from(""));
     v_speak_input = core_get(
         &v_request,
         &CoreValue::from("text"),
         v_request_input.clone(),
     );
-    v_voice = core_get(
-        &v_request,
-        &CoreValue::from("voice"),
-        CoreValue::from("alloy"),
-    );
+    v_voice = _speech_request_voice_impl(&[v_request.clone()])?;
+    v_has_voice = core_is_not_none(&[v_voice.clone()])?;
+    if core_truthy(&v_has_voice) {
+    } else {
+        v_voice = CoreValue::from("alloy");
+    }
     v_response_format = core_get(
         &v_request,
         &CoreValue::from("format"),
         CoreValue::from("mp3"),
     );
+    v_is_pcm16 = core_eq(&[v_response_format.clone(), CoreValue::from("pcm16")])?;
+    if core_truthy(&v_is_pcm16) {
+        v_response_format = CoreValue::from("pcm");
+    }
     core_set(&v_payload, CoreValue::from("model"), v_speak_model.clone())?;
     core_set(&v_payload, CoreValue::from("input"), v_speak_input.clone())?;
     core_set(&v_payload, CoreValue::from("voice"), v_voice.clone())?;
@@ -56923,7 +57257,101 @@ fn openai_responses_build_speak_request(args: &[CoreValue]) -> Result<CoreValue,
         CoreValue::from("response_format"),
         v_response_format.clone(),
     )?;
+    v_speed = core_get(&v_request, &CoreValue::from("speed"), CoreValue::Null);
+    v_has_speed = core_is_not_none(&[v_speed.clone()])?;
+    if core_truthy(&v_has_speed) {
+        core_set(&v_payload, CoreValue::from("speed"), v_speed.clone())?;
+    }
     return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _mistral_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_mistral_build_speak_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_has_voice = CoreValue::Null;
+    let mut v_payload = CoreValue::Null;
+    let mut v_request_input = CoreValue::Null;
+    let mut v_response_format = CoreValue::Null;
+    let mut v_speak_input = CoreValue::Null;
+    let mut v_speak_model = CoreValue::Null;
+    let mut v_voice = CoreValue::Null;
+    v_payload = CoreValue::new_map();
+    v_speak_model =
+        _speech_request_model_impl(&[v_request.clone(), CoreValue::from("voxtral-mini-tts-2603")])?;
+    v_request_input = core_get(&v_request, &CoreValue::from("input"), CoreValue::from(""));
+    v_speak_input = core_get(
+        &v_request,
+        &CoreValue::from("text"),
+        v_request_input.clone(),
+    );
+    v_response_format = core_get(
+        &v_request,
+        &CoreValue::from("format"),
+        CoreValue::from("mp3"),
+    );
+    core_set(&v_payload, CoreValue::from("model"), v_speak_model.clone())?;
+    core_set(&v_payload, CoreValue::from("input"), v_speak_input.clone())?;
+    core_set(
+        &v_payload,
+        CoreValue::from("response_format"),
+        v_response_format.clone(),
+    )?;
+    v_voice = _speech_request_voice_impl(&[v_request.clone()])?;
+    v_has_voice = core_truthy_value(&[v_voice.clone()])?;
+    if core_truthy(&v_has_voice) {
+        core_set(&v_payload, CoreValue::from("voice_id"), v_voice.clone())?;
+    }
+    return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _speech_request_model_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_speech_request_model_impl");
+    let mut v_request = core_arg(args, 0);
+    let mut v_fallback = core_arg(args, 1);
+    let mut v_is_text = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    v_model = core_get(&v_request, &CoreValue::from("model"), CoreValue::Null);
+    v_is_text = core_type_is(&v_model, CoreValue::from("string"));
+    if core_truthy(&v_is_text) {
+        return Ok(v_model.clone());
+    }
+    return Ok(v_fallback.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _speech_request_voice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_speech_request_voice_impl");
+    let mut v_request = core_arg(args, 0);
+    let mut v_is_object = CoreValue::Null;
+    let mut v_voice = CoreValue::Null;
+    let mut v_voice_id = CoreValue::Null;
+    v_voice = core_get(&v_request, &CoreValue::from("voice"), CoreValue::Null);
+    v_is_object = core_type_is(&v_voice, CoreValue::from("object"));
+    if core_truthy(&v_is_object) {
+        v_voice_id = core_get(&v_voice, &CoreValue::from("id"), CoreValue::Null);
+        return Ok(v_voice_id.clone());
+    }
+    return Ok(v_voice.clone());
 }
 
 #[allow(
@@ -56978,6 +57406,7 @@ fn _grok_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_codec = CoreValue::Null;
     let mut v_format = CoreValue::Null;
     let mut v_has_sample_rate = CoreValue::Null;
+    let mut v_has_speed = CoreValue::Null;
     let mut v_is_pcm16 = CoreValue::Null;
     let mut v_is_pcm_like = CoreValue::Null;
     let mut v_is_raw = CoreValue::Null;
@@ -56988,6 +57417,7 @@ fn _grok_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request_input = CoreValue::Null;
     let mut v_sample_rate = CoreValue::Null;
     let mut v_sample_rate_alt = CoreValue::Null;
+    let mut v_speed = CoreValue::Null;
     let mut v_text = CoreValue::Null;
     let mut v_voice = CoreValue::Null;
     let mut v_voice_id = CoreValue::Null;
@@ -57050,6 +57480,11 @@ fn _grok_build_speak_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("output_format"),
         v_output_format.clone(),
     )?;
+    v_speed = core_get(&v_request, &CoreValue::from("speed"), CoreValue::Null);
+    v_has_speed = core_is_not_none(&[v_speed.clone()])?;
+    if core_truthy(&v_has_speed) {
+        core_set(&v_payload, CoreValue::from("speed"), v_speed.clone())?;
+    }
     return Ok(v_payload.clone());
 }
 
@@ -57294,96 +57729,29 @@ fn _gemini_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     axir_coverage_mark("_gemini_normalize_speak_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
-    let mut v_audio = CoreValue::Null;
-    let mut v_candidate = CoreValue::Null;
-    let mut v_candidates = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
     let mut v_data = CoreValue::Null;
-    let mut v_empty_candidates = CoreValue::Null;
-    let mut v_empty_parts = CoreValue::Null;
-    let mut v_format = CoreValue::Null;
-    let mut v_has_audio = CoreValue::Null;
-    let mut v_has_data = CoreValue::Null;
-    let mut v_has_mime = CoreValue::Null;
-    let mut v_inline_data = CoreValue::Null;
-    let mut v_is_l16_mime = CoreValue::Null;
-    let mut v_is_linear16 = CoreValue::Null;
-    let mut v_is_pcm16_mime = CoreValue::Null;
-    let mut v_is_pcm_mime = CoreValue::Null;
-    let mut v_is_wav_mime = CoreValue::Null;
-    let mut v_mime_lower = CoreValue::Null;
+    let mut v_has_named_mime = CoreValue::Null;
     let mut v_mime_params = CoreValue::Null;
-    let mut v_mime_type = CoreValue::Null;
+    let mut v_named_mime = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
     let mut v_out = CoreValue::Null;
-    let mut v_part = CoreValue::Null;
-    let mut v_part_mime = CoreValue::Null;
-    let mut v_parts = CoreValue::Null;
     let mut v_speech = CoreValue::Null;
-    v_audio = core_get(&v_raw, &CoreValue::from("audio"), CoreValue::Null);
-    v_format = core_get(
-        &v_request,
-        &CoreValue::from("format"),
-        CoreValue::from("wav"),
-    );
-    v_mime_type = CoreValue::from("");
-    v_empty_candidates = CoreValue::new_list();
-    v_candidates = core_get(
-        &v_raw,
-        &CoreValue::from("candidates"),
-        v_empty_candidates.clone(),
-    );
-    for v_candidate in core_iter(&v_candidates)? {
-        let mut v_candidate = v_candidate;
-        v_content = core_get(&v_candidate, &CoreValue::from("content"), CoreValue::Null);
-        v_empty_parts = CoreValue::new_list();
-        v_parts = core_get(&v_content, &CoreValue::from("parts"), v_empty_parts.clone());
-        for v_part in core_iter(&v_parts)? {
-            let mut v_part = v_part;
-            v_inline_data = core_get(&v_part, &CoreValue::from("inlineData"), CoreValue::Null);
-            v_data = core_get(&v_inline_data, &CoreValue::from("data"), CoreValue::Null);
-            v_has_data = core_is_not_none(&[v_data.clone()])?;
-            if core_truthy(&v_has_data) {
-                v_audio = v_data.clone();
-                v_part_mime = core_get(
-                    &v_inline_data,
-                    &CoreValue::from("mimeType"),
-                    CoreValue::from(""),
-                );
-                v_mime_type = v_part_mime.clone();
-            }
-        }
-    }
-    v_has_audio = core_is_not_none(&[v_audio.clone()])?;
-    if core_truthy(&v_has_audio) {
-    } else {
-        v_audio = v_raw.clone();
-    }
-    v_mime_lower = core_string_lower(&[v_mime_type.clone()])?;
-    v_is_pcm_mime = core_contains(&[v_mime_lower.clone(), CoreValue::from("pcm")])?;
-    if core_truthy(&v_is_pcm_mime) {
-        v_format = CoreValue::from("pcm");
-    }
-    v_is_pcm16_mime = core_contains(&[v_mime_lower.clone(), CoreValue::from("pcm16")])?;
-    v_is_l16_mime = core_contains(&[v_mime_lower.clone(), CoreValue::from("l16")])?;
-    v_is_linear16 = core_or(&[v_is_pcm16_mime.clone(), v_is_l16_mime.clone()])?;
-    if core_truthy(&v_is_linear16) {
-        v_format = CoreValue::from("pcm16");
-    }
-    v_is_wav_mime = core_contains(&[v_mime_lower.clone(), CoreValue::from("wav")])?;
-    if core_truthy(&v_is_wav_mime) {
-        v_format = CoreValue::from("wav");
-    }
+    let mut v_transcript = CoreValue::Null;
+    v_transcript = _speech_request_text_impl(&[v_request.clone()])?;
+    v_none = core_none(&[])?;
+    v_speech = _speech_json_response_impl(&[v_raw.clone(), v_none.clone(), v_transcript.clone()])?;
     v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("audio"), v_audio.clone())?;
-    core_set(&v_out, CoreValue::from("format"), v_format.clone())?;
-    v_has_mime = core_truthy_value(&[v_mime_type.clone()])?;
-    if core_truthy(&v_has_mime) {
-        core_set(&v_out, CoreValue::from("mime_type"), v_mime_type.clone())?;
-        v_mime_params = _audio_mime_params_impl(&[v_mime_type.clone()])?;
+    v_data = core_get(&v_speech, &CoreValue::from("data"), CoreValue::Null);
+    core_set(&v_out, CoreValue::from("audio"), v_data.clone())?;
+    v_named_mime = _speech_json_named_mime_type_impl(&[v_raw.clone()])?;
+    v_has_named_mime = core_truthy_value(&[v_named_mime.clone()])?;
+    if core_truthy(&v_has_named_mime) {
+        core_set(&v_out, CoreValue::from("mime_type"), v_named_mime.clone())?;
+        v_mime_params = _audio_mime_params_impl(&[v_named_mime.clone()])?;
         v_out = core_map_merge(&[v_out.clone(), v_mime_params.clone()])?;
     }
-    v_speech = _speech_response_ts_keys_impl(&[v_out.clone(), v_raw.clone(), v_request.clone()])?;
-    return Ok(v_speech.clone());
+    v_out = core_map_merge(&[v_out.clone(), v_speech.clone()])?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -57393,55 +57761,60 @@ fn _gemini_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     unreachable_code,
     clippy::all
 )]
-fn _speech_response_ts_keys_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_speech_response_ts_keys_impl");
-    let mut v_out = core_arg(args, 0);
-    let mut v_raw = core_arg(args, 1);
-    let mut v_request = core_arg(args, 2);
-    let mut v_camel_is_text = CoreValue::Null;
-    let mut v_channels = CoreValue::Null;
-    let mut v_data = CoreValue::Null;
-    let mut v_format = CoreValue::Null;
-    let mut v_has_channels = CoreValue::Null;
-    let mut v_has_mime = CoreValue::Null;
-    let mut v_has_sample_rate = CoreValue::Null;
-    let mut v_has_text = CoreValue::Null;
-    let mut v_mime_type = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    let mut v_raw_is_object = CoreValue::Null;
-    let mut v_raw_mime_camel = CoreValue::Null;
-    let mut v_raw_mime_snake = CoreValue::Null;
-    let mut v_read_raw_mime = CoreValue::Null;
+fn _speech_request_text_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_speech_request_text_impl");
+    let mut v_request = core_arg(args, 0);
     let mut v_request_input = CoreValue::Null;
-    let mut v_sample_rate = CoreValue::Null;
-    let mut v_snake_is_text = CoreValue::Null;
     let mut v_text = CoreValue::Null;
-    v_data = core_get(&v_out, &CoreValue::from("audio"), CoreValue::Null);
+    v_request_input = core_get(&v_request, &CoreValue::from("input"), CoreValue::Null);
+    v_text = core_get(
+        &v_request,
+        &CoreValue::from("text"),
+        v_request_input.clone(),
+    );
+    return Ok(v_text.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _speech_response_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_speech_response_impl");
+    let mut v_data = core_arg(args, 0);
+    let mut v_format = core_arg(args, 1);
+    let mut v_mime_type = core_arg(args, 2);
+    let mut v_transcript = core_arg(args, 3);
+    let mut v_channels = CoreValue::Null;
+    let mut v_has_channels = CoreValue::Null;
+    let mut v_has_format = CoreValue::Null;
+    let mut v_has_mime_format = CoreValue::Null;
+    let mut v_has_sample_rate = CoreValue::Null;
+    let mut v_has_transcript = CoreValue::Null;
+    let mut v_mime_format = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_sample_rate = CoreValue::Null;
+    v_out = CoreValue::new_map();
     core_set(&v_out, CoreValue::from("data"), v_data.clone())?;
-    v_format = core_get(&v_out, &CoreValue::from("format"), CoreValue::Null);
-    v_mime_type = core_get(&v_out, &CoreValue::from("mime_type"), CoreValue::from(""));
-    v_has_mime = core_truthy_value(&[v_mime_type.clone()])?;
-    v_raw_is_object = core_type_is(&v_raw, CoreValue::from("object"));
-    v_read_raw_mime = core_not(&[v_has_mime.clone()])?;
-    v_read_raw_mime = core_and(&[v_read_raw_mime.clone(), v_raw_is_object.clone()])?;
-    if core_truthy(&v_read_raw_mime) {
-        v_raw_mime_snake = core_get(&v_raw, &CoreValue::from("mime_type"), CoreValue::Null);
-        v_snake_is_text = core_type_is(&v_raw_mime_snake, CoreValue::from("string"));
-        if core_truthy(&v_snake_is_text) {
-            v_mime_type = v_raw_mime_snake.clone();
-        }
-        v_raw_mime_camel = core_get(&v_raw, &CoreValue::from("mimeType"), CoreValue::Null);
-        v_camel_is_text = core_type_is(&v_raw_mime_camel, CoreValue::from("string"));
-        if core_truthy(&v_camel_is_text) {
-            v_mime_type = v_raw_mime_camel.clone();
-        }
-        v_has_mime = core_truthy_value(&[v_mime_type.clone()])?;
-    }
-    if core_truthy(&v_has_mime) {
+    v_has_format = core_is_not_none(&[v_format.clone()])?;
+    if core_truthy(&v_has_format) {
+        core_set(&v_out, CoreValue::from("format"), v_format.clone())?;
     } else {
-        v_mime_type = _audio_mime_type_impl(&[v_format.clone()])?;
+        v_mime_format = _audio_format_from_mime_type_impl(&[v_mime_type.clone()])?;
+        v_has_mime_format = core_is_not_none(&[v_mime_format.clone()])?;
+        if core_truthy(&v_has_mime_format) {
+            core_set(&v_out, CoreValue::from("format"), v_mime_format.clone())?;
+        }
     }
     core_set(&v_out, CoreValue::from("mimeType"), v_mime_type.clone())?;
+    v_has_transcript = core_is_not_none(&[v_transcript.clone()])?;
+    if core_truthy(&v_has_transcript) {
+        core_set(&v_out, CoreValue::from("transcript"), v_transcript.clone())?;
+    }
     v_params = _audio_mime_params_impl(&[v_mime_type.clone()])?;
     v_sample_rate = core_get(&v_params, &CoreValue::from("sample_rate"), CoreValue::Null);
     v_has_sample_rate = core_is_not_none(&[v_sample_rate.clone()])?;
@@ -57453,17 +57826,454 @@ fn _speech_response_ts_keys_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     if core_truthy(&v_has_channels) {
         core_set(&v_out, CoreValue::from("channels"), v_channels.clone())?;
     }
-    v_request_input = core_get(&v_request, &CoreValue::from("input"), CoreValue::Null);
-    v_text = core_get(
-        &v_request,
-        &CoreValue::from("text"),
-        v_request_input.clone(),
-    );
-    v_has_text = core_is_not_none(&[v_text.clone()])?;
-    if core_truthy(&v_has_text) {
-        core_set(&v_out, CoreValue::from("transcript"), v_text.clone())?;
-    }
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _speech_binary_response_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_speech_binary_response_impl");
+    let mut v_data = core_arg(args, 0);
+    let mut v_content_type = core_arg(args, 1);
+    let mut v_format = core_arg(args, 2);
+    let mut v_transcript = core_arg(args, 3);
+    let mut v_has_content_type = CoreValue::Null;
+    let mut v_mime_type = CoreValue::Null;
+    let mut v_speech = CoreValue::Null;
+    v_mime_type = _audio_mime_type_impl(&[v_format.clone()])?;
+    v_has_content_type = core_truthy_value(&[v_content_type.clone()])?;
+    if core_truthy(&v_has_content_type) {
+        v_mime_type = v_content_type.clone();
+    }
+    v_speech = _speech_response_impl(&[
+        v_data.clone(),
+        v_format.clone(),
+        v_mime_type.clone(),
+        v_transcript.clone(),
+    ])?;
+    return Ok(v_speech.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _speech_json_response_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_speech_json_response_impl");
+    let mut v_json = core_arg(args, 0);
+    let mut v_format = core_arg(args, 1);
+    let mut v_transcript = core_arg(args, 2);
+    let mut v_data = CoreValue::Null;
+    let mut v_data_is_text = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_has_mime = CoreValue::Null;
+    let mut v_json_is_object = CoreValue::Null;
+    let mut v_mime_type = CoreValue::Null;
+    let mut v_older = CoreValue::Null;
+    let mut v_older_is_text = CoreValue::Null;
+    let mut v_speech = CoreValue::Null;
+    v_data = _speech_json_data_impl(&[v_json.clone()])?;
+    v_data_is_text = core_type_is(&v_data, CoreValue::from("string"));
+    if core_truthy(&v_data_is_text) {
+    } else {
+        v_json_is_object = core_type_is(&v_json, CoreValue::from("object"));
+        v_older = core_none(&[])?;
+        if core_truthy(&v_json_is_object) {
+            v_older = core_get(&v_json, &CoreValue::from("audio"), CoreValue::Null);
+        }
+        v_older_is_text = core_type_is(&v_older, CoreValue::from("string"));
+        if core_truthy(&v_older_is_text) {
+            core_axgen_deprecation(&[CoreValue::from("speech-json-audio-key"), CoreValue::from("A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")])?;
+            v_data = v_older.clone();
+        } else {
+            v_error = core_ai_error_response(&[
+                CoreValue::from("Speech response JSON did not include audio data"),
+                v_json.clone(),
+            ])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    v_mime_type = _speech_json_named_mime_type_impl(&[v_json.clone()])?;
+    v_has_mime = core_truthy_value(&[v_mime_type.clone()])?;
+    if core_truthy(&v_has_mime) {
+    } else {
+        v_mime_type = _audio_mime_type_impl(&[v_format.clone()])?;
+    }
+    v_speech = _speech_response_impl(&[
+        v_data.clone(),
+        v_format.clone(),
+        v_mime_type.clone(),
+        v_transcript.clone(),
+    ])?;
+    return Ok(v_speech.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _speech_json_data_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_speech_json_data_impl");
+    let mut v_json = core_arg(args, 0);
+    let mut v_audio = CoreValue::Null;
+    let mut v_audio_data = CoreValue::Null;
+    let mut v_audio_data_camel = CoreValue::Null;
+    let mut v_audio_inner = CoreValue::Null;
+    let mut v_audio_is_object = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_has_any = CoreValue::Null;
+    let mut v_has_audio_data = CoreValue::Null;
+    let mut v_has_audio_data_camel = CoreValue::Null;
+    let mut v_has_audio_inner = CoreValue::Null;
+    let mut v_has_camel = CoreValue::Null;
+    let mut v_has_data = CoreValue::Null;
+    let mut v_has_inline_data = CoreValue::Null;
+    let mut v_has_output_data = CoreValue::Null;
+    let mut v_has_snake_data = CoreValue::Null;
+    let mut v_inline = CoreValue::Null;
+    let mut v_inline_data = CoreValue::Null;
+    let mut v_inline_is_object = CoreValue::Null;
+    let mut v_json_is_object = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_output_audio = CoreValue::Null;
+    let mut v_output_audio_is_object = CoreValue::Null;
+    let mut v_output_data = CoreValue::Null;
+    let mut v_output_is_object = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_snake = CoreValue::Null;
+    let mut v_snake_data = CoreValue::Null;
+    let mut v_snake_is_object = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_json_is_object = core_type_is(&v_json, CoreValue::from("object"));
+    if core_truthy(&v_json_is_object) {
+    } else {
+        return Ok(v_none.clone());
+    }
+    v_audio_data = core_get(&v_json, &CoreValue::from("audio_data"), CoreValue::Null);
+    v_has_audio_data = core_is_not_none(&[v_audio_data.clone()])?;
+    if core_truthy(&v_has_audio_data) {
+        return Ok(v_audio_data.clone());
+    }
+    v_audio_data_camel = core_get(&v_json, &CoreValue::from("audioData"), CoreValue::Null);
+    v_has_audio_data_camel = core_is_not_none(&[v_audio_data_camel.clone()])?;
+    if core_truthy(&v_has_audio_data_camel) {
+        return Ok(v_audio_data_camel.clone());
+    }
+    v_data = core_get(&v_json, &CoreValue::from("data"), CoreValue::Null);
+    v_has_data = core_is_not_none(&[v_data.clone()])?;
+    if core_truthy(&v_has_data) {
+        return Ok(v_data.clone());
+    }
+    v_audio = core_get(&v_json, &CoreValue::from("audio"), CoreValue::Null);
+    v_audio_is_object = core_type_is(&v_audio, CoreValue::from("object"));
+    if core_truthy(&v_audio_is_object) {
+        v_audio_inner = core_get(&v_audio, &CoreValue::from("data"), CoreValue::Null);
+        v_has_audio_inner = core_is_not_none(&[v_audio_inner.clone()])?;
+        if core_truthy(&v_has_audio_inner) {
+            return Ok(v_audio_inner.clone());
+        }
+    }
+    v_output = core_get(&v_json, &CoreValue::from("output"), CoreValue::Null);
+    v_output_is_object = core_type_is(&v_output, CoreValue::from("object"));
+    if core_truthy(&v_output_is_object) {
+        v_output_audio = core_get(&v_output, &CoreValue::from("audio"), CoreValue::Null);
+        v_output_audio_is_object = core_type_is(&v_output_audio, CoreValue::from("object"));
+        if core_truthy(&v_output_audio_is_object) {
+            v_output_data = core_get(&v_output_audio, &CoreValue::from("data"), CoreValue::Null);
+            v_has_output_data = core_is_not_none(&[v_output_data.clone()])?;
+            if core_truthy(&v_has_output_data) {
+                return Ok(v_output_data.clone());
+            }
+        }
+    }
+    v_parts = _speech_json_candidate_parts_impl(&[v_json.clone()])?;
+    for v_part in core_iter(&v_parts)? {
+        let mut v_part = v_part;
+        v_inline = core_get(&v_part, &CoreValue::from("inlineData"), CoreValue::Null);
+        v_inline_data = core_none(&[])?;
+        v_inline_is_object = core_type_is(&v_inline, CoreValue::from("object"));
+        if core_truthy(&v_inline_is_object) {
+            v_inline_data = core_get(&v_inline, &CoreValue::from("data"), CoreValue::Null);
+        }
+        v_snake = core_get(&v_part, &CoreValue::from("inline_data"), CoreValue::Null);
+        v_snake_data = core_none(&[])?;
+        v_snake_is_object = core_type_is(&v_snake, CoreValue::from("object"));
+        if core_truthy(&v_snake_is_object) {
+            v_snake_data = core_get(&v_snake, &CoreValue::from("data"), CoreValue::Null);
+        }
+        v_has_inline_data = core_truthy_value(&[v_inline_data.clone()])?;
+        v_has_snake_data = core_truthy_value(&[v_snake_data.clone()])?;
+        v_has_any = core_or(&[v_has_inline_data.clone(), v_has_snake_data.clone()])?;
+        if core_truthy(&v_has_any) {
+            v_has_camel = core_is_not_none(&[v_inline_data.clone()])?;
+            if core_truthy(&v_has_camel) {
+                return Ok(v_inline_data.clone());
+            }
+            break;
+        }
+    }
+    for v_part in core_iter(&v_parts)? {
+        let mut v_part = v_part;
+        v_snake = core_get(&v_part, &CoreValue::from("inline_data"), CoreValue::Null);
+        v_snake_is_object = core_type_is(&v_snake, CoreValue::from("object"));
+        if core_truthy(&v_snake_is_object) {
+            v_snake_data = core_get(&v_snake, &CoreValue::from("data"), CoreValue::Null);
+            v_has_snake_data = core_truthy_value(&[v_snake_data.clone()])?;
+            if core_truthy(&v_has_snake_data) {
+                return Ok(v_snake_data.clone());
+            }
+        }
+    }
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _speech_json_candidate_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_speech_json_candidate_parts_impl");
+    let mut v_json = core_arg(args, 0);
+    let mut v_candidate = CoreValue::Null;
+    let mut v_candidate_is_object = CoreValue::Null;
+    let mut v_candidates = CoreValue::Null;
+    let mut v_candidates_is_list = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_content_is_object = CoreValue::Null;
+    let mut v_content_parts = CoreValue::Null;
+    let mut v_content_parts_is_list = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_has_candidate = CoreValue::Null;
+    let mut v_json_is_object = CoreValue::Null;
+    let mut v_no_candidate = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    v_parts = CoreValue::new_list();
+    v_json_is_object = core_type_is(&v_json, CoreValue::from("object"));
+    if core_truthy(&v_json_is_object) {
+    } else {
+        return Ok(v_parts.clone());
+    }
+    v_candidates = core_get(&v_json, &CoreValue::from("candidates"), CoreValue::Null);
+    v_candidates_is_list = core_type_is(&v_candidates, CoreValue::from("list"));
+    if core_truthy(&v_candidates_is_list) {
+    } else {
+        return Ok(v_parts.clone());
+    }
+    v_count = core_len(&[v_candidates.clone()])?;
+    v_has_candidate = core_gt(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_candidate) {
+    } else {
+        return Ok(v_parts.clone());
+    }
+    v_no_candidate = core_none(&[])?;
+    v_candidate = core_list_get(&[
+        v_candidates.clone(),
+        CoreValue::Num(0f64),
+        v_no_candidate.clone(),
+    ])?;
+    v_candidate_is_object = core_type_is(&v_candidate, CoreValue::from("object"));
+    if core_truthy(&v_candidate_is_object) {
+    } else {
+        return Ok(v_parts.clone());
+    }
+    v_content = core_get(&v_candidate, &CoreValue::from("content"), CoreValue::Null);
+    v_content_is_object = core_type_is(&v_content, CoreValue::from("object"));
+    if core_truthy(&v_content_is_object) {
+    } else {
+        return Ok(v_parts.clone());
+    }
+    v_content_parts = core_get(&v_content, &CoreValue::from("parts"), CoreValue::Null);
+    v_content_parts_is_list = core_type_is(&v_content_parts, CoreValue::from("list"));
+    if core_truthy(&v_content_parts_is_list) {
+        return Ok(v_content_parts.clone());
+    }
+    return Ok(v_parts.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _speech_json_named_mime_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_speech_json_named_mime_type_impl");
+    let mut v_json = core_arg(args, 0);
+    let mut v_camel = CoreValue::Null;
+    let mut v_camel_is_text = CoreValue::Null;
+    let mut v_has_inline_mime = CoreValue::Null;
+    let mut v_has_snake_mime = CoreValue::Null;
+    let mut v_inline = CoreValue::Null;
+    let mut v_inline_is_object = CoreValue::Null;
+    let mut v_inline_mime = CoreValue::Null;
+    let mut v_inline_snake = CoreValue::Null;
+    let mut v_inline_snake_is_object = CoreValue::Null;
+    let mut v_json_is_object = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_snake = CoreValue::Null;
+    let mut v_snake_is_text = CoreValue::Null;
+    let mut v_snake_mime = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_json_is_object = core_type_is(&v_json, CoreValue::from("object"));
+    if core_truthy(&v_json_is_object) {
+    } else {
+        return Ok(v_none.clone());
+    }
+    v_camel = core_get(&v_json, &CoreValue::from("mimeType"), CoreValue::Null);
+    v_camel_is_text = core_type_is(&v_camel, CoreValue::from("string"));
+    if core_truthy(&v_camel_is_text) {
+        return Ok(v_camel.clone());
+    }
+    v_snake = core_get(&v_json, &CoreValue::from("mime_type"), CoreValue::Null);
+    v_snake_is_text = core_type_is(&v_snake, CoreValue::from("string"));
+    if core_truthy(&v_snake_is_text) {
+        return Ok(v_snake.clone());
+    }
+    v_parts = _speech_json_candidate_parts_impl(&[v_json.clone()])?;
+    for v_part in core_iter(&v_parts)? {
+        let mut v_part = v_part;
+        v_inline = core_get(&v_part, &CoreValue::from("inlineData"), CoreValue::Null);
+        v_inline_is_object = core_type_is(&v_inline, CoreValue::from("object"));
+        if core_truthy(&v_inline_is_object) {
+            v_inline_mime = core_get(&v_inline, &CoreValue::from("mimeType"), CoreValue::Null);
+            v_has_inline_mime = core_truthy_value(&[v_inline_mime.clone()])?;
+            if core_truthy(&v_has_inline_mime) {
+                return Ok(v_inline_mime.clone());
+            }
+        }
+    }
+    for v_part in core_iter(&v_parts)? {
+        let mut v_part = v_part;
+        v_inline_snake = core_get(&v_part, &CoreValue::from("inline_data"), CoreValue::Null);
+        v_inline_snake_is_object = core_type_is(&v_inline_snake, CoreValue::from("object"));
+        if core_truthy(&v_inline_snake_is_object) {
+            v_snake_mime = core_get(
+                &v_inline_snake,
+                &CoreValue::from("mime_type"),
+                CoreValue::Null,
+            );
+            v_has_snake_mime = core_truthy_value(&[v_snake_mime.clone()])?;
+            if core_truthy(&v_has_snake_mime) {
+                return Ok(v_snake_mime.clone());
+            }
+        }
+    }
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _audio_format_from_mime_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_audio_format_from_mime_type_impl");
+    let mut v_mime_type = core_arg(args, 0);
+    let mut v_has_text = CoreValue::Null;
+    let mut v_is_aac = CoreValue::Null;
+    let mut v_is_alaw = CoreValue::Null;
+    let mut v_is_basic = CoreValue::Null;
+    let mut v_is_flac = CoreValue::Null;
+    let mut v_is_l16 = CoreValue::Null;
+    let mut v_is_linear16 = CoreValue::Null;
+    let mut v_is_mp3 = CoreValue::Null;
+    let mut v_is_mpeg = CoreValue::Null;
+    let mut v_is_mpeg_or_mp3 = CoreValue::Null;
+    let mut v_is_mulaw = CoreValue::Null;
+    let mut v_is_ogg = CoreValue::Null;
+    let mut v_is_opus = CoreValue::Null;
+    let mut v_is_pcm = CoreValue::Null;
+    let mut v_is_pcm16 = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_is_ulaw = CoreValue::Null;
+    let mut v_is_ulaw_or_basic = CoreValue::Null;
+    let mut v_is_wav = CoreValue::Null;
+    let mut v_mt = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_is_text = core_type_is(&v_mime_type, CoreValue::from("string"));
+    if core_truthy(&v_is_text) {
+    } else {
+        return Ok(v_none.clone());
+    }
+    v_mt = core_string_lower(&[v_mime_type.clone()])?;
+    v_has_text = core_truthy_value(&[v_mt.clone()])?;
+    if core_truthy(&v_has_text) {
+    } else {
+        return Ok(v_none.clone());
+    }
+    v_is_wav = core_contains(&[v_mt.clone(), CoreValue::from("wav")])?;
+    if core_truthy(&v_is_wav) {
+        return Ok(CoreValue::from("wav"));
+    }
+    v_is_mpeg = core_contains(&[v_mt.clone(), CoreValue::from("mpeg")])?;
+    v_is_mp3 = core_contains(&[v_mt.clone(), CoreValue::from("mp3")])?;
+    v_is_mpeg_or_mp3 = core_or(&[v_is_mpeg.clone(), v_is_mp3.clone()])?;
+    if core_truthy(&v_is_mpeg_or_mp3) {
+        return Ok(CoreValue::from("mp3"));
+    }
+    v_is_flac = core_contains(&[v_mt.clone(), CoreValue::from("flac")])?;
+    if core_truthy(&v_is_flac) {
+        return Ok(CoreValue::from("flac"));
+    }
+    v_is_opus = core_contains(&[v_mt.clone(), CoreValue::from("opus")])?;
+    if core_truthy(&v_is_opus) {
+        return Ok(CoreValue::from("opus"));
+    }
+    v_is_aac = core_contains(&[v_mt.clone(), CoreValue::from("aac")])?;
+    if core_truthy(&v_is_aac) {
+        return Ok(CoreValue::from("aac"));
+    }
+    v_is_ogg = core_contains(&[v_mt.clone(), CoreValue::from("ogg")])?;
+    if core_truthy(&v_is_ogg) {
+        return Ok(CoreValue::from("ogg"));
+    }
+    v_is_mulaw = core_contains(&[v_mt.clone(), CoreValue::from("mulaw")])?;
+    if core_truthy(&v_is_mulaw) {
+        return Ok(CoreValue::from("mulaw"));
+    }
+    v_is_ulaw = core_contains(&[v_mt.clone(), CoreValue::from("ulaw")])?;
+    v_is_basic = core_contains(&[v_mt.clone(), CoreValue::from("basic")])?;
+    v_is_ulaw_or_basic = core_or(&[v_is_ulaw.clone(), v_is_basic.clone()])?;
+    if core_truthy(&v_is_ulaw_or_basic) {
+        return Ok(CoreValue::from("ulaw"));
+    }
+    v_is_alaw = core_contains(&[v_mt.clone(), CoreValue::from("alaw")])?;
+    if core_truthy(&v_is_alaw) {
+        return Ok(CoreValue::from("alaw"));
+    }
+    v_is_pcm16 = core_contains(&[v_mt.clone(), CoreValue::from("pcm16")])?;
+    v_is_l16 = core_contains(&[v_mt.clone(), CoreValue::from("l16")])?;
+    v_is_linear16 = core_or(&[v_is_pcm16.clone(), v_is_l16.clone()])?;
+    if core_truthy(&v_is_linear16) {
+        return Ok(CoreValue::from("pcm16"));
+    }
+    v_is_pcm = core_contains(&[v_mt.clone(), CoreValue::from("pcm")])?;
+    if core_truthy(&v_is_pcm) {
+        return Ok(CoreValue::from("pcm"));
+    }
+    return Ok(v_none.clone());
 }
 
 #[allow(
@@ -62199,8 +63009,6 @@ fn _anthropic_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_part = core_arg(args, 0);
     let mut v_cache = CoreValue::Null;
     let mut v_cache_control = CoreValue::Null;
-    let mut v_cached = CoreValue::Null;
-    let mut v_cached_snake = CoreValue::Null;
     let mut v_data = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_file_uri = CoreValue::Null;
@@ -62224,7 +63032,6 @@ fn _anthropic_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_source = CoreValue::Null;
     let mut v_text = CoreValue::Null;
     let mut v_type = CoreValue::Null;
-    let mut v_url = CoreValue::Null;
     v_type = core_get(&v_part, &CoreValue::from("type"), CoreValue::from("text"));
     v_is_text = core_eq(&[v_type.clone(), CoreValue::from("text")])?;
     if core_truthy(&v_is_text) {
@@ -62362,14 +63169,7 @@ fn _anthropic_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     if core_truthy(&v_is_url) {
         v_out = CoreValue::new_map();
         core_set(&v_out, CoreValue::from("type"), CoreValue::from("text"))?;
-        v_cached_snake = core_get(&v_part, &CoreValue::from("cached_content"), CoreValue::Null);
-        v_cached = core_get(
-            &v_part,
-            &CoreValue::from("cachedContent"),
-            v_cached_snake.clone(),
-        );
-        v_url = core_get(&v_part, &CoreValue::from("url"), CoreValue::from(""));
-        v_text = core_coalesce(&[v_cached.clone(), v_url.clone()])?;
+        v_text = _url_part_text_impl(&[v_part.clone()])?;
         core_set(&v_out, CoreValue::from("text"), v_text.clone())?;
         v_cache = core_get(&v_part, &CoreValue::from("cache"), CoreValue::Bool(false));
         if core_truthy(&v_cache) {
@@ -110844,6 +111644,12 @@ fn _agent_stage_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_stage_options.clone(),
             v_forward_options.clone(),
         ])?;
+        v_out = _agent_stage_render_audio(&[
+            v_out.clone(),
+            v_base_options.clone(),
+            v_stage_options.clone(),
+            v_forward_options.clone(),
+        ])?;
     }
     return Ok(v_out.clone());
 }
@@ -114689,6 +115495,48 @@ fn _agent_streaming_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_none.clone(),
     )?;
     return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_stage_render_audio(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_stage_render_audio");
+    let mut v_out = core_arg(args, 0);
+    let mut v_base_options = core_arg(args, 1);
+    let mut v_stage_options = core_arg(args, 2);
+    let mut v_forward_options = core_arg(args, 3);
+    let mut v_chosen = CoreValue::Null;
+    let mut v_has_choice = CoreValue::Null;
+    let mut v_resolved = CoreValue::Null;
+    let mut v_snake = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
+    let mut v_sources = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_resolved = core_none(&[])?;
+    v_sources = CoreValue::new_list();
+    core_append(&v_sources, v_base_options.clone())?;
+    core_append(&v_sources, v_stage_options.clone())?;
+    core_append(&v_sources, v_forward_options.clone())?;
+    for v_source in core_iter(&v_sources)? {
+        let mut v_source = v_source;
+        v_snake = core_get(&v_source, &CoreValue::from("render_audio"), CoreValue::Null);
+        v_value = core_get(&v_source, &CoreValue::from("renderAudio"), v_snake.clone());
+        v_chosen = core_is_not_none(&[v_value.clone()])?;
+        if core_truthy(&v_chosen) {
+            v_resolved = v_value.clone();
+        }
+    }
+    v_has_choice = core_is_not_none(&[v_resolved.clone()])?;
+    if core_truthy(&v_has_choice) {
+        core_set(&v_out, CoreValue::from("render_audio"), v_resolved.clone())?;
+        core_set(&v_out, CoreValue::from("renderAudio"), v_resolved.clone())?;
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -124838,7 +125686,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (919 of 919 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (931 of 931 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

@@ -1,0 +1,18 @@
+{
+  "expected_error_contains": "Speech response JSON did not include audio data",
+  "kind": "ai_error",
+  "method": "speak",
+  "name": "openai-speak-json-without-audio-data",
+  "provider": "openai",
+  "request": {
+    "text": "Hello there"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "status": "ok"
+      },
+      "status": 200
+    }
+  ]
+}

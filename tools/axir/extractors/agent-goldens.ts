@@ -4626,10 +4626,146 @@ writeFixture('runtime-protocol-nonzero-stderr-error', {
   expected_error_contains: 'exit code 7',
 });
 
+// An agent's audio output: TS's responder AxGen turns the model's text into
+// audio with ai.speak(), with the forward call's speech options and the
+// agent's responderOptions speech (not a top-level speech option). The ports
+// do it with renderAudio, from the agent constructor or the forward call.
+async function writeAgentAudioOutputOracles(): Promise<void> {
+  const tsRun = async (
+    agentOptions: Record<string, unknown>,
+    forwardOptions: Record<string, unknown> | undefined
+  ) => {
+    const speakRequests: Json[] = [];
+    const speakResponses: Json[] = [];
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (request) => {
+        const system = oraclePromptText(request.chatPrompt[0]?.content);
+        const content = system.includes('You (`distiller`)')
+          ? JSON.stringify({
+              javascriptCode: 'respond("direct", {"source":"forward-skill"})',
+            })
+          : 'Speech: Hello there';
+        return {
+          results: [{ index: 0, content, finishReason: 'stop' as const }],
+          modelUsage: oracleModelUsage(),
+        };
+      },
+      speechResponse: (request) => {
+        speakRequests.push(JSON.parse(JSON.stringify(request)) as Json);
+        const response = {
+          data: 'SUQzBAA=',
+          format: 'mp3',
+          mimeType: 'audio/mpeg',
+          transcript: request.text,
+        };
+        speakResponses.push(response);
+        return response;
+      },
+    });
+    const oracle = agent('question:string -> speech:audio', {
+      ai,
+      runtime: semanticDirectResponseRuntime(),
+      ...agentOptions,
+    } as never);
+    const output = await oracle.forward(
+      ai,
+      { question: 'Say hi' },
+      forwardOptions as never
+    );
+    return {
+      output: JSON.parse(JSON.stringify(output)) as Json,
+      speakRequests,
+      speakResponses,
+    };
+  };
+  const base = {
+    kind: 'agent_forward',
+    signature: 'question:string -> speech:audio',
+    input: { question: 'Say hi' },
+    responses: [
+      {
+        content:
+          '{"javascriptCode":"respond(\\"direct\\", {\\"source\\":\\"forward-skill\\"})"}',
+      },
+      { content: '{"speech":"Hello there"}' },
+    ],
+    runtime_script: [
+      {
+        expected_code: 'respond("direct", {"source":"forward-skill"})',
+        result: {
+          type: 'respond',
+          args: ['direct', { source: 'forward-skill' }],
+        },
+      },
+    ],
+    expected_request_count: 2,
+  };
+  const cases: {
+    name: string;
+    agentOptions: Record<string, unknown>;
+    forwardOptions?: Record<string, unknown>;
+    portOptions: Record<string, unknown>;
+    portForwardOptions?: Record<string, unknown>;
+  }[] = [
+    {
+      name: 'agent-forward-render-audio-constructor',
+      agentOptions: {},
+      portOptions: { renderAudio: true },
+    },
+    {
+      name: 'agent-forward-render-audio-call',
+      agentOptions: {},
+      forwardOptions: { speech: { speak: { voice: 'echo' } } },
+      portOptions: {},
+      portForwardOptions: {
+        renderAudio: true,
+        speech: { speak: { voice: 'echo' } },
+      },
+    },
+    {
+      name: 'agent-forward-render-audio-responder-speech',
+      agentOptions: {
+        responderOptions: { speech: { speak: { voice: 'sage' } } },
+      },
+      portOptions: {
+        renderAudio: true,
+        responderOptions: { speech: { speak: { voice: 'sage' } } },
+      },
+    },
+  ];
+  for (const spec of cases) {
+    const ts = await tsRun(spec.agentOptions, spec.forwardOptions);
+    writeFixture(spec.name, {
+      ...base,
+      options: {
+        runtime: { language: 'JavaScript' },
+        ...spec.portOptions,
+      } as Json,
+      ...(spec.portForwardOptions
+        ? { forward_options: spec.portForwardOptions as Json }
+        : {}),
+      speak_responses: ts.speakResponses,
+      expected_speak_requests: ts.speakRequests,
+      expected_output: ts.output,
+    });
+  }
+  // Without renderAudio the ports keep the model's text, as their AxGen does
+  // (renderAudio's default flips at the next major version).
+  writeFixture('agent-forward-audio-text-by-default', {
+    ...base,
+    options: { runtime: { language: 'JavaScript' } },
+    speak_responses: [],
+    expected_speak_requests: [],
+    expected_output: { speech: 'Hello there' },
+  });
+}
+
 await writeSemanticParityLifecycleOracle();
 await writeSemanticParityStaticDirectSkillOracle();
 await writeSemanticParityForwardResetOracle();
 await writeSemanticParityCatalogRankingOracles();
+await writeAgentAudioOutputOracles();
 
 for (const discovered of [false, true]) {
   writeFixture(

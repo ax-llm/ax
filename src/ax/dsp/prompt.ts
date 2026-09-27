@@ -1024,9 +1024,15 @@ export class AxPromptTemplate {
     value: Readonly<AxFieldValue>
   ): ChatRequestUserMessage => {
     if (field.type?.name === 'image') {
-      const validateImage = (
-        value: Readonly<AxFieldValue>
-      ): { mimeType: string; data: string } => {
+      type ImageValue = {
+        mimeType: string;
+        data: string;
+        details?: 'high' | 'low' | 'auto';
+        cache?: boolean;
+        optimize?: 'quality' | 'size' | 'auto';
+        altText?: string;
+      };
+      const validateImage = (value: Readonly<AxFieldValue>): ImageValue => {
         if (!value) {
           throw new Error('Image field value is required.');
         }
@@ -1040,8 +1046,21 @@ export class AxPromptTemplate {
         if (!('data' in value)) {
           throw new Error('Image field must have data');
         }
-        return value as { mimeType: string; data: string };
+        return value as ImageValue;
       };
+      // The part keeps the image part's declared keys the value sets, such
+      // as details, which the provider reads (OpenAI's image detail).
+      const imagePart = (validated: ImageValue) => ({
+        type: 'image' as const,
+        mimeType: validated.mimeType,
+        image: validated.data,
+        ...declaredPartKeys(validated, [
+          'details',
+          'cache',
+          'optimize',
+          'altText',
+        ]),
+      });
 
       let result: ChatRequestUserMessage = [
         { type: 'text', text: `${field.title}: ` as string },
@@ -1052,23 +1071,13 @@ export class AxPromptTemplate {
           throw new Error('Image field value must be an array.');
         }
         result = result.concat(
-          (value as unknown[]).map((v) => {
+          (value as unknown[]).map((v) =>
             // Cast to unknown[] before map
-            const validated = validateImage(v as AxFieldValue);
-            return {
-              type: 'image',
-              mimeType: validated.mimeType,
-              image: validated.data,
-            };
-          })
+            imagePart(validateImage(v as AxFieldValue))
+          )
         );
       } else {
-        const validated = validateImage(value);
-        result.push({
-          type: 'image',
-          mimeType: validated.mimeType,
-          image: validated.data,
-        });
+        result.push(imagePart(validateImage(value)));
       }
       return result;
     }
@@ -1079,7 +1088,7 @@ export class AxPromptTemplate {
     if (field.type?.name === 'audio' && typeof value !== 'string') {
       const validateAudio = (
         value: Readonly<AxFieldValue>
-      ): { format?: 'wav'; data: string } => {
+      ): { format?: 'wav'; data: string } & Record<string, unknown> => {
         if (!value) {
           throw new Error('Audio field value is required.');
         }
@@ -1090,8 +1099,19 @@ export class AxPromptTemplate {
         if (!('data' in value)) {
           throw new Error('Audio field must have data');
         }
-        return value as { format?: 'wav'; data: string };
+        return value as { format?: 'wav'; data: string } & Record<
+          string,
+          unknown
+        >;
       };
+      const audioKeys = [
+        'mimeType',
+        'sampleRate',
+        'channels',
+        'cache',
+        'transcription',
+        'duration',
+      ] as const;
 
       let result: ChatRequestUserMessage = [
         { type: 'text', text: `${field.title}: ` as string },
@@ -1109,6 +1129,7 @@ export class AxPromptTemplate {
               type: 'audio',
               format: validated.format ?? 'wav',
               data: validated.data,
+              ...declaredPartKeys(validated, audioKeys),
             };
           })
         );
@@ -1118,6 +1139,7 @@ export class AxPromptTemplate {
           type: 'audio',
           format: validated.format ?? 'wav',
           data: validated.data,
+          ...declaredPartKeys(validated, audioKeys),
         });
       }
       return result;
@@ -1154,6 +1176,32 @@ export class AxPromptTemplate {
           | { mimeType: string; data: string }
           | { mimeType: string; fileUri: string };
       };
+      // The part keeps the file part's declared keys the value sets, such as
+      // filename: OpenAI rejects inline file data without one.
+      const filePart = (
+        validated:
+          | { mimeType: string; data: string }
+          | { mimeType: string; fileUri: string }
+      ) => {
+        const keys = declaredPartKeys(validated, [
+          'filename',
+          'cache',
+          'extractedText',
+        ]);
+        return 'fileUri' in validated
+          ? {
+              type: 'file' as const,
+              mimeType: validated.mimeType,
+              fileUri: validated.fileUri,
+              ...keys,
+            }
+          : {
+              type: 'file' as const,
+              mimeType: validated.mimeType,
+              data: validated.data,
+              ...keys,
+            };
+      };
       let result: ChatRequestUserMessage = [
         { type: 'text', text: `${field.title}: ` as string },
       ];
@@ -1162,44 +1210,25 @@ export class AxPromptTemplate {
           throw new Error('File field value must be an array.');
         }
         result = result.concat(
-          (value as unknown[]).map((v) => {
-            const validated = validateFile(v as AxFieldValue);
-            return 'fileUri' in validated
-              ? {
-                  type: 'file',
-                  mimeType: validated.mimeType,
-                  fileUri: validated.fileUri,
-                }
-              : {
-                  type: 'file',
-                  mimeType: validated.mimeType,
-                  data: validated.data,
-                };
-          })
+          (value as unknown[]).map((v) =>
+            filePart(validateFile(v as AxFieldValue))
+          )
         );
       } else {
-        const validated = validateFile(value);
-        result.push(
-          'fileUri' in validated
-            ? {
-                type: 'file',
-                mimeType: validated.mimeType,
-                fileUri: validated.fileUri,
-              }
-            : {
-                type: 'file',
-                mimeType: validated.mimeType,
-                data: validated.data,
-              }
-        );
+        result.push(filePart(validateFile(value)));
       }
       return result;
     }
 
     if (field.type?.name === 'url') {
-      const validateUrl = (
-        value: Readonly<AxFieldValue>
-      ): { url: string; title?: string; description?: string } => {
+      type UrlValue = {
+        url: string;
+        title?: string;
+        description?: string;
+        cachedContent?: string;
+        cache?: boolean;
+      };
+      const validateUrl = (value: Readonly<AxFieldValue>): UrlValue => {
         if (!value) {
           throw new Error('URL field value is required.');
         }
@@ -1212,8 +1241,20 @@ export class AxPromptTemplate {
         if (!('url' in value)) {
           throw new Error('URL field must have url property');
         }
-        return value as { url: string; title?: string; description?: string };
+        return value as UrlValue;
       };
+      // The part keeps the url, its title and description when they are set,
+      // and the url part's other declared keys the value sets, such as
+      // cachedContent, which the provider sends in place of the page.
+      const urlPart = (validated: UrlValue) => ({
+        type: 'url' as const,
+        url: validated.url,
+        ...(validated.title ? { title: validated.title } : {}),
+        ...(validated.description
+          ? { description: validated.description }
+          : {}),
+        ...declaredPartKeys(validated, ['cachedContent', 'cache']),
+      });
       let result: ChatRequestUserMessage = [
         { type: 'text', text: `${field.title}: ` as string },
       ];
@@ -1222,28 +1263,12 @@ export class AxPromptTemplate {
           throw new Error('URL field value must be an array.');
         }
         result = result.concat(
-          (value as unknown[]).map((v) => {
-            const validated = validateUrl(v as AxFieldValue);
-            return {
-              type: 'url',
-              url: validated.url,
-              ...(validated.title ? { title: validated.title } : {}),
-              ...(validated.description
-                ? { description: validated.description }
-                : {}),
-            };
-          })
+          (value as unknown[]).map((v) =>
+            urlPart(validateUrl(v as AxFieldValue))
+          )
         );
       } else {
-        const validated = validateUrl(value);
-        result.push({
-          type: 'url',
-          url: validated.url,
-          ...(validated.title ? { title: validated.title } : {}),
-          ...(validated.description
-            ? { description: validated.description }
-            : {}),
-        });
+        result.push(urlPart(validateUrl(value)));
       }
       return result;
     }
@@ -1504,6 +1529,22 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
   })();
 
   return type?.isArray ? `json array of ${baseType} items` : baseType;
+};
+
+// The optional keys a media part type declares (AxChatRequest's user content)
+// that a media input value may set: they go on the part when the value has
+// them, so the provider or router that reads them gets them.
+const declaredPartKeys = (
+  value: Readonly<Record<string, unknown>>,
+  keys: readonly string[]
+): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (value[key] !== undefined) {
+      out[key] = value[key];
+    }
+  }
+  return out;
 };
 
 function combineConsecutiveStrings(separator: string) {

@@ -45,6 +45,11 @@ public final class BranchFlowExample {
                     "writes", List.of("responderResult", "response")))
             .returns(Map.of("route", "route", "response", "response"));
     Map<String, Object> output = program.forward(client(), Map.of("request", "A customer says checkout is down for their enterprise account."));
+    for (String key : List.of("route", "response")) {
+      if (List.of("null", "\"\"", "[]").contains(Json.stringify(output.get(key)))) {
+        throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(output));
+      }
+    }
     System.out.println(Json.stringify(output));
   }
 }

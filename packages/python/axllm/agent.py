@@ -10816,6 +10816,7 @@ def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
         pass
     if is_responder:
         out = _agent_stage_parse_dates(out, base_options, stage_options, forward_options)
+        out = _agent_stage_render_audio(out, base_options, stage_options, forward_options)
     else:
         pass
     return out
@@ -12272,6 +12273,30 @@ def _agent_streaming_forward(state: Any, distiller: Any, executor: Any, responde
     state["active_client"] = none
     state["active_forward_options"] = none
     return output
+
+
+def _agent_stage_render_audio(out: Any, base_options: Any, stage_options: Any, forward_options: Any) -> Any:
+    _core_coverage_mark("_agent_stage_render_audio")
+    resolved = _core_none()
+    sources = []
+    sources.append(base_options)
+    sources.append(stage_options)
+    sources.append(forward_options)
+    for source in sources:
+        snake = _core_get(source, "render_audio", None)
+        value = _core_get(source, "renderAudio", snake)
+        chosen = _core_is_not_none(value)
+        if chosen:
+            resolved = value
+        else:
+            pass
+    has_choice = _core_is_not_none(resolved)
+    if has_choice:
+        out["render_audio"] = resolved
+        out["renderAudio"] = resolved
+    else:
+        pass
+    return out
 
 
 def _agent_stage_parse_dates(out: Any, base_options: Any, stage_options: Any, forward_options: Any) -> Any:

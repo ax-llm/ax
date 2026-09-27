@@ -5489,6 +5489,87 @@ final class Core {
     return out;
   }
 
+  static Object _url_part_text_impl(Object part) {
+    axirCoverageMark("_url_part_text_impl");
+    Object cached_snake = Core.get(part, "cached_content", null);
+    Object cached = Core.get(part, "cachedContent", cached_snake);
+    Object has_cached = Core.isNotNone(cached);
+    if (Core.truthy(has_cached)) {
+      return cached;
+    }
+    Object lines = new java.util.ArrayList<Object>();
+    Object title = Core.get(part, "title", null);
+    Object has_title = Core.truthyValue(title);
+    if (Core.truthy(has_title)) {
+      Core.append(lines, title);
+    }
+    Object description = Core.get(part, "description", null);
+    Object has_description = Core.truthyValue(description);
+    if (Core.truthy(has_description)) {
+      Core.append(lines, description);
+    }
+    Object url = Core.get(part, "url", null);
+    Object has_url = Core.truthyValue(url);
+    if (Core.truthy(has_url)) {
+      Core.append(lines, url);
+    }
+    Object text = Core.stringJoin("\n", lines);
+    return text;
+  }
+
+  static Object typesafe_normalize_chat_response(Object raw, Object context) {
+    axirCoverageMark("typesafe_normalize_chat_response");
+    Object questions = Core.get(context, "questions", null);
+    Core.typesafe_require_object(questions, "response request questions");
+    raw = Core.typesafe_decode_response(raw, questions);
+    Object threshold = Core.get(context, "trueThreshold", 0.5);
+    Core.typesafe_require_number(threshold, "trueThreshold", 0, 1);
+    Object answers = Core.get(raw, "answers", null);
+    Object values = new java.util.LinkedHashMap<String, Object>();
+    Object names = Core.mapKeys(questions);
+    for (Object name : Core.iter(names)) {
+      Object answer = Core.get(answers, name, null);
+      Object kind = Core.get(answer, "type", null);
+      Object is_noul = Core.eq(kind, "noul");
+      Object value = Core.get(answer, "choice", null);
+      if (Core.truthy(is_noul)) {
+        Object probability = Core.get(answer, "noul", null);
+        Object below = Core.lt(probability, threshold);
+        value = Core.not(below);
+      }
+      Core.set(values, name, value);
+    }
+    Object content = Core.jsonStringify(values);
+    Object result = new java.util.LinkedHashMap<String, Object>();
+    Core.set(result, "index", 0);
+    Core.set(result, "content", content);
+    Core.set(result, "finishReason", "stop");
+    Object results = new java.util.ArrayList<Object>();
+    Core.append(results, result);
+    Object usage = Core.get(raw, "usage", null);
+    Object input = Core.get(usage, "input_tokens", null);
+    Object output = Core.get(usage, "output_tokens", null);
+    Object total = Core.add(input, output);
+    Object tokens = new java.util.LinkedHashMap<String, Object>();
+    Core.set(tokens, "promptTokens", input);
+    Core.set(tokens, "completionTokens", output);
+    Core.set(tokens, "totalTokens", total);
+    Object model_usage = new java.util.LinkedHashMap<String, Object>();
+    Object model = Core.get(raw, "model", null);
+    Core.set(model_usage, "ai", "Typesafe");
+    Core.set(model_usage, "model", model);
+    Core.set(model_usage, "tokens", tokens);
+    Object typesafe_metadata = new java.util.LinkedHashMap<String, Object>();
+    Core.set(typesafe_metadata, "answers", answers);
+    Object metadata = new java.util.LinkedHashMap<String, Object>();
+    Core.set(metadata, "typesafe", typesafe_metadata);
+    Object response = new java.util.LinkedHashMap<String, Object>();
+    Core.set(response, "results", results);
+    Core.set(response, "modelUsage", model_usage);
+    Core.set(response, "providerMetadata", metadata);
+    return response;
+  }
+
   static Object _openai_content_part_impl(Object part) {
     axirCoverageMark("_openai_content_part_impl");
     Object type = Core.get(part, "type", null);
@@ -5530,6 +5611,15 @@ final class Core {
       Object audio_alt = Core.get(part, "audio", null);
       Object data = Core.get(part, "data", audio_alt);
       Object format = Core.get(part, "format", null);
+      Object audio_mime_snake = Core.get(part, "mime_type", null);
+      Object audio_mime = Core.get(part, "mimeType", audio_mime_snake);
+      Object has_audio_format = Core.isNotNone(format);
+      if (Core.truthy(has_audio_format)) {
+        // empty
+      }
+      if (!Core.truthy(has_audio_format)) {
+        format = Core._audio_format_from_mime_type_impl(audio_mime);
+      }
       Object is_wav = Core.eq(format, "wav");
       Object is_mp3 = Core.eq(format, "mp3");
       Object format_ok = Core.or(is_wav, is_mp3);
@@ -5542,7 +5632,16 @@ final class Core {
         Core.set(out, "input_audio", input_audio);
         return out;
       }
-      Object audio_message = Core.stringFormat("OpenAI audio chat input supports only wav and mp3 audio, received {}", format);
+      Object received = "unknown format";
+      Object has_audio_mime = Core.isNotNone(audio_mime);
+      if (Core.truthy(has_audio_mime)) {
+        received = audio_mime;
+      }
+      Object has_resolved_format = Core.isNotNone(format);
+      if (Core.truthy(has_resolved_format)) {
+        received = format;
+      }
+      Object audio_message = Core.stringFormat("OpenAI audio chat input supports only wav and mp3 audio, received {}", received);
       Object audio_error = Core.aiErrorUnsupported(audio_message);
       throw Core.asRuntime(audio_error);
     }
@@ -5599,69 +5698,13 @@ final class Core {
     if (Core.truthy(is_url)) {
       Object out = new java.util.LinkedHashMap<String, Object>();
       Core.set(out, "type", "text");
-      Object cached_snake = Core.get(part, "cached_content", null);
-      Object cached = Core.get(part, "cachedContent", cached_snake);
-      Object url = Core.get(part, "url", "");
-      Object text = Core.coalesce(cached, url);
+      Object text = Core._url_part_text_impl(part);
       Core.set(out, "text", text);
       return out;
     }
     Object message = Core.stringFormat("OpenAI-compatible beta does not support content part type: {}", type);
     Object error = Core.aiErrorUnsupported(message);
     throw Core.asRuntime(error);
-  }
-
-  static Object typesafe_normalize_chat_response(Object raw, Object context) {
-    axirCoverageMark("typesafe_normalize_chat_response");
-    Object questions = Core.get(context, "questions", null);
-    Core.typesafe_require_object(questions, "response request questions");
-    raw = Core.typesafe_decode_response(raw, questions);
-    Object threshold = Core.get(context, "trueThreshold", 0.5);
-    Core.typesafe_require_number(threshold, "trueThreshold", 0, 1);
-    Object answers = Core.get(raw, "answers", null);
-    Object values = new java.util.LinkedHashMap<String, Object>();
-    Object names = Core.mapKeys(questions);
-    for (Object name : Core.iter(names)) {
-      Object answer = Core.get(answers, name, null);
-      Object kind = Core.get(answer, "type", null);
-      Object is_noul = Core.eq(kind, "noul");
-      Object value = Core.get(answer, "choice", null);
-      if (Core.truthy(is_noul)) {
-        Object probability = Core.get(answer, "noul", null);
-        Object below = Core.lt(probability, threshold);
-        value = Core.not(below);
-      }
-      Core.set(values, name, value);
-    }
-    Object content = Core.jsonStringify(values);
-    Object result = new java.util.LinkedHashMap<String, Object>();
-    Core.set(result, "index", 0);
-    Core.set(result, "content", content);
-    Core.set(result, "finishReason", "stop");
-    Object results = new java.util.ArrayList<Object>();
-    Core.append(results, result);
-    Object usage = Core.get(raw, "usage", null);
-    Object input = Core.get(usage, "input_tokens", null);
-    Object output = Core.get(usage, "output_tokens", null);
-    Object total = Core.add(input, output);
-    Object tokens = new java.util.LinkedHashMap<String, Object>();
-    Core.set(tokens, "promptTokens", input);
-    Core.set(tokens, "completionTokens", output);
-    Core.set(tokens, "totalTokens", total);
-    Object model_usage = new java.util.LinkedHashMap<String, Object>();
-    Object model = Core.get(raw, "model", null);
-    Core.set(model_usage, "ai", "Typesafe");
-    Core.set(model_usage, "model", model);
-    Core.set(model_usage, "tokens", tokens);
-    Object typesafe_metadata = new java.util.LinkedHashMap<String, Object>();
-    Core.set(typesafe_metadata, "answers", answers);
-    Object metadata = new java.util.LinkedHashMap<String, Object>();
-    Core.set(metadata, "typesafe", typesafe_metadata);
-    Object response = new java.util.LinkedHashMap<String, Object>();
-    Core.set(response, "results", results);
-    Core.set(response, "modelUsage", model_usage);
-    Core.set(response, "providerMetadata", metadata);
-    return response;
   }
 
   static Object typesafe_response_context(Object payload, Object options) {
@@ -5787,41 +5830,6 @@ final class Core {
     return out;
   }
 
-  static Object _openai_tool_spec_impl(Object fn) {
-    axirCoverageMark("_openai_tool_spec_impl");
-    Object name = Core.get(fn, "name", null);
-    Object description = Core.get(fn, "description", "");
-    Object parameters = Core.get(fn, "parameters", null);
-    Object function = new java.util.LinkedHashMap<String, Object>();
-    Core.set(function, "name", name);
-    Core.set(function, "description", description);
-    Object has_parameters = Core.truthyValue(parameters);
-    if (Core.truthy(has_parameters)) {
-      Core.set(function, "parameters", parameters);
-    }
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "type", "function");
-    Core.set(out, "function", function);
-    return out;
-  }
-
-  static Object openai_build_embed_request(Object request) {
-    axirCoverageMark("openai_build_embed_request");
-    Object embed_model_snake = Core.get(request, "embed_model", null);
-    Object model = Core.get(request, "embedModel", embed_model_snake);
-    Object empty_texts = new java.util.ArrayList<Object>();
-    Object texts = Core.get(request, "texts", empty_texts);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Core.set(payload, "model", model);
-    Core.set(payload, "input", texts);
-    Object dimensions = Core.get(request, "dimensions", null);
-    Object has_dimensions = Core.truthyValue(dimensions);
-    if (Core.truthy(has_dimensions)) {
-      Core.set(payload, "dimensions", dimensions);
-    }
-    return payload;
-  }
-
   static Object _ai_model_usage_impl(Object ai_name, Object model, Object usage) {
     axirCoverageMark("_ai_model_usage_impl");
     Object has_usage = Core.truthyValue(usage);
@@ -5838,10 +5846,22 @@ final class Core {
     return out;
   }
 
-  static Object openai_normalize_chat_response(Object raw, Object ai_name, Object model) {
-    axirCoverageMark("openai_normalize_chat_response");
-    Object response = Core._openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none");
-    return response;
+  static Object _openai_tool_spec_impl(Object fn) {
+    axirCoverageMark("_openai_tool_spec_impl");
+    Object name = Core.get(fn, "name", null);
+    Object description = Core.get(fn, "description", "");
+    Object parameters = Core.get(fn, "parameters", null);
+    Object function = new java.util.LinkedHashMap<String, Object>();
+    Core.set(function, "name", name);
+    Core.set(function, "description", description);
+    Object has_parameters = Core.truthyValue(parameters);
+    if (Core.truthy(has_parameters)) {
+      Core.set(function, "parameters", parameters);
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "type", "function");
+    Core.set(out, "function", function);
+    return out;
   }
 
   static Object ai_merge_replay_metadata(Object previous, Object incoming) {
@@ -5931,6 +5951,29 @@ final class Core {
     return out;
   }
 
+  static Object openai_build_embed_request(Object request) {
+    axirCoverageMark("openai_build_embed_request");
+    Object embed_model_snake = Core.get(request, "embed_model", null);
+    Object model = Core.get(request, "embedModel", embed_model_snake);
+    Object empty_texts = new java.util.ArrayList<Object>();
+    Object texts = Core.get(request, "texts", empty_texts);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "model", model);
+    Core.set(payload, "input", texts);
+    Object dimensions = Core.get(request, "dimensions", null);
+    Object has_dimensions = Core.truthyValue(dimensions);
+    if (Core.truthy(has_dimensions)) {
+      Core.set(payload, "dimensions", dimensions);
+    }
+    return payload;
+  }
+
+  static Object openai_normalize_chat_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_chat_response");
+    Object response = Core._openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none");
+    return response;
+  }
+
   static Object _openai_usage_with_service_tier(Object raw, Object usage) {
     axirCoverageMark("_openai_usage_with_service_tier");
     Object has_usage = Core.isNotNone(usage);
@@ -5990,6 +6033,68 @@ final class Core {
     Core.set(out, "remote_id", remote_id);
     Core.set(out, "model_usage", model_usage);
     return out;
+  }
+
+  static Object _chat_result_to_completion(Object result, Object fallback_index) {
+    axirCoverageMark("_chat_result_to_completion");
+    Object content = Core.get(result, "content", "");
+    Object calls = new java.util.ArrayList<Object>();
+    Object empty_calls = new java.util.ArrayList<Object>();
+    Object function_calls = Core.get(result, "function_calls", empty_calls);
+    for (Object call : Core.iter(function_calls)) {
+      Object fn = Core.get(call, "function", null);
+      Object id = Core.get(call, "id", null);
+      Object flat_name = Core.get(call, "name", null);
+      Object name = Core.get(fn, "name", flat_name);
+      Object flat_params = Core.get(call, "params", null);
+      Object params = Core.get(fn, "params", flat_params);
+      Object fn_is_map = Core.typeIs(fn, "object");
+      Object fn_has_name = Boolean.FALSE;
+      if (Core.truthy(fn_is_map)) {
+        fn_has_name = Core.mapContains(fn, "name");
+      }
+      Object flat_has_name = Core.mapContains(call, "name");
+      Object has_name = Core.or(fn_has_name, flat_has_name);
+      Object compat_call = new java.util.LinkedHashMap<String, Object>();
+      Core.set(compat_call, "id", id);
+      if (Core.truthy(has_name)) {
+        Core.set(compat_call, "name", name);
+      }
+      Core.set(compat_call, "params", params);
+      Core.append(calls, compat_call);
+    }
+    Object index = Core.get(result, "index", fallback_index);
+    Object thought = Core.get(result, "thought", null);
+    Object has_thought = Core.isNotNone(thought);
+    Object thought_blocks = Core.get(result, "thought_blocks", null);
+    Object has_thought_blocks = Core.isNotNone(thought_blocks);
+    Object completion = new java.util.LinkedHashMap<String, Object>();
+    Core.set(completion, "index", index);
+    Core.set(completion, "content", content);
+    Core.set(completion, "function_calls", calls);
+    if (Core.truthy(has_thought)) {
+      Core.set(completion, "thought", thought);
+    }
+    if (Core.truthy(has_thought_blocks)) {
+      Core.set(completion, "thought_blocks", thought_blocks);
+    }
+    Object images = Core.get(result, "images", null);
+    Object has_images = Core.isNotNone(images);
+    if (Core.truthy(has_images)) {
+      Core.set(completion, "images", images);
+    }
+    Object phase = Core.get(result, "phase", null);
+    Object has_phase = Core.isNotNone(phase);
+    if (Core.truthy(has_phase)) {
+      Core.set(completion, "phase", phase);
+    }
+    Object finish_snake = Core.get(result, "finish_reason", null);
+    Object finish = Core.get(result, "finishReason", finish_snake);
+    Object has_finish = Core.isNotNone(finish);
+    if (Core.truthy(has_finish)) {
+      Core.set(completion, "finish_reason", finish);
+    }
+    return completion;
   }
 
   static Object _openai_normalize_choice_impl(Object choice, Object raw, Object reasoning_content_mode, Object reasoning_details_mode) {
@@ -6064,97 +6169,6 @@ final class Core {
     return out;
   }
 
-  static Object _chat_result_to_completion(Object result, Object fallback_index) {
-    axirCoverageMark("_chat_result_to_completion");
-    Object content = Core.get(result, "content", "");
-    Object calls = new java.util.ArrayList<Object>();
-    Object empty_calls = new java.util.ArrayList<Object>();
-    Object function_calls = Core.get(result, "function_calls", empty_calls);
-    for (Object call : Core.iter(function_calls)) {
-      Object fn = Core.get(call, "function", null);
-      Object id = Core.get(call, "id", null);
-      Object flat_name = Core.get(call, "name", null);
-      Object name = Core.get(fn, "name", flat_name);
-      Object flat_params = Core.get(call, "params", null);
-      Object params = Core.get(fn, "params", flat_params);
-      Object fn_is_map = Core.typeIs(fn, "object");
-      Object fn_has_name = Boolean.FALSE;
-      if (Core.truthy(fn_is_map)) {
-        fn_has_name = Core.mapContains(fn, "name");
-      }
-      Object flat_has_name = Core.mapContains(call, "name");
-      Object has_name = Core.or(fn_has_name, flat_has_name);
-      Object compat_call = new java.util.LinkedHashMap<String, Object>();
-      Core.set(compat_call, "id", id);
-      if (Core.truthy(has_name)) {
-        Core.set(compat_call, "name", name);
-      }
-      Core.set(compat_call, "params", params);
-      Core.append(calls, compat_call);
-    }
-    Object index = Core.get(result, "index", fallback_index);
-    Object thought = Core.get(result, "thought", null);
-    Object has_thought = Core.isNotNone(thought);
-    Object thought_blocks = Core.get(result, "thought_blocks", null);
-    Object has_thought_blocks = Core.isNotNone(thought_blocks);
-    Object completion = new java.util.LinkedHashMap<String, Object>();
-    Core.set(completion, "index", index);
-    Core.set(completion, "content", content);
-    Core.set(completion, "function_calls", calls);
-    if (Core.truthy(has_thought)) {
-      Core.set(completion, "thought", thought);
-    }
-    if (Core.truthy(has_thought_blocks)) {
-      Core.set(completion, "thought_blocks", thought_blocks);
-    }
-    Object images = Core.get(result, "images", null);
-    Object has_images = Core.isNotNone(images);
-    if (Core.truthy(has_images)) {
-      Core.set(completion, "images", images);
-    }
-    Object phase = Core.get(result, "phase", null);
-    Object has_phase = Core.isNotNone(phase);
-    if (Core.truthy(has_phase)) {
-      Core.set(completion, "phase", phase);
-    }
-    Object finish_snake = Core.get(result, "finish_reason", null);
-    Object finish = Core.get(result, "finishReason", finish_snake);
-    Object has_finish = Core.isNotNone(finish);
-    if (Core.truthy(has_finish)) {
-      Core.set(completion, "finish_reason", finish);
-    }
-    return completion;
-  }
-
-  static Object _openai_normalize_tool_calls_impl(Object calls) {
-    axirCoverageMark("_openai_normalize_tool_calls_impl");
-    Object out = new java.util.ArrayList<Object>();
-    for (Object call : Core.iter(calls)) {
-      Object fn = Core.get(call, "function", null);
-      Object params = Core.get(fn, "arguments", null);
-      Object params_is_string = Core.typeIs(params, "string");
-      if (Core.truthy(params_is_string)) {
-        try {
-          Object parsed_params = Core.jsonParse(params);
-          params = parsed_params;
-        } catch (RuntimeException parse_error) {
-          // empty
-        }
-      }
-      Object id = Core.get(call, "id", null);
-      Object name = Core.get(fn, "name", null);
-      Object function = new java.util.LinkedHashMap<String, Object>();
-      Core.set(function, "name", name);
-      Core.set(function, "params", params);
-      Object normalized = new java.util.LinkedHashMap<String, Object>();
-      Core.set(normalized, "id", id);
-      Core.set(normalized, "type", "function");
-      Core.set(normalized, "function", function);
-      Core.append(out, normalized);
-    }
-    return out;
-  }
-
   static Object chat_response_to_completion(Object response) {
     axirCoverageMark("chat_response_to_completion");
     Object has_routing = Core.mapContains(response, "routing");
@@ -6217,49 +6231,32 @@ final class Core {
     return out;
   }
 
-  static Object _openai_finish_reason_impl(Object value) {
-    axirCoverageMark("_openai_finish_reason_impl");
-    Object is_stop = Core.eq(value, "stop");
-    if (Core.truthy(is_stop)) {
-      return "stop";
+  static Object _openai_normalize_tool_calls_impl(Object calls) {
+    axirCoverageMark("_openai_normalize_tool_calls_impl");
+    Object out = new java.util.ArrayList<Object>();
+    for (Object call : Core.iter(calls)) {
+      Object fn = Core.get(call, "function", null);
+      Object params = Core.get(fn, "arguments", null);
+      Object params_is_string = Core.typeIs(params, "string");
+      if (Core.truthy(params_is_string)) {
+        try {
+          Object parsed_params = Core.jsonParse(params);
+          params = parsed_params;
+        } catch (RuntimeException parse_error) {
+          // empty
+        }
+      }
+      Object id = Core.get(call, "id", null);
+      Object name = Core.get(fn, "name", null);
+      Object function = new java.util.LinkedHashMap<String, Object>();
+      Core.set(function, "name", name);
+      Core.set(function, "params", params);
+      Object normalized = new java.util.LinkedHashMap<String, Object>();
+      Core.set(normalized, "id", id);
+      Core.set(normalized, "type", "function");
+      Core.set(normalized, "function", function);
+      Core.append(out, normalized);
     }
-    Object is_length = Core.eq(value, "length");
-    if (Core.truthy(is_length)) {
-      return "length";
-    }
-    Object is_content_filter = Core.eq(value, "content_filter");
-    if (Core.truthy(is_content_filter)) {
-      return "error";
-    }
-    Object is_tool_calls = Core.eq(value, "tool_calls");
-    Object is_function_call = Core.eq(value, "function_call");
-    Object is_call = Core.or(is_tool_calls, is_function_call);
-    if (Core.truthy(is_call)) {
-      return "function_call";
-    }
-    Object none = Core.none();
-    return none;
-  }
-
-  static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {
-    axirCoverageMark("openai_normalize_embed_response");
-    Object embeddings = new java.util.ArrayList<Object>();
-    Object empty_data = new java.util.ArrayList<Object>();
-    Object data = Core.get(raw, "data", empty_data);
-    for (Object item : Core.iter(data)) {
-      Object embedding = Core.get(item, "embedding", null);
-      Core.append(embeddings, embedding);
-    }
-    Object raw_model = Core.get(raw, "model", null);
-    Object used_model = Core.coalesce(raw_model, model);
-    Object raw_usage = Core.get(raw, "usage", null);
-    Object usage = Core._openai_usage_with_service_tier(raw, raw_usage);
-    Object model_usage = Core._ai_model_usage_impl(ai_name, used_model, usage);
-    Object remote_id = Core.get(raw, "id", null);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "embeddings", embeddings);
-    Core.set(out, "remote_id", remote_id);
-    Core.set(out, "model_usage", model_usage);
     return out;
   }
 
@@ -6293,10 +6290,28 @@ final class Core {
     return out;
   }
 
-  static Object openai_normalize_stream_delta(Object raw, Object state, Object ai_name, Object model) {
-    axirCoverageMark("openai_normalize_stream_delta");
-    Object response = Core._openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none");
-    return response;
+  static Object _openai_finish_reason_impl(Object value) {
+    axirCoverageMark("_openai_finish_reason_impl");
+    Object is_stop = Core.eq(value, "stop");
+    if (Core.truthy(is_stop)) {
+      return "stop";
+    }
+    Object is_length = Core.eq(value, "length");
+    if (Core.truthy(is_length)) {
+      return "length";
+    }
+    Object is_content_filter = Core.eq(value, "content_filter");
+    if (Core.truthy(is_content_filter)) {
+      return "error";
+    }
+    Object is_tool_calls = Core.eq(value, "tool_calls");
+    Object is_function_call = Core.eq(value, "function_call");
+    Object is_call = Core.or(is_tool_calls, is_function_call);
+    if (Core.truthy(is_call)) {
+      return "function_call";
+    }
+    Object none = Core.none();
+    return none;
   }
 
   static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
@@ -6311,48 +6326,23 @@ final class Core {
     return 0;
   }
 
-  static Object _openai_normalize_stream_delta_impl(Object raw, Object state, Object ai_name, Object model, Object reasoning_content_mode, Object reasoning_details_mode) {
-    axirCoverageMark("_openai_normalize_stream_delta_impl");
-    Object raw_is_object = Core.typeIs(raw, "object");
-    Object raw_not_object = Core.not(raw_is_object);
-    if (Core.truthy(raw_not_object)) {
-      Object error = Core.aiErrorStream("provider stream event must be a JSON object", raw, Boolean.TRUE);
-      throw Core.asRuntime(error);
-    }
-    Object provider_error = Core.get(raw, "error", null);
-    Object has_provider_error = Core.truthyValue(provider_error);
-    if (Core.truthy(has_provider_error)) {
-      Object message = Core.get(provider_error, "message", "provider stream error");
-      Object error = Core.aiErrorStream(message, raw, Boolean.TRUE);
-      throw Core.asRuntime(error);
-    }
-    Object index_ids = Core.get(state, "index_ids", null);
-    Object missing_index_ids = Core.isNone(index_ids);
-    if (Core.truthy(missing_index_ids)) {
-      Object new_index_ids = new java.util.LinkedHashMap<String, Object>();
-      Core.set(state, "index_ids", new_index_ids);
-      index_ids = new_index_ids;
-    }
-    Object raw_remote_id = Core.get(raw, "id", null);
-    Object has_raw_remote_id = Core.truthyValue(raw_remote_id);
-    if (Core.truthy(has_raw_remote_id)) {
-      Core.set(state, "remote_id", raw_remote_id);
-    }
-    Object remote_id = Core.get(state, "remote_id", raw_remote_id);
-    Object results = new java.util.ArrayList<Object>();
-    Object empty_choices = new java.util.ArrayList<Object>();
-    Object choices = Core.get(raw, "choices", empty_choices);
-    for (Object choice : Core.iter(choices)) {
-      Object result = Core._openai_stream_choice_impl(choice, index_ids, reasoning_content_mode, reasoning_details_mode);
-      Core.append(results, result);
+  static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_embed_response");
+    Object embeddings = new java.util.ArrayList<Object>();
+    Object empty_data = new java.util.ArrayList<Object>();
+    Object data = Core.get(raw, "data", empty_data);
+    for (Object item : Core.iter(data)) {
+      Object embedding = Core.get(item, "embedding", null);
+      Core.append(embeddings, embedding);
     }
     Object raw_model = Core.get(raw, "model", null);
     Object used_model = Core.coalesce(raw_model, model);
     Object raw_usage = Core.get(raw, "usage", null);
     Object usage = Core._openai_usage_with_service_tier(raw, raw_usage);
     Object model_usage = Core._ai_model_usage_impl(ai_name, used_model, usage);
+    Object remote_id = Core.get(raw, "id", null);
     Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "results", results);
+    Core.set(out, "embeddings", embeddings);
     Core.set(out, "remote_id", remote_id);
     Core.set(out, "model_usage", model_usage);
     return out;
@@ -6404,84 +6394,56 @@ final class Core {
     return out;
   }
 
-  static Object _openai_stream_choice_impl(Object choice, Object index_ids, Object reasoning_content_mode, Object reasoning_details_mode) {
-    axirCoverageMark("_openai_stream_choice_impl");
-    Object empty_delta = new java.util.LinkedHashMap<String, Object>();
-    Object delta = Core.get(choice, "delta", empty_delta);
-    Object calls = new java.util.ArrayList<Object>();
-    Object empty_tool_calls = new java.util.ArrayList<Object>();
-    Object tool_calls = Core.get(delta, "tool_calls", empty_tool_calls);
-    for (Object call : Core.iter(tool_calls)) {
-      Object call_index = Core.get(call, "index", 0);
-      Object call_id = Core.get(call, "id", null);
-      Object has_call_id = Core.truthyValue(call_id);
-      if (Core.truthy(has_call_id)) {
-        Core.set(index_ids, call_index, call_id);
-      }
-      Object stable_id = Core.get(index_ids, call_index, null);
-      Object has_stable_id = Core.truthyValue(stable_id);
-      if (Core.truthy(has_stable_id)) {
-        Object fn = Core.get(call, "function", null);
-        Object name = Core.get(fn, "name", null);
-        Object arguments = Core.get(fn, "arguments", null);
-        Object function = new java.util.LinkedHashMap<String, Object>();
-        Core.set(function, "name", name);
-        Core.set(function, "params", arguments);
-        Object normalized = new java.util.LinkedHashMap<String, Object>();
-        Core.set(normalized, "id", stable_id);
-        Core.set(normalized, "type", "function");
-        Core.set(normalized, "function", function);
-        Core.append(calls, normalized);
-      }
+  static Object openai_normalize_stream_delta(Object raw, Object state, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_stream_delta");
+    Object response = Core._openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none");
+    return response;
+  }
+
+  static Object _openai_normalize_stream_delta_impl(Object raw, Object state, Object ai_name, Object model, Object reasoning_content_mode, Object reasoning_details_mode) {
+    axirCoverageMark("_openai_normalize_stream_delta_impl");
+    Object raw_is_object = Core.typeIs(raw, "object");
+    Object raw_not_object = Core.not(raw_is_object);
+    if (Core.truthy(raw_not_object)) {
+      Object error = Core.aiErrorStream("provider stream event must be a JSON object", raw, Boolean.TRUE);
+      throw Core.asRuntime(error);
     }
-    Object index = Core.get(choice, "index", 0);
-    Object id = Core.stringStr(index);
-    Object content = Core.get(delta, "content", null);
-    Object reasoning_content = Core.get(delta, reasoning_content_mode, null);
-    Object has_reasoning_content = Core.truthyValue(reasoning_content);
-    Object is_no_reasoning = Core.eq(reasoning_content_mode, "none");
-    Object has_reasoning_mode = Core.not(is_no_reasoning);
-    Object include_reasoning_content = Core.and(has_reasoning_mode, has_reasoning_content);
-    Object finish_reason_raw = Core.get(choice, "finish_reason", null);
-    Object finish_reason = Core._openai_finish_reason_impl(finish_reason_raw);
+    Object provider_error = Core.get(raw, "error", null);
+    Object has_provider_error = Core.truthyValue(provider_error);
+    if (Core.truthy(has_provider_error)) {
+      Object message = Core.get(provider_error, "message", "provider stream error");
+      Object error = Core.aiErrorStream(message, raw, Boolean.TRUE);
+      throw Core.asRuntime(error);
+    }
+    Object index_ids = Core.get(state, "index_ids", null);
+    Object missing_index_ids = Core.isNone(index_ids);
+    if (Core.truthy(missing_index_ids)) {
+      Object new_index_ids = new java.util.LinkedHashMap<String, Object>();
+      Core.set(state, "index_ids", new_index_ids);
+      index_ids = new_index_ids;
+    }
+    Object raw_remote_id = Core.get(raw, "id", null);
+    Object has_raw_remote_id = Core.truthyValue(raw_remote_id);
+    if (Core.truthy(has_raw_remote_id)) {
+      Core.set(state, "remote_id", raw_remote_id);
+    }
+    Object remote_id = Core.get(state, "remote_id", raw_remote_id);
+    Object results = new java.util.ArrayList<Object>();
+    Object empty_choices = new java.util.ArrayList<Object>();
+    Object choices = Core.get(raw, "choices", empty_choices);
+    for (Object choice : Core.iter(choices)) {
+      Object result = Core._openai_stream_choice_impl(choice, index_ids, reasoning_content_mode, reasoning_details_mode);
+      Core.append(results, result);
+    }
+    Object raw_model = Core.get(raw, "model", null);
+    Object used_model = Core.coalesce(raw_model, model);
+    Object raw_usage = Core.get(raw, "usage", null);
+    Object usage = Core._openai_usage_with_service_tier(raw, raw_usage);
+    Object model_usage = Core._ai_model_usage_impl(ai_name, used_model, usage);
     Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "index", index);
-    Core.set(out, "id", id);
-    Core.set(out, "content", content);
-    if (Core.truthy(include_reasoning_content)) {
-      Core.set(out, "thought", reasoning_content);
-      Object thought_blocks = new java.util.ArrayList<Object>();
-      Object thought_block = new java.util.LinkedHashMap<String, Object>();
-      Core.set(thought_block, "data", reasoning_content);
-      Core.set(thought_block, "encrypted", Boolean.FALSE);
-      Core.append(thought_blocks, thought_block);
-      Core.set(out, "thought_blocks", thought_blocks);
-    }
-    Object is_no_details = Core.eq(reasoning_details_mode, "none");
-    Object has_details_mode = Core.not(is_no_details);
-    Object reasoning_details = Core.get(delta, reasoning_details_mode, null);
-    Object has_reasoning_details = Core.truthyValue(reasoning_details);
-    Object include_reasoning_details = Core.and(has_details_mode, has_reasoning_details);
-    if (Core.truthy(include_reasoning_details)) {
-      Object detail_blocks = new java.util.ArrayList<Object>();
-      for (Object detail : Core.iter(reasoning_details)) {
-        Object detail_block = new java.util.LinkedHashMap<String, Object>();
-        Object data = Core.jsonStringify(detail);
-        Core.set(detail_block, "data", data);
-        Object type = Core.get(detail, "type", "");
-        Object encrypted = Core.contains(type, "encrypted");
-        Core.set(detail_block, "encrypted", encrypted);
-        Object detail_id = Core.get(detail, "id", null);
-        Object has_detail_id = Core.truthyValue(detail_id);
-        if (Core.truthy(has_detail_id)) {
-          Core.set(detail_block, "signature", detail_id);
-        }
-        Core.append(detail_blocks, detail_block);
-      }
-      Core.set(out, "thought_blocks", detail_blocks);
-    }
-    Core.set(out, "function_calls", calls);
-    Core.set(out, "finish_reason", finish_reason);
+    Core.set(out, "results", results);
+    Core.set(out, "remote_id", remote_id);
+    Core.set(out, "model_usage", model_usage);
     return out;
   }
 
@@ -6571,52 +6533,85 @@ final class Core {
     return out;
   }
 
-  static Object openai_normalize_error(Object status, Object body, Object request) {
-    axirCoverageMark("openai_normalize_error");
-    Object message = body;
-    Object code = Core.none();
-    Object body_is_object = Core.typeIs(body, "object");
-    if (Core.truthy(body_is_object)) {
-      Object error_body = Core.get(body, "error", body);
-      Object error_is_object = Core.typeIs(error_body, "object");
-      if (Core.truthy(error_is_object)) {
-        Object body_text = Core.stringStr(body);
-        Object message_value = Core.get(error_body, "message", body_text);
-        Object code_value = Core.get(error_body, "code", null);
-        message = message_value;
-        code = code_value;
+  static Object _openai_stream_choice_impl(Object choice, Object index_ids, Object reasoning_content_mode, Object reasoning_details_mode) {
+    axirCoverageMark("_openai_stream_choice_impl");
+    Object empty_delta = new java.util.LinkedHashMap<String, Object>();
+    Object delta = Core.get(choice, "delta", empty_delta);
+    Object calls = new java.util.ArrayList<Object>();
+    Object empty_tool_calls = new java.util.ArrayList<Object>();
+    Object tool_calls = Core.get(delta, "tool_calls", empty_tool_calls);
+    for (Object call : Core.iter(tool_calls)) {
+      Object call_index = Core.get(call, "index", 0);
+      Object call_id = Core.get(call, "id", null);
+      Object has_call_id = Core.truthyValue(call_id);
+      if (Core.truthy(has_call_id)) {
+        Core.set(index_ids, call_index, call_id);
       }
-      if (!Core.truthy(error_is_object)) {
-        Object message_value = Core.stringStr(error_body);
-        message = message_value;
+      Object stable_id = Core.get(index_ids, call_index, null);
+      Object has_stable_id = Core.truthyValue(stable_id);
+      if (Core.truthy(has_stable_id)) {
+        Object fn = Core.get(call, "function", null);
+        Object name = Core.get(fn, "name", null);
+        Object arguments = Core.get(fn, "arguments", null);
+        Object function = new java.util.LinkedHashMap<String, Object>();
+        Core.set(function, "name", name);
+        Core.set(function, "params", arguments);
+        Object normalized = new java.util.LinkedHashMap<String, Object>();
+        Core.set(normalized, "id", stable_id);
+        Core.set(normalized, "type", "function");
+        Core.set(normalized, "function", function);
+        Core.append(calls, normalized);
       }
     }
-    Object is_401 = Core.eq(status, 401);
-    Object is_403 = Core.eq(status, 403);
-    Object is_auth = Core.or(is_401, is_403);
-    if (Core.truthy(is_auth)) {
-      Object error = Core.aiErrorAuth(message, status, code, body, request);
-      return error;
+    Object index = Core.get(choice, "index", 0);
+    Object id = Core.stringStr(index);
+    Object content = Core.get(delta, "content", null);
+    Object reasoning_content = Core.get(delta, reasoning_content_mode, null);
+    Object has_reasoning_content = Core.truthyValue(reasoning_content);
+    Object is_no_reasoning = Core.eq(reasoning_content_mode, "none");
+    Object has_reasoning_mode = Core.not(is_no_reasoning);
+    Object include_reasoning_content = Core.and(has_reasoning_mode, has_reasoning_content);
+    Object finish_reason_raw = Core.get(choice, "finish_reason", null);
+    Object finish_reason = Core._openai_finish_reason_impl(finish_reason_raw);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "index", index);
+    Core.set(out, "id", id);
+    Core.set(out, "content", content);
+    if (Core.truthy(include_reasoning_content)) {
+      Core.set(out, "thought", reasoning_content);
+      Object thought_blocks = new java.util.ArrayList<Object>();
+      Object thought_block = new java.util.LinkedHashMap<String, Object>();
+      Core.set(thought_block, "data", reasoning_content);
+      Core.set(thought_block, "encrypted", Boolean.FALSE);
+      Core.append(thought_blocks, thought_block);
+      Core.set(out, "thought_blocks", thought_blocks);
     }
-    Object is_408 = Core.eq(status, 408);
-    Object is_504 = Core.eq(status, 504);
-    Object is_timeout = Core.or(is_408, is_504);
-    if (Core.truthy(is_timeout)) {
-      Object error = Core.aiErrorTimeout(message, status, code, body, request, Boolean.TRUE);
-      return error;
+    Object is_no_details = Core.eq(reasoning_details_mode, "none");
+    Object has_details_mode = Core.not(is_no_details);
+    Object reasoning_details = Core.get(delta, reasoning_details_mode, null);
+    Object has_reasoning_details = Core.truthyValue(reasoning_details);
+    Object include_reasoning_details = Core.and(has_details_mode, has_reasoning_details);
+    if (Core.truthy(include_reasoning_details)) {
+      Object detail_blocks = new java.util.ArrayList<Object>();
+      for (Object detail : Core.iter(reasoning_details)) {
+        Object detail_block = new java.util.LinkedHashMap<String, Object>();
+        Object data = Core.jsonStringify(detail);
+        Core.set(detail_block, "data", data);
+        Object type = Core.get(detail, "type", "");
+        Object encrypted = Core.contains(type, "encrypted");
+        Core.set(detail_block, "encrypted", encrypted);
+        Object detail_id = Core.get(detail, "id", null);
+        Object has_detail_id = Core.truthyValue(detail_id);
+        if (Core.truthy(has_detail_id)) {
+          Core.set(detail_block, "signature", detail_id);
+        }
+        Core.append(detail_blocks, detail_block);
+      }
+      Core.set(out, "thought_blocks", detail_blocks);
     }
-    Object is_429 = Core.eq(status, 429);
-    Object is_500 = Core.eq(status, 500);
-    Object is_502 = Core.eq(status, 502);
-    Object is_503 = Core.eq(status, 503);
-    Object is_529 = Core.eq(status, 529);
-    Object retry_left = Core.or(is_429, is_500);
-    Object retry_right = Core.or(is_502, is_503);
-    Object retry_some = Core.or(retry_left, retry_right);
-    Object retry_more = Core.or(retry_some, is_504);
-    Object retryable = Core.or(retry_more, is_529);
-    Object error = Core.aiErrorStatus(message, status, code, body, request, retryable);
-    return error;
+    Core.set(out, "function_calls", calls);
+    Core.set(out, "finish_reason", finish_reason);
+    return out;
   }
 
   static Object fold_chat_response_stream(Object events) {
@@ -6671,31 +6666,52 @@ final class Core {
     return response;
   }
 
-  static Object provider_normalize_profile(Object profile) {
-    axirCoverageMark("provider_normalize_profile");
-    Object normalized = Core.stringLower(profile);
-    Object aliases = Core.jsonParse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n");
-    Object provider_id = Core.get(aliases, normalized, "");
-    return provider_id;
-  }
-
-  static Object provider_profile_registry() {
-    axirCoverageMark("provider_profile_registry");
-    Object registry = Core.jsonParse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n");
-    return registry;
-  }
-
-  static Object provider_resolve_profile(Object profile) {
-    axirCoverageMark("provider_resolve_profile");
-    Object normalized = Core.stringLower(profile);
-    Object aliases = Core.jsonParse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n");
-    Object is_known = Core.mapContains(aliases, normalized);
-    Object provider_id = Core.provider_normalize_profile(profile);
-    Object resolved = new java.util.LinkedHashMap<String, Object>();
-    Core.set(resolved, "id", provider_id);
-    Core.set(resolved, "known", is_known);
-    Core.set(resolved, "input", profile);
-    return resolved;
+  static Object openai_normalize_error(Object status, Object body, Object request) {
+    axirCoverageMark("openai_normalize_error");
+    Object message = body;
+    Object code = Core.none();
+    Object body_is_object = Core.typeIs(body, "object");
+    if (Core.truthy(body_is_object)) {
+      Object error_body = Core.get(body, "error", body);
+      Object error_is_object = Core.typeIs(error_body, "object");
+      if (Core.truthy(error_is_object)) {
+        Object body_text = Core.stringStr(body);
+        Object message_value = Core.get(error_body, "message", body_text);
+        Object code_value = Core.get(error_body, "code", null);
+        message = message_value;
+        code = code_value;
+      }
+      if (!Core.truthy(error_is_object)) {
+        Object message_value = Core.stringStr(error_body);
+        message = message_value;
+      }
+    }
+    Object is_401 = Core.eq(status, 401);
+    Object is_403 = Core.eq(status, 403);
+    Object is_auth = Core.or(is_401, is_403);
+    if (Core.truthy(is_auth)) {
+      Object error = Core.aiErrorAuth(message, status, code, body, request);
+      return error;
+    }
+    Object is_408 = Core.eq(status, 408);
+    Object is_504 = Core.eq(status, 504);
+    Object is_timeout = Core.or(is_408, is_504);
+    if (Core.truthy(is_timeout)) {
+      Object error = Core.aiErrorTimeout(message, status, code, body, request, Boolean.TRUE);
+      return error;
+    }
+    Object is_429 = Core.eq(status, 429);
+    Object is_500 = Core.eq(status, 500);
+    Object is_502 = Core.eq(status, 502);
+    Object is_503 = Core.eq(status, 503);
+    Object is_529 = Core.eq(status, 529);
+    Object retry_left = Core.or(is_429, is_500);
+    Object retry_right = Core.or(is_502, is_503);
+    Object retry_some = Core.or(retry_left, retry_right);
+    Object retry_more = Core.or(retry_some, is_504);
+    Object retryable = Core.or(retry_more, is_529);
+    Object error = Core.aiErrorStatus(message, status, code, body, request, retryable);
+    return error;
   }
 
   static Object _fold_chat_stream_chunk_impl(Object target, Object chunk) {
@@ -6783,6 +6799,33 @@ final class Core {
       Core.set(target, "finish_reason", finish);
     }
     return null;
+  }
+
+  static Object provider_normalize_profile(Object profile) {
+    axirCoverageMark("provider_normalize_profile");
+    Object normalized = Core.stringLower(profile);
+    Object aliases = Core.jsonParse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n");
+    Object provider_id = Core.get(aliases, normalized, "");
+    return provider_id;
+  }
+
+  static Object provider_profile_registry() {
+    axirCoverageMark("provider_profile_registry");
+    Object registry = Core.jsonParse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n");
+    return registry;
+  }
+
+  static Object provider_resolve_profile(Object profile) {
+    axirCoverageMark("provider_resolve_profile");
+    Object normalized = Core.stringLower(profile);
+    Object aliases = Core.jsonParse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n");
+    Object is_known = Core.mapContains(aliases, normalized);
+    Object provider_id = Core.provider_normalize_profile(profile);
+    Object resolved = new java.util.LinkedHashMap<String, Object>();
+    Core.set(resolved, "id", provider_id);
+    Core.set(resolved, "known", is_known);
+    Core.set(resolved, "input", profile);
+    return resolved;
   }
 
   static Object provider_model_catalog_summary() {
@@ -10465,6 +10508,7 @@ final class Core {
     Object dialect = Core.get(operation, "dialect", "openai-speech");
     Object is_gemini = Core.eq(dialect, "gemini-generate-content");
     Object is_xai = Core.eq(dialect, "xai-speech");
+    Object is_mistral = Core.eq(dialect, "mistral-speech");
     Object payload = new java.util.LinkedHashMap<String, Object>();
     if (Core.truthy(is_gemini)) {
       Object gemini_payload = Core._gemini_build_speak_request(request);
@@ -10476,8 +10520,14 @@ final class Core {
         payload = xai_payload;
       }
       if (!Core.truthy(is_xai)) {
-        Object responses_payload = Core.openai_responses_build_speak_request(request);
-        payload = responses_payload;
+        if (Core.truthy(is_mistral)) {
+          Object mistral_payload = Core._mistral_build_speak_request(request);
+          payload = mistral_payload;
+        }
+        if (!Core.truthy(is_mistral)) {
+          Object responses_payload = Core.openai_responses_build_speak_request(request);
+          payload = responses_payload;
+        }
       }
     }
     return payload;
@@ -10784,7 +10834,7 @@ final class Core {
     return out;
   }
 
-  static Object provider_normalize_speak_response(Object profile, Object raw, Object request) {
+  static Object provider_normalize_speak_response(Object profile, Object raw, Object request, Object content_type) {
     axirCoverageMark("provider_normalize_speak_response");
     Object provider_id = Core.provider_normalize_profile(profile);
     Object descriptor = Core.provider_descriptor(provider_id);
@@ -10796,13 +10846,23 @@ final class Core {
       Object gemini_out = Core._gemini_normalize_speak_response(raw, request);
       return gemini_out;
     }
-    Object data = Core.get(raw, "audio", raw);
+    Object transcript = Core._speech_request_text_impl(request);
     Object format = Core.get(request, "format", "mp3");
+    Object raw_is_text = Core.typeIs(raw, "string");
+    Object speech = new java.util.LinkedHashMap<String, Object>();
+    if (Core.truthy(raw_is_text)) {
+      Object binary_speech = Core._speech_binary_response_impl(raw, content_type, format, transcript);
+      speech = binary_speech;
+    }
+    if (!Core.truthy(raw_is_text)) {
+      Object json_speech = Core._speech_json_response_impl(raw, format, transcript);
+      speech = json_speech;
+    }
     Object out = new java.util.LinkedHashMap<String, Object>();
+    Object data = Core.get(speech, "data", null);
     Core.set(out, "audio", data);
-    Core.set(out, "format", format);
-    Object speech = Core._speech_response_ts_keys_impl(out, raw, request);
-    return speech;
+    out = Core.mapMerge(out, speech);
+    return out;
   }
 
   static Object provider_normalize_realtime_event(Object profile, Object event, Object state, Object ai_name, Object model) {
@@ -11259,12 +11319,15 @@ final class Core {
     if (Core.truthy(is_audio)) {
       Object audio_alt = Core.get(part, "audio", null);
       Object data = Core.get(part, "data", audio_alt);
-      Object format = Core.get(part, "format", "wav");
+      Object format = Core.get(part, "format", null);
       Object out = new java.util.LinkedHashMap<String, Object>();
       Core.set(out, "type", "input_audio");
       Object input_audio = new java.util.LinkedHashMap<String, Object>();
       Core.set(input_audio, "data", data);
-      Core.set(input_audio, "format", format);
+      Object has_format = Core.isNotNone(format);
+      if (Core.truthy(has_format)) {
+        Core.set(input_audio, "format", format);
+      }
       Core.set(out, "input_audio", input_audio);
       Core._openai_responses_copy_cache_control_impl(out, part);
       return out;
@@ -11317,10 +11380,7 @@ final class Core {
     if (Core.truthy(is_url)) {
       Object out = new java.util.LinkedHashMap<String, Object>();
       Core.set(out, "type", "input_text");
-      Object cached_snake = Core.get(part, "cached_content", null);
-      Object cached = Core.get(part, "cachedContent", cached_snake);
-      Object url = Core.get(part, "url", "");
-      Object text = Core.coalesce(cached, url);
+      Object text = Core._url_part_text_impl(part);
       Core.set(out, "text", text);
       Core._openai_responses_copy_cache_control_impl(out, part);
       return out;
@@ -11811,16 +11871,71 @@ final class Core {
   static Object openai_responses_build_speak_request(Object request) {
     axirCoverageMark("openai_responses_build_speak_request");
     Object payload = new java.util.LinkedHashMap<String, Object>();
-    Object speak_model = Core.get(request, "model", "tts-1");
+    Object speak_model = Core._speech_request_model_impl(request, "gpt-4o-mini-tts");
     Object request_input = Core.get(request, "input", "");
     Object speak_input = Core.get(request, "text", request_input);
-    Object voice = Core.get(request, "voice", "alloy");
+    Object voice = Core._speech_request_voice_impl(request);
+    Object has_voice = Core.isNotNone(voice);
+    if (Core.truthy(has_voice)) {
+      // empty
+    }
+    if (!Core.truthy(has_voice)) {
+      voice = "alloy";
+    }
     Object response_format = Core.get(request, "format", "mp3");
+    Object is_pcm16 = Core.eq(response_format, "pcm16");
+    if (Core.truthy(is_pcm16)) {
+      response_format = "pcm";
+    }
     Core.set(payload, "model", speak_model);
     Core.set(payload, "input", speak_input);
     Core.set(payload, "voice", voice);
     Core.set(payload, "response_format", response_format);
+    Object speed = Core.get(request, "speed", null);
+    Object has_speed = Core.isNotNone(speed);
+    if (Core.truthy(has_speed)) {
+      Core.set(payload, "speed", speed);
+    }
     return payload;
+  }
+
+  static Object _mistral_build_speak_request(Object request) {
+    axirCoverageMark("_mistral_build_speak_request");
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Object speak_model = Core._speech_request_model_impl(request, "voxtral-mini-tts-2603");
+    Object request_input = Core.get(request, "input", "");
+    Object speak_input = Core.get(request, "text", request_input);
+    Object response_format = Core.get(request, "format", "mp3");
+    Core.set(payload, "model", speak_model);
+    Core.set(payload, "input", speak_input);
+    Core.set(payload, "response_format", response_format);
+    Object voice = Core._speech_request_voice_impl(request);
+    Object has_voice = Core.truthyValue(voice);
+    if (Core.truthy(has_voice)) {
+      Core.set(payload, "voice_id", voice);
+    }
+    return payload;
+  }
+
+  static Object _speech_request_model_impl(Object request, Object fallback) {
+    axirCoverageMark("_speech_request_model_impl");
+    Object model = Core.get(request, "model", null);
+    Object is_text = Core.typeIs(model, "string");
+    if (Core.truthy(is_text)) {
+      return model;
+    }
+    return fallback;
+  }
+
+  static Object _speech_request_voice_impl(Object request) {
+    axirCoverageMark("_speech_request_voice_impl");
+    Object voice = Core.get(request, "voice", null);
+    Object is_object = Core.typeIs(voice, "object");
+    if (Core.truthy(is_object)) {
+      Object voice_id = Core.get(voice, "id", null);
+      return voice_id;
+    }
+    return voice;
   }
 
   static Object _grok_build_transcribe_request(Object request) {
@@ -11877,6 +11992,11 @@ final class Core {
     Core.set(payload, "voice_id", voice_id);
     Core.set(payload, "language", language);
     Core.set(payload, "output_format", output_format);
+    Object speed = Core.get(request, "speed", null);
+    Object has_speed = Core.isNotNone(speed);
+    if (Core.truthy(has_speed)) {
+      Core.set(payload, "speed", speed);
+    }
     return payload;
   }
 
@@ -11982,91 +12102,50 @@ final class Core {
 
   static Object _gemini_normalize_speak_response(Object raw, Object request) {
     axirCoverageMark("_gemini_normalize_speak_response");
-    Object audio = Core.get(raw, "audio", null);
-    Object format = Core.get(request, "format", "wav");
-    Object mime_type = "";
-    Object empty_candidates = new java.util.ArrayList<Object>();
-    Object candidates = Core.get(raw, "candidates", empty_candidates);
-    for (Object candidate : Core.iter(candidates)) {
-      Object content = Core.get(candidate, "content", null);
-      Object empty_parts = new java.util.ArrayList<Object>();
-      Object parts = Core.get(content, "parts", empty_parts);
-      for (Object part : Core.iter(parts)) {
-        Object inline_data = Core.get(part, "inlineData", null);
-        Object data = Core.get(inline_data, "data", null);
-        Object has_data = Core.isNotNone(data);
-        if (Core.truthy(has_data)) {
-          audio = data;
-          Object part_mime = Core.get(inline_data, "mimeType", "");
-          mime_type = part_mime;
-        }
-      }
-    }
-    Object has_audio = Core.isNotNone(audio);
-    if (Core.truthy(has_audio)) {
-      // empty
-    }
-    if (!Core.truthy(has_audio)) {
-      audio = raw;
-    }
-    Object mime_lower = Core.stringLower(mime_type);
-    Object is_pcm_mime = Core.contains(mime_lower, "pcm");
-    if (Core.truthy(is_pcm_mime)) {
-      format = "pcm";
-    }
-    Object is_pcm16_mime = Core.contains(mime_lower, "pcm16");
-    Object is_l16_mime = Core.contains(mime_lower, "l16");
-    Object is_linear16 = Core.or(is_pcm16_mime, is_l16_mime);
-    if (Core.truthy(is_linear16)) {
-      format = "pcm16";
-    }
-    Object is_wav_mime = Core.contains(mime_lower, "wav");
-    if (Core.truthy(is_wav_mime)) {
-      format = "wav";
-    }
+    Object transcript = Core._speech_request_text_impl(request);
+    Object none = Core.none();
+    Object speech = Core._speech_json_response_impl(raw, none, transcript);
     Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "audio", audio);
-    Core.set(out, "format", format);
-    Object has_mime = Core.truthyValue(mime_type);
-    if (Core.truthy(has_mime)) {
-      Core.set(out, "mime_type", mime_type);
-      Object mime_params = Core._audio_mime_params_impl(mime_type);
+    Object data = Core.get(speech, "data", null);
+    Core.set(out, "audio", data);
+    Object named_mime = Core._speech_json_named_mime_type_impl(raw);
+    Object has_named_mime = Core.truthyValue(named_mime);
+    if (Core.truthy(has_named_mime)) {
+      Core.set(out, "mime_type", named_mime);
+      Object mime_params = Core._audio_mime_params_impl(named_mime);
       out = Core.mapMerge(out, mime_params);
     }
-    Object speech = Core._speech_response_ts_keys_impl(out, raw, request);
-    return speech;
+    out = Core.mapMerge(out, speech);
+    return out;
   }
 
-  static Object _speech_response_ts_keys_impl(Object out, Object raw, Object request) {
-    axirCoverageMark("_speech_response_ts_keys_impl");
-    Object data = Core.get(out, "audio", null);
+  static Object _speech_request_text_impl(Object request) {
+    axirCoverageMark("_speech_request_text_impl");
+    Object request_input = Core.get(request, "input", null);
+    Object text = Core.get(request, "text", request_input);
+    return text;
+  }
+
+  static Object _speech_response_impl(Object data, Object format, Object mime_type, Object transcript) {
+    axirCoverageMark("_speech_response_impl");
+    Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "data", data);
-    Object format = Core.get(out, "format", null);
-    Object mime_type = Core.get(out, "mime_type", "");
-    Object has_mime = Core.truthyValue(mime_type);
-    Object raw_is_object = Core.typeIs(raw, "object");
-    Object read_raw_mime = Core.not(has_mime);
-    read_raw_mime = Core.and(read_raw_mime, raw_is_object);
-    if (Core.truthy(read_raw_mime)) {
-      Object raw_mime_snake = Core.get(raw, "mime_type", null);
-      Object snake_is_text = Core.typeIs(raw_mime_snake, "string");
-      if (Core.truthy(snake_is_text)) {
-        mime_type = raw_mime_snake;
-      }
-      Object raw_mime_camel = Core.get(raw, "mimeType", null);
-      Object camel_is_text = Core.typeIs(raw_mime_camel, "string");
-      if (Core.truthy(camel_is_text)) {
-        mime_type = raw_mime_camel;
-      }
-      has_mime = Core.truthyValue(mime_type);
+    Object has_format = Core.isNotNone(format);
+    if (Core.truthy(has_format)) {
+      Core.set(out, "format", format);
     }
-    if (Core.truthy(has_mime)) {
-      // empty
-    }
-    if (!Core.truthy(has_mime)) {
-      mime_type = Core._audio_mime_type_impl(format);
+    if (!Core.truthy(has_format)) {
+      Object mime_format = Core._audio_format_from_mime_type_impl(mime_type);
+      Object has_mime_format = Core.isNotNone(mime_format);
+      if (Core.truthy(has_mime_format)) {
+        Core.set(out, "format", mime_format);
+      }
     }
     Core.set(out, "mimeType", mime_type);
+    Object has_transcript = Core.isNotNone(transcript);
+    if (Core.truthy(has_transcript)) {
+      Core.set(out, "transcript", transcript);
+    }
     Object params = Core._audio_mime_params_impl(mime_type);
     Object sample_rate = Core.get(params, "sample_rate", null);
     Object has_sample_rate = Core.isNotNone(sample_rate);
@@ -12078,13 +12157,307 @@ final class Core {
     if (Core.truthy(has_channels)) {
       Core.set(out, "channels", channels);
     }
-    Object request_input = Core.get(request, "input", null);
-    Object text = Core.get(request, "text", request_input);
-    Object has_text = Core.isNotNone(text);
-    if (Core.truthy(has_text)) {
-      Core.set(out, "transcript", text);
-    }
     return out;
+  }
+
+  static Object _speech_binary_response_impl(Object data, Object content_type, Object format, Object transcript) {
+    axirCoverageMark("_speech_binary_response_impl");
+    Object mime_type = Core._audio_mime_type_impl(format);
+    Object has_content_type = Core.truthyValue(content_type);
+    if (Core.truthy(has_content_type)) {
+      mime_type = content_type;
+    }
+    Object speech = Core._speech_response_impl(data, format, mime_type, transcript);
+    return speech;
+  }
+
+  static Object _speech_json_response_impl(Object json, Object format, Object transcript) {
+    axirCoverageMark("_speech_json_response_impl");
+    Object data = Core._speech_json_data_impl(json);
+    Object data_is_text = Core.typeIs(data, "string");
+    if (Core.truthy(data_is_text)) {
+      // empty
+    }
+    if (!Core.truthy(data_is_text)) {
+      Object json_is_object = Core.typeIs(json, "object");
+      Object older = Core.none();
+      if (Core.truthy(json_is_object)) {
+        older = Core.get(json, "audio", null);
+      }
+      Object older_is_text = Core.typeIs(older, "string");
+      if (Core.truthy(older_is_text)) {
+        Core.axgenDeprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.");
+        data = older;
+      }
+      if (!Core.truthy(older_is_text)) {
+        Object error = Core.aiErrorResponse("Speech response JSON did not include audio data", json);
+        throw Core.asRuntime(error);
+      }
+    }
+    Object mime_type = Core._speech_json_named_mime_type_impl(json);
+    Object has_mime = Core.truthyValue(mime_type);
+    if (Core.truthy(has_mime)) {
+      // empty
+    }
+    if (!Core.truthy(has_mime)) {
+      mime_type = Core._audio_mime_type_impl(format);
+    }
+    Object speech = Core._speech_response_impl(data, format, mime_type, transcript);
+    return speech;
+  }
+
+  static Object _speech_json_data_impl(Object json) {
+    axirCoverageMark("_speech_json_data_impl");
+    Object none = Core.none();
+    Object json_is_object = Core.typeIs(json, "object");
+    if (Core.truthy(json_is_object)) {
+      // empty
+    }
+    if (!Core.truthy(json_is_object)) {
+      return none;
+    }
+    Object audio_data = Core.get(json, "audio_data", null);
+    Object has_audio_data = Core.isNotNone(audio_data);
+    if (Core.truthy(has_audio_data)) {
+      return audio_data;
+    }
+    Object audio_data_camel = Core.get(json, "audioData", null);
+    Object has_audio_data_camel = Core.isNotNone(audio_data_camel);
+    if (Core.truthy(has_audio_data_camel)) {
+      return audio_data_camel;
+    }
+    Object data = Core.get(json, "data", null);
+    Object has_data = Core.isNotNone(data);
+    if (Core.truthy(has_data)) {
+      return data;
+    }
+    Object audio = Core.get(json, "audio", null);
+    Object audio_is_object = Core.typeIs(audio, "object");
+    if (Core.truthy(audio_is_object)) {
+      Object audio_inner = Core.get(audio, "data", null);
+      Object has_audio_inner = Core.isNotNone(audio_inner);
+      if (Core.truthy(has_audio_inner)) {
+        return audio_inner;
+      }
+    }
+    Object output = Core.get(json, "output", null);
+    Object output_is_object = Core.typeIs(output, "object");
+    if (Core.truthy(output_is_object)) {
+      Object output_audio = Core.get(output, "audio", null);
+      Object output_audio_is_object = Core.typeIs(output_audio, "object");
+      if (Core.truthy(output_audio_is_object)) {
+        Object output_data = Core.get(output_audio, "data", null);
+        Object has_output_data = Core.isNotNone(output_data);
+        if (Core.truthy(has_output_data)) {
+          return output_data;
+        }
+      }
+    }
+    Object parts = Core._speech_json_candidate_parts_impl(json);
+    for (Object part : Core.iter(parts)) {
+      Object inline = Core.get(part, "inlineData", null);
+      Object inline_data = Core.none();
+      Object inline_is_object = Core.typeIs(inline, "object");
+      if (Core.truthy(inline_is_object)) {
+        inline_data = Core.get(inline, "data", null);
+      }
+      Object snake = Core.get(part, "inline_data", null);
+      Object snake_data = Core.none();
+      Object snake_is_object = Core.typeIs(snake, "object");
+      if (Core.truthy(snake_is_object)) {
+        snake_data = Core.get(snake, "data", null);
+      }
+      Object has_inline_data = Core.truthyValue(inline_data);
+      Object has_snake_data = Core.truthyValue(snake_data);
+      Object has_any = Core.or(has_inline_data, has_snake_data);
+      if (Core.truthy(has_any)) {
+        Object has_camel = Core.isNotNone(inline_data);
+        if (Core.truthy(has_camel)) {
+          return inline_data;
+        }
+        break;
+      }
+    }
+    for (Object part : Core.iter(parts)) {
+      Object snake = Core.get(part, "inline_data", null);
+      Object snake_is_object = Core.typeIs(snake, "object");
+      if (Core.truthy(snake_is_object)) {
+        Object snake_data = Core.get(snake, "data", null);
+        Object has_snake_data = Core.truthyValue(snake_data);
+        if (Core.truthy(has_snake_data)) {
+          return snake_data;
+        }
+      }
+    }
+    return none;
+  }
+
+  static Object _speech_json_candidate_parts_impl(Object json) {
+    axirCoverageMark("_speech_json_candidate_parts_impl");
+    Object parts = new java.util.ArrayList<Object>();
+    Object json_is_object = Core.typeIs(json, "object");
+    if (Core.truthy(json_is_object)) {
+      // empty
+    }
+    if (!Core.truthy(json_is_object)) {
+      return parts;
+    }
+    Object candidates = Core.get(json, "candidates", null);
+    Object candidates_is_list = Core.typeIs(candidates, "list");
+    if (Core.truthy(candidates_is_list)) {
+      // empty
+    }
+    if (!Core.truthy(candidates_is_list)) {
+      return parts;
+    }
+    Object count = Core.len(candidates);
+    Object has_candidate = Core.gt(count, 0);
+    if (Core.truthy(has_candidate)) {
+      // empty
+    }
+    if (!Core.truthy(has_candidate)) {
+      return parts;
+    }
+    Object no_candidate = Core.none();
+    Object candidate = Core.listGet(candidates, 0, no_candidate);
+    Object candidate_is_object = Core.typeIs(candidate, "object");
+    if (Core.truthy(candidate_is_object)) {
+      // empty
+    }
+    if (!Core.truthy(candidate_is_object)) {
+      return parts;
+    }
+    Object content = Core.get(candidate, "content", null);
+    Object content_is_object = Core.typeIs(content, "object");
+    if (Core.truthy(content_is_object)) {
+      // empty
+    }
+    if (!Core.truthy(content_is_object)) {
+      return parts;
+    }
+    Object content_parts = Core.get(content, "parts", null);
+    Object content_parts_is_list = Core.typeIs(content_parts, "list");
+    if (Core.truthy(content_parts_is_list)) {
+      return content_parts;
+    }
+    return parts;
+  }
+
+  static Object _speech_json_named_mime_type_impl(Object json) {
+    axirCoverageMark("_speech_json_named_mime_type_impl");
+    Object none = Core.none();
+    Object json_is_object = Core.typeIs(json, "object");
+    if (Core.truthy(json_is_object)) {
+      // empty
+    }
+    if (!Core.truthy(json_is_object)) {
+      return none;
+    }
+    Object camel = Core.get(json, "mimeType", null);
+    Object camel_is_text = Core.typeIs(camel, "string");
+    if (Core.truthy(camel_is_text)) {
+      return camel;
+    }
+    Object snake = Core.get(json, "mime_type", null);
+    Object snake_is_text = Core.typeIs(snake, "string");
+    if (Core.truthy(snake_is_text)) {
+      return snake;
+    }
+    Object parts = Core._speech_json_candidate_parts_impl(json);
+    for (Object part : Core.iter(parts)) {
+      Object inline = Core.get(part, "inlineData", null);
+      Object inline_is_object = Core.typeIs(inline, "object");
+      if (Core.truthy(inline_is_object)) {
+        Object inline_mime = Core.get(inline, "mimeType", null);
+        Object has_inline_mime = Core.truthyValue(inline_mime);
+        if (Core.truthy(has_inline_mime)) {
+          return inline_mime;
+        }
+      }
+    }
+    for (Object part : Core.iter(parts)) {
+      Object inline_snake = Core.get(part, "inline_data", null);
+      Object inline_snake_is_object = Core.typeIs(inline_snake, "object");
+      if (Core.truthy(inline_snake_is_object)) {
+        Object snake_mime = Core.get(inline_snake, "mime_type", null);
+        Object has_snake_mime = Core.truthyValue(snake_mime);
+        if (Core.truthy(has_snake_mime)) {
+          return snake_mime;
+        }
+      }
+    }
+    return none;
+  }
+
+  static Object _audio_format_from_mime_type_impl(Object mime_type) {
+    axirCoverageMark("_audio_format_from_mime_type_impl");
+    Object none = Core.none();
+    Object is_text = Core.typeIs(mime_type, "string");
+    if (Core.truthy(is_text)) {
+      // empty
+    }
+    if (!Core.truthy(is_text)) {
+      return none;
+    }
+    Object mt = Core.stringLower(mime_type);
+    Object has_text = Core.truthyValue(mt);
+    if (Core.truthy(has_text)) {
+      // empty
+    }
+    if (!Core.truthy(has_text)) {
+      return none;
+    }
+    Object is_wav = Core.contains(mt, "wav");
+    if (Core.truthy(is_wav)) {
+      return "wav";
+    }
+    Object is_mpeg = Core.contains(mt, "mpeg");
+    Object is_mp3 = Core.contains(mt, "mp3");
+    Object is_mpeg_or_mp3 = Core.or(is_mpeg, is_mp3);
+    if (Core.truthy(is_mpeg_or_mp3)) {
+      return "mp3";
+    }
+    Object is_flac = Core.contains(mt, "flac");
+    if (Core.truthy(is_flac)) {
+      return "flac";
+    }
+    Object is_opus = Core.contains(mt, "opus");
+    if (Core.truthy(is_opus)) {
+      return "opus";
+    }
+    Object is_aac = Core.contains(mt, "aac");
+    if (Core.truthy(is_aac)) {
+      return "aac";
+    }
+    Object is_ogg = Core.contains(mt, "ogg");
+    if (Core.truthy(is_ogg)) {
+      return "ogg";
+    }
+    Object is_mulaw = Core.contains(mt, "mulaw");
+    if (Core.truthy(is_mulaw)) {
+      return "mulaw";
+    }
+    Object is_ulaw = Core.contains(mt, "ulaw");
+    Object is_basic = Core.contains(mt, "basic");
+    Object is_ulaw_or_basic = Core.or(is_ulaw, is_basic);
+    if (Core.truthy(is_ulaw_or_basic)) {
+      return "ulaw";
+    }
+    Object is_alaw = Core.contains(mt, "alaw");
+    if (Core.truthy(is_alaw)) {
+      return "alaw";
+    }
+    Object is_pcm16 = Core.contains(mt, "pcm16");
+    Object is_l16 = Core.contains(mt, "l16");
+    Object is_linear16 = Core.or(is_pcm16, is_l16);
+    if (Core.truthy(is_linear16)) {
+      return "pcm16";
+    }
+    Object is_pcm = Core.contains(mt, "pcm");
+    if (Core.truthy(is_pcm)) {
+      return "pcm";
+    }
+    return none;
   }
 
   static Object _audio_mime_type_impl(Object format) {
@@ -14215,10 +14588,7 @@ final class Core {
     if (Core.truthy(is_url)) {
       Object out = new java.util.LinkedHashMap<String, Object>();
       Core.set(out, "type", "text");
-      Object cached_snake = Core.get(part, "cached_content", null);
-      Object cached = Core.get(part, "cachedContent", cached_snake);
-      Object url = Core.get(part, "url", "");
-      Object text = Core.coalesce(cached, url);
+      Object text = Core._url_part_text_impl(part);
       Core.set(out, "text", text);
       Object cache = Core.get(part, "cache", Boolean.FALSE);
       if (Core.truthy(cache)) {
@@ -36503,6 +36873,7 @@ final class Core {
     }
     if (Core.truthy(is_responder)) {
       out = Core._agent_stage_parse_dates(out, base_options, stage_options, forward_options);
+      out = Core._agent_stage_render_audio(out, base_options, stage_options, forward_options);
     }
     return out;
   }
@@ -37961,6 +38332,29 @@ final class Core {
     Core.set(state, "active_client", none);
     Core.set(state, "active_forward_options", none);
     return output;
+  }
+
+  static Object _agent_stage_render_audio(Object out, Object base_options, Object stage_options, Object forward_options) {
+    axirCoverageMark("_agent_stage_render_audio");
+    Object resolved = Core.none();
+    Object sources = new java.util.ArrayList<Object>();
+    Core.append(sources, base_options);
+    Core.append(sources, stage_options);
+    Core.append(sources, forward_options);
+    for (Object source : Core.iter(sources)) {
+      Object snake = Core.get(source, "render_audio", null);
+      Object value = Core.get(source, "renderAudio", snake);
+      Object chosen = Core.isNotNone(value);
+      if (Core.truthy(chosen)) {
+        resolved = value;
+      }
+    }
+    Object has_choice = Core.isNotNone(resolved);
+    if (Core.truthy(has_choice)) {
+      Core.set(out, "render_audio", resolved);
+      Core.set(out, "renderAudio", resolved);
+    }
+    return out;
   }
 
   static Object _agent_stage_parse_dates(Object out, Object base_options, Object stage_options, Object forward_options) {
@@ -43114,31 +43508,27 @@ class PromptRuntime {
 
   static Object userContent(AxSignature sig, Map<String, Object> values) {
     List<Map<String, Object>> parts = new ArrayList<>();
-    boolean audioParts = false;
     for (Field field : inputFieldsForValues(sig, values)) {
       Object value = values.get(field.name);
       if (!provided(value)) {
         if (field.optional || field.internal) continue;
         throw new IllegalArgumentException("Value for input field '" + field.name + "' is required.");
       }
-      boolean audio = field.type != null && "audio".equals(field.type.name);
+      String kind = field.type == null ? "string" : field.type.name;
+      boolean audio = "audio".equals(kind);
       // As TS processValue: an audio object with a transcript (what an AxGen
       // audio output renders to) reaches the model as that text.
       if (audio && value instanceof Map<?, ?> audioMap && audioMap.get("transcript") instanceof String transcript) value = transcript;
-      if (audio && !(value instanceof String)) {
+      // As TS defaultRenderInField: image, file and url values, and audio that
+      // is not text, go out as media parts after a text part with the title.
+      if ("image".equals(kind) || "file".equals(kind) || "url".equals(kind) || (audio && !(value instanceof String))) {
         parts.add(new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": \n")));
         if (field.type.array) {
-          if (!(value instanceof List<?> items)) throw new IllegalArgumentException("Audio field value must be an array.");
-          for (Object item : items) parts.add(audioPart(item));
+          if (!(value instanceof List<?> items)) throw new IllegalArgumentException(mediaLabel(kind) + " field value must be an array.");
+          for (Object item : items) parts.add(mediaPart(kind, item));
         } else {
-          parts.add(audioPart(value));
+          parts.add(mediaPart(kind, value));
         }
-        audioParts = true;
-      } else if (field.type != null && List.of("image", "audio", "file", "url").contains(field.type.name) && value instanceof Map<?, ?> map) {
-        parts.add(new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": \n")));
-        Map<String, Object> media = new LinkedHashMap<>(Core.asMap(map));
-        media.putIfAbsent("type", field.type.name);
-        parts.add(media);
       } else {
         String dated = field.type == null ? null : Core.jsDatePromptText(field.type.name, value);
         String rendered = dated != null ? dated : value instanceof String ? String.valueOf(value) : Json.pretty(value);
@@ -43154,8 +43544,8 @@ class PromptRuntime {
       for (Map<String, Object> part : parts) text.add(String.valueOf(part.getOrDefault("text", "")));
       return String.join("\n", text);
     }
-    if (!audioParts) return parts;
-    // As TS: consecutive text parts join with a newline.
+    // As TS combineConsecutiveStrings: in a message with media, each run of
+    // text parts joins with a newline and is cached when any of them is.
     List<Map<String, Object>> combined = new ArrayList<>();
     for (Map<String, Object> part : parts) {
       Map<String, Object> previous = combined.isEmpty() ? null : combined.get(combined.size() - 1);
@@ -43169,17 +43559,123 @@ class PromptRuntime {
     return combined;
   }
 
+  static String mediaLabel(String kind) {
+    return switch (kind) {
+      case "image" -> "Image";
+      case "audio" -> "Audio";
+      case "file" -> "File";
+      default -> "URL";
+    };
+  }
+
+  // The snake_case aliases the provider mappings read, per media part type:
+  // they become the declared camelCase keys (a camelCase key wins), so inputs
+  // written with them keep working.
+  static Object mediaAliases(String kind, Object value) {
+    if (!(value instanceof Map<?, ?> map)) return value;
+    String[][] aliases = switch (kind) {
+      case "image" -> new String[][] {{"mime_type", "mimeType"}};
+      case "audio" -> new String[][] {{"audio", "data"}, {"mime_type", "mimeType"}, {"sample_rate", "sampleRate"}};
+      case "file" -> new String[][] {{"mime_type", "mimeType"}, {"file_uri", "fileUri"}, {"extracted_text", "extractedText"}};
+      default -> new String[][] {{"cached_content", "cachedContent"}};
+    };
+    Map<Object, Object> out = null;
+    for (String[] alias : aliases) {
+      if (map.containsKey(alias[0]) && !map.containsKey(alias[1])) {
+        if (out == null) out = new LinkedHashMap<>(map);
+        out.put(alias[1], map.get(alias[0]));
+      }
+    }
+    return out == null ? value : out;
+  }
+
+  static Map<String, Object> mediaPart(String kind, Object value) {
+    value = mediaAliases(kind, value);
+    return switch (kind) {
+      case "image" -> imagePart(value);
+      case "audio" -> audioPart(value);
+      case "file" -> filePart(value);
+      default -> urlPart(value);
+    };
+  }
+
+  // JavaScript's !value for a JSON value: objects and arrays are truthy.
+  static boolean jsFalsy(Object value) {
+    if (value == null || Boolean.FALSE.equals(value) || "".equals(value)) return true;
+    return value instanceof Number n && (n.doubleValue() == 0 || Double.isNaN(n.doubleValue()));
+  }
+
+  static Map<?, ?> mediaObject(Object value, String label, String requiredKey) {
+    if (jsFalsy(value)) throw new IllegalArgumentException(label + " field value is required.");
+    if (!(value instanceof Map<?, ?>) && !(value instanceof List<?>)) throw new IllegalArgumentException(label + " field value must be an object.");
+    if (!(value instanceof Map<?, ?> map) || !map.containsKey(requiredKey)) throw new IllegalArgumentException(label + " field must have " + requiredKey);
+    return map;
+  }
+
+  // TS defaultRenderInField: an image part carries the mime type, the data as
+  // `image`, and the details the provider reads (OpenAI's image detail).
+  static Map<String, Object> imagePart(Object value) {
+    Map<?, ?> map = mediaObject(value, "Image", "mimeType");
+    if (!map.containsKey("data")) throw new IllegalArgumentException("Image field must have data");
+    Map<String, Object> part = new LinkedHashMap<>();
+    part.put("type", "image");
+    part.put("mimeType", map.get("mimeType"));
+    part.put("image", map.get("data"));
+    return declaredKeys(part, map, "details", "cache", "optimize", "altText");
+  }
+
+  // The optional keys a media part type declares (TS AxChatRequest) that the
+  // value sets go on the part, so the provider or router that reads them gets
+  // them; other keys stay behind.
+  static Map<String, Object> declaredKeys(Map<String, Object> part, Map<?, ?> value, String... keys) {
+    for (String key : keys) if (value.containsKey(key)) part.put(key, value.get(key));
+    return part;
+  }
+
   // TS defaultRenderInField: an audio part carries only its format (wav when
   // it has none) and its data.
   static Map<String, Object> audioPart(Object value) {
-    if (!(value instanceof Map<?, ?> map)) throw new IllegalArgumentException("Audio field value must be an object.");
-    if (!map.containsKey("data")) throw new IllegalArgumentException("Audio field must have data");
+    Map<?, ?> map = mediaObject(value, "Audio", "data");
     Map<String, Object> part = new LinkedHashMap<>();
     part.put("type", "audio");
     Object format = map.get("format");
     part.put("format", format == null ? "wav" : format);
     part.put("data", map.get("data"));
-    return part;
+    return declaredKeys(part, map, "mimeType", "sampleRate", "channels", "cache", "transcription", "duration");
+  }
+
+  // TS defaultRenderInField: a file part carries the mime type and either its
+  // data or its fileUri.
+  static Map<String, Object> filePart(Object value) {
+    Map<?, ?> map = mediaObject(value, "File", "mimeType");
+    boolean hasData = map.containsKey("data");
+    boolean hasFileUri = map.containsKey("fileUri");
+    if (!hasData && !hasFileUri) throw new IllegalArgumentException("File field must have either data or fileUri");
+    if (hasData && hasFileUri) throw new IllegalArgumentException("File field cannot have both data and fileUri");
+    Map<String, Object> part = new LinkedHashMap<>();
+    part.put("type", "file");
+    part.put("mimeType", map.get("mimeType"));
+    if (hasFileUri) part.put("fileUri", map.get("fileUri"));
+    else part.put("data", map.get("data"));
+    return declaredKeys(part, map, "filename", "cache", "extractedText");
+  }
+
+  // TS defaultRenderInField: a url part carries the url, and the title and
+  // description when they are set; a plain string is the url.
+  static Map<String, Object> urlPart(Object value) {
+    if (jsFalsy(value)) throw new IllegalArgumentException("URL field value is required.");
+    Map<String, Object> part = new LinkedHashMap<>();
+    part.put("type", "url");
+    if (value instanceof String url) {
+      part.put("url", url);
+      return part;
+    }
+    if (!(value instanceof Map<?, ?>) && !(value instanceof List<?>)) throw new IllegalArgumentException("URL field value must be a string or object.");
+    if (!(value instanceof Map<?, ?> map) || !map.containsKey("url")) throw new IllegalArgumentException("URL field must have url property");
+    part.put("url", map.get("url"));
+    if (!jsFalsy(map.get("title"))) part.put("title", map.get("title"));
+    if (!jsFalsy(map.get("description"))) part.put("description", map.get("description"));
+    return declaredKeys(part, map, "cachedContent", "cache");
   }
 
   static List<Field> inputFieldsForValues(AxSignature sig, Map<String, Object> values) {

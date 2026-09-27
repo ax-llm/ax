@@ -27,6 +27,18 @@ from .signature import (
     _signature_validate_value_descriptions_impl,
 )
 from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text, _js_format, _js_text
+import warnings
+
+_CORE_DEPRECATIONS_SHOWN: set[str] = set()
+
+
+def _core_axgen_deprecation(key, message):
+    # Deprecated port behavior warns once per process.
+    if key in _CORE_DEPRECATIONS_SHOWN:
+        return None
+    _CORE_DEPRECATIONS_SHOWN.add(key)
+    warnings.warn(str(message), DeprecationWarning, stacklevel=4)
+    return None
 
 def _core_validation_error(message):
     return ValueError(str(message))
@@ -1498,7 +1510,12 @@ class ProviderOperationClient(AxBaseAI):
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
         binary_response = descriptor.get("response") == "binary"
         raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(self._merged_options(options)))
-        return provider_normalize_speak_response(self.profile, raw, request)
+        # As TS's axFetchJsonSpeech: a JSON body arrives parsed, and a binary
+        # one as base64 with its Content-Type, which names its mime type.
+        content_type = None
+        if isinstance(raw, _BinaryBody):
+            raw, content_type = raw.data, raw.content_type
+        return provider_normalize_speak_response(self.profile, raw, request, content_type)
 
     def realtime(self, events: Iterable[dict[str, Any]], model: str | None = None):
         state: dict[str, Any] = {}
@@ -1748,6 +1765,8 @@ class ProviderOperationClient(AxBaseAI):
                 cancellable = getattr(self.transport, cancellable_name, None)
                 result = cancellable(call, cancellation) if callable(cancellable) else self.transport(call)
                 if cancellation is not None: cancellation.throw_if_cancelled()
+                if binary_response:
+                    return _binary_transport_result(result, error_request)
                 return _transport_result(result, error_request)
             except AxAIServiceAbortedError:
                 raise
@@ -1833,8 +1852,15 @@ class ProviderOperationClient(AxBaseAI):
                 with res:
                     if binary_response:
                         # Binary operations (e.g. OpenAI /audio/speech returns raw mp3)
-                        # must not be UTF-8 decoded; return the bytes as base64.
-                        value = base64.b64encode(res.read()).decode()
+                        # must not be UTF-8 decoded: the bytes go on as base64 with
+                        # their Content-Type. A JSON body (as TS reads one by its
+                        # Content-Type) goes on parsed.
+                        content_type = res.headers.get("content-type") or ""
+                        body_bytes = res.read()
+                        if "application/json" in content_type:
+                            value = json.loads(body_bytes.decode())
+                        else:
+                            value = _BinaryBody(base64.b64encode(body_bytes).decode(), content_type)
                     else:
                         response_text = res.read().decode()
                         try:
@@ -4829,125 +4855,36 @@ def normalize_token_usage(usage: Any) -> Any:
     return out
 
 
-def _openai_content_part_impl(part: Any) -> Any:
-    _core_coverage_mark("_openai_content_part_impl")
-    type = _core_get(part, "type", None)
-    is_text = _core_eq(type, "text")
-    if is_text:
-        text = _core_get(part, "text", "")
-        out = {}
-        out["type"] = "text"
-        out["text"] = text
-        return out
+def _url_part_text_impl(part: Any) -> str:
+    _core_coverage_mark("_url_part_text_impl")
+    cached_snake = _core_get(part, "cached_content", None)
+    cached = _core_get(part, "cachedContent", cached_snake)
+    has_cached = _core_is_not_none(cached)
+    if has_cached:
+        return cached
     else:
         pass
-    is_image = _core_eq(type, "image")
-    if is_image:
-        mime_snake = _core_get(part, "mime_type", None)
-        mime_raw = _core_get(part, "mimeType", mime_snake)
-        mime = _core_coalesce(mime_raw, "image/png")
-        image_value = _core_get(part, "image", None)
-        image_raw = _core_get(part, "data", image_value)
-        image = _core_coalesce(image_raw, "")
-        is_data_url = _core_string_starts_with(image, "data:")
-        url = ""
-        if is_data_url:
-            url = image
-        else:
-            url = _core_string_format("data:{};base64,{}", mime, image)
-        details = _core_get(part, "details", "auto")
-        image_url = {}
-        image_url["url"] = url
-        image_url["detail"] = details
-        out = {}
-        out["type"] = "image_url"
-        out["image_url"] = image_url
-        return out
+    lines = []
+    title = _core_get(part, "title", None)
+    has_title = _core_truthy(title)
+    if has_title:
+        lines.append(title)
     else:
         pass
-    is_audio = _core_eq(type, "audio")
-    if is_audio:
-        audio_alt = _core_get(part, "audio", None)
-        data = _core_get(part, "data", audio_alt)
-        format = _core_get(part, "format", None)
-        is_wav = _core_eq(format, "wav")
-        is_mp3 = _core_eq(format, "mp3")
-        format_ok = _core_or(is_wav, is_mp3)
-        if format_ok:
-            out = {}
-            out["type"] = "input_audio"
-            input_audio = {}
-            input_audio["data"] = data
-            input_audio["format"] = format
-            out["input_audio"] = input_audio
-            return out
-        else:
-            pass
-        audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", format)
-        audio_error = _core_ai_error_unsupported(audio_message)
-        raise audio_error
+    description = _core_get(part, "description", None)
+    has_description = _core_truthy(description)
+    if has_description:
+        lines.append(description)
     else:
         pass
-    is_file = _core_eq(type, "file")
-    if is_file:
-        out = {}
-        mime_snake = _core_get(part, "mime_type", "application/octet-stream")
-        mime = _core_get(part, "mimeType", mime_snake)
-        uri_snake = _core_get(part, "file_uri", None)
-        uri = _core_get(part, "fileUri", uri_snake)
-        has_uri = _core_truthy(uri)
-        is_image_file = _core_string_starts_with(mime, "image/")
-        is_video_file = _core_string_starts_with(mime, "video/")
-        is_uri_video = _core_and(is_video_file, has_uri)
-        if is_image_file:
-            out["type"] = "image_url"
-            image_url = {}
-            data = _core_get(part, "data", "")
-            data_url = _core_string_format("data:{};base64,{}", mime, data)
-            resolved_uri = _core_coalesce(uri, data_url)
-            image_url["url"] = resolved_uri
-            image_url["detail"] = "auto"
-            out["image_url"] = image_url
-        else:
-            if is_uri_video:
-                out["type"] = "video_url"
-                video_url = {}
-                video_url["url"] = uri
-                out["video_url"] = video_url
-            else:
-                out["type"] = "file"
-                file = {}
-                if has_uri:
-                    file["file_url"] = uri
-                else:
-                    data = _core_get(part, "data", "")
-                    file_data = _core_string_format("data:{};base64,{}", mime, data)
-                    file["file_data"] = file_data
-                filename = _core_get(part, "filename", None)
-                has_filename = _core_is_not_none(filename)
-                if has_filename:
-                    file["filename"] = filename
-                else:
-                    pass
-                out["file"] = file
-        return out
+    url = _core_get(part, "url", None)
+    has_url = _core_truthy(url)
+    if has_url:
+        lines.append(url)
     else:
         pass
-    is_url = _core_eq(type, "url")
-    if is_url:
-        out = {}
-        out["type"] = "text"
-        cached_snake = _core_get(part, "cached_content", None)
-        cached = _core_get(part, "cachedContent", cached_snake)
-        url = _core_get(part, "url", "")
-        text = _core_coalesce(cached, url)
-        out["text"] = text
-        return out
-    else:
-        pass
-    message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
-    error = _core_ai_error_unsupported(message)
-    raise error
+    text = _core_string_join("\n", lines)
+    return text
 
 
 def typesafe_normalize_chat_response(raw: Any, context: Any) -> Any:
@@ -5001,6 +4938,142 @@ def typesafe_normalize_chat_response(raw: Any, context: Any) -> Any:
     response["modelUsage"] = model_usage
     response["providerMetadata"] = metadata
     return response
+
+
+def _openai_content_part_impl(part: Any) -> Any:
+    _core_coverage_mark("_openai_content_part_impl")
+    type = _core_get(part, "type", None)
+    is_text = _core_eq(type, "text")
+    if is_text:
+        text = _core_get(part, "text", "")
+        out = {}
+        out["type"] = "text"
+        out["text"] = text
+        return out
+    else:
+        pass
+    is_image = _core_eq(type, "image")
+    if is_image:
+        mime_snake = _core_get(part, "mime_type", None)
+        mime_raw = _core_get(part, "mimeType", mime_snake)
+        mime = _core_coalesce(mime_raw, "image/png")
+        image_value = _core_get(part, "image", None)
+        image_raw = _core_get(part, "data", image_value)
+        image = _core_coalesce(image_raw, "")
+        is_data_url = _core_string_starts_with(image, "data:")
+        url = ""
+        if is_data_url:
+            url = image
+        else:
+            url = _core_string_format("data:{};base64,{}", mime, image)
+        details = _core_get(part, "details", "auto")
+        image_url = {}
+        image_url["url"] = url
+        image_url["detail"] = details
+        out = {}
+        out["type"] = "image_url"
+        out["image_url"] = image_url
+        return out
+    else:
+        pass
+    is_audio = _core_eq(type, "audio")
+    if is_audio:
+        audio_alt = _core_get(part, "audio", None)
+        data = _core_get(part, "data", audio_alt)
+        format = _core_get(part, "format", None)
+        audio_mime_snake = _core_get(part, "mime_type", None)
+        audio_mime = _core_get(part, "mimeType", audio_mime_snake)
+        has_audio_format = _core_is_not_none(format)
+        if has_audio_format:
+            pass
+        else:
+            format = _audio_format_from_mime_type_impl(audio_mime)
+        is_wav = _core_eq(format, "wav")
+        is_mp3 = _core_eq(format, "mp3")
+        format_ok = _core_or(is_wav, is_mp3)
+        if format_ok:
+            out = {}
+            out["type"] = "input_audio"
+            input_audio = {}
+            input_audio["data"] = data
+            input_audio["format"] = format
+            out["input_audio"] = input_audio
+            return out
+        else:
+            pass
+        received = "unknown format"
+        has_audio_mime = _core_is_not_none(audio_mime)
+        if has_audio_mime:
+            received = audio_mime
+        else:
+            pass
+        has_resolved_format = _core_is_not_none(format)
+        if has_resolved_format:
+            received = format
+        else:
+            pass
+        audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", received)
+        audio_error = _core_ai_error_unsupported(audio_message)
+        raise audio_error
+    else:
+        pass
+    is_file = _core_eq(type, "file")
+    if is_file:
+        out = {}
+        mime_snake = _core_get(part, "mime_type", "application/octet-stream")
+        mime = _core_get(part, "mimeType", mime_snake)
+        uri_snake = _core_get(part, "file_uri", None)
+        uri = _core_get(part, "fileUri", uri_snake)
+        has_uri = _core_truthy(uri)
+        is_image_file = _core_string_starts_with(mime, "image/")
+        is_video_file = _core_string_starts_with(mime, "video/")
+        is_uri_video = _core_and(is_video_file, has_uri)
+        if is_image_file:
+            out["type"] = "image_url"
+            image_url = {}
+            data = _core_get(part, "data", "")
+            data_url = _core_string_format("data:{};base64,{}", mime, data)
+            resolved_uri = _core_coalesce(uri, data_url)
+            image_url["url"] = resolved_uri
+            image_url["detail"] = "auto"
+            out["image_url"] = image_url
+        else:
+            if is_uri_video:
+                out["type"] = "video_url"
+                video_url = {}
+                video_url["url"] = uri
+                out["video_url"] = video_url
+            else:
+                out["type"] = "file"
+                file = {}
+                if has_uri:
+                    file["file_url"] = uri
+                else:
+                    data = _core_get(part, "data", "")
+                    file_data = _core_string_format("data:{};base64,{}", mime, data)
+                    file["file_data"] = file_data
+                filename = _core_get(part, "filename", None)
+                has_filename = _core_is_not_none(filename)
+                if has_filename:
+                    file["filename"] = filename
+                else:
+                    pass
+                out["file"] = file
+        return out
+    else:
+        pass
+    is_url = _core_eq(type, "url")
+    if is_url:
+        out = {}
+        out["type"] = "text"
+        text = _url_part_text_impl(part)
+        out["text"] = text
+        return out
+    else:
+        pass
+    message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
+    error = _core_ai_error_unsupported(message)
+    raise error
 
 
 def typesafe_response_context(payload: Any, options: Any) -> Any:
@@ -5132,43 +5205,6 @@ def _openai_tool_call_to_provider_impl(call: Any) -> Any:
     return out
 
 
-def _openai_tool_spec_impl(fn: Any) -> Any:
-    _core_coverage_mark("_openai_tool_spec_impl")
-    name = _core_get(fn, "name", None)
-    description = _core_get(fn, "description", "")
-    parameters = _core_get(fn, "parameters", None)
-    function = {}
-    function["name"] = name
-    function["description"] = description
-    has_parameters = _core_truthy(parameters)
-    if has_parameters:
-        function["parameters"] = parameters
-    else:
-        pass
-    out = {}
-    out["type"] = "function"
-    out["function"] = function
-    return out
-
-
-def openai_build_embed_request(request: AxEmbedRequest) -> Any:
-    _core_coverage_mark("openai_build_embed_request")
-    embed_model_snake = _core_get(request, "embed_model", None)
-    model = _core_get(request, "embedModel", embed_model_snake)
-    empty_texts = []
-    texts = _core_get(request, "texts", empty_texts)
-    payload = {}
-    payload["model"] = model
-    payload["input"] = texts
-    dimensions = _core_get(request, "dimensions", None)
-    has_dimensions = _core_truthy(dimensions)
-    if has_dimensions:
-        payload["dimensions"] = dimensions
-    else:
-        pass
-    return payload
-
-
 def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
     _core_coverage_mark("_ai_model_usage_impl")
     has_usage = _core_truthy(usage)
@@ -5186,10 +5222,23 @@ def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
     return out
 
 
-def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
-    _core_coverage_mark("openai_normalize_chat_response")
-    response = _openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none")
-    return response
+def _openai_tool_spec_impl(fn: Any) -> Any:
+    _core_coverage_mark("_openai_tool_spec_impl")
+    name = _core_get(fn, "name", None)
+    description = _core_get(fn, "description", "")
+    parameters = _core_get(fn, "parameters", None)
+    function = {}
+    function["name"] = name
+    function["description"] = description
+    has_parameters = _core_truthy(parameters)
+    if has_parameters:
+        function["parameters"] = parameters
+    else:
+        pass
+    out = {}
+    out["type"] = "function"
+    out["function"] = function
+    return out
 
 
 def ai_merge_replay_metadata(previous: Any, incoming: Any) -> Any:
@@ -5271,6 +5320,30 @@ def ai_merge_replay_metadata(previous: Any, incoming: Any) -> Any:
     return out
 
 
+def openai_build_embed_request(request: AxEmbedRequest) -> Any:
+    _core_coverage_mark("openai_build_embed_request")
+    embed_model_snake = _core_get(request, "embed_model", None)
+    model = _core_get(request, "embedModel", embed_model_snake)
+    empty_texts = []
+    texts = _core_get(request, "texts", empty_texts)
+    payload = {}
+    payload["model"] = model
+    payload["input"] = texts
+    dimensions = _core_get(request, "dimensions", None)
+    has_dimensions = _core_truthy(dimensions)
+    if has_dimensions:
+        payload["dimensions"] = dimensions
+    else:
+        pass
+    return payload
+
+
+def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
+    _core_coverage_mark("openai_normalize_chat_response")
+    response = _openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none")
+    return response
+
+
 def _openai_usage_with_service_tier(raw: Any, usage: Any) -> Any:
     _core_coverage_mark("_openai_usage_with_service_tier")
     has_usage = _core_is_not_none(usage)
@@ -5331,6 +5404,74 @@ def _openai_normalize_chat_response_impl(raw: Any, ai_name: str, model: str, rea
     out["remote_id"] = remote_id
     out["model_usage"] = model_usage
     return out
+
+
+def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
+    _core_coverage_mark("_chat_result_to_completion")
+    content = _core_get(result, "content", "")
+    calls = []
+    empty_calls = []
+    function_calls = _core_get(result, "function_calls", empty_calls)
+    for call in function_calls:
+        fn = _core_get(call, "function", None)
+        id = _core_get(call, "id", None)
+        flat_name = _core_get(call, "name", None)
+        name = _core_get(fn, "name", flat_name)
+        flat_params = _core_get(call, "params", None)
+        params = _core_get(fn, "params", flat_params)
+        fn_is_map = _core_type_is(fn, "object")
+        fn_has_name = False
+        if fn_is_map:
+            fn_has_name = _core_map_contains(fn, "name")
+        else:
+            pass
+        flat_has_name = _core_map_contains(call, "name")
+        has_name = _core_or(fn_has_name, flat_has_name)
+        compat_call = {}
+        compat_call["id"] = id
+        if has_name:
+            compat_call["name"] = name
+        else:
+            pass
+        compat_call["params"] = params
+        calls.append(compat_call)
+    index = _core_get(result, "index", fallback_index)
+    thought = _core_get(result, "thought", None)
+    has_thought = _core_is_not_none(thought)
+    thought_blocks = _core_get(result, "thought_blocks", None)
+    has_thought_blocks = _core_is_not_none(thought_blocks)
+    completion = {}
+    completion["index"] = index
+    completion["content"] = content
+    completion["function_calls"] = calls
+    if has_thought:
+        completion["thought"] = thought
+    else:
+        pass
+    if has_thought_blocks:
+        completion["thought_blocks"] = thought_blocks
+    else:
+        pass
+    images = _core_get(result, "images", None)
+    has_images = _core_is_not_none(images)
+    if has_images:
+        completion["images"] = images
+    else:
+        pass
+    phase = _core_get(result, "phase", None)
+    has_phase = _core_is_not_none(phase)
+    if has_phase:
+        completion["phase"] = phase
+    else:
+        pass
+    finish_snake = _core_get(result, "finish_reason", None)
+    finish = _core_get(result, "finishReason", finish_snake)
+    has_finish = _core_is_not_none(finish)
+    if has_finish:
+        completion["finish_reason"] = finish
+    else:
+        pass
+    return completion
 
 
 def _openai_normalize_choice_impl(choice: Any, raw: Any, reasoning_content_mode: str, reasoning_details_mode: str) -> Any:
@@ -5406,102 +5547,6 @@ def _openai_normalize_choice_impl(choice: Any, raw: Any, reasoning_content_mode:
     return out
 
 
-def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
-    _core_coverage_mark("_chat_result_to_completion")
-    content = _core_get(result, "content", "")
-    calls = []
-    empty_calls = []
-    function_calls = _core_get(result, "function_calls", empty_calls)
-    for call in function_calls:
-        fn = _core_get(call, "function", None)
-        id = _core_get(call, "id", None)
-        flat_name = _core_get(call, "name", None)
-        name = _core_get(fn, "name", flat_name)
-        flat_params = _core_get(call, "params", None)
-        params = _core_get(fn, "params", flat_params)
-        fn_is_map = _core_type_is(fn, "object")
-        fn_has_name = False
-        if fn_is_map:
-            fn_has_name = _core_map_contains(fn, "name")
-        else:
-            pass
-        flat_has_name = _core_map_contains(call, "name")
-        has_name = _core_or(fn_has_name, flat_has_name)
-        compat_call = {}
-        compat_call["id"] = id
-        if has_name:
-            compat_call["name"] = name
-        else:
-            pass
-        compat_call["params"] = params
-        calls.append(compat_call)
-    index = _core_get(result, "index", fallback_index)
-    thought = _core_get(result, "thought", None)
-    has_thought = _core_is_not_none(thought)
-    thought_blocks = _core_get(result, "thought_blocks", None)
-    has_thought_blocks = _core_is_not_none(thought_blocks)
-    completion = {}
-    completion["index"] = index
-    completion["content"] = content
-    completion["function_calls"] = calls
-    if has_thought:
-        completion["thought"] = thought
-    else:
-        pass
-    if has_thought_blocks:
-        completion["thought_blocks"] = thought_blocks
-    else:
-        pass
-    images = _core_get(result, "images", None)
-    has_images = _core_is_not_none(images)
-    if has_images:
-        completion["images"] = images
-    else:
-        pass
-    phase = _core_get(result, "phase", None)
-    has_phase = _core_is_not_none(phase)
-    if has_phase:
-        completion["phase"] = phase
-    else:
-        pass
-    finish_snake = _core_get(result, "finish_reason", None)
-    finish = _core_get(result, "finishReason", finish_snake)
-    has_finish = _core_is_not_none(finish)
-    if has_finish:
-        completion["finish_reason"] = finish
-    else:
-        pass
-    return completion
-
-
-def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
-    _core_coverage_mark("_openai_normalize_tool_calls_impl")
-    out = []
-    for call in calls:
-        fn = _core_get(call, "function", None)
-        params = _core_get(fn, "arguments", None)
-        params_is_string = _core_type_is(params, "string")
-        if params_is_string:
-            try:
-                parsed_params = _core_json_parse(params)
-                params = parsed_params
-            except Exception as parse_error:
-                pass
-        else:
-            pass
-        id = _core_get(call, "id", None)
-        name = _core_get(fn, "name", None)
-        function = {}
-        function["name"] = name
-        function["params"] = params
-        normalized = {}
-        normalized["id"] = id
-        normalized["type"] = "function"
-        normalized["function"] = function
-        out.append(normalized)
-    return out
-
-
 def chat_response_to_completion(response: AxChatResponse) -> Any:
     _core_coverage_mark("chat_response_to_completion")
     has_routing = _core_map_contains(response, "routing")
@@ -5570,52 +5615,31 @@ def chat_response_to_completion(response: AxChatResponse) -> Any:
     return out
 
 
-def _openai_finish_reason_impl(value: Any) -> Any:
-    _core_coverage_mark("_openai_finish_reason_impl")
-    is_stop = _core_eq(value, "stop")
-    if is_stop:
-        return "stop"
-    else:
-        pass
-    is_length = _core_eq(value, "length")
-    if is_length:
-        return "length"
-    else:
-        pass
-    is_content_filter = _core_eq(value, "content_filter")
-    if is_content_filter:
-        return "error"
-    else:
-        pass
-    is_tool_calls = _core_eq(value, "tool_calls")
-    is_function_call = _core_eq(value, "function_call")
-    is_call = _core_or(is_tool_calls, is_function_call)
-    if is_call:
-        return "function_call"
-    else:
-        pass
-    none = _core_none()
-    return none
-
-
-def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:
-    _core_coverage_mark("openai_normalize_embed_response")
-    embeddings = []
-    empty_data = []
-    data = _core_get(raw, "data", empty_data)
-    for item in data:
-        embedding = _core_get(item, "embedding", None)
-        embeddings.append(embedding)
-    raw_model = _core_get(raw, "model", None)
-    used_model = _core_coalesce(raw_model, model)
-    raw_usage = _core_get(raw, "usage", None)
-    usage = _openai_usage_with_service_tier(raw, raw_usage)
-    model_usage = _ai_model_usage_impl(ai_name, used_model, usage)
-    remote_id = _core_get(raw, "id", None)
-    out = {}
-    out["embeddings"] = embeddings
-    out["remote_id"] = remote_id
-    out["model_usage"] = model_usage
+def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
+    _core_coverage_mark("_openai_normalize_tool_calls_impl")
+    out = []
+    for call in calls:
+        fn = _core_get(call, "function", None)
+        params = _core_get(fn, "arguments", None)
+        params_is_string = _core_type_is(params, "string")
+        if params_is_string:
+            try:
+                parsed_params = _core_json_parse(params)
+                params = parsed_params
+            except Exception as parse_error:
+                pass
+        else:
+            pass
+        id = _core_get(call, "id", None)
+        name = _core_get(fn, "name", None)
+        function = {}
+        function["name"] = name
+        function["params"] = params
+        normalized = {}
+        normalized["id"] = id
+        normalized["type"] = "function"
+        normalized["function"] = function
+        out.append(normalized)
     return out
 
 
@@ -5649,10 +5673,32 @@ def ai_context_cache_rejection(status: number, body_json: Any) -> bool:
     return out
 
 
-def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
-    _core_coverage_mark("openai_normalize_stream_delta")
-    response = _openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none")
-    return response
+def _openai_finish_reason_impl(value: Any) -> Any:
+    _core_coverage_mark("_openai_finish_reason_impl")
+    is_stop = _core_eq(value, "stop")
+    if is_stop:
+        return "stop"
+    else:
+        pass
+    is_length = _core_eq(value, "length")
+    if is_length:
+        return "length"
+    else:
+        pass
+    is_content_filter = _core_eq(value, "content_filter")
+    if is_content_filter:
+        return "error"
+    else:
+        pass
+    is_tool_calls = _core_eq(value, "tool_calls")
+    is_function_call = _core_eq(value, "function_call")
+    is_call = _core_or(is_tool_calls, is_function_call)
+    if is_call:
+        return "function_call"
+    else:
+        pass
+    none = _core_none()
+    return none
 
 
 def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
@@ -5669,51 +5715,22 @@ def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
     return 0
 
 
-def _openai_normalize_stream_delta_impl(raw: Any, state: Any, ai_name: str, model: str, reasoning_content_mode: str, reasoning_details_mode: str) -> AxChatResponse:
-    _core_coverage_mark("_openai_normalize_stream_delta_impl")
-    raw_is_object = _core_type_is(raw, "object")
-    raw_not_object = _core_not(raw_is_object)
-    if raw_not_object:
-        error = _core_ai_error_stream("provider stream event must be a JSON object", raw, True)
-        raise error
-    else:
-        pass
-    provider_error = _core_get(raw, "error", None)
-    has_provider_error = _core_truthy(provider_error)
-    if has_provider_error:
-        message = _core_get(provider_error, "message", "provider stream error")
-        error = _core_ai_error_stream(message, raw, True)
-        raise error
-    else:
-        pass
-    index_ids = _core_get(state, "index_ids", None)
-    missing_index_ids = _core_is_none(index_ids)
-    if missing_index_ids:
-        new_index_ids = {}
-        state["index_ids"] = new_index_ids
-        index_ids = new_index_ids
-    else:
-        pass
-    raw_remote_id = _core_get(raw, "id", None)
-    has_raw_remote_id = _core_truthy(raw_remote_id)
-    if has_raw_remote_id:
-        state["remote_id"] = raw_remote_id
-    else:
-        pass
-    remote_id = _core_get(state, "remote_id", raw_remote_id)
-    results = []
-    empty_choices = []
-    choices = _core_get(raw, "choices", empty_choices)
-    for choice in choices:
-        result = _openai_stream_choice_impl(choice, index_ids, reasoning_content_mode, reasoning_details_mode)
-        results.append(result)
+def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:
+    _core_coverage_mark("openai_normalize_embed_response")
+    embeddings = []
+    empty_data = []
+    data = _core_get(raw, "data", empty_data)
+    for item in data:
+        embedding = _core_get(item, "embedding", None)
+        embeddings.append(embedding)
     raw_model = _core_get(raw, "model", None)
     used_model = _core_coalesce(raw_model, model)
     raw_usage = _core_get(raw, "usage", None)
     usage = _openai_usage_with_service_tier(raw, raw_usage)
     model_usage = _ai_model_usage_impl(ai_name, used_model, usage)
+    remote_id = _core_get(raw, "id", None)
     out = {}
-    out["results"] = results
+    out["embeddings"] = embeddings
     out["remote_id"] = remote_id
     out["model_usage"] = model_usage
     return out
@@ -5768,87 +5785,59 @@ def ai_context_cache_plan(configured: bool, supported: bool, explicit_name: str,
     return out
 
 
-def _openai_stream_choice_impl(choice: Any, index_ids: Any, reasoning_content_mode: str, reasoning_details_mode: str) -> Any:
-    _core_coverage_mark("_openai_stream_choice_impl")
-    empty_delta = {}
-    delta = _core_get(choice, "delta", empty_delta)
-    calls = []
-    empty_tool_calls = []
-    tool_calls = _core_get(delta, "tool_calls", empty_tool_calls)
-    for call in tool_calls:
-        call_index = _core_get(call, "index", 0)
-        call_id = _core_get(call, "id", None)
-        has_call_id = _core_truthy(call_id)
-        if has_call_id:
-            index_ids[call_index] = call_id
-        else:
-            pass
-        stable_id = _core_get(index_ids, call_index, None)
-        has_stable_id = _core_truthy(stable_id)
-        if has_stable_id:
-            fn = _core_get(call, "function", None)
-            name = _core_get(fn, "name", None)
-            arguments = _core_get(fn, "arguments", None)
-            function = {}
-            function["name"] = name
-            function["params"] = arguments
-            normalized = {}
-            normalized["id"] = stable_id
-            normalized["type"] = "function"
-            normalized["function"] = function
-            calls.append(normalized)
-        else:
-            pass
-    index = _core_get(choice, "index", 0)
-    id = _core_string_str(index)
-    content = _core_get(delta, "content", None)
-    reasoning_content = _core_get(delta, reasoning_content_mode, None)
-    has_reasoning_content = _core_truthy(reasoning_content)
-    is_no_reasoning = _core_eq(reasoning_content_mode, "none")
-    has_reasoning_mode = _core_not(is_no_reasoning)
-    include_reasoning_content = _core_and(has_reasoning_mode, has_reasoning_content)
-    finish_reason_raw = _core_get(choice, "finish_reason", None)
-    finish_reason = _openai_finish_reason_impl(finish_reason_raw)
+def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
+    _core_coverage_mark("openai_normalize_stream_delta")
+    response = _openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none")
+    return response
+
+
+def _openai_normalize_stream_delta_impl(raw: Any, state: Any, ai_name: str, model: str, reasoning_content_mode: str, reasoning_details_mode: str) -> AxChatResponse:
+    _core_coverage_mark("_openai_normalize_stream_delta_impl")
+    raw_is_object = _core_type_is(raw, "object")
+    raw_not_object = _core_not(raw_is_object)
+    if raw_not_object:
+        error = _core_ai_error_stream("provider stream event must be a JSON object", raw, True)
+        raise error
+    else:
+        pass
+    provider_error = _core_get(raw, "error", None)
+    has_provider_error = _core_truthy(provider_error)
+    if has_provider_error:
+        message = _core_get(provider_error, "message", "provider stream error")
+        error = _core_ai_error_stream(message, raw, True)
+        raise error
+    else:
+        pass
+    index_ids = _core_get(state, "index_ids", None)
+    missing_index_ids = _core_is_none(index_ids)
+    if missing_index_ids:
+        new_index_ids = {}
+        state["index_ids"] = new_index_ids
+        index_ids = new_index_ids
+    else:
+        pass
+    raw_remote_id = _core_get(raw, "id", None)
+    has_raw_remote_id = _core_truthy(raw_remote_id)
+    if has_raw_remote_id:
+        state["remote_id"] = raw_remote_id
+    else:
+        pass
+    remote_id = _core_get(state, "remote_id", raw_remote_id)
+    results = []
+    empty_choices = []
+    choices = _core_get(raw, "choices", empty_choices)
+    for choice in choices:
+        result = _openai_stream_choice_impl(choice, index_ids, reasoning_content_mode, reasoning_details_mode)
+        results.append(result)
+    raw_model = _core_get(raw, "model", None)
+    used_model = _core_coalesce(raw_model, model)
+    raw_usage = _core_get(raw, "usage", None)
+    usage = _openai_usage_with_service_tier(raw, raw_usage)
+    model_usage = _ai_model_usage_impl(ai_name, used_model, usage)
     out = {}
-    out["index"] = index
-    out["id"] = id
-    out["content"] = content
-    if include_reasoning_content:
-        out["thought"] = reasoning_content
-        thought_blocks = []
-        thought_block = {}
-        thought_block["data"] = reasoning_content
-        thought_block["encrypted"] = False
-        thought_blocks.append(thought_block)
-        out["thought_blocks"] = thought_blocks
-    else:
-        pass
-    is_no_details = _core_eq(reasoning_details_mode, "none")
-    has_details_mode = _core_not(is_no_details)
-    reasoning_details = _core_get(delta, reasoning_details_mode, None)
-    has_reasoning_details = _core_truthy(reasoning_details)
-    include_reasoning_details = _core_and(has_details_mode, has_reasoning_details)
-    if include_reasoning_details:
-        detail_blocks = []
-        for detail in reasoning_details:
-            detail_block = {}
-            data = _core_json_stringify(detail)
-            detail_block["data"] = data
-            type = _core_get(detail, "type", "")
-            encrypted = _core_contains(type, "encrypted")
-            detail_block["encrypted"] = encrypted
-            detail_id = _core_get(detail, "id", None)
-            has_detail_id = _core_truthy(detail_id)
-            if has_detail_id:
-                detail_block["signature"] = detail_id
-            else:
-                pass
-            detail_blocks.append(detail_block)
-        out["thought_blocks"] = detail_blocks
-    else:
-        pass
-    out["function_calls"] = calls
-    out["finish_reason"] = finish_reason
+    out["results"] = results
+    out["remote_id"] = remote_id
+    out["model_usage"] = model_usage
     return out
 
 
@@ -5944,53 +5933,88 @@ def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, mode
     return out
 
 
-def openai_normalize_error(status: int, body: Any, request: Any = None) -> AxAIServiceError:
-    _core_coverage_mark("openai_normalize_error")
-    message = body
-    code = _core_none()
-    body_is_object = _core_type_is(body, "object")
-    if body_is_object:
-        error_body = _core_get(body, "error", body)
-        error_is_object = _core_type_is(error_body, "object")
-        if error_is_object:
-            body_text = _core_string_str(body)
-            message_value = _core_get(error_body, "message", body_text)
-            code_value = _core_get(error_body, "code", None)
-            message = message_value
-            code = code_value
+def _openai_stream_choice_impl(choice: Any, index_ids: Any, reasoning_content_mode: str, reasoning_details_mode: str) -> Any:
+    _core_coverage_mark("_openai_stream_choice_impl")
+    empty_delta = {}
+    delta = _core_get(choice, "delta", empty_delta)
+    calls = []
+    empty_tool_calls = []
+    tool_calls = _core_get(delta, "tool_calls", empty_tool_calls)
+    for call in tool_calls:
+        call_index = _core_get(call, "index", 0)
+        call_id = _core_get(call, "id", None)
+        has_call_id = _core_truthy(call_id)
+        if has_call_id:
+            index_ids[call_index] = call_id
         else:
-            message_value = _core_string_str(error_body)
-            message = message_value
+            pass
+        stable_id = _core_get(index_ids, call_index, None)
+        has_stable_id = _core_truthy(stable_id)
+        if has_stable_id:
+            fn = _core_get(call, "function", None)
+            name = _core_get(fn, "name", None)
+            arguments = _core_get(fn, "arguments", None)
+            function = {}
+            function["name"] = name
+            function["params"] = arguments
+            normalized = {}
+            normalized["id"] = stable_id
+            normalized["type"] = "function"
+            normalized["function"] = function
+            calls.append(normalized)
+        else:
+            pass
+    index = _core_get(choice, "index", 0)
+    id = _core_string_str(index)
+    content = _core_get(delta, "content", None)
+    reasoning_content = _core_get(delta, reasoning_content_mode, None)
+    has_reasoning_content = _core_truthy(reasoning_content)
+    is_no_reasoning = _core_eq(reasoning_content_mode, "none")
+    has_reasoning_mode = _core_not(is_no_reasoning)
+    include_reasoning_content = _core_and(has_reasoning_mode, has_reasoning_content)
+    finish_reason_raw = _core_get(choice, "finish_reason", None)
+    finish_reason = _openai_finish_reason_impl(finish_reason_raw)
+    out = {}
+    out["index"] = index
+    out["id"] = id
+    out["content"] = content
+    if include_reasoning_content:
+        out["thought"] = reasoning_content
+        thought_blocks = []
+        thought_block = {}
+        thought_block["data"] = reasoning_content
+        thought_block["encrypted"] = False
+        thought_blocks.append(thought_block)
+        out["thought_blocks"] = thought_blocks
     else:
         pass
-    is_401 = _core_eq(status, 401)
-    is_403 = _core_eq(status, 403)
-    is_auth = _core_or(is_401, is_403)
-    if is_auth:
-        error = _core_ai_error_auth(message, status, code, body, request)
-        return error
+    is_no_details = _core_eq(reasoning_details_mode, "none")
+    has_details_mode = _core_not(is_no_details)
+    reasoning_details = _core_get(delta, reasoning_details_mode, None)
+    has_reasoning_details = _core_truthy(reasoning_details)
+    include_reasoning_details = _core_and(has_details_mode, has_reasoning_details)
+    if include_reasoning_details:
+        detail_blocks = []
+        for detail in reasoning_details:
+            detail_block = {}
+            data = _core_json_stringify(detail)
+            detail_block["data"] = data
+            type = _core_get(detail, "type", "")
+            encrypted = _core_contains(type, "encrypted")
+            detail_block["encrypted"] = encrypted
+            detail_id = _core_get(detail, "id", None)
+            has_detail_id = _core_truthy(detail_id)
+            if has_detail_id:
+                detail_block["signature"] = detail_id
+            else:
+                pass
+            detail_blocks.append(detail_block)
+        out["thought_blocks"] = detail_blocks
     else:
         pass
-    is_408 = _core_eq(status, 408)
-    is_504 = _core_eq(status, 504)
-    is_timeout = _core_or(is_408, is_504)
-    if is_timeout:
-        error = _core_ai_error_timeout(message, status, code, body, request, True)
-        return error
-    else:
-        pass
-    is_429 = _core_eq(status, 429)
-    is_500 = _core_eq(status, 500)
-    is_502 = _core_eq(status, 502)
-    is_503 = _core_eq(status, 503)
-    is_529 = _core_eq(status, 529)
-    retry_left = _core_or(is_429, is_500)
-    retry_right = _core_or(is_502, is_503)
-    retry_some = _core_or(retry_left, retry_right)
-    retry_more = _core_or(retry_some, is_504)
-    retryable = _core_or(retry_more, is_529)
-    error = _core_ai_error_status(message, status, code, body, request, retryable)
-    return error
+    out["function_calls"] = calls
+    out["finish_reason"] = finish_reason
+    return out
 
 
 def fold_chat_response_stream(events: list[Any]) -> Any:
@@ -6047,31 +6071,53 @@ def fold_chat_response_stream(events: list[Any]) -> Any:
     return response
 
 
-def provider_normalize_profile(profile: str) -> str:
-    _core_coverage_mark("provider_normalize_profile")
-    normalized = _core_string_lower(profile)
-    aliases = _core_json_parse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n")
-    provider_id = _core_get(aliases, normalized, "")
-    return provider_id
-
-
-def provider_profile_registry() -> Any:
-    _core_coverage_mark("provider_profile_registry")
-    registry = _core_json_parse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n")
-    return registry
-
-
-def provider_resolve_profile(profile: str) -> Any:
-    _core_coverage_mark("provider_resolve_profile")
-    normalized = _core_string_lower(profile)
-    aliases = _core_json_parse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n")
-    is_known = _core_map_contains(aliases, normalized)
-    provider_id = provider_normalize_profile(profile)
-    resolved = {}
-    resolved["id"] = provider_id
-    resolved["known"] = is_known
-    resolved["input"] = profile
-    return resolved
+def openai_normalize_error(status: int, body: Any, request: Any = None) -> AxAIServiceError:
+    _core_coverage_mark("openai_normalize_error")
+    message = body
+    code = _core_none()
+    body_is_object = _core_type_is(body, "object")
+    if body_is_object:
+        error_body = _core_get(body, "error", body)
+        error_is_object = _core_type_is(error_body, "object")
+        if error_is_object:
+            body_text = _core_string_str(body)
+            message_value = _core_get(error_body, "message", body_text)
+            code_value = _core_get(error_body, "code", None)
+            message = message_value
+            code = code_value
+        else:
+            message_value = _core_string_str(error_body)
+            message = message_value
+    else:
+        pass
+    is_401 = _core_eq(status, 401)
+    is_403 = _core_eq(status, 403)
+    is_auth = _core_or(is_401, is_403)
+    if is_auth:
+        error = _core_ai_error_auth(message, status, code, body, request)
+        return error
+    else:
+        pass
+    is_408 = _core_eq(status, 408)
+    is_504 = _core_eq(status, 504)
+    is_timeout = _core_or(is_408, is_504)
+    if is_timeout:
+        error = _core_ai_error_timeout(message, status, code, body, request, True)
+        return error
+    else:
+        pass
+    is_429 = _core_eq(status, 429)
+    is_500 = _core_eq(status, 500)
+    is_502 = _core_eq(status, 502)
+    is_503 = _core_eq(status, 503)
+    is_529 = _core_eq(status, 529)
+    retry_left = _core_or(is_429, is_500)
+    retry_right = _core_or(is_502, is_503)
+    retry_some = _core_or(retry_left, retry_right)
+    retry_more = _core_or(retry_some, is_504)
+    retryable = _core_or(retry_more, is_529)
+    error = _core_ai_error_status(message, status, code, body, request, retryable)
+    return error
 
 
 def _fold_chat_stream_chunk_impl(target: Any, chunk: Any) -> None:
@@ -6162,6 +6208,33 @@ def _fold_chat_stream_chunk_impl(target: Any, chunk: Any) -> None:
     else:
         pass
     return None
+
+
+def provider_normalize_profile(profile: str) -> str:
+    _core_coverage_mark("provider_normalize_profile")
+    normalized = _core_string_lower(profile)
+    aliases = _core_json_parse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n")
+    provider_id = _core_get(aliases, normalized, "")
+    return provider_id
+
+
+def provider_profile_registry() -> Any:
+    _core_coverage_mark("provider_profile_registry")
+    registry = _core_json_parse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n")
+    return registry
+
+
+def provider_resolve_profile(profile: str) -> Any:
+    _core_coverage_mark("provider_resolve_profile")
+    normalized = _core_string_lower(profile)
+    aliases = _core_json_parse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n")
+    is_known = _core_map_contains(aliases, normalized)
+    provider_id = provider_normalize_profile(profile)
+    resolved = {}
+    resolved["id"] = provider_id
+    resolved["known"] = is_known
+    resolved["input"] = profile
+    return resolved
 
 
 def provider_model_catalog_summary() -> Any:
@@ -9931,6 +10004,7 @@ def provider_build_speak_request(profile: str, request: Any) -> Any:
     dialect = _core_get(operation, "dialect", "openai-speech")
     is_gemini = _core_eq(dialect, "gemini-generate-content")
     is_xai = _core_eq(dialect, "xai-speech")
+    is_mistral = _core_eq(dialect, "mistral-speech")
     payload = {}
     if is_gemini:
         gemini_payload = _gemini_build_speak_request(request)
@@ -9940,8 +10014,12 @@ def provider_build_speak_request(profile: str, request: Any) -> Any:
             xai_payload = _grok_build_speak_request(request)
             payload = xai_payload
         else:
-            responses_payload = openai_responses_build_speak_request(request)
-            payload = responses_payload
+            if is_mistral:
+                mistral_payload = _mistral_build_speak_request(request)
+                payload = mistral_payload
+            else:
+                responses_payload = openai_responses_build_speak_request(request)
+                payload = responses_payload
     return payload
 
 
@@ -10279,7 +10357,7 @@ def _meta_normalize_transcribe_response(raw: Any, request: Any) -> Any:
     return out
 
 
-def provider_normalize_speak_response(profile: str, raw: Any, request: Any) -> Any:
+def provider_normalize_speak_response(profile: str, raw: Any, request: Any, content_type: Any) -> Any:
     _core_coverage_mark("provider_normalize_speak_response")
     provider_id = provider_normalize_profile(profile)
     descriptor = provider_descriptor(provider_id)
@@ -10292,13 +10370,21 @@ def provider_normalize_speak_response(profile: str, raw: Any, request: Any) -> A
         return gemini_out
     else:
         pass
-    data = _core_get(raw, "audio", raw)
+    transcript = _speech_request_text_impl(request)
     format = _core_get(request, "format", "mp3")
+    raw_is_text = _core_type_is(raw, "string")
+    speech = {}
+    if raw_is_text:
+        binary_speech = _speech_binary_response_impl(raw, content_type, format, transcript)
+        speech = binary_speech
+    else:
+        json_speech = _speech_json_response_impl(raw, format, transcript)
+        speech = json_speech
     out = {}
+    data = _core_get(speech, "data", None)
     out["audio"] = data
-    out["format"] = format
-    speech = _speech_response_ts_keys_impl(out, raw, request)
-    return speech
+    out = _core_map_merge(out, speech)
+    return out
 
 
 def provider_normalize_realtime_event(profile: str, event: Any, state: Any, ai_name: str, model: str) -> AxChatResponse:
@@ -10773,12 +10859,16 @@ def _openai_responses_content_part_impl(part: Any, role: str) -> Any:
     if is_audio:
         audio_alt = _core_get(part, "audio", None)
         data = _core_get(part, "data", audio_alt)
-        format = _core_get(part, "format", "wav")
+        format = _core_get(part, "format", None)
         out = {}
         out["type"] = "input_audio"
         input_audio = {}
         input_audio["data"] = data
-        input_audio["format"] = format
+        has_format = _core_is_not_none(format)
+        if has_format:
+            input_audio["format"] = format
+        else:
+            pass
         out["input_audio"] = input_audio
         _openai_responses_copy_cache_control_impl(out, part)
         return out
@@ -10828,10 +10918,7 @@ def _openai_responses_content_part_impl(part: Any, role: str) -> Any:
     if is_url:
         out = {}
         out["type"] = "input_text"
-        cached_snake = _core_get(part, "cached_content", None)
-        cached = _core_get(part, "cachedContent", cached_snake)
-        url = _core_get(part, "url", "")
-        text = _core_coalesce(cached, url)
+        text = _url_part_text_impl(part)
         out["text"] = text
         _openai_responses_copy_cache_control_impl(out, part)
         return out
@@ -11346,16 +11433,74 @@ def openai_responses_build_transcribe_request(request: Any) -> Any:
 def openai_responses_build_speak_request(request: Any) -> Any:
     _core_coverage_mark("openai_responses_build_speak_request")
     payload = {}
-    speak_model = _core_get(request, "model", "tts-1")
+    speak_model = _speech_request_model_impl(request, "gpt-4o-mini-tts")
     request_input = _core_get(request, "input", "")
     speak_input = _core_get(request, "text", request_input)
-    voice = _core_get(request, "voice", "alloy")
+    voice = _speech_request_voice_impl(request)
+    has_voice = _core_is_not_none(voice)
+    if has_voice:
+        pass
+    else:
+        voice = "alloy"
     response_format = _core_get(request, "format", "mp3")
+    is_pcm16 = _core_eq(response_format, "pcm16")
+    if is_pcm16:
+        response_format = "pcm"
+    else:
+        pass
     payload["model"] = speak_model
     payload["input"] = speak_input
     payload["voice"] = voice
     payload["response_format"] = response_format
+    speed = _core_get(request, "speed", None)
+    has_speed = _core_is_not_none(speed)
+    if has_speed:
+        payload["speed"] = speed
+    else:
+        pass
     return payload
+
+
+def _mistral_build_speak_request(request: Any) -> Any:
+    _core_coverage_mark("_mistral_build_speak_request")
+    payload = {}
+    speak_model = _speech_request_model_impl(request, "voxtral-mini-tts-2603")
+    request_input = _core_get(request, "input", "")
+    speak_input = _core_get(request, "text", request_input)
+    response_format = _core_get(request, "format", "mp3")
+    payload["model"] = speak_model
+    payload["input"] = speak_input
+    payload["response_format"] = response_format
+    voice = _speech_request_voice_impl(request)
+    has_voice = _core_truthy(voice)
+    if has_voice:
+        payload["voice_id"] = voice
+    else:
+        pass
+    return payload
+
+
+def _speech_request_model_impl(request: Any, fallback: str) -> Any:
+    _core_coverage_mark("_speech_request_model_impl")
+    model = _core_get(request, "model", None)
+    is_text = _core_type_is(model, "string")
+    if is_text:
+        return model
+    else:
+        pass
+    return fallback
+
+
+def _speech_request_voice_impl(request: Any) -> Any:
+    _core_coverage_mark("_speech_request_voice_impl")
+    voice = _core_get(request, "voice", None)
+    is_object = _core_type_is(voice, "object")
+    if is_object:
+        voice_id = _core_get(voice, "id", None)
+        return voice_id
+    else:
+        pass
+    return voice
 
 
 def _grok_build_transcribe_request(request: Any) -> Any:
@@ -11414,6 +11559,12 @@ def _grok_build_speak_request(request: Any) -> Any:
     payload["voice_id"] = voice_id
     payload["language"] = language
     payload["output_format"] = output_format
+    speed = _core_get(request, "speed", None)
+    has_speed = _core_is_not_none(speed)
+    if has_speed:
+        payload["speed"] = speed
+    else:
+        pass
     return payload
 
 
@@ -11517,93 +11668,51 @@ def _gemini_normalize_transcribe_response(raw: Any) -> Any:
 
 def _gemini_normalize_speak_response(raw: Any, request: Any) -> Any:
     _core_coverage_mark("_gemini_normalize_speak_response")
-    audio = _core_get(raw, "audio", None)
-    format = _core_get(request, "format", "wav")
-    mime_type = ""
-    empty_candidates = []
-    candidates = _core_get(raw, "candidates", empty_candidates)
-    for candidate in candidates:
-        content = _core_get(candidate, "content", None)
-        empty_parts = []
-        parts = _core_get(content, "parts", empty_parts)
-        for part in parts:
-            inline_data = _core_get(part, "inlineData", None)
-            data = _core_get(inline_data, "data", None)
-            has_data = _core_is_not_none(data)
-            if has_data:
-                audio = data
-                part_mime = _core_get(inline_data, "mimeType", "")
-                mime_type = part_mime
-            else:
-                pass
-    has_audio = _core_is_not_none(audio)
-    if has_audio:
-        pass
-    else:
-        audio = raw
-    mime_lower = _core_string_lower(mime_type)
-    is_pcm_mime = _core_contains(mime_lower, "pcm")
-    if is_pcm_mime:
-        format = "pcm"
-    else:
-        pass
-    is_pcm16_mime = _core_contains(mime_lower, "pcm16")
-    is_l16_mime = _core_contains(mime_lower, "l16")
-    is_linear16 = _core_or(is_pcm16_mime, is_l16_mime)
-    if is_linear16:
-        format = "pcm16"
-    else:
-        pass
-    is_wav_mime = _core_contains(mime_lower, "wav")
-    if is_wav_mime:
-        format = "wav"
-    else:
-        pass
+    transcript = _speech_request_text_impl(request)
+    none = _core_none()
+    speech = _speech_json_response_impl(raw, none, transcript)
     out = {}
-    out["audio"] = audio
-    out["format"] = format
-    has_mime = _core_truthy(mime_type)
-    if has_mime:
-        out["mime_type"] = mime_type
-        mime_params = _audio_mime_params_impl(mime_type)
+    data = _core_get(speech, "data", None)
+    out["audio"] = data
+    named_mime = _speech_json_named_mime_type_impl(raw)
+    has_named_mime = _core_truthy(named_mime)
+    if has_named_mime:
+        out["mime_type"] = named_mime
+        mime_params = _audio_mime_params_impl(named_mime)
         out = _core_map_merge(out, mime_params)
     else:
         pass
-    speech = _speech_response_ts_keys_impl(out, raw, request)
-    return speech
+    out = _core_map_merge(out, speech)
+    return out
 
 
-def _speech_response_ts_keys_impl(out: Any, raw: Any, request: Any) -> Any:
-    _core_coverage_mark("_speech_response_ts_keys_impl")
-    data = _core_get(out, "audio", None)
+def _speech_request_text_impl(request: Any) -> Any:
+    _core_coverage_mark("_speech_request_text_impl")
+    request_input = _core_get(request, "input", None)
+    text = _core_get(request, "text", request_input)
+    return text
+
+
+def _speech_response_impl(data: Any, format: Any, mime_type: str, transcript: Any) -> Any:
+    _core_coverage_mark("_speech_response_impl")
+    out = {}
     out["data"] = data
-    format = _core_get(out, "format", None)
-    mime_type = _core_get(out, "mime_type", "")
-    has_mime = _core_truthy(mime_type)
-    raw_is_object = _core_type_is(raw, "object")
-    read_raw_mime = _core_not(has_mime)
-    read_raw_mime = _core_and(read_raw_mime, raw_is_object)
-    if read_raw_mime:
-        raw_mime_snake = _core_get(raw, "mime_type", None)
-        snake_is_text = _core_type_is(raw_mime_snake, "string")
-        if snake_is_text:
-            mime_type = raw_mime_snake
+    has_format = _core_is_not_none(format)
+    if has_format:
+        out["format"] = format
+    else:
+        mime_format = _audio_format_from_mime_type_impl(mime_type)
+        has_mime_format = _core_is_not_none(mime_format)
+        if has_mime_format:
+            out["format"] = mime_format
         else:
             pass
-        raw_mime_camel = _core_get(raw, "mimeType", None)
-        camel_is_text = _core_type_is(raw_mime_camel, "string")
-        if camel_is_text:
-            mime_type = raw_mime_camel
-        else:
-            pass
-        has_mime = _core_truthy(mime_type)
-    else:
-        pass
-    if has_mime:
-        pass
-    else:
-        mime_type = _audio_mime_type_impl(format)
     out["mimeType"] = mime_type
+    has_transcript = _core_is_not_none(transcript)
+    if has_transcript:
+        out["transcript"] = transcript
+    else:
+        pass
     params = _audio_mime_params_impl(mime_type)
     sample_rate = _core_get(params, "sample_rate", None)
     has_sample_rate = _core_is_not_none(sample_rate)
@@ -11617,14 +11726,313 @@ def _speech_response_ts_keys_impl(out: Any, raw: Any, request: Any) -> Any:
         out["channels"] = channels
     else:
         pass
-    request_input = _core_get(request, "input", None)
-    text = _core_get(request, "text", request_input)
-    has_text = _core_is_not_none(text)
-    if has_text:
-        out["transcript"] = text
+    return out
+
+
+def _speech_binary_response_impl(data: Any, content_type: Any, format: Any, transcript: Any) -> Any:
+    _core_coverage_mark("_speech_binary_response_impl")
+    mime_type = _audio_mime_type_impl(format)
+    has_content_type = _core_truthy(content_type)
+    if has_content_type:
+        mime_type = content_type
     else:
         pass
-    return out
+    speech = _speech_response_impl(data, format, mime_type, transcript)
+    return speech
+
+
+def _speech_json_response_impl(json: Any, format: Any, transcript: Any) -> Any:
+    _core_coverage_mark("_speech_json_response_impl")
+    data = _speech_json_data_impl(json)
+    data_is_text = _core_type_is(data, "string")
+    if data_is_text:
+        pass
+    else:
+        json_is_object = _core_type_is(json, "object")
+        older = _core_none()
+        if json_is_object:
+            older = _core_get(json, "audio", None)
+        else:
+            pass
+        older_is_text = _core_type_is(older, "string")
+        if older_is_text:
+            _core_axgen_deprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")
+            data = older
+        else:
+            error = _core_ai_error_response("Speech response JSON did not include audio data", json)
+            raise error
+    mime_type = _speech_json_named_mime_type_impl(json)
+    has_mime = _core_truthy(mime_type)
+    if has_mime:
+        pass
+    else:
+        mime_type = _audio_mime_type_impl(format)
+    speech = _speech_response_impl(data, format, mime_type, transcript)
+    return speech
+
+
+def _speech_json_data_impl(json: Any) -> Any:
+    _core_coverage_mark("_speech_json_data_impl")
+    none = _core_none()
+    json_is_object = _core_type_is(json, "object")
+    if json_is_object:
+        pass
+    else:
+        return none
+    audio_data = _core_get(json, "audio_data", None)
+    has_audio_data = _core_is_not_none(audio_data)
+    if has_audio_data:
+        return audio_data
+    else:
+        pass
+    audio_data_camel = _core_get(json, "audioData", None)
+    has_audio_data_camel = _core_is_not_none(audio_data_camel)
+    if has_audio_data_camel:
+        return audio_data_camel
+    else:
+        pass
+    data = _core_get(json, "data", None)
+    has_data = _core_is_not_none(data)
+    if has_data:
+        return data
+    else:
+        pass
+    audio = _core_get(json, "audio", None)
+    audio_is_object = _core_type_is(audio, "object")
+    if audio_is_object:
+        audio_inner = _core_get(audio, "data", None)
+        has_audio_inner = _core_is_not_none(audio_inner)
+        if has_audio_inner:
+            return audio_inner
+        else:
+            pass
+    else:
+        pass
+    output = _core_get(json, "output", None)
+    output_is_object = _core_type_is(output, "object")
+    if output_is_object:
+        output_audio = _core_get(output, "audio", None)
+        output_audio_is_object = _core_type_is(output_audio, "object")
+        if output_audio_is_object:
+            output_data = _core_get(output_audio, "data", None)
+            has_output_data = _core_is_not_none(output_data)
+            if has_output_data:
+                return output_data
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
+    parts = _speech_json_candidate_parts_impl(json)
+    for part in parts:
+        inline = _core_get(part, "inlineData", None)
+        inline_data = _core_none()
+        inline_is_object = _core_type_is(inline, "object")
+        if inline_is_object:
+            inline_data = _core_get(inline, "data", None)
+        else:
+            pass
+        snake = _core_get(part, "inline_data", None)
+        snake_data = _core_none()
+        snake_is_object = _core_type_is(snake, "object")
+        if snake_is_object:
+            snake_data = _core_get(snake, "data", None)
+        else:
+            pass
+        has_inline_data = _core_truthy(inline_data)
+        has_snake_data = _core_truthy(snake_data)
+        has_any = _core_or(has_inline_data, has_snake_data)
+        if has_any:
+            has_camel = _core_is_not_none(inline_data)
+            if has_camel:
+                return inline_data
+            else:
+                pass
+            break
+        else:
+            pass
+    for part in parts:
+        snake = _core_get(part, "inline_data", None)
+        snake_is_object = _core_type_is(snake, "object")
+        if snake_is_object:
+            snake_data = _core_get(snake, "data", None)
+            has_snake_data = _core_truthy(snake_data)
+            if has_snake_data:
+                return snake_data
+            else:
+                pass
+        else:
+            pass
+    return none
+
+
+def _speech_json_candidate_parts_impl(json: Any) -> Any:
+    _core_coverage_mark("_speech_json_candidate_parts_impl")
+    parts = []
+    json_is_object = _core_type_is(json, "object")
+    if json_is_object:
+        pass
+    else:
+        return parts
+    candidates = _core_get(json, "candidates", None)
+    candidates_is_list = _core_type_is(candidates, "list")
+    if candidates_is_list:
+        pass
+    else:
+        return parts
+    count = _core_len(candidates)
+    has_candidate = _core_gt(count, 0)
+    if has_candidate:
+        pass
+    else:
+        return parts
+    no_candidate = _core_none()
+    candidate = _core_list_get(candidates, 0, no_candidate)
+    candidate_is_object = _core_type_is(candidate, "object")
+    if candidate_is_object:
+        pass
+    else:
+        return parts
+    content = _core_get(candidate, "content", None)
+    content_is_object = _core_type_is(content, "object")
+    if content_is_object:
+        pass
+    else:
+        return parts
+    content_parts = _core_get(content, "parts", None)
+    content_parts_is_list = _core_type_is(content_parts, "list")
+    if content_parts_is_list:
+        return content_parts
+    else:
+        pass
+    return parts
+
+
+def _speech_json_named_mime_type_impl(json: Any) -> Any:
+    _core_coverage_mark("_speech_json_named_mime_type_impl")
+    none = _core_none()
+    json_is_object = _core_type_is(json, "object")
+    if json_is_object:
+        pass
+    else:
+        return none
+    camel = _core_get(json, "mimeType", None)
+    camel_is_text = _core_type_is(camel, "string")
+    if camel_is_text:
+        return camel
+    else:
+        pass
+    snake = _core_get(json, "mime_type", None)
+    snake_is_text = _core_type_is(snake, "string")
+    if snake_is_text:
+        return snake
+    else:
+        pass
+    parts = _speech_json_candidate_parts_impl(json)
+    for part in parts:
+        inline = _core_get(part, "inlineData", None)
+        inline_is_object = _core_type_is(inline, "object")
+        if inline_is_object:
+            inline_mime = _core_get(inline, "mimeType", None)
+            has_inline_mime = _core_truthy(inline_mime)
+            if has_inline_mime:
+                return inline_mime
+            else:
+                pass
+        else:
+            pass
+    for part in parts:
+        inline_snake = _core_get(part, "inline_data", None)
+        inline_snake_is_object = _core_type_is(inline_snake, "object")
+        if inline_snake_is_object:
+            snake_mime = _core_get(inline_snake, "mime_type", None)
+            has_snake_mime = _core_truthy(snake_mime)
+            if has_snake_mime:
+                return snake_mime
+            else:
+                pass
+        else:
+            pass
+    return none
+
+
+def _audio_format_from_mime_type_impl(mime_type: Any) -> Any:
+    _core_coverage_mark("_audio_format_from_mime_type_impl")
+    none = _core_none()
+    is_text = _core_type_is(mime_type, "string")
+    if is_text:
+        pass
+    else:
+        return none
+    mt = _core_string_lower(mime_type)
+    has_text = _core_truthy(mt)
+    if has_text:
+        pass
+    else:
+        return none
+    is_wav = _core_contains(mt, "wav")
+    if is_wav:
+        return "wav"
+    else:
+        pass
+    is_mpeg = _core_contains(mt, "mpeg")
+    is_mp3 = _core_contains(mt, "mp3")
+    is_mpeg_or_mp3 = _core_or(is_mpeg, is_mp3)
+    if is_mpeg_or_mp3:
+        return "mp3"
+    else:
+        pass
+    is_flac = _core_contains(mt, "flac")
+    if is_flac:
+        return "flac"
+    else:
+        pass
+    is_opus = _core_contains(mt, "opus")
+    if is_opus:
+        return "opus"
+    else:
+        pass
+    is_aac = _core_contains(mt, "aac")
+    if is_aac:
+        return "aac"
+    else:
+        pass
+    is_ogg = _core_contains(mt, "ogg")
+    if is_ogg:
+        return "ogg"
+    else:
+        pass
+    is_mulaw = _core_contains(mt, "mulaw")
+    if is_mulaw:
+        return "mulaw"
+    else:
+        pass
+    is_ulaw = _core_contains(mt, "ulaw")
+    is_basic = _core_contains(mt, "basic")
+    is_ulaw_or_basic = _core_or(is_ulaw, is_basic)
+    if is_ulaw_or_basic:
+        return "ulaw"
+    else:
+        pass
+    is_alaw = _core_contains(mt, "alaw")
+    if is_alaw:
+        return "alaw"
+    else:
+        pass
+    is_pcm16 = _core_contains(mt, "pcm16")
+    is_l16 = _core_contains(mt, "l16")
+    is_linear16 = _core_or(is_pcm16, is_l16)
+    if is_linear16:
+        return "pcm16"
+    else:
+        pass
+    is_pcm = _core_contains(mt, "pcm")
+    if is_pcm:
+        return "pcm"
+    else:
+        pass
+    return none
 
 
 def _audio_mime_type_impl(format: Any) -> str:
@@ -13830,10 +14238,7 @@ def _anthropic_content_part_impl(part: Any) -> Any:
     if is_url:
         out = {}
         out["type"] = "text"
-        cached_snake = _core_get(part, "cached_content", None)
-        cached = _core_get(part, "cachedContent", cached_snake)
-        url = _core_get(part, "url", "")
-        text = _core_coalesce(cached, url)
+        text = _url_part_text_impl(part)
         out["text"] = text
         cache = _core_get(part, "cache", False)
         if cache:
@@ -15307,6 +15712,36 @@ def _tools_to_functions(tools):
         fn = tool.get("function", tool)
         out.append({"name": fn.get("name"), "description": fn.get("description", ""), "parameters": fn.get("parameters")})
     return out
+
+
+class _BinaryBody:
+    """A binary response body as base64 text, with its Content-Type."""
+
+    __slots__ = ("data", "content_type")
+
+    def __init__(self, data: str, content_type: str):
+        self.data = data
+        self.content_type = content_type
+
+
+def _binary_transport_result(result: Any, request: dict[str, Any]):
+    # A transport's binary answer: `body` (base64 text or bytes) with its
+    # headers' Content-Type, or parsed `json`. A JSON Content-Type makes a text
+    # body JSON, as TS reads it.
+    headers = result.get("headers") if isinstance(result, dict) else None
+    content_type = ""
+    if isinstance(headers, dict):
+        for key, value in headers.items():
+            if str(key).lower() == "content-type":
+                content_type = str(value or "")
+    body = _transport_result(result, request)
+    if isinstance(body, (bytes, bytearray)):
+        body = base64.b64encode(bytes(body)).decode()
+    if isinstance(body, str):
+        if "application/json" in content_type:
+            return json.loads(body)
+        return _BinaryBody(body, content_type)
+    return body
 
 
 def _transport_result(result: Any, request: dict[str, Any]):

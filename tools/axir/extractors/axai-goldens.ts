@@ -3926,27 +3926,64 @@ writeFixture('responses-transcribe', {
 });
 
 // TypeScript's AxSpeechResponse for one speak response, from the provider's
-// real speak() against a fetch stub.
+// real speak() against a fetch stub. Mistral and Grok go through ai(), which
+// builds their provider profiles.
 async function tsSpeechResponse(
-  provider: 'openai' | 'google-gemini',
+  provider: 'openai' | 'google-gemini' | 'mistral' | 'grok',
   request: Record<string, unknown>,
   response: () => Response
-): Promise<{ output: Record<string, Json>; body: Json }> {
+): Promise<{ output: Record<string, Json>; body: Json; url: string }> {
   let body: Json = null;
-  const fetch = async (_url: unknown, init?: RequestInit) => {
+  let url = '';
+  const fetch = async (target: unknown, init?: RequestInit) => {
+    url = String(target);
     body = JSON.parse(String(init?.body ?? 'null')) as Json;
     return response();
   };
   const client =
     provider === 'openai'
       ? new AxAIOpenAI({ apiKey: 'test-key', options: { fetch } })
-      : new AxAIGoogleGemini({ apiKey: 'test-key', options: { fetch } });
+      : provider === 'google-gemini'
+        ? new AxAIGoogleGemini({ apiKey: 'test-key', options: { fetch } })
+        : ai({
+            name: provider,
+            apiKey: 'test-key',
+            options: { fetch },
+          } as never);
   const output = await client.speak(request as never);
   return {
     output: JSON.parse(JSON.stringify(output)) as Record<string, Json>,
     body,
+    url,
   };
 }
+
+// TypeScript's speak() error message for one response, or '' when it
+// resolves.
+async function tsSpeechError(
+  provider: 'openai' | 'google-gemini',
+  request: Record<string, unknown>,
+  response: () => Response
+): Promise<string> {
+  try {
+    await tsSpeechResponse(provider, request, response);
+    return '';
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+const jsonResponse = (json: unknown) => () =>
+  new Response(JSON.stringify(json), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+
+const binaryResponse = (bytes: Uint8Array, contentType: string) => () =>
+  new Response(bytes, {
+    status: 200,
+    headers: { 'content-type': contentType },
+  });
 
 // A port's speak() output: its older keys (audio, mime_type, sample_rate),
 // kept until the next major version, next to TypeScript's AxSpeechResponse
@@ -3977,8 +4014,11 @@ function portSpeechOutput(
 
 // The older JSON speak path: TS's axFetchJsonSpeech rejects a JSON body
 // without audio_data, data or audio.data ("Speech response JSON did not
-// include audio data"), but the ports still read its `audio`. They add TS's
-// keys from it: data, the mime type of the format, and the spoken text.
+// include audio data"), but the ports still read its `audio`, with a
+// deprecation warning, until the next major version. They add TS's keys from
+// it: data, the mime type of the format, and the spoken text. (TS's
+// openai-responses client has no speak(); the ports' speak goes through the
+// OpenAI speech builder, so the model defaults to gpt-4o-mini-tts.)
 writeFixture('responses-speak', {
   kind: 'ai_speak',
   provider: 'openai-responses',
@@ -3994,7 +4034,7 @@ writeFixture('responses-speak', {
   expected_transport_request: {
     url: 'https://api.openai.com/v1/audio/speech',
     json: {
-      model: 'tts-1',
+      model: 'gpt-4o-mini-tts',
       input: 'hello',
       voice: 'alloy',
       response_format: 'mp3',
@@ -4002,10 +4042,10 @@ writeFixture('responses-speak', {
   },
 });
 
-// OpenAI's /audio/speech answers with the audio bytes. A port's HTTP
-// transport hands binary speak bodies on as base64 without the Content-Type,
-// so the scripted body is that base64 text; TS reads the same bytes with
-// Content-Type audio/mpeg, and the mime type of mp3 is the same.
+// OpenAI's /audio/speech answers with the audio bytes. A port's transport
+// hands a binary speak body on as base64 text, here with no Content-Type, so
+// the mime type comes from the format; TS reads the same bytes with
+// Content-Type audio/mpeg, the mime type of mp3.
 {
   const bytes = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00]);
   const request = {
@@ -4039,6 +4079,447 @@ writeFixture('responses-speak', {
       json: ts.body,
     },
   });
+}
+
+// Speak requests and responses as TypeScript's real providers build and read
+// them: OpenAI's defaults (gpt-4o-mini-tts, a voice object's id, pcm sent as
+// pcm16, speed), Mistral's and Grok's profile dialects, the JSON bodies
+// axFetchJsonSpeech reads, and Gemini audio with no or snake_case mime data.
+// A port keeps its older keys (audio, format, and Gemini's mime_type,
+// sample_rate and channels) beside TypeScript's.
+{
+  const mp3 = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00]);
+  const wav = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
+  const pcm = new Uint8Array([0x00, 0x00, 0x00, 0x00]);
+  const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64');
+  const speakFixture = async (
+    name: string,
+    provider: 'openai' | 'google-gemini' | 'mistral' | 'grok',
+    request: Record<string, unknown>,
+    response: () => Response,
+    transport: Record<string, Json>,
+    older: (ts: Record<string, Json>) => Record<string, Json>
+  ) => {
+    const ts = await tsSpeechResponse(provider, request, response);
+    // The runners compare the request as a subset, so name the speech keys
+    // TS leaves out (such as Mistral's `voice`) that a port must leave out.
+    const tsKeys = Object.keys((ts.body ?? {}) as Record<string, Json>);
+    const absent = [
+      'model',
+      'voice',
+      'voice_id',
+      'speed',
+      'response_format',
+      'language',
+    ].filter((key) => !tsKeys.includes(key));
+    writeFixture(name, {
+      kind: 'ai_speak',
+      provider,
+      request: request as Json,
+      transport_responses: [{ status: 200, ...transport }],
+      expected_output: portSpeechOutput(older(ts.output), ts.output),
+      expected_transport_request: { url: ts.url, json: ts.body },
+      expected_transport_json_absent: absent,
+    });
+  };
+  const binaryOlder = (ts: Record<string, Json>) => ({
+    audio: ts.data,
+    format: ts.format,
+  });
+
+  await speakFixture(
+    'openai-speak-default-model',
+    'openai',
+    { text: 'Hello there' },
+    binaryResponse(mp3, 'audio/mpeg'),
+    { body: b64(mp3) },
+    binaryOlder
+  );
+  // The port never sees the Content-Type of a binary body, so the stub sends
+  // the type TS's axAudioMimeType gives pcm.
+  await speakFixture(
+    'openai-speak-voice-object-speed-pcm',
+    'openai',
+    { text: 'Hello there', voice: { id: 'verse' }, speed: 1.25, format: 'pcm' },
+    binaryResponse(pcm, 'audio/pcm'),
+    { body: b64(pcm) },
+    binaryOlder
+  );
+  await speakFixture(
+    'mistral-speak-default-model',
+    'mistral',
+    { text: 'Hello there' },
+    binaryResponse(mp3, 'audio/mpeg'),
+    { body: b64(mp3) },
+    binaryOlder
+  );
+  await speakFixture(
+    'mistral-speak-voice-id',
+    'mistral',
+    { text: 'Hello there', voice: 'Paul', format: 'wav' },
+    binaryResponse(wav, 'audio/wav'),
+    { body: b64(wav) },
+    binaryOlder
+  );
+  await speakFixture(
+    'grok-speak-speed',
+    'grok',
+    { text: 'Hello there', speed: 1.2 },
+    binaryResponse(mp3, 'audio/mpeg'),
+    { body: b64(mp3) },
+    binaryOlder
+  );
+  // A binary body's Content-Type is its mime type (here with a rate), as TS
+  // reads it; the ports' hosts hand it on beside the base64 body.
+  await speakFixture(
+    'openai-speak-binary-content-type',
+    'openai',
+    { text: 'Hello there', format: 'pcm' },
+    binaryResponse(pcm, 'audio/pcm;rate=24000'),
+    { body: b64(pcm), headers: { 'content-type': 'audio/pcm;rate=24000' } },
+    binaryOlder
+  );
+  await speakFixture(
+    'openai-speak-json-audio-data',
+    'openai',
+    { text: 'Hello there' },
+    jsonResponse({ audio_data: b64(mp3) }),
+    { json: { audio_data: b64(mp3) } },
+    binaryOlder
+  );
+  // A JSON Content-Type makes the body JSON, as TS reads it, even for an
+  // operation that answers with binary audio.
+  await speakFixture(
+    'openai-speak-json-content-type-body',
+    'openai',
+    { text: 'Hello there' },
+    jsonResponse({ audio_data: b64(mp3) }),
+    {
+      body: JSON.stringify({ audio_data: b64(mp3) }),
+      headers: { 'content-type': 'application/json' },
+    },
+    binaryOlder
+  );
+  await speakFixture(
+    'openai-speak-json-nested-audio-and-mime-type',
+    'openai',
+    { text: 'Hello there', format: 'wav' },
+    jsonResponse({ audio: { data: b64(wav) }, mimeType: 'audio/wav' }),
+    { json: { audio: { data: b64(wav) }, mimeType: 'audio/wav' } },
+    binaryOlder
+  );
+  // A JSON body with no audio TS reads is TS's error. (The ports' older
+  // `audio` key is a deprecated fallback until the next major version; see
+  // responses-speak.)
+  {
+    const request = { text: 'Hello there' };
+    const body = { status: 'ok' };
+    const message = await tsSpeechError('openai', request, jsonResponse(body));
+    if (!message) throw new Error('TS speak accepted a JSON body without data');
+    writeFixture('openai-speak-json-without-audio-data', {
+      kind: 'ai_error',
+      method: 'speak',
+      provider: 'openai',
+      request,
+      transport_responses: [{ status: 200, json: body }],
+      expected_error_contains: message,
+    });
+  }
+  const geminiOlder = (ts: Record<string, Json>) => ({
+    audio: ts.data,
+    format: ts.format,
+  });
+  await speakFixture(
+    'gemini-tts-no-mime-type',
+    'google-gemini',
+    { text: 'Hello from Ax.' },
+    jsonResponse({
+      candidates: [
+        {
+          content: {
+            role: 'model',
+            parts: [{ inlineData: { data: b64(pcm) } }],
+          },
+        },
+      ],
+    }),
+    {
+      json: {
+        candidates: [
+          {
+            content: {
+              role: 'model',
+              parts: [{ inlineData: { data: b64(pcm) } }],
+            },
+          },
+        ],
+      },
+    },
+    geminiOlder
+  );
+  await speakFixture(
+    'gemini-tts-snake-case-inline-data',
+    'google-gemini',
+    { text: 'Hello from Ax.' },
+    jsonResponse({
+      candidates: [
+        {
+          content: {
+            role: 'model',
+            parts: [
+              { inline_data: { data: b64(wav), mime_type: 'audio/wav' } },
+            ],
+          },
+        },
+      ],
+    }),
+    {
+      json: {
+        candidates: [
+          {
+            content: {
+              role: 'model',
+              parts: [
+                { inline_data: { data: b64(wav), mime_type: 'audio/wav' } },
+              ],
+            },
+          },
+        ],
+      },
+    },
+    (ts) => ({ ...geminiOlder(ts), mime_type: ts.mimeType })
+  );
+}
+
+// Chat wire bodies from TS's real OpenAI and Anthropic-profile chat against a
+// fetch stub.
+{
+  const openaiResponse: Record<string, Json> = {
+    id: 'chatcmpl_wire',
+    choices: [
+      {
+        index: 0,
+        finish_reason: 'stop',
+        message: { role: 'assistant', content: 'ok' },
+      },
+    ],
+  };
+  const wireFixture = async (
+    name: string,
+    provider: 'openai' | 'meta-messages',
+    chatPrompt: Json,
+    response: Record<string, Json>,
+    pick: (body: Record<string, Json>) => Record<string, Json>
+  ) => {
+    let body: Record<string, Json> = {};
+    const fetch = async (_url: unknown, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body ?? '{}')) as Record<string, Json>;
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    const client =
+      provider === 'openai'
+        ? new AxAIOpenAI({ apiKey: 'test-key', options: { fetch } })
+        : ai({
+            name: provider,
+            apiKey: 'test-key',
+            options: { fetch },
+          } as never);
+    await client.chat({ chatPrompt } as never, { stream: false });
+    writeFixture(name, {
+      kind: 'ai_chat',
+      provider,
+      request: { chat_prompt: chatPrompt, model_config: { stream: false } },
+      transport_responses: [{ status: 200, json: response }],
+      expected_transport_request: { json: pick(body) },
+    });
+  };
+  // A url part reaches the model as text: its cached content, or else its
+  // title, description and url, each that is set on its own line. (TS's
+  // Responses mapping writes the same text, but its user input item also
+  // carries `type: 'message'`, which the ports' Responses mapping leaves out.)
+  const urlPrompt: Json = [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Read these' },
+        {
+          type: 'url',
+          url: 'https://example.com/',
+          title: 'Example',
+          description: 'A sample page',
+        },
+        { type: 'url', url: 'https://example.org/' },
+      ],
+    },
+  ];
+  await wireFixture(
+    'openai-url-part-as-text',
+    'openai',
+    urlPrompt,
+    openaiResponse,
+    (body) => ({ messages: body.messages })
+  );
+  // A file part's filename reaches OpenAI: Chat Completions rejects inline
+  // file data without one (HTTP 400, "Missing required parameter:
+  // 'messages[0].content[1].file.file_id'").
+  await wireFixture(
+    'openai-file-part-filename',
+    'openai',
+    [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Summarize it' },
+          {
+            type: 'file',
+            mimeType: 'application/pdf',
+            data: 'JVBERi0=',
+            filename: 'report.pdf',
+          },
+        ],
+      },
+    ],
+    openaiResponse,
+    (body) => ({ messages: body.messages })
+  );
+  // Chat Completions input audio: a part without a format takes it from its
+  // mime type, and only data and format go out (OpenAI answers HTTP 400 to
+  // any other input_audio key).
+  await wireFixture(
+    'openai-audio-part-format-from-mime-type',
+    'openai',
+    [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'What is said?' },
+          {
+            type: 'audio',
+            data: 'UklGRg==',
+            mimeType: 'audio/wav',
+            sampleRate: 24000,
+            channels: 1,
+          },
+        ],
+      },
+    ],
+    openaiResponse,
+    (body) => ({ messages: body.messages })
+  );
+  // With neither a format nor a mime type, TS rejects the part with its
+  // message.
+  {
+    let message = '';
+    try {
+      await new AxAIOpenAI({
+        apiKey: 'test-key',
+        options: { fetch: async () => new Response('{}') },
+      }).chat(
+        {
+          chatPrompt: [
+            { role: 'user', content: [{ type: 'audio', data: 'UklGRg==' }] },
+          ],
+        } as never,
+        { stream: false }
+      );
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    if (!message.includes('unknown format')) {
+      throw new Error(`TS accepted audio of unknown format: ${message}`);
+    }
+    writeFixture('openai-audio-part-unknown-format', {
+      kind: 'ai_error',
+      method: 'chat',
+      provider: 'openai',
+      request: {
+        chat_prompt: [
+          { role: 'user', content: [{ type: 'audio', data: 'UklGRg==' }] },
+        ],
+        model_config: { stream: false },
+      },
+      transport_responses: [],
+      expected_error_contains: message,
+    });
+  }
+  // TS's Responses mapping sends an audio part's format as it is, so a part
+  // without one sends none. (No OpenAI Responses model takes audio input
+  // today: "Audio input is not available.")
+  {
+    let body: Record<string, Json> = {};
+    const fetch = async (_url: unknown, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body ?? '{}')) as Record<string, Json>;
+      return new Response(
+        JSON.stringify({
+          id: 'resp_audio',
+          output: [
+            {
+              id: 'msg_audio',
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'ok' }],
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    };
+    const chatPrompt = [
+      { role: 'user', content: [{ type: 'audio', data: 'UklGRg==' }] },
+    ];
+    await new AxAIOpenAIResponses({
+      apiKey: 'test-key',
+      options: { fetch },
+    }).chat({ chatPrompt } as never, { stream: false });
+    const input = body.input as { content: { input_audio?: Json }[] }[];
+    const inputAudio = input[0]?.content[0]?.input_audio;
+    if (JSON.stringify(inputAudio) !== JSON.stringify({ data: 'UklGRg==' })) {
+      throw new Error(`TS Responses audio part: ${JSON.stringify(inputAudio)}`);
+    }
+    writeFixture('responses-audio-part-without-format', {
+      kind: 'ai_chat',
+      provider: 'openai-responses',
+      request: { chat_prompt: chatPrompt, model_config: { stream: false } },
+      transport_responses: [
+        {
+          status: 200,
+          json: {
+            id: 'resp_audio',
+            output: [
+              {
+                id: 'msg_audio',
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'ok' }],
+              },
+            ],
+          },
+        },
+      ],
+      // The user input item's other keys differ (TS adds type: 'message'),
+      // so the wire bytes pin the audio part alone.
+      expected_transport_wire_json_contains: [
+        '"input_audio":{"data":"UklGRg=="}',
+      ],
+    });
+  }
+  await wireFixture(
+    'meta-messages-url-part-as-text',
+    'meta-messages',
+    urlPrompt,
+    {
+      id: 'meta-messages-url',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'ok' }],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+    (body) => ({ messages: body.messages })
+  );
 }
 
 writeFixture('responses-realtime-event', {
