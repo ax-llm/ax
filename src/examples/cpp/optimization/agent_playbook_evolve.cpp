@@ -48,6 +48,8 @@ int main() {
   auto assistant = axllm::agent(
       "question:string -> answer:string",
       axllm::object({
+          // The playbook learns with the agent's own client.
+          {"ai", axllm::Core::client_ref(*client)},
           {"contextFields", axllm::array({})},
           {"runtime", axllm::object({{"language", "JavaScript"}})},
           {"playbook", axllm::object({{"seed", seed}})},
