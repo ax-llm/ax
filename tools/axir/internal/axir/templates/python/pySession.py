@@ -7,7 +7,7 @@ import queue
 import threading
 from typing import Any, Callable, Iterator, Protocol
 
-from .ai import _emit_usage_event, _iter_sse_json
+from .ai import _emit_usage_event, _include_request_body_in_errors, _iter_sse_json
 from .gen import _StreamingConsumerStopped, _core_ai_client_features, _core_ai_complete_once, _core_ai_stream_open, _core_axgen_speak
 
 
@@ -241,7 +241,8 @@ class _ResponsesChatSession:
         reader = None
         try:
             raw = self.client._request_json(self.client._operation_path("stream_chat", self.model), payload,
-                stream=True, method="POST", operation="responses")
+                stream=True, method="POST", operation="responses",
+                include_request_body_in_errors=_include_request_body_in_errors(self.options))
             reader = raw
             with self._lock:
                 self._readers[id(reader)] = reader

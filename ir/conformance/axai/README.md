@@ -55,3 +55,21 @@ Reference areas:
   multi-service, and balancer runtime parity. Removed/non-generated catalog
   providers and live transport productization remain deferred.
 - `src/ax/util/apicall.ts` for error classes and HTTP status normalization.
+
+## Provider error fixtures
+
+The `provider-error-*` fixtures pin that a provider error never carries
+credentials, and carries the request body only while
+`includeRequestBodyInErrors` allows it. The extractor derives them from
+TypeScript's `AxAIServiceError`, which keeps the URL and the body and never the
+request headers. These `ai_error` keys drive them:
+
+- `api_key`: the API key the fixture client is built with (default `test-key`).
+- `expected_error_excludes`: strings that must appear nowhere a logger, tracer
+  or JSON dump could read on the error or its causes. Every runner checks it.
+- `expected_error_request`: the request the error keeps, with exactly these
+  keys and each value subset-matched: the URL, plus the body (`json`) unless
+  `includeRequestBodyInErrors` is false. Python (`error.request`) and Java
+  (`AxAIServiceError.request`) check it. Go, Rust and C++ errors keep no
+  request, so they have nothing to compare.
+- `options`: the call options when `service_options` configure the client.

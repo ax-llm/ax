@@ -1,0 +1,45 @@
+{
+  "api_key": "sk-fixture-secret-key-7b41",
+  "expected_error_excludes": [
+    "sk-fixture-secret-key-7b41",
+    "fixture-body-marker-2c9e"
+  ],
+  "expected_error_request": {
+    "url": "https://api.openai.com/v1/chat/completions"
+  },
+  "expected_error_type": "AxAIServiceStatusError",
+  "expected_status": 400,
+  "expected_transport_request_count": 1,
+  "kind": "ai_error",
+  "model": "gpt-5.4-mini",
+  "name": "provider-error-call-option-omits-body",
+  "options": {
+    "includeRequestBodyInErrors": false
+  },
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "fixture-body-marker-2c9e",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "includeRequestBodyInErrors": true
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "error": {
+          "code": "invalid_request",
+          "message": "scripted 400"
+        }
+      },
+      "status": 400
+    }
+  ]
+}
