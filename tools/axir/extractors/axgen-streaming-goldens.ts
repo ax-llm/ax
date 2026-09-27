@@ -440,7 +440,21 @@ type Case = {
   // Port-only forward options, added to the fixture's forward_options but
   // not passed to TS: a port's opt-in to what TS always does.
   port_forward_options?: JsonMap;
+  // An abort signal in the AxGen constructor's options (TS abortSignal; the
+  // ports' cancellation token), aborted with the reason when cancelled.
+  constructor_cancellation?: CancellationSpec;
+  // An abort signal in the forward call's options.
+  call_cancellation?: CancellationSpec;
 };
+
+type CancellationSpec = { cancelled: boolean; reason?: string };
+
+function abortSignalFor(spec: CancellationSpec | undefined) {
+  if (!spec) return undefined;
+  const controller = new AbortController();
+  if (spec.cancelled) controller.abort(spec.reason ?? 'fixture-stop');
+  return controller.signal;
+}
 
 async function record(name: string, spec: Case): Promise<void> {
   const kind = spec.kind ?? 'streaming_forward';
@@ -460,10 +474,12 @@ async function record(name: string, spec: Case): Promise<void> {
     },
     spec.native_session
   );
+  const constructorSignal = abortSignalFor(spec.constructor_cancellation);
   const gen = new AxGen(spec.signature, {
     ...tsOptions(spec.options),
     functions: tsTools(spec.tools ?? [], toolCalls),
     ...(spec.constructor_control ? { control } : {}),
+    ...(constructorSignal ? { abortSignal: constructorSignal } : {}),
   });
   for (const assertion of spec.assertions ?? []) {
     gen.addAssert(tsAssert(assertion), assertion.message);
@@ -497,6 +513,8 @@ async function record(name: string, spec: Case): Promise<void> {
   if (spec.stop_functions) {
     forwardOptions.stopFunction = [...spec.stop_functions];
   }
+  const callSignal = abortSignalFor(spec.call_cancellation);
+  if (callSignal) forwardOptions.abortSignal = callSignal;
 
   const controlEvents: JsonMap[] = [];
   if (control) {
@@ -563,6 +581,8 @@ async function record(name: string, spec: Case): Promise<void> {
     'control_steer',
     'stop_after_deltas',
     'native_session',
+    'constructor_cancellation',
+    'call_cancellation',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
   }
@@ -1308,6 +1328,40 @@ const cases: Record<string, Case> = {
     signature: 'question:string -> answer:string',
     constructor_control: true,
     responses: [streamed(text('Answer: ok'), done())],
+  },
+  // An abort signal in the AxGen constructor is the default for every
+  // forward, as TS's other run options there: aborted, the run stops before
+  // any request; a call's own signal replaces it.
+  'forward-constructor-cancellation-stops-before-request': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    constructor_cancellation: { cancelled: true, reason: 'fixture-stop' },
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
+  },
+  'streaming-forward-constructor-cancellation-stops-before-request': {
+    signature: 'question:string -> answer:string',
+    constructor_cancellation: { cancelled: true, reason: 'fixture-stop' },
+    responses: [streamed(text('Answer: ok'), done())],
+  },
+  'forward-constructor-cancellation-call-signal-wins': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    constructor_cancellation: { cancelled: true, reason: 'fixture-stop' },
+    call_cancellation: { cancelled: false },
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
+  },
+  'forward-constructor-cancellation-live': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    constructor_cancellation: { cancelled: false },
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
+  },
+  'forward-call-cancellation-over-live-constructor': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    constructor_cancellation: { cancelled: false },
+    call_cancellation: { cancelled: true, reason: 'call-stop' },
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
   },
   'forward-constructor-execution-path': {
     kind: 'forward',

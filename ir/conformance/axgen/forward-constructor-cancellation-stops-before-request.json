@@ -1,0 +1,24 @@
+{
+  "constructor_cancellation": {
+    "cancelled": true,
+    "reason": "fixture-stop"
+  },
+  "expected_error_contains": "Request aborted: fixture-stop",
+  "expected_request_count": 0,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-constructor-cancellation-stops-before-request",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: ok",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

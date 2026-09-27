@@ -97906,6 +97906,27 @@ func (g *AxGen) forward(ctx context.Context, client AIClient, values map[string]
 	return g.forwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
 }
 
+// runCancellation returns ctx, cancelled too (with its cause) once the run's
+// "cancellation" option is done: a context.Context in the AxGen's
+// constructor options or in the call's, where the call's wins, as
+// TypeScript's abortSignal. The forward's ctx still stops the run as well.
+// stop releases the watch when the run ends.
+func (g *AxGen) runCancellation(ctx context.Context, options map[string]Value) (context.Context, func()) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	token, _ := coreGet(g.runOptions(options), "cancellation", nil).(context.Context)
+	if token == nil {
+		return ctx, func() {}
+	}
+	run, cancel := context.WithCancelCause(ctx)
+	release := context.AfterFunc(token, func() { cancel(context.Cause(token)) })
+	return run, func() {
+		release()
+		cancel(nil)
+	}
+}
+
 // runOptions are the constructor's options with the call's over them, as
 // TypeScript merges them for every forward: the call wins.
 func (g *AxGen) runOptions(options map[string]Value) map[string]Value {
@@ -97953,6 +97974,8 @@ func (g *AxGen) renderCachedAudio(ctx context.Context, client AIClient, cached V
 
 func (g *AxGen) forwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
 	options = stripRuntimeHooks(options)
+	ctx, stopCancellation := g.runCancellation(ctx, options)
+	defer stopCancellation()
 	// As in TypeScript, the cache is read before the run's span and metrics:
 	// a hit, or a read error, records neither.
 	options, cached, hit, err := g.cacheLookupFirst(values, options, false)
@@ -98270,6 +98293,8 @@ func (g *AxGen) StreamingForward(ctx context.Context, client AIClient, values ma
 // sample with its "__order" lists (for callers inside the runtime).
 func (g *AxGen) streamingForwardWith(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, sink axGenDeltaSink, hooks AxRuntimeHooks) (out Value, err error) {
 	options = stripRuntimeHooks(options)
+	ctx, stopCancellation := g.runCancellation(ctx, options)
+	defer stopCancellation()
 	if sink != nil {
 		// As in TypeScript, the cache is read before the run's span and
 		// metrics and a read error is ignored: a hit is one delta and records
@@ -103187,8 +103212,12 @@ func conformanceAssertSpeakRequests(fixture map[string]Value, client *conformanc
 }
 
 func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	// The scripted client stands in for a provider client, so it runs the same
-	// expensive-model gate first; a rejected call records nothing.
+	// The scripted client stands in for a provider client: a cancelled call
+	// stops before its request, and it runs the same expensive-model gate
+	// first; a rejected call records nothing.
+	if err := contextCancellationError(ctx); err != nil {
+		return nil, err
+	}
 	name, model := f.Name, f.Model
 	if name == "" {
 		name = "scripted"
@@ -103264,6 +103293,9 @@ func conformanceStreamChunk(raw Value) (Value, error) {
 // time, so a streaming forward sees the chunks before an error entry; other
 // responses stream as Stream returns them.
 func (f *conformanceScriptedAI) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+	if err := contextCancellationError(ctx); err != nil {
+		return nil, err
+	}
 	if chunks, ok := f.scriptedStreamChunks(request, options); ok {
 		index := 0
 		return newAxChatStream(func() (Value, error) {
@@ -104568,6 +104600,23 @@ func conformanceBuildTools(specs Value) ([]Tool, Value) {
 	return tools, calls
 }
 
+// conformanceCancellation is a fixture's constructor_cancellation or
+// call_cancellation: a context, cancelled with the reason as its cause when
+// the spec says so.
+func conformanceCancellation(raw Value) context.Context {
+	spec, ok := raw.(map[string]Value)
+	if !ok {
+		return nil
+	}
+	if !coreTruthy(coreGet(spec, "cancelled", false)) {
+		// A live token that the run never sees cancelled.
+		return context.Background()
+	}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(errors.New(display(coreGet(spec, "reason", "fixture-stop"))))
+	return ctx
+}
+
 func runConformanceForward(fixture map[string]Value) {
 	tools, calls := conformanceBuildTools(coreGet(fixture, "tools", Array()))
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
@@ -104576,6 +104625,10 @@ func runConformanceForward(fixture map[string]Value) {
 	if coreTruthy(coreGet(fixture, "constructor_control", false)) {
 		// The run control is a constructor default, not a call option.
 		controlEvents = conformanceAttachControl(fixture, client, options)
+	}
+	if token := conformanceCancellation(coreGet(fixture, "constructor_cancellation", nil)); token != nil {
+		// The program's cancellation, the default for every forward.
+		options["cancellation"] = token
 	}
 	gen := NewAx(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 	if spec := coreGet(fixture, "signature_spec", nil); spec != nil {
@@ -104622,6 +104675,10 @@ func runConformanceForward(fixture map[string]Value) {
 	if coreTruthy(coreGet(fixture, "control", false)) {
 		forwardOptions = cloneMap(forwardOptions)
 		controlEvents = conformanceAttachControl(fixture, client, forwardOptions)
+	}
+	if token := conformanceCancellation(coreGet(fixture, "call_cancellation", nil)); token != nil {
+		forwardOptions = cloneMap(forwardOptions)
+		forwardOptions["cancellation"] = token
 	}
 	var forwardErr error
 	output := expectMaybeFixtureError(func() Value {
@@ -104877,6 +104934,10 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 		// The run control is a constructor default, not a call option.
 		controlEvents = conformanceAttachControl(fixture, client, options)
 	}
+	if token := conformanceCancellation(coreGet(fixture, "constructor_cancellation", nil)); token != nil {
+		// The program's cancellation, the default for every forward.
+		options["cancellation"] = token
+	}
 	gen := NewAx(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 	if spec := coreGet(fixture, "signature_spec", nil); spec != nil {
 		gen.Signature = conformanceSignatureFromSpec(asMap(spec))
@@ -104916,6 +104977,9 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	runOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
 	if coreTruthy(coreGet(fixture, "control", false)) {
 		controlEvents = conformanceAttachControl(fixture, client, runOptions)
+	}
+	if token := conformanceCancellation(coreGet(fixture, "call_cancellation", nil)); token != nil {
+		runOptions["cancellation"] = token
 	}
 	deltas := Array()
 	var output Value

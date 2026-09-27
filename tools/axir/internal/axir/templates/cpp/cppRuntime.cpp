@@ -47,7 +47,9 @@ struct AxCallOptionsScope {
 }
 
 const AxCancellationToken* current_cancellation_token() { return ax_current_cancellation_token; }
-AxCancellationScope::AxCancellationScope(const AxCancellationToken* token) : previous_(ax_current_cancellation_token) { ax_current_cancellation_token = token; if (token) token->throw_if_cancelled(); }
+// A cancelled token throws before the scope takes over: a constructor that
+// throws runs no destructor, which would leave the thread's token dangling.
+AxCancellationScope::AxCancellationScope(const AxCancellationToken* token) : previous_(ax_current_cancellation_token) { if (token) token->throw_if_cancelled(); ax_current_cancellation_token = token; }
 AxCancellationScope::~AxCancellationScope() { ax_current_cancellation_token = previous_; }
 
 Value::Value() : data(nullptr) {}
@@ -8005,7 +8007,16 @@ static bool axgen_runs_in_session(const Value& state, const Value& run_options) 
   return eligible && (!Core::get(run_options,"control").is_null() || display(Core::get(run_options,"asyncMode",Core::get(run_options,"async_mode","auto")))!="off");
 }
 
+AxGen& AxGen::set_cancellation(AxCancellationToken token) {
+  cancellation_ = std::move(token);
+  return *this;
+}
+
 Value AxGen::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  // The program's cancellation token covers a run that has none from its
+  // call or from a run around it.
+  std::optional<AxCancellationScope> program_cancellation;
+  if (cancellation_ && current_cancellation_token() == nullptr) program_cancellation.emplace(&*cancellation_);
   auto global_cache = global_caching_function();  // held for the run
   // As in TS, the cache is read before the run's span and metrics, so a hit
   // records neither; a read error propagates. A miss hands the lookup to the
@@ -8090,6 +8101,8 @@ struct AxGenDeltaConsumer {
 
 Value AxGen::streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler) {
   if (!handler) throw AxError("runtime", "AxGen::streaming_forward: handler must be callable");
+  std::optional<AxCancellationScope> program_cancellation;
+  if (cancellation_ && current_cancellation_token() == nullptr) program_cancellation.emplace(&*cancellation_);
   auto global_cache = global_caching_function();  // held for the run
   // As in TS, the cache is read before the run's span and metrics, and a
   // read error is ignored: a hit is one {version 0, index 0} delta with no
@@ -8157,8 +8170,8 @@ AxGen& AxGen::set_meter(std::shared_ptr<AxMeter> meter) {
 std::function<std::shared_ptr<AxProgram>()> AxGen::owned_worker_factory() const {
   auto options=Core::get(state_,"options",Value::object());
   if(!Core::get(options,"execution_context",Core::get(options,"executionContext")).is_null())return {};
-  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;auto cache=caching_function_;
-  return [snapshot,hooks,cache] {auto state=parse_json(snapshot);auto worker=std::make_shared<AxGen>(Core::get(state,"signature"),Core::get(state,"options"),*hooks);worker->state_=state;worker->caching_function_=cache;worker->memory_.value_ref()=Core::get(state,"memory",Value::array());worker->refresh_prompt_template();return worker;};
+  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;auto cache=caching_function_;auto cancellation=cancellation_;
+  return [snapshot,hooks,cache,cancellation] {auto state=parse_json(snapshot);auto worker=std::make_shared<AxGen>(Core::get(state,"signature"),Core::get(state,"options"),*hooks);worker->state_=state;worker->caching_function_=cache;worker->cancellation_=cancellation;worker->memory_.value_ref()=Core::get(state,"memory",Value::array());worker->refresh_prompt_template();return worker;};
 }
 std::function<std::shared_ptr<AxProgram>()> AxFlow::owned_worker_factory() const {
   std::vector<std::pair<std::size_t,std::function<std::shared_ptr<AxProgram>()>>> factories;

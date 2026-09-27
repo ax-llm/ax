@@ -1244,6 +1244,7 @@ public final class Conformance {
     }
     Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
     List<Object> callEvents = attachFixtureControl(fixture, client, forwardOptions);
+    addCallCancellation(fixture, forwardOptions);
     List<Object> controlEvents = Core.truthy(fixture.get("control")) ? callEvents : constructorEvents;
     Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions), fixture, error -> assertErrorCause(error, fixture));
     assertSpeakRequests(fixture, client);
@@ -1373,8 +1374,27 @@ public final class Conformance {
   // constructor_control: true puts the fixture's run control, recorded and
   // steered as for control, in the AxGen constructor's options instead.
   static List<Object> attachConstructorControl(Map<String, Object> fixture, ConformanceScriptedAI client, Map<String, Object> constructorOptions) {
+    // constructor_cancellation: the program's cancellation token, the default
+    // for every forward.
+    AxCancellationToken constructorToken = fixtureCancellation(fixture.get("constructor_cancellation"));
+    if (constructorToken != null) constructorOptions.put("cancellation", constructorToken);
     if (!Core.truthy(fixture.get("constructor_control"))) return java.util.Collections.synchronizedList(new ArrayList<>());
     return attachRunControl(fixture, client, constructorOptions);
+  }
+
+  // A fixture's constructor_cancellation or call_cancellation: a token,
+  // cancelled with the reason when the spec says so.
+  static AxCancellationToken fixtureCancellation(Object raw) {
+    if (!(raw instanceof Map<?, ?> spec)) return null;
+    AxCancellationToken token = new AxCancellationToken();
+    if (Core.truthy(spec.get("cancelled"))) token.cancel(String.valueOf(spec.get("reason") == null ? "fixture-stop" : spec.get("reason")));
+    return token;
+  }
+
+  // call_cancellation: the forward call's own cancellation token.
+  static void addCallCancellation(Map<String, Object> fixture, Map<String, Object> callOptions) {
+    AxCancellationToken callToken = fixtureCancellation(fixture.get("call_cancellation"));
+    if (callToken != null) callOptions.put("cancellation", callToken);
   }
 
   static List<Object> attachRunControl(Map<String, Object> fixture, ConformanceScriptedAI client, Map<String, Object> runOptions) {
@@ -1444,6 +1464,7 @@ public final class Conformance {
     AxGen gen = streamingFixtureGen(fixture, toolBuild, processorCalls, constructorOptions);
     Map<String, Object> runOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
     List<Object> callEvents = attachFixtureControl(fixture, client, runOptions);
+    addCallCancellation(fixture, runOptions);
     List<Object> controlEvents = Core.truthy(fixture.get("control")) ? callEvents : constructorEvents;
     Map<String, Object> input = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of())));
     Object stopAfter = fixture.get("stop_after_deltas");
@@ -1508,6 +1529,7 @@ public final class Conformance {
     AxGen gen = streamingFixtureGen(fixture, toolBuild, processorCalls, constructorOptions);
     Map<String, Object> runOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
     List<Object> callEvents = attachFixtureControl(fixture, client, runOptions);
+    addCallCancellation(fixture, runOptions);
     List<Object> controlEvents = Core.truthy(fixture.get("control")) ? callEvents : constructorEvents;
     List<Object> deltas = new ArrayList<>();
     RuntimeException failure = null;
