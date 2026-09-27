@@ -126,8 +126,19 @@ describe('axir-conformance-sync helpers', () => {
               name: 'gpt-5.5-pro',
               isExpensive: true,
               promptTokenCostPer1M: 30,
+              notSupported: { temperature: true, topP: true },
             },
-            { name: 'gpt-5.4-mini', aliases: ['mini'], isExpensive: false },
+            {
+              name: 'gpt-5.4-mini',
+              aliases: ['mini'],
+              isExpensive: false,
+              notSupported: { temperature: false },
+              supported: {
+                structuredOutputs: true,
+                samplingWithoutReasoning: true,
+                reasoningOffByDefault: false,
+              },
+            },
           ],
         },
         { name: 'amazon-bedrock', displayName: 'Bedrock', models: [] },
@@ -138,8 +149,16 @@ describe('axir-conformance-sync helpers', () => {
     expect(buildProviderModelIndex(catalog)).toEqual({
       'amazon-bedrock': [],
       openai: [
-        { name: 'gpt-5.5-pro', isExpensive: true },
-        { name: 'gpt-5.4-mini', aliases: ['mini'] },
+        {
+          name: 'gpt-5.5-pro',
+          isExpensive: true,
+          notSupported: { temperature: true, topP: true },
+        },
+        {
+          name: 'gpt-5.4-mini',
+          aliases: ['mini'],
+          supported: { samplingWithoutReasoning: true },
+        },
       ],
     });
   });

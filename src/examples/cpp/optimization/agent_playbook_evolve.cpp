@@ -22,7 +22,7 @@ int main() {
     return 2;
   }
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
   }));
@@ -68,7 +68,7 @@ int main() {
 
   axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
   axllm::Value answer = assistant.forward(
-      client,
+      *client,
       axllm::object({{"question", "What should a support agent verify before answering?"}}),
       axllm::object({
           {"runtime", axllm::Core::code_runtime_ref(runtime)},

@@ -24,9 +24,8 @@ fn openai_config() -> AxResult<(String, String)> {
     Ok((api_key, model))
 }
 
-fn openai_client(api_key: &str, model: &str) -> OpenAICompatibleClient {
-    OpenAICompatibleClient::new(api_key.to_string(), model.to_string())
-        .with_model_config(json!({"temperature": 0}))
+fn openai_client(api_key: &str, model: &str) -> AxResult<OpenAICompatibleClient> {
+    axllm::ai("openai", json!({"api_key": api_key, "model": model, "model_config": {"temperature": 0}}))
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +121,7 @@ fn run_in_sandbox(plan: &str) -> Value {
 
 fn main() -> AxResult<()> {
     let (api_key, model) = openai_config()?;
-    let mut client = openai_client(&api_key, &model);
+    let mut client = openai_client(&api_key, &model)?;
 
     // In-memory rule store. Verified, reusable rules go here -- not raw failure notes.
     let memory_store: Arc<Mutex<BTreeMap<String, String>>> = Arc::new(Mutex::new(BTreeMap::new()));
@@ -148,7 +147,7 @@ fn main() -> AxResult<()> {
         verifier.set_instruction(
             "You are an independent rubric grader, not a self-critique. Pass only when the evidence clearly satisfies every part of the rubric.",
         );
-        let mut grader = openai_client(&grade_key, &grade_model);
+        let mut grader = openai_client(&grade_key, &grade_model)?;
         verifier.forward(
             &mut grader,
             json!({

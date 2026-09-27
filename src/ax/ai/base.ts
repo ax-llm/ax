@@ -603,6 +603,39 @@ export const axBaseAIDefaultConfig = (): AxModelConfig =>
     temperature: 0,
   });
 
+/** The sampling parameters model info can mark unsupported. */
+const axSamplingKeys = [
+  'temperature',
+  'topP',
+  'presencePenalty',
+  'frequencyPenalty',
+] as const;
+
+const droppedSamplingWarnings = new Set<string>();
+
+/** Warns once per model and setting that an explicit value was not sent. */
+const warnDroppedSampling = (
+  model: unknown,
+  key: string,
+  withoutReasoningOnly: boolean
+): void => {
+  const id = `${String(model)}\u0000${key}`;
+  if (droppedSamplingWarnings.has(id)) return;
+  droppedSamplingWarnings.add(id);
+  console.warn(
+    `Ax dropped ${key} for ${String(model)}: ${
+      withoutReasoningOnly
+        ? 'the model accepts it only with reasoning effort none'
+        : 'the model does not accept it'
+    }.`
+  );
+};
+
+/** Test hook: shows every dropped-sampling warning again. */
+export const resetDroppedSamplingWarnings = (): void => {
+  droppedSamplingWarnings.clear();
+};
+
 export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   structuredClone({
     temperature: 0.4,
@@ -682,6 +715,8 @@ export class AxBaseAI<
   private includeRequestBodyInErrors?: AxAIServiceOptions['includeRequestBodyInErrors'];
 
   private modelInfo: readonly AxModelInfo[];
+  /** Model config keys the caller set on the AI itself, as opposed to its defaults. */
+  private explicitModelConfigKeys: ReadonlySet<string> = new Set();
   private modelUsage?: AxModelUsage;
   private embedModelUsage?: AxModelUsage;
   private defaults: AxBaseAIArgs<TModel, TEmbedModel, TModelKey>['defaults'];
@@ -861,6 +896,19 @@ export class AxBaseAI<
 
   public setHeaders(headers: () => Promise<Record<string, string>>): void {
     this.headers = headers;
+  }
+
+  /**
+   * Records which model config keys the caller passed in the AI's own
+   * config, so the defaults merged underneath them are not mistaken for
+   * explicit settings.
+   */
+  protected setExplicitModelConfigKeys(config?: Readonly<object>): void {
+    this.explicitModelConfigKeys = new Set(
+      Object.entries(config ?? {})
+        .filter(([, value]) => value !== undefined)
+        .map(([key]) => key)
+    );
   }
 
   get debug(): boolean {
@@ -1808,11 +1856,12 @@ export class AxBaseAI<
     const modelKeyEntry = this.getModelByKey(
       req.model as TModel | TEmbedModel | TModelKey
     );
+    const keyModelConfig = modelKeyEntry
+      ? (modelKeyEntry as { modelConfig?: AxModelConfig }).modelConfig
+      : undefined;
     const modelConfig = {
       ...this.aiImpl.getModelConfig(),
-      ...(modelKeyEntry
-        ? (modelKeyEntry as { modelConfig?: AxModelConfig }).modelConfig
-        : undefined),
+      ...keyModelConfig,
       ...req.modelConfig,
     } as AxModelConfig;
 
@@ -1820,16 +1869,13 @@ export class AxBaseAI<
       model: model as string,
       modelInfo: this.modelInfo,
     });
-    if (selectedModelInfo?.notSupported?.temperature) {
-      if ('temperature' in modelConfig) {
-        delete (modelConfig as { temperature?: number }).temperature;
-      }
-    }
-    if (selectedModelInfo?.notSupported?.topP) {
-      if ('topP' in modelConfig) {
-        delete (modelConfig as { topP?: number }).topP;
-      }
-    }
+    this.applySamplingSupport(
+      modelConfig,
+      model,
+      selectedModelInfo ?? this.aiImpl.samplingModelInfo?.(model) ?? null,
+      [keyModelConfig, req.modelConfig],
+      options
+    );
 
     // stream is true by default unless explicitly set to false
     modelConfig.stream =
@@ -1842,6 +1888,56 @@ export class AxBaseAI<
     }
 
     return { model, modelConfig, selectedModelInfo };
+  }
+
+  /**
+   * Removes the sampling parameters the selected model rejects on this
+   * request. A default value (the provider's own config) is always removed
+   * for such a parameter. An explicit value, from the AI's config, the model
+   * key's config or the request, is kept when the model accepts it while it
+   * does not reason and this request does not reason; otherwise it is removed
+   * with a one-time warning.
+   */
+  private applySamplingSupport(
+    modelConfig: AxModelConfig,
+    model: TModel,
+    info: Readonly<AxModelInfo> | null,
+    explicitConfigs: readonly (Readonly<AxModelConfig> | undefined)[],
+    options?: Readonly<AxAIServiceOptions>
+  ): void {
+    const notSupported = info?.notSupported;
+    if (!notSupported) return;
+    const config = modelConfig as Record<string, unknown>;
+    let reasons: boolean | undefined;
+    for (const key of axSamplingKeys) {
+      if (!notSupported[key] || config[key] === undefined) continue;
+      const explicit =
+        this.explicitModelConfigKeys.has(key) ||
+        explicitConfigs.some(
+          (source) => (source as Record<string, unknown>)?.[key] !== undefined
+        );
+      if (explicit && info.supported?.samplingWithoutReasoning) {
+        if (reasons === undefined) {
+          const effort = this.aiImpl.resolveReasoningEffort?.(
+            model,
+            options ?? {}
+          );
+          reasons =
+            effort !== undefined
+              ? effort !== 'none'
+              : !info.supported.reasoningOffByDefault;
+        }
+        if (!reasons) continue;
+      }
+      delete config[key];
+      if (explicit) {
+        warnDroppedSampling(
+          model,
+          key,
+          info.supported?.samplingWithoutReasoning === true
+        );
+      }
+    }
   }
 
   validateChatRequest(

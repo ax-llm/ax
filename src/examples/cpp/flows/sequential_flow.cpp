@@ -23,7 +23,7 @@ int main() {
     return 2;
   }
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
@@ -33,6 +33,6 @@ int main() {
       .execute("step", step)
       .map("note", [](axllm::Value) { return axllm::object({{"note", "Mapped flow state after the provider-backed step."}}); })
       .returns(axllm::object({{"step", "step"}, {"note", "note"}}));
-  axllm::Value output = program.forward(client, axllm::object({{"documentText", "Ax gives developers signatures, provider clients, agents, flows, tracing, and optimization."}}));
+  axllm::Value output = program.forward(*client, axllm::object({{"documentText", "Ax gives developers signatures, provider clients, agents, flows, tracing, and optimization."}}));
   std::cout << axllm::stringify(output) << "\n";
 }

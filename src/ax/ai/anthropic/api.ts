@@ -1503,6 +1503,7 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       supportFor,
       models: normalizedModels ?? models,
     });
+    this.setExplicitModelConfigKeys(config);
   }
 }
 

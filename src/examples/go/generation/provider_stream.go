@@ -37,7 +37,6 @@ func main() {
 	started := time.Now()
 	stream, err := client.StreamEvents(context.Background(), map[string]ax.Value{
 		"chat_prompt": ax.Array(ax.Object("role", "user", "content", "Reply with exactly: streaming works")),
-		"model_config": ax.Object("temperature", 1),
 	}, nil)
 	if err != nil {
 		panic(err)

@@ -10,13 +10,12 @@ int main() {
     return 2;
   }
 
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
     {"api_key", key},
-    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-5.6-luna"},
-    {"model_config", axllm::object({{"temperature", 0}})}
+    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-5.6-luna"}
   }));
   auto program = axllm::ax("question:string -> answer:string");
-  axllm::Value out = program.forward(client, axllm::object({
+  axllm::Value out = program.forward(*client, axllm::object({
     {"question", "In one sentence, explain Ax as a language-agnostic LLM programming library."}
   }), axllm::object({
     {"promptCacheKey", "ax-openai-example"},

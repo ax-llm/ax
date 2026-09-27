@@ -385,5 +385,6 @@ export class AxAIOpenAIResponses<
       models,
       supportFor,
     });
+    this.setExplicitModelConfigKeys(config);
   }
 }

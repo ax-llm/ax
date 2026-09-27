@@ -106,6 +106,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.ai.error.refusal":                      "core_ai_error_refusal",
 	"intrinsic.ai.error.response":                     "core_ai_error_response",
 	"intrinsic.ai.error.status":                       "core_ai_error_status",
+	"intrinsic.ai.warn_once":                          "core_ai_warn_once",
 	"intrinsic.ai.error.stream":                       "core_ai_error_stream",
 	"intrinsic.ai.error.timeout":                      "core_ai_error_timeout",
 	"intrinsic.ai.error.unsupported":                  "core_ai_error_unsupported",

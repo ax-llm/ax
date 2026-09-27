@@ -1,0 +1,66 @@
+{
+  "expected_transport_json_absent": [
+    "generationConfig.temperature",
+    "generationConfig.topP",
+    "generationConfig.topK",
+    "generationConfig.candidateCount"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "generationConfig": {
+        "maxOutputTokens": 123
+      }
+    }
+  },
+  "expected_warnings": [
+    "Ax dropped temperature for gemini-3.6-flash: the model does not accept it.",
+    "Ax dropped topP for gemini-3.6-flash: the model does not accept it."
+  ],
+  "kind": "ai_chat",
+  "model": "gemini-3.6-flash",
+  "model_config": {
+    "maxTokens": 123,
+    "temperature": 0.7,
+    "topP": 0.9
+  },
+  "name": "sampling-google-gemini-gemini-3-6-flash-ai-config",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ],
+              "role": "model"
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "modelVersion": "gemini-3.6-flash",
+        "responseId": "gem_sampling",
+        "usageMetadata": {
+          "candidatesTokenCount": 1,
+          "promptTokenCount": 1,
+          "totalTokenCount": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}
