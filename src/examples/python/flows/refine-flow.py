@@ -52,4 +52,5 @@ output = program.forward(
     client,
     {"topicText": "Explain automatic flow parallelism to a backend engineer."},
 )
+assert all(output.get(key) for key in ("revisedText",)), output
 print(json.dumps(output, indent=2, sort_keys=True))
