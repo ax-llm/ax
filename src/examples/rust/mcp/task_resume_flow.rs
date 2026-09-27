@@ -49,6 +49,10 @@ fn main() -> AxResult<()> {
     let completed_target = completed.clone();
     let mut target = AxEventTarget::new("reindex-flow", move |input, _| {
         let output = flow.forward(&mut llm, input)?;
+        for key in ["status"] {
+            let value = &output[key];
+            assert!(!value.is_null() && value != "" && *value != json!([]), "flow output field {key} is empty: {output}");
+        }
         println!("{output}");
         let (lock, changed) = &*completed_target;
         *lock.lock().unwrap() += 1;

@@ -41,5 +41,9 @@ int main() {
   axllm::Value output = program.forward(
       *client,
       axllm::object({{"topicText", "Explain automatic flow parallelism to a backend engineer."}}));
+  for (const char* key : {"revisedText"}) {
+    std::string text = axllm::stringify(axllm::Core::get(output, key));
+    if (text == "null" || text == "\"\"" || text == "[]") throw std::runtime_error(std::string("flow output field ") + key + " is empty: " + axllm::stringify(output));
+  }
   std::cout << axllm::stringify(output) << "\n";
 }
