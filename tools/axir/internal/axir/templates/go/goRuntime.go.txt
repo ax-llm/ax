@@ -3151,6 +3151,32 @@ func (c contextBoundAIClient) Transcribe(ctx context.Context, request map[string
 	return Object("text", ""), nil
 }
 
+func (c contextBoundAIClient) Speak(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	return speakWithClient(c.inner, c.ctx, request, options)
+}
+
+// speakWithClient calls the client's Speak, which AxAIService clients have
+// and the AIClient interface does not require.
+func speakWithClient(client any, ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	speaker, ok := client.(interface {
+		Speak(context.Context, map[string]Value, map[string]Value) (Value, error)
+	})
+	if !ok {
+		return nil, AxError{Category: "runtime", Message: "Audio speech not supported by this AI client"}
+	}
+	return speaker.Speak(ctx, request, options)
+}
+
+// _core_axgen_speak backs intrinsic.axgen.speak: the AxGen audio output
+// renderer calls the client's Speak, as TS calls ai.speak().
+func _core_axgen_speak(client Value, request Value, options Value) (Value, error) {
+	ctx := context.Background()
+	if ai, ok := client.(AIClient); ok {
+		ctx = contextForAIClient(ai, ctx)
+	}
+	return speakWithClient(client, ctx, asMap(request), asMap(options))
+}
+
 type Transport interface {
 	Call(context.Context, Value) (Value, error)
 }
@@ -6540,13 +6566,27 @@ func (g *AxGen) cacheLookupFirst(values map[string]Value, options map[string]Val
 	return options, nil, false, nil
 }
 
+// renderCachedAudio renders a stored output's audio outputs, as TypeScript
+// does on a cache hit (@render_audio_outputs_impl).
+func (g *AxGen) renderCachedAudio(ctx context.Context, client AIClient, cached Value, options map[string]Value) (Value, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return safeValue(func() Value {
+		return mustCore(_render_audio_outputs_impl(g, bindAIClientContext(ctx, client), cached, options))
+	})
+}
+
 func (g *AxGen) forwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
 	options = stripRuntimeHooks(options)
 	// As in TypeScript, the cache is read before the run's span and metrics:
 	// a hit, or a read error, records neither.
 	options, cached, hit, err := g.cacheLookupFirst(values, options, false)
-	if err != nil || hit {
-		return cached, err
+	if err != nil {
+		return nil, err
+	}
+	if hit {
+		return g.renderCachedAudio(ctx, client, cached, options)
 	}
 	attributes := Object("ax.program.id", g.ProgramID, "ax.program.type", "AxGen")
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes)
@@ -6822,6 +6862,9 @@ func (g *AxGen) streamingForwardWith(ctx context.Context, client AIClient, value
 			return nil, err
 		}
 		if hit {
+			if cached, err = g.renderCachedAudio(ctx, client, cached, options); err != nil {
+				return nil, err
+			}
 			if _, err := _core_axgen_emit_delta(sink, Object("version", 0, "index", 0, "delta", cached)); err != nil {
 				return nil, err
 			}
@@ -11337,6 +11380,11 @@ type conformanceScriptedAI struct {
 	ChatOptions         []map[string]Value
 	ChatCalls           int
 	Features            map[string]Value
+	// A fixture's speak_responses script Speak; its requests are kept apart
+	// from the chat requests.
+	SpeakResponses []Value
+	SpeakScripted  bool
+	SpeakRequests  []Value
 	// Name, Model and Options are the client's name (default "scripted"),
 	// default chat model (default "scripted-chat") and client-level options.
 	Name    string
@@ -11384,6 +11432,46 @@ func (f *conformanceScriptedAI) Transcribe(ctx context.Context, request map[stri
 	raw := f.TranscribeResponses[0]
 	f.TranscribeResponses = f.TranscribeResponses[1:]
 	return raw, nil
+}
+
+func (f *conformanceScriptedAI) Speak(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	f.SpeakRequests = append(f.SpeakRequests, cloneValue(request))
+	if !f.SpeakScripted {
+		return Object("audio", "fixture-audio", "format", coreGet(request, "format", "pcm")), nil
+	}
+	if len(f.SpeakResponses) == 0 {
+		return nil, AxError{Category: "runtime", Message: "scripted speak exhausted"}
+	}
+	raw := f.SpeakResponses[0]
+	f.SpeakResponses = f.SpeakResponses[1:]
+	if scripted, ok := raw.(map[string]Value); ok {
+		if spec, ok := scripted["error"]; ok {
+			return nil, fixtureAIServiceError(asMap(spec))
+		}
+	}
+	return cloneValue(raw), nil
+}
+
+// conformanceScriptSpeak scripts the client's Speak from the fixture's
+// speak_responses.
+func conformanceScriptSpeak(client *conformanceScriptedAI, fixture map[string]Value) *conformanceScriptedAI {
+	if responses := coreGet(fixture, "speak_responses", nil); responses != nil {
+		client.SpeakResponses = append([]Value(nil), asSlice(responses)...)
+		client.SpeakScripted = true
+	}
+	return client
+}
+
+// conformanceAssertSpeakRequests checks every Speak request against the
+// fixture's expected_speak_requests.
+func conformanceAssertSpeakRequests(fixture map[string]Value, client *conformanceScriptedAI) {
+	if expected := coreGet(fixture, "expected_speak_requests", nil); expected != nil {
+		actual := Array()
+		for _, request := range client.SpeakRequests {
+			actual = append(actual, publicValue(request))
+		}
+		assertEqual(actual, expected, "speak requests")
+	}
 }
 
 func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
@@ -12748,7 +12836,7 @@ func runConformanceForward(fixture map[string]Value) {
 			return int(num(pickerIndex)), nil
 		})
 	}
-	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
+	client := conformanceScriptSpeak(conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil)), fixture)
 	forwardOptions := asMap(coreGet(fixture, "forward_options", Object()))
 	controlEvents := func() Value { return Array() }
 	if coreTruthy(coreGet(fixture, "control", false)) {
@@ -12768,6 +12856,7 @@ func runConformanceForward(fixture map[string]Value) {
 		// expectMaybeFixtureError returned, so the forward failed as expected.
 		assertExpectedErrorCause(forwardErr, fixture)
 	}
+	conformanceAssertSpeakRequests(fixture, client)
 	if expected := coreGet(fixture, "expected_processor_calls", nil); expected != nil {
 		assertEqual(processorCalls, expected, "field processor calls")
 	}
@@ -13005,7 +13094,7 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	if stops := coreGet(fixture, "stop_functions", coreGet(fixture, "stopFunctions", nil)); stops != nil {
 		gen.StopFunctions = stops
 	}
-	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
+	client := conformanceScriptSpeak(conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil)), fixture)
 	runOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
 	controlEvents := func() Value { return Array() }
 	if coreTruthy(coreGet(fixture, "control", false)) {
@@ -13058,6 +13147,7 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
 		panic(FixtureError{Message: fmt.Sprintf("expected %d requests, got %d", int(num(expectedCount)), len(client.Requests))})
 	}
+	conformanceAssertSpeakRequests(fixture, client)
 	if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 		assertEqual(calls, expected, "tool calls")
 	}
@@ -13162,7 +13252,7 @@ func runConformanceCacheSequence(fixture map[string]Value) {
 	if pickerIndex := coreGet(fixture, "result_picker_index", nil); pickerIndex != nil {
 		gen.SetResultPicker(func([]AxResultPickerSample) (int, error) { return int(num(pickerIndex)), nil })
 	}
-	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
+	client := conformanceScriptSpeak(conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil)), fixture)
 	defer SetCachingFunction(snapshotGlobalCachingFunction())
 	if cacheIn == "global" {
 		SetCachingFunction(cachingFunction)
@@ -13204,6 +13294,7 @@ func runConformanceCacheSequence(fixture map[string]Value) {
 		requests = append(requests, len(client.Requests)-before)
 	}
 	assertConformanceCacheSequence(fixture, "cache sequence", outputs, deltasPerCall, requests, callErrors, len(client.Requests), cache)
+	conformanceAssertSpeakRequests(fixture, client)
 }
 
 // runConformanceFlowCacheSequence runs several forward and streaming_forward
@@ -13897,7 +13988,7 @@ func runConformanceFlow(fixture map[string]Value) {
 	if display(coreGet(fixture, "operation", "")) == "plan" {
 		return
 	}
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
+	client := conformanceScriptSpeak(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, fixture)
 	forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
 	var output Value
 	if display(coreGet(fixture, "operation", "")) == "streaming" {
@@ -13935,6 +14026,7 @@ func runConformanceFlow(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_request_count", nil); expected != nil && len(client.Requests) != int(num(expected)) {
 		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d requests, got %d", int(num(expected)), len(client.Requests))})
 	}
+	conformanceAssertSpeakRequests(fixture, client)
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
 		for _, item := range asSlice(expected) {
@@ -16757,6 +16849,7 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 	fields := goPromptInputFields(sig, values)
 	parts := []Value{}
 	allText := true
+	audioParts := false
 	for _, field := range fields {
 		value := coreGet(values, field.Name, nil)
 		// As TS renders an input field (src/ax/dsp/prompt.ts): a required input
@@ -16766,6 +16859,33 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 				continue
 			}
 			panic(AxError{Category: "runtime", Message: "Value for input field '" + field.Name + "' is required."})
+		}
+		if field.Type.Name == "audio" {
+			// As TS: an audio object with a transcript (what an AxGen audio
+			// output renders to), like a plain string, reaches the model as
+			// text; other audio goes as audio parts.
+			if audio, ok := value.(map[string]Value); ok {
+				if transcript, ok := audio["transcript"].(string); ok {
+					value = transcript
+				}
+			}
+			if _, isText := value.(string); !isText {
+				parts = append(parts, Object("type", "text", "text", field.Title+": \n"))
+				if field.Type.IsArray {
+					items, ok := value.([]Value)
+					if !ok {
+						panic(AxError{Category: "runtime", Message: "Audio field value must be an array."})
+					}
+					for _, item := range items {
+						parts = append(parts, goPromptAudioPart(item))
+					}
+				} else {
+					parts = append(parts, goPromptAudioPart(value))
+				}
+				allText = false
+				audioParts = true
+				continue
+			}
 		}
 		valueText := goPromptValueText(value)
 		// A time.Time in a date-typed field reads as TS renders a Date.
@@ -16779,7 +16899,7 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 			allText = false
 		}
 		parts = append(parts, part)
-		if field.Type.Name == "image" || field.Type.Name == "audio" || field.Type.Name == "file" || field.Type.Name == "url" {
+		if field.Type.Name == "image" || field.Type.Name == "file" || field.Type.Name == "url" {
 			allText = false
 		}
 	}
@@ -16790,7 +16910,41 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 		}
 		return strings.Join(lines, "\n")
 	}
-	return parts
+	if !audioParts {
+		return parts
+	}
+	// As TS: consecutive text parts join with a newline.
+	combined := []Value{}
+	for _, part := range parts {
+		if display(coreGet(part, "type", "")) == "text" && len(combined) > 0 && display(coreGet(combined[len(combined)-1], "type", "")) == "text" {
+			previous := combined[len(combined)-1]
+			coreSet(previous, "text", display(coreGet(previous, "text", ""))+"\n"+display(coreGet(part, "text", "")))
+			if coreTruthy(coreGet(part, "cache", false)) {
+				coreSet(previous, "cache", true)
+			}
+			continue
+		}
+		combined = append(combined, part)
+	}
+	return combined
+}
+
+// goPromptAudioPart is TS's audio part: only the format (wav when there is
+// none) and the data.
+func goPromptAudioPart(value Value) Value {
+	audio, ok := value.(map[string]Value)
+	if !ok {
+		panic(AxError{Category: "runtime", Message: "Audio field value must be an object."})
+	}
+	data, hasData := audio["data"]
+	if !hasData {
+		panic(AxError{Category: "runtime", Message: "Audio field must have data"})
+	}
+	format := audio["format"]
+	if format == nil {
+		format = "wav"
+	}
+	return Object("type", "audio", "format", format, "data", data)
 }
 func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value, options map[string]Value) string {
 	complex := goPromptHasComplexFields(sig)

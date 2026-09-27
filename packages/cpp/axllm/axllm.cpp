@@ -1959,6 +1959,13 @@ Value Core::ai_client_features(Value client, Value model) {
   }
   return object({{"functions", true}, {"structured_outputs", true}});
 }
+Value Core::axgen_speak(Value client, Value request, Value options) {
+  // Backs intrinsic.axgen.speak: the AxGen audio output renderer calls the
+  // client's speak(), as TS calls ai.speak().
+  AIClient* registered = registered_client(str(get_key(client, "__client_id")));
+  if (registered == nullptr) throw AxError("runtime", "Audio speech not supported by this AI client");
+  return registered->speak(request, options);
+}
 Value Core::agent_transcribe(Value client, Value request, Value options) {
   // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
   // text before the agent loop (the client passes through @agent_forward as a real client).
@@ -2713,14 +2720,40 @@ Value Core::prompt_structured(Value signature, Value values, Value functions, Va
   if (!get_key(options, "custom_template").is_null()) { source = str(get_key(options, "custom_template")); context = "inline-template"; }
   return string_trim(render_template_content(source, Value(vars), context));
 }
+// TS's audio part: only the format (wav when there is none) and the data.
+static Value prompt_audio_part(const Value& value) {
+  if (!value.is_object()) throw AxError("runtime", "Audio field value must be an object.");
+  if (object_ref(value).count("data") == 0) throw AxError("runtime", "Audio field must have data");
+  Value format = get_key(value, "format");
+  return Value(Object{{"type", "audio"}, {"format", format.is_null() ? Value("wav") : format}, {"data", get_key(value, "data")}});
+}
 Value Core::prompt_user_content(Value signature, Value values) {
   Array parts;
+  bool audio_parts = false;
   for (const auto& field : prompt_inputs_for_values(signature, values)) {
     std::string name = str(get_key(field, "name"));
     Value value = get_key(values, name);
     if (!prompt_provided(value)) {
       if (truthy(get_key(field, "isOptional")) || truthy(get_key(field, "isInternal"))) continue;
       throw AxError("runtime", "Value for input field '" + name + "' is required.");
+    }
+    Value type = get_key(field, "type");
+    if (str(get_key(type, "name")) == "audio") {
+      // As TS: an audio object with a transcript (what an AxGen audio output
+      // renders to), like a plain string, reaches the model as text; other
+      // audio goes as audio parts.
+      if (value.is_object() && get_key(value, "transcript").is_string()) value = get_key(value, "transcript");
+      if (!value.is_string()) {
+        parts.emplace_back(Value(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": \n"}}));
+        if (truthy(get_key(type, "isArray"))) {
+          if (!value.is_array()) throw AxError("runtime", "Audio field value must be an array.");
+          for (const auto& item : array_ref(value)) parts.emplace_back(prompt_audio_part(item));
+        } else {
+          parts.emplace_back(prompt_audio_part(value));
+        }
+        audio_parts = true;
+        continue;
+      }
     }
     std::string rendered = value.is_string() ? str(value) : pretty_stringify(value);
     Value part(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": " + rendered + "\n"}});
@@ -2729,7 +2762,21 @@ Value Core::prompt_user_content(Value signature, Value values) {
   }
   bool all_text = true;
   for (const auto& part : parts) if (str(get_key(part, "type")) != "text" || truthy(get_key(part, "cache"))) all_text = false;
-  if (!all_text) return Value(parts);
+  if (!all_text && !audio_parts) return Value(parts);
+  if (!all_text) {
+    // As TS: consecutive text parts join with a newline.
+    Array combined;
+    for (const auto& part : parts) {
+      if (str(get_key(part, "type")) == "text" && !combined.empty() && str(get_key(combined.back(), "type")) == "text") {
+        Value& previous = combined.back();
+        Core::set(previous, "text", str(get_key(previous, "text")) + "\n" + str(get_key(part, "text")));
+        if (truthy(get_key(part, "cache"))) Core::set(previous, "cache", true);
+        continue;
+      }
+      combined.push_back(part);
+    }
+    return Value(combined);
+  }
   std::string out;
   for (size_t i = 0; i < parts.size(); ++i) {
     if (i) out += "\n";
@@ -4984,7 +5031,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     Value valid_image = Core::valid_image(value);
     Value invalid_image = Core::not_(valid_image);
     if (Core::truthy(invalid_image)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'"), field_name);
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type '{}'"), field_name, Value("object ({ mimeType: string; data: string })"));
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -4995,7 +5042,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     Value valid_audio = Core::valid_audio(value);
     Value invalid_audio = Core::not_(valid_audio);
     if (Core::truthy(invalid_audio)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'"), field_name);
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type '{}'"), field_name, Value("string or object ({ data: string; format?: string })"));
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -5006,7 +5053,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     Value valid_file = Core::valid_file(value);
     Value invalid_file = Core::not_(valid_file);
     if (Core::truthy(invalid_file)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'"), field_name);
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type '{}'"), field_name, Value("object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })"));
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -5017,7 +5064,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     Value valid_url_shape = Core::valid_url_shape(value);
     Value invalid_url_shape = Core::not_(valid_url_shape);
     if (Core::truthy(invalid_url_shape)) {
-      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'"), field_name);
+      Value message = Core::string_format(Value("Validation failed: Expected '{}' to be type '{}'"), field_name, Value("string or object ({ url: string; title?: string; description?: string })"));
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -12053,7 +12100,8 @@ Value Core::provider_normalize_speak_response(Value profile, Value raw, Value re
   Value out = Value::object();
   Core::set(out, Value("audio"), data);
   Core::set(out, Value("format"), format);
-  return out;
+  Value speech = Core::_speech_response_ts_keys_impl(out, raw, request);
+  return speech;
 }
 
 Value Core::provider_normalize_realtime_event(Value profile, Value event, Value state, Value ai_name, Value model) {
@@ -13275,7 +13323,81 @@ Value Core::_gemini_normalize_speak_response(Value raw, Value request) {
     Value mime_params = Core::_audio_mime_params_impl(mime_type);
     out = Core::map_merge(out, mime_params);
   }
+  Value speech = Core::_speech_response_ts_keys_impl(out, raw, request);
+  return speech;
+}
+
+Value Core::_speech_response_ts_keys_impl(Value out, Value raw, Value request) {
+  axir_coverage_mark("_speech_response_ts_keys_impl");
+  Value data = Core::get(out, Value("audio"), Value());
+  Core::set(out, Value("data"), data);
+  Value format = Core::get(out, Value("format"), Value());
+  Value mime_type = Core::get(out, Value("mime_type"), Value(""));
+  Value has_mime = Core::truthy_value(mime_type);
+  Value raw_is_object = Core::type_is(raw, Value("object"));
+  Value read_raw_mime = Core::not_(has_mime);
+  read_raw_mime = Core::and_(read_raw_mime, raw_is_object);
+  if (Core::truthy(read_raw_mime)) {
+    Value raw_mime_snake = Core::get(raw, Value("mime_type"), Value());
+    Value snake_is_text = Core::type_is(raw_mime_snake, Value("string"));
+    if (Core::truthy(snake_is_text)) {
+      mime_type = raw_mime_snake;
+    }
+    Value raw_mime_camel = Core::get(raw, Value("mimeType"), Value());
+    Value camel_is_text = Core::type_is(raw_mime_camel, Value("string"));
+    if (Core::truthy(camel_is_text)) {
+      mime_type = raw_mime_camel;
+    }
+    has_mime = Core::truthy_value(mime_type);
+  }
+  if (Core::truthy(has_mime)) {
+    // empty
+  }
+  if (!Core::truthy(has_mime)) {
+    mime_type = Core::_audio_mime_type_impl(format);
+  }
+  Core::set(out, Value("mimeType"), mime_type);
+  Value params = Core::_audio_mime_params_impl(mime_type);
+  Value sample_rate = Core::get(params, Value("sample_rate"), Value());
+  Value has_sample_rate = Core::is_not_none(sample_rate);
+  if (Core::truthy(has_sample_rate)) {
+    Core::set(out, Value("sampleRate"), sample_rate);
+  }
+  Value channels = Core::get(params, Value("channels"), Value());
+  Value has_channels = Core::is_not_none(channels);
+  if (Core::truthy(has_channels)) {
+    Core::set(out, Value("channels"), channels);
+  }
+  Value request_input = Core::get(request, Value("input"), Value());
+  Value text = Core::get(request, Value("text"), request_input);
+  Value has_text = Core::is_not_none(text);
+  if (Core::truthy(has_text)) {
+    Core::set(out, Value("transcript"), text);
+  }
   return out;
+}
+
+Value Core::_audio_mime_type_impl(Value format) {
+  axir_coverage_mark("_audio_mime_type_impl");
+  Value table = Value::object();
+  Core::set(table, Value("wav"), Value("audio/wav"));
+  Core::set(table, Value("mp3"), Value("audio/mpeg"));
+  Core::set(table, Value("flac"), Value("audio/flac"));
+  Core::set(table, Value("opus"), Value("audio/opus"));
+  Core::set(table, Value("aac"), Value("audio/aac"));
+  Core::set(table, Value("pcm"), Value("audio/pcm"));
+  Core::set(table, Value("pcm16"), Value("audio/pcm"));
+  Core::set(table, Value("raw"), Value("audio/pcm"));
+  Core::set(table, Value("mulaw"), Value("audio/basic"));
+  Core::set(table, Value("ulaw"), Value("audio/basic"));
+  Core::set(table, Value("alaw"), Value("audio/alaw"));
+  Core::set(table, Value("ogg"), Value("audio/ogg"));
+  Value is_text = Core::type_is(format, Value("string"));
+  if (Core::truthy(is_text)) {
+    Value mime = Core::get(table, format, Value("audio/mpeg"));
+    return mime;
+  }
+  return Value("audio/mpeg");
 }
 
 Value Core::_audio_mime_params_impl(Value mime_type) {
@@ -16493,6 +16615,63 @@ Value Core::fold_stream(Value events) {
   return folded;
 }
 
+Value Core::_render_audio_outputs_impl(Value gen, Value client, Value values, Value options) {
+  axir_coverage_mark("_render_audio_outputs_impl");
+  Value base_options = Core::get(gen, Value("options"), Value());
+  Value runtime_options = Core::map_merge(base_options, options);
+  Value render_snake = Core::get(runtime_options, Value("render_audio"), Value());
+  Value render = Core::get(runtime_options, Value("renderAudio"), render_snake);
+  Value render_unset = Core::is_none(render);
+  Value render_on = Core::truthy_value(render);
+  Value no_speech = Value::object();
+  Value speech = Core::get(runtime_options, Value("speech"), no_speech);
+  Value no_speak_defaults = Value::object();
+  Value speak_defaults = Core::get(speech, Value("speak"), no_speak_defaults);
+  Value no_field_speech = Value::object();
+  Value field_speech = Core::get(speech, Value("fields"), no_field_speech);
+  Value signature = Core::get(gen, Value("signature"), Value());
+  Value output_fields = Core::get(signature, Value("output_fields"), Value());
+  Value out_base = Value::object();
+  Value out = Core::map_merge(out_base, values);
+  for (auto field : Core::iter(output_fields)) {
+    Value no_type = Value::object();
+    Value typ = Core::get(field, Value("type"), no_type);
+    Value type_name = Core::get(typ, Value("name"), Value(""));
+    Value is_audio = Core::eq(type_name, Value("audio"));
+    Value is_array = Core::get(typ, Value("is_array"), Value(false));
+    Value single = Core::not_(is_array);
+    Value audio_field = Core::and_(is_audio, single);
+    if (Core::truthy(audio_field)) {
+      Value name = Core::get(field, Value("name"), Value(""));
+      Value value = Core::get(out, name, Value());
+      Value is_text = Core::type_is(value, Value("string"));
+      if (Core::truthy(is_text)) {
+        if (Core::truthy(render_unset)) {
+          Core::axgen_deprecation(Value("axgen-audio-output-text"), Value("AxGen audio output fields return the model's text; TypeScript Ax turns them into audio with the AI client's speak(). Pass renderAudio: true to render them now, or renderAudio: false to keep the text. Rendering becomes the default in the next major version."));
+        }
+        if (Core::truthy(render_on)) {
+          Value request_base = Value::object();
+          Value request = Core::map_merge(request_base, speak_defaults);
+          Value no_field_defaults = Value::object();
+          Value field_defaults = Core::get(field_speech, name, no_field_defaults);
+          request = Core::map_merge(request, field_defaults);
+          Core::set(request, Value("text"), value);
+          Value audio = Core::axgen_speak(client, request, runtime_options);
+          Value artifact_base = Value::object();
+          Value artifact = Core::map_merge(artifact_base, audio);
+          Value transcript = Core::get(artifact, Value("transcript"), Value());
+          Value no_transcript = Core::is_none(transcript);
+          if (Core::truthy(no_transcript)) {
+            Core::set(artifact, Value("transcript"), value);
+          }
+          Core::set(out, name, artifact);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 Value Core::_select_structured_output_rung(Value signature, Value features, Value options) {
   axir_coverage_mark("_select_structured_output_rung");
   Value native_snake = Core::get(features, Value("structured_outputs"), Value());
@@ -17139,6 +17318,27 @@ Value Core::_date_parse_fields_impl(Value fields, Value base_options, Value opti
     Core::append(out, field_copy);
   }
   return out;
+}
+
+Value Core::_render_stream_result_impl(Value run, Value output) {
+  axir_coverage_mark("_render_stream_result_impl");
+  Value render = Core::get(run, Value("render_audio"), Value());
+  Value no_render = Core::is_none(render);
+  if (Core::truthy(no_render)) {
+    return output;
+  }
+  Value buffered = Core::get(run, Value("buffered"), Value(false));
+  Value sink = Core::get(run, Value("sink"), Value());
+  Value no_sink = Core::is_none(sink);
+  Value renders = Core::or_(buffered, no_sink);
+  if (Core::truthy(renders)) {
+    Value gen = Core::get(render, Value("gen"), Value());
+    Value client = Core::get(render, Value("client"), Value());
+    Value options = Core::get(render, Value("options"), Value());
+    Value rendered = Core::_render_audio_outputs_impl(gen, client, output, options);
+    return rendered;
+  }
+  return output;
 }
 
 Value Core::_regex_node(Value k) {
@@ -20489,7 +20689,8 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
     Value read_hit = Core::get(read, Value("hit"), Value(false));
     if (Core::truthy(read_hit)) {
       Value cached = Core::get(read, Value("value"), Value());
-      return cached;
+      Value rendered_cached = Core::_render_audio_outputs_impl(gen, client, cached, options);
+      return rendered_cached;
     }
     cache_fn = Core::get(read, Value("fn"), Value());
     cache_key = Core::get(read, Value("key"), Value(""));
@@ -20623,6 +20824,7 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
       Value has_structured_call = Core::is_not_none(structured_call);
       if (Core::truthy(has_structured_call)) {
         Value structured_failure = Core::none();
+        Value structured_done = Core::none();
         Value structured_stage = Value("validation");
         try {
           Value structured_args = Core::_structured_output_call_args(structured_call);
@@ -20641,9 +20843,7 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
             Value structured_thought = Core::get(response, Value("thought"), Value(""));
             Value structured_public = Core::_with_output_thought_impl(structured_stripped, thought_field, thought_prefix, structured_thought);
             Core::axgen_memory_cleanup_corrections(gen);
-            Core::_record_trace(gen, values, structured_public, Value("ok"));
-            Core::_cache_store_impl(cache_fn, cache_key, structured_public);
-            return structured_public;
+            structured_done = structured_public;
           }
         } catch (const std::exception& e) {
           Value structured_validation_error = Core::exception_value(e);
@@ -20660,6 +20860,13 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
           messages = structured_retry_messages;
           Core::axgen_memory_add_correction(gen, response, structured_validation_error);
           continue;
+        }
+        Value structured_answered = Core::is_not_none(structured_done);
+        if (Core::truthy(structured_answered)) {
+          Value structured_rendered = Core::_render_audio_outputs_impl(gen, client, structured_done, options);
+          Core::_record_trace(gen, values, structured_rendered, Value("ok"));
+          Core::_cache_store_impl(cache_fn, cache_key, structured_rendered);
+          return structured_rendered;
         }
         Value structured_fatal = Core::_generate_failed_impl(structured_failure);
         Core::raise_error(structured_fatal);
@@ -20697,9 +20904,10 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
         Value stop_thought = Core::get(response, Value("thought"), Value(""));
         Value stop_public = Core::_with_output_thought_impl(stop_output, thought_field, thought_prefix, stop_thought);
         Core::axgen_memory_cleanup_corrections(gen);
-        Core::_record_trace(gen, values, stop_public, Value("ok"));
-        Core::_cache_store_impl(cache_fn, cache_key, stop_public);
-        return stop_public;
+        Value stop_rendered = Core::_render_audio_outputs_impl(gen, client, stop_public, options);
+        Core::_record_trace(gen, values, stop_rendered, Value("ok"));
+        Core::_cache_store_impl(cache_fn, cache_key, stop_rendered);
+        return stop_rendered;
       }
     }
     if (!Core::truthy(has_calls)) {
@@ -20788,9 +20996,10 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
       Value empty_public = Value::object();
       Value public_output = Core::list_get(public_outputs, selected_index, empty_public);
       Core::axgen_memory_cleanup_corrections(gen);
-      Core::_record_trace(gen, values, public_output, Value("ok"));
-      Core::_cache_store_impl(cache_fn, cache_key, public_output);
-      return public_output;
+      Value rendered_output = Core::_render_audio_outputs_impl(gen, client, public_output, options);
+      Core::_record_trace(gen, values, rendered_output, Value("ok"));
+      Core::_cache_store_impl(cache_fn, cache_key, rendered_output);
+      return rendered_output;
     }
   }
   throw AxError("runtime", "unreachable AxGen forward loop exit");
@@ -22221,12 +22430,6 @@ Value Core::_ace_dedupe_playbook(Value playbook) {
   return recomputed;
 }
 
-Value Core::_set_examples(Value gen, Value examples) {
-  axir_coverage_mark("_set_examples");
-  Core::set(gen, Value("examples"), examples);
-  return gen;
-}
-
 Value Core::_stream_field_value_impl(Value field, Value text) {
   axir_coverage_mark("_stream_field_value_impl");
   Value out = Value::object();
@@ -22474,9 +22677,9 @@ Value Core::chat_session_record_unresolved(Value gen, Value state) {
   return Value();
 }
 
-Value Core::_set_demos(Value gen, Value demos) {
-  axir_coverage_mark("_set_demos");
-  Core::set(gen, Value("demos"), demos);
+Value Core::_set_examples(Value gen, Value examples) {
+  axir_coverage_mark("_set_examples");
+  Core::set(gen, Value("examples"), examples);
   return gen;
 }
 
@@ -22495,10 +22698,10 @@ Value Core::_date_string_mode_impl() {
   return Value("codepoint");
 }
 
-Value Core::_render_examples(Value gen) {
-  axir_coverage_mark("_render_examples");
-  Value messages = Core::axgen_render_examples(gen);
-  return messages;
+Value Core::_set_demos(Value gen, Value demos) {
+  axir_coverage_mark("_set_demos");
+  Core::set(gen, Value("demos"), demos);
+  return gen;
 }
 
 Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) {
@@ -22589,12 +22792,6 @@ Value Core::chat_session_close_state(Value state) {
   return unresolved;
 }
 
-Value Core::_render_demos(Value gen) {
-  axir_coverage_mark("_render_demos");
-  Value messages = Core::axgen_render_demos(gen);
-  return messages;
-}
-
 Value Core::_date_native_offset_impl(Value units, Value index, Value mode) {
   axir_coverage_mark("_date_native_offset_impl");
   Value utf16 = Core::eq(mode, Value("utf16"));
@@ -22643,6 +22840,12 @@ Value Core::_date_native_offset_impl(Value units, Value index, Value mode) {
     cursor = Core::add(cursor, step);
   }
   return offset;
+}
+
+Value Core::_render_examples(Value gen) {
+  axir_coverage_mark("_render_examples");
+  Value messages = Core::axgen_render_examples(gen);
+  return messages;
 }
 
 Value Core::chat_session_transition(Value state, Value event) {
@@ -22764,12 +22967,6 @@ Value Core::chat_session_transition(Value state, Value event) {
   return action;
 }
 
-Value Core::_apply_field_processors(Value gen, Value output) {
-  axir_coverage_mark("_apply_field_processors");
-  Value processed = Core::axgen_apply_field_processors(gen, output);
-  return processed;
-}
-
 Value Core::_regex_space(Value c) {
   axir_coverage_mark("_regex_space");
   Value t1 = Core::eq(c, Value(9));
@@ -22852,6 +23049,18 @@ Value Core::_regex_space(Value c) {
   return t2;
 }
 
+Value Core::_render_demos(Value gen) {
+  axir_coverage_mark("_render_demos");
+  Value messages = Core::axgen_render_demos(gen);
+  return messages;
+}
+
+Value Core::_apply_field_processors(Value gen, Value output) {
+  axir_coverage_mark("_apply_field_processors");
+  Value processed = Core::axgen_apply_field_processors(gen, output);
+  return processed;
+}
+
 Value Core::_run_assertions(Value gen, Value output) {
   axir_coverage_mark("_run_assertions");
   Value result = Core::axgen_run_assertions(gen, output);
@@ -22894,12 +23103,6 @@ Value Core::_append_assertion_retry_messages(Value messages, Value response, Val
   axir_coverage_mark("_append_assertion_retry_messages");
   Value updated_messages = Core::_append_validation_retry_messages_impl(messages, response, error);
   return updated_messages;
-}
-
-Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
-  axir_coverage_mark("_record_trace");
-  Core::axgen_record_trace(gen, input, output, status);
-  return Value();
 }
 
 Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now) {
@@ -23096,10 +23299,10 @@ Value Core::_date_trim_bounds_impl(Value units, Value start, Value end) {
   return bounds;
 }
 
-Value Core::_should_continue_steps(Value gen, Value calls) {
-  axir_coverage_mark("_should_continue_steps");
-  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
-  return should_continue;
+Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
+  axir_coverage_mark("_record_trace");
+  Core::axgen_record_trace(gen, input, output, status);
+  return Value();
 }
 
 Value Core::_regex_member(Value n, Value c) {
@@ -23223,11 +23426,10 @@ Value Core::_regex_member(Value n, Value c) {
   return Value(false);
 }
 
-Value Core::_parse_output_impl(Value content) {
-  axir_coverage_mark("_parse_output_impl");
-  Value text = Core::string_trim(content);
-  Value output = Core::json_parse_strict(text);
-  return output;
+Value Core::_should_continue_steps(Value gen, Value calls) {
+  axir_coverage_mark("_should_continue_steps");
+  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
+  return should_continue;
 }
 
 Value Core::_date_skip_space_impl(Value units, Value start, Value end) {
@@ -23247,6 +23449,13 @@ Value Core::_date_skip_space_impl(Value units, Value start, Value end) {
     cursor = Core::add(cursor, Value(1));
   }
   return cursor;
+}
+
+Value Core::_parse_output_impl(Value content) {
+  axir_coverage_mark("_parse_output_impl");
+  Value text = Core::string_trim(content);
+  Value output = Core::json_parse_strict(text);
+  return output;
 }
 
 Value Core::_is_flexible_json_field(Value typ) {
@@ -23298,6 +23507,23 @@ Value Core::_date_space_impl(Value unit) {
   return blank;
 }
 
+Value Core::_stream_text_state_impl() {
+  axir_coverage_mark("_stream_text_state_impl");
+  Value xstate = Value::object();
+  Value prev_fields = Value::array();
+  Core::set(xstate, Value("prev_fields"), prev_fields);
+  Value none = Core::none();
+  Core::set(xstate, Value("curr_field"), none);
+  Core::set(xstate, Value("curr_field_index"), none);
+  Core::set(xstate, Value("in_assumed_field"), Value(false));
+  Value extracted = Value::array();
+  Core::set(xstate, Value("extracted_fields"), extracted);
+  Value streamed = Value::object();
+  Core::set(xstate, Value("streamed_index"), streamed);
+  Core::set(xstate, Value("s"), Value(-1));
+  return xstate;
+}
+
 Value Core::_parse_json_string_value(Value value) {
   axir_coverage_mark("_parse_json_string_value");
   Value is_string = Core::type_is(value, Value("string"));
@@ -23316,21 +23542,40 @@ Value Core::_parse_json_string_value(Value value) {
   return result;
 }
 
-Value Core::_stream_text_state_impl() {
-  axir_coverage_mark("_stream_text_state_impl");
-  Value xstate = Value::object();
-  Value prev_fields = Value::array();
-  Core::set(xstate, Value("prev_fields"), prev_fields);
-  Value none = Core::none();
-  Core::set(xstate, Value("curr_field"), none);
-  Core::set(xstate, Value("curr_field_index"), none);
-  Core::set(xstate, Value("in_assumed_field"), Value(false));
-  Value extracted = Value::array();
-  Core::set(xstate, Value("extracted_fields"), extracted);
-  Value streamed = Value::object();
-  Core::set(xstate, Value("streamed_index"), streamed);
-  Core::set(xstate, Value("s"), Value(-1));
-  return xstate;
+Value Core::_date_is_line_terminator_impl(Value unit) {
+  axir_coverage_mark("_date_is_line_terminator_impl");
+  Value line_feed = Core::eq(unit, Value(10));
+  Value carriage_return = Core::eq(unit, Value(13));
+  Value line_separator = Core::eq(unit, Value(8232));
+  Value paragraph_separator = Core::eq(unit, Value(8233));
+  Value terminator = Core::or_(line_feed, carriage_return);
+  terminator = Core::or_(terminator, line_separator);
+  terminator = Core::or_(terminator, paragraph_separator);
+  return terminator;
+}
+
+Value Core::_stream_text_note_field_impl(Value xstate, Value field, Value init_streamed) {
+  axir_coverage_mark("_stream_text_note_field_impl");
+  Value name = Core::get(field, Value("name"), Value(""));
+  Value empty_extracted = Value::array();
+  Value extracted = Core::get(xstate, Value("extracted_fields"), empty_extracted);
+  Value seen = Core::contains(extracted, name);
+  Value unseen = Core::not_(seen);
+  if (Core::truthy(unseen)) {
+    Core::append(extracted, name);
+    Core::set(xstate, Value("extracted_fields"), extracted);
+  }
+  if (Core::truthy(init_streamed)) {
+    Value empty_streamed = Value::object();
+    Value streamed = Core::get(xstate, Value("streamed_index"), empty_streamed);
+    Value has_index = Core::map_contains(streamed, name);
+    Value missing_index = Core::not_(has_index);
+    if (Core::truthy(missing_index)) {
+      Core::set(streamed, name, Value(0));
+    }
+    Core::set(xstate, Value("streamed_index"), streamed);
+  }
+  return Value();
 }
 
 Value Core::_parse_json_string_for_field(Value field, Value value) {
@@ -23387,42 +23632,6 @@ Value Core::_parse_json_string_for_field(Value field, Value value) {
     }
   }
   return value;
-}
-
-Value Core::_date_is_line_terminator_impl(Value unit) {
-  axir_coverage_mark("_date_is_line_terminator_impl");
-  Value line_feed = Core::eq(unit, Value(10));
-  Value carriage_return = Core::eq(unit, Value(13));
-  Value line_separator = Core::eq(unit, Value(8232));
-  Value paragraph_separator = Core::eq(unit, Value(8233));
-  Value terminator = Core::or_(line_feed, carriage_return);
-  terminator = Core::or_(terminator, line_separator);
-  terminator = Core::or_(terminator, paragraph_separator);
-  return terminator;
-}
-
-Value Core::_stream_text_note_field_impl(Value xstate, Value field, Value init_streamed) {
-  axir_coverage_mark("_stream_text_note_field_impl");
-  Value name = Core::get(field, Value("name"), Value(""));
-  Value empty_extracted = Value::array();
-  Value extracted = Core::get(xstate, Value("extracted_fields"), empty_extracted);
-  Value seen = Core::contains(extracted, name);
-  Value unseen = Core::not_(seen);
-  if (Core::truthy(unseen)) {
-    Core::append(extracted, name);
-    Core::set(xstate, Value("extracted_fields"), extracted);
-  }
-  if (Core::truthy(init_streamed)) {
-    Value empty_streamed = Value::object();
-    Value streamed = Core::get(xstate, Value("streamed_index"), empty_streamed);
-    Value has_index = Core::map_contains(streamed, name);
-    Value missing_index = Core::not_(has_index);
-    if (Core::truthy(missing_index)) {
-      Core::set(streamed, name, Value(0));
-    }
-    Core::set(xstate, Value("streamed_index"), streamed);
-  }
-  return Value();
 }
 
 Value Core::_date_ascii_letter_impl(Value unit) {
@@ -23601,6 +23810,15 @@ Value Core::_date_ascii_matches_impl(Value units, Value at, Value end, Value wor
   return Value(true);
 }
 
+Value Core::_regex_state(Value pos, Value caps) {
+  axir_coverage_mark("_regex_state");
+  Value t1 = Value::object();
+  Core::set(t1, Value("pos"), pos);
+  Value t2 = Core::_regex_copy_map(caps);
+  Core::set(t1, Value("caps"), t2);
+  return t1;
+}
+
 Value Core::_parse_json_string_fields(Value output_fields, Value values) {
   axir_coverage_mark("_parse_json_string_fields");
   Value values_is_map = Core::type_is(values, Value("object"));
@@ -23618,15 +23836,6 @@ Value Core::_parse_json_string_fields(Value output_fields, Value values) {
     }
   }
   return values;
-}
-
-Value Core::_regex_state(Value pos, Value caps) {
-  axir_coverage_mark("_regex_state");
-  Value t1 = Value::object();
-  Core::set(t1, Value("pos"), pos);
-  Value t2 = Core::_regex_copy_map(caps);
-  Core::set(t1, Value("caps"), t2);
-  return t1;
 }
 
 Value Core::_regex_capture_ids(Value n) {
@@ -23803,26 +24012,6 @@ Value Core::_ace_is_noop_acknowledgment(Value content) {
   return is_noop;
 }
 
-Value Core::_parse_json_string_for_fields(Value fields_map, Value values) {
-  axir_coverage_mark("_parse_json_string_for_fields");
-  Value values_is_map = Core::type_is(values, Value("object"));
-  Value not_map = Core::not_(values_is_map);
-  if (Core::truthy(not_map)) {
-    return values;
-  }
-  Value nested_fields = Core::fields_from_map(fields_map);
-  for (auto field : Core::iter(nested_fields)) {
-    Value name = Core::get(field, Value("name"), Value());
-    Value has_key = Core::map_contains(values, name);
-    if (Core::truthy(has_key)) {
-      Value value = Core::get(values, name, Value());
-      Value parsed = Core::_parse_json_string_for_field(field, value);
-      Core::set(values, name, parsed);
-    }
-  }
-  return values;
-}
-
 Value Core::_date_digits_impl(Value units, Value at, Value count, Value end) {
   axir_coverage_mark("_date_digits_impl");
   Value last = Core::add(at, count);
@@ -23851,6 +24040,37 @@ Value Core::_date_digits_impl(Value units, Value at, Value count, Value end) {
     index = Core::add(index, Value(1));
   }
   return value;
+}
+
+Value Core::_parse_json_string_for_fields(Value fields_map, Value values) {
+  axir_coverage_mark("_parse_json_string_for_fields");
+  Value values_is_map = Core::type_is(values, Value("object"));
+  Value not_map = Core::not_(values_is_map);
+  if (Core::truthy(not_map)) {
+    return values;
+  }
+  Value nested_fields = Core::fields_from_map(fields_map);
+  for (auto field : Core::iter(nested_fields)) {
+    Value name = Core::get(field, Value("name"), Value());
+    Value has_key = Core::map_contains(values, name);
+    if (Core::truthy(has_key)) {
+      Value value = Core::get(values, name, Value());
+      Value parsed = Core::_parse_json_string_for_field(field, value);
+      Core::set(values, name, parsed);
+    }
+  }
+  return values;
+}
+
+Value Core::_date_expect_unit_impl(Value units, Value at, Value end, Value expected) {
+  axir_coverage_mark("_date_expect_unit_impl");
+  Value inside = Core::lt(at, end);
+  if (Core::truthy(inside)) {
+    Value unit = Core::get(units, at, Value(0));
+    Value same = Core::eq(unit, expected);
+    return same;
+  }
+  return Value(false);
 }
 
 Value Core::_validate_exact_output_keys(Value fields, Value values, Value context) {
@@ -23906,17 +24126,6 @@ Value Core::_validate_exact_output_keys(Value fields, Value values, Value contex
   return Value();
 }
 
-Value Core::_date_expect_unit_impl(Value units, Value at, Value end, Value expected) {
-  axir_coverage_mark("_date_expect_unit_impl");
-  Value inside = Core::lt(at, end);
-  if (Core::truthy(inside)) {
-    Value unit = Core::get(units, at, Value(0));
-    Value same = Core::eq(unit, expected);
-    return same;
-  }
-  return Value(false);
-}
-
 Value Core::_regex_push(Value stack, Value top, Value value) {
   axir_coverage_mark("_regex_push");
   Value t1 = Core::string_format(Value("{}"), top);
@@ -23970,23 +24179,6 @@ Value Core::_regex_frame(Value todo, Value st) {
   Core::set(t1, Value("todo"), todo);
   Core::set(t1, Value("st"), st);
   return t1;
-}
-
-Value Core::_tool_spec_impl(Value fn) {
-  axir_coverage_mark("_tool_spec_impl");
-  Value spec = Value::object();
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value());
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Core::set(spec, Value("name"), name);
-  Core::set(spec, Value("description"), description);
-  Core::set(spec, Value("parameters"), parameters);
-  Value execution = Core::get(fn, Value("execution"), Value("blocking"));
-  Value background = Core::eq(execution, Value("background"));
-  if (Core::truthy(background)) {
-    Core::set(spec, Value("execution"), execution);
-  }
-  return spec;
 }
 
 Value Core::_regex_search(Value n, Value u, Value initial, Value d) {
@@ -24584,6 +24776,23 @@ Value Core::_date_scan_datetime_impl(Value units, Value start, Value end) {
   return parts;
 }
 
+Value Core::_tool_spec_impl(Value fn) {
+  axir_coverage_mark("_tool_spec_impl");
+  Value spec = Value::object();
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value());
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Core::set(spec, Value("name"), name);
+  Core::set(spec, Value("description"), description);
+  Core::set(spec, Value("parameters"), parameters);
+  Value execution = Core::get(fn, Value("execution"), Value("blocking"));
+  Value background = Core::eq(execution, Value("background"));
+  if (Core::truthy(background)) {
+    Core::set(spec, Value("execution"), execution);
+  }
+  return spec;
+}
+
 Value Core::_stream_text_required_check_impl(Value values, Value fields) {
   axir_coverage_mark("_stream_text_required_check_impl");
   Value parts = Value::array();
@@ -24781,49 +24990,6 @@ Value Core::_ace_normalize_curator_operations(Value operations) {
   return empty_list;
 }
 
-Value Core::_response_function_calls_impl(Value response) {
-  axir_coverage_mark("_response_function_calls_impl");
-  Value empty = Value::array();
-  Value calls = Core::get(response, Value("function_calls"), empty);
-  return calls;
-}
-
-Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
-  axir_coverage_mark("_append_tool_call_messages_impl");
-  Value chat_calls = Value::array();
-  for (auto call : Core::iter(calls)) {
-    Value chat_call = Core::_completion_call_to_chat_impl(call);
-    Core::append(chat_calls, chat_call);
-  }
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("assistant"));
-  Core::set(message, Value("content"), content);
-  Core::set(message, Value("function_calls"), chat_calls);
-  Value thought = Core::get(response, Value("thought"), Value());
-  Value has_thought = Core::is_not_none(thought);
-  if (Core::truthy(has_thought)) {
-    Core::set(message, Value("thought"), thought);
-  }
-  Value thought_blocks = Core::get(response, Value("thought_blocks"), Value());
-  Value has_thought_blocks = Core::is_not_none(thought_blocks);
-  if (Core::truthy(has_thought_blocks)) {
-    Core::set(message, Value("thought_blocks"), thought_blocks);
-  }
-  Value images = Core::get(response, Value("images"), Value());
-  Value has_images = Core::is_not_none(images);
-  if (Core::truthy(has_images)) {
-    Core::set(message, Value("images"), images);
-  }
-  Value phase = Core::get(response, Value("phase"), Value());
-  Value has_phase = Core::is_not_none(phase);
-  if (Core::truthy(has_phase)) {
-    Core::set(message, Value("phase"), phase);
-  }
-  Core::append(messages, message);
-  return messages;
-}
-
 Value Core::_stream_text_missed_fields_impl(Value values, Value content, Value fields) {
   axir_coverage_mark("_stream_text_missed_fields_impl");
   Value field_count = Core::len(fields);
@@ -24935,19 +25101,47 @@ Value Core::_stream_text_missed_fields_impl(Value values, Value content, Value f
   return Value();
 }
 
-Value Core::_completion_call_to_chat_impl(Value call) {
-  axir_coverage_mark("_completion_call_to_chat_impl");
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(call, Value("name"), Value());
-  Value params = Core::get(call, Value("params"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("params"), params);
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
+Value Core::_response_function_calls_impl(Value response) {
+  axir_coverage_mark("_response_function_calls_impl");
+  Value empty = Value::array();
+  Value calls = Core::get(response, Value("function_calls"), empty);
+  return calls;
+}
+
+Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
+  axir_coverage_mark("_append_tool_call_messages_impl");
+  Value chat_calls = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value chat_call = Core::_completion_call_to_chat_impl(call);
+    Core::append(chat_calls, chat_call);
+  }
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("assistant"));
+  Core::set(message, Value("content"), content);
+  Core::set(message, Value("function_calls"), chat_calls);
+  Value thought = Core::get(response, Value("thought"), Value());
+  Value has_thought = Core::is_not_none(thought);
+  if (Core::truthy(has_thought)) {
+    Core::set(message, Value("thought"), thought);
+  }
+  Value thought_blocks = Core::get(response, Value("thought_blocks"), Value());
+  Value has_thought_blocks = Core::is_not_none(thought_blocks);
+  if (Core::truthy(has_thought_blocks)) {
+    Core::set(message, Value("thought_blocks"), thought_blocks);
+  }
+  Value images = Core::get(response, Value("images"), Value());
+  Value has_images = Core::is_not_none(images);
+  if (Core::truthy(has_images)) {
+    Core::set(message, Value("images"), images);
+  }
+  Value phase = Core::get(response, Value("phase"), Value());
+  Value has_phase = Core::is_not_none(phase);
+  if (Core::truthy(has_phase)) {
+    Core::set(message, Value("phase"), phase);
+  }
+  Core::append(messages, message);
+  return messages;
 }
 
 Value Core::_date_offset_zone_matches_impl(Value units, Value start, Value end) {
@@ -25003,6 +25197,21 @@ Value Core::_date_offset_zone_matches_impl(Value units, Value start, Value end) 
   return matches;
 }
 
+Value Core::_completion_call_to_chat_impl(Value call) {
+  axir_coverage_mark("_completion_call_to_chat_impl");
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(call, Value("name"), Value());
+  Value params = Core::get(call, Value("params"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("params"), params);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
+  return out;
+}
+
 Value Core::_tool_result_message_impl(Value call, Value result) {
   axir_coverage_mark("_tool_result_message_impl");
   Value id = Core::get(call, Value("id"), Value());
@@ -25031,23 +25240,6 @@ Value Core::_tool_error_message_impl(Value call, Value error) {
   Core::set(message, Value("result"), payload_json);
   Core::set(message, Value("is_error"), Value(true));
   return message;
-}
-
-Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
-  axir_coverage_mark("_append_validation_retry_messages_impl");
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value assistant_message = Value::object();
-  Core::set(assistant_message, Value("role"), Value("assistant"));
-  Core::set(assistant_message, Value("content"), content);
-  Core::append(messages, assistant_message);
-  Value error_text = Core::exception_message(error);
-  Value prefix_message = Core::add(Value("The previous response failed validation: "), error_text);
-  Value retry_content = Core::add(prefix_message, Value(". Return only corrected JSON."));
-  Value retry_message = Value::object();
-  Core::set(retry_message, Value("role"), Value("user"));
-  Core::set(retry_message, Value("content"), retry_content);
-  Core::append(messages, retry_message);
-  return messages;
 }
 
 Value Core::_date_offset_minutes_impl(Value units, Value start, Value end) {
@@ -25196,23 +25388,21 @@ Value Core::_stream_text_final_impl(Value xstate, Value values, Value content, V
   return Value();
 }
 
-Value Core::_parse_text_field_value_impl(Value field, Value text) {
-  axir_coverage_mark("_parse_text_field_value_impl");
-  text = Core::string_trim(text);
-  Value typ = Core::get(field, Value("type"), Value());
-  Value name = Core::get(typ, Value("name"), Value());
-  Value array = Core::get(typ, Value("is_array"), Value(false));
-  Value is_boolean = Core::eq(name, Value("boolean"));
-  Value numeric = Core::eq(name, Value("number"));
-  Value json = Core::eq(name, Value("json"));
-  Value parse = Core::or_(is_boolean, numeric);
-  parse = Core::or_(parse, array);
-  parse = Core::or_(parse, json);
-  if (Core::truthy(parse)) {
-    Value value = Core::json_parse_strict(text);
-    return value;
-  }
-  return text;
+Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
+  axir_coverage_mark("_append_validation_retry_messages_impl");
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value assistant_message = Value::object();
+  Core::set(assistant_message, Value("role"), Value("assistant"));
+  Core::set(assistant_message, Value("content"), content);
+  Core::append(messages, assistant_message);
+  Value error_text = Core::exception_message(error);
+  Value prefix_message = Core::add(Value("The previous response failed validation: "), error_text);
+  Value retry_content = Core::add(prefix_message, Value(". Return only corrected JSON."));
+  Value retry_message = Value::object();
+  Core::set(retry_message, Value("role"), Value("user"));
+  Core::set(retry_message, Value("content"), retry_content);
+  Core::append(messages, retry_message);
+  return messages;
 }
 
 Value Core::_ace_locate_bullet_section(Value playbook, Value bullet_id) {
@@ -25245,85 +25435,23 @@ Value Core::_ace_locate_bullet_section(Value playbook, Value bullet_id) {
   return found;
 }
 
-Value Core::_parse_text_output_fields_impl(Value content, Value fields, Value is_final) {
-  axir_coverage_mark("_parse_text_output_fields_impl");
-  Value lines = Core::string_split(content, Value("\n"));
-  Value count = Core::len(lines);
-  Value index = Value(0);
-  Value values = Value::object();
-  Value current = Core::none();
-  Value current_name = Value("");
-  Value parts = Value::array();
-  for (auto line : Core::iter(lines)) {
-    index = Core::add(index, Value(1));
-    Value line_trimmed = Core::string_trim(line);
-    Value matched = Core::none();
-    Value value = Value("");
-    Value withhold = Value(false);
-    for (auto field : Core::iter(fields)) {
-      Value name = Core::get(field, Value("name"), Value());
-      Value title = Core::get(field, Value("title"), name);
-      Value labels = Value::array();
-      Core::append(labels, name);
-      Core::append(labels, title);
-      for (auto label : Core::iter(labels)) {
-        Value prefix = Core::string_format(Value("{}:"), label);
-        Value found = Core::string_starts_with(line_trimmed, prefix);
-        if (Core::truthy(found)) {
-          matched = field;
-          Value length = Core::len(prefix);
-          value = Core::string_slice(line_trimmed, length);
-          break;
-        }
-        Value last = Core::eq(index, count);
-        Value partial = Core::not_(is_final);
-        partial = Core::and_(partial, last);
-        if (Core::truthy(partial)) {
-          Value prefix_partial = Core::string_starts_with(prefix, line_trimmed);
-          withhold = Core::or_(withhold, prefix_partial);
-        }
-      }
-      Value has_match = Core::is_not_none(matched);
-      if (Core::truthy(has_match)) {
-        break;
-      }
-    }
-    Value has_match = Core::is_not_none(matched);
-    if (Core::truthy(has_match)) {
-      Value has_current = Core::ne(current_name, Value(""));
-      if (Core::truthy(has_current)) {
-        Value raw = Core::string_join(Value("\n"), parts);
-        Value parsed = Core::_parse_text_field_value_impl(current, raw);
-        Core::set(values, current_name, parsed);
-      }
-      current = matched;
-      current_name = Core::get(matched, Value("name"), Value());
-      parts = Value::array();
-      Core::append(parts, value);
-    }
-    if (!Core::truthy(has_match)) {
-      Value has_current = Core::ne(current_name, Value(""));
-      Value keep = Core::not_(withhold);
-      keep = Core::and_(keep, has_current);
-      if (Core::truthy(keep)) {
-        Core::append(parts, line);
-      }
-    }
+Value Core::_parse_text_field_value_impl(Value field, Value text) {
+  axir_coverage_mark("_parse_text_field_value_impl");
+  text = Core::string_trim(text);
+  Value typ = Core::get(field, Value("type"), Value());
+  Value name = Core::get(typ, Value("name"), Value());
+  Value array = Core::get(typ, Value("is_array"), Value(false));
+  Value is_boolean = Core::eq(name, Value("boolean"));
+  Value numeric = Core::eq(name, Value("number"));
+  Value json = Core::eq(name, Value("json"));
+  Value parse = Core::or_(is_boolean, numeric);
+  parse = Core::or_(parse, array);
+  parse = Core::or_(parse, json);
+  if (Core::truthy(parse)) {
+    Value value = Core::json_parse_strict(text);
+    return value;
   }
-  Value has_current = Core::ne(current_name, Value(""));
-  if (Core::truthy(has_current)) {
-    Value raw = Core::string_join(Value("\n"), parts);
-    try {
-      Value parsed = Core::_parse_text_field_value_impl(current, raw);
-      Core::set(values, current_name, parsed);
-    } catch (const std::exception& e) {
-      Value parse_error = Core::exception_value(e);
-      if (Core::truthy(is_final)) {
-        Core::raise_error(parse_error);
-      }
-    }
-  }
-  return values;
+  return text;
 }
 
 Value Core::_ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output) {
@@ -25455,6 +25583,87 @@ Value Core::_ace_resolve_curator_operation_targets(Value operations, Value playb
     }
   }
   return resolved;
+}
+
+Value Core::_parse_text_output_fields_impl(Value content, Value fields, Value is_final) {
+  axir_coverage_mark("_parse_text_output_fields_impl");
+  Value lines = Core::string_split(content, Value("\n"));
+  Value count = Core::len(lines);
+  Value index = Value(0);
+  Value values = Value::object();
+  Value current = Core::none();
+  Value current_name = Value("");
+  Value parts = Value::array();
+  for (auto line : Core::iter(lines)) {
+    index = Core::add(index, Value(1));
+    Value line_trimmed = Core::string_trim(line);
+    Value matched = Core::none();
+    Value value = Value("");
+    Value withhold = Value(false);
+    for (auto field : Core::iter(fields)) {
+      Value name = Core::get(field, Value("name"), Value());
+      Value title = Core::get(field, Value("title"), name);
+      Value labels = Value::array();
+      Core::append(labels, name);
+      Core::append(labels, title);
+      for (auto label : Core::iter(labels)) {
+        Value prefix = Core::string_format(Value("{}:"), label);
+        Value found = Core::string_starts_with(line_trimmed, prefix);
+        if (Core::truthy(found)) {
+          matched = field;
+          Value length = Core::len(prefix);
+          value = Core::string_slice(line_trimmed, length);
+          break;
+        }
+        Value last = Core::eq(index, count);
+        Value partial = Core::not_(is_final);
+        partial = Core::and_(partial, last);
+        if (Core::truthy(partial)) {
+          Value prefix_partial = Core::string_starts_with(prefix, line_trimmed);
+          withhold = Core::or_(withhold, prefix_partial);
+        }
+      }
+      Value has_match = Core::is_not_none(matched);
+      if (Core::truthy(has_match)) {
+        break;
+      }
+    }
+    Value has_match = Core::is_not_none(matched);
+    if (Core::truthy(has_match)) {
+      Value has_current = Core::ne(current_name, Value(""));
+      if (Core::truthy(has_current)) {
+        Value raw = Core::string_join(Value("\n"), parts);
+        Value parsed = Core::_parse_text_field_value_impl(current, raw);
+        Core::set(values, current_name, parsed);
+      }
+      current = matched;
+      current_name = Core::get(matched, Value("name"), Value());
+      parts = Value::array();
+      Core::append(parts, value);
+    }
+    if (!Core::truthy(has_match)) {
+      Value has_current = Core::ne(current_name, Value(""));
+      Value keep = Core::not_(withhold);
+      keep = Core::and_(keep, has_current);
+      if (Core::truthy(keep)) {
+        Core::append(parts, line);
+      }
+    }
+  }
+  Value has_current = Core::ne(current_name, Value(""));
+  if (Core::truthy(has_current)) {
+    Value raw = Core::string_join(Value("\n"), parts);
+    try {
+      Value parsed = Core::_parse_text_field_value_impl(current, raw);
+      Core::set(values, current_name, parsed);
+    } catch (const std::exception& e) {
+      Value parse_error = Core::exception_value(e);
+      if (Core::truthy(is_final)) {
+        Core::raise_error(parse_error);
+      }
+    }
+  }
+  return values;
 }
 
 Value Core::_stream_text_extract_values_impl(Value content, Value fields, Value strict_mode) {
@@ -25610,36 +25819,6 @@ Value Core::_parse_output_fields_impl(Value content, Value fields) {
   return output;
 }
 
-Value Core::_signature_has_complex_fields(Value signature, Value options) {
-  axir_coverage_mark("_signature_has_complex_fields");
-  Value option_forced_snake = Core::get(options, Value("force_structured"), Value(false));
-  Value option_forced = Core::get(options, Value("forceStructured"), option_forced_snake);
-  Value signature_forced_snake = Core::get(signature, Value("force_structured"), Value(false));
-  Value signature_forced = Core::get(signature, Value("forceStructured"), signature_forced_snake);
-  Value forced = Core::or_(option_forced, signature_forced);
-  if (Core::truthy(forced)) {
-    return Value(true);
-  }
-  Value output_fields = Core::get(signature, Value("output_fields"), Value());
-  for (auto field : Core::iter(output_fields)) {
-    Value field_type = Core::get(field, Value("type"), Value());
-    Value type_name = Core::get(field_type, Value("name"), Value());
-    Value is_object = Core::eq(type_name, Value("object"));
-    if (Core::truthy(is_object)) {
-      return Value(true);
-    }
-    Value is_array_snake = Core::get(field_type, Value("is_array"), Value(false));
-    Value is_array = Core::get(field_type, Value("isArray"), is_array_snake);
-    Value nested_fields = Core::get(field_type, Value("fields"), Value());
-    Value has_nested_fields = Core::truthy_value(nested_fields);
-    Value object_array = Core::and_(is_array, has_nested_fields);
-    if (Core::truthy(object_array)) {
-      return Value(true);
-    }
-  }
-  return Value(false);
-}
-
 Value Core::_date_js_json_string_impl(Value text) {
   axir_coverage_mark("_date_js_json_string_impl");
   Value hex = Value("0123456789abcdef");
@@ -25763,26 +25942,34 @@ Value Core::_date_js_json_string_impl(Value text) {
   return out;
 }
 
-Value Core::_caller_function_call_impl(Value options) {
-  axir_coverage_mark("_caller_function_call_impl");
-  Value requested_snake = Core::get(options, Value("function_call"), Value());
-  Value requested = Core::get(options, Value("functionCall"), requested_snake);
-  Value has_requested = Core::is_not_none(requested);
-  if (Core::truthy(has_requested)) {
-    return requested;
+Value Core::_signature_has_complex_fields(Value signature, Value options) {
+  axir_coverage_mark("_signature_has_complex_fields");
+  Value option_forced_snake = Core::get(options, Value("force_structured"), Value(false));
+  Value option_forced = Core::get(options, Value("forceStructured"), option_forced_snake);
+  Value signature_forced_snake = Core::get(signature, Value("force_structured"), Value(false));
+  Value signature_forced = Core::get(signature, Value("forceStructured"), signature_forced_snake);
+  Value forced = Core::or_(option_forced, signature_forced);
+  if (Core::truthy(forced)) {
+    return Value(true);
   }
-  Value mode_snake = Core::get(options, Value("function_call_mode"), Value());
-  Value mode = Core::get(options, Value("functionCallMode"), mode_snake);
-  Value is_required = Core::eq(mode, Value("required"));
-  Value is_none = Core::eq(mode, Value("none"));
-  Value is_named = Core::type_is(mode, Value("object"));
-  Value required_or_none = Core::or_(is_required, is_none);
-  Value routed = Core::or_(required_or_none, is_named);
-  if (Core::truthy(routed)) {
-    return mode;
+  Value output_fields = Core::get(signature, Value("output_fields"), Value());
+  for (auto field : Core::iter(output_fields)) {
+    Value field_type = Core::get(field, Value("type"), Value());
+    Value type_name = Core::get(field_type, Value("name"), Value());
+    Value is_object = Core::eq(type_name, Value("object"));
+    if (Core::truthy(is_object)) {
+      return Value(true);
+    }
+    Value is_array_snake = Core::get(field_type, Value("is_array"), Value(false));
+    Value is_array = Core::get(field_type, Value("isArray"), is_array_snake);
+    Value nested_fields = Core::get(field_type, Value("fields"), Value());
+    Value has_nested_fields = Core::truthy_value(nested_fields);
+    Value object_array = Core::and_(is_array, has_nested_fields);
+    if (Core::truthy(object_array)) {
+      return Value(true);
+    }
   }
-  Value none = Core::none();
-  return none;
+  return Value(false);
 }
 
 Value Core::_ace_normalize_reflection_bullet_tags(Value reflection) {
@@ -25815,6 +26002,28 @@ Value Core::_ace_normalize_reflection_bullet_tags(Value reflection) {
     }
   }
   return normalized;
+}
+
+Value Core::_caller_function_call_impl(Value options) {
+  axir_coverage_mark("_caller_function_call_impl");
+  Value requested_snake = Core::get(options, Value("function_call"), Value());
+  Value requested = Core::get(options, Value("functionCall"), requested_snake);
+  Value has_requested = Core::is_not_none(requested);
+  if (Core::truthy(has_requested)) {
+    return requested;
+  }
+  Value mode_snake = Core::get(options, Value("function_call_mode"), Value());
+  Value mode = Core::get(options, Value("functionCallMode"), mode_snake);
+  Value is_required = Core::eq(mode, Value("required"));
+  Value is_none = Core::eq(mode, Value("none"));
+  Value is_named = Core::type_is(mode, Value("object"));
+  Value required_or_none = Core::or_(is_required, is_none);
+  Value routed = Core::or_(required_or_none, is_named);
+  if (Core::truthy(routed)) {
+    return mode;
+  }
+  Value none = Core::none();
+  return none;
 }
 
 Value Core::_stream_text_values_impl(Value fields, Value content, Value values, Value xstate, Value held, Value complete) {
@@ -25959,22 +26168,6 @@ Value Core::_function_call_forces_tool_impl(Value choice) {
   return is_named;
 }
 
-Value Core::_function_call_names_output_impl(Value choice) {
-  axir_coverage_mark("_function_call_names_output_impl");
-  Value is_named = Core::type_is(choice, Value("object"));
-  Value not_named = Core::not_(is_named);
-  if (Core::truthy(not_named)) {
-    return Value(false);
-  }
-  Value empty_function = Value::object();
-  Value function = Core::get(choice, Value("function"), empty_function);
-  Value name = Core::get(function, Value("name"), Value(""));
-  Value canonical = Core::eq(name, Value("__axOutput"));
-  Value legacy = Core::eq(name, Value("__finalResult"));
-  Value reserved = Core::or_(canonical, legacy);
-  return reserved;
-}
-
 Value Core::_ace_dequeue_section_candidate(Value section_queues, Value section, Value used_ids, Value playbook) {
   axir_coverage_mark("_ace_dequeue_section_candidate");
   Value none_value = Core::none();
@@ -26038,6 +26231,22 @@ Value Core::_ace_dequeue_section_candidate(Value section_queues, Value section, 
     }
   }
   return picked;
+}
+
+Value Core::_function_call_names_output_impl(Value choice) {
+  axir_coverage_mark("_function_call_names_output_impl");
+  Value is_named = Core::type_is(choice, Value("object"));
+  Value not_named = Core::not_(is_named);
+  if (Core::truthy(not_named)) {
+    return Value(false);
+  }
+  Value empty_function = Value::object();
+  Value function = Core::get(choice, Value("function"), empty_function);
+  Value name = Core::get(function, Value("name"), Value(""));
+  Value canonical = Core::eq(name, Value("__axOutput"));
+  Value legacy = Core::eq(name, Value("__finalResult"));
+  Value reserved = Core::or_(canonical, legacy);
+  return reserved;
 }
 
 Value Core::_append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage) {
@@ -26134,6 +26343,66 @@ Value Core::_date_floor_div_impl(Value dividend, Value divisor) {
   return quotient;
 }
 
+Value Core::_regex_test(Value pattern, Value value) {
+  axir_coverage_mark("_regex_test");
+  Value groups = Core::none();
+  Value i = Core::none();
+  Value s = Core::none();
+  Value text = Core::none();
+  Value tree = Core::none();
+  Value u = Core::none();
+  Value t1 = Core::string_utf16_units(pattern);
+  u = t1;
+  Value t2 = Core::_regex_scan_groups(u);
+  groups = t2;
+  Value t3 = Value::object();
+  Core::set(t3, Value("u"), u);
+  Core::set(t3, Value("p"), Value(0));
+  Value t4 = Core::get(groups, Value("count"), Value());
+  Core::set(t3, Value("total"), t4);
+  Value t5 = Core::get(groups, Value("names"), Value());
+  Core::set(t3, Value("names"), t5);
+  Core::set(t3, Value("next"), Value(0));
+  s = t3;
+  Value t6 = Core::_regex_alternative(s);
+  tree = t6;
+  Value t7 = Core::get(s, Value("p"), Value());
+  Value t8 = Core::len(u);
+  Value t9 = Core::ne(t7, t8);
+  if (Core::truthy(t9)) {
+    Value t10 = Core::string_format(Value("Invalid regular expression: {}"), Value("Unmatched group"));
+    Value t11 = Core::validation_error(t10);
+    Core::raise_error(t11);
+  }
+  Value t12 = Value::object();
+  Value t13 = Value::object();
+  Value t14 = Value::object();
+  Core::set(t14, Value("next"), Value(0));
+  Value t15 = Core::_regex_validate_names(tree, t12, t13, t14);
+  Value t16 = Core::string_utf16_units(value);
+  text = t16;
+  i = Value(0);
+  while (true) {
+    Value t17 = Core::len(text);
+    Value t18 = Core::lte(i, t17);
+    Value t19 = Core::not_(t18);
+    if (Core::truthy(t19)) {
+      break;
+    }
+    Value t20 = Value::object();
+    Value t21 = Core::_regex_state(i, t20);
+    Value t22 = Core::_regex_search(tree, text, t21, Value(1));
+    Value t23 = Core::none();
+    Value t24 = Core::ne(t22, t23);
+    if (Core::truthy(t24)) {
+      return Value(true);
+    }
+    Value t25 = Core::add(i, Value(1));
+    i = t25;
+  }
+  return Value(false);
+}
+
 Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value options, Value sink) {
   axir_coverage_mark("_streaming_forward_impl");
   Value base_options = Core::get(gen, Value("options"), Value());
@@ -26157,12 +26426,13 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
       Value read_hit = Core::get(read, Value("hit"), Value(false));
       if (Core::truthy(read_hit)) {
         Value cached = Core::get(read, Value("value"), Value());
+        Value rendered_cached = Core::_render_audio_outputs_impl(gen, client, cached, options);
         Value cached_envelope = Value::object();
         Core::set(cached_envelope, Value("version"), Value(0));
         Core::set(cached_envelope, Value("index"), Value(0));
-        Core::set(cached_envelope, Value("delta"), cached);
+        Core::set(cached_envelope, Value("delta"), rendered_cached);
         Core::axgen_emit_delta(sink, cached_envelope);
-        return cached;
+        return rendered_cached;
       }
     }
   }
@@ -26256,6 +26526,11 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
   Value picker = Core::get(runtime_options, Value("resultPicker"), picker_snake);
   Value buffered = Core::is_not_none(picker);
   Value run = Core::_stream_run_state_impl(sink, buffered, thought_field);
+  Value render_audio = Value::object();
+  Core::set(render_audio, Value("gen"), gen);
+  Core::set(render_audio, Value("client"), client);
+  Core::set(render_audio, Value("options"), options);
+  Core::set(run, Value("render_audio"), render_audio);
   Value committed = Value::object();
   Value control_version = Value(0);
   Value step = Value(0);
@@ -26704,66 +26979,6 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
     step = Core::add(step, Value(1));
   }
   throw AxError("runtime", "unreachable AxGen streaming loop exit");
-}
-
-Value Core::_regex_test(Value pattern, Value value) {
-  axir_coverage_mark("_regex_test");
-  Value groups = Core::none();
-  Value i = Core::none();
-  Value s = Core::none();
-  Value text = Core::none();
-  Value tree = Core::none();
-  Value u = Core::none();
-  Value t1 = Core::string_utf16_units(pattern);
-  u = t1;
-  Value t2 = Core::_regex_scan_groups(u);
-  groups = t2;
-  Value t3 = Value::object();
-  Core::set(t3, Value("u"), u);
-  Core::set(t3, Value("p"), Value(0));
-  Value t4 = Core::get(groups, Value("count"), Value());
-  Core::set(t3, Value("total"), t4);
-  Value t5 = Core::get(groups, Value("names"), Value());
-  Core::set(t3, Value("names"), t5);
-  Core::set(t3, Value("next"), Value(0));
-  s = t3;
-  Value t6 = Core::_regex_alternative(s);
-  tree = t6;
-  Value t7 = Core::get(s, Value("p"), Value());
-  Value t8 = Core::len(u);
-  Value t9 = Core::ne(t7, t8);
-  if (Core::truthy(t9)) {
-    Value t10 = Core::string_format(Value("Invalid regular expression: {}"), Value("Unmatched group"));
-    Value t11 = Core::validation_error(t10);
-    Core::raise_error(t11);
-  }
-  Value t12 = Value::object();
-  Value t13 = Value::object();
-  Value t14 = Value::object();
-  Core::set(t14, Value("next"), Value(0));
-  Value t15 = Core::_regex_validate_names(tree, t12, t13, t14);
-  Value t16 = Core::string_utf16_units(value);
-  text = t16;
-  i = Value(0);
-  while (true) {
-    Value t17 = Core::len(text);
-    Value t18 = Core::lte(i, t17);
-    Value t19 = Core::not_(t18);
-    if (Core::truthy(t19)) {
-      break;
-    }
-    Value t20 = Value::object();
-    Value t21 = Core::_regex_state(i, t20);
-    Value t22 = Core::_regex_search(tree, text, t21, Value(1));
-    Value t23 = Core::none();
-    Value t24 = Core::ne(t22, t23);
-    if (Core::truthy(t24)) {
-      return Value(true);
-    }
-    Value t25 = Core::add(i, Value(1));
-    i = t25;
-  }
-  return Value(false);
 }
 
 Value Core::_date_days_from_civil_impl(Value year, Value month, Value day) {
@@ -28091,17 +28306,6 @@ Value Core::_generate_failed_impl(Value error) {
   return wrapped;
 }
 
-Value Core::_unable_to_fix_impl(Value error, Value output) {
-  axir_coverage_mark("_unable_to_fix_impl");
-  Value text = Core::exception_message(error);
-  Value message = Core::add(Value("Unable to fix validation error: "), text);
-  message = Core::add(message, Value("\n\nLLM Output:\n"));
-  message = Core::add(message, output);
-  Value unfixed = Core::exception_rewrap(error, message);
-  Value wrapped = Core::_generate_failed_impl(unfixed);
-  return wrapped;
-}
-
 Value Core::_stream_json_validate_nested_impl(Value parent, Value object, Value allow_missing) {
   axir_coverage_mark("_stream_json_validate_nested_impl");
   Value typ = Core::get(parent, Value("type"), Value());
@@ -28157,6 +28361,17 @@ Value Core::_stream_json_validate_nested_impl(Value parent, Value object, Value 
     Core::set(object, nested_name, typed_nested);
   }
   return Value();
+}
+
+Value Core::_unable_to_fix_impl(Value error, Value output) {
+  axir_coverage_mark("_unable_to_fix_impl");
+  Value text = Core::exception_message(error);
+  Value message = Core::add(Value("Unable to fix validation error: "), text);
+  message = Core::add(message, Value("\n\nLLM Output:\n"));
+  message = Core::add(message, output);
+  Value unfixed = Core::exception_rewrap(error, message);
+  Value wrapped = Core::_generate_failed_impl(unfixed);
+  return wrapped;
 }
 
 Value Core::_attempt_output_impl(Value response) {
@@ -28229,6 +28444,26 @@ Value Core::_stream_json_select_fields_impl(Value fields, Value values) {
   return out;
 }
 
+Value Core::_stream_json_nested_fields_impl(Value fields_map) {
+  axir_coverage_mark("_stream_json_nested_fields_impl");
+  Value out = Value::array();
+  Value nested_fields = Core::fields_from_map(fields_map);
+  for (auto nested : Core::iter(nested_fields)) {
+    Value name = Core::get(nested, Value("name"), Value(""));
+    Value typ = Core::get(nested, Value("type"), Value());
+    Value optional = Core::_stream_field_flag_impl(nested, Value("is_optional"), Value("isOptional"));
+    Value internal = Core::_stream_field_flag_impl(nested, Value("is_internal"), Value("isInternal"));
+    Value field = Value::object();
+    Core::set(field, Value("name"), name);
+    Core::set(field, Value("title"), name);
+    Core::set(field, Value("type"), typ);
+    Core::set(field, Value("is_optional"), optional);
+    Core::set(field, Value("is_internal"), internal);
+    Core::append(out, field);
+  }
+  return out;
+}
+
 Value Core::_strict_mode_option_impl(Value base_options, Value options) {
   axir_coverage_mark("_strict_mode_option_impl");
   Value empty = Value::object();
@@ -28256,24 +28491,20 @@ Value Core::_caching_function_option_impl(Value gen, Value options) {
   return cache_fn;
 }
 
-Value Core::_stream_json_nested_fields_impl(Value fields_map) {
-  axir_coverage_mark("_stream_json_nested_fields_impl");
-  Value out = Value::array();
-  Value nested_fields = Core::fields_from_map(fields_map);
-  for (auto nested : Core::iter(nested_fields)) {
-    Value name = Core::get(nested, Value("name"), Value(""));
-    Value typ = Core::get(nested, Value("type"), Value());
-    Value optional = Core::_stream_field_flag_impl(nested, Value("is_optional"), Value("isOptional"));
-    Value internal = Core::_stream_field_flag_impl(nested, Value("is_internal"), Value("isInternal"));
-    Value field = Value::object();
-    Core::set(field, Value("name"), name);
-    Core::set(field, Value("title"), name);
-    Core::set(field, Value("type"), typ);
-    Core::set(field, Value("is_optional"), optional);
-    Core::set(field, Value("is_internal"), internal);
-    Core::append(out, field);
+Value Core::_stream_json_flexible_impl(Value field) {
+  axir_coverage_mark("_stream_json_flexible_impl");
+  Value typ = Core::get(field, Value("type"), Value());
+  Value name = Core::get(typ, Value("name"), Value(""));
+  Value is_json = Core::eq(name, Value("json"));
+  if (Core::truthy(is_json)) {
+    return Value(true);
   }
-  return out;
+  Value is_object = Core::eq(name, Value("object"));
+  Value nested = Core::get(typ, Value("fields"), Value());
+  Value has_nested = Core::truthy_value(nested);
+  Value open_object = Core::not_(has_nested);
+  Value flexible = Core::and_(is_object, open_object);
+  return flexible;
 }
 
 Value Core::_cache_key_impl(Value gen, Value values) {
@@ -28309,22 +28540,6 @@ Value Core::_cache_key_impl(Value gen, Value values) {
   return key;
 }
 
-Value Core::_stream_json_flexible_impl(Value field) {
-  axir_coverage_mark("_stream_json_flexible_impl");
-  Value typ = Core::get(field, Value("type"), Value());
-  Value name = Core::get(typ, Value("name"), Value(""));
-  Value is_json = Core::eq(name, Value("json"));
-  if (Core::truthy(is_json)) {
-    return Value(true);
-  }
-  Value is_object = Core::eq(name, Value("object"));
-  Value nested = Core::get(typ, Value("fields"), Value());
-  Value has_nested = Core::truthy_value(nested);
-  Value open_object = Core::not_(has_nested);
-  Value flexible = Core::and_(is_object, open_object);
-  return flexible;
-}
-
 Value Core::_stream_json_string_value_impl(Value field, Value value) {
   axir_coverage_mark("_stream_json_string_value_impl");
   Value is_string = Core::type_is(value, Value("string"));
@@ -28344,21 +28559,6 @@ Value Core::_stream_json_string_value_impl(Value field, Value value) {
     Core::raise_error(invalid);
   }
   return parsed;
-}
-
-Value Core::_cache_store_impl(Value cache_fn, Value key, Value output) {
-  axir_coverage_mark("_cache_store_impl");
-  Value no_cache = Core::is_none(cache_fn);
-  if (Core::truthy(no_cache)) {
-    return Value();
-  }
-  try {
-    Core::axgen_cache_write(cache_fn, key, output);
-  } catch (const std::exception& e) {
-    Value cache_write_error = Core::exception_value(e);
-    // empty
-  }
-  return Value();
 }
 
 Value Core::_stream_json_strings_for_field_impl(Value field, Value value) {
@@ -28411,6 +28611,21 @@ Value Core::_stream_json_strings_for_field_impl(Value field, Value value) {
     Core::_stream_json_strings_for_fields_impl(nested, value);
   }
   return value;
+}
+
+Value Core::_cache_store_impl(Value cache_fn, Value key, Value output) {
+  axir_coverage_mark("_cache_store_impl");
+  Value no_cache = Core::is_none(cache_fn);
+  if (Core::truthy(no_cache)) {
+    return Value();
+  }
+  try {
+    Core::axgen_cache_write(cache_fn, key, output);
+  } catch (const std::exception& e) {
+    Value cache_write_error = Core::exception_value(e);
+    // empty
+  }
+  return Value();
 }
 
 Value Core::_cache_store_streamed_impl(Value cache_fn, Value key, Value output) {
@@ -28470,6 +28685,35 @@ Value Core::_stream_json_strings_for_fields_impl(Value fields_map, Value values)
   return Value();
 }
 
+Value Core::_stream_json_strings_impl(Value fields, Value values, Value partial) {
+  axir_coverage_mark("_stream_json_strings_impl");
+  for (auto field : Core::iter(fields)) {
+    Value name = Core::get(field, Value("name"), Value(""));
+    Value present = Core::map_contains(values, name);
+    Value absent = Core::not_(present);
+    if (Core::truthy(absent)) {
+      continue;
+    }
+    Value value = Core::get(values, name, Value());
+    try {
+      Value parsed = Core::_stream_json_strings_for_field_impl(field, value);
+      Core::set(values, name, parsed);
+    } catch (const std::exception& e) {
+      Value parse_error = Core::exception_value(e);
+      Value flexible = Core::_stream_json_flexible_impl(field);
+      Value is_string = Core::type_is(value, Value("string"));
+      Value droppable = Core::and_(flexible, is_string);
+      Value drop = Core::and_(droppable, partial);
+      Value keep_error = Core::not_(drop);
+      if (Core::truthy(keep_error)) {
+        Core::raise_error(parse_error);
+      }
+      Core::map_delete(values, name);
+    }
+  }
+  return Value();
+}
+
 Value Core::_cache_lookup_option_impl(Value options) {
   axir_coverage_mark("_cache_lookup_option_impl");
   Value empty = Value::object();
@@ -28503,35 +28747,6 @@ Value Core::_apply_control_updates_impl(Value gen, Value messages, Value runtime
     Core::axgen_memory_add_request(gen, steers);
   }
   return messages;
-}
-
-Value Core::_stream_json_strings_impl(Value fields, Value values, Value partial) {
-  axir_coverage_mark("_stream_json_strings_impl");
-  for (auto field : Core::iter(fields)) {
-    Value name = Core::get(field, Value("name"), Value(""));
-    Value present = Core::map_contains(values, name);
-    Value absent = Core::not_(present);
-    if (Core::truthy(absent)) {
-      continue;
-    }
-    Value value = Core::get(values, name, Value());
-    try {
-      Value parsed = Core::_stream_json_strings_for_field_impl(field, value);
-      Core::set(values, name, parsed);
-    } catch (const std::exception& e) {
-      Value parse_error = Core::exception_value(e);
-      Value flexible = Core::_stream_json_flexible_impl(field);
-      Value is_string = Core::type_is(value, Value("string"));
-      Value droppable = Core::and_(flexible, is_string);
-      Value drop = Core::and_(droppable, partial);
-      Value keep_error = Core::not_(drop);
-      if (Core::truthy(keep_error)) {
-        Core::raise_error(parse_error);
-      }
-      Core::map_delete(values, name);
-    }
-  }
-  return Value();
 }
 
 Value Core::_stream_state_impl(Value index) {
@@ -29274,7 +29489,8 @@ Value Core::_stream_result_impl(Value run, Value options) {
     return empty_output;
   }
   Value empty_delta = Value::object();
-  Value output = Core::get(picked, Value("delta"), empty_delta);
+  Value picked_delta = Core::get(picked, Value("delta"), empty_delta);
+  Value output = Core::_render_stream_result_impl(run, picked_delta);
   Value sink = Core::get(run, Value("sink"), Value());
   Value has_sink = Core::is_not_none(sink);
   Value send_picked = Core::and_(buffered, has_sink);
@@ -43787,6 +44003,11 @@ Value AIClient::chat(Value request, Value options, const AxCancellationToken* ca
   try { Value response = chat(std::move(request), std::move(options)); if (cancellation) cancellation->throw_if_cancelled(); return response; }
   catch (...) { if(cancellation&&cancellation->is_cancelled())throw AxAIServiceAbortedError(cancellation->reason());throw; }
 }
+Value AIClient::speak(Value request, Value options) {
+  (void)request;
+  (void)options;
+  throw AxError("runtime", "Audio speech not supported by this AI client");
+}
 
 std::string AxAIService::get_id() { return get_name() + "-id"; }
 std::string AxAIService::get_name() { return "ai"; }
@@ -47780,7 +48001,8 @@ Value AxGen::forward(AIClient& client, Value values, Value options, const AxRunt
   // records neither; a read error propagates. A miss hands the lookup to the
   // run, which then only stores.
   Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(false));
-  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::get(lookup, "value");
+  // A stored output's audio outputs are rendered, as TS does.
+  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::_render_audio_outputs_impl(state_, Core::client_ref(client), Core::get(lookup, "value"), options);
   options = Core::map_merge(Value::object(), options);
   Core::set(options, "_ax_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
@@ -47864,7 +48086,8 @@ Value AxGen::streaming_forward(AIClient& client, Value values, Value options, Ax
   // telemetry. A miss hands the lookup to the run, which then only stores.
   Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(true));
   if (Core::truthy(Core::get(lookup, "hit", false))) {
-    Value cached = Core::get(lookup, "value");
+    // A stored output's audio outputs are rendered, as TS does.
+    Value cached = Core::_render_audio_outputs_impl(state_, Core::client_ref(client), Core::get(lookup, "value"), options);
     AxGenDelta delta;
     delta.delta = clone_usage_value(cached);
     handler(delta);

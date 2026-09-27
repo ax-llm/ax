@@ -2,9 +2,13 @@
   "expected_output": {
     "audio": "AAAAAA==",
     "channels": 1,
+    "data": "AAAAAA==",
     "format": "pcm16",
     "mime_type": "audio/l16; rate=24000; channels=1",
-    "sample_rate": 24000
+    "mimeType": "audio/l16; rate=24000; channels=1",
+    "sample_rate": 24000,
+    "sampleRate": 24000,
+    "transcript": "Hello from Ax."
   },
   "expected_transport_request": {
     "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent"

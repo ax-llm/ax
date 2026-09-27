@@ -1,8 +1,11 @@
 {
   "expected_output": {
     "audio": "UklGRg==",
+    "data": "UklGRg==",
     "format": "wav",
-    "mime_type": "audio/wav"
+    "mime_type": "audio/wav",
+    "mimeType": "audio/wav",
+    "transcript": "Hello from Ax."
   },
   "expected_transport_request": {
     "json": {

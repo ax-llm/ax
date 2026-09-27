@@ -763,7 +763,7 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         valid_image = _valid_image(value)
         invalid_image = _core_not(valid_image)
         if invalid_image:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }})'", field_name)
+            message = _core_string_format("Validation failed: Expected '{}' to be type '{}'", field_name, "object ({ mimeType: string; data: string })")
             error = _core_validation_error(message)
             raise error
         else:
@@ -776,7 +776,7 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         valid_audio = _valid_audio(value)
         invalid_audio = _core_not(valid_audio)
         if invalid_audio:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'string or object ({{ data: string; format?: string }})'", field_name)
+            message = _core_string_format("Validation failed: Expected '{}' to be type '{}'", field_name, "string or object ({ data: string; format?: string })")
             error = _core_validation_error(message)
             raise error
         else:
@@ -789,7 +789,7 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         valid_file = _valid_file(value)
         invalid_file = _core_not(valid_file)
         if invalid_file:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'object ({{ mimeType: string; data: string }} | {{ mimeType: string; fileUri: string }})'", field_name)
+            message = _core_string_format("Validation failed: Expected '{}' to be type '{}'", field_name, "object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })")
             error = _core_validation_error(message)
             raise error
         else:
@@ -802,7 +802,7 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         valid_url_shape = _valid_url_shape(value)
         invalid_url_shape = _core_not(valid_url_shape)
         if invalid_url_shape:
-            message = _core_string_format("Validation failed: Expected '{}' to be type 'string or object ({{ url: string; title?: string; description?: string }})'", field_name)
+            message = _core_string_format("Validation failed: Expected '{}' to be type '{}'", field_name, "string or object ({ url: string; title?: string; description?: string })")
             error = _core_validation_error(message)
             raise error
         else:

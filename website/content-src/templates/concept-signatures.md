@@ -127,6 +127,8 @@ Validation happens after parsing complete fields. For streaming generation, stre
 
 Media fields let a program receive images, audio, or files when the provider supports them. In agent flows, audio inputs are usually transcribed before planner/executor/responder stages; direct `ax(...)` programs can pass native media to compatible providers.
 
+{{audioFieldsSection}}
+
 Cache hints mark stable context so provider prefix caching can reuse expensive prompt regions. Internal fields let a program ask the model to produce private scratch structure without exposing it in the final typed output.
 
 ## Reuse And Composition

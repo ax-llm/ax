@@ -1073,7 +1073,10 @@ export class AxPromptTemplate {
       return result;
     }
 
-    if (field.type?.name === 'audio') {
+    // A plain string, and an audio object with a transcript (processValue
+    // hands its transcript over), go to the model as text, like any text
+    // field. Audio without a transcript goes as an audio part.
+    if (field.type?.name === 'audio' && typeof value !== 'string') {
       const validateAudio = (
         value: Readonly<AxFieldValue>
       ): { format?: 'wav'; data: string } => {

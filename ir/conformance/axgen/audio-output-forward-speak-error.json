@@ -1,0 +1,37 @@
+{
+  "expected_error_contains": "voice synthesis unavailable",
+  "expected_request_count": 1,
+  "expected_speak_requests": [
+    {
+      "text": "Hello there"
+    }
+  ],
+  "forward_options": {
+    "renderAudio": true
+  },
+  "input": {
+    "question": "Say hi"
+  },
+  "kind": "forward",
+  "name": "audio-output-forward-speak-error",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Speech: Hello there\nSummary: A greeting",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> speech:audio, summary:string",
+  "speak_responses": [
+    {
+      "error": {
+        "message": "voice synthesis unavailable",
+        "type": "plain"
+      }
+    }
+  ]
+}
