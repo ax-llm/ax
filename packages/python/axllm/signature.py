@@ -830,13 +830,17 @@ def _core_fields_from_map(fields):
     return [item if isinstance(item, Field) else Field(name=name, type=item) for name, item in fields.items()]
 
 
+# A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts):
+# underscores become spaces, and a word starts at a capital after a lowercase
+# letter or digit, at the last capital of a run that begins a word, and at each
+# run of digits; words are separated by one space. userID is "User ID",
+# parseHTTPResponse "Parse HTTP Response", item123 "Item 123", field_2 "Field 2".
 def _title(name: str) -> str:
-    out = []
-    for i, ch in enumerate(name.replace("_", " ")):
-        if i > 0 and (ch.isupper() or ch.isdigit()):
-            out.append(" ")
-        out.append(ch)
-    text = "".join(out).strip()
+    text = name.replace("_", " ")
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    text = re.sub(r"([A-Z])([A-Z][a-z])", r"\1 \2", text)
+    text = re.sub(r"([^0-9])([0-9])", r"\1 \2", text)
+    text = re.sub(r"\s+", " ", text).strip()
     return text[:1].upper() + text[1:]
 
 

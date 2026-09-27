@@ -1,0 +1,93 @@
+{
+  "name": "playbook-config-kept-after-child-agent",
+  "kind": "agent_forward",
+  "signature": "question:string -> answer:string",
+  "options": {
+    "directResponse": "off",
+    "contextFields": [],
+    "playbook": {
+      "learn": false,
+      "playbook": {
+        "version": 1,
+        "sections": {
+          "failures_to_avoid": [
+            {
+              "id": "failures-to-avoid-00001",
+              "section": "failures_to_avoid",
+              "content": "Check the live evidence before answering.",
+              "helpfulCount": 0,
+              "harmfulCount": 0,
+              "createdAt": "2026-07-15T00:00:00.000Z",
+              "updatedAt": "2026-07-15T00:00:00.000Z"
+            }
+          ]
+        },
+        "stats": {
+          "bulletCount": 1,
+          "helpfulCount": 0,
+          "harmfulCount": 0,
+          "tokenEstimate": 10
+        },
+        "updatedAt": "2026-07-15T00:00:00.000Z"
+      }
+    }
+  },
+  "runtime_script": [
+    {
+      "expected_code": "plan",
+      "result": {
+        "type": "final",
+        "args": [
+          "Finish",
+          {
+            "answer": "plan"
+          }
+        ]
+      }
+    },
+    {
+      "expected_code": "finish",
+      "result": {
+        "type": "final",
+        "args": [
+          "Finish",
+          {
+            "answer": "the live evidence"
+          }
+        ]
+      }
+    }
+  ],
+  "responses": [
+    {
+      "content": "{\"javascriptCode\": \"plan\"}"
+    },
+    {
+      "content": "{\"javascriptCode\": \"finish\"}"
+    },
+    {
+      "content": "{\"answer\": \"the live evidence\"}"
+    }
+  ],
+  "input": {
+    "question": "What should I check?"
+  },
+  "expected_output": {
+    "answer": "the live evidence"
+  },
+  "expected_executed": ["plan", "finish"],
+  "expected_request_contains": [
+    "Check the live evidence before answering.",
+    "team.helper"
+  ],
+  "child_agents": [
+    {
+      "namespace": "team",
+      "name": "helper",
+      "signature": "question:string -> answer:string",
+      "options": {
+        "directResponse": "off"
+      }
+    }
+  ]
+}

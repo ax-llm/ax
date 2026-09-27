@@ -5174,8 +5174,10 @@ def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
     for call in function_calls:
         fn = _core_get(call, "function", None)
         id = _core_get(call, "id", None)
-        name = _core_get(fn, "name", None)
-        params = _core_get(fn, "params", None)
+        flat_name = _core_get(call, "name", None)
+        name = _core_get(fn, "name", flat_name)
+        flat_params = _core_get(call, "params", None)
+        params = _core_get(fn, "params", flat_params)
         compat_call = {}
         compat_call["id"] = id
         compat_call["name"] = name
