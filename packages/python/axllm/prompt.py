@@ -4,7 +4,7 @@ import os
 import json
 import re
 from typing import Any
-from .signature import _js_json_dumps, _js_number_text, _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl
+from .signature import _js_date_prompt_text, _js_json_dumps, _js_number_text, _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl
 
 
 PROMPT_FEATURES = {
@@ -526,6 +526,10 @@ def _core_prompt_structured(signature, values, functions, options) -> str:
 
 
 def _core_prompt_process_value(field, value):
+    # A native date in a date-typed field reads as TS renders a Date.
+    dated = _js_date_prompt_text(field.type.name if field.type else "string", value)
+    if dated is not None:
+        return dated
     if isinstance(value, str):
         return value
     if field.type and field.type.name in ("image", "audio", "file", "url") and isinstance(value, dict):

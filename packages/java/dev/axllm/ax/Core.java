@@ -137,6 +137,83 @@ final class Core {
     return units;
   }
   static Object stringCodepointLength(Object value) { String text = String.valueOf(value); return text.codePointCount(0, text.length()); }
+  /**
+   * The epoch milliseconds of a java.time or java.util.Date value, read as
+   * TypeScript reads a Date: Instant, OffsetDateTime, ZonedDateTime and Date
+   * are their instant, a LocalDateTime is in the JVM's zone (as new Date(2024,
+   * 4, 9) is local), and a LocalDate is its UTC midnight (as new
+   * Date("2024-05-09") parses). Null for anything else.
+   */
+  static Long jsDateMillis(Object value) {
+    if (value instanceof java.time.Instant instant) return instant.toEpochMilli();
+    if (value instanceof java.time.OffsetDateTime time) return time.toInstant().toEpochMilli();
+    if (value instanceof java.time.ZonedDateTime time) return time.toInstant().toEpochMilli();
+    if (value instanceof java.time.LocalDateTime time) return time.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+    if (value instanceof java.time.LocalDate date) return date.toEpochDay() * 86_400_000L;
+    if (value instanceof java.util.Date date) return date.getTime();
+    return null;
+  }
+  /** Date.prototype.toISOString of epoch milliseconds. */
+  static String jsISOString(long millis) {
+    java.time.OffsetDateTime time = java.time.Instant.ofEpochMilli(millis).atOffset(java.time.ZoneOffset.UTC);
+    int year = time.getYear();
+    String yearText = year < 0 ? String.format("-%06d", -year) : year > 9999 ? String.format("+%06d", year) : String.format("%04d", year);
+    return String.format("%s-%02d-%02dT%02d:%02d:%02d.%03dZ", yearText, time.getMonthValue(), time.getDayOfMonth(), time.getHour(), time.getMinute(), time.getSecond(), time.getNano() / 1_000_000);
+  }
+  /**
+   * The prompt text TypeScript writes for a Date in a date-typed field
+   * (processValue in src/ax/dsp/prompt.ts): a date field's UTC day, a datetime
+   * without milliseconds, and for a range with two dates the {start, end}
+   * JSON of those; a range object holding anything else is its JSON with each
+   * date as toISOString. Null when TS would not see a Date.
+   */
+  static String jsDatePromptText(String typeName, Object value) {
+    if ("date".equals(typeName) || "datetime".equals(typeName)) {
+      Long millis = jsDateMillis(value);
+      if (millis == null) return null;
+      String iso = jsISOString(millis);
+      return "date".equals(typeName) ? iso.substring(0, iso.indexOf('T')) : iso.substring(0, iso.length() - 5) + "Z";
+    }
+    if (("dateRange".equals(typeName) || "datetimeRange".equals(typeName)) && value instanceof Map<?, ?> map && map.containsKey("start") && map.containsKey("end")) {
+      Long start = jsDateMillis(map.get("start"));
+      Long end = jsDateMillis(map.get("end"));
+      if (start != null && end != null) {
+        Map<String, Object> bounds = new LinkedHashMap<>();
+        boolean dayOnly = "dateRange".equals(typeName);
+        String startIso = jsISOString(start), endIso = jsISOString(end);
+        bounds.put("start", dayOnly ? startIso.substring(0, 10) : startIso.substring(0, startIso.length() - 5) + "Z");
+        bounds.put("end", dayOnly ? endIso.substring(0, 10) : endIso.substring(0, endIso.length() - 5) + "Z");
+        return Json.pretty(bounds);
+      }
+      boolean dated = false;
+      Map<String, Object> copied = new LinkedHashMap<>();
+      for (Map.Entry<?, ?> entry : map.entrySet()) {
+        Long millis = jsDateMillis(entry.getValue());
+        if (millis != null) dated = true;
+        copied.put(String.valueOf(entry.getKey()), millis != null ? jsISOString(millis) : entry.getValue());
+      }
+      if (dated) return Json.pretty(copied);
+    }
+    return null;
+  }
+  private static final java.util.concurrent.ConcurrentHashMap<String, java.time.zone.ZoneRules> DATE_ZONE_RULES = new java.util.concurrent.ConcurrentHashMap<>();
+  /**
+   * The UTC offset in seconds of the IANA zone {@code name} at an instant
+   * (epoch milliseconds), from java.time's tz database. Only region IDs count
+   * as zones (ZoneId.of would also read "GMT+5" as an offset); an unknown one
+   * throws.
+   */
+  static Object dateZoneOffset(Object name, Object epochMillis) {
+    String zone = String.valueOf(name);
+    java.time.zone.ZoneRules rules = DATE_ZONE_RULES.get(zone);
+    if (rules == null) {
+      if (!java.time.ZoneId.getAvailableZoneIds().contains(zone)) throw new RuntimeException("unknown time zone " + zone);
+      rules = java.time.ZoneId.of(zone).getRules();
+      DATE_ZONE_RULES.put(zone, rules);
+    }
+    long seconds = (long) Math.floor(asDouble(epochMillis) / 1000.0);
+    return (double) rules.getOffset(java.time.Instant.ofEpochSecond(seconds)).getTotalSeconds();
+  }
   static Object mathIsFinite(Object value) { return Double.isFinite(asDouble(value)); }
   static Object mathFloor(Object value) { return Math.floor(asDouble(value)); }
   static Object mathLog(Object value) { return Math.log(asDouble(value)); }
@@ -351,6 +428,9 @@ final class Core {
       case "boolean" -> value instanceof Boolean;
       case "null" -> value == null;
       case "json" -> value == null || value instanceof Map<?, ?> || value instanceof List<?> || value instanceof String || value instanceof Number || value instanceof Boolean;
+      // A java.time or java.util.Date value, which a date or datetime field
+      // takes where TypeScript takes a Date.
+      case "date" -> jsDateMillis(value) != null;
       default -> false;
     };
   }
@@ -708,15 +788,22 @@ final class Core {
     t.array = false;
     return new Field(f.name, t, f.description, f.title, f.optional, f.internal, f.cached);
   }
+  // A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts):
+  // underscores become spaces, and a word starts at a capital after a lowercase
+  // letter or digit, at the last capital of a run that begins a word, and at each
+  // run of digits; words are separated by one space. userID is "User ID",
+  // parseHTTPResponse "Parse HTTP Response", item123 "Item 123", field_2 "Field 2".
+  private static final Pattern TITLE_CAMEL_BOUNDARY = Pattern.compile("([a-z0-9])([A-Z])");
+  private static final Pattern TITLE_ACRONYM_BOUNDARY = Pattern.compile("([A-Z])([A-Z][a-z])");
+  private static final Pattern TITLE_DIGIT_BOUNDARY = Pattern.compile("([^0-9])([0-9])");
+  private static final Pattern TITLE_SPACES = Pattern.compile("\\s+");
+
   static String title(String name) {
-    String s = name == null ? "" : name.replace("_", " ");
-    StringBuilder out = new StringBuilder();
-    for (int i = 0; i < s.length(); i++) {
-      char ch = s.charAt(i);
-      if (i > 0 && (Character.isUpperCase(ch) || Character.isDigit(ch))) out.append(' ');
-      out.append(ch);
-    }
-    String text = out.toString().trim();
+    String text = name == null ? "" : name.replace("_", " ");
+    text = TITLE_CAMEL_BOUNDARY.matcher(text).replaceAll("$1 $2");
+    text = TITLE_ACRONYM_BOUNDARY.matcher(text).replaceAll("$1 $2");
+    text = TITLE_DIGIT_BOUNDARY.matcher(text).replaceAll("$1 $2");
+    text = TITLE_SPACES.matcher(text).replaceAll(" ").trim();
     return text.isEmpty() ? text : text.substring(0, 1).toUpperCase() + text.substring(1);
   }
   static Object descriptionAppend(Object base, Object hint) {
@@ -1093,7 +1180,9 @@ final class Core {
     List<String> lines = new ArrayList<>();
     for (Object raw : asList(get(get(gen, "signature", null), kind + "_fields", List.of()))) {
       Field field = (Field) raw;
-      if (map.containsKey(field.name)) lines.add(field.title + ": " + axgenValueText(map.get(field.name)));
+      if (!map.containsKey(field.name)) continue;
+      String dated = field.type == null ? null : jsDatePromptText(field.type.name, map.get(field.name));
+      lines.add(field.title + ": " + (dated != null ? dated : axgenValueText(map.get(field.name))));
     }
     if (lines.isEmpty()) for (Map.Entry<String, Object> e : map.entrySet()) lines.add(e.getKey() + ": " + axgenValueText(e.getValue()));
     return String.join("\n", lines);
@@ -3475,6 +3564,29 @@ final class Core {
       }
       return null;
     }
+    Object date_types = new java.util.ArrayList<Object>();
+    Core.append(date_types, "date");
+    Core.append(date_types, "datetime");
+    Object is_date_type = Core.contains(date_types, type_name);
+    Object is_native_date = Core.typeIs(value, "date");
+    Object native_date_value = Core.and(is_date_type, is_native_date);
+    if (Core.truthy(native_date_value)) {
+      return null;
+    }
+    Object range_types = new java.util.ArrayList<Object>();
+    Core.append(range_types, "dateRange");
+    Core.append(range_types, "datetimeRange");
+    Object is_range_type = Core.contains(range_types, type_name);
+    Object is_range_object = Core.typeIs(value, "object");
+    Object range_object = Core.and(is_range_type, is_range_object);
+    if (Core.truthy(range_object)) {
+      Object has_start = Core.mapContains(value, "start");
+      Object has_end = Core.mapContains(value, "end");
+      Object has_bounds = Core.and(has_start, has_end);
+      if (Core.truthy(has_bounds)) {
+        return null;
+      }
+    }
     Object string_types = new java.util.ArrayList<Object>();
     Core.append(string_types, "string");
     Core.append(string_types, "code");
@@ -5680,8 +5792,10 @@ final class Core {
     for (Object call : Core.iter(function_calls)) {
       Object fn = Core.get(call, "function", null);
       Object id = Core.get(call, "id", null);
-      Object name = Core.get(fn, "name", null);
-      Object params = Core.get(fn, "params", null);
+      Object flat_name = Core.get(call, "name", null);
+      Object name = Core.get(fn, "name", flat_name);
+      Object flat_params = Core.get(call, "params", null);
+      Object params = Core.get(fn, "params", flat_params);
       Object compat_call = new java.util.LinkedHashMap<String, Object>();
       Core.set(compat_call, "id", id);
       Core.set(compat_call, "name", name);
@@ -5955,18 +6069,6 @@ final class Core {
     return out;
   }
 
-  static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
-    axirCoverageMark("ai_context_cache_expiry");
-    Object is_number = Core.typeIs(provider_expire_time, "number");
-    if (Core.truthy(is_number)) {
-      Object future = Core.gt(provider_expire_time, now);
-      if (Core.truthy(future)) {
-        return provider_expire_time;
-      }
-    }
-    return 0;
-  }
-
   static Object _openai_finish_reason_impl(Object value) {
     axirCoverageMark("_openai_finish_reason_impl");
     Object is_stop = Core.eq(value, "stop");
@@ -5989,6 +6091,18 @@ final class Core {
     }
     Object none = Core.none();
     return none;
+  }
+
+  static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
+    axirCoverageMark("ai_context_cache_expiry");
+    Object is_number = Core.typeIs(provider_expire_time, "number");
+    if (Core.truthy(is_number)) {
+      Object future = Core.gt(provider_expire_time, now);
+      if (Core.truthy(future)) {
+        return provider_expire_time;
+      }
+    }
+    return 0;
   }
 
   static Object ai_context_cache_plan(Object configured, Object supported, Object explicit_name, Object existing, Object now, Object refresh_window_ms, Object create_eligible) {
@@ -15164,6 +15278,19 @@ final class Core {
     throw Core.asRuntime(error);
   }
 
+  static Object _date_parse_dates_option_impl(Object base_options, Object options) {
+    axirCoverageMark("_date_parse_dates_option_impl");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object call_options = Core.mapMerge(empty, options);
+    Object gen_options = Core.mapMerge(empty, base_options);
+    Object gen_snake = Core.get(gen_options, "parse_dates", Boolean.FALSE);
+    Object gen_parse = Core.get(gen_options, "parseDates", gen_snake);
+    Object call_snake = Core.get(call_options, "parse_dates", gen_parse);
+    Object parse = Core.get(call_options, "parseDates", call_snake);
+    Object parse_dates = Core.truthyValue(parse);
+    return parse_dates;
+  }
+
   static Object _regex_take(Object s) {
     axirCoverageMark("_regex_take");
     Object c = Core.none();
@@ -15284,6 +15411,24 @@ final class Core {
     }
     Object same = Core.eq(left, right);
     return same;
+  }
+
+  static Object _date_is_date_type_impl(Object name) {
+    axirCoverageMark("_date_is_date_type_impl");
+    Object is_date = Core.eq(name, "date");
+    if (Core.truthy(is_date)) {
+      return Boolean.TRUE;
+    }
+    Object is_datetime = Core.eq(name, "datetime");
+    if (Core.truthy(is_datetime)) {
+      return Boolean.TRUE;
+    }
+    Object is_date_range = Core.eq(name, "dateRange");
+    if (Core.truthy(is_date_range)) {
+      return Boolean.TRUE;
+    }
+    Object is_datetime_range = Core.eq(name, "datetimeRange");
+    return is_datetime_range;
   }
 
   static Object _regex_digit(Object c) {
@@ -15521,11 +15666,117 @@ final class Core {
     return t18;
   }
 
+  static Object _date_parse_fields_impl(Object fields, Object base_options, Object options) {
+    axirCoverageMark("_date_parse_fields_impl");
+    Object parse_dates = Core._date_parse_dates_option_impl(base_options, options);
+    Object off = Core.not(parse_dates);
+    if (Core.truthy(off)) {
+      return fields;
+    }
+    Object out = new java.util.ArrayList<Object>();
+    for (Object field : Core.iter(fields)) {
+      Object typ = Core.get(field, "type", null);
+      Object type_name = Core.get(typ, "name", "string");
+      Object dated = Core._date_is_date_type_impl(type_name);
+      Object plain = Core.not(dated);
+      if (Core.truthy(plain)) {
+        Core.append(out, field);
+        continue;
+      }
+      Object field_copy = new java.util.LinkedHashMap<String, Object>();
+      Object name = Core.get(field, "name", null);
+      Core.set(field_copy, "name", name);
+      Object title = Core._stream_field_title_impl(field);
+      Core.set(field_copy, "title", title);
+      Object description = Core.get(field, "description", null);
+      Core.set(field_copy, "description", description);
+      Core.set(field_copy, "type", typ);
+      Object optional = Core._stream_field_flag_impl(field, "is_optional", "isOptional");
+      Core.set(field_copy, "is_optional", optional);
+      Object internal = Core._stream_field_flag_impl(field, "is_internal", "isInternal");
+      Core.set(field_copy, "is_internal", internal);
+      Object cached = Core._stream_field_flag_impl(field, "is_cached", "isCached");
+      Core.set(field_copy, "is_cached", cached);
+      Core.set(field_copy, "parse_dates", Boolean.TRUE);
+      Core.append(out, field_copy);
+    }
+    return out;
+  }
+
   static Object _regex_node(Object k) {
     axirCoverageMark("_regex_node");
     Object t1 = new java.util.LinkedHashMap<String, Object>();
     Core.set(t1, "k", k);
     return t1;
+  }
+
+  static Object _date_convert_field_value_impl(Object field, Object type_name, Object value, Object may_skip) {
+    axirCoverageMark("_date_convert_field_value_impl");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "has", Boolean.TRUE);
+    Object title = Core._stream_field_title_impl(field);
+    Object is_date = Core.eq(type_name, "date");
+    Object is_datetime = Core.eq(type_name, "datetime");
+    Object is_date_range = Core.eq(type_name, "dateRange");
+    Object single = Core.or(is_date, is_datetime);
+    if (Core.truthy(single)) {
+      Object text = Core._stream_js_string_impl(value);
+      Object millis = 0;
+      try {
+        if (Core.truthy(is_date)) {
+          millis = Core._date_parse_date_impl(text);
+        }
+        if (!Core.truthy(is_date)) {
+          millis = Core._date_parse_datetime_impl(text);
+        }
+      } catch (RuntimeException single_error) {
+        if (Core.truthy(may_skip)) {
+          Core.set(out, "has", Boolean.FALSE);
+          return out;
+        }
+        Object single_detail = Core.exceptionMessage(single_error);
+        Object single_message = Core._date_error_message_impl(type_name, title, single_detail, text);
+        Object single_invalid = Core.runtimeError(single_message);
+        throw Core.asRuntime(single_invalid);
+      }
+      Object iso = Core._date_iso_impl(millis);
+      Core.set(out, "value", iso);
+      return out;
+    }
+    Object kind = "datetime";
+    if (Core.truthy(is_date_range)) {
+      kind = "date";
+    }
+    Object range_millis = new java.util.LinkedHashMap<String, Object>();
+    try {
+      range_millis = Core._date_parse_range_impl(value, kind);
+    } catch (RuntimeException range_error) {
+      if (Core.truthy(may_skip)) {
+        Core.set(out, "has", Boolean.FALSE);
+        return out;
+      }
+      Object range_detail = Core.exceptionMessage(range_error);
+      Object range_text = "";
+      Object range_is_text = Core.typeIs(value, "string");
+      if (Core.truthy(range_is_text)) {
+        range_text = value;
+      }
+      if (!Core.truthy(range_is_text)) {
+        range_text = Core._date_js_json_impl(value);
+      }
+      Object range_message = Core._date_error_message_impl(type_name, title, range_detail, range_text);
+      Object range_invalid = Core.runtimeError(range_message);
+      throw Core.asRuntime(range_invalid);
+    }
+    Object start_millis = Core.get(range_millis, "start", null);
+    Object end_millis = Core.get(range_millis, "end", null);
+    Object range_value = new java.util.LinkedHashMap<String, Object>();
+    Object start_iso = Core._date_iso_impl(start_millis);
+    Core.set(range_value, "start", start_iso);
+    Object end_iso = Core._date_iso_impl(end_millis);
+    Core.set(range_value, "end", end_iso);
+    Core.set(out, "value", range_value);
+    return out;
   }
 
   static Object _regex_literal(Object c) {
@@ -16213,6 +16464,37 @@ final class Core {
     return artifact;
   }
 
+  static Object _date_error_message_impl(Object type_name, Object title, Object detail, Object provided) {
+    axirCoverageMark("_date_error_message_impl");
+    Object lead = "Invalid date/time range for '";
+    Object advice = ". Prefer JSON like {\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00Z\"} or an ISO interval like 2024-05-09T14:30:00Z/2024-05-09T15:30:00Z. You provided: ";
+    Object is_date = Core.eq(type_name, "date");
+    if (Core.truthy(is_date)) {
+      lead = "Invalid date for '";
+      advice = ". Use the exact format YYYY-MM-DD (e.g., 2024-05-09). You provided: ";
+    }
+    Object is_datetime = Core.eq(type_name, "datetime");
+    if (Core.truthy(is_datetime)) {
+      lead = "Invalid date/time for '";
+      advice = ". Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: ";
+    }
+    Object is_date_range = Core.eq(type_name, "dateRange");
+    if (Core.truthy(is_date_range)) {
+      lead = "Invalid date range for '";
+      advice = ". Prefer JSON like {\"start\":\"2024-05-09\",\"end\":\"2024-05-12\"} or an interval like 2024-05-09/2024-05-12. You provided: ";
+    }
+    Object pieces = new java.util.ArrayList<Object>();
+    Core.append(pieces, lead);
+    Core.append(pieces, title);
+    Core.append(pieces, "': ");
+    Core.append(pieces, detail);
+    Core.append(pieces, advice);
+    Core.append(pieces, provided);
+    Core.append(pieces, ".");
+    Object message = Core.stringJoin("", pieces);
+    return message;
+  }
+
   static Object _stream_trim_end_impl(Object text) {
     axirCoverageMark("_stream_trim_end_impl");
     Object trimmed = Core.stringTrim(text);
@@ -16225,6 +16507,39 @@ final class Core {
     Object end = Core.add(lead, trimmed_length);
     Object out = Core.stringSlice(text, 0, end);
     return out;
+  }
+
+  static Object _date_parse_date_impl(Object text) {
+    axirCoverageMark("_date_parse_date_impl");
+    Object format_error = "Invalid date format. Please provide the date in \"YYYY-MM-DD\" format.";
+    Object units = Core.stringUTF16Units(text);
+    Object count = Core.len(units);
+    Object bounds = Core._date_trim_bounds_impl(units, 0, count);
+    Object start = Core.get(bounds, "start", null);
+    Object end = Core.get(bounds, "end", null);
+    Object length = Core.add(end, 0);
+    Object negative_start = Core.mul(start, -1);
+    length = Core.add(length, negative_start);
+    Object wrong_length = Core.ne(length, 10);
+    if (Core.truthy(wrong_length)) {
+      Object length_error = Core.runtimeError(format_error);
+      throw Core.asRuntime(length_error);
+    }
+    Object parts = Core._date_scan_date_impl(units, start);
+    Object no_parts = Core.isNone(parts);
+    if (Core.truthy(no_parts)) {
+      Object shape_error = Core.runtimeError(format_error);
+      throw Core.asRuntime(shape_error);
+    }
+    Object millis = Core._date_utc_ms_impl(parts);
+    Object round = Core._date_parts_of_ms_impl(millis);
+    Object same = Core._date_same_day_impl(round, parts);
+    Object different = Core.not(same);
+    if (Core.truthy(different)) {
+      Object value_error = Core.runtimeError(format_error);
+      throw Core.asRuntime(value_error);
+    }
+    return millis;
   }
 
   static Object _stream_trim_start_impl(Object text) {
@@ -16627,6 +16942,22 @@ final class Core {
     return validated;
   }
 
+  static Object _date_parse_datetime_impl(Object text) {
+    axirCoverageMark("_date_parse_datetime_impl");
+    Object units = Core.stringUTF16Units(text);
+    Object count = Core.len(units);
+    Object bounds = Core._date_trim_bounds_impl(units, 0, count);
+    Object start = Core.get(bounds, "start", null);
+    Object end = Core.get(bounds, "end", null);
+    Object offset_millis = Core._date_parse_offset_datetime_impl(units, start, end);
+    Object matched = Core.isNotNone(offset_millis);
+    if (Core.truthy(matched)) {
+      return offset_millis;
+    }
+    Object named = Core._date_parse_named_datetime_impl(text, units, start, end);
+    return named;
+  }
+
   static Object _stream_field_labels_impl(Object field) {
     axirCoverageMark("_stream_field_labels_impl");
     Object labels = new java.util.ArrayList<Object>();
@@ -16709,6 +17040,34 @@ final class Core {
     return null;
   }
 
+  static Object _date_parse_offset_datetime_impl(Object units, Object start, Object end) {
+    axirCoverageMark("_date_parse_offset_datetime_impl");
+    Object none = Core.none();
+    Object prefix = Core._date_scan_datetime_impl(units, start, end);
+    Object no_prefix = Core.isNone(prefix);
+    if (Core.truthy(no_prefix)) {
+      return none;
+    }
+    Object cursor = Core.get(prefix, "end", null);
+    Object zone_start = Core._date_skip_space_impl(units, cursor, end);
+    Object zone_ok = Core._date_offset_zone_matches_impl(units, zone_start, end);
+    Object zone_bad = Core.not(zone_ok);
+    if (Core.truthy(zone_bad)) {
+      return none;
+    }
+    Object offset = Core._date_offset_minutes_impl(units, zone_start, end);
+    Object no_offset = Core.isNone(offset);
+    if (Core.truthy(no_offset)) {
+      Object format_error = Core._date_datetime_format_error_impl();
+      throw Core.asRuntime(format_error);
+    }
+    Object parts = Core._date_datetime_parts_impl(prefix);
+    Object local = Core._date_utc_ms_impl(parts);
+    Object shift = Core.mul(offset, -60000);
+    Object millis = Core.add(local, shift);
+    return millis;
+  }
+
   static Object _stream_matches_content_impl(Object content, Object prefix, Object start) {
     axirCoverageMark("_stream_matches_content_impl");
     Object fence = Core.regexMatch("^```[a-zA-Z]*\\s*$", content);
@@ -16781,6 +17140,62 @@ final class Core {
       }
     }
     return null;
+  }
+
+  static Object _date_parse_named_datetime_impl(Object text, Object units, Object start, Object end) {
+    axirCoverageMark("_date_parse_named_datetime_impl");
+    Object format_error = Core._date_datetime_format_error_impl();
+    Object prefix = Core._date_scan_datetime_impl(units, start, end);
+    Object no_prefix = Core.isNone(prefix);
+    if (Core.truthy(no_prefix)) {
+      throw Core.asRuntime(format_error);
+    }
+    Object cursor = Core.get(prefix, "end", null);
+    Object zone_start = Core._date_skip_space_impl(units, cursor, end);
+    Object no_space = Core.eq(zone_start, cursor);
+    if (Core.truthy(no_space)) {
+      throw Core.asRuntime(format_error);
+    }
+    Object empty_zone = Core.gte(zone_start, end);
+    if (Core.truthy(empty_zone)) {
+      throw Core.asRuntime(format_error);
+    }
+    Object scan = zone_start;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object scan_done = Core.gte(scan, end);
+      if (Core.truthy(scan_done)) {
+        break;
+      }
+      Object unit = Core.get(units, scan, 0);
+      Object terminator = Core._date_is_line_terminator_impl(unit);
+      if (Core.truthy(terminator)) {
+        throw Core.asRuntime(format_error);
+      }
+      scan = Core.add(scan, 1);
+    }
+    Object mode = Core._date_string_mode_impl();
+    Object zone_from = Core._date_native_offset_impl(units, zone_start, mode);
+    Object zone_to = Core._date_native_offset_impl(units, end, mode);
+    Object zone = Core.stringSlice(text, zone_from, zone_to);
+    Object offset = Core._date_offset_minutes_impl(units, zone_start, end);
+    Object parts = Core._date_datetime_parts_impl(prefix);
+    Object local = Core._date_utc_ms_impl(parts);
+    Object has_offset = Core.isNotNone(offset);
+    if (Core.truthy(has_offset)) {
+      Object shift = Core.mul(offset, -60000);
+      Object offset_millis = Core.add(local, shift);
+      return offset_millis;
+    }
+    Object abbreviation = Core._date_abbreviation_offset_impl(units, zone_start, end, zone);
+    Object has_abbreviation = Core.isNotNone(abbreviation);
+    if (Core.truthy(has_abbreviation)) {
+      Object abbreviation_shift = Core.mul(abbreviation, -60000);
+      Object abbreviation_millis = Core.add(local, abbreviation_shift);
+      return abbreviation_millis;
+    }
+    Object resolved = Core._date_zone_resolve_impl(units, zone_start, end, zone, local);
+    Object millis = Core._date_named_timestamp_impl(parts, resolved);
+    return millis;
   }
 
   static Object _stream_extract_block_impl(Object input) {
@@ -16992,6 +17407,12 @@ final class Core {
     return null;
   }
 
+  static Object _date_datetime_format_error_impl() {
+    axirCoverageMark("_date_datetime_format_error_impl");
+    Object error = Core.runtimeError("Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.");
+    return error;
+  }
+
   static Object _adjust_optimization_score_for_actions(Object score, Object task, Object prediction) {
     axirCoverageMark("_adjust_optimization_score_for_actions");
     Object empty_list = new java.util.ArrayList<Object>();
@@ -17036,6 +17457,49 @@ final class Core {
       }
     }
     return adjusted;
+  }
+
+  static Object _date_values_error_impl() {
+    axirCoverageMark("_date_values_error_impl");
+    Object error = Core.runtimeError("Invalid date and time values. Please ensure all components are correct.");
+    return error;
+  }
+
+  static Object _date_datetime_parts_impl(Object prefix) {
+    axirCoverageMark("_date_datetime_parts_impl");
+    Object parts = new java.util.LinkedHashMap<String, Object>();
+    Object year = Core.get(prefix, "year", null);
+    Core.set(parts, "year", year);
+    Object month = Core.get(prefix, "month", null);
+    Core.set(parts, "month", month);
+    Object day = Core.get(prefix, "day", null);
+    Core.set(parts, "day", day);
+    Object hour = Core.get(prefix, "hour", null);
+    Core.set(parts, "hour", hour);
+    Object minute = Core.get(prefix, "minute", null);
+    Core.set(parts, "minute", minute);
+    Object second = Core.get(prefix, "second", null);
+    Core.set(parts, "second", second);
+    Object millisecond = Core.get(prefix, "millisecond", null);
+    Core.set(parts, "millisecond", millisecond);
+    Object bad_hour = Core.gt(hour, 23);
+    Object bad_minute = Core.gt(minute, 59);
+    Object bad_second = Core.gt(second, 59);
+    Object bad_clock = Core.or(bad_hour, bad_minute);
+    bad_clock = Core.or(bad_clock, bad_second);
+    if (Core.truthy(bad_clock)) {
+      Object clock_error = Core._date_values_error_impl();
+      throw Core.asRuntime(clock_error);
+    }
+    Object millis = Core._date_utc_ms_impl(parts);
+    Object round = Core._date_parts_of_ms_impl(millis);
+    Object same = Core._date_same_parts_impl(round, parts);
+    Object different = Core.not(same);
+    if (Core.truthy(different)) {
+      Object calendar_error = Core._date_values_error_impl();
+      throw Core.asRuntime(calendar_error);
+    }
+    return parts;
   }
 
   static Object _build_gen_chat_request(Object gen, Object messages, Object options, Object selection, Object step) {
@@ -17290,6 +17754,54 @@ final class Core {
     return output;
   }
 
+  static Object _date_abbreviation_offset_impl(Object units, Object start, Object end, Object zone) {
+    axirCoverageMark("_date_abbreviation_offset_impl");
+    Object none = Core.none();
+    Object cursor = start;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object done = Core.gte(cursor, end);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object unit = Core.get(units, cursor, 0);
+      Object letter = Core._date_ascii_letter_impl(unit);
+      Object not_letter = Core.not(letter);
+      if (Core.truthy(not_letter)) {
+        return none;
+      }
+      cursor = Core.add(cursor, 1);
+    }
+    Object key = Core.stringLower(zone);
+    Object tables = Core.jsonParse("{\n  \"generator\": \"tools/axir/extractors/date-goldens.ts\",\n  \"source\": \"src/ax/dsp/datetime.ts\",\n  \"offsets_minutes\": {\n    \"ACDT\": 630,\n    \"ACST\": 570,\n    \"ADT\": -180,\n    \"AEDT\": 660,\n    \"AEST\": 600,\n    \"AKDT\": -480,\n    \"AKST\": -540,\n    \"ART\": -180,\n    \"AWST\": 480,\n    \"BRT\": -180,\n    \"CAT\": 120,\n    \"CDT\": -300,\n    \"CEST\": 120,\n    \"CET\": 60,\n    \"EAT\": 180,\n    \"EDT\": -240,\n    \"EEST\": 180,\n    \"EET\": 120,\n    \"EST\": -300,\n    \"HDT\": -540,\n    \"HKT\": 480,\n    \"HST\": -600,\n    \"JST\": 540,\n    \"KST\": 540,\n    \"MDT\": -360,\n    \"MSK\": 180,\n    \"MST\": -420,\n    \"NDT\": -150,\n    \"NPT\": 345,\n    \"NZDT\": 780,\n    \"NZST\": 720,\n    \"PDT\": -420,\n    \"PKT\": 300,\n    \"PST\": -480,\n    \"SAST\": 120,\n    \"SGT\": 480,\n    \"WAT\": 60,\n    \"WEST\": 60,\n    \"WET\": 0,\n    \"WIB\": 420\n  },\n  \"rejected\": [\n    \"ACT\",\n    \"AET\",\n    \"AGT\",\n    \"AST\",\n    \"BET\",\n    \"BST\",\n    \"CNT\",\n    \"CST\",\n    \"CTT\",\n    \"ECT\",\n    \"GST\",\n    \"IET\",\n    \"IST\",\n    \"MIT\",\n    \"NET\",\n    \"NST\",\n    \"PLT\",\n    \"PNT\",\n    \"PRT\",\n    \"SST\",\n    \"VST\"\n  ]\n}\n");
+    Object empty_offsets = new java.util.LinkedHashMap<String, Object>();
+    Object offsets = Core.get(tables, "offsets_minutes", empty_offsets);
+    Object abbreviations = Core.mapKeys(offsets);
+    for (Object abbreviation : Core.iter(abbreviations)) {
+      Object lowered = Core.stringLower(abbreviation);
+      Object same = Core.eq(lowered, key);
+      if (Core.truthy(same)) {
+        Object minutes = Core.get(offsets, abbreviation, null);
+        return minutes;
+      }
+    }
+    Object empty_rejected = new java.util.ArrayList<Object>();
+    Object rejected = Core.get(tables, "rejected", empty_rejected);
+    for (Object rejected_abbreviation : Core.iter(rejected)) {
+      Object rejected_lowered = Core.stringLower(rejected_abbreviation);
+      Object is_rejected = Core.eq(rejected_lowered, key);
+      if (Core.truthy(is_rejected)) {
+        Object message_pieces = new java.util.ArrayList<Object>();
+        Core.append(message_pieces, "Ambiguous or unsupported time zone abbreviation \"");
+        Core.append(message_pieces, zone);
+        Core.append(message_pieces, "\". Please provide an IANA time zone name or a UTC offset. For example, \"Europe/London\" or \"+01:00\".");
+        Object message = Core.stringJoin("", message_pieces);
+        Object error = Core.runtimeError(message);
+        throw Core.asRuntime(error);
+      }
+    }
+    return none;
+  }
+
   static Object _stream_markdown_list_impl(Object input) {
     axirCoverageMark("_stream_markdown_list_impl");
     Object items = new java.util.ArrayList<Object>();
@@ -17395,6 +17907,71 @@ final class Core {
     Core.set(result, "level", current_level);
     Core.set(result, "applied", applied);
     return result;
+  }
+
+  static Object _date_zone_resolve_impl(Object units, Object start, Object end, Object zone, Object probe) {
+    axirCoverageMark("_date_zone_resolve_impl");
+    Object resolved = new java.util.LinkedHashMap<String, Object>();
+    Object fixed = Core._date_offset_zone_minutes_impl(units, start, end);
+    Object is_fixed = Core.isNotNone(fixed);
+    if (Core.truthy(is_fixed)) {
+      Core.set(resolved, "kind", "fixed");
+      Object fixed_seconds = Core.mul(fixed, 60);
+      Core.set(resolved, "offset_seconds", fixed_seconds);
+      return resolved;
+    }
+    Object unrecognized_pieces = new java.util.ArrayList<Object>();
+    Core.append(unrecognized_pieces, "Unrecognized time zone ");
+    Core.append(unrecognized_pieces, zone);
+    Core.append(unrecognized_pieces, ". Please provide a valid time zone name, abbreviation, or offset. For example, \"America/New_York\", \"EST\", or \"+05:30\".");
+    Object unrecognized = Core.stringJoin("", unrecognized_pieces);
+    Object cursor = start;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object done = Core.gte(cursor, end);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object unit = Core.get(units, cursor, 0);
+      Object non_ascii = Core.gt(unit, 127);
+      if (Core.truthy(non_ascii)) {
+        Object non_ascii_error = Core.runtimeError(unrecognized);
+        throw Core.asRuntime(non_ascii_error);
+      }
+      cursor = Core.add(cursor, 1);
+    }
+    Object key = Core.stringLower(zone);
+    Object table = Core.jsonParse(String.join("", new String[] {
+        "{\"generator\":\"tools/axir/extractors/date-goldens.ts\",\"source\":{\"node\":\"v26.7.0\",\"icu\":\"78.3\",\"tz\":\"2026a\",\"tzdata_candidates\":\"2026b-rearguard\"},\"keys\":{\"africa/abidjan\":0,\"africa/accra\":1,\"africa/addis_ababa\":2,\"africa/algiers\":3,\"africa/asmera\":4,\"africa/asmara\":4,\"africa/bamako\":5,\"africa/timbuktu\":5,\"africa/bangui\":6,\"africa/banjul\":7,\"africa/bissau\":8,\"africa/blantyre\":9,\"africa/brazzaville\":10,\"africa/bujumbura\":11,\"africa/cairo\":12,\"egypt\":12,\"africa/casablanca\":13,\"africa/ceuta\":14,\"africa/conakry\":15,\"africa/dakar\":16,\"africa/dar_es_salaam\":17,\"africa/djibouti\":18,\"africa/douala\":19,\"africa/el_aaiun\":20,\"africa/freetown\":21,\"africa/gaborone\":22,\"africa/harare\":23,\"africa/johannesburg\":24,\"africa/juba\":25,\"africa/kampala\":26,\"africa/khartoum\":27,\"africa/kigali\":28,\"africa/kinshasa\":29,\"africa/lagos\":30,\"africa/libreville\":31,\"africa/lome\":32,\"africa/luanda\":33,\"africa/lubumbashi\":34,\"africa/lusaka\":35,\"africa/malabo\":36,\"africa/maputo\":37,\"africa/maseru\":38,\"africa/mbabane\":39,\"africa/mogadishu\":40,\"africa/monrovia\":41,\"africa/nairobi\":42,\"africa/ndjamena\":43,\"africa/niamey\":44,\"africa/nouakchott\":45,\"africa/ouagadougou\":46,\"africa/porto-novo\":47,\"africa/sao_tome\":48,\"africa/tripoli\":49,\"libya\":49,\"africa/tunis\":50,\"africa/windhoek\":51,\"america/adak\":52,\"america/atka\":52,\"us/aleutian\":52,\"america/anchorage\":53,\"us/alaska\":53,\"america/anguilla\":54,\"america/antigua\":55,\"america/araguaina\":56,\"america/argentina/la_rioja\":57,\"america/argentina/rio_gallegos\":58,\"america/argentina/salta\":59,\"america/argentina/san_juan\":60,\"america/argentina/san_luis\":61,\"america/argentina/tucuman\":62,\"america/argentina/ushuaia\":63,\"america/aruba\":64,\"america/asuncion\":65,\"america/bahia\":66,\"america/bahia_banderas\":67,\"america/barbados\":68,\"america/belem\":69,\"america/belize\":70,\"america/blanc-sablon\":71,\"america/boa_vista\":72,\"america/bogota\":73,\"america/boise\":74,\"america/buenos_aires\":75,\"america/argentina/buenos_aires\":75,\"america/cambridge_bay\":76,\"america/campo_grande\":77,\"america/cancun\":78,\"america/caracas\":79,\"america/catamarca\":80,\"america/argentina/catamarca\":80,\"america/argentina/comodrivadavia\":80,\"america/cayenne\":81,\"america/cayman\":82,\"america/chicago\":83,\"cst6cdt\":83,\"us/central\":83,\"america/chihuahua\":84,\"america/ciudad_juarez\":85,\"america/coral_harbour\":86,\"america/atikokan\":86,\"america/cordoba\":87,\"america/argentina/cordoba\":87,\"america/rosario\":87,\"america/costa_rica\":88,\"america/coyhaique\":89,\"america/creston\":90,\"america/cuiaba\":91,\"america/curacao\":92,\"america/danmarkshavn\":93,\"america/dawson\":94,\"america/dawson_creek\":95,\"america/denver\":96,\"america/shiprock\":96,\"mst7mdt\":96,\"navajo\":96,\"us/mountain\":96,\"america/detroit\":97,\"us/michigan\":97,\"america/dominica\":98,\"america/edmonton\":99,\"america/yellowknife\":99,\"canada/mountain\":99,\"america/eirunepe\":100,\"america/el_salvador\":101,\"america/fort_nelson\":102,\"america/fortaleza\":103,\"america/glace_bay\":104,\"america/godthab\":105,\"america/nuuk\":105,\"america/goose_bay\":106,\"america/grand_turk\":107,\"america/grenada\":108,\"america/guadeloupe\":109,\"america/guatemala\":110,\"america/guayaquil\":111,\"america/guyana\":112,\"america/halifax\":113,\"canada/atlantic\":113,\"america/havana\":114,\"cuba\":114,\"america/hermosillo\":115,\"america/indiana/knox\":116,\"america/knox_in\":116,\"us/indiana-starke\":116,\"america/indiana/marengo\":117,\"america/indiana/petersburg\":118,\"america/indiana/tell_city\":119,\"america/indiana/vevay\":120,\"america/indiana/vincennes\":121,\"america/indiana/winamac\":122,\"america/indianapolis\":123,\"america/fort_wayne\":123,\"america/indiana/indianapolis\":123,\"us/east-indiana\":123,\"america/inuvik\":124,\"america/iqaluit\":125,\"america/pangnirtung\":125,\"america/jamaica\":126,\"jamaica\":126,\"america/jujuy\":127,\"america/argentina/jujuy\":127,\"america/juneau\":128,\"america/kentucky/monticello\":129,\"america/kralendijk\":130,\"america/la_paz\":131,\"america/lima\":132,\"america/los_angeles\":133,\"pst8pdt\":133,\"us/pacific\":133,\"us/pacific-new\":133,\"america/louisville\":134,\"america/kentucky/louisville\":134,\"america/lower_princes\":135,\"america/maceio\":136,\"america/managua\":137,\"america/manaus\":138,\"brazil/west\":138,\"america/marigot\":139,\"america/martinique\":140,\"america/matamoros\":141,\"america/mazatlan\":142,\"mexico/bajasur\":142,\"america/mendoza\":143,\"america/argentina/mendoza\":143,\"america/menominee\":144,\"america/merida\":145,\"america/metlakatla\":146,\"america/mexico_city\":147,\"mexico/general\":147,\"america/miquelon\":148,\"america/moncton\":149,\"america/monterrey\":150,\"america/montevideo\":151,\"america/montserrat\":152,\"america/nassau\":153,\"america/new_york\":154,\"est5edt\":154,\"us/eastern\":154,\"america/nome\":155,\"america/noronha\":156,\"brazil/denoronha\":156,\"america/north_dakota/beulah\":157,\"america/north_dakota/center\":158,\"america/north_dakota/new_salem\":159,\"america/ojinaga\":160,\"america/panama\":161,\"america/paramaribo\":162,\"america/phoenix\":163,\"us/arizona\":163,\"america/port-au-prince\":164,\"america/port_of_spain\":165,\"america/porto_velho\":166,\"america/puerto_rico\":167,\"america/punta_arenas\":168,\"america/rankin_inlet\":169,\"america/recife\":170,\"america/regina\":171,\"canada/east-saskatchewan\":171,\"canada/saskatchewan\":171,\"america/resolute\":172,\"america/rio_branco\":173,\"america/porto_acre\":173,\"brazil/acre\":173,\"america/santarem\":174,\"america/santiago\":175,\"chile/continental\":175,\"america/santo_domingo\":176,\"america/sao_paulo\":177,\"brazil/east\":177,\"america/scoresbysund\":178,\"america/sitka\":179,\"america/st_barthelemy\":180,\"america/st_johns\":181,\"canada/newfoundland\":181,\"america/st_kitts\":182,\"america/st_lucia\":183,\"america/st_thomas\":184,\"america/virgin\":184,\"america/st_vincent\":185,\"america/swift_current\":186,\"america/tegucigalpa\":187,\"america/thule\":188,\"america/tijuana\":189,\"america/ensenada\":189,\"america/santa_isabel\":189,\"mexico/bajanorte\":189,\"america/toronto\":190,\"america/montreal\":190,\"america/nipigon\":190,\"america/thunder_bay\":190,\"canada/eastern\":190,\"america/tortola\":191,\"america/vancouver\":192,\"canada/pacific\":192,\"america/whitehorse\":193,\"canada/yukon\":193,\"america/winnipeg\":194,\"america/rainy_river\":194,\"canada/central\":194,\"america/yakutat\":195,\"antarctica/casey\":196,\"antarctica/davis\":197,\"antarctica/dumontdurville\":198,\"antarctica/macquarie\":199,\"antarctica/mawson\":200,\"antarctica/mcmurdo\":201,\"antarctica/south_pole\":201,\"antarctica/palmer\":202,\"antarctica/rothera\":203,\"antarctica/syowa\":204,\"antarctica/troll\":205,\"antarctica/vostok\":206,\"arctic/longyearbyen\":207,\"atlantic/jan_mayen\":207,\"asia/aden\":208,\"asia/almaty\":209,\"asia/amman\":210,\"asia/anadyr\":211,\"asia/aqtau\":212,\"asia/aqtobe\":213,\"asia/ashgabat\":214,\"asia/ashkhabad\":214,\"asia/atyrau\":215,\"asia/baghdad\":216,\"asia/bahrain\":217,\"asia/baku\":218,\"asia/bangkok\":219,\"asia/barnaul\":220,\"asia/beirut\":221,\"asia/bishkek\":222,\"asia/brunei\":223,\"asia/calcutta\":224,\"asia/kolkata\":224,\"asia/chita\":225,\"asia/colombo\":226,\"asia/damascus\":227,\"asia/dhaka\":228,\"asia/dacca\":228,\"asia/dili\":229,\"asia/dubai\":230,\"asia/dushanbe\":231,\"asia/famagusta\":232,\"asia/gaza\":233,\"asia/hebron\":234,\"asia/hong_kong\":235,\"hongkong\":235,\"asia/hovd\":236,\"asia/irkutsk\":237,\"asia/jakarta\":238,\"asia/jayapura\":239,\"asia/jerusalem\":240,\"asia/tel_aviv\":240,\"israel\":240,\"asia/kabul\":241,\"asia/kamchatka\":242,\"asia/karachi\":243,\"asia/katmandu\":244,\"asia/kathmandu\":244,\"asia/khandyga\":245,\"asia/krasnoyarsk\":246,\"asia/kuala_lumpur\":247,\"asia/kuching\":248,\"asia/kuwait\":249,\"asia/macau\":250,\"asia/macao\":250,\"asia/magadan\":251,\"asia/makassar\":252,\"asia/ujung_pandang\":252,\"asia/manila\":253,\"asia/muscat\":254,\"asia/nicosia\":255,\"europe/nicosia\":255,\"asia/novokuznetsk\":256,\"asia/novosibirsk\":257,\"asia/omsk\":258,\"asia/oral\":259,\"asia/phnom_penh\":260,\"asia/pontianak\":261,\"asia/pyongyang\":262,\"asia/qatar\":263,\"asia/qostanay\":264,\"asia/qyzylorda\":265,\"asia/rangoon\":266,\"asia/yangon\":266,\"asia/riyadh\":267,\"asia/saigon\":268,\"asia/ho_chi_minh\":268,\"asia/sakhalin\":269,\"asia/samarkand\":270,\"asia/seoul\":271,\"rok\":271,\"asia/shanghai\":272,\"asia/chongqing\":272,\"asia/chungking\":272,\"asia/harbin\":272,\"prc\":272,\"asia/singapore\":273,\"singapore\":273,\"asia/srednekolymsk\":274,\"asia/taipei\":275,\"roc\":275,\"asia/tashkent\":276,\"asia/tbilisi\":277,\"asia/tehran\":278,\"iran\":278,\"asia/thimphu\":279,\"asia/thimbu\":279,\"asia/tokyo\":280,\"japan\":280,\"asia/tomsk\":281,\"asia/ulaanbaatar\":282,\"asia/choibalsan\":282,\"asia/ulan_bator\":282,\"asia/urumqi\":283,\"asia/kashgar\":283,\"asia/ust-nera\":284,\"asia/vientiane\":285,\"asia/vladivostok\":286,\"asia/yakutsk\":287,\"asia/yekaterinburg\":288,\"asia/yerevan\":289,\"atlantic/azores\":290,\"atlantic/bermuda\":291,\"atlantic/canary\":292,\"atlantic/cape_verde\":293,\"atlantic/faeroe\":294,\"atlantic/faroe\":294,\"atlantic/madeira\":295,\"atlantic/reykjavik\":296,\"iceland\":296,\"atlantic/south_georgia\":297,\"atlantic/st_helena\":298,\"atlantic/stanley\":299,\"australia/adelaide\":300,\"australia/south\":300,\"australia/brisbane\":301,\"australia/queensland\":301,\"australia/broken_hill\":302,\"australia/yancowinna\":302,\"australia/darwin\":303,\"australia/north\":303,\"australia/eucla\":304,\"australia/hobart\":305,\"australia/currie\":305,\"australia/tasmania\":305,\"australia/lindeman\":306,\"australia/lord_howe\":307,\"australia/lhi\":307,\"australia/melbourne\":308,\"australia/victoria\":308,\"australia/perth\":309,\"australia/west\":309,\"australia/sydney\":310,\"australia/act\":310,\"australia/canberra\":310,\"australia/nsw\":310,\"etc/gmt+1\":311,\"etc/gmt+10\":312,\"etc/gmt+11\":313,\"etc/gmt+12\":314,\"etc/gmt+2\":315,\"etc/gmt+3\":316,\"etc/gmt+4\":317,\"etc/gmt+5\":318,\"etc/gmt+6\":319,\"etc/gmt+7\":320,\"etc/gmt+8\":321,\"etc/gmt+9\":322,\"etc/gmt-1\":323,\"etc/gmt-10\":324,\"etc/gmt-11\":325,\"etc/gmt-12\":326,\"etc/gmt-13\":327,\"etc/gmt-14\":328,\"etc/gmt-2\":329,\"etc/gmt-3\":330,\"etc/gmt-4\":331,\"etc/gmt-5\":332,\"etc/gmt-6\":333,\"etc/gmt-7\":334,\"etc/gmt-8\":335,\"etc/gmt-9\":336,\"europe/amsterdam\":337,\"europe/andorra\":338,\"europe/astrakhan\":339,\"europe/athens\":340,\"europe/belgrade\":341,\"europe/berlin\":342,\"europe/bratislava\":343,\"europe/brussels\":344,\"met\":344,\"europe/bucharest\":345,\"europe/budapest\":346,\"europe/busingen\":347,\"europe/chisinau\":348,\"europe/tiraspol\":348,\"europe/copenhagen\":349,\"europe/dublin\":350,\"eire\":350,\"europe/gibraltar\":351,\"europe/guernsey\":352,\"europe/helsinki\":353,\"europe/isle_of_man\":354,\"europe/istanbul\":355,\"asia/istanbul\":355,\"turkey\":355,\"europe/jersey\":356,\"europe/kaliningrad\":357,\"europe/kiev\":358,\"europe/kyiv\":358,\"europe/uzhgorod\":358,\"europe/zaporozhye\":358,\"europe/kirov\":359,\"europe/lisbon\":360,\"portugal\":360,\"europe/ljubljana\":361,\"europe/london\":362,\"europe/belfast\":362,\"gb\":362,\"gb-eire\":362,\"europe/luxembourg\":363,\"europe/madrid\":364,\"europe/malta\":365,\"europe/mariehamn\":366,\"europe/minsk\":367,\"europe/monaco\":368,\"europe/moscow\":369,\"w-su\":369,\"europe/oslo\":370,\"europe/paris\":371,\"europe/podgorica\":372,\"europe/prague\":373,\"europe/riga\":374,\"europe/rome\":375,\"europe/samara\":376,\"europe/san_marino\":377,\"europe/sarajevo\":378,\"europe/saratov\":379,\"europe/simferopol\":380,\"europe/skopje\":381,\"europe/sofia\":382,\"europe/stockholm\":383,\"europe/tallinn\":384,\"europe/tirane\":385,\"europe/ulyanovsk\":386,\"europe/vaduz\":387,\"europe/vatican\":388,\"europe/vienna\":389,\"europe/vilnius\":390,\"europe/volgograd\":391,\"europe/warsaw\":392,\"poland\":392,\"europe/zagreb\":393,\"europe/zurich\":394,\"indian/antananarivo\":395,\"indian/chagos\":396,\"indian/christmas\":397,\"indian/cocos\":398,\"indian/comoro\":399,\"indian/kerguelen\":400,\"indian/mahe\":401,\"indian/maldives\":402,\"indian/mauritius\":403,\"indian/mayotte\":404,\"indian/reunion\":405,\"pacific/apia\":406,\"pacific/auckland\":407,\"nz\":407,\"pacific/bougainville\":408,\"pacific/chatham\":409,\"nz-chat\":409,\"pacific/easter\":410,\"chile/easterisland\":410,\"pacific/efate\":411,\"pacific/enderbury\":412,\"pacific/kanton\":412,\"pacific/fakaofo\":413,\"pacific/fiji\":414,\"pacific/funafuti\":415,\"pacific/galapagos\":416,\"pacific/gambier\":417,\"pacific/guadalcanal\":418,\"pacific/guam\":419,\"pacific/honolulu\":420,\"pacific/johnston\":420,\"us/hawaii\":420,\"pacific/kiritimati\":421,\"pacific/kosrae\":422,\"pacific/kwajalein\":423,\"kwajalein\":423,\"pacific/majuro\":424,\"pacific/marquesas\":425,\"pacific/midway\":426,\"pacific/nauru\":427,\"pacifi",
+        "c/niue\":428,\"pacific/norfolk\":429,\"pacific/noumea\":430,\"pacific/pago_pago\":431,\"pacific/samoa\":431,\"us/samoa\":431,\"pacific/palau\":432,\"pacific/pitcairn\":433,\"pacific/ponape\":434,\"pacific/pohnpei\":434,\"pacific/port_moresby\":435,\"pacific/rarotonga\":436,\"pacific/saipan\":437,\"pacific/tahiti\":438,\"pacific/tarawa\":439,\"pacific/tongatapu\":440,\"pacific/truk\":441,\"pacific/chuuk\":441,\"pacific/yap\":441,\"pacific/wake\":442,\"pacific/wallis\":443,\"systemv/ast4\":444,\"systemv/ast4adt\":445,\"systemv/cst6\":446,\"systemv/cst6cdt\":447,\"systemv/est5\":448,\"systemv/est5edt\":449,\"systemv/hst10\":450,\"systemv/mst7\":451,\"systemv/mst7mdt\":452,\"systemv/pst8\":453,\"systemv/pst8pdt\":454,\"systemv/yst9\":455,\"systemv/yst9ydt\":456,\"utc\":457,\"etc/gmt\":457,\"etc/gmt+0\":457,\"etc/gmt-0\":457,\"etc/gmt0\":457,\"etc/greenwich\":457,\"etc/uct\":457,\"etc/utc\":457,\"etc/universal\":457,\"etc/zulu\":457,\"gmt\":457,\"gmt+0\":457,\"gmt-0\":457,\"gmt0\":457,\"greenwich\":457,\"uct\":457,\"universal\":457,\"zulu\":457},\"zones\":[[\"Africa/Abidjan\"],[\"Africa/Accra\"],[\"Africa/Addis_Ababa\"],[\"Africa/Algiers\"],[\"Africa/Asmera\",\"Africa/Asmara\"],[\"Africa/Bamako\",\"Africa/Timbuktu\"],[\"Africa/Bangui\"],[\"Africa/Banjul\"],[\"Africa/Bissau\"],[\"Africa/Blantyre\"],[\"Africa/Brazzaville\"],[\"Africa/Bujumbura\"],[\"Africa/Cairo\",\"Egypt\"],[\"Africa/Casablanca\"],[\"Africa/Ceuta\"],[\"Africa/Conakry\"],[\"Africa/Dakar\"],[\"Africa/Dar_es_Salaam\"],[\"Africa/Djibouti\"],[\"Africa/Douala\"],[\"Africa/El_Aaiun\"],[\"Africa/Freetown\"],[\"Africa/Gaborone\"],[\"Africa/Harare\"],[\"Africa/Johannesburg\"],[\"Africa/Juba\"],[\"Africa/Kampala\"],[\"Africa/Khartoum\"],[\"Africa/Kigali\"],[\"Africa/Kinshasa\"],[\"Africa/Lagos\"],[\"Africa/Libreville\"],[\"Africa/Lome\"],[\"Africa/Luanda\"],[\"Africa/Lubumbashi\"],[\"Africa/Lusaka\"],[\"Africa/Malabo\"],[\"Africa/Maputo\"],[\"Africa/Maseru\"],[\"Africa/Mbabane\"],[\"Africa/Mogadishu\"],[\"Africa/Monrovia\"],[\"Africa/Nairobi\"],[\"Africa/Ndjamena\"],[\"Africa/Niamey\"],[\"Africa/Nouakchott\"],[\"Africa/Ouagadougou\"],[\"Africa/Porto-Novo\"],[\"Africa/Sao_Tome\"],[\"Africa/Tripoli\",\"Libya\"],[\"Africa/Tunis\"],[\"Africa/Windhoek\"],[\"America/Adak\",\"America/Atka\",\"US/Aleutian\"],[\"America/Anchorage\",\"US/Alaska\"],[\"America/Anguilla\"],[\"America/Antigua\"],[\"America/Araguaina\"],[\"America/Argentina/La_Rioja\"],[\"America/Argentina/Rio_Gallegos\"],[\"America/Argentina/Salta\"],[\"America/Argentina/San_Juan\"],[\"America/Argentina/San_Luis\"],[\"America/Argentina/Tucuman\"],[\"America/Argentina/Ushuaia\"],[\"America/Aruba\"],[\"America/Asuncion\"],[\"America/Bahia\"],[\"America/Bahia_Banderas\"],[\"America/Barbados\"],[\"America/Belem\"],[\"America/Belize\"],[\"America/Blanc-Sablon\"],[\"America/Boa_Vista\"],[\"America/Bogota\"],[\"America/Boise\"],[\"America/Buenos_Aires\",\"America/Argentina/Buenos_Aires\"],[\"America/Cambridge_Bay\"],[\"America/Campo_Grande\"],[\"America/Cancun\"],[\"America/Caracas\"],[\"America/Catamarca\",\"America/Argentina/Catamarca\",\"America/Argentina/ComodRivadavia\"],[\"America/Cayenne\"],[\"America/Cayman\"],[\"America/Chicago\",\"CST6CDT\",\"US/Central\"],[\"America/Chihuahua\"],[\"America/Ciudad_Juarez\"],[\"America/Coral_Harbour\",\"America/Atikokan\"],[\"America/Cordoba\",\"America/Argentina/Cordoba\",\"America/Rosario\"],[\"America/Costa_Rica\"],[\"America/Coyhaique\"],[\"America/Creston\"],[\"America/Cuiaba\"],[\"America/Curacao\"],[\"America/Danmarkshavn\"],[\"America/Dawson\"],[\"America/Dawson_Creek\"],[\"America/Denver\",\"America/Shiprock\",\"MST7MDT\",\"Navajo\",\"US/Mountain\"],[\"America/Detroit\",\"US/Michigan\"],[\"America/Dominica\"],[\"America/Edmonton\",\"America/Yellowknife\",\"Canada/Mountain\"],[\"America/Eirunepe\"],[\"America/El_Salvador\"],[\"America/Fort_Nelson\"],[\"America/Fortaleza\"],[\"America/Glace_Bay\"],[\"America/Godthab\",\"America/Nuuk\"],[\"America/Goose_Bay\"],[\"America/Grand_Turk\"],[\"America/Grenada\"],[\"America/Guadeloupe\"],[\"America/Guatemala\"],[\"America/Guayaquil\"],[\"America/Guyana\"],[\"America/Halifax\",\"Canada/Atlantic\"],[\"America/Havana\",\"Cuba\"],[\"America/Hermosillo\"],[\"America/Indiana/Knox\",\"America/Knox_IN\",\"US/Indiana-Starke\"],[\"America/Indiana/Marengo\"],[\"America/Indiana/Petersburg\"],[\"America/Indiana/Tell_City\"],[\"America/Indiana/Vevay\"],[\"America/Indiana/Vincennes\"],[\"America/Indiana/Winamac\"],[\"America/Indianapolis\",\"America/Fort_Wayne\",\"America/Indiana/Indianapolis\",\"US/East-Indiana\"],[\"America/Inuvik\"],[\"America/Iqaluit\",\"America/Pangnirtung\"],[\"America/Jamaica\",\"Jamaica\"],[\"America/Jujuy\",\"America/Argentina/Jujuy\"],[\"America/Juneau\"],[\"America/Kentucky/Monticello\"],[\"America/Kralendijk\"],[\"America/La_Paz\"],[\"America/Lima\"],[\"America/Los_Angeles\",\"PST8PDT\",\"US/Pacific\",\"US/Pacific-New\"],[\"America/Louisville\",\"America/Kentucky/Louisville\"],[\"America/Lower_Princes\"],[\"America/Maceio\"],[\"America/Managua\"],[\"America/Manaus\",\"Brazil/West\"],[\"America/Marigot\"],[\"America/Martinique\"],[\"America/Matamoros\"],[\"America/Mazatlan\",\"Mexico/BajaSur\"],[\"America/Mendoza\",\"America/Argentina/Mendoza\"],[\"America/Menominee\"],[\"America/Merida\"],[\"America/Metlakatla\"],[\"America/Mexico_City\",\"Mexico/General\"],[\"America/Miquelon\"],[\"America/Moncton\"],[\"America/Monterrey\"],[\"America/Montevideo\"],[\"America/Montserrat\"],[\"America/Nassau\"],[\"America/New_York\",\"EST5EDT\",\"US/Eastern\"],[\"America/Nome\"],[\"America/Noronha\",\"Brazil/DeNoronha\"],[\"America/North_Dakota/Beulah\"],[\"America/North_Dakota/Center\"],[\"America/North_Dakota/New_Salem\"],[\"America/Ojinaga\"],[\"America/Panama\"],[\"America/Paramaribo\"],[\"America/Phoenix\",\"US/Arizona\"],[\"America/Port-au-Prince\"],[\"America/Port_of_Spain\"],[\"America/Porto_Velho\"],[\"America/Puerto_Rico\"],[\"America/Punta_Arenas\"],[\"America/Rankin_Inlet\"],[\"America/Recife\"],[\"America/Regina\",\"Canada/East-Saskatchewan\",\"Canada/Saskatchewan\"],[\"America/Resolute\"],[\"America/Rio_Branco\",\"America/Porto_Acre\",\"Brazil/Acre\"],[\"America/Santarem\"],[\"America/Santiago\",\"Chile/Continental\"],[\"America/Santo_Domingo\"],[\"America/Sao_Paulo\",\"Brazil/East\"],[\"America/Scoresbysund\"],[\"America/Sitka\"],[\"America/St_Barthelemy\"],[\"America/St_Johns\",\"Canada/Newfoundland\"],[\"America/St_Kitts\"],[\"America/St_Lucia\"],[\"America/St_Thomas\",\"America/Virgin\"],[\"America/St_Vincent\"],[\"America/Swift_Current\"],[\"America/Tegucigalpa\"],[\"America/Thule\"],[\"America/Tijuana\",\"America/Ensenada\",\"America/Santa_Isabel\",\"Mexico/BajaNorte\"],[\"America/Toronto\",\"America/Montreal\",\"America/Nipigon\",\"America/Thunder_Bay\",\"Canada/Eastern\"],[\"America/Tortola\"],[\"America/Vancouver\",\"Canada/Pacific\"],[\"America/Whitehorse\",\"Canada/Yukon\"],[\"America/Winnipeg\",\"America/Rainy_River\",\"Canada/Central\"],[\"America/Yakutat\"],[\"Antarctica/Casey\"],[\"Antarctica/Davis\"],[\"Antarctica/DumontDUrville\"],[\"Antarctica/Macquarie\"],[\"Antarctica/Mawson\"],[\"Antarctica/McMurdo\",\"Antarctica/South_Pole\"],[\"Antarctica/Palmer\"],[\"Antarctica/Rothera\"],[\"Antarctica/Syowa\"],[\"Antarctica/Troll\"],[\"Antarctica/Vostok\"],[\"Arctic/Longyearbyen\",\"Atlantic/Jan_Mayen\"],[\"Asia/Aden\"],[\"Asia/Almaty\"],[\"Asia/Amman\"],[\"Asia/Anadyr\"],[\"Asia/Aqtau\"],[\"Asia/Aqtobe\"],[\"Asia/Ashgabat\",\"Asia/Ashkhabad\"],[\"Asia/Atyrau\"],[\"Asia/Baghdad\"],[\"Asia/Bahrain\"],[\"Asia/Baku\"],[\"Asia/Bangkok\"],[\"Asia/Barnaul\"],[\"Asia/Beirut\"],[\"Asia/Bishkek\"],[\"Asia/Brunei\"],[\"Asia/Calcutta\",\"Asia/Kolkata\"],[\"Asia/Chita\"],[\"Asia/Colombo\"],[\"Asia/Damascus\"],[\"Asia/Dhaka\",\"Asia/Dacca\"],[\"Asia/Dili\"],[\"Asia/Dubai\"],[\"Asia/Dushanbe\"],[\"Asia/Famagusta\"],[\"Asia/Gaza\"],[\"Asia/Hebron\"],[\"Asia/Hong_Kong\",\"Hongkong\"],[\"Asia/Hovd\"],[\"Asia/Irkutsk\"],[\"Asia/Jakarta\"],[\"Asia/Jayapura\"],[\"Asia/Jerusalem\",\"Asia/Tel_Aviv\",\"Israel\"],[\"Asia/Kabul\"],[\"Asia/Kamchatka\"],[\"Asia/Karachi\"],[\"Asia/Katmandu\",\"Asia/Kathmandu\"],[\"Asia/Khandyga\"],[\"Asia/Krasnoyarsk\"],[\"Asia/Kuala_Lumpur\"],[\"Asia/Kuching\"],[\"Asia/Kuwait\"],[\"Asia/Macau\",\"Asia/Macao\"],[\"Asia/Magadan\"],[\"Asia/Makassar\",\"Asia/Ujung_Pandang\"],[\"Asia/Manila\"],[\"Asia/Muscat\"],[\"Asia/Nicosia\",\"Europe/Nicosia\"],[\"Asia/Novokuznetsk\"],[\"Asia/Novosibirsk\"],[\"Asia/Omsk\"],[\"Asia/Oral\"],[\"Asia/Phnom_Penh\"],[\"Asia/Pontianak\"],[\"Asia/Pyongyang\"],[\"Asia/Qatar\"],[\"Asia/Qostanay\"],[\"Asia/Qyzylorda\"],[\"Asia/Rangoon\",\"Asia/Yangon\"],[\"Asia/Riyadh\"],[\"Asia/Saigon\",\"Asia/Ho_Chi_Minh\"],[\"Asia/Sakhalin\"],[\"Asia/Samarkand\"],[\"Asia/Seoul\",\"ROK\"],[\"Asia/Shanghai\",\"Asia/Chongqing\",\"Asia/Chungking\",\"Asia/Harbin\",\"PRC\"],[\"Asia/Singapore\",\"Singapore\"],[\"Asia/Srednekolymsk\"],[\"Asia/Taipei\",\"ROC\"],[\"Asia/Tashkent\"],[\"Asia/Tbilisi\"],[\"Asia/Tehran\",\"Iran\"],[\"Asia/Thimphu\",\"Asia/Thimbu\"],[\"Asia/Tokyo\",\"Japan\"],[\"Asia/Tomsk\"],[\"Asia/Ulaanbaatar\",\"Asia/Choibalsan\",\"Asia/Ulan_Bator\"],[\"Asia/Urumqi\",\"Asia/Kashgar\"],[\"Asia/Ust-Nera\"],[\"Asia/Vientiane\"],[\"Asia/Vladivostok\"],[\"Asia/Yakutsk\"],[\"Asia/Yekaterinburg\"],[\"Asia/Yerevan\"],[\"Atlantic/Azores\"],[\"Atlantic/Bermuda\"],[\"Atlantic/Canary\"],[\"Atlantic/Cape_Verde\"],[\"Atlantic/Faeroe\",\"Atlantic/Faroe\"],[\"Atlantic/Madeira\"],[\"Atlantic/Reykjavik\",\"Iceland\"],[\"Atlantic/South_Georgia\"],[\"Atlantic/St_Helena\"],[\"Atlantic/Stanley\"],[\"Australia/Adelaide\",\"Australia/South\"],[\"Australia/Brisbane\",\"Australia/Queensland\"],[\"Australia/Broken_Hill\",\"Australia/Yancowinna\"],[\"Australia/Darwin\",\"Australia/North\"],[\"Australia/Eucla\"],[\"Australia/Hobart\",\"Australia/Currie\",\"Australia/Tasmania\"],[\"Australia/Lindeman\"],[\"Australia/Lord_Howe\",\"Australia/LHI\"],[\"Australia/Melbourne\",\"Australia/Victoria\"],[\"Australia/Perth\",\"Australia/West\"],[\"Australia/Sydney\",\"Australia/ACT\",\"Australia/Canberra\",\"Australia/NSW\"],[\"Etc/GMT+1\"],[\"Etc/GMT+10\"],[\"Etc/GMT+11\"],[\"Etc/GMT+12\"],[\"Etc/GMT+2\"],[\"Etc/GMT+3\"],[\"Etc/GMT+4\"],[\"Etc/GMT+5\"],[\"Etc/GMT+6\"],[\"Etc/GMT+7\"],[\"Etc/GMT+8\"],[\"Etc/GMT+9\"],[\"Etc/GMT-1\"],[\"Etc/GMT-10\"],[\"Etc/GMT-11\"],[\"Etc/GMT-12\"],[\"Etc/GMT-13\"],[\"Etc/GMT-14\"],[\"Etc/GMT-2\"],[\"Etc/GMT-3\"],[\"Etc/GMT-4\"],[\"Etc/GMT-5\"],[\"Etc/GMT-6\"],[\"Etc/GMT-7\"],[\"Etc/GMT-8\"],[\"Etc/GMT-9\"],[\"Europe/Amsterdam\"],[\"Europe/Andorra\"],[\"Europe/Astrakhan\"],[\"Europe/Athens\"],[\"Europe/Belgrade\"],[\"Europe/Berlin\"],[\"Europe/Bratislava\"],[\"Europe/Brussels\",\"MET\"],[\"Europe/Bucharest\"],[\"Europe/Budapest\"],[\"Europe/Busingen\"],[\"Europe/Chisinau\",\"Europe/Tiraspol\"],[\"Europe/Copenhagen\"],[\"Europe/Dublin\",\"Eire\"],[\"Europe/Gibraltar\"],[\"Europe/Guernsey\"],[\"Europe/Helsinki\"],[\"Europe/Isle_of_Man\"],[\"Europe/Istanbul\",\"Asia/Istanbul\",\"Turkey\"],[\"Europe/Jersey\"],[\"Europe/Kaliningrad\"],[\"Europe/Kiev\",\"Europe/Kyiv\",\"Europe/Uzhgorod\",\"Europe/Zaporozhye\"],[\"Europe/Kirov\"],[\"Europe/Lisbon\",\"Portugal\"],[\"Europe/Ljubljana\"],[\"Europe/London\",\"Europe/Belfast\",\"GB\",\"GB-Eire\"],[\"Europe/Luxembourg\"],[\"Europe/Madrid\"],[\"Europe/Malta\"],[\"Europe/Mariehamn\"],[\"Europe/Minsk\"],[\"Europe/Monaco\"],[\"Europe/Moscow\",\"W-SU\"],[\"Europe/Oslo\"],[\"Europe/Paris\"],[\"Europe/Podgorica\"],[\"Europe/Prague\"],[\"Europe/Riga\"],[\"Europe/Rome\"],[\"Europe/Samara\"],[\"Europe/San_Marino\"],[\"Europe/Sarajevo\"],[\"Europe/Saratov\"],[\"Europe/Simferopol\"],[\"Europe/Skopje\"],[\"Europe/Sofia\"],[\"Europe/Stockholm\"],[\"Europe/Tallinn\"],[\"Europe/Tirane\"],[\"Europe/Ulyanovsk\"],[\"Europe/Vaduz\"],[\"Europe/Vatican\"],[\"Europe/Vienna\"],[\"Europe/Vilnius\"],[\"Europe/Volgograd\"],[\"Europe/Warsaw\",\"Poland\"],[\"Europe/Zagreb\"],[\"Europe/Zurich\"],[\"Indian/Antananarivo\"],[\"Indian/Chagos\"],[\"Indian/Christmas\"],[\"Indian/Cocos\"],[\"Indian/Comoro\"],[\"Indian/Kerguelen\"],[\"Indian/Mahe\"],[\"Indian/Maldives\"],[\"Indian/Mauritius\"],[\"Indian/Mayotte\"],[\"Indian/Reunion\"],[\"Pacific/Apia\"],[\"Pacific/Auckland\",\"NZ\"],[\"Pacific/Bougainville\"],[\"Pacific/Chatham\",\"NZ-CHAT\"],[\"Pacific/Easter\",\"Chile/EasterIsland\"],[\"Pacific/Efate\"],[\"Pacific/Enderbury\",\"Pacific/Kanton\"],[\"Pacific/Fakaofo\"],[\"Pacific/Fiji\"],[\"Pacific/Funafuti\"],[\"Pacific/Galapagos\"],[\"Pacific/Gambier\"],[\"Pacific/Guadalcanal\"],[\"Pacific/Guam\"],[\"Pacific/Honolulu\",\"Pacific/Johnston\",\"US/Hawaii\"],[\"Pacific/Kiritimati\"],[\"Pacific/Kosrae\"],[\"Pacific/Kwajalein\",\"Kwajalein\"],[\"Pacific/Majuro\"],[\"Pacific/Marquesas\"],[\"Pacific/Midway\"],[\"Pacific/Nauru\"],[\"Pacific/Niue\"],[\"Pacific/Norfolk\"],[\"Pacific/Noumea\"],[\"Pacific/Pago_Pago\",\"Pacific/Samoa\",\"US/Samoa\"],[\"Pacific/Palau\"],[\"Pacific/Pitcairn\"],[\"Pacific/Ponape\",\"Pacific/Pohnpei\"],[\"Pacific/Port_Moresby\"],[\"Pacific/Rarotonga\"],[\"Pacific/Saipan\"],[\"Pacific/Tahiti\"],[\"Pacific/Tarawa\"],[\"Pacific/Tongatapu\"],[\"Pacific/Truk\",\"Pacific/Chuuk\",\"Pacific/Yap\"],[\"Pacific/Wake\"],[\"Pacific/Wallis\"],[\"SystemV/AST4\"],[\"SystemV/AST4AD",
+        "T\"],[\"SystemV/CST6\"],[\"SystemV/CST6CDT\"],[\"SystemV/EST5\"],[\"SystemV/EST5EDT\"],[\"SystemV/HST10\"],[\"SystemV/MST7\"],[\"SystemV/MST7MDT\"],[\"SystemV/PST8\"],[\"SystemV/PST8PDT\"],[\"SystemV/YST9\"],[\"SystemV/YST9YDT\"],[\"UTC\",\"Etc/GMT\",\"Etc/GMT+0\",\"Etc/GMT-0\",\"Etc/GMT0\",\"Etc/Greenwich\",\"Etc/UCT\",\"Etc/UTC\",\"Etc/Universal\",\"Etc/Zulu\",\"GMT\",\"GMT+0\",\"GMT-0\",\"GMT0\",\"Greenwich\",\"UCT\",\"Universal\",\"Zulu\"]]}\n"
+      }));
+    Object empty_keys = new java.util.LinkedHashMap<String, Object>();
+    Object keys = Core.get(table, "keys", empty_keys);
+    Object group_index = Core.get(keys, key, null);
+    Object unknown = Core.isNone(group_index);
+    if (Core.truthy(unknown)) {
+      Object unknown_error = Core.runtimeError(unrecognized);
+      throw Core.asRuntime(unknown_error);
+    }
+    Object empty_zones = new java.util.ArrayList<Object>();
+    Object zones = Core.get(table, "zones", empty_zones);
+    Object empty_group = new java.util.ArrayList<Object>();
+    Object group = Core.get(zones, group_index, empty_group);
+    for (Object candidate : Core.iter(group)) {
+      Object works = Boolean.TRUE;
+      try {
+        Core.dateZoneOffset(candidate, probe);
+      } catch (RuntimeException zone_error) {
+        works = Boolean.FALSE;
+      }
+      if (Core.truthy(works)) {
+        Core.set(resolved, "kind", "named");
+        Core.set(resolved, "name", candidate);
+        return resolved;
+      }
+    }
+    Object missing_error = Core.runtimeError(unrecognized);
+    throw Core.asRuntime(missing_error);
   }
 
   static Object _build_optimization_eval_row(Object task, Object prediction, Object scores, Object scalar, Object trace, Object error) {
@@ -17605,6 +18182,73 @@ final class Core {
     }
     Object t4 = Core._regex_literal(c);
     return t4;
+  }
+
+  static Object _date_offset_zone_minutes_impl(Object units, Object start, Object end) {
+    axirCoverageMark("_date_offset_zone_minutes_impl");
+    Object none = Core.none();
+    Object length = Core.mul(start, -1);
+    length = Core.add(length, end);
+    Object sign_unit = Core.get(units, start, 0);
+    Object sign = 0;
+    Object plus = Core.eq(sign_unit, 43);
+    if (Core.truthy(plus)) {
+      sign = 1;
+    }
+    Object minus = Core.eq(sign_unit, 45);
+    Object math_minus = Core.eq(sign_unit, 8722);
+    Object negative = Core.or(minus, math_minus);
+    if (Core.truthy(negative)) {
+      sign = -1;
+    }
+    Object no_sign = Core.eq(sign, 0);
+    if (Core.truthy(no_sign)) {
+      return none;
+    }
+    Object hour_at = Core.add(start, 1);
+    Object hours = Core._date_digits_impl(units, hour_at, 2, end);
+    Object bad_hours = Core.lt(hours, 0);
+    if (Core.truthy(bad_hours)) {
+      return none;
+    }
+    Object minutes = 0;
+    Object short_form = Core.eq(length, 3);
+    Object compact = Core.eq(length, 5);
+    Object colon = Core.eq(length, 6);
+    if (Core.truthy(compact)) {
+      Object compact_at = Core.add(start, 3);
+      minutes = Core._date_digits_impl(units, compact_at, 2, end);
+    }
+    if (Core.truthy(colon)) {
+      Object colon_at = Core.add(start, 3);
+      Object colon_unit = Core.get(units, colon_at, 0);
+      Object is_colon = Core.eq(colon_unit, 58);
+      if (Core.truthy(is_colon)) {
+        Object colon_minutes_at = Core.add(start, 4);
+        minutes = Core._date_digits_impl(units, colon_minutes_at, 2, end);
+      }
+      if (!Core.truthy(is_colon)) {
+        minutes = -1;
+      }
+    }
+    Object known_length = Core.or(short_form, compact);
+    known_length = Core.or(known_length, colon);
+    Object unknown_length = Core.not(known_length);
+    if (Core.truthy(unknown_length)) {
+      return none;
+    }
+    Object bad_minutes = Core.lt(minutes, 0);
+    Object hours_range = Core.gt(hours, 23);
+    Object minutes_range = Core.gt(minutes, 59);
+    Object invalid = Core.or(bad_minutes, hours_range);
+    invalid = Core.or(invalid, minutes_range);
+    if (Core.truthy(invalid)) {
+      return none;
+    }
+    Object total = Core.mul(hours, 60);
+    total = Core.add(total, minutes);
+    Object has_sign = Core.mul(total, sign);
+    return has_sign;
   }
 
   static Object chat_session_register_call(Object state, Object call, Object execution) {
@@ -18008,6 +18652,19 @@ final class Core {
     return call;
   }
 
+  static Object _date_zone_offset_seconds_impl(Object zone, Object millis) {
+    axirCoverageMark("_date_zone_offset_seconds_impl");
+    Object kind = Core.get(zone, "kind", null);
+    Object fixed = Core.eq(kind, "fixed");
+    if (Core.truthy(fixed)) {
+      Object fixed_seconds = Core.get(zone, "offset_seconds", null);
+      return fixed_seconds;
+    }
+    Object name = Core.get(zone, "name", null);
+    Object seconds = Core.dateZoneOffset(name, millis);
+    return seconds;
+  }
+
   static Object _prepare_optimizer_run(Object program_kind, Object components, Object dataset, Object options, Object trace, Object evaluator_available) {
     axirCoverageMark("_prepare_optimizer_run");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -18055,6 +18712,22 @@ final class Core {
       return registered;
     }
     return Boolean.FALSE;
+  }
+
+  static Object _date_parts_in_zone_impl(Object zone, Object millis) {
+    axirCoverageMark("_date_parts_in_zone_impl");
+    Object seconds = Core._date_zone_offset_seconds_impl(zone, millis);
+    Object shift = Core.mul(seconds, 1000);
+    Object local = Core.add(millis, shift);
+    Object parts = Core._date_parts_of_ms_impl(local);
+    Object year = Core.get(parts, "year", null);
+    Object before_era = Core.lte(year, 0);
+    if (Core.truthy(before_era)) {
+      Object negated = Core.mul(year, -1);
+      Object era_year = Core.add(negated, 1);
+      Core.set(parts, "year", era_year);
+    }
+    return parts;
   }
 
   static Object _select_sample_index(Object samples, Object options) {
@@ -18352,6 +19025,15 @@ final class Core {
     return validated;
   }
 
+  static Object _date_zone_offset_millis_impl(Object zone, Object millis) {
+    axirCoverageMark("_date_zone_offset_millis_impl");
+    Object parts = Core._date_parts_in_zone_impl(zone, millis);
+    Object local = Core._date_utc_ms_impl(parts);
+    Object negated = Core.mul(millis, -1);
+    Object offset = Core.add(local, negated);
+    return offset;
+  }
+
   static Object _forward_impl(Object gen, Object client, Object values, Object options) {
     axirCoverageMark("_forward_impl");
     Object base_options = Core.get(gen, "options", null);
@@ -18412,6 +19094,7 @@ final class Core {
     Core.append(ordered_messages, user_message);
     Object output_fields = Core.get(signature, "output_fields", null);
     Core._append_structured_output_instruction(ordered_messages, output_fields, selection);
+    output_fields = Core._date_parse_fields_impl(output_fields, base_options, options);
     Object validation_feedback_snake = Core.get(runtime_options, "validation_feedback", "");
     Object validation_feedback = Core.get(runtime_options, "validationFeedback", validation_feedback_snake);
     Object has_validation_feedback = Core.truthyValue(validation_feedback);
@@ -18647,6 +19330,28 @@ final class Core {
     throw new RuntimeException("unreachable AxGen forward loop exit");
   }
 
+  static Object _date_named_timestamp_impl(Object parts, Object zone) {
+    axirCoverageMark("_date_named_timestamp_impl");
+    Object utc = Core._date_utc_ms_impl(parts);
+    Object offset = Core._date_zone_offset_millis_impl(zone, utc);
+    Object negated = Core.mul(offset, -1);
+    Object timestamp = Core.add(utc, negated);
+    Object adjusted = Core._date_zone_offset_millis_impl(zone, timestamp);
+    Object moved = Core.ne(adjusted, offset);
+    if (Core.truthy(moved)) {
+      Object adjusted_negated = Core.mul(adjusted, -1);
+      timestamp = Core.add(utc, adjusted_negated);
+    }
+    Object actual = Core._date_parts_in_zone_impl(zone, timestamp);
+    Object same = Core._date_same_parts_impl(actual, parts);
+    Object different = Core.not(same);
+    if (Core.truthy(different)) {
+      Object error = Core._date_values_error_impl();
+      throw Core.asRuntime(error);
+    }
+    return timestamp;
+  }
+
   static Object _stream_field_flag_impl(Object target, Object snake, Object camel) {
     axirCoverageMark("_stream_field_flag_impl");
     Object snake_value = Core.get(target, snake, Boolean.FALSE);
@@ -18754,6 +19459,41 @@ final class Core {
     return base;
   }
 
+  static Object _date_parse_range_impl(Object value, Object kind) {
+    axirCoverageMark("_date_parse_range_impl");
+    Object endpoints = Core._date_range_endpoints_impl(value);
+    Object range_millis = new java.util.LinkedHashMap<String, Object>();
+    Object names = new java.util.ArrayList<Object>();
+    Core.append(names, "start");
+    Core.append(names, "end");
+    for (Object key : Core.iter(names)) {
+      Object endpoint = Core.get(endpoints, key, null);
+      Object is_text = Core.typeIs(endpoint, "string");
+      Object not_text = Core.not(is_text);
+      if (Core.truthy(not_text)) {
+        Object shape_error = Core._date_range_format_error_impl();
+        throw Core.asRuntime(shape_error);
+      }
+      Object is_date = Core.eq(kind, "date");
+      if (Core.truthy(is_date)) {
+        Object date_millis = Core._date_parse_date_impl(endpoint);
+        Core.set(range_millis, key, date_millis);
+      }
+      if (!Core.truthy(is_date)) {
+        Object datetime_millis = Core._date_parse_datetime_impl(endpoint);
+        Core.set(range_millis, key, datetime_millis);
+      }
+    }
+    Object start = Core.get(range_millis, "start", null);
+    Object end = Core.get(range_millis, "end", null);
+    Object reversed = Core.lt(end, start);
+    if (Core.truthy(reversed)) {
+      Object order_error = Core.runtimeError("Invalid range. End must be greater than or equal to start.");
+      throw Core.asRuntime(order_error);
+    }
+    return range_millis;
+  }
+
   static Object _build_optimizer_evidence_batch(Object eval_result, Object components) {
     axirCoverageMark("_build_optimizer_evidence_batch");
     Object empty_list = new java.util.ArrayList<Object>();
@@ -18838,6 +19578,12 @@ final class Core {
     return Boolean.FALSE;
   }
 
+  static Object _date_range_format_error_impl() {
+    axirCoverageMark("_date_range_format_error_impl");
+    Object error = Core.runtimeError("Invalid range format. Provide a JSON object with \"start\" and \"end\", a two-item array, or an interval using start/end.");
+    return error;
+  }
+
   static Object chat_session_native_update(Object state, Object id) {
     axirCoverageMark("chat_session_native_update");
     Object terminal = Core.get(state, "terminal", Boolean.FALSE);
@@ -18869,6 +19615,53 @@ final class Core {
       return title;
     }
     return name;
+  }
+
+  static Object _date_range_endpoints_impl(Object value) {
+    axirCoverageMark("_date_range_endpoints_impl");
+    Object is_text = Core.typeIs(value, "string");
+    if (Core.truthy(is_text)) {
+      Object from_text = Core._date_range_string_impl(value);
+      return from_text;
+    }
+    Object endpoints = new java.util.LinkedHashMap<String, Object>();
+    Object is_list = Core.typeIs(value, "list");
+    if (Core.truthy(is_list)) {
+      Object count = Core.len(value);
+      Object pair = Core.eq(count, 2);
+      if (Core.truthy(pair)) {
+        Object first = Core.listGet(value, 0);
+        Core.set(endpoints, "start", first);
+        Object second = Core.listGet(value, 1);
+        Core.set(endpoints, "end", second);
+        return endpoints;
+      }
+      Object list_error = Core._date_range_format_error_impl();
+      throw Core.asRuntime(list_error);
+    }
+    Object is_object = Core.typeIs(value, "object");
+    if (Core.truthy(is_object)) {
+      Object start = Core.get(value, "start", null);
+      Object no_start = Core.isNone(start);
+      if (Core.truthy(no_start)) {
+        start = Core.get(value, "from", null);
+      }
+      Object end = Core.get(value, "end", null);
+      Object no_end = Core.isNone(end);
+      if (Core.truthy(no_end)) {
+        end = Core.get(value, "to", null);
+      }
+      Object has_start = Core.isNotNone(start);
+      Object has_end = Core.isNotNone(end);
+      Object complete = Core.and(has_start, has_end);
+      if (Core.truthy(complete)) {
+        Core.set(endpoints, "start", start);
+        Core.set(endpoints, "end", end);
+        return endpoints;
+      }
+    }
+    Object error = Core._date_range_format_error_impl();
+    throw Core.asRuntime(error);
   }
 
   static Object _stream_required_missing_error_impl(Object field) {
@@ -19147,6 +19940,45 @@ final class Core {
     return null;
   }
 
+  static Object _date_range_string_impl(Object value) {
+    axirCoverageMark("_date_range_string_impl");
+    Object text = Core._date_strip_code_fence_impl(value);
+    Object opens_object = Core.stringStartsWith(text, "{");
+    Object opens_list = Core.stringStartsWith(text, "[");
+    Object is_json = Core.or(opens_object, opens_list);
+    if (Core.truthy(is_json)) {
+      Object from_json = new java.util.LinkedHashMap<String, Object>();
+      try {
+        Object parsed = Core.jsonParseStrict(text);
+        from_json = Core._date_range_endpoints_impl(parsed);
+      } catch (RuntimeException json_error) {
+        Object json_format_error = Core._date_range_format_error_impl();
+        throw Core.asRuntime(json_format_error);
+      }
+      return from_json;
+    }
+    Object endpoints = new java.util.LinkedHashMap<String, Object>();
+    Object slash_parts = Core.stringSplit(text, "/");
+    Object slash_count = Core.len(slash_parts);
+    Object one_slash = Core.eq(slash_count, 2);
+    if (Core.truthy(one_slash)) {
+      Object slash_start = Core.listGet(slash_parts, 0);
+      Object slash_start_trimmed = Core._date_js_trim_impl(slash_start);
+      Core.set(endpoints, "start", slash_start_trimmed);
+      Object slash_end = Core.listGet(slash_parts, 1);
+      Object slash_end_trimmed = Core._date_js_trim_impl(slash_end);
+      Core.set(endpoints, "end", slash_end_trimmed);
+      return endpoints;
+    }
+    Object split = Core._date_delimiter_split_impl(text);
+    Object no_split = Core.isNone(split);
+    if (Core.truthy(no_split)) {
+      Object error = Core._date_range_format_error_impl();
+      throw Core.asRuntime(error);
+    }
+    return split;
+  }
+
   static Object _regex_quantifier(Object s, Object child) {
     axirCoverageMark("_regex_quantifier");
     Object c = Core.none();
@@ -19360,6 +20192,82 @@ final class Core {
     Core.set(stats, "tokenEstimate", token_estimate);
     Core.set(playbook, "stats", stats);
     return playbook;
+  }
+
+  static Object _date_delimiter_split_impl(Object text) {
+    axirCoverageMark("_date_delimiter_split_impl");
+    Object none = Core.none();
+    Object units = Core.stringUTF16Units(text);
+    Object count = Core.len(units);
+    Object first_terminator = count;
+    Object last_terminator = -1;
+    Object index = 0;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object scanned = Core.gte(index, count);
+      if (Core.truthy(scanned)) {
+        break;
+      }
+      Object unit = Core.get(units, index, 0);
+      Object terminator = Core._date_is_line_terminator_impl(unit);
+      if (Core.truthy(terminator)) {
+        last_terminator = index;
+        Object before = Core.lt(index, first_terminator);
+        if (Core.truthy(before)) {
+          first_terminator = index;
+        }
+      }
+      index = Core.add(index, 1);
+    }
+    Object cursor = 1;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object finished = Core.gte(cursor, count);
+      if (Core.truthy(finished)) {
+        break;
+      }
+      Object past_terminator = Core.gt(cursor, first_terminator);
+      if (Core.truthy(past_terminator)) {
+        break;
+      }
+      Object unit = Core.get(units, cursor, 0);
+      Object space = Core._date_space_impl(unit);
+      Object not_space = Core.not(space);
+      if (Core.truthy(not_space)) {
+        cursor = Core.add(cursor, 1);
+        continue;
+      }
+      Object run_start = cursor;
+      Object keyword_at = Core._date_skip_space_impl(units, cursor, count);
+      Object keyword_length = Core._date_range_keyword_impl(units, keyword_at, count);
+      cursor = keyword_at;
+      Object no_keyword = Core.eq(keyword_length, 0);
+      if (Core.truthy(no_keyword)) {
+        continue;
+      }
+      Object after_keyword = Core.add(keyword_at, keyword_length);
+      Object rest_at = Core._date_skip_space_impl(units, after_keyword, count);
+      Object no_gap = Core.eq(rest_at, after_keyword);
+      if (Core.truthy(no_gap)) {
+        continue;
+      }
+      Object rest_empty = Core.gte(rest_at, count);
+      Object rest_terminator = Core.gte(last_terminator, rest_at);
+      Object rest_bad = Core.or(rest_empty, rest_terminator);
+      if (Core.truthy(rest_bad)) {
+        continue;
+      }
+      Object mode = Core._date_string_mode_impl();
+      Object start_to = Core._date_native_offset_impl(units, run_start, mode);
+      Object rest_from = Core._date_native_offset_impl(units, rest_at, mode);
+      Object start_text = Core.stringSlice(text, 0, start_to);
+      Object rest_text = Core.stringSlice(text, rest_from);
+      Object split = new java.util.LinkedHashMap<String, Object>();
+      Object start_trimmed = Core._date_js_trim_impl(start_text);
+      Core.set(split, "start", start_trimmed);
+      Object rest_trimmed = Core._date_js_trim_impl(rest_text);
+      Core.set(split, "end", rest_trimmed);
+      return split;
+    }
+    return none;
   }
 
   static Object _ace_empty_playbook(Object description, Object now) {
@@ -19584,7 +20492,60 @@ final class Core {
       Core.set(out, "value", class_name);
       return out;
     }
+    Object parse_dates = Core.get(field, "parse_dates", Boolean.FALSE);
+    Object dated = Core._date_is_date_type_impl(name);
+    Object parse = Core.and(parse_dates, dated);
+    if (Core.truthy(parse)) {
+      Object date_out = Core._date_convert_field_value_impl(field, name, value, may_skip);
+      return date_out;
+    }
     return out;
+  }
+
+  static Object _date_range_keyword_impl(Object units, Object at, Object end) {
+    axirCoverageMark("_date_range_keyword_impl");
+    Object unit = Core.get(units, at, 0);
+    Object hyphen = Core.eq(unit, 45);
+    Object en_dash = Core.eq(unit, 8211);
+    Object em_dash = Core.eq(unit, 8212);
+    Object is_dash = Core.or(hyphen, en_dash);
+    is_dash = Core.or(is_dash, em_dash);
+    Object dash_inside = Core.lt(at, end);
+    is_dash = Core.and(is_dash, dash_inside);
+    if (Core.truthy(is_dash)) {
+      Object after_dash = Core.add(at, 1);
+      Object dash_space = Boolean.FALSE;
+      Object dash_followed = Core.lt(after_dash, end);
+      if (Core.truthy(dash_followed)) {
+        Object dash_next = Core.get(units, after_dash, 0);
+        dash_space = Core._date_space_impl(dash_next);
+      }
+      if (Core.truthy(dash_space)) {
+        return 1;
+      }
+      return 0;
+    }
+    Object letters = new java.util.ArrayList<Object>();
+    Core.append(letters, "to");
+    Core.append(letters, "through");
+    Core.append(letters, "until");
+    for (Object word : Core.iter(letters)) {
+      Object word_units = Core.stringUTF16Units(word);
+      Object length = Core.len(word_units);
+      Object matched = Core._date_ascii_matches_impl(units, at, end, word_units);
+      if (Core.truthy(matched)) {
+        Object after_word = Core.add(at, length);
+        Object word_inside = Core.lt(after_word, end);
+        if (Core.truthy(word_inside)) {
+          Object word_next = Core.get(units, after_word, 0);
+          Object word_space = Core._date_space_impl(word_next);
+          if (Core.truthy(word_space)) {
+            return length;
+          }
+        }
+      }
+    }
+    return 0;
   }
 
   static Object _ace_update_bullet_feedback(Object playbook, Object bullet_id, Object tag, Object now) {
@@ -19699,6 +20660,37 @@ final class Core {
     axirCoverageMark("_set_examples");
     Core.set(gen, "examples", examples);
     return gen;
+  }
+
+  static Object _date_strip_code_fence_impl(Object value) {
+    axirCoverageMark("_date_strip_code_fence_impl");
+    Object text = Core._date_js_trim_impl(value);
+    Object units = Core.stringUTF16Units(text);
+    Object count = Core.len(units);
+    Object too_short = Core.lt(count, 6);
+    if (Core.truthy(too_short)) {
+      return text;
+    }
+    Object opens = Core.stringStartsWith(text, "```");
+    Object closes = Core.stringEndsWith(text, "```");
+    Object fenced = Core.and(opens, closes);
+    Object not_fenced = Core.not(fenced);
+    if (Core.truthy(not_fenced)) {
+      return text;
+    }
+    Object inner_start = 3;
+    Object inner_end = Core.add(count, -3);
+    Object json_units = Core.stringUTF16Units("json");
+    Object tagged = Core._date_ascii_matches_impl(units, 3, inner_end, json_units);
+    if (Core.truthy(tagged)) {
+      inner_start = 7;
+    }
+    Object mode = Core._date_string_mode_impl();
+    Object slice_from = Core._date_native_offset_impl(units, inner_start, mode);
+    Object slice_to = Core._date_native_offset_impl(units, inner_end, mode);
+    Object inner = Core.stringSlice(text, slice_from, slice_to);
+    Object stripped = Core._date_js_trim_impl(inner);
+    return stripped;
   }
 
   static Object chat_session_queue_update(Object state, Object update) {
@@ -20028,34 +21020,25 @@ final class Core {
     return null;
   }
 
+  static Object _date_string_mode_impl() {
+    axirCoverageMark("_date_string_mode_impl");
+    Object accented = Core.len("é");
+    Object wide = Core.gt(accented, 1);
+    if (Core.truthy(wide)) {
+      return "utf8";
+    }
+    Object astral = Core.len("😀");
+    Object pair = Core.gt(astral, 1);
+    if (Core.truthy(pair)) {
+      return "utf16";
+    }
+    return "codepoint";
+  }
+
   static Object _apply_field_processors(Object gen, Object output) {
     axirCoverageMark("_apply_field_processors");
     Object processed = Core.axgenApplyFieldProcessors(gen, output);
     return processed;
-  }
-
-  static Object _run_assertions(Object gen, Object output) {
-    axirCoverageMark("_run_assertions");
-    Object result = Core.axgenRunAssertions(gen, output);
-    Object status = Core.get(result, "status", "pass");
-    Object threw = Core.eq(status, "error");
-    if (Core.truthy(threw)) {
-      Object thrown = Core.get(result, "error", null);
-      return thrown;
-    }
-    Object failed = Core.eq(status, "fail");
-    if (Core.truthy(failed)) {
-      Object message = Core.get(result, "message", null);
-      Object has_message = Core.isNotNone(message);
-      if (Core.truthy(has_message)) {
-        Object assertion_error = Core.runtimeError(message);
-        throw Core.asRuntime(assertion_error);
-      }
-      Object message_less = Core.runtimeError("Assertion failed without message");
-      return message_less;
-    }
-    Object passed = Core.none();
-    return passed;
   }
 
   static Object _ace_prune_section_for_addition(Object section, Object protected_ids) {
@@ -20139,11 +21122,85 @@ final class Core {
     return out;
   }
 
+  static Object _run_assertions(Object gen, Object output) {
+    axirCoverageMark("_run_assertions");
+    Object result = Core.axgenRunAssertions(gen, output);
+    Object status = Core.get(result, "status", "pass");
+    Object threw = Core.eq(status, "error");
+    if (Core.truthy(threw)) {
+      Object thrown = Core.get(result, "error", null);
+      return thrown;
+    }
+    Object failed = Core.eq(status, "fail");
+    if (Core.truthy(failed)) {
+      Object message = Core.get(result, "message", null);
+      Object has_message = Core.isNotNone(message);
+      if (Core.truthy(has_message)) {
+        Object assertion_error = Core.runtimeError(message);
+        throw Core.asRuntime(assertion_error);
+      }
+      Object message_less = Core.runtimeError("Assertion failed without message");
+      return message_less;
+    }
+    Object passed = Core.none();
+    return passed;
+  }
+
   static Object chat_session_close_state(Object state) {
     axirCoverageMark("chat_session_close_state");
     Core.set(state, "terminal", Boolean.TRUE);
     Object unresolved = Core.chat_session_unresolved(state);
     return unresolved;
+  }
+
+  static Object _date_native_offset_impl(Object units, Object index, Object mode) {
+    axirCoverageMark("_date_native_offset_impl");
+    Object utf16 = Core.eq(mode, "utf16");
+    if (Core.truthy(utf16)) {
+      return index;
+    }
+    Object utf8 = Core.eq(mode, "utf8");
+    Object offset = 0;
+    Object cursor = 0;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object done = Core.gte(cursor, index);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object unit = Core.get(units, cursor, 0);
+      Object width = 1;
+      Object high = Core.gte(unit, 55296);
+      Object high_end = Core.lte(unit, 56319);
+      Object is_high = Core.and(high, high_end);
+      Object next_at = Core.add(cursor, 1);
+      Object following = Core.get(units, next_at, 0);
+      Object low = Core.gte(following, 56320);
+      Object low_end = Core.lte(following, 57343);
+      Object is_low = Core.and(low, low_end);
+      Object is_pair = Core.and(is_high, is_low);
+      Object step = 1;
+      if (Core.truthy(is_pair)) {
+        step = 2;
+        if (Core.truthy(utf8)) {
+          width = 4;
+        }
+      }
+      if (!Core.truthy(is_pair)) {
+        if (Core.truthy(utf8)) {
+          Object two = Core.gte(unit, 128);
+          if (Core.truthy(two)) {
+            width = 2;
+          }
+          Object three = Core.gte(unit, 2048);
+          if (Core.truthy(three)) {
+            width = 3;
+          }
+        }
+      }
+      offset = Core.add(offset, width);
+      cursor = Core.add(cursor, step);
+    }
+    return offset;
   }
 
   static Object chat_session_transition(Object state, Object event) {
@@ -20365,6 +21422,20 @@ final class Core {
     return should_continue;
   }
 
+  static Object _date_js_trim_impl(Object text) {
+    axirCoverageMark("_date_js_trim_impl");
+    Object units = Core.stringUTF16Units(text);
+    Object count = Core.len(units);
+    Object bounds = Core._date_trim_bounds_impl(units, 0, count);
+    Object start = Core.get(bounds, "start", null);
+    Object end = Core.get(bounds, "end", null);
+    Object mode = Core._date_string_mode_impl();
+    Object slice_from = Core._date_native_offset_impl(units, start, mode);
+    Object slice_to = Core._date_native_offset_impl(units, end, mode);
+    Object trimmed = Core.stringSlice(text, slice_from, slice_to);
+    return trimmed;
+  }
+
   static Object _parse_output_impl(Object content) {
     axirCoverageMark("_parse_output_impl");
     Object text = Core.stringTrim(content);
@@ -20542,6 +21613,30 @@ final class Core {
     return out;
   }
 
+  static Object _date_trim_bounds_impl(Object units, Object start, Object end) {
+    axirCoverageMark("_date_trim_bounds_impl");
+    Object first = Core._date_skip_space_impl(units, start, end);
+    Object last = end;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object empty = Core.lte(last, first);
+      if (Core.truthy(empty)) {
+        break;
+      }
+      Object before = Core.add(last, -1);
+      Object unit = Core.get(units, before, 0);
+      Object space = Core._date_space_impl(unit);
+      Object kept = Core.not(space);
+      if (Core.truthy(kept)) {
+        break;
+      }
+      last = before;
+    }
+    Object bounds = new java.util.LinkedHashMap<String, Object>();
+    Core.set(bounds, "start", first);
+    Core.set(bounds, "end", last);
+    return bounds;
+  }
+
   static Object _is_flexible_json_field(Object typ) {
     axirCoverageMark("_is_flexible_json_field");
     Object type_name = Core.get(typ, "name", null);
@@ -20680,6 +21775,25 @@ final class Core {
     return Boolean.FALSE;
   }
 
+  static Object _date_skip_space_impl(Object units, Object start, Object end) {
+    axirCoverageMark("_date_skip_space_impl");
+    Object cursor = start;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object done = Core.gte(cursor, end);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object unit = Core.get(units, cursor, 0);
+      Object space = Core._date_space_impl(unit);
+      Object not_space = Core.not(space);
+      if (Core.truthy(not_space)) {
+        break;
+      }
+      cursor = Core.add(cursor, 1);
+    }
+    return cursor;
+  }
+
   static Object _parse_json_string_value(Object value) {
     axirCoverageMark("_parse_json_string_value");
     Object is_string = Core.typeIs(value, "string");
@@ -20753,6 +21867,38 @@ final class Core {
     return value;
   }
 
+  static Object _date_space_impl(Object unit) {
+    axirCoverageMark("_date_space_impl");
+    Object tab_low = Core.gte(unit, 9);
+    Object tab_high = Core.lte(unit, 13);
+    Object control = Core.and(tab_low, tab_high);
+    if (Core.truthy(control)) {
+      return Boolean.TRUE;
+    }
+    Object space = Core.eq(unit, 32);
+    Object no_break = Core.eq(unit, 160);
+    Object ogham = Core.eq(unit, 5760);
+    Object en_low = Core.gte(unit, 8192);
+    Object en_high = Core.lte(unit, 8202);
+    Object typographic = Core.and(en_low, en_high);
+    Object line_separator = Core.eq(unit, 8232);
+    Object paragraph_separator = Core.eq(unit, 8233);
+    Object narrow = Core.eq(unit, 8239);
+    Object math_space = Core.eq(unit, 8287);
+    Object ideographic = Core.eq(unit, 12288);
+    Object byte_order = Core.eq(unit, 65279);
+    Object blank = Core.or(space, no_break);
+    blank = Core.or(blank, ogham);
+    blank = Core.or(blank, typographic);
+    blank = Core.or(blank, line_separator);
+    blank = Core.or(blank, paragraph_separator);
+    blank = Core.or(blank, narrow);
+    blank = Core.or(blank, math_space);
+    blank = Core.or(blank, ideographic);
+    blank = Core.or(blank, byte_order);
+    return blank;
+  }
+
   static Object _stream_text_state_impl() {
     axirCoverageMark("_stream_text_state_impl");
     Object xstate = new java.util.LinkedHashMap<String, Object>();
@@ -20768,6 +21914,18 @@ final class Core {
     Core.set(xstate, "streamed_index", streamed);
     Core.set(xstate, "s", -1);
     return xstate;
+  }
+
+  static Object _date_is_line_terminator_impl(Object unit) {
+    axirCoverageMark("_date_is_line_terminator_impl");
+    Object line_feed = Core.eq(unit, 10);
+    Object carriage_return = Core.eq(unit, 13);
+    Object line_separator = Core.eq(unit, 8232);
+    Object paragraph_separator = Core.eq(unit, 8233);
+    Object terminator = Core.or(line_feed, carriage_return);
+    terminator = Core.or(terminator, line_separator);
+    terminator = Core.or(terminator, paragraph_separator);
+    return terminator;
   }
 
   static Object _stream_text_note_field_impl(Object xstate, Object field, Object init_streamed) {
@@ -20792,6 +21950,18 @@ final class Core {
       Core.set(xstate, "streamed_index", streamed);
     }
     return null;
+  }
+
+  static Object _date_ascii_letter_impl(Object unit) {
+    axirCoverageMark("_date_ascii_letter_impl");
+    Object upper_low = Core.gte(unit, 65);
+    Object upper_high = Core.lte(unit, 90);
+    Object upper = Core.and(upper_low, upper_high);
+    Object lower_low = Core.gte(unit, 97);
+    Object lower_high = Core.lte(unit, 122);
+    Object lower = Core.and(lower_low, lower_high);
+    Object letter = Core.or(upper, lower);
+    return letter;
   }
 
   static Object _parse_json_string_fields(Object output_fields, Object values) {
@@ -20942,6 +22112,39 @@ final class Core {
       Core._stream_text_note_field_impl(xstate, chosen_field, Boolean.TRUE);
     }
     return Boolean.FALSE;
+  }
+
+  static Object _date_ascii_matches_impl(Object units, Object at, Object end, Object word) {
+    axirCoverageMark("_date_ascii_matches_impl");
+    Object length = Core.len(word);
+    Object last = Core.add(at, length);
+    Object past = Core.gt(last, end);
+    if (Core.truthy(past)) {
+      return Boolean.FALSE;
+    }
+    Object index = 0;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object done = Core.gte(index, length);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object position = Core.add(at, index);
+      Object unit = Core.get(units, position, 0);
+      Object upper_low = Core.gte(unit, 65);
+      Object upper_high = Core.lte(unit, 90);
+      Object upper = Core.and(upper_low, upper_high);
+      if (Core.truthy(upper)) {
+        unit = Core.add(unit, 32);
+      }
+      Object expected = Core.get(word, index, 0);
+      Object same = Core.eq(unit, expected);
+      Object different = Core.not(same);
+      if (Core.truthy(different)) {
+        return Boolean.FALSE;
+      }
+      index = Core.add(index, 1);
+    }
+    return Boolean.TRUE;
   }
 
   static Object _parse_json_string_for_fields(Object fields_map, Object values) {
@@ -21200,6 +22403,47 @@ final class Core {
     return is_noop;
   }
 
+  static Object _date_digits_impl(Object units, Object at, Object count, Object end) {
+    axirCoverageMark("_date_digits_impl");
+    Object last = Core.add(at, count);
+    Object past = Core.gt(last, end);
+    if (Core.truthy(past)) {
+      return -1;
+    }
+    Object value = 0;
+    Object index = at;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object done = Core.gte(index, last);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object unit = Core.get(units, index, 0);
+      Object low = Core.gte(unit, 48);
+      Object high = Core.lte(unit, 57);
+      Object digit = Core.and(low, high);
+      Object not_digit = Core.not(digit);
+      if (Core.truthy(not_digit)) {
+        return -1;
+      }
+      Object scaled = Core.mul(value, 10);
+      Object digit_value = Core.add(unit, -48);
+      value = Core.add(scaled, digit_value);
+      index = Core.add(index, 1);
+    }
+    return value;
+  }
+
+  static Object _date_expect_unit_impl(Object units, Object at, Object end, Object expected) {
+    axirCoverageMark("_date_expect_unit_impl");
+    Object inside = Core.lt(at, end);
+    if (Core.truthy(inside)) {
+      Object unit = Core.get(units, at, 0);
+      Object same = Core.eq(unit, expected);
+      return same;
+    }
+    return Boolean.FALSE;
+  }
+
   static Object _regex_push(Object stack, Object top, Object value) {
     axirCoverageMark("_regex_push");
     Object t1 = Core.stringFormat("{}", top);
@@ -21223,6 +22467,37 @@ final class Core {
       Core.set(spec, "execution", execution);
     }
     return spec;
+  }
+
+  static Object _date_scan_date_impl(Object units, Object at) {
+    axirCoverageMark("_date_scan_date_impl");
+    Object none = Core.none();
+    Object limit = Core.add(at, 10);
+    Object year = Core._date_digits_impl(units, at, 4, limit);
+    Object dash_at = Core.add(at, 4);
+    Object dash = Core._date_expect_unit_impl(units, dash_at, limit, 45);
+    Object month_at = Core.add(at, 5);
+    Object month = Core._date_digits_impl(units, month_at, 2, limit);
+    Object second_dash_at = Core.add(at, 7);
+    Object second_dash = Core._date_expect_unit_impl(units, second_dash_at, limit, 45);
+    Object day_at = Core.add(at, 8);
+    Object day = Core._date_digits_impl(units, day_at, 2, limit);
+    Object ok = Core.and(dash, second_dash);
+    Object year_ok = Core.gte(year, 0);
+    Object month_ok = Core.gte(month, 0);
+    Object day_ok = Core.gte(day, 0);
+    ok = Core.and(ok, year_ok);
+    ok = Core.and(ok, month_ok);
+    ok = Core.and(ok, day_ok);
+    Object bad = Core.not(ok);
+    if (Core.truthy(bad)) {
+      return none;
+    }
+    Object parts = new java.util.LinkedHashMap<String, Object>();
+    Core.set(parts, "year", year);
+    Core.set(parts, "month", month);
+    Core.set(parts, "day", day);
+    return parts;
   }
 
   static Object _regex_task(Object n, Object next) {
@@ -21758,6 +23033,103 @@ final class Core {
     return t225;
   }
 
+  static Object _date_scan_datetime_impl(Object units, Object start, Object end) {
+    axirCoverageMark("_date_scan_datetime_impl");
+    Object none = Core.none();
+    Object date_end = Core.add(start, 10);
+    Object too_short = Core.gt(date_end, end);
+    if (Core.truthy(too_short)) {
+      return none;
+    }
+    Object parts = Core._date_scan_date_impl(units, start);
+    Object no_date = Core.isNone(parts);
+    if (Core.truthy(no_date)) {
+      return none;
+    }
+    Object separator = Core.get(units, date_end, 0);
+    Object upper_t = Core.eq(separator, 84);
+    Object lower_t = Core.eq(separator, 116);
+    Object space = Core.eq(separator, 32);
+    Object separated = Core.or(upper_t, lower_t);
+    separated = Core.or(separated, space);
+    Object inside = Core.lt(date_end, end);
+    separated = Core.and(separated, inside);
+    Object not_separated = Core.not(separated);
+    if (Core.truthy(not_separated)) {
+      return none;
+    }
+    Object hour_at = Core.add(start, 11);
+    Object hour = Core._date_digits_impl(units, hour_at, 2, end);
+    Object colon_at = Core.add(start, 13);
+    Object colon = Core._date_expect_unit_impl(units, colon_at, end, 58);
+    Object minute_at = Core.add(start, 14);
+    Object minute = Core._date_digits_impl(units, minute_at, 2, end);
+    Object hour_ok = Core.gte(hour, 0);
+    Object minute_ok = Core.gte(minute, 0);
+    Object clock_ok = Core.and(hour_ok, colon);
+    clock_ok = Core.and(clock_ok, minute_ok);
+    Object no_clock = Core.not(clock_ok);
+    if (Core.truthy(no_clock)) {
+      return none;
+    }
+    Core.set(parts, "hour", hour);
+    Core.set(parts, "minute", minute);
+    Core.set(parts, "second", 0);
+    Core.set(parts, "millisecond", 0);
+    Object cursor = Core.add(start, 16);
+    Object second_colon = Core._date_expect_unit_impl(units, cursor, end, 58);
+    if (Core.truthy(second_colon)) {
+      Object second_at = Core.add(cursor, 1);
+      Object second = Core._date_digits_impl(units, second_at, 2, end);
+      Object has_second = Core.gte(second, 0);
+      if (Core.truthy(has_second)) {
+        Core.set(parts, "second", second);
+        cursor = Core.add(cursor, 3);
+      }
+    }
+    Object dot = Core._date_expect_unit_impl(units, cursor, end, 46);
+    if (Core.truthy(dot)) {
+      Object fraction_at = Core.add(cursor, 1);
+      Object digits = 0;
+      Object millisecond = 0;
+      while (Core.truthy(Boolean.TRUE)) {
+        Object enough = Core.gte(digits, 9);
+        if (Core.truthy(enough)) {
+          break;
+        }
+        Object digit_at = Core.add(fraction_at, digits);
+        Object digit = Core._date_digits_impl(units, digit_at, 1, end);
+        Object not_digit = Core.lt(digit, 0);
+        if (Core.truthy(not_digit)) {
+          break;
+        }
+        Object counted = Core.lt(digits, 3);
+        if (Core.truthy(counted)) {
+          Object scaled = Core.mul(millisecond, 10);
+          millisecond = Core.add(scaled, digit);
+        }
+        digits = Core.add(digits, 1);
+      }
+      Object has_fraction = Core.gt(digits, 0);
+      if (Core.truthy(has_fraction)) {
+        Object pad = digits;
+        while (Core.truthy(Boolean.TRUE)) {
+          Object padded = Core.gte(pad, 3);
+          if (Core.truthy(padded)) {
+            break;
+          }
+          millisecond = Core.mul(millisecond, 10);
+          pad = Core.add(pad, 1);
+        }
+        Core.set(parts, "millisecond", millisecond);
+        Object fraction_end = Core.add(fraction_at, digits);
+        cursor = fraction_end;
+      }
+    }
+    Core.set(parts, "end", cursor);
+    return parts;
+  }
+
   static Object _stream_text_required_check_impl(Object values, Object fields) {
     axirCoverageMark("_stream_text_required_check_impl");
     Object parts = new java.util.ArrayList<Object>();
@@ -22133,6 +23505,59 @@ final class Core {
     return message;
   }
 
+  static Object _date_offset_zone_matches_impl(Object units, Object start, Object end) {
+    axirCoverageMark("_date_offset_zone_matches_impl");
+    Object z_units = Core.stringUTF16Units("z");
+    Object one = Core.add(start, 1);
+    Object single = Core.eq(one, end);
+    Object is_z = Core._date_ascii_matches_impl(units, start, end, z_units);
+    Object zulu = Core.and(single, is_z);
+    if (Core.truthy(zulu)) {
+      return Boolean.TRUE;
+    }
+    Object cursor = start;
+    Object utc_units = Core.stringUTF16Units("utc");
+    Object gmt_units = Core.stringUTF16Units("gmt");
+    Object utc = Core._date_ascii_matches_impl(units, start, end, utc_units);
+    Object gmt = Core._date_ascii_matches_impl(units, start, end, gmt_units);
+    Object named = Core.or(utc, gmt);
+    if (Core.truthy(named)) {
+      cursor = Core.add(start, 3);
+    }
+    Object sign = Core.get(units, cursor, 0);
+    Object plus = Core.eq(sign, 43);
+    Object minus = Core.eq(sign, 45);
+    Object has_sign = Core.or(plus, minus);
+    Object sign_inside = Core.lt(cursor, end);
+    has_sign = Core.and(has_sign, sign_inside);
+    Object no_sign = Core.not(has_sign);
+    if (Core.truthy(no_sign)) {
+      return Boolean.FALSE;
+    }
+    Object hour_at = Core.add(cursor, 1);
+    Object hours = Core._date_digits_impl(units, hour_at, 2, end);
+    Object no_hours = Core.lt(hours, 0);
+    if (Core.truthy(no_hours)) {
+      return Boolean.FALSE;
+    }
+    Object rest = Core.add(cursor, 3);
+    Object done = Core.eq(rest, end);
+    if (Core.truthy(done)) {
+      return Boolean.TRUE;
+    }
+    Object minute_at = rest;
+    Object colon = Core._date_expect_unit_impl(units, rest, end, 58);
+    if (Core.truthy(colon)) {
+      minute_at = Core.add(rest, 1);
+    }
+    Object minutes = Core._date_digits_impl(units, minute_at, 2, end);
+    Object has_minutes = Core.gte(minutes, 0);
+    Object minutes_end = Core.add(minute_at, 2);
+    Object at_end = Core.eq(minutes_end, end);
+    Object matches = Core.and(has_minutes, at_end);
+    return matches;
+  }
+
   static Object _append_validation_retry_messages_impl(Object messages, Object response, Object error) {
     axirCoverageMark("_append_validation_retry_messages_impl");
     Object content = Core.get(response, "content", "");
@@ -22167,6 +23592,81 @@ final class Core {
       return value;
     }
     return text;
+  }
+
+  static Object _date_offset_minutes_impl(Object units, Object start, Object end) {
+    axirCoverageMark("_date_offset_minutes_impl");
+    Object none = Core.none();
+    Object length = Core.mul(start, -1);
+    length = Core.add(length, end);
+    Object utc_units = Core.stringUTF16Units("utc");
+    Object gmt_units = Core.stringUTF16Units("gmt");
+    Object z_units = Core.stringUTF16Units("z");
+    Object utc = Core._date_ascii_matches_impl(units, start, end, utc_units);
+    Object gmt = Core._date_ascii_matches_impl(units, start, end, gmt_units);
+    Object named = Core.or(utc, gmt);
+    Object three = Core.eq(length, 3);
+    Object named_only = Core.and(named, three);
+    if (Core.truthy(named_only)) {
+      return 0;
+    }
+    Object one = Core.eq(length, 1);
+    Object is_z = Core._date_ascii_matches_impl(units, start, end, z_units);
+    Object zulu = Core.and(one, is_z);
+    if (Core.truthy(zulu)) {
+      return 0;
+    }
+    Object cursor = start;
+    if (Core.truthy(named)) {
+      cursor = Core.add(start, 3);
+    }
+    Object sign_unit = Core.get(units, cursor, 0);
+    Object sign_inside = Core.lt(cursor, end);
+    Object plus = Core.eq(sign_unit, 43);
+    Object minus = Core.eq(sign_unit, 45);
+    Object has_sign = Core.or(plus, minus);
+    has_sign = Core.and(has_sign, sign_inside);
+    Object no_sign = Core.not(has_sign);
+    if (Core.truthy(no_sign)) {
+      return none;
+    }
+    Object hour_at = Core.add(cursor, 1);
+    Object hours = Core._date_digits_impl(units, hour_at, 2, end);
+    Object no_hours = Core.lt(hours, 0);
+    if (Core.truthy(no_hours)) {
+      return none;
+    }
+    Object minutes = 0;
+    Object rest = Core.add(cursor, 3);
+    Object more = Core.lt(rest, end);
+    if (Core.truthy(more)) {
+      Object minute_at = rest;
+      Object colon = Core._date_expect_unit_impl(units, rest, end, 58);
+      if (Core.truthy(colon)) {
+        minute_at = Core.add(rest, 1);
+      }
+      minutes = Core._date_digits_impl(units, minute_at, 2, end);
+      Object minutes_end = Core.add(minute_at, 2);
+      Object at_end = Core.eq(minutes_end, end);
+      Object minutes_ok = Core.gte(minutes, 0);
+      Object ok = Core.and(at_end, minutes_ok);
+      Object bad = Core.not(ok);
+      if (Core.truthy(bad)) {
+        return none;
+      }
+    }
+    Object hours_range = Core.gt(hours, 23);
+    Object minutes_range = Core.gt(minutes, 59);
+    Object out_of_range = Core.or(hours_range, minutes_range);
+    if (Core.truthy(out_of_range)) {
+      return none;
+    }
+    Object total = Core.mul(hours, 60);
+    total = Core.add(total, minutes);
+    if (Core.truthy(minus)) {
+      total = Core.mul(total, -1);
+    }
+    return total;
   }
 
   static Object _stream_text_final_impl(Object xstate, Object values, Object content, Object fields, Object options) {
@@ -22499,6 +23999,56 @@ final class Core {
     return values;
   }
 
+  static Object _date_js_json_impl(Object value) {
+    axirCoverageMark("_date_js_json_impl");
+    Object is_null = Core.isNone(value);
+    if (Core.truthy(is_null)) {
+      return "null";
+    }
+    Object is_boolean = Core.typeIs(value, "boolean");
+    if (Core.truthy(is_boolean)) {
+      if (Core.truthy(value)) {
+        return "true";
+      }
+      return "false";
+    }
+    Object is_number = Core.typeIs(value, "number");
+    if (Core.truthy(is_number)) {
+      Object number = Core.stringStr(value);
+      return number;
+    }
+    Object is_text = Core.typeIs(value, "string");
+    if (Core.truthy(is_text)) {
+      Object quoted = Core._date_js_json_string_impl(value);
+      return quoted;
+    }
+    Object parts = new java.util.ArrayList<Object>();
+    Object is_list = Core.typeIs(value, "list");
+    if (Core.truthy(is_list)) {
+      for (Object item : Core.iter(value)) {
+        Object item_json = Core._date_js_json_impl(item);
+        Core.append(parts, item_json);
+      }
+      Object items = Core.stringJoin(",", parts);
+      Object list_json = Core.add("[", items);
+      list_json = Core.add(list_json, "]");
+      return list_json;
+    }
+    Object keys = Core.mapKeys(value);
+    for (Object key : Core.iter(keys)) {
+      Object key_json = Core._date_js_json_string_impl(key);
+      Object entry = Core.get(value, key, null);
+      Object entry_json = Core._date_js_json_impl(entry);
+      Object member = Core.add(key_json, ":");
+      member = Core.add(member, entry_json);
+      Core.append(parts, member);
+    }
+    Object members = Core.stringJoin(",", parts);
+    Object object_json = Core.add("{", members);
+    object_json = Core.add(object_json, "}");
+    return object_json;
+  }
+
   static Object _parse_output_fields_impl(Object content, Object fields) {
     axirCoverageMark("_parse_output_fields_impl");
     Object text = Core.stringTrim(content);
@@ -22509,6 +24059,36 @@ final class Core {
     }
     Object output = Core._parse_text_output_fields_impl(text, fields, Boolean.TRUE);
     return output;
+  }
+
+  static Object _signature_has_complex_fields(Object signature, Object options) {
+    axirCoverageMark("_signature_has_complex_fields");
+    Object option_forced_snake = Core.get(options, "force_structured", Boolean.FALSE);
+    Object option_forced = Core.get(options, "forceStructured", option_forced_snake);
+    Object signature_forced_snake = Core.get(signature, "force_structured", Boolean.FALSE);
+    Object signature_forced = Core.get(signature, "forceStructured", signature_forced_snake);
+    Object forced = Core.or(option_forced, signature_forced);
+    if (Core.truthy(forced)) {
+      return Boolean.TRUE;
+    }
+    Object output_fields = Core.get(signature, "output_fields", null);
+    for (Object field : Core.iter(output_fields)) {
+      Object field_type = Core.get(field, "type", null);
+      Object type_name = Core.get(field_type, "name", null);
+      Object is_object = Core.eq(type_name, "object");
+      if (Core.truthy(is_object)) {
+        return Boolean.TRUE;
+      }
+      Object is_array_snake = Core.get(field_type, "is_array", Boolean.FALSE);
+      Object is_array = Core.get(field_type, "isArray", is_array_snake);
+      Object nested_fields = Core.get(field_type, "fields", null);
+      Object has_nested_fields = Core.truthyValue(nested_fields);
+      Object object_array = Core.and(is_array, has_nested_fields);
+      if (Core.truthy(object_array)) {
+        return Boolean.TRUE;
+      }
+    }
+    return Boolean.FALSE;
   }
 
   static Object _stream_text_yield_delta_impl(Object content, Object field, Object start, Object end, Object xstate, Object held, Object complete) {
@@ -22584,36 +24164,6 @@ final class Core {
     return none;
   }
 
-  static Object _signature_has_complex_fields(Object signature, Object options) {
-    axirCoverageMark("_signature_has_complex_fields");
-    Object option_forced_snake = Core.get(options, "force_structured", Boolean.FALSE);
-    Object option_forced = Core.get(options, "forceStructured", option_forced_snake);
-    Object signature_forced_snake = Core.get(signature, "force_structured", Boolean.FALSE);
-    Object signature_forced = Core.get(signature, "forceStructured", signature_forced_snake);
-    Object forced = Core.or(option_forced, signature_forced);
-    if (Core.truthy(forced)) {
-      return Boolean.TRUE;
-    }
-    Object output_fields = Core.get(signature, "output_fields", null);
-    for (Object field : Core.iter(output_fields)) {
-      Object field_type = Core.get(field, "type", null);
-      Object type_name = Core.get(field_type, "name", null);
-      Object is_object = Core.eq(type_name, "object");
-      if (Core.truthy(is_object)) {
-        return Boolean.TRUE;
-      }
-      Object is_array_snake = Core.get(field_type, "is_array", Boolean.FALSE);
-      Object is_array = Core.get(field_type, "isArray", is_array_snake);
-      Object nested_fields = Core.get(field_type, "fields", null);
-      Object has_nested_fields = Core.truthyValue(nested_fields);
-      Object object_array = Core.and(is_array, has_nested_fields);
-      if (Core.truthy(object_array)) {
-        return Boolean.TRUE;
-      }
-    }
-    return Boolean.FALSE;
-  }
-
   static Object _caller_function_call_impl(Object options) {
     axirCoverageMark("_caller_function_call_impl");
     Object requested_snake = Core.get(options, "function_call", null);
@@ -22634,6 +24184,129 @@ final class Core {
     }
     Object none = Core.none();
     return none;
+  }
+
+  static Object _date_js_json_string_impl(Object text) {
+    axirCoverageMark("_date_js_json_string_impl");
+    Object hex = "0123456789abcdef";
+    Object units = Core.stringUTF16Units(text);
+    Object count = Core.len(units);
+    Object mode = Core._date_string_mode_impl();
+    Object utf8 = Core.eq(mode, "utf8");
+    Object out = "\"";
+    Object copied = 0;
+    Object offset = 0;
+    Object index = 0;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object done = Core.gte(index, count);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object unit = Core.get(units, index, 0);
+      Object following_at = Core.add(index, 1);
+      Object following = Core.get(units, following_at, 0);
+      Object high_low = Core.gte(unit, 55296);
+      Object high_high = Core.lte(unit, 56319);
+      Object is_high = Core.and(high_low, high_high);
+      Object low_low = Core.gte(following, 56320);
+      Object low_high = Core.lte(following, 57343);
+      Object next_low = Core.and(low_low, low_high);
+      Object next_inside = Core.lt(following_at, count);
+      next_low = Core.and(next_low, next_inside);
+      Object is_pair = Core.and(is_high, next_low);
+      Object width = 1;
+      Object step = 1;
+      if (Core.truthy(is_pair)) {
+        step = 2;
+        if (Core.truthy(utf8)) {
+          width = 4;
+        }
+        Object utf16_pair = Core.eq(mode, "utf16");
+        if (Core.truthy(utf16_pair)) {
+          width = 2;
+        }
+      }
+      if (!Core.truthy(is_pair)) {
+        if (Core.truthy(utf8)) {
+          Object two_bytes = Core.gte(unit, 128);
+          if (Core.truthy(two_bytes)) {
+            width = 2;
+          }
+          Object three_bytes = Core.gte(unit, 2048);
+          if (Core.truthy(three_bytes)) {
+            width = 3;
+          }
+        }
+      }
+      Object escape = "";
+      Object quote = Core.eq(unit, 34);
+      if (Core.truthy(quote)) {
+        escape = "\\\"";
+      }
+      Object backslash = Core.eq(unit, 92);
+      if (Core.truthy(backslash)) {
+        escape = "\\\\";
+      }
+      Object control = Core.lt(unit, 32);
+      if (Core.truthy(control)) {
+        Object high_digit = Core._date_floor_div_impl(unit, 16);
+        Object low_digit_base = Core.mul(high_digit, -16);
+        Object low_digit = Core.add(unit, low_digit_base);
+        Object high_end = Core.add(high_digit, 1);
+        Object high_char = Core.stringSlice(hex, high_digit, high_end);
+        Object low_end = Core.add(low_digit, 1);
+        Object low_char = Core.stringSlice(hex, low_digit, low_end);
+        escape = Core.stringFormat("\\u00{}{}", high_char, low_char);
+        Object backspace = Core.eq(unit, 8);
+        if (Core.truthy(backspace)) {
+          escape = "\\b";
+        }
+        Object tab = Core.eq(unit, 9);
+        if (Core.truthy(tab)) {
+          escape = "\\t";
+        }
+        Object line_feed = Core.eq(unit, 10);
+        if (Core.truthy(line_feed)) {
+          escape = "\\n";
+        }
+        Object form_feed = Core.eq(unit, 12);
+        if (Core.truthy(form_feed)) {
+          escape = "\\f";
+        }
+        Object carriage_return = Core.eq(unit, 13);
+        if (Core.truthy(carriage_return)) {
+          escape = "\\r";
+        }
+      }
+      Object surrogate_low = Core.gte(unit, 55296);
+      Object surrogate_high = Core.lte(unit, 57343);
+      Object surrogate = Core.and(surrogate_low, surrogate_high);
+      Object not_pair = Core.not(is_pair);
+      Object lone = Core.and(surrogate, not_pair);
+      if (Core.truthy(lone)) {
+        Object lone_text = Core._date_js_hex4_impl(unit);
+        escape = Core.stringFormat("\\u{}", lone_text);
+        if (Core.truthy(utf8)) {
+          width = 3;
+        }
+      }
+      Object escaped = Core.ne(escape, "");
+      if (Core.truthy(escaped)) {
+        Object kept = Core.stringSlice(text, copied, offset);
+        out = Core.add(out, kept);
+        out = Core.add(out, escape);
+        offset = Core.add(offset, width);
+        copied = offset;
+      }
+      if (!Core.truthy(escaped)) {
+        offset = Core.add(offset, width);
+      }
+      index = Core.add(index, step);
+    }
+    Object rest = Core.stringSlice(text, copied, offset);
+    out = Core.add(out, rest);
+    out = Core.add(out, "\"");
+    return out;
   }
 
   static Object _function_call_forces_tool_impl(Object choice) {
@@ -22676,6 +24349,22 @@ final class Core {
       }
     }
     return normalized;
+  }
+
+  static Object _function_call_names_output_impl(Object choice) {
+    axirCoverageMark("_function_call_names_output_impl");
+    Object is_named = Core.typeIs(choice, "object");
+    Object not_named = Core.not(is_named);
+    if (Core.truthy(not_named)) {
+      return Boolean.FALSE;
+    }
+    Object empty_function = new java.util.LinkedHashMap<String, Object>();
+    Object function = Core.get(choice, "function", empty_function);
+    Object name = Core.get(function, "name", "");
+    Object canonical = Core.eq(name, "__axOutput");
+    Object legacy = Core.eq(name, "__finalResult");
+    Object reserved = Core.or(canonical, legacy);
+    return reserved;
   }
 
   static Object _stream_text_values_impl(Object fields, Object content, Object values, Object xstate, Object held, Object complete) {
@@ -22810,22 +24499,6 @@ final class Core {
     return deltas;
   }
 
-  static Object _function_call_names_output_impl(Object choice) {
-    axirCoverageMark("_function_call_names_output_impl");
-    Object is_named = Core.typeIs(choice, "object");
-    Object not_named = Core.not(is_named);
-    if (Core.truthy(not_named)) {
-      return Boolean.FALSE;
-    }
-    Object empty_function = new java.util.LinkedHashMap<String, Object>();
-    Object function = Core.get(choice, "function", empty_function);
-    Object name = Core.get(function, "name", "");
-    Object canonical = Core.eq(name, "__axOutput");
-    Object legacy = Core.eq(name, "__finalResult");
-    Object reserved = Core.or(canonical, legacy);
-    return reserved;
-  }
-
   static Object _append_structured_output_retry_messages_impl(Object messages, Object response, Object call, Object error, Object stage) {
     axirCoverageMark("_append_structured_output_retry_messages_impl");
     Object output_calls = new java.util.ArrayList<Object>();
@@ -22939,6 +24612,34 @@ final class Core {
     return output;
   }
 
+  static Object _date_js_hex4_impl(Object unit) {
+    axirCoverageMark("_date_js_hex4_impl");
+    Object hex = "0123456789abcdef";
+    Object digits = new java.util.ArrayList<Object>();
+    Object rest = unit;
+    Object position = 0;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object done = Core.gte(position, 4);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object quotient = Core._date_floor_div_impl(rest, 16);
+      Object base = Core.mul(quotient, -16);
+      Object digit = Core.add(rest, base);
+      Object digit_end = Core.add(digit, 1);
+      Object digit_char = Core.stringSlice(hex, digit, digit_end);
+      Core.append(digits, digit_char);
+      rest = quotient;
+      position = Core.add(position, 1);
+    }
+    Object d0 = Core.listGet(digits, 3);
+    Object d1 = Core.listGet(digits, 2);
+    Object d2 = Core.listGet(digits, 1);
+    Object d3 = Core.listGet(digits, 0);
+    Object text = Core.stringFormat("{}{}{}{}", d0, d1, d2, d3);
+    return text;
+  }
+
   static Object _streaming_forward_impl(Object gen, Object client, Object values, Object options, Object sink) {
     axirCoverageMark("_streaming_forward_impl");
     Object base_options = Core.get(gen, "options", null);
@@ -22997,6 +24698,7 @@ final class Core {
     Core.append(ordered_messages, user_message);
     Object output_fields = Core.get(signature, "output_fields", null);
     Core._append_structured_output_instruction(ordered_messages, output_fields, selection);
+    output_fields = Core._date_parse_fields_impl(output_fields, base_options, options);
     Object validation_feedback_snake = Core.get(runtime_options, "validation_feedback", "");
     Object validation_feedback = Core.get(runtime_options, "validationFeedback", validation_feedback_snake);
     Object has_validation_feedback = Core.truthyValue(validation_feedback);
@@ -23485,6 +25187,24 @@ final class Core {
     throw new RuntimeException("unreachable AxGen streaming loop exit");
   }
 
+  static Object _date_floor_div_impl(Object dividend, Object divisor) {
+    axirCoverageMark("_date_floor_div_impl");
+    Object ratio = Core.div(dividend, divisor);
+    Object quotient = Core.mathFloor(ratio);
+    Object product = Core.mul(quotient, divisor);
+    Object over = Core.gt(product, dividend);
+    if (Core.truthy(over)) {
+      quotient = Core.add(quotient, -1);
+    }
+    Object following = Core.add(quotient, 1);
+    Object next_product = Core.mul(following, divisor);
+    Object under = Core.lte(next_product, dividend);
+    if (Core.truthy(under)) {
+      quotient = following;
+    }
+    return quotient;
+  }
+
   static Object _regex_test(Object pattern, Object value) {
     axirCoverageMark("_regex_test");
     Object groups = Core.none();
@@ -23543,6 +25263,38 @@ final class Core {
       i = t25;
     }
     return Boolean.FALSE;
+  }
+
+  static Object _date_days_from_civil_impl(Object year, Object month, Object day) {
+    axirCoverageMark("_date_days_from_civil_impl");
+    Object year_of_era = year;
+    Object early = Core.lte(month, 2);
+    if (Core.truthy(early)) {
+      year_of_era = Core.add(year, -1);
+    }
+    Object era = Core._date_floor_div_impl(year_of_era, 400);
+    Object era_years = Core.mul(era, -400);
+    Object yoe = Core.add(year_of_era, era_years);
+    Object shifted = Core.add(month, 9);
+    Object month_index = Core._date_floor_div_impl(shifted, 12);
+    month_index = Core.mul(month_index, -12);
+    month_index = Core.add(shifted, month_index);
+    Object month_days = Core.mul(month_index, 153);
+    month_days = Core.add(month_days, 2);
+    month_days = Core._date_floor_div_impl(month_days, 5);
+    Object doy = Core.add(month_days, day);
+    doy = Core.add(doy, -1);
+    Object doe = Core.mul(yoe, 365);
+    Object leap4 = Core._date_floor_div_impl(yoe, 4);
+    Object leap100 = Core._date_floor_div_impl(yoe, 100);
+    doe = Core.add(doe, leap4);
+    Object leap100_negated = Core.mul(leap100, -1);
+    doe = Core.add(doe, leap100_negated);
+    doe = Core.add(doe, doy);
+    Object days = Core.mul(era, 146097);
+    days = Core.add(days, doe);
+    days = Core.add(days, -719468);
+    return days;
   }
 
   static Object _stream_json_context_impl(Object json_text) {
@@ -23624,6 +25376,56 @@ final class Core {
     Core.set(marker, "in_array", in_array);
     Core.set(marker, "in_object", in_object);
     return marker;
+  }
+
+  static Object _date_civil_from_days_impl(Object days) {
+    axirCoverageMark("_date_civil_from_days_impl");
+    Object shifted = Core.add(days, 719468);
+    Object era = Core._date_floor_div_impl(shifted, 146097);
+    Object era_days = Core.mul(era, -146097);
+    Object doe = Core.add(shifted, era_days);
+    Object a = Core._date_floor_div_impl(doe, 1460);
+    Object b = Core._date_floor_div_impl(doe, 36524);
+    Object c = Core._date_floor_div_impl(doe, 146096);
+    Object a_negated = Core.mul(a, -1);
+    Object yoe = Core.add(doe, a_negated);
+    yoe = Core.add(yoe, b);
+    Object c_negated = Core.mul(c, -1);
+    yoe = Core.add(yoe, c_negated);
+    yoe = Core._date_floor_div_impl(yoe, 365);
+    Object era_years = Core.mul(era, 400);
+    Object year = Core.add(yoe, era_years);
+    Object year_days = Core.mul(yoe, 365);
+    Object leap4 = Core._date_floor_div_impl(yoe, 4);
+    Object leap100 = Core._date_floor_div_impl(yoe, 100);
+    year_days = Core.add(year_days, leap4);
+    Object leap100_negated = Core.mul(leap100, -1);
+    year_days = Core.add(year_days, leap100_negated);
+    Object year_days_negated = Core.mul(year_days, -1);
+    Object doy = Core.add(doe, year_days_negated);
+    Object mp = Core.mul(doy, 5);
+    mp = Core.add(mp, 2);
+    mp = Core._date_floor_div_impl(mp, 153);
+    Object month_days = Core.mul(mp, 153);
+    month_days = Core.add(month_days, 2);
+    month_days = Core._date_floor_div_impl(month_days, 5);
+    Object month_days_negated = Core.mul(month_days, -1);
+    Object day = Core.add(doy, month_days_negated);
+    day = Core.add(day, 1);
+    Object month = Core.add(mp, 3);
+    Object late = Core.gte(mp, 10);
+    if (Core.truthy(late)) {
+      month = Core.add(mp, -9);
+    }
+    Object early = Core.lte(month, 2);
+    if (Core.truthy(early)) {
+      year = Core.add(year, 1);
+    }
+    Object civil = new java.util.LinkedHashMap<String, Object>();
+    Core.set(civil, "year", year);
+    Core.set(civil, "month", month);
+    Core.set(civil, "day", day);
+    return civil;
   }
 
   static Object _regex_identifier(Object c, Object first) {
@@ -23794,6 +25596,58 @@ final class Core {
       return result;
     }
     return -1;
+  }
+
+  static Object _date_make_day_impl(Object year, Object month_index, Object date) {
+    axirCoverageMark("_date_make_day_impl");
+    Object carry = Core._date_floor_div_impl(month_index, 12);
+    Object whole_year = Core.add(year, carry);
+    Object carry_months = Core.mul(carry, -12);
+    Object month = Core.add(month_index, carry_months);
+    month = Core.add(month, 1);
+    Object first = Core._date_days_from_civil_impl(whole_year, month, 1);
+    Object day = Core.add(first, date);
+    day = Core.add(day, -1);
+    return day;
+  }
+
+  static Object _date_utc_ms_impl(Object parts) {
+    axirCoverageMark("_date_utc_ms_impl");
+    Object year = Core.get(parts, "year", null);
+    Object month = Core.get(parts, "month", null);
+    Object day = Core.get(parts, "day", null);
+    Object hour = Core.get(parts, "hour", 0);
+    Object minute = Core.get(parts, "minute", 0);
+    Object second = Core.get(parts, "second", 0);
+    Object millisecond = Core.get(parts, "millisecond", 0);
+    Object utc_year = year;
+    Object two_digit_low = Core.gte(year, 0);
+    Object two_digit_high = Core.lte(year, 99);
+    Object two_digit = Core.and(two_digit_low, two_digit_high);
+    if (Core.truthy(two_digit)) {
+      utc_year = Core.add(year, 1900);
+    }
+    Object month_index = Core.add(month, -1);
+    Object day_number = Core._date_make_day_impl(utc_year, month_index, day);
+    Object time_ms = Core.mul(hour, 3600000);
+    Object minute_ms = Core.mul(minute, 60000);
+    time_ms = Core.add(time_ms, minute_ms);
+    Object second_ms = Core.mul(second, 1000);
+    time_ms = Core.add(time_ms, second_ms);
+    time_ms = Core.add(time_ms, millisecond);
+    Object day_ms = Core.mul(day_number, 86400000);
+    Object millis = Core.add(day_ms, time_ms);
+    Object whole_days = Core._date_floor_div_impl(millis, 86400000);
+    Object whole_ms = Core.mul(whole_days, -86400000);
+    Object within = Core.add(millis, whole_ms);
+    Object civil = Core._date_civil_from_days_impl(whole_days);
+    Object civil_month = Core.get(civil, "month", null);
+    Object civil_month_index = Core.add(civil_month, -1);
+    Object civil_day = Core.get(civil, "day", null);
+    Object set_day = Core._date_make_day_impl(year, civil_month_index, civil_day);
+    Object set_ms = Core.mul(set_day, 86400000);
+    Object result = Core.add(set_ms, within);
+    return result;
   }
 
   static Object _regex_read_name(Object s) {
@@ -23984,6 +25838,28 @@ final class Core {
     return name;
   }
 
+  static Object _date_parts_of_ms_impl(Object millis) {
+    axirCoverageMark("_date_parts_of_ms_impl");
+    Object days = Core._date_floor_div_impl(millis, 86400000);
+    Object day_ms = Core.mul(days, -86400000);
+    Object within = Core.add(millis, day_ms);
+    Object parts = Core._date_civil_from_days_impl(days);
+    Object hour = Core._date_floor_div_impl(within, 3600000);
+    Object hour_ms = Core.mul(hour, -3600000);
+    within = Core.add(within, hour_ms);
+    Object minute = Core._date_floor_div_impl(within, 60000);
+    Object minute_ms = Core.mul(minute, -60000);
+    within = Core.add(within, minute_ms);
+    Object second = Core._date_floor_div_impl(within, 1000);
+    Object second_ms = Core.mul(second, -1000);
+    Object millisecond = Core.add(within, second_ms);
+    Core.set(parts, "hour", hour);
+    Core.set(parts, "minute", minute);
+    Core.set(parts, "second", second);
+    Core.set(parts, "millisecond", millisecond);
+    return parts;
+  }
+
   static Object _stream_json_complete_literal_impl(Object text, Object word) {
     axirCoverageMark("_stream_json_complete_literal_impl");
     Object whole = Core.stringEndsWith(text, word);
@@ -24022,6 +25898,46 @@ final class Core {
       size = Core.add(size, -1);
     }
     return text;
+  }
+
+  static Object _date_same_day_impl(Object left, Object right) {
+    axirCoverageMark("_date_same_day_impl");
+    Object keys = new java.util.ArrayList<Object>();
+    Core.append(keys, "year");
+    Core.append(keys, "month");
+    Core.append(keys, "day");
+    for (Object key : Core.iter(keys)) {
+      Object left_value = Core.get(left, key, 0);
+      Object right_value = Core.get(right, key, 0);
+      Object same = Core.eq(left_value, right_value);
+      Object different = Core.not(same);
+      if (Core.truthy(different)) {
+        return Boolean.FALSE;
+      }
+    }
+    return Boolean.TRUE;
+  }
+
+  static Object _date_same_parts_impl(Object left, Object right) {
+    axirCoverageMark("_date_same_parts_impl");
+    Object keys = new java.util.ArrayList<Object>();
+    Core.append(keys, "year");
+    Core.append(keys, "month");
+    Core.append(keys, "day");
+    Core.append(keys, "hour");
+    Core.append(keys, "minute");
+    Core.append(keys, "second");
+    Core.append(keys, "millisecond");
+    for (Object key : Core.iter(keys)) {
+      Object left_value = Core.get(left, key, 0);
+      Object right_value = Core.get(right, key, 0);
+      Object same = Core.eq(left_value, right_value);
+      Object different = Core.not(same);
+      if (Core.truthy(different)) {
+        return Boolean.FALSE;
+      }
+    }
+    return Boolean.TRUE;
   }
 
   static Object _stream_json_repair_impl(Object json_text) {
@@ -24186,6 +26102,73 @@ final class Core {
     Object closing = Core.stringJoin("", reversed);
     Object repaired = Core.add(result, closing);
     return repaired;
+  }
+
+  static Object _date_pad_impl(Object value, Object width) {
+    axirCoverageMark("_date_pad_impl");
+    Object text = Core.stringStr(value);
+    while (Core.truthy(Boolean.TRUE)) {
+      Object length = Core.len(text);
+      Object wide = Core.gte(length, width);
+      if (Core.truthy(wide)) {
+        break;
+      }
+      text = Core.add("0", text);
+    }
+    return text;
+  }
+
+  static Object _date_iso_impl(Object millis) {
+    axirCoverageMark("_date_iso_impl");
+    Object parts = Core._date_parts_of_ms_impl(millis);
+    Object year = Core.get(parts, "year", null);
+    Object year_text = "";
+    Object year_low = Core.gte(year, 0);
+    Object year_high = Core.lte(year, 9999);
+    Object four_digits = Core.and(year_low, year_high);
+    if (Core.truthy(four_digits)) {
+      year_text = Core._date_pad_impl(year, 4);
+    }
+    if (!Core.truthy(four_digits)) {
+      Object negative = Core.lt(year, 0);
+      Object magnitude = year;
+      Object sign = "+";
+      if (Core.truthy(negative)) {
+        magnitude = Core.mul(year, -1);
+        sign = "-";
+      }
+      Object six = Core._date_pad_impl(magnitude, 6);
+      year_text = Core.add(sign, six);
+    }
+    Object month = Core.get(parts, "month", null);
+    Object month_text = Core._date_pad_impl(month, 2);
+    Object day = Core.get(parts, "day", null);
+    Object day_text = Core._date_pad_impl(day, 2);
+    Object hour = Core.get(parts, "hour", null);
+    Object hour_text = Core._date_pad_impl(hour, 2);
+    Object minute = Core.get(parts, "minute", null);
+    Object minute_text = Core._date_pad_impl(minute, 2);
+    Object second = Core.get(parts, "second", null);
+    Object second_text = Core._date_pad_impl(second, 2);
+    Object millisecond = Core.get(parts, "millisecond", null);
+    Object millisecond_text = Core._date_pad_impl(millisecond, 3);
+    Object pieces = new java.util.ArrayList<Object>();
+    Core.append(pieces, year_text);
+    Core.append(pieces, "-");
+    Core.append(pieces, month_text);
+    Core.append(pieces, "-");
+    Core.append(pieces, day_text);
+    Core.append(pieces, "T");
+    Core.append(pieces, hour_text);
+    Core.append(pieces, ":");
+    Core.append(pieces, minute_text);
+    Core.append(pieces, ":");
+    Core.append(pieces, second_text);
+    Core.append(pieces, ".");
+    Core.append(pieces, millisecond_text);
+    Core.append(pieces, "Z");
+    Object iso = Core.stringJoin("", pieces);
+    return iso;
   }
 
   static Object _regex_validate_names(Object n, Object path, Object seen, Object counter) {
@@ -24862,26 +26845,6 @@ final class Core {
     return null;
   }
 
-  static Object _stream_json_string_value_impl(Object field, Object value) {
-    axirCoverageMark("_stream_json_string_value_impl");
-    Object is_string = Core.typeIs(value, "string");
-    Object not_string = Core.not(is_string);
-    if (Core.truthy(not_string)) {
-      return value;
-    }
-    Object parsed = Core.none();
-    try {
-      parsed = Core.jsonParseStrict(value);
-    } catch (RuntimeException parse_error) {
-      Object title = Core._stream_field_title_impl(field);
-      Object detail = Core.exceptionMessage(parse_error);
-      Object message = Core.stringFormat("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", detail, title);
-      Object invalid = Core.validationError(message);
-      throw Core.asRuntime(invalid);
-    }
-    return parsed;
-  }
-
   static Object _cache_lookup_impl(Object gen, Object values, Object options, Object ignore_read_errors) {
     axirCoverageMark("_cache_lookup_impl");
     Object lookup = new java.util.LinkedHashMap<String, Object>();
@@ -24911,6 +26874,26 @@ final class Core {
       }
     }
     return lookup;
+  }
+
+  static Object _stream_json_string_value_impl(Object field, Object value) {
+    axirCoverageMark("_stream_json_string_value_impl");
+    Object is_string = Core.typeIs(value, "string");
+    Object not_string = Core.not(is_string);
+    if (Core.truthy(not_string)) {
+      return value;
+    }
+    Object parsed = Core.none();
+    try {
+      parsed = Core.jsonParseStrict(value);
+    } catch (RuntimeException parse_error) {
+      Object title = Core._stream_field_title_impl(field);
+      Object detail = Core.exceptionMessage(parse_error);
+      Object message = Core.stringFormat("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", detail, title);
+      Object invalid = Core.validationError(message);
+      throw Core.asRuntime(invalid);
+    }
+    return parsed;
   }
 
   static Object _stream_json_strings_for_field_impl(Object field, Object value) {
@@ -39840,7 +41823,8 @@ class PromptRuntime {
         media.putIfAbsent("type", field.type.name);
         parts.add(media);
       } else {
-        String rendered = value instanceof String ? String.valueOf(value) : Json.pretty(value);
+        String dated = field.type == null ? null : Core.jsDatePromptText(field.type.name, value);
+        String rendered = dated != null ? dated : value instanceof String ? String.valueOf(value) : Json.pretty(value);
         Map<String, Object> part = new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": " + rendered + "\n"));
         if (field.cached) part.put("cache", true);
         parts.add(part);

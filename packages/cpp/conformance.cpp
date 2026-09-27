@@ -7,11 +7,14 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <ctime>
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <regex>
 #include <typeinfo>
 
 using namespace axllm;
@@ -628,6 +631,31 @@ static Value signature_payload(Value sig) {
 
 static void assert_equal(Value actual, Value expected, const std::string& label) {
   if (!equal(actual, expected)) throw AxError("fixture", label + " mismatch actual=" + stringify(actual) + " expected=" + stringify(expected));
+}
+
+// Each value is a UTC timestamp as JavaScript's toISOString writes it, taken
+// during the run: between start and end, with a second of slack for
+// millisecond rounding.
+static void assert_wall_clock_timestamps(std::vector<Value> values, std::chrono::system_clock::time_point start,
+                                         std::chrono::system_clock::time_point end, const std::string& label) {
+  static const std::regex iso_millis_utc("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$");
+  for (const auto& value : values) {
+    if (!value.is_string() || !std::regex_match(display(value), iso_millis_utc)) {
+      throw AxError("fixture", label + " is not an ISO-8601 UTC millisecond timestamp: " + stringify(value));
+    }
+    std::string text = display(value);
+    std::tm parts{};
+    parts.tm_year = std::stoi(text.substr(0, 4)) - 1900;
+    parts.tm_mon = std::stoi(text.substr(5, 2)) - 1;
+    parts.tm_mday = std::stoi(text.substr(8, 2));
+    parts.tm_hour = std::stoi(text.substr(11, 2));
+    parts.tm_min = std::stoi(text.substr(14, 2));
+    parts.tm_sec = std::stoi(text.substr(17, 2));
+    auto stamp = std::chrono::system_clock::from_time_t(timegm(&parts)) + std::chrono::milliseconds(std::stoi(text.substr(20, 3)));
+    if (stamp < start - std::chrono::seconds(1) || stamp > end + std::chrono::seconds(1)) {
+      throw AxError("fixture", label + " " + text + " is not the wall clock during the run");
+    }
+  }
 }
 
 static void assert_subset(Value actual, Value expected, const std::string& label) {
@@ -1783,6 +1811,17 @@ static void run_agent_playbook_evolve(Value fixture) {
     if (!expected_teacher_requests.is_null() && teacher.requests.size() != static_cast<size_t>(std::stoul(display(expected_teacher_requests)))) {
       throw AxError("fixture", label + " expected " + display(expected_teacher_requests) + " teacher requests, got " + std::to_string(teacher.requests.size()));
     }
+    Value expected_teacher_prompts = Core::get(test_case, "expected_teacher_system_prompts");
+    if (!expected_teacher_prompts.is_null()) {
+      // Each teacher request's system prompt, in call order, byte for byte.
+      Array prompts;
+      for (const auto& request : teacher.requests) {
+        for (const auto& message : Core::iter(Core::get(request, "chat_prompt", Value::array()))) {
+          if (display(Core::get(message, "role")) == "system") prompts.push_back(Core::get(message, "content"));
+        }
+      }
+      assert_equal(Value(prompts), expected_teacher_prompts, label + " teacher system prompts");
+    }
     if (outcomes.empty()) {
       if (!Core::get(expected, "outcome_count").is_null() && Core::number(Core::get(expected, "outcome_count")) == 0) continue;
       throw AxError("fixture", label + " produced no outcome: " + stringify(actual));
@@ -1930,13 +1969,27 @@ static void run_agent_forward(Value fixture) {
   std::vector<std::unique_ptr<ScriptedCodeRuntime>> child_scripts;
   for(auto spec:Core::iter(Core::get(fixture,"mcp_clients",Value::array()))){std::string owner=display(Core::get(spec,"owner","parent")),name=display(Core::get(spec,"namespace"));auto transport=std::make_shared<AxMCPScriptedTransport>(Core::get(spec,"responses"));mcp_transports[owner+"/"+name]=transport;context_clients[owner].push_back(std::make_shared<AxMCPClient>(transport,object({{"namespace",name},{"era","modern"}})));}
   for(auto& entry:context_clients)contexts[entry.first]=std::make_shared<AxExecutionContext>(entry.second);
+  // As the other runners do, a playbook config gets the scripted client as
+  // its student, so the agent can attach the playbook at construction.
+  Value playbook_config = Core::get(agent_options, "playbook");
+  Value fixture_playbook_config = parse_json(stringify(playbook_config));
+  if (playbook_config.is_object()) {
+    playbook_config = Core::map_merge(Value::object(), playbook_config);
+    if (Core::get(playbook_config, "studentAI").is_null()) Core::set(playbook_config, "studentAI", Core::client_ref(client));
+    Core::set(agent_options, "playbook", playbook_config);
+  }
   std::unique_ptr<AxAgent> ag;
   bool observer_called = false;
   Value run_state_projections = Value::array();
   Value saved_runtime_state;
   Value state_roundtrip_projection = Value::object();
+  auto wall_clock_start = std::chrono::system_clock::now();
+  Value playbook_state_before_forward;
   try {
     ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), agent_options);
+    if (!Core::get(fixture, "expected_playbook_state_before_forward").is_null() && ag->get_playbook() != nullptr) {
+      playbook_state_before_forward = parse_json(stringify(ag->get_playbook()->get_state()));
+    }
     if(contexts.count("parent"))contexts.at("parent")->attach(*ag);
     for (const auto& child : Core::iter(Core::get(fixture, "child_agents", Value::array()))) {
       Value child_options = Core::get(child, "options", Value::object());
@@ -2118,6 +2171,25 @@ static void run_agent_forward(Value fixture) {
   if (!Core::get(fixture, "expected_playbook_state").is_null()) {
     AxPlaybook* handle = ag->get_playbook();
     assert_equal(handle ? handle->get_state() : Value(), Core::get(fixture, "expected_playbook_state"), "agent playbook state");
+  }
+  if (!Core::get(fixture, "expected_playbook_state_before_forward").is_null()) {
+    assert_equal(playbook_state_before_forward, Core::get(fixture, "expected_playbook_state_before_forward"), "agent playbook state before the first forward");
+  }
+  if (Core::truthy(Core::get(fixture, "expected_playbook_wall_clock", false))) {
+    AxPlaybook* handle = ag->get_playbook();
+    Value state = handle ? handle->get_state() : Value::object();
+    assert_wall_clock_timestamps(
+        {Core::get(Core::get(state, "playbook"), "updatedAt"), Core::get(Core::get(Core::get(state, "artifact"), "playbook"), "updatedAt")},
+        wall_clock_start, std::chrono::system_clock::now(), "agent playbook updatedAt");
+  }
+  if (Core::truthy(Core::get(fixture, "expected_playbook_config_unchanged", false))) {
+    // The caller's playbook config, less the student client the runner added,
+    // is what the fixture passed.
+    Value actual = Value::object();
+    for (const auto& kv : conf_entries(playbook_config)) {
+      if (kv.first != "studentAI") Core::set(actual, kv.first, kv.second);
+    }
+    assert_equal(actual, fixture_playbook_config, "caller's playbook config");
   }
   Value exported = ag->export_runtime_state();
   if (!Core::get(fixture, "expected_runtime_contract_subset").is_null()) assert_subset(ag->get_runtime_contract(), Core::get(fixture, "expected_runtime_contract_subset"), "runtime contract");
@@ -3392,6 +3464,52 @@ static void run_flow(Value fixture) {
 // string.format's "{}" (the streaming extractor's number text). The JSON form
 // must come out of every encoder: stringify (wire bodies and json.stringify),
 // the key-sorted json.stable_stringify and json.pretty (prompt values).
+// TS validateAndParseFieldValue on date-typed fields with parse_dates on:
+// each case's {has, value}, or its exact error message.
+static void run_date_field_value(Value fixture) {
+  const bool parse_dates = Core::truthy(Core::get(fixture, "parse_dates", false));
+  size_t index = 0;
+  for (const auto& item : Core::iter(Core::get(fixture, "cases", Value::array()))) {
+    Value field = Value(as_object(Core::get(item, "field", Value::object())));
+    Core::set(field, "parse_dates", Value(parse_dates));
+    const std::string text = display(Core::get(item, "text", ""));
+    std::string shown = text.substr(0, 80);
+    const std::string label = "case " + std::to_string(index++) + " " + stringify(Value(shown));
+    const Value expected_error = Core::get(item, "expected_error");
+    Value parsed;
+    try {
+      parsed = Core::_stream_field_value_impl(field, Value(text));
+    } catch (const std::exception& error) {
+      if (expected_error.is_null()) throw AxError("fixture", label + ": unexpected error " + error.what());
+      assert_equal(Value(std::string(error.what())), expected_error, label + " error");
+      continue;
+    }
+    if (!expected_error.is_null()) throw AxError("fixture", label + ": expected error " + display(expected_error) + ", got " + stringify(parsed));
+    const bool has = Core::truthy(Core::get(parsed, "has", false));
+    Value actual = Value::object();
+    Core::set(actual, "has", Value(has));
+    if (has) Core::set(actual, "value", Core::get(parsed, "value"));
+    assert_equal(actual, Core::get(item, "expected"), label);
+  }
+}
+
+// Date inputs: range objects and strings pass input validation and render in
+// the user prompt as TS renders them. axllm::Value has no date type, so the
+// native: true cases (Python, Go and Java date values) do not apply here.
+static void run_date_input(Value fixture) {
+  Value sig = build_signature(fixture);
+  size_t index = 0;
+  for (const auto& item : Core::iter(Core::get(fixture, "cases", Value::array()))) {
+    const std::string label = "case " + std::to_string(index++);
+    if (Core::truthy(Core::get(item, "native", false))) continue;
+    Value values = Core::get(item, "values", Value::object());
+    Core::validate_fields(Core::get(sig, "inputs"), values, Value("input"));
+    Value messages = Core::render_prompt(sig, values, Value::array(), Value::object());
+    const auto& list = *std::get<std::shared_ptr<Array>>(messages.data);
+    assert_equal(Core::get(list.back(), "content"), Core::get(item, "expected_user_content"), label);
+  }
+}
+
 static void run_number_format(Value fixture) {
   for (const auto& item : Core::iter(Core::get(fixture, "cases", Value::array()))) {
     std::string input = display(Core::get(item, "input"));
@@ -3477,6 +3595,10 @@ static void run(Value fixture) {
     assert_equal(Core::strip_internal(Core::get(sig, "outputs"), Core::get(fixture, "values", Value::object())), Core::get(fixture, "expected_output"), "strip internal");
   } else if (kind == "number_format") {
     run_number_format(fixture);
+  } else if (kind == "date_field_value") {
+    run_date_field_value(fixture);
+  } else if (kind == "date_input") {
+    run_date_input(fixture);
   } else if (kind == "template") {
     assert_equal(Core::render_template_content(Core::get(fixture, "template"), Core::get(fixture, "vars", Value::object()), Core::get(fixture, "context", "fixture-template")), Core::get(fixture, "expected_output", ""), "template");
   } else if (kind == "template_error") {

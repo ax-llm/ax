@@ -2596,9 +2596,19 @@ export class AxSignature<
     this._hasComplexFields = undefined;
   };
 
+  // A field name's title. Underscores become spaces, and a word starts at a
+  // capital after a lowercase letter or digit, at the last capital of a run
+  // that begins a word, and at each run of digits; words are separated by one
+  // space. userID is "User ID", parseHTTPResponse "Parse HTTP Response",
+  // item123 "Item 123", field_2 "Field 2".
   private toTitle = (name: string) => {
-    let result = name.replace(/_/g, ' ');
-    result = result.replace(/([A-Z]|[0-9]+)/g, ' $1').trim();
+    const result = name
+      .replace(/_/g, ' ')
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
+      .replace(/([^0-9])([0-9])/g, '$1 $2')
+      .replace(/\s+/g, ' ')
+      .trim();
     return result.charAt(0).toUpperCase() + result.slice(1);
   };
 

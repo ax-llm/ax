@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -758,6 +759,329 @@ Value Core::string_utf16_units(Value value) {
   return Value(units);
 }
 Value Core::string_codepoint_length(Value value) { size_t count = 0; for (unsigned char byte : str(value)) if ((byte & 0xc0) != 0x80) ++count; return Value(static_cast<double>(count)); }
+
+// ----- intrinsic.date.zone_offset: the platform tz database -----
+// A std-only reader for TZif files (RFC 8536): $TZDIR, then the usual
+// zoneinfo directories. Past the last transition the POSIX TZ footer rule
+// decides; before the first, the zone's first local time type.
+namespace {
+
+struct DateTzRuleDate {
+  char kind = 'n';  // 'J' (1-365, no Feb 29), 'n' (0-365), 'M' (month.week.day)
+  long long day = 0, week = 0, month = 0, time = 7200;
+};
+
+struct DateTzRule {
+  long long std_offset = 0;
+  bool has_dst = false;
+  long long dst_offset = 0;
+  DateTzRuleDate start, end;
+};
+
+struct DateTzZone {
+  std::vector<long long> transitions;
+  std::vector<size_t> transition_types;
+  std::vector<long long> offsets;
+  bool has_footer = false;
+  DateTzRule footer;
+};
+
+long long date_floor_div(long long value, long long divisor) {
+  long long quotient = value / divisor;
+  if ((value % divisor != 0) && ((value < 0) != (divisor < 0))) --quotient;
+  return quotient;
+}
+
+long long date_days_from_civil(long long year, long long month, long long day) {
+  long long y = month <= 2 ? year - 1 : year;
+  long long era = date_floor_div(y, 400);
+  long long yoe = y - era * 400;
+  long long mp = (month + 9) % 12;
+  long long doy = (153 * mp + 2) / 5 + day - 1;
+  long long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + doe - 719468;
+}
+
+long long date_year_of_days(long long days) {
+  long long z = days + 719468;
+  long long era = date_floor_div(z, 146097);
+  long long doe = z - era * 146097;
+  long long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  long long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  long long mp = (5 * doy + 2) / 153;
+  long long month = mp < 10 ? mp + 3 : mp - 9;
+  return yoe + era * 400 + (month <= 2 ? 1 : 0);
+}
+
+bool date_is_leap(long long year) { return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0; }
+
+// The UTC second of a rule date's local time in `year`, for a zone at
+// `offset` seconds east of UTC.
+long long date_rule_instant(long long year, const DateTzRuleDate& rule, long long offset) {
+  long long first = date_days_from_civil(year, 1, 1);
+  long long day = 0;
+  if (rule.kind == 'J') {
+    day = first + rule.day - 1 + ((date_is_leap(year) && rule.day >= 60) ? 1 : 0);
+  } else if (rule.kind == 'n') {
+    day = first + rule.day;
+  } else {
+    long long month_first = date_days_from_civil(year, rule.month, 1);
+    // 1970-01-01 was a Thursday (4).
+    long long weekday = ((month_first + 4) % 7 + 7) % 7;
+    day = month_first + ((rule.day - weekday) % 7 + 7) % 7 + (rule.week - 1) * 7;
+    long long next_month = rule.month == 12 ? date_days_from_civil(year + 1, 1, 1) : date_days_from_civil(year, rule.month + 1, 1);
+    while (day >= next_month) day -= 7;
+  }
+  return day * 86400 + rule.time - offset;
+}
+
+long long date_rule_offset(const DateTzRule& rule, long long seconds) {
+  if (!rule.has_dst) return rule.std_offset;
+  long long year = date_year_of_days(date_floor_div(seconds + rule.std_offset, 86400));
+  // The latest DST start or end at or before the instant, over the
+  // neighbouring years, decides. Of two at the same instant the later one in
+  // the sequence wins: a permanent-DST footer such as
+  // "XXX-2<+01>-1,0/0,J365/23" ends one year where the next begins.
+  bool found = false, dst = false;
+  long long best = 0;
+  for (long long y = year - 1; y <= year + 1; ++y) {
+    const long long begins = date_rule_instant(y, rule.start, rule.std_offset);
+    const long long ends = date_rule_instant(y, rule.end, rule.dst_offset);
+    for (int pick = 0; pick < 2; ++pick) {
+      const long long at = pick == 0 ? begins : ends;
+      if (at <= seconds && (!found || at >= best)) {
+        found = true;
+        best = at;
+        dst = pick == 0;
+      }
+    }
+  }
+  return found && dst ? rule.dst_offset : rule.std_offset;
+}
+
+// [+-]hh[:mm[:ss]] as seconds.
+bool date_tz_parse_seconds(const std::string& text, size_t& at, long long& out) {
+  long long sign = 1;
+  if (at < text.size() && (text[at] == '+' || text[at] == '-')) {
+    if (text[at] == '-') sign = -1;
+    ++at;
+  }
+  long long parts[3] = {0, 0, 0};
+  for (int index = 0; index < 3; ++index) {
+    if (index > 0) {
+      if (at < text.size() && text[at] == ':') ++at;
+      else break;
+    }
+    const size_t start = at;
+    while (at < text.size() && std::isdigit(static_cast<unsigned char>(text[at]))) parts[index] = parts[index] * 10 + (text[at++] - '0');
+    if (at == start) return false;
+  }
+  out = sign * (parts[0] * 3600 + parts[1] * 60 + parts[2]);
+  return true;
+}
+
+bool date_tz_parse_name(const std::string& text, size_t& at) {
+  if (at < text.size() && text[at] == '<') {
+    while (at < text.size() && text[at] != '>') ++at;
+    if (at >= text.size()) return false;
+    ++at;
+    return true;
+  }
+  const size_t start = at;
+  while (at < text.size() && std::isalpha(static_cast<unsigned char>(text[at]))) ++at;
+  return at > start;
+}
+
+bool date_tz_parse_number(const std::string& text, size_t& at, long long& out) {
+  const size_t start = at;
+  out = 0;
+  while (at < text.size() && std::isdigit(static_cast<unsigned char>(text[at]))) out = out * 10 + (text[at++] - '0');
+  return at > start;
+}
+
+bool date_tz_parse_rule_date(const std::string& text, size_t& at, DateTzRuleDate& date) {
+  if (at < text.size() && text[at] == 'J') {
+    ++at;
+    date.kind = 'J';
+    if (!date_tz_parse_number(text, at, date.day)) return false;
+  } else if (at < text.size() && text[at] == 'M') {
+    ++at;
+    date.kind = 'M';
+    if (!date_tz_parse_number(text, at, date.month) || at >= text.size() || text[at] != '.') return false;
+    ++at;
+    if (!date_tz_parse_number(text, at, date.week) || at >= text.size() || text[at] != '.') return false;
+    ++at;
+    if (!date_tz_parse_number(text, at, date.day)) return false;
+    if (date.month < 1 || date.month > 12 || date.week < 1 || date.week > 5 || date.day > 6) return false;
+  } else {
+    date.kind = 'n';
+    if (!date_tz_parse_number(text, at, date.day)) return false;
+  }
+  if (at < text.size() && text[at] == '/') {
+    ++at;
+    if (!date_tz_parse_seconds(text, at, date.time)) return false;
+  }
+  return true;
+}
+
+// A POSIX TZ string such as "EST5EDT,M3.2.0,M11.1.0" or "<+0530>-5:30".
+bool date_tz_parse_rule(const std::string& text, DateTzRule& rule) {
+  size_t at = 0;
+  long long value = 0;
+  if (!date_tz_parse_name(text, at) || !date_tz_parse_seconds(text, at, value)) return false;
+  rule.std_offset = -value;
+  if (at >= text.size()) return true;
+  if (!date_tz_parse_name(text, at)) return false;
+  rule.has_dst = true;
+  rule.dst_offset = rule.std_offset + 3600;
+  if (at < text.size() && text[at] != ',') {
+    if (!date_tz_parse_seconds(text, at, value)) return false;
+    rule.dst_offset = -value;
+  }
+  if (at >= text.size()) {
+    // POSIX leaves the rule to the implementation; this is the US one.
+    rule.start = DateTzRuleDate{'M', 0, 2, 3, 7200};
+    rule.end = DateTzRuleDate{'M', 0, 1, 11, 7200};
+    return true;
+  }
+  if (text[at] != ',') return false;
+  ++at;
+  if (!date_tz_parse_rule_date(text, at, rule.start) || at >= text.size() || text[at] != ',') return false;
+  ++at;
+  if (!date_tz_parse_rule_date(text, at, rule.end)) return false;
+  return at == text.size();
+}
+
+bool date_tzif_u32(const std::string& data, size_t at, unsigned long& out) {
+  if (at + 4 > data.size()) return false;
+  out = (static_cast<unsigned long>(static_cast<unsigned char>(data[at])) << 24) |
+        (static_cast<unsigned long>(static_cast<unsigned char>(data[at + 1])) << 16) |
+        (static_cast<unsigned long>(static_cast<unsigned char>(data[at + 2])) << 8) |
+        static_cast<unsigned long>(static_cast<unsigned char>(data[at + 3]));
+  return true;
+}
+
+bool date_tzif_counts(const std::string& data, size_t at, size_t counts[6]) {
+  for (int index = 0; index < 6; ++index) {
+    unsigned long value = 0;
+    if (!date_tzif_u32(data, at + 20 + index * 4, value)) return false;
+    counts[index] = static_cast<size_t>(value);
+  }
+  return true;
+}
+
+bool date_parse_tzif(const std::string& data, DateTzZone& zone) {
+  if (data.size() < 44 || data.compare(0, 4, "TZif") != 0) return false;
+  const char version = data[4];
+  size_t counts[6];
+  if (!date_tzif_counts(data, 0, counts)) return false;
+  size_t at = 44;
+  size_t time_size = 4;
+  if (version >= '2') {
+    const size_t v1_size = counts[3] * 5 + counts[4] * 6 + counts[5] + counts[2] * 8 + counts[1] + counts[0];
+    const size_t second = 44 + v1_size;
+    if (second + 44 > data.size() || data.compare(second, 4, "TZif") != 0 || !date_tzif_counts(data, second, counts)) return false;
+    at = second + 44;
+    time_size = 8;
+  }
+  const size_t isut = counts[0], isstd = counts[1], leap = counts[2], time = counts[3], typ = counts[4], chars = counts[5];
+  const size_t data_size = time * time_size + time + typ * 6 + chars + leap * (time_size + 4) + isstd + isut;
+  if (at + data_size > data.size() || typ == 0) return false;
+  for (size_t index = 0; index < time; ++index) {
+    const size_t offset = at + index * time_size;
+    if (time_size == 8) {
+      unsigned long high = 0, low = 0;
+      date_tzif_u32(data, offset, high);
+      date_tzif_u32(data, offset + 4, low);
+      const unsigned long long bits = (static_cast<unsigned long long>(high) << 32) | low;
+      zone.transitions.push_back(static_cast<long long>(bits));
+    } else {
+      unsigned long value = 0;
+      date_tzif_u32(data, offset, value);
+      zone.transitions.push_back(static_cast<long long>(static_cast<int32_t>(static_cast<uint32_t>(value))));
+    }
+  }
+  at += time * time_size;
+  for (size_t index = 0; index < time; ++index) {
+    const size_t type_index = static_cast<unsigned char>(data[at + index]);
+    if (type_index >= typ) return false;
+    zone.transition_types.push_back(type_index);
+  }
+  at += time;
+  for (size_t index = 0; index < typ; ++index) {
+    unsigned long value = 0;
+    date_tzif_u32(data, at + index * 6, value);
+    zone.offsets.push_back(static_cast<long long>(static_cast<int32_t>(static_cast<uint32_t>(value))));
+  }
+  at += typ * 6 + chars + leap * (time_size + 4) + isstd + isut;
+  if (version >= '2' && at < data.size() && data[at] == '\n') {
+    const size_t end = data.find('\n', at + 1);
+    if (end != std::string::npos && end > at + 1) {
+      zone.has_footer = date_tz_parse_rule(data.substr(at + 1, end - at - 1), zone.footer);
+    }
+  }
+  return true;
+}
+
+long long date_zone_offset_at(const DateTzZone& zone, long long seconds) {
+  if (zone.transitions.empty()) return zone.has_footer ? date_rule_offset(zone.footer, seconds) : zone.offsets[0];
+  if (seconds < zone.transitions.front()) return zone.offsets[0];
+  const size_t index = static_cast<size_t>(std::upper_bound(zone.transitions.begin(), zone.transitions.end(), seconds) - zone.transitions.begin()) - 1;
+  if (index + 1 == zone.transitions.size() && zone.has_footer) return date_rule_offset(zone.footer, seconds);
+  return zone.offsets[zone.transition_types[index]];
+}
+
+std::shared_ptr<DateTzZone> date_zone_load(const std::string& name) {
+  static std::mutex mutex;
+  static std::map<std::string, std::shared_ptr<DateTzZone>> zones;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    const auto found = zones.find(name);
+    if (found != zones.end()) return found->second;
+  }
+  bool safe = !name.empty() && name[0] != '/' && name.find('\\') == std::string::npos && name.find('\0') == std::string::npos;
+  if (safe) {
+    size_t start = 0;
+    while (start <= name.size()) {
+      const size_t slash = name.find('/', start);
+      const std::string part = name.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+      if (part.empty() || part == "." || part == "..") safe = false;
+      if (slash == std::string::npos) break;
+      start = slash + 1;
+    }
+  }
+  std::shared_ptr<DateTzZone> loaded;
+  if (safe) {
+    std::vector<std::string> dirs;
+    if (const char* tzdir = std::getenv("TZDIR")) {
+      if (*tzdir) dirs.emplace_back(tzdir);
+    }
+    for (const char* dir : {"/usr/share/zoneinfo", "/usr/lib/zoneinfo", "/usr/share/lib/zoneinfo", "/etc/zoneinfo"}) dirs.emplace_back(dir);
+    for (const auto& dir : dirs) {
+      std::ifstream file(dir + "/" + name, std::ios::binary);
+      if (!file) continue;
+      std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+      auto zone = std::make_shared<DateTzZone>();
+      if (date_parse_tzif(data, *zone)) {
+        loaded = zone;
+        break;
+      }
+    }
+  }
+  std::lock_guard<std::mutex> lock(mutex);
+  zones[name] = loaded;
+  return loaded;
+}
+
+}  // namespace
+
+Value Core::date_zone_offset(Value name, Value epoch_ms) {
+  const std::string zone_name = str(name);
+  const auto zone = date_zone_load(zone_name);
+  if (!zone) throw AxError("runtime", "unknown time zone " + zone_name);
+  const long long seconds = static_cast<long long>(std::floor(num(epoch_ms) / 1000.0));
+  return Value(static_cast<double>(date_zone_offset_at(*zone, seconds)));
+}
 Value Core::math_is_finite(Value value) { return Value(std::isfinite(num(value))); }
 Value Core::math_floor(Value value) { return Value(std::floor(num(value))); }
 Value Core::math_log(Value value) { return Value(std::log(num(value))); }
@@ -879,6 +1203,8 @@ Value Core::type_is(Value value, Value type_name) {
   if (t == "boolean") return Value(value.is_bool());
   if (t == "null") return Value(value.is_null());
   if (t == "json") return Value(true);
+  // No native date type: date and datetime fields take strings here.
+  if (t == "date") return Value(false);
   return Value(false);
 }
 Value Core::regex_match(Value pattern, Value value) {
@@ -1553,7 +1879,12 @@ Value Core::legacy_response_to_chat_response(Value raw) {
   if (!get_key(raw, "results").is_null()) return raw;
   Array calls;
   for (const auto& item : array_ref(get_key(raw, "function_calls"))) {
-    Object call = object_ref(item);
+    // A call already in TS's nested {id, type, function} shape is kept; a
+    // flat {id, name, params} one is nested.
+    if (get_key(item, "function").is_object()) {
+      calls.push_back(item);
+      continue;
+    }
     Object fn;
     fn["name"] = get_key(item, "name");
     fn["params"] = get_key(item, "params");
@@ -1914,15 +2245,23 @@ Value Core::agent_callable_invoke(Value state, Value request, Value options_arg)
   return object({{"status", "error"}, {"error", std::string("unknown callable: ") + qualified}});
 }
 
+// A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts):
+// underscores become spaces, and a word starts at a capital after a lowercase
+// letter or digit, at the last capital of a run that begins a word, and at each
+// run of digits; words are separated by one space. userID is "User ID",
+// parseHTTPResponse "Parse HTTP Response", item123 "Item 123", field_2 "Field 2".
 static std::string titleize(const std::string& name) {
-  std::string spaced;
-  for (size_t i = 0; i < name.size(); ++i) {
-    char ch = name[i] == '_' ? ' ' : name[i];
-    if (i > 0 && (std::isupper(static_cast<unsigned char>(ch)) || std::isdigit(static_cast<unsigned char>(ch)))) spaced.push_back(' ');
-    spaced.push_back(ch);
-  }
-  Value trimmed = Core::string_trim(spaced);
-  std::string out = str(trimmed);
+  static const std::regex camel_boundary("([a-z0-9])([A-Z])");
+  static const std::regex acronym_boundary("([A-Z])([A-Z][a-z])");
+  static const std::regex digit_boundary("([^0-9])([0-9])");
+  static const std::regex spaces("\\s+");
+  std::string text = name;
+  std::replace(text.begin(), text.end(), '_', ' ');
+  text = std::regex_replace(text, camel_boundary, "$1 $2");
+  text = std::regex_replace(text, acronym_boundary, "$1 $2");
+  text = std::regex_replace(text, digit_boundary, "$1 $2");
+  text = std::regex_replace(text, spaces, " ");
+  std::string out = str(Core::string_trim(text));
   if (!out.empty()) out[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[0])));
   return out;
 }
@@ -4682,6 +5021,29 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     }
     return Value();
   }
+  Value date_types = Value::array();
+  Core::append(date_types, Value("date"));
+  Core::append(date_types, Value("datetime"));
+  Value is_date_type = Core::contains(date_types, type_name);
+  Value is_native_date = Core::type_is(value, Value("date"));
+  Value native_date_value = Core::and_(is_date_type, is_native_date);
+  if (Core::truthy(native_date_value)) {
+    return Value();
+  }
+  Value range_types = Value::array();
+  Core::append(range_types, Value("dateRange"));
+  Core::append(range_types, Value("datetimeRange"));
+  Value is_range_type = Core::contains(range_types, type_name);
+  Value is_range_object = Core::type_is(value, Value("object"));
+  Value range_object = Core::and_(is_range_type, is_range_object);
+  if (Core::truthy(range_object)) {
+    Value has_start = Core::map_contains(value, Value("start"));
+    Value has_end = Core::map_contains(value, Value("end"));
+    Value has_bounds = Core::and_(has_start, has_end);
+    if (Core::truthy(has_bounds)) {
+      return Value();
+    }
+  }
   Value string_types = Value::array();
   Core::append(string_types, Value("string"));
   Core::append(string_types, Value("code"));
@@ -6888,8 +7250,10 @@ Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
   for (auto call : Core::iter(function_calls)) {
     Value fn = Core::get(call, Value("function"), Value());
     Value id = Core::get(call, Value("id"), Value());
-    Value name = Core::get(fn, Value("name"), Value());
-    Value params = Core::get(fn, Value("params"), Value());
+    Value flat_name = Core::get(call, Value("name"), Value());
+    Value name = Core::get(fn, Value("name"), flat_name);
+    Value flat_params = Core::get(call, Value("params"), Value());
+    Value params = Core::get(fn, Value("params"), flat_params);
     Value compat_call = Value::object();
     Core::set(compat_call, Value("id"), id);
     Core::set(compat_call, Value("name"), name);
@@ -7164,18 +7528,6 @@ Value Core::_openai_normalize_tool_calls_impl(Value calls) {
   return out;
 }
 
-Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
-  axir_coverage_mark("ai_context_cache_expiry");
-  Value is_number = Core::type_is(provider_expire_time, Value("number"));
-  if (Core::truthy(is_number)) {
-    Value future = Core::gt(provider_expire_time, now);
-    if (Core::truthy(future)) {
-      return provider_expire_time;
-    }
-  }
-  return Value(0);
-}
-
 Value Core::_openai_finish_reason_impl(Value value) {
   axir_coverage_mark("_openai_finish_reason_impl");
   Value is_stop = Core::eq(value, Value("stop"));
@@ -7198,6 +7550,18 @@ Value Core::_openai_finish_reason_impl(Value value) {
   }
   Value none = Core::none();
   return none;
+}
+
+Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
+  axir_coverage_mark("ai_context_cache_expiry");
+  Value is_number = Core::type_is(provider_expire_time, Value("number"));
+  if (Core::truthy(is_number)) {
+    Value future = Core::gt(provider_expire_time, now);
+    if (Core::truthy(future)) {
+      return provider_expire_time;
+    }
+  }
+  return Value(0);
 }
 
 Value Core::ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible) {
@@ -16339,6 +16703,19 @@ Value Core::_execute_tool_call(Value functions, Value call) {
   Core::raise_error(error);
 }
 
+Value Core::_date_parse_dates_option_impl(Value base_options, Value options) {
+  axir_coverage_mark("_date_parse_dates_option_impl");
+  Value empty = Value::object();
+  Value call_options = Core::map_merge(empty, options);
+  Value gen_options = Core::map_merge(empty, base_options);
+  Value gen_snake = Core::get(gen_options, Value("parse_dates"), Value(false));
+  Value gen_parse = Core::get(gen_options, Value("parseDates"), gen_snake);
+  Value call_snake = Core::get(call_options, Value("parse_dates"), gen_parse);
+  Value parse = Core::get(call_options, Value("parseDates"), call_snake);
+  Value parse_dates = Core::truthy_value(parse);
+  return parse_dates;
+}
+
 Value Core::_regex_take(Value s) {
   axir_coverage_mark("_regex_take");
   Value c = Core::none();
@@ -16459,6 +16836,24 @@ Value Core::_chat_session_argument_equal(Value left, Value right, Value depth) {
   }
   Value same = Core::eq(left, right);
   return same;
+}
+
+Value Core::_date_is_date_type_impl(Value name) {
+  axir_coverage_mark("_date_is_date_type_impl");
+  Value is_date = Core::eq(name, Value("date"));
+  if (Core::truthy(is_date)) {
+    return Value(true);
+  }
+  Value is_datetime = Core::eq(name, Value("datetime"));
+  if (Core::truthy(is_datetime)) {
+    return Value(true);
+  }
+  Value is_date_range = Core::eq(name, Value("dateRange"));
+  if (Core::truthy(is_date_range)) {
+    return Value(true);
+  }
+  Value is_datetime_range = Core::eq(name, Value("datetimeRange"));
+  return is_datetime_range;
 }
 
 Value Core::_regex_digit(Value c) {
@@ -16696,11 +17091,119 @@ Value Core::_regex_hexdigit(Value c) {
   return t18;
 }
 
+Value Core::_date_parse_fields_impl(Value fields, Value base_options, Value options) {
+  axir_coverage_mark("_date_parse_fields_impl");
+  Value parse_dates = Core::_date_parse_dates_option_impl(base_options, options);
+  Value off = Core::not_(parse_dates);
+  if (Core::truthy(off)) {
+    return fields;
+  }
+  Value out = Value::array();
+  for (auto field : Core::iter(fields)) {
+    Value typ = Core::get(field, Value("type"), Value());
+    Value type_name = Core::get(typ, Value("name"), Value("string"));
+    Value dated = Core::_date_is_date_type_impl(type_name);
+    Value plain = Core::not_(dated);
+    if (Core::truthy(plain)) {
+      Core::append(out, field);
+      continue;
+    }
+    Value field_copy = Value::object();
+    Value name = Core::get(field, Value("name"), Value());
+    Core::set(field_copy, Value("name"), name);
+    Value title = Core::_stream_field_title_impl(field);
+    Core::set(field_copy, Value("title"), title);
+    Value description = Core::get(field, Value("description"), Value());
+    Core::set(field_copy, Value("description"), description);
+    Core::set(field_copy, Value("type"), typ);
+    Value optional = Core::_stream_field_flag_impl(field, Value("is_optional"), Value("isOptional"));
+    Core::set(field_copy, Value("is_optional"), optional);
+    Value internal = Core::_stream_field_flag_impl(field, Value("is_internal"), Value("isInternal"));
+    Core::set(field_copy, Value("is_internal"), internal);
+    Value cached = Core::_stream_field_flag_impl(field, Value("is_cached"), Value("isCached"));
+    Core::set(field_copy, Value("is_cached"), cached);
+    Core::set(field_copy, Value("parse_dates"), Value(true));
+    Core::append(out, field_copy);
+  }
+  return out;
+}
+
 Value Core::_regex_node(Value k) {
   axir_coverage_mark("_regex_node");
   Value t1 = Value::object();
   Core::set(t1, Value("k"), k);
   return t1;
+}
+
+Value Core::_date_convert_field_value_impl(Value field, Value type_name, Value value, Value may_skip) {
+  axir_coverage_mark("_date_convert_field_value_impl");
+  Value out = Value::object();
+  Core::set(out, Value("has"), Value(true));
+  Value title = Core::_stream_field_title_impl(field);
+  Value is_date = Core::eq(type_name, Value("date"));
+  Value is_datetime = Core::eq(type_name, Value("datetime"));
+  Value is_date_range = Core::eq(type_name, Value("dateRange"));
+  Value single = Core::or_(is_date, is_datetime);
+  if (Core::truthy(single)) {
+    Value text = Core::_stream_js_string_impl(value);
+    Value millis = Value(0);
+    try {
+      if (Core::truthy(is_date)) {
+        millis = Core::_date_parse_date_impl(text);
+      }
+      if (!Core::truthy(is_date)) {
+        millis = Core::_date_parse_datetime_impl(text);
+      }
+    } catch (const std::exception& e) {
+      Value single_error = Core::exception_value(e);
+      if (Core::truthy(may_skip)) {
+        Core::set(out, Value("has"), Value(false));
+        return out;
+      }
+      Value single_detail = Core::exception_message(single_error);
+      Value single_message = Core::_date_error_message_impl(type_name, title, single_detail, text);
+      Value single_invalid = Core::runtime_error(single_message);
+      Core::raise_error(single_invalid);
+    }
+    Value iso = Core::_date_iso_impl(millis);
+    Core::set(out, Value("value"), iso);
+    return out;
+  }
+  Value kind = Value("datetime");
+  if (Core::truthy(is_date_range)) {
+    kind = Value("date");
+  }
+  Value range_millis = Value::object();
+  try {
+    range_millis = Core::_date_parse_range_impl(value, kind);
+  } catch (const std::exception& e) {
+    Value range_error = Core::exception_value(e);
+    if (Core::truthy(may_skip)) {
+      Core::set(out, Value("has"), Value(false));
+      return out;
+    }
+    Value range_detail = Core::exception_message(range_error);
+    Value range_text = Value("");
+    Value range_is_text = Core::type_is(value, Value("string"));
+    if (Core::truthy(range_is_text)) {
+      range_text = value;
+    }
+    if (!Core::truthy(range_is_text)) {
+      range_text = Core::_date_js_json_impl(value);
+    }
+    Value range_message = Core::_date_error_message_impl(type_name, title, range_detail, range_text);
+    Value range_invalid = Core::runtime_error(range_message);
+    Core::raise_error(range_invalid);
+  }
+  Value start_millis = Core::get(range_millis, Value("start"), Value());
+  Value end_millis = Core::get(range_millis, Value("end"), Value());
+  Value range_value = Value::object();
+  Value start_iso = Core::_date_iso_impl(start_millis);
+  Core::set(range_value, Value("start"), start_iso);
+  Value end_iso = Core::_date_iso_impl(end_millis);
+  Core::set(range_value, Value("end"), end_iso);
+  Core::set(out, Value("value"), range_value);
+  return out;
 }
 
 Value Core::_regex_literal(Value c) {
@@ -17388,6 +17891,37 @@ Value Core::_validate_optimized_artifact(Value artifact, Value components) {
   return artifact;
 }
 
+Value Core::_date_error_message_impl(Value type_name, Value title, Value detail, Value provided) {
+  axir_coverage_mark("_date_error_message_impl");
+  Value lead = Value("Invalid date/time range for '");
+  Value advice = Value(". Prefer JSON like {\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00Z\"} or an ISO interval like 2024-05-09T14:30:00Z/2024-05-09T15:30:00Z. You provided: ");
+  Value is_date = Core::eq(type_name, Value("date"));
+  if (Core::truthy(is_date)) {
+    lead = Value("Invalid date for '");
+    advice = Value(". Use the exact format YYYY-MM-DD (e.g., 2024-05-09). You provided: ");
+  }
+  Value is_datetime = Core::eq(type_name, Value("datetime"));
+  if (Core::truthy(is_datetime)) {
+    lead = Value("Invalid date/time for '");
+    advice = Value(". Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: ");
+  }
+  Value is_date_range = Core::eq(type_name, Value("dateRange"));
+  if (Core::truthy(is_date_range)) {
+    lead = Value("Invalid date range for '");
+    advice = Value(". Prefer JSON like {\"start\":\"2024-05-09\",\"end\":\"2024-05-12\"} or an interval like 2024-05-09/2024-05-12. You provided: ");
+  }
+  Value pieces = Value::array();
+  Core::append(pieces, lead);
+  Core::append(pieces, title);
+  Core::append(pieces, Value("': "));
+  Core::append(pieces, detail);
+  Core::append(pieces, advice);
+  Core::append(pieces, provided);
+  Core::append(pieces, Value("."));
+  Value message = Core::string_join(Value(""), pieces);
+  return message;
+}
+
 Value Core::_stream_trim_end_impl(Value text) {
   axir_coverage_mark("_stream_trim_end_impl");
   Value trimmed = Core::string_trim(text);
@@ -17400,6 +17934,39 @@ Value Core::_stream_trim_end_impl(Value text) {
   Value end = Core::add(lead, trimmed_length);
   Value out = Core::string_slice(text, Value(0), end);
   return out;
+}
+
+Value Core::_date_parse_date_impl(Value text) {
+  axir_coverage_mark("_date_parse_date_impl");
+  Value format_error = Value("Invalid date format. Please provide the date in \"YYYY-MM-DD\" format.");
+  Value units = Core::string_utf16_units(text);
+  Value count = Core::len(units);
+  Value bounds = Core::_date_trim_bounds_impl(units, Value(0), count);
+  Value start = Core::get(bounds, Value("start"), Value());
+  Value end = Core::get(bounds, Value("end"), Value());
+  Value length = Core::add(end, Value(0));
+  Value negative_start = Core::mul(start, Value(-1));
+  length = Core::add(length, negative_start);
+  Value wrong_length = Core::ne(length, Value(10));
+  if (Core::truthy(wrong_length)) {
+    Value length_error = Core::runtime_error(format_error);
+    Core::raise_error(length_error);
+  }
+  Value parts = Core::_date_scan_date_impl(units, start);
+  Value no_parts = Core::is_none(parts);
+  if (Core::truthy(no_parts)) {
+    Value shape_error = Core::runtime_error(format_error);
+    Core::raise_error(shape_error);
+  }
+  Value millis = Core::_date_utc_ms_impl(parts);
+  Value round = Core::_date_parts_of_ms_impl(millis);
+  Value same = Core::_date_same_day_impl(round, parts);
+  Value different = Core::not_(same);
+  if (Core::truthy(different)) {
+    Value value_error = Core::runtime_error(format_error);
+    Core::raise_error(value_error);
+  }
+  return millis;
 }
 
 Value Core::_stream_trim_start_impl(Value text) {
@@ -17802,6 +18369,22 @@ Value Core::_deserialize_optimized_artifact(Value text, Value components) {
   return validated;
 }
 
+Value Core::_date_parse_datetime_impl(Value text) {
+  axir_coverage_mark("_date_parse_datetime_impl");
+  Value units = Core::string_utf16_units(text);
+  Value count = Core::len(units);
+  Value bounds = Core::_date_trim_bounds_impl(units, Value(0), count);
+  Value start = Core::get(bounds, Value("start"), Value());
+  Value end = Core::get(bounds, Value("end"), Value());
+  Value offset_millis = Core::_date_parse_offset_datetime_impl(units, start, end);
+  Value matched = Core::is_not_none(offset_millis);
+  if (Core::truthy(matched)) {
+    return offset_millis;
+  }
+  Value named = Core::_date_parse_named_datetime_impl(text, units, start, end);
+  return named;
+}
+
 Value Core::_stream_field_labels_impl(Value field) {
   axir_coverage_mark("_stream_field_labels_impl");
   Value labels = Value::array();
@@ -17884,6 +18467,34 @@ Value Core::_append_structured_output_instruction(Value messages, Value output_f
   return Value();
 }
 
+Value Core::_date_parse_offset_datetime_impl(Value units, Value start, Value end) {
+  axir_coverage_mark("_date_parse_offset_datetime_impl");
+  Value none = Core::none();
+  Value prefix = Core::_date_scan_datetime_impl(units, start, end);
+  Value no_prefix = Core::is_none(prefix);
+  if (Core::truthy(no_prefix)) {
+    return none;
+  }
+  Value cursor = Core::get(prefix, Value("end"), Value());
+  Value zone_start = Core::_date_skip_space_impl(units, cursor, end);
+  Value zone_ok = Core::_date_offset_zone_matches_impl(units, zone_start, end);
+  Value zone_bad = Core::not_(zone_ok);
+  if (Core::truthy(zone_bad)) {
+    return none;
+  }
+  Value offset = Core::_date_offset_minutes_impl(units, zone_start, end);
+  Value no_offset = Core::is_none(offset);
+  if (Core::truthy(no_offset)) {
+    Value format_error = Core::_date_datetime_format_error_impl();
+    Core::raise_error(format_error);
+  }
+  Value parts = Core::_date_datetime_parts_impl(prefix);
+  Value local = Core::_date_utc_ms_impl(parts);
+  Value shift = Core::mul(offset, Value(-60000));
+  Value millis = Core::add(local, shift);
+  return millis;
+}
+
 Value Core::_stream_matches_content_impl(Value content, Value prefix, Value start) {
   axir_coverage_mark("_stream_matches_content_impl");
   Value fence = Core::regex_match(Value("^```[a-zA-Z]*\\s*$"), content);
@@ -17956,6 +18567,62 @@ Value Core::_assert_no_reserved_output_functions(Value functions) {
     }
   }
   return Value();
+}
+
+Value Core::_date_parse_named_datetime_impl(Value text, Value units, Value start, Value end) {
+  axir_coverage_mark("_date_parse_named_datetime_impl");
+  Value format_error = Core::_date_datetime_format_error_impl();
+  Value prefix = Core::_date_scan_datetime_impl(units, start, end);
+  Value no_prefix = Core::is_none(prefix);
+  if (Core::truthy(no_prefix)) {
+    Core::raise_error(format_error);
+  }
+  Value cursor = Core::get(prefix, Value("end"), Value());
+  Value zone_start = Core::_date_skip_space_impl(units, cursor, end);
+  Value no_space = Core::eq(zone_start, cursor);
+  if (Core::truthy(no_space)) {
+    Core::raise_error(format_error);
+  }
+  Value empty_zone = Core::gte(zone_start, end);
+  if (Core::truthy(empty_zone)) {
+    Core::raise_error(format_error);
+  }
+  Value scan = zone_start;
+  while (true) {
+    Value scan_done = Core::gte(scan, end);
+    if (Core::truthy(scan_done)) {
+      break;
+    }
+    Value unit = Core::get(units, scan, Value(0));
+    Value terminator = Core::_date_is_line_terminator_impl(unit);
+    if (Core::truthy(terminator)) {
+      Core::raise_error(format_error);
+    }
+    scan = Core::add(scan, Value(1));
+  }
+  Value mode = Core::_date_string_mode_impl();
+  Value zone_from = Core::_date_native_offset_impl(units, zone_start, mode);
+  Value zone_to = Core::_date_native_offset_impl(units, end, mode);
+  Value zone = Core::string_slice(text, zone_from, zone_to);
+  Value offset = Core::_date_offset_minutes_impl(units, zone_start, end);
+  Value parts = Core::_date_datetime_parts_impl(prefix);
+  Value local = Core::_date_utc_ms_impl(parts);
+  Value has_offset = Core::is_not_none(offset);
+  if (Core::truthy(has_offset)) {
+    Value shift = Core::mul(offset, Value(-60000));
+    Value offset_millis = Core::add(local, shift);
+    return offset_millis;
+  }
+  Value abbreviation = Core::_date_abbreviation_offset_impl(units, zone_start, end, zone);
+  Value has_abbreviation = Core::is_not_none(abbreviation);
+  if (Core::truthy(has_abbreviation)) {
+    Value abbreviation_shift = Core::mul(abbreviation, Value(-60000));
+    Value abbreviation_millis = Core::add(local, abbreviation_shift);
+    return abbreviation_millis;
+  }
+  Value resolved = Core::_date_zone_resolve_impl(units, zone_start, end, zone, local);
+  Value millis = Core::_date_named_timestamp_impl(parts, resolved);
+  return millis;
 }
 
 Value Core::_stream_extract_block_impl(Value input) {
@@ -18167,6 +18834,12 @@ Value Core::_apply_model_config_option_impl(Value runtime_options, Value base_op
   return Value();
 }
 
+Value Core::_date_datetime_format_error_impl() {
+  axir_coverage_mark("_date_datetime_format_error_impl");
+  Value error = Core::runtime_error(Value("Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted."));
+  return error;
+}
+
 Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Value prediction) {
   axir_coverage_mark("_adjust_optimization_score_for_actions");
   Value empty_list = Value::array();
@@ -18211,6 +18884,49 @@ Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Valu
     }
   }
   return adjusted;
+}
+
+Value Core::_date_values_error_impl() {
+  axir_coverage_mark("_date_values_error_impl");
+  Value error = Core::runtime_error(Value("Invalid date and time values. Please ensure all components are correct."));
+  return error;
+}
+
+Value Core::_date_datetime_parts_impl(Value prefix) {
+  axir_coverage_mark("_date_datetime_parts_impl");
+  Value parts = Value::object();
+  Value year = Core::get(prefix, Value("year"), Value());
+  Core::set(parts, Value("year"), year);
+  Value month = Core::get(prefix, Value("month"), Value());
+  Core::set(parts, Value("month"), month);
+  Value day = Core::get(prefix, Value("day"), Value());
+  Core::set(parts, Value("day"), day);
+  Value hour = Core::get(prefix, Value("hour"), Value());
+  Core::set(parts, Value("hour"), hour);
+  Value minute = Core::get(prefix, Value("minute"), Value());
+  Core::set(parts, Value("minute"), minute);
+  Value second = Core::get(prefix, Value("second"), Value());
+  Core::set(parts, Value("second"), second);
+  Value millisecond = Core::get(prefix, Value("millisecond"), Value());
+  Core::set(parts, Value("millisecond"), millisecond);
+  Value bad_hour = Core::gt(hour, Value(23));
+  Value bad_minute = Core::gt(minute, Value(59));
+  Value bad_second = Core::gt(second, Value(59));
+  Value bad_clock = Core::or_(bad_hour, bad_minute);
+  bad_clock = Core::or_(bad_clock, bad_second);
+  if (Core::truthy(bad_clock)) {
+    Value clock_error = Core::_date_values_error_impl();
+    Core::raise_error(clock_error);
+  }
+  Value millis = Core::_date_utc_ms_impl(parts);
+  Value round = Core::_date_parts_of_ms_impl(millis);
+  Value same = Core::_date_same_parts_impl(round, parts);
+  Value different = Core::not_(same);
+  if (Core::truthy(different)) {
+    Value calendar_error = Core::_date_values_error_impl();
+    Core::raise_error(calendar_error);
+  }
+  return parts;
 }
 
 Value Core::_build_gen_chat_request(Value gen, Value messages, Value options, Value selection, Value step) {
@@ -18465,6 +19181,54 @@ Value Core::chat_session_observe_output(Value gen, Value state, Value event) {
   return output;
 }
 
+Value Core::_date_abbreviation_offset_impl(Value units, Value start, Value end, Value zone) {
+  axir_coverage_mark("_date_abbreviation_offset_impl");
+  Value none = Core::none();
+  Value cursor = start;
+  while (true) {
+    Value done = Core::gte(cursor, end);
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value unit = Core::get(units, cursor, Value(0));
+    Value letter = Core::_date_ascii_letter_impl(unit);
+    Value not_letter = Core::not_(letter);
+    if (Core::truthy(not_letter)) {
+      return none;
+    }
+    cursor = Core::add(cursor, Value(1));
+  }
+  Value key = Core::string_lower(zone);
+  Value tables = Core::json_parse(Value("{\n  \"generator\": \"tools/axir/extractors/date-goldens.ts\",\n  \"source\": \"src/ax/dsp/datetime.ts\",\n  \"offsets_minutes\": {\n    \"ACDT\": 630,\n    \"ACST\": 570,\n    \"ADT\": -180,\n    \"AEDT\": 660,\n    \"AEST\": 600,\n    \"AKDT\": -480,\n    \"AKST\": -540,\n    \"ART\": -180,\n    \"AWST\": 480,\n    \"BRT\": -180,\n    \"CAT\": 120,\n    \"CDT\": -300,\n    \"CEST\": 120,\n    \"CET\": 60,\n    \"EAT\": 180,\n    \"EDT\": -240,\n    \"EEST\": 180,\n    \"EET\": 120,\n    \"EST\": -300,\n    \"HDT\": -540,\n    \"HKT\": 480,\n    \"HST\": -600,\n    \"JST\": 540,\n    \"KST\": 540,\n    \"MDT\": -360,\n    \"MSK\": 180,\n    \"MST\": -420,\n    \"NDT\": -150,\n    \"NPT\": 345,\n    \"NZDT\": 780,\n    \"NZST\": 720,\n    \"PDT\": -420,\n    \"PKT\": 300,\n    \"PST\": -480,\n    \"SAST\": 120,\n    \"SGT\": 480,\n    \"WAT\": 60,\n    \"WEST\": 60,\n    \"WET\": 0,\n    \"WIB\": 420\n  },\n  \"rejected\": [\n    \"ACT\",\n    \"AET\",\n    \"AGT\",\n    \"AST\",\n    \"BET\",\n    \"BST\",\n    \"CNT\",\n    \"CST\",\n    \"CTT\",\n    \"ECT\",\n    \"GST\",\n    \"IET\",\n    \"IST\",\n    \"MIT\",\n    \"NET\",\n    \"NST\",\n    \"PLT\",\n    \"PNT\",\n    \"PRT\",\n    \"SST\",\n    \"VST\"\n  ]\n}\n"));
+  Value empty_offsets = Value::object();
+  Value offsets = Core::get(tables, Value("offsets_minutes"), empty_offsets);
+  Value abbreviations = Core::map_keys(offsets);
+  for (auto abbreviation : Core::iter(abbreviations)) {
+    Value lowered = Core::string_lower(abbreviation);
+    Value same = Core::eq(lowered, key);
+    if (Core::truthy(same)) {
+      Value minutes = Core::get(offsets, abbreviation, Value());
+      return minutes;
+    }
+  }
+  Value empty_rejected = Value::array();
+  Value rejected = Core::get(tables, Value("rejected"), empty_rejected);
+  for (auto rejected_abbreviation : Core::iter(rejected)) {
+    Value rejected_lowered = Core::string_lower(rejected_abbreviation);
+    Value is_rejected = Core::eq(rejected_lowered, key);
+    if (Core::truthy(is_rejected)) {
+      Value message_pieces = Value::array();
+      Core::append(message_pieces, Value("Ambiguous or unsupported time zone abbreviation \""));
+      Core::append(message_pieces, zone);
+      Core::append(message_pieces, Value("\". Please provide an IANA time zone name or a UTC offset. For example, \"Europe/London\" or \"+01:00\"."));
+      Value message = Core::string_join(Value(""), message_pieces);
+      Value error = Core::runtime_error(message);
+      Core::raise_error(error);
+    }
+  }
+  return none;
+}
+
 Value Core::_stream_markdown_list_impl(Value input) {
   axir_coverage_mark("_stream_markdown_list_impl");
   Value items = Value::array();
@@ -18570,6 +19334,68 @@ Value Core::chat_session_apply_boundary_updates(Value request, Value updates, Va
   Core::set(result, Value("level"), current_level);
   Core::set(result, Value("applied"), applied);
   return result;
+}
+
+Value Core::_date_zone_resolve_impl(Value units, Value start, Value end, Value zone, Value probe) {
+  axir_coverage_mark("_date_zone_resolve_impl");
+  Value resolved = Value::object();
+  Value fixed = Core::_date_offset_zone_minutes_impl(units, start, end);
+  Value is_fixed = Core::is_not_none(fixed);
+  if (Core::truthy(is_fixed)) {
+    Core::set(resolved, Value("kind"), Value("fixed"));
+    Value fixed_seconds = Core::mul(fixed, Value(60));
+    Core::set(resolved, Value("offset_seconds"), fixed_seconds);
+    return resolved;
+  }
+  Value unrecognized_pieces = Value::array();
+  Core::append(unrecognized_pieces, Value("Unrecognized time zone "));
+  Core::append(unrecognized_pieces, zone);
+  Core::append(unrecognized_pieces, Value(". Please provide a valid time zone name, abbreviation, or offset. For example, \"America/New_York\", \"EST\", or \"+05:30\"."));
+  Value unrecognized = Core::string_join(Value(""), unrecognized_pieces);
+  Value cursor = start;
+  while (true) {
+    Value done = Core::gte(cursor, end);
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value unit = Core::get(units, cursor, Value(0));
+    Value non_ascii = Core::gt(unit, Value(127));
+    if (Core::truthy(non_ascii)) {
+      Value non_ascii_error = Core::runtime_error(unrecognized);
+      Core::raise_error(non_ascii_error);
+    }
+    cursor = Core::add(cursor, Value(1));
+  }
+  Value key = Core::string_lower(zone);
+  Value table = Core::json_parse(Value("{\"generator\":\"tools/axir/extractors/date-goldens.ts\",\"source\":{\"node\":\"v26.7.0\",\"icu\":\"78.3\",\"tz\":\"2026a\",\"tzdata_candidates\":\"2026b-rearguard\"},\"keys\":{\"africa/abidjan\":0,\"africa/accra\":1,\"africa/addis_ababa\":2,\"africa/algiers\":3,\"africa/asmera\":4,\"africa/asmara\":4,\"africa/bamako\":5,\"africa/timbuktu\":5,\"africa/bangui\":6,\"africa/banjul\":7,\"africa/bissau\":8,\"africa/blantyre\":9,\"africa/brazzaville\":10,\"africa/bujumbura\":11,\"africa/cairo\":12,\"egypt\":12,\"africa/casablanca\":13,\"africa/ceuta\":14,\"africa/conakry\":15,\"africa/dakar\":16,\"africa/dar_es_salaam\":17,\"africa/djibouti\":18,\"africa/douala\":19,\"africa/el_aaiun\":20,\"africa/freetown\":21,\"africa/gaborone\":22,\"africa/harare\":23,\"africa/johannesburg\":24,\"africa/juba\":25,\"africa/kampala\":26,\"africa/khartoum\":27,\"africa/kigali\":28,\"africa/kinshasa\":29,\"africa/lagos\":30,\"africa/libreville\":31,\"africa/lome\":32,\"africa/luanda\":33,\"africa/lubumbashi\":34,\"africa/lusaka\":35,\"africa/malabo\":36,\"africa/maputo\":37,\"africa/maseru\":38,\"africa/mbabane\":39,\"africa/mogadishu\":40,\"africa/monrovia\":41,\"africa/nairobi\":42,\"africa/ndjamena\":43,\"africa/niamey\":44,\"africa/nouakchott\":45,\"africa/ouagadougou\":46,\"africa/porto-novo\":47,\"africa/sao_tome\":48,\"africa/tripoli\":49,\"libya\":49,\"africa/tunis\":50,\"africa/windhoek\":51,\"america/adak\":52,\"america/atka\":52,\"us/aleutian\":52,\"america/anchorage\":53,\"us/alaska\":53,\"america/anguilla\":54,\"america/antigua\":55,\"america/araguaina\":56,\"america/argentina/la_rioja\":57,\"america/argentina/rio_gallegos\":58,\"america/argentina/salta\":59,\"america/argentina/san_juan\":60,\"america/argentina/san_luis\":61,\"america/argentina/tucuman\":62,\"america/argentina/ushuaia\":63,\"america/aruba\":64,\"america/asuncion\":65,\"america/bahia\":66,\"america/bahia_banderas\":67,\"america/barbados\":68,\"america/belem\":69,\"america/belize\":70,\"america/blanc-sablon\":71,\"america/boa_vista\":72,\"america/bogota\":73,\"america/boise\":74,\"america/buenos_aires\":75,\"america/argentina/buenos_aires\":75,\"america/cambridge_bay\":76,\"america/campo_grande\":77,\"america/cancun\":78,\"america/caracas\":79,\"america/catamarca\":80,\"america/argentina/catamarca\":80,\"america/argentina/comodrivadavia\":80,\"america/cayenne\":81,\"america/cayman\":82,\"america/chicago\":83,\"cst6cdt\":83,\"us/central\":83,\"america/chihuahua\":84,\"america/ciudad_juarez\":85,\"america/coral_harbour\":86,\"america/atikokan\":86,\"america/cordoba\":87,\"america/argentina/cordoba\":87,\"america/rosario\":87,\"america/costa_rica\":88,\"america/coyhaique\":89,\"america/creston\":90,\"america/cuiaba\":91,\"america/curacao\":92,\"america/danmarkshavn\":93,\"america/dawson\":94,\"america/dawson_creek\":95,\"america/denver\":96,\"america/shiprock\":96,\"mst7mdt\":96,\"navajo\":96,\"us/mountain\":96,\"america/detroit\":97,\"us/michigan\":97,\"america/dominica\":98,\"america/edmonton\":99,\"america/yellowknife\":99,\"canada/mountain\":99,\"america/eirunepe\":100,\"america/el_salvador\":101,\"america/fort_nelson\":102,\"america/fortaleza\":103,\"america/glace_bay\":104,\"america/godthab\":105,\"america/nuuk\":105,\"america/goose_bay\":106,\"america/grand_turk\":107,\"america/grenada\":108,\"america/guadeloupe\":109,\"america/guatemala\":110,\"america/guayaquil\":111,\"america/guyana\":112,\"america/halifax\":113,\"canada/atlantic\":113,\"america/havana\":114,\"cuba\":114,\"america/hermosillo\":115,\"america/indiana/knox\":116,\"america/knox_in\":116,\"us/indiana-starke\":116,\"america/indiana/marengo\":117,\"america/indiana/petersburg\":118,\"america/indiana/tell_city\":119,\"america/indiana/vevay\":120,\"america/indiana/vincennes\":121,\"america/indiana/winamac\":122,\"america/indianapolis\":123,\"america/fort_wayne\":123,\"america/indiana/indianapolis\":123,\"us/east-indiana\":123,\"america/inuvik\":124,\"america/iqaluit\":125,\"america/pangnirtung\":125,\"america/jamaica\":126,\"jamaica\":126,\"america/jujuy\":127,\"america/argentina/jujuy\":127,\"america/juneau\":128,\"america/kentucky/monticello\":129,\"america/kralendijk\":130,\"america/la_paz\":131,\"america/lima\":132,\"america/los_angeles\":133,\"pst8pdt\":133,\"us/pacific\":133,\"us/pacific-new\":133,\"america/louisville\":134,\"america/kentucky/louisville\":134,\"america/lower_princes\":135,\"america/maceio\":136,\"america/managua\":137,\"america/manaus\":138,\"brazil/west\":138,\"america/marigot\":139,\"america/martinique\":140,\"america/matamoros\":141,\"america/mazatlan\":142,\"mexico/bajasur\":142,\"america/mendoza\":143,\"america/argentina/mendoza\":143,\"america/menominee\":144,\"america/merida\":145,\"america/metlakatla\":146,\"america/mexico_city\":147,\"mexico/general\":147,\"america/miquelon\":148,\"america/moncton\":149,\"america/monterrey\":150,\"america/montevideo\":151,\"america/montserrat\":152,\"america/nassau\":153,\"america/new_york\":154,\"est5edt\":154,\"us/eastern\":154,\"america/nome\":155,\"america/noronha\":156,\"brazil/denoronha\":156,\"america/north_dakota/beulah\":157,\"america/north_dakota/center\":158,\"america/north_dakota/new_salem\":159,\"america/ojinaga\":160,\"america/panama\":161,\"america/paramaribo\":162,\"america/phoenix\":163,\"us/arizona\":163,\"america/port-au-prince\":164,\"america/port_of_spain\":165,\"america/porto_velho\":166,\"america/puerto_rico\":167,\"america/punta_arenas\":168,\"america/rankin_inlet\":169,\"america/recife\":170,\"america/regina\":171,\"canada/east-saskatchewan\":171,\"canada/saskatchewan\":171,\"america/resolute\":172,\"america/rio_branco\":173,\"america/porto_acre\":173,\"brazil/acre\":173,\"america/santarem\":174,\"america/santiago\":175,\"chile/continental\":175,\"america/santo_domingo\":176,\"america/sao_paulo\":177,\"brazil/east\":177,\"america/scoresbysund\":178,\"america/sitka\":179,\"america/st_barthelemy\":180,\"america/st_johns\":181,\"canada/newfoundland\":181,\"america/st_kitts\":182,\"america/st_lucia\":183,\"america/st_thomas\":184,\"america/virgin\":184,\"america/st_vincent\":185,\"america/swift_current\":186,\"america/tegucigalpa\":187,\"america/thule\":188,\"america/tijuana\":189,\"america/ensenada\":189,\"america/santa_isabel\":189,\"mexico/bajanorte\":189,\"america/toronto\":190,\"america/montreal\":190,\"america/nipigon\":190,\"america/thunder_bay\":190,\"canada/eastern\":190,\"america/tortola\":191,\"america/vancouver\":192,\"canada/pacific\":192,\"america/whitehorse\":193,\"canada/yukon\":193,\"america/winnipeg\":194,\"america/rainy_river\":194,\"canada/central\":194,\"america/yakutat\":195,\"antarctica/casey\":196,\"antarctica/davis\":197,\"antarctica/dumontdurville\":198,\"antarctica/macquarie\":199,\"antarctica/mawson\":200,\"antarctica/mcmurdo\":201,\"antarctica/south_pole\":201,\"antarctica/palmer\":202,\"antarctica/rothera\":203,\"antarctica/syowa\":204,\"antarctica/troll\":205,\"antarctica/vostok\":206,\"arctic/longyearbyen\":207,\"atlantic/jan_mayen\":207,\"asia/aden\":208,\"asia/almaty\":209,\"asia/amman\":210,\"asia/anadyr\":211,\"asia/aqtau\":212,\"asia/aqtobe\":213,\"asia/ashgabat\":214,\"asia/ashkhabad\":214,\"asia/atyrau\":215,\"asia/baghdad\":216,\"asia/bahrain\":217,\"asia/baku\":218,\"asia/bangkok\":219,\"asia/barnaul\":220,\"asia/beirut\":221,\"asia/bishkek\":222,\"asia/brunei\":223,\"asia/calcutta\":224,\"asia/kolkata\":224,\"asia/chita\":225,\"asia/colombo\":226,\"asia/damascus\":227,\"asia/dhaka\":228,\"asia/dacca\":228,\"asia/dili\":229,\"asia/dubai\":230,\"asia/dushanbe\":231,\"asia/famagusta\":232,\"asia/gaza\":233,\"asia/hebron\":234,\"asia/hong_kong\":235,\"hongkong\":235,\"asia/hovd\":236,\"asia/irkutsk\":237,\"asia/jakarta\":238,\"asia/jayapura\":239,\"asia/jerusalem\":240,\"asia/tel_aviv\":240,\"israel\":240,\"asia/kabul\":241,\"asia/kamchatka\":242,\"asia/karachi\":243,\"asia/katmandu\":244,\"asia/kathmandu\":244,\"asia/khandyga\":245,\"asia/krasnoyarsk\":246,\"asia/kuala_lumpur\":247,\"asia/kuching\":248,\"asia/kuwait\":249,\"asia/macau\":250,\"asia/macao\":250,\"asia/magadan\":251,\"asia/makassar\":252,\"asia/ujung_pandang\":252,\"asia/manila\":253,\"asia/muscat\":254,\"asia/nicosia\":255,\"europe/nicosia\":255,\"asia/novokuznetsk\":256,\"asia/novosibirsk\":257,\"asia/omsk\":258,\"asia/oral\":259,\"asia/phnom_penh\":260,\"asia/pontianak\":261,\"asia/pyongyang\":262,\"asia/qatar\":263,\"asia/qostanay\":264,\"asia/qyzylorda\":265,\"asia/rangoon\":266,\"asia/yangon\":266,\"asia/riyadh\":267,\"asia/saigon\":268,\"asia/ho_chi_minh\":268,\"asia/sakhalin\":269,\"asia/samarkand\":270,\"asia/seoul\":271,\"rok\":271,\"asia/shanghai\":272,\"asia/chongqing\":272,\"asia/chungking\":272,\"asia/harbin\":272,\"prc\":272,\"asia/singapore\":273,\"singapore\":273,\"asia/srednekolymsk\":274,\"asia/taipei\":275,\"roc\":275,\"asia/tashkent\":276,\"asia/tbilisi\":277,\"asia/tehran\":278,\"iran\":278,\"asia/thimphu\":279,\"asia/thimbu\":279,\"asia/tokyo\":280,\"japan\":280,\"asia/tomsk\":281,\"asia/ulaanbaatar\":282,\"asia/choibalsan\":282,\"asia/ulan_bator\":282,\"asia/urumqi\":283,\"asia/kashgar\":283,\"asia/ust-nera\":284,\"asia/vientiane\":285,\"asia/vladivostok\":286,\"asia/yakutsk\":287,\"asia/yekaterinburg\":288,\"asia/yerevan\":289,\"atlantic/azores\":290,\"atlantic/bermuda\":291,\"atlantic/canary\":292,\"atlantic/cape_verde\":293,\"atlantic/faeroe\":294,\"atlantic/faroe\":294,\"atlantic/madeira\":295,\"atlantic/reykjavik\":296,\"iceland\":296,\"atlantic/south_georgia\":297,\"atlantic/st_helena\":298,\"atlantic/stanley\":299,\"australia/adelaide\":300,\"australia/south\":300,\"australia/brisbane\":301,\"australia/queensland\":301,\"australia/broken_hill\":302,\"australia/yancowinna\":302,\"australia/darwin\":303,\"australia/north\":303,\"australia/eucla\":304,\"australia/hobart\":305,\"australia/currie\":305,\"australia/tasmania\":305,\"australia/lindeman\":306,\"australia/lord_howe\":307,\"australia/lhi\":307,\"australia/melbourne\":308,\"australia/victoria\":308,\"australia/perth\":309,\"australia/west\":309,\"australia/sydney\":310,\"australia/act\":310,\"australia/canberra\":310,\"australia/nsw\":310,\"etc/gmt+1\":311,\"etc/gmt+10\":312,\"etc/gmt+11\":313,\"etc/gmt+12\":314,\"etc/gmt+2\":315,\"etc/gmt+3\":316,\"etc/gmt+4\":317,\"etc/gmt+5\":318,\"etc/gmt+6\":319,\"etc/gmt+7\":320,\"etc/gmt+8\":321,\"etc/gmt+9\":322,\"etc/gmt-1\":323,\"etc/gmt-10\":324,\"etc/gmt-11\":325,\"etc/gmt-12\":326,\"etc/gmt-13\":327,\"etc/gmt-14\":328,\"etc/gmt-2\":329,\"etc/gmt-3\":330,\"etc/gmt-4\":331,\"etc/gmt-5\":332,\"etc/gmt-6\":333,\"etc/gmt-7\":334,\"etc/gmt-8\":335,\"etc/gmt-9\":336,\"europe/amsterdam\":337,\"europe/andorra\":338,\"europe/astrakhan\":339,\"europe/athens\":340,\"europe/belgrade\":341,\"europe/berlin\":342,\"europe/bratislava\":343,\"europe/brussels\":344,\"met\":344,\"europe/bucharest\":345,\"europe/budapest\":346,\"europe/busingen\":347,\"europe/chisinau\":348,\"europe/tiraspol\":348,\"europe/copenhagen\":349,\"europe/dublin\":350,\"eire\":350,\"europe/gibraltar\":351,\"europe/guernsey\":352,\"europe/helsinki\":353,\"europe/isle_of_man\":354,\"europe/istanbul\":355,\"asia/istanbul\":355,\"turkey\":355,\"europe/jersey\":356,\"europe/kaliningrad\":357,\"europe/kiev\":358,\"europe/kyiv\":358,\"europe/uzhgorod\":358,\"europe/zaporozhye\":358,\"europe/kirov\":359,\"europe/lisbon\":360,\"portugal\":360,\"europe/ljubljana\":361,\"europe/london\":362,\"europe/belfast\":362,\"gb\":362,\"gb-eire\":362,\"europe/luxembourg\":363,\"europe/madrid\":364,\"europe/malta\":365,\"europe/mariehamn\":366,\"europe/minsk\":367,\"europe/monaco\":368,\"europe/moscow\":369,\"w-su\":369,\"europe/oslo\":370,\"europe/paris\":371,\"europe/podgorica\":372,\"europe/prague\":373,\"europe/riga\":374,\"europe/rome\":375,\"europe/samara\":376,\"europe/san_marino\":377,\"europe/sarajevo\":378,\"europe/saratov\":379,\"europe/simferopol\":380,\"europe/skopje\":381,\"europe/sofia\":382,\"europe/stockholm\":383,\"europe/tallinn\":384,\"europe/tirane\":385,\"europe/ulyanovsk\":386,\"europe/vaduz\":387,\"europe/vatican\":388,\"europe/vienna\":389,\"europe/vilnius\":390,\"europe/volgograd\":391,\"europe/warsaw\":392,\"poland\":392,\"europe/zagreb\":393,\"europe/zurich\":394,\"indian/antananarivo\":395,\"indian/chagos\":396,\"indian/christmas\":397,\"indian/cocos\":398,\"indian/comoro\":399,\"indian/kerguelen\":400,\"indian/mahe\":401,\"indian/maldives\":402,\"indian/mauritius\":403,\"indian/mayotte\":404,\"indian/reunion\":405,\"pacific/apia\":406,\"pacific/auckland\":407,\"nz\":407,\"pacific/bougainville\":408,\"pacific/chatham\":409,\"nz-chat\":409,\"pacific/easter\":410,\"chile/easterisland\":410,\"pacific/efate\":411,\"pacific/enderbury\":412,\"pacific/kanton\":412,\"pacific/fakaofo\":413,\"pacific/fiji\":414,\"pacific/funafuti\":415,\"pacific/galapagos\":416,\"pacific/gambier\":417,\"pacific/guadalcanal\":418,\"pacific/guam\":419,\"pacific/honolulu\":420,\"pacific/johnston\":420,\"us/hawaii\":420,\"pacific/kiritimati\":421,\"pacific/kosrae\":422,\"pacific/kwajalein\":423,\"kwajalein\":423,\"pacific/majuro\":424,\"pacific/marquesas\":425,\"pacific/midway\":426,\"pacific/nauru\":427,\"pacific/niue\":428,\"pacific/norfolk\":429,\"pacific/noumea\":430,\"pacific/pago_pago\":431,\"pacific/samoa\":431,\"us/samoa\":431,\"pacific/palau\":432,\"pacific/pitcairn\":433,\"pacific/ponape\":434,\"pacific/pohnpei\":434,\"pacific/port_moresby\":435,\"pacific/rarotonga\":436,\"pacific/saipan\":437,\"pacific/tahiti\":438,\"pacific/tarawa\":439,\"pacific/tongatapu\":440,\"pacific/truk\":441,\"pacific/chuuk\":441,\"pacific/yap\":441,\"pacific/wake\":442,\"pacific/wallis\":443,\"systemv/ast4\":444,\"systemv/ast4adt\":445,\"systemv/cst6\":446,\"systemv/cst6cdt\":447,\"systemv/est5\":448,\"systemv/est5edt\":449,\"systemv/hst10\":450,\"systemv/mst7\":451,\"systemv/mst7mdt\":452,\"systemv/pst8\":453,\"systemv/pst8pdt\":454,\"systemv/yst9\":455,\"systemv/yst9ydt\":456,\"utc\":457,\"etc/gmt\":457,\"etc/gmt+0\":457,\"etc/gmt-0\":457,\"etc/gmt0\":457,\"etc/greenwich\":457,\"etc/uct\":457,\"etc/utc\":457,\"etc/universal\":457,\"etc/zulu\":457,\"gmt\":457,\"gmt+0\":457,\"gmt-0\":457,\"gmt0\":457,\"greenwich\":457,\"uct\":457,\"universal\":457,\"zulu\":457},\"zones\":[[\"Africa/Abidjan\"],[\"Africa/Accra\"],[\"Africa/Addis_Ababa\"],[\"Africa/Algiers\"],[\"Africa/Asmera\",\"Africa/Asmara\"],[\"Africa/Bamako\",\"Africa/Timbuktu\"],[\"Africa/Bangui\"],[\"Africa/Banjul\"],[\"Africa/Bissau\"],[\"Africa/Blantyre\"],[\"Africa/Brazzaville\"],[\"Africa/Bujumbura\"],[\"Africa/Cairo\",\"Egypt\"],[\"Africa/Casablanca\"],[\"Africa/Ceuta\"],[\"Africa/Conakry\"],[\"Africa/Dakar\"],[\"Africa/Dar_es_Salaam\"],[\"Africa/Djibouti\"],[\"Africa/Douala\"],[\"Africa/El_Aaiun\"],[\"Africa/Freetown\"],[\"Africa/Gaborone\"],[\"Africa/Harare\"],[\"Africa/Johannesburg\"],[\"Africa/Juba\"],[\"Africa/Kampala\"],[\"Africa/Khartoum\"],[\"Africa/Kigali\"],[\"Africa/Kinshasa\"],[\"Africa/Lagos\"],[\"Africa/Libreville\"],[\"Africa/Lome\"],[\"Africa/Luanda\"],[\"Africa/Lubumbashi\"],[\"Africa/Lusaka\"],[\"Africa/Malabo\"],[\"Africa/Maputo\"],[\"Africa/Maseru\"],[\"Africa/Mbabane\"],[\"Africa/Mogadishu\"],[\"Africa/Monrovia\"],[\"Africa/Nairobi\"],[\"Africa/Ndjamena\"],[\"Africa/Niamey\"],[\"Africa/Nouakchott\"],[\"Africa/Ouagadougou\"],[\"Africa/Porto-Novo\"],[\"Africa/Sao_Tome\"],[\"Africa/Tripoli\",\"Libya\"],[\"Africa/Tunis\"],[\"Africa/Windhoek\"],[\"America/Adak\",\"America/Atka\",\"US/Aleutian\"],[\"America/Anchorage\",\"US/Alaska\"],[\"America/Anguilla\"],[\"America/Antigua\"],[\"America/Araguaina\"],[\"America/Argentina/La_Rioja\"],[\"America/Argentina/Rio_Gallegos\"],[\"America/Argentina/Salta\"],[\"America/Argentina/San_Juan\"],[\"America/Argentina/San_Luis\"],[\"America/Argentina/Tucuman\"],[\"America/Argentina/Ushuaia\"],[\"America/Aruba\"],[\"America/Asuncion\"],[\"America/Bahia\"],[\"America/Bahia_Banderas\"],[\"America/Barbados\"],[\"America/Belem\"],[\"America/Belize\"],[\"America/Blanc-Sablon\"],[\"America/Boa_Vista\"],[\"America/Bogota\"],[\"America/Boise\"],[\"America/Buenos_Aires\",\"America/Argentina/Buenos_Aires\"],[\"America/Cambridge_Bay\"],[\"America/Campo_Grande\"],[\"America/Cancun\"],[\"America/Caracas\"],[\"America/Catamarca\",\"America/Argentina/Catamarca\",\"America/Argentina/ComodRivadavia\"],[\"America/Cayenne\"],[\"America/Cayman\"],[\"America/Chicago\",\"CST6CDT\",\"US/Central\"],[\"America/Chihuahua\"],[\"America/Ciudad_Juarez\"],[\"America/Coral_Harbour\",\"America/Atikokan\"],[\"America/Cordoba\",\"America/Argentina/Cordoba\",\"America/Rosario\"],[\"America/Costa_Rica\"],[\"America/Coyhaique\"],[\"America/Creston\"],[\"America/Cuiaba\"],[\"America/Curacao\"],[\"America/Danmarkshavn\"],[\"America/Dawson\"],[\"America/Dawson_Creek\"],[\"America/Denver\",\"America/Shiprock\",\"MST7MDT\",\"Navajo\",\"US/Mountain\"],[\"America/Detroit\",\"US/Michigan\"],[\"America/Dominica\"],[\"America/Edmonton\",\"America/Yellowknife\",\"Canada/Mountain\"],[\"America/Eirunepe\"],[\"America/El_Salvador\"],[\"America/Fort_Nelson\"],[\"America/Fortaleza\"],[\"America/Glace_Bay\"],[\"America/Godthab\",\"America/Nuuk\"],[\"America/Goose_Bay\"],[\"America/Grand_Turk\"],[\"America/Grenada\"],[\"America/Guadeloupe\"],[\"America/Guatemala\"],[\"America/Guayaquil\"],[\"America/Guyana\"],[\"America/Halifax\",\"Canada/Atlantic\"],[\"America/Havana\",\"Cuba\"],[\"America/Hermosillo\"],[\"America/Indiana/Knox\",\"America/Knox_IN\",\"US/Indiana-Starke\"],[\"America/Indiana/Marengo\"],[\"America/Indiana/Petersburg\"],[\"America/Indiana/Tell_City\"],[\"America/Indiana/Vevay\"],[\"America/Indiana/Vincennes\"],[\"America/Indiana/Winamac\"],[\"America/Indianapolis\",\"America/Fort_Wayne\",\"America/Indiana/Indianapolis\",\"US/East-Indiana\"],[\"America/Inuvik\"],[\"America/Iqaluit\",\"America/Pangnirtung\"],[\"America/Jamaica\",\"Jamaica\"],[\"America/Jujuy\",\"America/Argentina/Jujuy\"],[\"America/Juneau\"],[\"America/Kentucky/Monticello\"],[\"America/Kralendijk\"],[\"America/La_Paz\"],[\"America/Lima\"],[\"America/Los_Angeles\",\"PST8PDT\",\"US/Pacific\",\"US/Pacific-New\"],[\"America/Louisville\",\"America/Kentucky/Louisville\"],[\"America/Lower_Princes\"],[\"America/Maceio\"],[\"America/Managua\"],[\"America/Manaus\",\"Brazil/West\"],[\"America/Marigot\"],[\"America/Martinique\"],[\"America/Matamoros\"],[\"America/Mazatlan\",\"Mexico/BajaSur\"],[\"America/Mendoza\",\"America/Argentina/Mendoza\"],[\"America/Menominee\"],[\"America/Merida\"],[\"America/Metlakatla\"],[\"America/Mexico_City\",\"Mexico/General\"],[\"America/Miquelon\"],[\"America/Moncton\"],[\"America/Monterrey\"],[\"America/Montevideo\"],[\"America/Montserrat\"],[\"America/Nassau\"],[\"America/New_York\",\"EST5EDT\",\"US/Eastern\"],[\"America/Nome\"],[\"America/Noronha\",\"Brazil/DeNoronha\"],[\"America/North_Dakota/Beulah\"],[\"America/North_Dakota/Center\"],[\"America/North_Dakota/New_Salem\"],[\"America/Ojinaga\"],[\"America/Panama\"],[\"America/Paramaribo\"],[\"America/Phoenix\",\"US/Arizona\"],[\"America/Port-au-Prince\"],[\"America/Port_of_Spain\"],[\"America/Porto_Velho\"],[\"America/Puerto_Rico\"],[\"America/Punta_Arenas\"],[\"America/Rankin_Inlet\"],[\"America/Recife\"],[\"America/Regina\",\"Canada/East-Saskatchewan\",\"Canada/Saskatchewan\"],[\"America/Resolute\"],[\"America/Rio_Branco\",\"America/Porto_Acre\",\"Brazil/Acre\"],[\"America/Santarem\"],[\"America/Santiago\",\"Chile/Continental\"],[\"America/Santo_Domingo\"],[\"America/Sao_Paulo\",\"Brazil/East\"],[\"America/Scoresbysund\"],[\"America/Sitka\"],[\"America/St_Barthelemy\"],[\"America/St_Johns\",\"Canada/Newfoundland\"],[\"America/St_Kitts\"],[\"America/St_Lucia\"],[\"America/St_Thomas\",\"America/Virgin\"],[\"America/St_Vincent\"],[\"America/Swift_Current\"],[\"America/Tegucigalpa\"],[\"America/Thule\"],[\"America/Tijuana\",\"America/Ensenada\",\"America/Santa_Isabel\",\"Mexico/BajaNorte\"],[\"America/Toronto\",\"America/Montreal\",\"America/Nipigon\",\"America/Thunder_Bay\",\"Canada/Eastern\"],[\"America/Tortola\"],[\"America/Vancouver\",\"Canada/Pacific\"],[\"America/Whitehorse\",\"Canada/Yukon\"],[\"America/Winnipeg\",\"America/Rainy_River\",\"Canada/Central\"],[\"America/Yakutat\"],[\"Antarctica/Casey\"],[\"Antarctica/Davis\"],[\"Antarctica/DumontDUrville\"],[\"Antarctica/Macquarie\"],[\"Antarctica/Mawson\"],[\"Antarctica/McMurdo\",\"Antarctica/South_Pole\"],[\"Antarctica/Palmer\"],[\"Antarctica/Rothera\"],[\"Antarctica/Syowa\"],[\"Antarctica/Troll\"],[\"Antarctica/Vostok\"],[\"Arctic/Longyearbyen\",\"Atlantic/Jan_Mayen\"],[\"Asia/Aden\"],[\"Asia/Almaty\"],[\"Asia/Amman\"],[\"Asia/Anadyr\"],[\"Asia/Aqtau\"],[\"Asia/Aqtobe\"],[\"Asia/Ashgabat\",\"Asia/Ashkhabad\"],[\"Asia/Atyrau\"],[\"Asia/Baghdad\"],[\"Asia/Bahrain\"],[\"Asia/Baku\"],[\"Asia/Bangkok\"],[\"Asia/Barnaul\"],[\"Asia/Beirut\"],[\"Asia/Bishkek\"],[\"Asia/Brunei\"],[\"Asia/Calcutta\",\"Asia/Kolkata\"],[\"Asia/Chita\"],[\"Asia/Colombo\"],[\"Asia/Damascus\"],[\"Asia/Dhaka\",\"Asia/Dacca\"],[\"Asia/Dili\"],[\"Asia/Dubai\"],[\"Asia/Dushanbe\"],[\"Asia/Famagusta\"],[\"Asia/Gaza\"],[\"Asia/Hebron\"],[\"Asia/Hong_Kong\",\"Hongkong\"],[\"Asia/Hovd\"],[\"Asia/Irkutsk\"],[\"Asia/Jakarta\"],[\"Asia/Jayapura\"],[\"Asia/Jerusalem\",\"Asia/Tel_Aviv\",\"Israel\"],[\"Asia/Kabul\"],[\"Asia/Kamchatka\"],[\"Asia/Karachi\"],[\"Asia/Katmandu\",\"Asia/Kathmandu\"],[\"Asia/Khandyga\"],[\"Asia/Krasnoyarsk\"],[\"Asia/Kuala_Lumpur\"],[\"Asia/Kuching\"],[\"Asia/Kuwait\"],[\"Asia/Macau\",\"Asia/Macao\"],[\"Asia/Magadan\"],[\"Asia/Makassar\",\"Asia/Ujung_Pandang\"],[\"Asia/Manila\"],[\"Asia/Muscat\"],[\"Asia/Nicosia\",\"Europe/Nicosia\"],[\"Asia/Novokuznetsk\"],[\"Asia/Novosibirsk\"],[\"Asia/Omsk\"],[\"Asia/Oral\"],[\"Asia/Phnom_Penh\"],[\"Asia/Pontianak\"],[\"Asia/Pyongyang\"],[\"Asia/Qatar\"],[\"Asia/Qostanay\"],[\"Asia/Qyzylorda\"],[\"Asia/Rangoon\",\"Asia/Yangon\"],[\"Asia/Riyadh\"],[\"Asia/Saigon\",\"Asia/Ho_Chi_Minh\"],[\"Asia/Sakhalin\"],[\"Asia/Samarkand\"],[\"Asia/Seoul\",\"ROK\"],[\"Asia/Shanghai\",\"Asia/Chongqing\",\"Asia/Chungking\",\"Asia/Harbin\",\"PRC\"],[\"Asia/Singapore\",\"Singapore\"],[\"Asia/Srednekolymsk\"],[\"Asia/Taipei\",\"ROC\"],[\"Asia/Tashkent\"],[\"Asia/Tbilisi\"],[\"Asia/Tehran\",\"Iran\"],[\"Asia/Thimphu\",\"Asia/Thimbu\"],[\"Asia/Tokyo\",\"Japan\"],[\"Asia/Tomsk\"],[\"Asia/Ulaanbaatar\",\"Asia/Choibalsan\",\"Asia/Ulan_Bator\"],[\"Asia/Urumqi\",\"Asia/Kashgar\"],[\"Asia/Ust-Nera\"],[\"Asia/Vientiane\"],[\"Asia/Vladivostok\"],[\"Asia/Yakutsk\"],[\"Asia/Yekaterinburg\"],[\"Asia/Yerevan\"],[\"Atlantic/Azores\"],[\"Atlantic/Bermuda\"],[\"Atlantic/Canary\"],[\"Atlantic/Cape_Verde\"],[\"Atlantic/Faeroe\",\"Atlantic/Faroe\"],[\"Atlantic/Madeira\"],[\"Atlantic/Reykjavik\",\"Iceland\"],[\"Atlantic/South_Georgia\"],[\"Atlantic/St_Helena\"],[\"Atlantic/Stanley\"],[\"Australia/Adelaide\",\"Australia/South\"],[\"Australia/Brisbane\",\"Australia/Queensland\"],[\"Australia/Broken_Hill\",\"Australia/Yancowinna\"],[\"Australia/Darwin\",\"Australia/North\"],[\"Australia/Eucla\"],[\"Australia/Hobart\",\"Australia/Currie\",\"Australia/Tasmania\"],[\"Australia/Lindeman\"],[\"Australia/Lord_Howe\",\"Australia/LHI\"],[\"Australia/Melbourne\",\"Australia/Victoria\"],[\"Australia/Perth\",\"Australia/West\"],[\"Australia/Sydney\",\"Australia/ACT\",\"Australia/Canberra\",\"Australia/NSW\"],[\"Etc/GMT+1\"],[\"Etc/GMT+10\"],[\"Etc/GMT+11\"],[\"Etc/GMT+12\"],[\"Etc/GMT+2\"],[\"Etc/GMT+3\"],[\"Etc/GMT+4\"],[\"Etc/GMT+5\"],[\"Etc/GMT+6\"],[\"Etc/GMT+7\"],[\"Etc/GMT+8\"],[\"Etc/GMT+9\"],[\"Etc/GMT-1\"],[\"Etc/GMT-10\"],[\"Etc/GMT-11\"],[\"Etc/GMT-12\"],[\"Etc/GMT-13\"],[\"Etc/GMT-14\"],[\"Etc/GMT-2\"],[\"Etc/GMT-3\"],[\"Etc/GMT-4\"],[\"Etc/GMT-5\"],[\"Etc/GMT-6\"],[\"Etc/GMT-7\"],[\"Etc/GMT-8\"],[\"Etc/GMT-9\"],[\"Europe/Amsterdam\"],[\"Europe/Andorra\"],[\"Europe/Astrakhan\"],[\"Europe/Athens\"],[\"Europe/Belgrade\"],[\"Europe/Berlin\"],[\"Europe/Bratislava\"],[\"Europe/Brussels\",\"MET\"],[\"Europe/Bucharest\"],[\"Europe/Budapest\"],[\"Europe/Busingen\"],[\"Europe/Chisinau\",\"Europe/Tiraspol\"],[\"Europe/Copenhagen\"],[\"Europe/Dublin\",\"Eire\"],[\"Europe/Gibraltar\"],[\"Europe/Guernsey\"],[\"Europe/Helsinki\"],[\"Europe/Isle_of_Man\"],[\"Europe/Istanbul\",\"Asia/Istanbul\",\"Turkey\"],[\"Europe/Jersey\"],[\"Europe/Kaliningrad\"],[\"Europe/Kiev\",\"Europe/Kyiv\",\"Europe/Uzhgorod\",\"Europe/Zaporozhye\"],[\"Europe/Kirov\"],[\"Europe/Lisbon\",\"Portugal\"],[\"Europe/Ljubljana\"],[\"Europe/London\",\"Europe/Belfast\",\"GB\",\"GB-Eire\"],[\"Europe/Luxembourg\"],[\"Europe/Madrid\"],[\"Europe/Malta\"],[\"Europe/Mariehamn\"],[\"Europe/Minsk\"],[\"Europe/Monaco\"],[\"Europe/Moscow\",\"W-SU\"],[\"Europe/Oslo\"],[\"Europe/Paris\"],[\"Europe/Podgorica\"],[\"Europe/Prague\"],[\"Europe/Riga\"],[\"Europe/Rome\"],[\"Europe/Samara\"],[\"Europe/San_Marino\"],[\"Europe/Sarajevo\"],[\"Europe/Saratov\"],[\"Europe/Simferopol\"],[\"Europe/Skopje\"],[\"Europe/Sofia\"],[\"Europe/Stockholm\"],[\"Europe/Tallinn\"],[\"Europe/Tirane\"],[\"Europe/Ulyanovsk\"],[\"Europe/Vaduz\"],[\"Europe/Vatican\"],[\"Europe/Vienna\"],[\"Europe/Vilnius\"],[\"Europe/Volgograd\"],[\"Europe/Warsaw\",\"Poland\"],[\"Europe/Zagreb\"],[\"Europe/Zurich\"],[\"Indian/Antananarivo\"],[\"Indian/Chagos\"],[\"Indian/Christmas\"],[\"Indian/Cocos\"],[\"Indian/Comoro\"],[\"Indian/Kerguelen\"],[\"Indian/Mahe\"],[\"Indian/Maldives\"],[\"Indian/Mauritius\"],[\"Indian/Mayotte\"],[\"Indian/Reunion\"],[\"Pacific/Apia\"],[\"Pacific/Auckland\",\"NZ\"],[\"Pacific/Bougainville\"],[\"Pacific/Chatham\",\"NZ-CHAT\"],[\"Pacific/Easter\",\"Chile/EasterIsland\"],[\"Pacific/Efate\"],[\"Pacific/Enderbury\",\"Pacific/Kanton\"],[\"Pacific/Fakaofo\"],[\"Pacific/Fiji\"],[\"Pacific/Funafuti\"],[\"Pacific/Galapagos\"],[\"Pacific/Gambier\"],[\"Pacific/Guadalcanal\"],[\"Pacific/Guam\"],[\"Pacific/Honolulu\",\"Pacific/Johnston\",\"US/Hawaii\"],[\"Pacific/Kiritimati\"],[\"Pacific/Kosrae\"],[\"Pacific/Kwajalein\",\"Kwajalein\"],[\"Pacific/Majuro\"],[\"Pacific/Marquesas\"],[\"Pacific/Midway\"],[\"Pacific/Nauru\"],[\"Pacific/Niue\"],[\"Pacific/Norfolk\"],[\"Pacific/Noumea\"],[\"Pacific/Pago_Pago\",\"Pacific/Samoa\",\"US/Samoa\"],[\"Pacific/Palau\"],[\"Pacific/Pitcairn\"],[\"Pacific/Ponape\",\"Pacific/Pohnpei\"],[\"Pacific/Port_Moresby\"],[\"Pacific/Rarotonga\"],[\"Pacific/Saipan\"],[\"Pacific/Tahiti\"],[\"Pacific/Tarawa\"],[\"Pacific/Tongatapu\"],[\"Pacific/Truk\",\"Pacific/Chuuk\",\"Pacific/Yap\"],[\"Pacific/Wake\"],[\"Pacific/Wallis\"],[\"SystemV/AST4\"],[\"SystemV/AST4ADT\"],[\"SystemV/CST6\"],[\"SystemV/CST6CDT\"],[\"SystemV/EST5\"],[\"SystemV/EST5EDT\"],[\"SystemV/HST10\"],[\"SystemV/MST7\"],[\"SystemV/MST7MDT\"],[\"SystemV/PST8\"],[\"SystemV/PST8PDT\"],[\"SystemV/YST9\"],[\"SystemV/YST9YDT\"],[\"UTC\",\"Etc/GMT\",\"Etc/GMT+0\",\"Etc/GMT-0\",\"Etc/GMT0\",\"Etc/Greenwich\",\"Etc/UCT\",\"Etc/UTC\",\"Etc/Universal\",\"Etc/Zulu\",\"GMT\",\"GMT+0\",\"GMT-0\",\"GMT0\",\"Greenwich\",\"UCT\",\"Universal\",\"Zulu\"]]}\n"));
+  Value empty_keys = Value::object();
+  Value keys = Core::get(table, Value("keys"), empty_keys);
+  Value group_index = Core::get(keys, key, Value());
+  Value unknown = Core::is_none(group_index);
+  if (Core::truthy(unknown)) {
+    Value unknown_error = Core::runtime_error(unrecognized);
+    Core::raise_error(unknown_error);
+  }
+  Value empty_zones = Value::array();
+  Value zones = Core::get(table, Value("zones"), empty_zones);
+  Value empty_group = Value::array();
+  Value group = Core::get(zones, group_index, empty_group);
+  for (auto candidate : Core::iter(group)) {
+    Value works = Value(true);
+    try {
+      Core::date_zone_offset(candidate, probe);
+    } catch (const std::exception& e) {
+      Value zone_error = Core::exception_value(e);
+      works = Value(false);
+    }
+    if (Core::truthy(works)) {
+      Core::set(resolved, Value("kind"), Value("named"));
+      Core::set(resolved, Value("name"), candidate);
+      return resolved;
+    }
+  }
+  Value missing_error = Core::runtime_error(unrecognized);
+  Core::raise_error(missing_error);
 }
 
 Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
@@ -18780,6 +19606,73 @@ Value Core::_regex_class_atom(Value s) {
   }
   Value t4 = Core::_regex_literal(c);
   return t4;
+}
+
+Value Core::_date_offset_zone_minutes_impl(Value units, Value start, Value end) {
+  axir_coverage_mark("_date_offset_zone_minutes_impl");
+  Value none = Core::none();
+  Value length = Core::mul(start, Value(-1));
+  length = Core::add(length, end);
+  Value sign_unit = Core::get(units, start, Value(0));
+  Value sign = Value(0);
+  Value plus = Core::eq(sign_unit, Value(43));
+  if (Core::truthy(plus)) {
+    sign = Value(1);
+  }
+  Value minus = Core::eq(sign_unit, Value(45));
+  Value math_minus = Core::eq(sign_unit, Value(8722));
+  Value negative = Core::or_(minus, math_minus);
+  if (Core::truthy(negative)) {
+    sign = Value(-1);
+  }
+  Value no_sign = Core::eq(sign, Value(0));
+  if (Core::truthy(no_sign)) {
+    return none;
+  }
+  Value hour_at = Core::add(start, Value(1));
+  Value hours = Core::_date_digits_impl(units, hour_at, Value(2), end);
+  Value bad_hours = Core::lt(hours, Value(0));
+  if (Core::truthy(bad_hours)) {
+    return none;
+  }
+  Value minutes = Value(0);
+  Value short_form = Core::eq(length, Value(3));
+  Value compact = Core::eq(length, Value(5));
+  Value colon = Core::eq(length, Value(6));
+  if (Core::truthy(compact)) {
+    Value compact_at = Core::add(start, Value(3));
+    minutes = Core::_date_digits_impl(units, compact_at, Value(2), end);
+  }
+  if (Core::truthy(colon)) {
+    Value colon_at = Core::add(start, Value(3));
+    Value colon_unit = Core::get(units, colon_at, Value(0));
+    Value is_colon = Core::eq(colon_unit, Value(58));
+    if (Core::truthy(is_colon)) {
+      Value colon_minutes_at = Core::add(start, Value(4));
+      minutes = Core::_date_digits_impl(units, colon_minutes_at, Value(2), end);
+    }
+    if (!Core::truthy(is_colon)) {
+      minutes = Value(-1);
+    }
+  }
+  Value known_length = Core::or_(short_form, compact);
+  known_length = Core::or_(known_length, colon);
+  Value unknown_length = Core::not_(known_length);
+  if (Core::truthy(unknown_length)) {
+    return none;
+  }
+  Value bad_minutes = Core::lt(minutes, Value(0));
+  Value hours_range = Core::gt(hours, Value(23));
+  Value minutes_range = Core::gt(minutes, Value(59));
+  Value invalid = Core::or_(bad_minutes, hours_range);
+  invalid = Core::or_(invalid, minutes_range);
+  if (Core::truthy(invalid)) {
+    return none;
+  }
+  Value total = Core::mul(hours, Value(60));
+  total = Core::add(total, minutes);
+  Value has_sign = Core::mul(total, sign);
+  return has_sign;
 }
 
 Value Core::chat_session_register_call(Value state, Value call, Value execution) {
@@ -19183,6 +20076,19 @@ Value Core::chat_session_normalize_call(Value call) {
   return call;
 }
 
+Value Core::_date_zone_offset_seconds_impl(Value zone, Value millis) {
+  axir_coverage_mark("_date_zone_offset_seconds_impl");
+  Value kind = Core::get(zone, Value("kind"), Value());
+  Value fixed = Core::eq(kind, Value("fixed"));
+  if (Core::truthy(fixed)) {
+    Value fixed_seconds = Core::get(zone, Value("offset_seconds"), Value());
+    return fixed_seconds;
+  }
+  Value name = Core::get(zone, Value("name"), Value());
+  Value seconds = Core::date_zone_offset(name, millis);
+  return seconds;
+}
+
 Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available) {
   axir_coverage_mark("_prepare_optimizer_run");
   Value empty_map = Value::object();
@@ -19230,6 +20136,22 @@ Value Core::chat_session_defer_final_call(Value state, Value call) {
     return registered;
   }
   return Value(false);
+}
+
+Value Core::_date_parts_in_zone_impl(Value zone, Value millis) {
+  axir_coverage_mark("_date_parts_in_zone_impl");
+  Value seconds = Core::_date_zone_offset_seconds_impl(zone, millis);
+  Value shift = Core::mul(seconds, Value(1000));
+  Value local = Core::add(millis, shift);
+  Value parts = Core::_date_parts_of_ms_impl(local);
+  Value year = Core::get(parts, Value("year"), Value());
+  Value before_era = Core::lte(year, Value(0));
+  if (Core::truthy(before_era)) {
+    Value negated = Core::mul(year, Value(-1));
+    Value era_year = Core::add(negated, Value(1));
+    Core::set(parts, Value("year"), era_year);
+  }
+  return parts;
 }
 
 Value Core::_select_sample_index(Value samples, Value options) {
@@ -19527,6 +20449,15 @@ Value Core::_normalize_optimizer_engine_response(Value response, Value engine_na
   return validated;
 }
 
+Value Core::_date_zone_offset_millis_impl(Value zone, Value millis) {
+  axir_coverage_mark("_date_zone_offset_millis_impl");
+  Value parts = Core::_date_parts_in_zone_impl(zone, millis);
+  Value local = Core::_date_utc_ms_impl(parts);
+  Value negated = Core::mul(millis, Value(-1));
+  Value offset = Core::add(local, negated);
+  return offset;
+}
+
 Value Core::_forward_impl(Value gen, Value client, Value values, Value options) {
   axir_coverage_mark("_forward_impl");
   Value base_options = Core::get(gen, Value("options"), Value());
@@ -19587,6 +20518,7 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
   Core::append(ordered_messages, user_message);
   Value output_fields = Core::get(signature, Value("output_fields"), Value());
   Core::_append_structured_output_instruction(ordered_messages, output_fields, selection);
+  output_fields = Core::_date_parse_fields_impl(output_fields, base_options, options);
   Value validation_feedback_snake = Core::get(runtime_options, Value("validation_feedback"), Value(""));
   Value validation_feedback = Core::get(runtime_options, Value("validationFeedback"), validation_feedback_snake);
   Value has_validation_feedback = Core::truthy_value(validation_feedback);
@@ -19826,6 +20758,28 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
   throw AxError("runtime", "unreachable AxGen forward loop exit");
 }
 
+Value Core::_date_named_timestamp_impl(Value parts, Value zone) {
+  axir_coverage_mark("_date_named_timestamp_impl");
+  Value utc = Core::_date_utc_ms_impl(parts);
+  Value offset = Core::_date_zone_offset_millis_impl(zone, utc);
+  Value negated = Core::mul(offset, Value(-1));
+  Value timestamp = Core::add(utc, negated);
+  Value adjusted = Core::_date_zone_offset_millis_impl(zone, timestamp);
+  Value moved = Core::ne(adjusted, offset);
+  if (Core::truthy(moved)) {
+    Value adjusted_negated = Core::mul(adjusted, Value(-1));
+    timestamp = Core::add(utc, adjusted_negated);
+  }
+  Value actual = Core::_date_parts_in_zone_impl(zone, timestamp);
+  Value same = Core::_date_same_parts_impl(actual, parts);
+  Value different = Core::not_(same);
+  if (Core::truthy(different)) {
+    Value error = Core::_date_values_error_impl();
+    Core::raise_error(error);
+  }
+  return timestamp;
+}
+
 Value Core::_stream_field_flag_impl(Value target, Value snake, Value camel) {
   axir_coverage_mark("_stream_field_flag_impl");
   Value snake_value = Core::get(target, snake, Value(false));
@@ -19933,6 +20887,41 @@ Value Core::_stream_field_type_label_impl(Value field) {
   return base;
 }
 
+Value Core::_date_parse_range_impl(Value value, Value kind) {
+  axir_coverage_mark("_date_parse_range_impl");
+  Value endpoints = Core::_date_range_endpoints_impl(value);
+  Value range_millis = Value::object();
+  Value names = Value::array();
+  Core::append(names, Value("start"));
+  Core::append(names, Value("end"));
+  for (auto key : Core::iter(names)) {
+    Value endpoint = Core::get(endpoints, key, Value());
+    Value is_text = Core::type_is(endpoint, Value("string"));
+    Value not_text = Core::not_(is_text);
+    if (Core::truthy(not_text)) {
+      Value shape_error = Core::_date_range_format_error_impl();
+      Core::raise_error(shape_error);
+    }
+    Value is_date = Core::eq(kind, Value("date"));
+    if (Core::truthy(is_date)) {
+      Value date_millis = Core::_date_parse_date_impl(endpoint);
+      Core::set(range_millis, key, date_millis);
+    }
+    if (!Core::truthy(is_date)) {
+      Value datetime_millis = Core::_date_parse_datetime_impl(endpoint);
+      Core::set(range_millis, key, datetime_millis);
+    }
+  }
+  Value start = Core::get(range_millis, Value("start"), Value());
+  Value end = Core::get(range_millis, Value("end"), Value());
+  Value reversed = Core::lt(end, start);
+  if (Core::truthy(reversed)) {
+    Value order_error = Core::runtime_error(Value("Invalid range. End must be greater than or equal to start."));
+    Core::raise_error(order_error);
+  }
+  return range_millis;
+}
+
 Value Core::_build_optimizer_evidence_batch(Value eval_result, Value components) {
   axir_coverage_mark("_build_optimizer_evidence_batch");
   Value empty_list = Value::array();
@@ -20017,6 +21006,12 @@ Value Core::chat_session_has_queued_updates(Value state) {
   return Value(false);
 }
 
+Value Core::_date_range_format_error_impl() {
+  axir_coverage_mark("_date_range_format_error_impl");
+  Value error = Core::runtime_error(Value("Invalid range format. Provide a JSON object with \"start\" and \"end\", a two-item array, or an interval using start/end."));
+  return error;
+}
+
 Value Core::chat_session_native_update(Value state, Value id) {
   axir_coverage_mark("chat_session_native_update");
   Value terminal = Core::get(state, Value("terminal"), Value(false));
@@ -20048,6 +21043,53 @@ Value Core::_stream_field_title_impl(Value field) {
     return title;
   }
   return name;
+}
+
+Value Core::_date_range_endpoints_impl(Value value) {
+  axir_coverage_mark("_date_range_endpoints_impl");
+  Value is_text = Core::type_is(value, Value("string"));
+  if (Core::truthy(is_text)) {
+    Value from_text = Core::_date_range_string_impl(value);
+    return from_text;
+  }
+  Value endpoints = Value::object();
+  Value is_list = Core::type_is(value, Value("list"));
+  if (Core::truthy(is_list)) {
+    Value count = Core::len(value);
+    Value pair = Core::eq(count, Value(2));
+    if (Core::truthy(pair)) {
+      Value first = Core::list_get(value, Value(0));
+      Core::set(endpoints, Value("start"), first);
+      Value second = Core::list_get(value, Value(1));
+      Core::set(endpoints, Value("end"), second);
+      return endpoints;
+    }
+    Value list_error = Core::_date_range_format_error_impl();
+    Core::raise_error(list_error);
+  }
+  Value is_object = Core::type_is(value, Value("object"));
+  if (Core::truthy(is_object)) {
+    Value start = Core::get(value, Value("start"), Value());
+    Value no_start = Core::is_none(start);
+    if (Core::truthy(no_start)) {
+      start = Core::get(value, Value("from"), Value());
+    }
+    Value end = Core::get(value, Value("end"), Value());
+    Value no_end = Core::is_none(end);
+    if (Core::truthy(no_end)) {
+      end = Core::get(value, Value("to"), Value());
+    }
+    Value has_start = Core::is_not_none(start);
+    Value has_end = Core::is_not_none(end);
+    Value complete = Core::and_(has_start, has_end);
+    if (Core::truthy(complete)) {
+      Core::set(endpoints, Value("start"), start);
+      Core::set(endpoints, Value("end"), end);
+      return endpoints;
+    }
+  }
+  Value error = Core::_date_range_format_error_impl();
+  Core::raise_error(error);
 }
 
 Value Core::_stream_required_missing_error_impl(Value field) {
@@ -20326,6 +21368,46 @@ Value Core::_stream_validate_constraints_impl(Value field, Value value, Value ki
   return Value();
 }
 
+Value Core::_date_range_string_impl(Value value) {
+  axir_coverage_mark("_date_range_string_impl");
+  Value text = Core::_date_strip_code_fence_impl(value);
+  Value opens_object = Core::string_starts_with(text, Value("{"));
+  Value opens_list = Core::string_starts_with(text, Value("["));
+  Value is_json = Core::or_(opens_object, opens_list);
+  if (Core::truthy(is_json)) {
+    Value from_json = Value::object();
+    try {
+      Value parsed = Core::json_parse_strict(text);
+      from_json = Core::_date_range_endpoints_impl(parsed);
+    } catch (const std::exception& e) {
+      Value json_error = Core::exception_value(e);
+      Value json_format_error = Core::_date_range_format_error_impl();
+      Core::raise_error(json_format_error);
+    }
+    return from_json;
+  }
+  Value endpoints = Value::object();
+  Value slash_parts = Core::string_split(text, Value("/"));
+  Value slash_count = Core::len(slash_parts);
+  Value one_slash = Core::eq(slash_count, Value(2));
+  if (Core::truthy(one_slash)) {
+    Value slash_start = Core::list_get(slash_parts, Value(0));
+    Value slash_start_trimmed = Core::_date_js_trim_impl(slash_start);
+    Core::set(endpoints, Value("start"), slash_start_trimmed);
+    Value slash_end = Core::list_get(slash_parts, Value(1));
+    Value slash_end_trimmed = Core::_date_js_trim_impl(slash_end);
+    Core::set(endpoints, Value("end"), slash_end_trimmed);
+    return endpoints;
+  }
+  Value split = Core::_date_delimiter_split_impl(text);
+  Value no_split = Core::is_none(split);
+  if (Core::truthy(no_split)) {
+    Value error = Core::_date_range_format_error_impl();
+    Core::raise_error(error);
+  }
+  return split;
+}
+
 Value Core::_regex_quantifier(Value s, Value child) {
   axir_coverage_mark("_regex_quantifier");
   Value c = Core::none();
@@ -20539,6 +21621,82 @@ Value Core::_ace_recompute_playbook_stats(Value playbook) {
   Core::set(stats, Value("tokenEstimate"), token_estimate);
   Core::set(playbook, Value("stats"), stats);
   return playbook;
+}
+
+Value Core::_date_delimiter_split_impl(Value text) {
+  axir_coverage_mark("_date_delimiter_split_impl");
+  Value none = Core::none();
+  Value units = Core::string_utf16_units(text);
+  Value count = Core::len(units);
+  Value first_terminator = count;
+  Value last_terminator = Value(-1);
+  Value index = Value(0);
+  while (true) {
+    Value scanned = Core::gte(index, count);
+    if (Core::truthy(scanned)) {
+      break;
+    }
+    Value unit = Core::get(units, index, Value(0));
+    Value terminator = Core::_date_is_line_terminator_impl(unit);
+    if (Core::truthy(terminator)) {
+      last_terminator = index;
+      Value before = Core::lt(index, first_terminator);
+      if (Core::truthy(before)) {
+        first_terminator = index;
+      }
+    }
+    index = Core::add(index, Value(1));
+  }
+  Value cursor = Value(1);
+  while (true) {
+    Value finished = Core::gte(cursor, count);
+    if (Core::truthy(finished)) {
+      break;
+    }
+    Value past_terminator = Core::gt(cursor, first_terminator);
+    if (Core::truthy(past_terminator)) {
+      break;
+    }
+    Value unit = Core::get(units, cursor, Value(0));
+    Value space = Core::_date_space_impl(unit);
+    Value not_space = Core::not_(space);
+    if (Core::truthy(not_space)) {
+      cursor = Core::add(cursor, Value(1));
+      continue;
+    }
+    Value run_start = cursor;
+    Value keyword_at = Core::_date_skip_space_impl(units, cursor, count);
+    Value keyword_length = Core::_date_range_keyword_impl(units, keyword_at, count);
+    cursor = keyword_at;
+    Value no_keyword = Core::eq(keyword_length, Value(0));
+    if (Core::truthy(no_keyword)) {
+      continue;
+    }
+    Value after_keyword = Core::add(keyword_at, keyword_length);
+    Value rest_at = Core::_date_skip_space_impl(units, after_keyword, count);
+    Value no_gap = Core::eq(rest_at, after_keyword);
+    if (Core::truthy(no_gap)) {
+      continue;
+    }
+    Value rest_empty = Core::gte(rest_at, count);
+    Value rest_terminator = Core::gte(last_terminator, rest_at);
+    Value rest_bad = Core::or_(rest_empty, rest_terminator);
+    if (Core::truthy(rest_bad)) {
+      continue;
+    }
+    Value mode = Core::_date_string_mode_impl();
+    Value start_to = Core::_date_native_offset_impl(units, run_start, mode);
+    Value rest_from = Core::_date_native_offset_impl(units, rest_at, mode);
+    Value start_text = Core::string_slice(text, Value(0), start_to);
+    Value rest_text = Core::string_slice(text, rest_from);
+    Value split = Value::object();
+    Value start_trimmed = Core::_date_js_trim_impl(start_text);
+    Core::set(split, Value("start"), start_trimmed);
+    Value rest_trimmed = Core::_date_js_trim_impl(rest_text);
+    Core::set(split, Value("end"), rest_trimmed);
+    return split;
+  }
+  return none;
 }
 
 Value Core::_ace_empty_playbook(Value description, Value now) {
@@ -20763,7 +21921,60 @@ Value Core::_stream_convert_value_impl(Value field, Value value, Value required)
     Core::set(out, Value("value"), class_name);
     return out;
   }
+  Value parse_dates = Core::get(field, Value("parse_dates"), Value(false));
+  Value dated = Core::_date_is_date_type_impl(name);
+  Value parse = Core::and_(parse_dates, dated);
+  if (Core::truthy(parse)) {
+    Value date_out = Core::_date_convert_field_value_impl(field, name, value, may_skip);
+    return date_out;
+  }
   return out;
+}
+
+Value Core::_date_range_keyword_impl(Value units, Value at, Value end) {
+  axir_coverage_mark("_date_range_keyword_impl");
+  Value unit = Core::get(units, at, Value(0));
+  Value hyphen = Core::eq(unit, Value(45));
+  Value en_dash = Core::eq(unit, Value(8211));
+  Value em_dash = Core::eq(unit, Value(8212));
+  Value is_dash = Core::or_(hyphen, en_dash);
+  is_dash = Core::or_(is_dash, em_dash);
+  Value dash_inside = Core::lt(at, end);
+  is_dash = Core::and_(is_dash, dash_inside);
+  if (Core::truthy(is_dash)) {
+    Value after_dash = Core::add(at, Value(1));
+    Value dash_space = Value(false);
+    Value dash_followed = Core::lt(after_dash, end);
+    if (Core::truthy(dash_followed)) {
+      Value dash_next = Core::get(units, after_dash, Value(0));
+      dash_space = Core::_date_space_impl(dash_next);
+    }
+    if (Core::truthy(dash_space)) {
+      return Value(1);
+    }
+    return Value(0);
+  }
+  Value letters = Value::array();
+  Core::append(letters, Value("to"));
+  Core::append(letters, Value("through"));
+  Core::append(letters, Value("until"));
+  for (auto word : Core::iter(letters)) {
+    Value word_units = Core::string_utf16_units(word);
+    Value length = Core::len(word_units);
+    Value matched = Core::_date_ascii_matches_impl(units, at, end, word_units);
+    if (Core::truthy(matched)) {
+      Value after_word = Core::add(at, length);
+      Value word_inside = Core::lt(after_word, end);
+      if (Core::truthy(word_inside)) {
+        Value word_next = Core::get(units, after_word, Value(0));
+        Value word_space = Core::_date_space_impl(word_next);
+        if (Core::truthy(word_space)) {
+          return length;
+        }
+      }
+    }
+  }
+  return Value(0);
 }
 
 Value Core::_ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now) {
@@ -20878,6 +22089,37 @@ Value Core::_set_examples(Value gen, Value examples) {
   axir_coverage_mark("_set_examples");
   Core::set(gen, Value("examples"), examples);
   return gen;
+}
+
+Value Core::_date_strip_code_fence_impl(Value value) {
+  axir_coverage_mark("_date_strip_code_fence_impl");
+  Value text = Core::_date_js_trim_impl(value);
+  Value units = Core::string_utf16_units(text);
+  Value count = Core::len(units);
+  Value too_short = Core::lt(count, Value(6));
+  if (Core::truthy(too_short)) {
+    return text;
+  }
+  Value opens = Core::string_starts_with(text, Value("```"));
+  Value closes = Core::string_ends_with(text, Value("```"));
+  Value fenced = Core::and_(opens, closes);
+  Value not_fenced = Core::not_(fenced);
+  if (Core::truthy(not_fenced)) {
+    return text;
+  }
+  Value inner_start = Value(3);
+  Value inner_end = Core::add(count, Value(-3));
+  Value json_units = Core::string_utf16_units(Value("json"));
+  Value tagged = Core::_date_ascii_matches_impl(units, Value(3), inner_end, json_units);
+  if (Core::truthy(tagged)) {
+    inner_start = Value(7);
+  }
+  Value mode = Core::_date_string_mode_impl();
+  Value slice_from = Core::_date_native_offset_impl(units, inner_start, mode);
+  Value slice_to = Core::_date_native_offset_impl(units, inner_end, mode);
+  Value inner = Core::string_slice(text, slice_from, slice_to);
+  Value stripped = Core::_date_js_trim_impl(inner);
+  return stripped;
 }
 
 Value Core::chat_session_queue_update(Value state, Value update) {
@@ -21212,34 +22454,25 @@ Value Core::chat_session_record_unresolved(Value gen, Value state) {
   return Value();
 }
 
+Value Core::_date_string_mode_impl() {
+  axir_coverage_mark("_date_string_mode_impl");
+  Value accented = Core::len(Value("é"));
+  Value wide = Core::gt(accented, Value(1));
+  if (Core::truthy(wide)) {
+    return Value("utf8");
+  }
+  Value astral = Core::len(Value("😀"));
+  Value pair = Core::gt(astral, Value(1));
+  if (Core::truthy(pair)) {
+    return Value("utf16");
+  }
+  return Value("codepoint");
+}
+
 Value Core::_apply_field_processors(Value gen, Value output) {
   axir_coverage_mark("_apply_field_processors");
   Value processed = Core::axgen_apply_field_processors(gen, output);
   return processed;
-}
-
-Value Core::_run_assertions(Value gen, Value output) {
-  axir_coverage_mark("_run_assertions");
-  Value result = Core::axgen_run_assertions(gen, output);
-  Value status = Core::get(result, Value("status"), Value("pass"));
-  Value threw = Core::eq(status, Value("error"));
-  if (Core::truthy(threw)) {
-    Value thrown = Core::get(result, Value("error"), Value());
-    return thrown;
-  }
-  Value failed = Core::eq(status, Value("fail"));
-  if (Core::truthy(failed)) {
-    Value message = Core::get(result, Value("message"), Value());
-    Value has_message = Core::is_not_none(message);
-    if (Core::truthy(has_message)) {
-      Value assertion_error = Core::runtime_error(message);
-      Core::raise_error(assertion_error);
-    }
-    Value message_less = Core::runtime_error(Value("Assertion failed without message"));
-    return message_less;
-  }
-  Value passed = Core::none();
-  return passed;
 }
 
 Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) {
@@ -21323,11 +22556,85 @@ Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) 
   return out;
 }
 
+Value Core::_run_assertions(Value gen, Value output) {
+  axir_coverage_mark("_run_assertions");
+  Value result = Core::axgen_run_assertions(gen, output);
+  Value status = Core::get(result, Value("status"), Value("pass"));
+  Value threw = Core::eq(status, Value("error"));
+  if (Core::truthy(threw)) {
+    Value thrown = Core::get(result, Value("error"), Value());
+    return thrown;
+  }
+  Value failed = Core::eq(status, Value("fail"));
+  if (Core::truthy(failed)) {
+    Value message = Core::get(result, Value("message"), Value());
+    Value has_message = Core::is_not_none(message);
+    if (Core::truthy(has_message)) {
+      Value assertion_error = Core::runtime_error(message);
+      Core::raise_error(assertion_error);
+    }
+    Value message_less = Core::runtime_error(Value("Assertion failed without message"));
+    return message_less;
+  }
+  Value passed = Core::none();
+  return passed;
+}
+
 Value Core::chat_session_close_state(Value state) {
   axir_coverage_mark("chat_session_close_state");
   Core::set(state, Value("terminal"), Value(true));
   Value unresolved = Core::chat_session_unresolved(state);
   return unresolved;
+}
+
+Value Core::_date_native_offset_impl(Value units, Value index, Value mode) {
+  axir_coverage_mark("_date_native_offset_impl");
+  Value utf16 = Core::eq(mode, Value("utf16"));
+  if (Core::truthy(utf16)) {
+    return index;
+  }
+  Value utf8 = Core::eq(mode, Value("utf8"));
+  Value offset = Value(0);
+  Value cursor = Value(0);
+  while (true) {
+    Value done = Core::gte(cursor, index);
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value unit = Core::get(units, cursor, Value(0));
+    Value width = Value(1);
+    Value high = Core::gte(unit, Value(55296));
+    Value high_end = Core::lte(unit, Value(56319));
+    Value is_high = Core::and_(high, high_end);
+    Value next_at = Core::add(cursor, Value(1));
+    Value following = Core::get(units, next_at, Value(0));
+    Value low = Core::gte(following, Value(56320));
+    Value low_end = Core::lte(following, Value(57343));
+    Value is_low = Core::and_(low, low_end);
+    Value is_pair = Core::and_(is_high, is_low);
+    Value step = Value(1);
+    if (Core::truthy(is_pair)) {
+      step = Value(2);
+      if (Core::truthy(utf8)) {
+        width = Value(4);
+      }
+    }
+    if (!Core::truthy(is_pair)) {
+      if (Core::truthy(utf8)) {
+        Value two = Core::gte(unit, Value(128));
+        if (Core::truthy(two)) {
+          width = Value(2);
+        }
+        Value three = Core::gte(unit, Value(2048));
+        if (Core::truthy(three)) {
+          width = Value(3);
+        }
+      }
+    }
+    offset = Core::add(offset, width);
+    cursor = Core::add(cursor, step);
+  }
+  return offset;
 }
 
 Value Core::chat_session_transition(Value state, Value event) {
@@ -21549,6 +22856,20 @@ Value Core::_should_continue_steps(Value gen, Value calls) {
   return should_continue;
 }
 
+Value Core::_date_js_trim_impl(Value text) {
+  axir_coverage_mark("_date_js_trim_impl");
+  Value units = Core::string_utf16_units(text);
+  Value count = Core::len(units);
+  Value bounds = Core::_date_trim_bounds_impl(units, Value(0), count);
+  Value start = Core::get(bounds, Value("start"), Value());
+  Value end = Core::get(bounds, Value("end"), Value());
+  Value mode = Core::_date_string_mode_impl();
+  Value slice_from = Core::_date_native_offset_impl(units, start, mode);
+  Value slice_to = Core::_date_native_offset_impl(units, end, mode);
+  Value trimmed = Core::string_slice(text, slice_from, slice_to);
+  return trimmed;
+}
+
 Value Core::_parse_output_impl(Value content) {
   axir_coverage_mark("_parse_output_impl");
   Value text = Core::string_trim(content);
@@ -21726,6 +23047,30 @@ Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Valu
   return out;
 }
 
+Value Core::_date_trim_bounds_impl(Value units, Value start, Value end) {
+  axir_coverage_mark("_date_trim_bounds_impl");
+  Value first = Core::_date_skip_space_impl(units, start, end);
+  Value last = end;
+  while (true) {
+    Value empty = Core::lte(last, first);
+    if (Core::truthy(empty)) {
+      break;
+    }
+    Value before = Core::add(last, Value(-1));
+    Value unit = Core::get(units, before, Value(0));
+    Value space = Core::_date_space_impl(unit);
+    Value kept = Core::not_(space);
+    if (Core::truthy(kept)) {
+      break;
+    }
+    last = before;
+  }
+  Value bounds = Value::object();
+  Core::set(bounds, Value("start"), first);
+  Core::set(bounds, Value("end"), last);
+  return bounds;
+}
+
 Value Core::_is_flexible_json_field(Value typ) {
   axir_coverage_mark("_is_flexible_json_field");
   Value type_name = Core::get(typ, Value("name"), Value());
@@ -21864,6 +23209,25 @@ Value Core::_regex_member(Value n, Value c) {
   return Value(false);
 }
 
+Value Core::_date_skip_space_impl(Value units, Value start, Value end) {
+  axir_coverage_mark("_date_skip_space_impl");
+  Value cursor = start;
+  while (true) {
+    Value done = Core::gte(cursor, end);
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value unit = Core::get(units, cursor, Value(0));
+    Value space = Core::_date_space_impl(unit);
+    Value not_space = Core::not_(space);
+    if (Core::truthy(not_space)) {
+      break;
+    }
+    cursor = Core::add(cursor, Value(1));
+  }
+  return cursor;
+}
+
 Value Core::_parse_json_string_value(Value value) {
   axir_coverage_mark("_parse_json_string_value");
   Value is_string = Core::type_is(value, Value("string"));
@@ -21938,6 +23302,38 @@ Value Core::_parse_json_string_for_field(Value field, Value value) {
   return value;
 }
 
+Value Core::_date_space_impl(Value unit) {
+  axir_coverage_mark("_date_space_impl");
+  Value tab_low = Core::gte(unit, Value(9));
+  Value tab_high = Core::lte(unit, Value(13));
+  Value control = Core::and_(tab_low, tab_high);
+  if (Core::truthy(control)) {
+    return Value(true);
+  }
+  Value space = Core::eq(unit, Value(32));
+  Value no_break = Core::eq(unit, Value(160));
+  Value ogham = Core::eq(unit, Value(5760));
+  Value en_low = Core::gte(unit, Value(8192));
+  Value en_high = Core::lte(unit, Value(8202));
+  Value typographic = Core::and_(en_low, en_high);
+  Value line_separator = Core::eq(unit, Value(8232));
+  Value paragraph_separator = Core::eq(unit, Value(8233));
+  Value narrow = Core::eq(unit, Value(8239));
+  Value math_space = Core::eq(unit, Value(8287));
+  Value ideographic = Core::eq(unit, Value(12288));
+  Value byte_order = Core::eq(unit, Value(65279));
+  Value blank = Core::or_(space, no_break);
+  blank = Core::or_(blank, ogham);
+  blank = Core::or_(blank, typographic);
+  blank = Core::or_(blank, line_separator);
+  blank = Core::or_(blank, paragraph_separator);
+  blank = Core::or_(blank, narrow);
+  blank = Core::or_(blank, math_space);
+  blank = Core::or_(blank, ideographic);
+  blank = Core::or_(blank, byte_order);
+  return blank;
+}
+
 Value Core::_stream_text_state_impl() {
   axir_coverage_mark("_stream_text_state_impl");
   Value xstate = Value::object();
@@ -21953,6 +23349,18 @@ Value Core::_stream_text_state_impl() {
   Core::set(xstate, Value("streamed_index"), streamed);
   Core::set(xstate, Value("s"), Value(-1));
   return xstate;
+}
+
+Value Core::_date_is_line_terminator_impl(Value unit) {
+  axir_coverage_mark("_date_is_line_terminator_impl");
+  Value line_feed = Core::eq(unit, Value(10));
+  Value carriage_return = Core::eq(unit, Value(13));
+  Value line_separator = Core::eq(unit, Value(8232));
+  Value paragraph_separator = Core::eq(unit, Value(8233));
+  Value terminator = Core::or_(line_feed, carriage_return);
+  terminator = Core::or_(terminator, line_separator);
+  terminator = Core::or_(terminator, paragraph_separator);
+  return terminator;
 }
 
 Value Core::_stream_text_note_field_impl(Value xstate, Value field, Value init_streamed) {
@@ -21977,6 +23385,18 @@ Value Core::_stream_text_note_field_impl(Value xstate, Value field, Value init_s
     Core::set(xstate, Value("streamed_index"), streamed);
   }
   return Value();
+}
+
+Value Core::_date_ascii_letter_impl(Value unit) {
+  axir_coverage_mark("_date_ascii_letter_impl");
+  Value upper_low = Core::gte(unit, Value(65));
+  Value upper_high = Core::lte(unit, Value(90));
+  Value upper = Core::and_(upper_low, upper_high);
+  Value lower_low = Core::gte(unit, Value(97));
+  Value lower_high = Core::lte(unit, Value(122));
+  Value lower = Core::and_(lower_low, lower_high);
+  Value letter = Core::or_(upper, lower);
+  return letter;
 }
 
 Value Core::_parse_json_string_fields(Value output_fields, Value values) {
@@ -22127,6 +23547,39 @@ Value Core::_stream_text_extract_impl(Value xstate, Value values, Value content,
     Core::_stream_text_note_field_impl(xstate, chosen_field, Value(true));
   }
   return Value(false);
+}
+
+Value Core::_date_ascii_matches_impl(Value units, Value at, Value end, Value word) {
+  axir_coverage_mark("_date_ascii_matches_impl");
+  Value length = Core::len(word);
+  Value last = Core::add(at, length);
+  Value past = Core::gt(last, end);
+  if (Core::truthy(past)) {
+    return Value(false);
+  }
+  Value index = Value(0);
+  while (true) {
+    Value done = Core::gte(index, length);
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value position = Core::add(at, index);
+    Value unit = Core::get(units, position, Value(0));
+    Value upper_low = Core::gte(unit, Value(65));
+    Value upper_high = Core::lte(unit, Value(90));
+    Value upper = Core::and_(upper_low, upper_high);
+    if (Core::truthy(upper)) {
+      unit = Core::add(unit, Value(32));
+    }
+    Value expected = Core::get(word, index, Value(0));
+    Value same = Core::eq(unit, expected);
+    Value different = Core::not_(same);
+    if (Core::truthy(different)) {
+      return Value(false);
+    }
+    index = Core::add(index, Value(1));
+  }
+  return Value(true);
 }
 
 Value Core::_parse_json_string_for_fields(Value fields_map, Value values) {
@@ -22385,6 +23838,47 @@ Value Core::_ace_is_noop_acknowledgment(Value content) {
   return is_noop;
 }
 
+Value Core::_date_digits_impl(Value units, Value at, Value count, Value end) {
+  axir_coverage_mark("_date_digits_impl");
+  Value last = Core::add(at, count);
+  Value past = Core::gt(last, end);
+  if (Core::truthy(past)) {
+    return Value(-1);
+  }
+  Value value = Value(0);
+  Value index = at;
+  while (true) {
+    Value done = Core::gte(index, last);
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value unit = Core::get(units, index, Value(0));
+    Value low = Core::gte(unit, Value(48));
+    Value high = Core::lte(unit, Value(57));
+    Value digit = Core::and_(low, high);
+    Value not_digit = Core::not_(digit);
+    if (Core::truthy(not_digit)) {
+      return Value(-1);
+    }
+    Value scaled = Core::mul(value, Value(10));
+    Value digit_value = Core::add(unit, Value(-48));
+    value = Core::add(scaled, digit_value);
+    index = Core::add(index, Value(1));
+  }
+  return value;
+}
+
+Value Core::_date_expect_unit_impl(Value units, Value at, Value end, Value expected) {
+  axir_coverage_mark("_date_expect_unit_impl");
+  Value inside = Core::lt(at, end);
+  if (Core::truthy(inside)) {
+    Value unit = Core::get(units, at, Value(0));
+    Value same = Core::eq(unit, expected);
+    return same;
+  }
+  return Value(false);
+}
+
 Value Core::_regex_push(Value stack, Value top, Value value) {
   axir_coverage_mark("_regex_push");
   Value t1 = Core::string_format(Value("{}"), top);
@@ -22408,6 +23902,37 @@ Value Core::_tool_spec_impl(Value fn) {
     Core::set(spec, Value("execution"), execution);
   }
   return spec;
+}
+
+Value Core::_date_scan_date_impl(Value units, Value at) {
+  axir_coverage_mark("_date_scan_date_impl");
+  Value none = Core::none();
+  Value limit = Core::add(at, Value(10));
+  Value year = Core::_date_digits_impl(units, at, Value(4), limit);
+  Value dash_at = Core::add(at, Value(4));
+  Value dash = Core::_date_expect_unit_impl(units, dash_at, limit, Value(45));
+  Value month_at = Core::add(at, Value(5));
+  Value month = Core::_date_digits_impl(units, month_at, Value(2), limit);
+  Value second_dash_at = Core::add(at, Value(7));
+  Value second_dash = Core::_date_expect_unit_impl(units, second_dash_at, limit, Value(45));
+  Value day_at = Core::add(at, Value(8));
+  Value day = Core::_date_digits_impl(units, day_at, Value(2), limit);
+  Value ok = Core::and_(dash, second_dash);
+  Value year_ok = Core::gte(year, Value(0));
+  Value month_ok = Core::gte(month, Value(0));
+  Value day_ok = Core::gte(day, Value(0));
+  ok = Core::and_(ok, year_ok);
+  ok = Core::and_(ok, month_ok);
+  ok = Core::and_(ok, day_ok);
+  Value bad = Core::not_(ok);
+  if (Core::truthy(bad)) {
+    return none;
+  }
+  Value parts = Value::object();
+  Core::set(parts, Value("year"), year);
+  Core::set(parts, Value("month"), month);
+  Core::set(parts, Value("day"), day);
+  return parts;
 }
 
 Value Core::_regex_task(Value n, Value next) {
@@ -22943,6 +24468,103 @@ Value Core::_regex_search(Value n, Value u, Value initial, Value d) {
   return t225;
 }
 
+Value Core::_date_scan_datetime_impl(Value units, Value start, Value end) {
+  axir_coverage_mark("_date_scan_datetime_impl");
+  Value none = Core::none();
+  Value date_end = Core::add(start, Value(10));
+  Value too_short = Core::gt(date_end, end);
+  if (Core::truthy(too_short)) {
+    return none;
+  }
+  Value parts = Core::_date_scan_date_impl(units, start);
+  Value no_date = Core::is_none(parts);
+  if (Core::truthy(no_date)) {
+    return none;
+  }
+  Value separator = Core::get(units, date_end, Value(0));
+  Value upper_t = Core::eq(separator, Value(84));
+  Value lower_t = Core::eq(separator, Value(116));
+  Value space = Core::eq(separator, Value(32));
+  Value separated = Core::or_(upper_t, lower_t);
+  separated = Core::or_(separated, space);
+  Value inside = Core::lt(date_end, end);
+  separated = Core::and_(separated, inside);
+  Value not_separated = Core::not_(separated);
+  if (Core::truthy(not_separated)) {
+    return none;
+  }
+  Value hour_at = Core::add(start, Value(11));
+  Value hour = Core::_date_digits_impl(units, hour_at, Value(2), end);
+  Value colon_at = Core::add(start, Value(13));
+  Value colon = Core::_date_expect_unit_impl(units, colon_at, end, Value(58));
+  Value minute_at = Core::add(start, Value(14));
+  Value minute = Core::_date_digits_impl(units, minute_at, Value(2), end);
+  Value hour_ok = Core::gte(hour, Value(0));
+  Value minute_ok = Core::gte(minute, Value(0));
+  Value clock_ok = Core::and_(hour_ok, colon);
+  clock_ok = Core::and_(clock_ok, minute_ok);
+  Value no_clock = Core::not_(clock_ok);
+  if (Core::truthy(no_clock)) {
+    return none;
+  }
+  Core::set(parts, Value("hour"), hour);
+  Core::set(parts, Value("minute"), minute);
+  Core::set(parts, Value("second"), Value(0));
+  Core::set(parts, Value("millisecond"), Value(0));
+  Value cursor = Core::add(start, Value(16));
+  Value second_colon = Core::_date_expect_unit_impl(units, cursor, end, Value(58));
+  if (Core::truthy(second_colon)) {
+    Value second_at = Core::add(cursor, Value(1));
+    Value second = Core::_date_digits_impl(units, second_at, Value(2), end);
+    Value has_second = Core::gte(second, Value(0));
+    if (Core::truthy(has_second)) {
+      Core::set(parts, Value("second"), second);
+      cursor = Core::add(cursor, Value(3));
+    }
+  }
+  Value dot = Core::_date_expect_unit_impl(units, cursor, end, Value(46));
+  if (Core::truthy(dot)) {
+    Value fraction_at = Core::add(cursor, Value(1));
+    Value digits = Value(0);
+    Value millisecond = Value(0);
+    while (true) {
+      Value enough = Core::gte(digits, Value(9));
+      if (Core::truthy(enough)) {
+        break;
+      }
+      Value digit_at = Core::add(fraction_at, digits);
+      Value digit = Core::_date_digits_impl(units, digit_at, Value(1), end);
+      Value not_digit = Core::lt(digit, Value(0));
+      if (Core::truthy(not_digit)) {
+        break;
+      }
+      Value counted = Core::lt(digits, Value(3));
+      if (Core::truthy(counted)) {
+        Value scaled = Core::mul(millisecond, Value(10));
+        millisecond = Core::add(scaled, digit);
+      }
+      digits = Core::add(digits, Value(1));
+    }
+    Value has_fraction = Core::gt(digits, Value(0));
+    if (Core::truthy(has_fraction)) {
+      Value pad = digits;
+      while (true) {
+        Value padded = Core::gte(pad, Value(3));
+        if (Core::truthy(padded)) {
+          break;
+        }
+        millisecond = Core::mul(millisecond, Value(10));
+        pad = Core::add(pad, Value(1));
+      }
+      Core::set(parts, Value("millisecond"), millisecond);
+      Value fraction_end = Core::add(fraction_at, digits);
+      cursor = fraction_end;
+    }
+  }
+  Core::set(parts, Value("end"), cursor);
+  return parts;
+}
+
 Value Core::_stream_text_required_check_impl(Value values, Value fields) {
   axir_coverage_mark("_stream_text_required_check_impl");
   Value parts = Value::array();
@@ -23320,6 +24942,59 @@ Value Core::_tool_error_message_impl(Value call, Value error) {
   return message;
 }
 
+Value Core::_date_offset_zone_matches_impl(Value units, Value start, Value end) {
+  axir_coverage_mark("_date_offset_zone_matches_impl");
+  Value z_units = Core::string_utf16_units(Value("z"));
+  Value one = Core::add(start, Value(1));
+  Value single = Core::eq(one, end);
+  Value is_z = Core::_date_ascii_matches_impl(units, start, end, z_units);
+  Value zulu = Core::and_(single, is_z);
+  if (Core::truthy(zulu)) {
+    return Value(true);
+  }
+  Value cursor = start;
+  Value utc_units = Core::string_utf16_units(Value("utc"));
+  Value gmt_units = Core::string_utf16_units(Value("gmt"));
+  Value utc = Core::_date_ascii_matches_impl(units, start, end, utc_units);
+  Value gmt = Core::_date_ascii_matches_impl(units, start, end, gmt_units);
+  Value named = Core::or_(utc, gmt);
+  if (Core::truthy(named)) {
+    cursor = Core::add(start, Value(3));
+  }
+  Value sign = Core::get(units, cursor, Value(0));
+  Value plus = Core::eq(sign, Value(43));
+  Value minus = Core::eq(sign, Value(45));
+  Value has_sign = Core::or_(plus, minus);
+  Value sign_inside = Core::lt(cursor, end);
+  has_sign = Core::and_(has_sign, sign_inside);
+  Value no_sign = Core::not_(has_sign);
+  if (Core::truthy(no_sign)) {
+    return Value(false);
+  }
+  Value hour_at = Core::add(cursor, Value(1));
+  Value hours = Core::_date_digits_impl(units, hour_at, Value(2), end);
+  Value no_hours = Core::lt(hours, Value(0));
+  if (Core::truthy(no_hours)) {
+    return Value(false);
+  }
+  Value rest = Core::add(cursor, Value(3));
+  Value done = Core::eq(rest, end);
+  if (Core::truthy(done)) {
+    return Value(true);
+  }
+  Value minute_at = rest;
+  Value colon = Core::_date_expect_unit_impl(units, rest, end, Value(58));
+  if (Core::truthy(colon)) {
+    minute_at = Core::add(rest, Value(1));
+  }
+  Value minutes = Core::_date_digits_impl(units, minute_at, Value(2), end);
+  Value has_minutes = Core::gte(minutes, Value(0));
+  Value minutes_end = Core::add(minute_at, Value(2));
+  Value at_end = Core::eq(minutes_end, end);
+  Value matches = Core::and_(has_minutes, at_end);
+  return matches;
+}
+
 Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
   axir_coverage_mark("_append_validation_retry_messages_impl");
   Value content = Core::get(response, Value("content"), Value(""));
@@ -23354,6 +25029,81 @@ Value Core::_parse_text_field_value_impl(Value field, Value text) {
     return value;
   }
   return text;
+}
+
+Value Core::_date_offset_minutes_impl(Value units, Value start, Value end) {
+  axir_coverage_mark("_date_offset_minutes_impl");
+  Value none = Core::none();
+  Value length = Core::mul(start, Value(-1));
+  length = Core::add(length, end);
+  Value utc_units = Core::string_utf16_units(Value("utc"));
+  Value gmt_units = Core::string_utf16_units(Value("gmt"));
+  Value z_units = Core::string_utf16_units(Value("z"));
+  Value utc = Core::_date_ascii_matches_impl(units, start, end, utc_units);
+  Value gmt = Core::_date_ascii_matches_impl(units, start, end, gmt_units);
+  Value named = Core::or_(utc, gmt);
+  Value three = Core::eq(length, Value(3));
+  Value named_only = Core::and_(named, three);
+  if (Core::truthy(named_only)) {
+    return Value(0);
+  }
+  Value one = Core::eq(length, Value(1));
+  Value is_z = Core::_date_ascii_matches_impl(units, start, end, z_units);
+  Value zulu = Core::and_(one, is_z);
+  if (Core::truthy(zulu)) {
+    return Value(0);
+  }
+  Value cursor = start;
+  if (Core::truthy(named)) {
+    cursor = Core::add(start, Value(3));
+  }
+  Value sign_unit = Core::get(units, cursor, Value(0));
+  Value sign_inside = Core::lt(cursor, end);
+  Value plus = Core::eq(sign_unit, Value(43));
+  Value minus = Core::eq(sign_unit, Value(45));
+  Value has_sign = Core::or_(plus, minus);
+  has_sign = Core::and_(has_sign, sign_inside);
+  Value no_sign = Core::not_(has_sign);
+  if (Core::truthy(no_sign)) {
+    return none;
+  }
+  Value hour_at = Core::add(cursor, Value(1));
+  Value hours = Core::_date_digits_impl(units, hour_at, Value(2), end);
+  Value no_hours = Core::lt(hours, Value(0));
+  if (Core::truthy(no_hours)) {
+    return none;
+  }
+  Value minutes = Value(0);
+  Value rest = Core::add(cursor, Value(3));
+  Value more = Core::lt(rest, end);
+  if (Core::truthy(more)) {
+    Value minute_at = rest;
+    Value colon = Core::_date_expect_unit_impl(units, rest, end, Value(58));
+    if (Core::truthy(colon)) {
+      minute_at = Core::add(rest, Value(1));
+    }
+    minutes = Core::_date_digits_impl(units, minute_at, Value(2), end);
+    Value minutes_end = Core::add(minute_at, Value(2));
+    Value at_end = Core::eq(minutes_end, end);
+    Value minutes_ok = Core::gte(minutes, Value(0));
+    Value ok = Core::and_(at_end, minutes_ok);
+    Value bad = Core::not_(ok);
+    if (Core::truthy(bad)) {
+      return none;
+    }
+  }
+  Value hours_range = Core::gt(hours, Value(23));
+  Value minutes_range = Core::gt(minutes, Value(59));
+  Value out_of_range = Core::or_(hours_range, minutes_range);
+  if (Core::truthy(out_of_range)) {
+    return none;
+  }
+  Value total = Core::mul(hours, Value(60));
+  total = Core::add(total, minutes);
+  if (Core::truthy(minus)) {
+    total = Core::mul(total, Value(-1));
+  }
+  return total;
 }
 
 Value Core::_stream_text_final_impl(Value xstate, Value values, Value content, Value fields, Value options) {
@@ -23687,6 +25437,56 @@ Value Core::_stream_text_extract_values_impl(Value content, Value fields, Value 
   return values;
 }
 
+Value Core::_date_js_json_impl(Value value) {
+  axir_coverage_mark("_date_js_json_impl");
+  Value is_null = Core::is_none(value);
+  if (Core::truthy(is_null)) {
+    return Value("null");
+  }
+  Value is_boolean = Core::type_is(value, Value("boolean"));
+  if (Core::truthy(is_boolean)) {
+    if (Core::truthy(value)) {
+      return Value("true");
+    }
+    return Value("false");
+  }
+  Value is_number = Core::type_is(value, Value("number"));
+  if (Core::truthy(is_number)) {
+    Value number = Core::string_str(value);
+    return number;
+  }
+  Value is_text = Core::type_is(value, Value("string"));
+  if (Core::truthy(is_text)) {
+    Value quoted = Core::_date_js_json_string_impl(value);
+    return quoted;
+  }
+  Value parts = Value::array();
+  Value is_list = Core::type_is(value, Value("list"));
+  if (Core::truthy(is_list)) {
+    for (auto item : Core::iter(value)) {
+      Value item_json = Core::_date_js_json_impl(item);
+      Core::append(parts, item_json);
+    }
+    Value items = Core::string_join(Value(","), parts);
+    Value list_json = Core::add(Value("["), items);
+    list_json = Core::add(list_json, Value("]"));
+    return list_json;
+  }
+  Value keys = Core::map_keys(value);
+  for (auto key : Core::iter(keys)) {
+    Value key_json = Core::_date_js_json_string_impl(key);
+    Value entry = Core::get(value, key, Value());
+    Value entry_json = Core::_date_js_json_impl(entry);
+    Value member = Core::add(key_json, Value(":"));
+    member = Core::add(member, entry_json);
+    Core::append(parts, member);
+  }
+  Value members = Core::string_join(Value(","), parts);
+  Value object_json = Core::add(Value("{"), members);
+  object_json = Core::add(object_json, Value("}"));
+  return object_json;
+}
+
 Value Core::_parse_output_fields_impl(Value content, Value fields) {
   axir_coverage_mark("_parse_output_fields_impl");
   Value text = Core::string_trim(content);
@@ -23697,6 +25497,36 @@ Value Core::_parse_output_fields_impl(Value content, Value fields) {
   }
   Value output = Core::_parse_text_output_fields_impl(text, fields, Value(true));
   return output;
+}
+
+Value Core::_signature_has_complex_fields(Value signature, Value options) {
+  axir_coverage_mark("_signature_has_complex_fields");
+  Value option_forced_snake = Core::get(options, Value("force_structured"), Value(false));
+  Value option_forced = Core::get(options, Value("forceStructured"), option_forced_snake);
+  Value signature_forced_snake = Core::get(signature, Value("force_structured"), Value(false));
+  Value signature_forced = Core::get(signature, Value("forceStructured"), signature_forced_snake);
+  Value forced = Core::or_(option_forced, signature_forced);
+  if (Core::truthy(forced)) {
+    return Value(true);
+  }
+  Value output_fields = Core::get(signature, Value("output_fields"), Value());
+  for (auto field : Core::iter(output_fields)) {
+    Value field_type = Core::get(field, Value("type"), Value());
+    Value type_name = Core::get(field_type, Value("name"), Value());
+    Value is_object = Core::eq(type_name, Value("object"));
+    if (Core::truthy(is_object)) {
+      return Value(true);
+    }
+    Value is_array_snake = Core::get(field_type, Value("is_array"), Value(false));
+    Value is_array = Core::get(field_type, Value("isArray"), is_array_snake);
+    Value nested_fields = Core::get(field_type, Value("fields"), Value());
+    Value has_nested_fields = Core::truthy_value(nested_fields);
+    Value object_array = Core::and_(is_array, has_nested_fields);
+    if (Core::truthy(object_array)) {
+      return Value(true);
+    }
+  }
+  return Value(false);
 }
 
 Value Core::_stream_text_yield_delta_impl(Value content, Value field, Value start, Value end, Value xstate, Value held, Value complete) {
@@ -23772,36 +25602,6 @@ Value Core::_stream_text_yield_delta_impl(Value content, Value field, Value star
   return none;
 }
 
-Value Core::_signature_has_complex_fields(Value signature, Value options) {
-  axir_coverage_mark("_signature_has_complex_fields");
-  Value option_forced_snake = Core::get(options, Value("force_structured"), Value(false));
-  Value option_forced = Core::get(options, Value("forceStructured"), option_forced_snake);
-  Value signature_forced_snake = Core::get(signature, Value("force_structured"), Value(false));
-  Value signature_forced = Core::get(signature, Value("forceStructured"), signature_forced_snake);
-  Value forced = Core::or_(option_forced, signature_forced);
-  if (Core::truthy(forced)) {
-    return Value(true);
-  }
-  Value output_fields = Core::get(signature, Value("output_fields"), Value());
-  for (auto field : Core::iter(output_fields)) {
-    Value field_type = Core::get(field, Value("type"), Value());
-    Value type_name = Core::get(field_type, Value("name"), Value());
-    Value is_object = Core::eq(type_name, Value("object"));
-    if (Core::truthy(is_object)) {
-      return Value(true);
-    }
-    Value is_array_snake = Core::get(field_type, Value("is_array"), Value(false));
-    Value is_array = Core::get(field_type, Value("isArray"), is_array_snake);
-    Value nested_fields = Core::get(field_type, Value("fields"), Value());
-    Value has_nested_fields = Core::truthy_value(nested_fields);
-    Value object_array = Core::and_(is_array, has_nested_fields);
-    if (Core::truthy(object_array)) {
-      return Value(true);
-    }
-  }
-  return Value(false);
-}
-
 Value Core::_caller_function_call_impl(Value options) {
   axir_coverage_mark("_caller_function_call_impl");
   Value requested_snake = Core::get(options, Value("function_call"), Value());
@@ -23822,6 +25622,129 @@ Value Core::_caller_function_call_impl(Value options) {
   }
   Value none = Core::none();
   return none;
+}
+
+Value Core::_date_js_json_string_impl(Value text) {
+  axir_coverage_mark("_date_js_json_string_impl");
+  Value hex = Value("0123456789abcdef");
+  Value units = Core::string_utf16_units(text);
+  Value count = Core::len(units);
+  Value mode = Core::_date_string_mode_impl();
+  Value utf8 = Core::eq(mode, Value("utf8"));
+  Value out = Value("\"");
+  Value copied = Value(0);
+  Value offset = Value(0);
+  Value index = Value(0);
+  while (true) {
+    Value done = Core::gte(index, count);
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value unit = Core::get(units, index, Value(0));
+    Value following_at = Core::add(index, Value(1));
+    Value following = Core::get(units, following_at, Value(0));
+    Value high_low = Core::gte(unit, Value(55296));
+    Value high_high = Core::lte(unit, Value(56319));
+    Value is_high = Core::and_(high_low, high_high);
+    Value low_low = Core::gte(following, Value(56320));
+    Value low_high = Core::lte(following, Value(57343));
+    Value next_low = Core::and_(low_low, low_high);
+    Value next_inside = Core::lt(following_at, count);
+    next_low = Core::and_(next_low, next_inside);
+    Value is_pair = Core::and_(is_high, next_low);
+    Value width = Value(1);
+    Value step = Value(1);
+    if (Core::truthy(is_pair)) {
+      step = Value(2);
+      if (Core::truthy(utf8)) {
+        width = Value(4);
+      }
+      Value utf16_pair = Core::eq(mode, Value("utf16"));
+      if (Core::truthy(utf16_pair)) {
+        width = Value(2);
+      }
+    }
+    if (!Core::truthy(is_pair)) {
+      if (Core::truthy(utf8)) {
+        Value two_bytes = Core::gte(unit, Value(128));
+        if (Core::truthy(two_bytes)) {
+          width = Value(2);
+        }
+        Value three_bytes = Core::gte(unit, Value(2048));
+        if (Core::truthy(three_bytes)) {
+          width = Value(3);
+        }
+      }
+    }
+    Value escape = Value("");
+    Value quote = Core::eq(unit, Value(34));
+    if (Core::truthy(quote)) {
+      escape = Value("\\\"");
+    }
+    Value backslash = Core::eq(unit, Value(92));
+    if (Core::truthy(backslash)) {
+      escape = Value("\\\\");
+    }
+    Value control = Core::lt(unit, Value(32));
+    if (Core::truthy(control)) {
+      Value high_digit = Core::_date_floor_div_impl(unit, Value(16));
+      Value low_digit_base = Core::mul(high_digit, Value(-16));
+      Value low_digit = Core::add(unit, low_digit_base);
+      Value high_end = Core::add(high_digit, Value(1));
+      Value high_char = Core::string_slice(hex, high_digit, high_end);
+      Value low_end = Core::add(low_digit, Value(1));
+      Value low_char = Core::string_slice(hex, low_digit, low_end);
+      escape = Core::string_format(Value("\\u00{}{}"), high_char, low_char);
+      Value backspace = Core::eq(unit, Value(8));
+      if (Core::truthy(backspace)) {
+        escape = Value("\\b");
+      }
+      Value tab = Core::eq(unit, Value(9));
+      if (Core::truthy(tab)) {
+        escape = Value("\\t");
+      }
+      Value line_feed = Core::eq(unit, Value(10));
+      if (Core::truthy(line_feed)) {
+        escape = Value("\\n");
+      }
+      Value form_feed = Core::eq(unit, Value(12));
+      if (Core::truthy(form_feed)) {
+        escape = Value("\\f");
+      }
+      Value carriage_return = Core::eq(unit, Value(13));
+      if (Core::truthy(carriage_return)) {
+        escape = Value("\\r");
+      }
+    }
+    Value surrogate_low = Core::gte(unit, Value(55296));
+    Value surrogate_high = Core::lte(unit, Value(57343));
+    Value surrogate = Core::and_(surrogate_low, surrogate_high);
+    Value not_pair = Core::not_(is_pair);
+    Value lone = Core::and_(surrogate, not_pair);
+    if (Core::truthy(lone)) {
+      Value lone_text = Core::_date_js_hex4_impl(unit);
+      escape = Core::string_format(Value("\\u{}"), lone_text);
+      if (Core::truthy(utf8)) {
+        width = Value(3);
+      }
+    }
+    Value escaped = Core::ne(escape, Value(""));
+    if (Core::truthy(escaped)) {
+      Value kept = Core::string_slice(text, copied, offset);
+      out = Core::add(out, kept);
+      out = Core::add(out, escape);
+      offset = Core::add(offset, width);
+      copied = offset;
+    }
+    if (!Core::truthy(escaped)) {
+      offset = Core::add(offset, width);
+    }
+    index = Core::add(index, step);
+  }
+  Value rest = Core::string_slice(text, copied, offset);
+  out = Core::add(out, rest);
+  out = Core::add(out, Value("\""));
+  return out;
 }
 
 Value Core::_function_call_forces_tool_impl(Value choice) {
@@ -23864,6 +25787,22 @@ Value Core::_ace_normalize_reflection_bullet_tags(Value reflection) {
     }
   }
   return normalized;
+}
+
+Value Core::_function_call_names_output_impl(Value choice) {
+  axir_coverage_mark("_function_call_names_output_impl");
+  Value is_named = Core::type_is(choice, Value("object"));
+  Value not_named = Core::not_(is_named);
+  if (Core::truthy(not_named)) {
+    return Value(false);
+  }
+  Value empty_function = Value::object();
+  Value function = Core::get(choice, Value("function"), empty_function);
+  Value name = Core::get(function, Value("name"), Value(""));
+  Value canonical = Core::eq(name, Value("__axOutput"));
+  Value legacy = Core::eq(name, Value("__finalResult"));
+  Value reserved = Core::or_(canonical, legacy);
+  return reserved;
 }
 
 Value Core::_stream_text_values_impl(Value fields, Value content, Value values, Value xstate, Value held, Value complete) {
@@ -23998,22 +25937,6 @@ Value Core::_stream_text_values_impl(Value fields, Value content, Value values, 
   return deltas;
 }
 
-Value Core::_function_call_names_output_impl(Value choice) {
-  axir_coverage_mark("_function_call_names_output_impl");
-  Value is_named = Core::type_is(choice, Value("object"));
-  Value not_named = Core::not_(is_named);
-  if (Core::truthy(not_named)) {
-    return Value(false);
-  }
-  Value empty_function = Value::object();
-  Value function = Core::get(choice, Value("function"), empty_function);
-  Value name = Core::get(function, Value("name"), Value(""));
-  Value canonical = Core::eq(name, Value("__axOutput"));
-  Value legacy = Core::eq(name, Value("__finalResult"));
-  Value reserved = Core::or_(canonical, legacy);
-  return reserved;
-}
-
 Value Core::_append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage) {
   axir_coverage_mark("_append_structured_output_retry_messages_impl");
   Value output_calls = Value::array();
@@ -24127,6 +26050,34 @@ Value Core::_with_output_thought_impl(Value output, Value field, Value prefix, V
   return output;
 }
 
+Value Core::_date_js_hex4_impl(Value unit) {
+  axir_coverage_mark("_date_js_hex4_impl");
+  Value hex = Value("0123456789abcdef");
+  Value digits = Value::array();
+  Value rest = unit;
+  Value position = Value(0);
+  while (true) {
+    Value done = Core::gte(position, Value(4));
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value quotient = Core::_date_floor_div_impl(rest, Value(16));
+    Value base = Core::mul(quotient, Value(-16));
+    Value digit = Core::add(rest, base);
+    Value digit_end = Core::add(digit, Value(1));
+    Value digit_char = Core::string_slice(hex, digit, digit_end);
+    Core::append(digits, digit_char);
+    rest = quotient;
+    position = Core::add(position, Value(1));
+  }
+  Value d0 = Core::list_get(digits, Value(3));
+  Value d1 = Core::list_get(digits, Value(2));
+  Value d2 = Core::list_get(digits, Value(1));
+  Value d3 = Core::list_get(digits, Value(0));
+  Value text = Core::string_format(Value("{}{}{}{}"), d0, d1, d2, d3);
+  return text;
+}
+
 Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value options, Value sink) {
   axir_coverage_mark("_streaming_forward_impl");
   Value base_options = Core::get(gen, Value("options"), Value());
@@ -24185,6 +26136,7 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
   Core::append(ordered_messages, user_message);
   Value output_fields = Core::get(signature, Value("output_fields"), Value());
   Core::_append_structured_output_instruction(ordered_messages, output_fields, selection);
+  output_fields = Core::_date_parse_fields_impl(output_fields, base_options, options);
   Value validation_feedback_snake = Core::get(runtime_options, Value("validation_feedback"), Value(""));
   Value validation_feedback = Core::get(runtime_options, Value("validationFeedback"), validation_feedback_snake);
   Value has_validation_feedback = Core::truthy_value(validation_feedback);
@@ -24676,6 +26628,24 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
   throw AxError("runtime", "unreachable AxGen streaming loop exit");
 }
 
+Value Core::_date_floor_div_impl(Value dividend, Value divisor) {
+  axir_coverage_mark("_date_floor_div_impl");
+  Value ratio = Core::div(dividend, divisor);
+  Value quotient = Core::math_floor(ratio);
+  Value product = Core::mul(quotient, divisor);
+  Value over = Core::gt(product, dividend);
+  if (Core::truthy(over)) {
+    quotient = Core::add(quotient, Value(-1));
+  }
+  Value following = Core::add(quotient, Value(1));
+  Value next_product = Core::mul(following, divisor);
+  Value under = Core::lte(next_product, dividend);
+  if (Core::truthy(under)) {
+    quotient = following;
+  }
+  return quotient;
+}
+
 Value Core::_regex_test(Value pattern, Value value) {
   axir_coverage_mark("_regex_test");
   Value groups = Core::none();
@@ -24734,6 +26704,38 @@ Value Core::_regex_test(Value pattern, Value value) {
     i = t25;
   }
   return Value(false);
+}
+
+Value Core::_date_days_from_civil_impl(Value year, Value month, Value day) {
+  axir_coverage_mark("_date_days_from_civil_impl");
+  Value year_of_era = year;
+  Value early = Core::lte(month, Value(2));
+  if (Core::truthy(early)) {
+    year_of_era = Core::add(year, Value(-1));
+  }
+  Value era = Core::_date_floor_div_impl(year_of_era, Value(400));
+  Value era_years = Core::mul(era, Value(-400));
+  Value yoe = Core::add(year_of_era, era_years);
+  Value shifted = Core::add(month, Value(9));
+  Value month_index = Core::_date_floor_div_impl(shifted, Value(12));
+  month_index = Core::mul(month_index, Value(-12));
+  month_index = Core::add(shifted, month_index);
+  Value month_days = Core::mul(month_index, Value(153));
+  month_days = Core::add(month_days, Value(2));
+  month_days = Core::_date_floor_div_impl(month_days, Value(5));
+  Value doy = Core::add(month_days, day);
+  doy = Core::add(doy, Value(-1));
+  Value doe = Core::mul(yoe, Value(365));
+  Value leap4 = Core::_date_floor_div_impl(yoe, Value(4));
+  Value leap100 = Core::_date_floor_div_impl(yoe, Value(100));
+  doe = Core::add(doe, leap4);
+  Value leap100_negated = Core::mul(leap100, Value(-1));
+  doe = Core::add(doe, leap100_negated);
+  doe = Core::add(doe, doy);
+  Value days = Core::mul(era, Value(146097));
+  days = Core::add(days, doe);
+  days = Core::add(days, Value(-719468));
+  return days;
 }
 
 Value Core::_stream_json_context_impl(Value json_text) {
@@ -24815,6 +26817,56 @@ Value Core::_stream_json_context_impl(Value json_text) {
   Core::set(marker, Value("in_array"), in_array);
   Core::set(marker, Value("in_object"), in_object);
   return marker;
+}
+
+Value Core::_date_civil_from_days_impl(Value days) {
+  axir_coverage_mark("_date_civil_from_days_impl");
+  Value shifted = Core::add(days, Value(719468));
+  Value era = Core::_date_floor_div_impl(shifted, Value(146097));
+  Value era_days = Core::mul(era, Value(-146097));
+  Value doe = Core::add(shifted, era_days);
+  Value a = Core::_date_floor_div_impl(doe, Value(1460));
+  Value b = Core::_date_floor_div_impl(doe, Value(36524));
+  Value c = Core::_date_floor_div_impl(doe, Value(146096));
+  Value a_negated = Core::mul(a, Value(-1));
+  Value yoe = Core::add(doe, a_negated);
+  yoe = Core::add(yoe, b);
+  Value c_negated = Core::mul(c, Value(-1));
+  yoe = Core::add(yoe, c_negated);
+  yoe = Core::_date_floor_div_impl(yoe, Value(365));
+  Value era_years = Core::mul(era, Value(400));
+  Value year = Core::add(yoe, era_years);
+  Value year_days = Core::mul(yoe, Value(365));
+  Value leap4 = Core::_date_floor_div_impl(yoe, Value(4));
+  Value leap100 = Core::_date_floor_div_impl(yoe, Value(100));
+  year_days = Core::add(year_days, leap4);
+  Value leap100_negated = Core::mul(leap100, Value(-1));
+  year_days = Core::add(year_days, leap100_negated);
+  Value year_days_negated = Core::mul(year_days, Value(-1));
+  Value doy = Core::add(doe, year_days_negated);
+  Value mp = Core::mul(doy, Value(5));
+  mp = Core::add(mp, Value(2));
+  mp = Core::_date_floor_div_impl(mp, Value(153));
+  Value month_days = Core::mul(mp, Value(153));
+  month_days = Core::add(month_days, Value(2));
+  month_days = Core::_date_floor_div_impl(month_days, Value(5));
+  Value month_days_negated = Core::mul(month_days, Value(-1));
+  Value day = Core::add(doy, month_days_negated);
+  day = Core::add(day, Value(1));
+  Value month = Core::add(mp, Value(3));
+  Value late = Core::gte(mp, Value(10));
+  if (Core::truthy(late)) {
+    month = Core::add(mp, Value(-9));
+  }
+  Value early = Core::lte(month, Value(2));
+  if (Core::truthy(early)) {
+    year = Core::add(year, Value(1));
+  }
+  Value civil = Value::object();
+  Core::set(civil, Value("year"), year);
+  Core::set(civil, Value("month"), month);
+  Core::set(civil, Value("day"), day);
+  return civil;
 }
 
 Value Core::_regex_identifier(Value c, Value first) {
@@ -24985,6 +27037,58 @@ Value Core::_stream_json_strip_dangling_key_impl(Value text, Value need_colon, V
     return result;
   }
   return Value(-1);
+}
+
+Value Core::_date_make_day_impl(Value year, Value month_index, Value date) {
+  axir_coverage_mark("_date_make_day_impl");
+  Value carry = Core::_date_floor_div_impl(month_index, Value(12));
+  Value whole_year = Core::add(year, carry);
+  Value carry_months = Core::mul(carry, Value(-12));
+  Value month = Core::add(month_index, carry_months);
+  month = Core::add(month, Value(1));
+  Value first = Core::_date_days_from_civil_impl(whole_year, month, Value(1));
+  Value day = Core::add(first, date);
+  day = Core::add(day, Value(-1));
+  return day;
+}
+
+Value Core::_date_utc_ms_impl(Value parts) {
+  axir_coverage_mark("_date_utc_ms_impl");
+  Value year = Core::get(parts, Value("year"), Value());
+  Value month = Core::get(parts, Value("month"), Value());
+  Value day = Core::get(parts, Value("day"), Value());
+  Value hour = Core::get(parts, Value("hour"), Value(0));
+  Value minute = Core::get(parts, Value("minute"), Value(0));
+  Value second = Core::get(parts, Value("second"), Value(0));
+  Value millisecond = Core::get(parts, Value("millisecond"), Value(0));
+  Value utc_year = year;
+  Value two_digit_low = Core::gte(year, Value(0));
+  Value two_digit_high = Core::lte(year, Value(99));
+  Value two_digit = Core::and_(two_digit_low, two_digit_high);
+  if (Core::truthy(two_digit)) {
+    utc_year = Core::add(year, Value(1900));
+  }
+  Value month_index = Core::add(month, Value(-1));
+  Value day_number = Core::_date_make_day_impl(utc_year, month_index, day);
+  Value time_ms = Core::mul(hour, Value(3600000));
+  Value minute_ms = Core::mul(minute, Value(60000));
+  time_ms = Core::add(time_ms, minute_ms);
+  Value second_ms = Core::mul(second, Value(1000));
+  time_ms = Core::add(time_ms, second_ms);
+  time_ms = Core::add(time_ms, millisecond);
+  Value day_ms = Core::mul(day_number, Value(86400000));
+  Value millis = Core::add(day_ms, time_ms);
+  Value whole_days = Core::_date_floor_div_impl(millis, Value(86400000));
+  Value whole_ms = Core::mul(whole_days, Value(-86400000));
+  Value within = Core::add(millis, whole_ms);
+  Value civil = Core::_date_civil_from_days_impl(whole_days);
+  Value civil_month = Core::get(civil, Value("month"), Value());
+  Value civil_month_index = Core::add(civil_month, Value(-1));
+  Value civil_day = Core::get(civil, Value("day"), Value());
+  Value set_day = Core::_date_make_day_impl(year, civil_month_index, civil_day);
+  Value set_ms = Core::mul(set_day, Value(86400000));
+  Value result = Core::add(set_ms, within);
+  return result;
 }
 
 Value Core::_regex_read_name(Value s) {
@@ -25175,6 +27279,28 @@ Value Core::_regex_read_name(Value s) {
   return name;
 }
 
+Value Core::_date_parts_of_ms_impl(Value millis) {
+  axir_coverage_mark("_date_parts_of_ms_impl");
+  Value days = Core::_date_floor_div_impl(millis, Value(86400000));
+  Value day_ms = Core::mul(days, Value(-86400000));
+  Value within = Core::add(millis, day_ms);
+  Value parts = Core::_date_civil_from_days_impl(days);
+  Value hour = Core::_date_floor_div_impl(within, Value(3600000));
+  Value hour_ms = Core::mul(hour, Value(-3600000));
+  within = Core::add(within, hour_ms);
+  Value minute = Core::_date_floor_div_impl(within, Value(60000));
+  Value minute_ms = Core::mul(minute, Value(-60000));
+  within = Core::add(within, minute_ms);
+  Value second = Core::_date_floor_div_impl(within, Value(1000));
+  Value second_ms = Core::mul(second, Value(-1000));
+  Value millisecond = Core::add(within, second_ms);
+  Core::set(parts, Value("hour"), hour);
+  Core::set(parts, Value("minute"), minute);
+  Core::set(parts, Value("second"), second);
+  Core::set(parts, Value("millisecond"), millisecond);
+  return parts;
+}
+
 Value Core::_stream_json_complete_literal_impl(Value text, Value word) {
   axir_coverage_mark("_stream_json_complete_literal_impl");
   Value whole = Core::string_ends_with(text, word);
@@ -25213,6 +27339,46 @@ Value Core::_stream_json_complete_literal_impl(Value text, Value word) {
     size = Core::add(size, Value(-1));
   }
   return text;
+}
+
+Value Core::_date_same_day_impl(Value left, Value right) {
+  axir_coverage_mark("_date_same_day_impl");
+  Value keys = Value::array();
+  Core::append(keys, Value("year"));
+  Core::append(keys, Value("month"));
+  Core::append(keys, Value("day"));
+  for (auto key : Core::iter(keys)) {
+    Value left_value = Core::get(left, key, Value(0));
+    Value right_value = Core::get(right, key, Value(0));
+    Value same = Core::eq(left_value, right_value);
+    Value different = Core::not_(same);
+    if (Core::truthy(different)) {
+      return Value(false);
+    }
+  }
+  return Value(true);
+}
+
+Value Core::_date_same_parts_impl(Value left, Value right) {
+  axir_coverage_mark("_date_same_parts_impl");
+  Value keys = Value::array();
+  Core::append(keys, Value("year"));
+  Core::append(keys, Value("month"));
+  Core::append(keys, Value("day"));
+  Core::append(keys, Value("hour"));
+  Core::append(keys, Value("minute"));
+  Core::append(keys, Value("second"));
+  Core::append(keys, Value("millisecond"));
+  for (auto key : Core::iter(keys)) {
+    Value left_value = Core::get(left, key, Value(0));
+    Value right_value = Core::get(right, key, Value(0));
+    Value same = Core::eq(left_value, right_value);
+    Value different = Core::not_(same);
+    if (Core::truthy(different)) {
+      return Value(false);
+    }
+  }
+  return Value(true);
 }
 
 Value Core::_stream_json_repair_impl(Value json_text) {
@@ -25377,6 +27543,73 @@ Value Core::_stream_json_repair_impl(Value json_text) {
   Value closing = Core::string_join(Value(""), reversed);
   Value repaired = Core::add(result, closing);
   return repaired;
+}
+
+Value Core::_date_pad_impl(Value value, Value width) {
+  axir_coverage_mark("_date_pad_impl");
+  Value text = Core::string_str(value);
+  while (true) {
+    Value length = Core::len(text);
+    Value wide = Core::gte(length, width);
+    if (Core::truthy(wide)) {
+      break;
+    }
+    text = Core::add(Value("0"), text);
+  }
+  return text;
+}
+
+Value Core::_date_iso_impl(Value millis) {
+  axir_coverage_mark("_date_iso_impl");
+  Value parts = Core::_date_parts_of_ms_impl(millis);
+  Value year = Core::get(parts, Value("year"), Value());
+  Value year_text = Value("");
+  Value year_low = Core::gte(year, Value(0));
+  Value year_high = Core::lte(year, Value(9999));
+  Value four_digits = Core::and_(year_low, year_high);
+  if (Core::truthy(four_digits)) {
+    year_text = Core::_date_pad_impl(year, Value(4));
+  }
+  if (!Core::truthy(four_digits)) {
+    Value negative = Core::lt(year, Value(0));
+    Value magnitude = year;
+    Value sign = Value("+");
+    if (Core::truthy(negative)) {
+      magnitude = Core::mul(year, Value(-1));
+      sign = Value("-");
+    }
+    Value six = Core::_date_pad_impl(magnitude, Value(6));
+    year_text = Core::add(sign, six);
+  }
+  Value month = Core::get(parts, Value("month"), Value());
+  Value month_text = Core::_date_pad_impl(month, Value(2));
+  Value day = Core::get(parts, Value("day"), Value());
+  Value day_text = Core::_date_pad_impl(day, Value(2));
+  Value hour = Core::get(parts, Value("hour"), Value());
+  Value hour_text = Core::_date_pad_impl(hour, Value(2));
+  Value minute = Core::get(parts, Value("minute"), Value());
+  Value minute_text = Core::_date_pad_impl(minute, Value(2));
+  Value second = Core::get(parts, Value("second"), Value());
+  Value second_text = Core::_date_pad_impl(second, Value(2));
+  Value millisecond = Core::get(parts, Value("millisecond"), Value());
+  Value millisecond_text = Core::_date_pad_impl(millisecond, Value(3));
+  Value pieces = Value::array();
+  Core::append(pieces, year_text);
+  Core::append(pieces, Value("-"));
+  Core::append(pieces, month_text);
+  Core::append(pieces, Value("-"));
+  Core::append(pieces, day_text);
+  Core::append(pieces, Value("T"));
+  Core::append(pieces, hour_text);
+  Core::append(pieces, Value(":"));
+  Core::append(pieces, minute_text);
+  Core::append(pieces, Value(":"));
+  Core::append(pieces, second_text);
+  Core::append(pieces, Value("."));
+  Core::append(pieces, millisecond_text);
+  Core::append(pieces, Value("Z"));
+  Value iso = Core::string_join(Value(""), pieces);
+  return iso;
 }
 
 Value Core::_regex_validate_names(Value n, Value path, Value seen, Value counter) {
@@ -26057,27 +28290,6 @@ Value Core::_cache_store_streamed_impl(Value cache_fn, Value key, Value output) 
   return Value();
 }
 
-Value Core::_stream_json_string_value_impl(Value field, Value value) {
-  axir_coverage_mark("_stream_json_string_value_impl");
-  Value is_string = Core::type_is(value, Value("string"));
-  Value not_string = Core::not_(is_string);
-  if (Core::truthy(not_string)) {
-    return value;
-  }
-  Value parsed = Core::none();
-  try {
-    parsed = Core::json_parse_strict(value);
-  } catch (const std::exception& e) {
-    Value parse_error = Core::exception_value(e);
-    Value title = Core::_stream_field_title_impl(field);
-    Value detail = Core::exception_message(parse_error);
-    Value message = Core::string_format(Value("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text."), detail, title);
-    Value invalid = Core::validation_error(message);
-    Core::raise_error(invalid);
-  }
-  return parsed;
-}
-
 Value Core::_cache_lookup_impl(Value gen, Value values, Value options, Value ignore_read_errors) {
   axir_coverage_mark("_cache_lookup_impl");
   Value lookup = Value::object();
@@ -26108,6 +28320,27 @@ Value Core::_cache_lookup_impl(Value gen, Value values, Value options, Value ign
     }
   }
   return lookup;
+}
+
+Value Core::_stream_json_string_value_impl(Value field, Value value) {
+  axir_coverage_mark("_stream_json_string_value_impl");
+  Value is_string = Core::type_is(value, Value("string"));
+  Value not_string = Core::not_(is_string);
+  if (Core::truthy(not_string)) {
+    return value;
+  }
+  Value parsed = Core::none();
+  try {
+    parsed = Core::json_parse_strict(value);
+  } catch (const std::exception& e) {
+    Value parse_error = Core::exception_value(e);
+    Value title = Core::_stream_field_title_impl(field);
+    Value detail = Core::exception_message(parse_error);
+    Value message = Core::string_format(Value("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text."), detail, title);
+    Value invalid = Core::validation_error(message);
+    Core::raise_error(invalid);
+  }
+  return parsed;
 }
 
 Value Core::_stream_json_strings_for_field_impl(Value field, Value value) {
@@ -44077,7 +46310,7 @@ AxACE::AxACE(Value options) {
     if (!value.is_null()) Core::set(config_, key, value);
   }
   Value now_value = Core::get(options, "now");
-  now_ = now_value.is_null() ? std::string("1970-01-01T00:00:00.000Z") : display(now_value);
+  now_ = now_value.is_null() ? std::string() : display(now_value);
   initial_playbook_ = Core::get(options, "initialPlaybook");
   playbook_ = initial_playbook_.is_null() ? empty_playbook() : initial_playbook_;
 }
@@ -44092,7 +46325,23 @@ void AxACE::set_callables(AceCallable reflector, AceCallable curator, AceCallabl
 std::string AxACE::name() const { return "ACE"; }
 std::string AxACE::version() const { return "axir-ace-v1"; }
 
-Value AxACE::empty_playbook() const { return Core::_ace_empty_playbook(Value(), Value(now_)); }
+Value AxACE::empty_playbook() const { return Core::_ace_empty_playbook(Value(), Value(now())); }
+
+// The injected clock (the `now` option), else the wall clock at each call, as
+// TS's new Date().toISOString() stamps each playbook change.
+std::string AxACE::now() const {
+  if (!now_.empty()) return now_;
+  auto current = std::chrono::system_clock::now();
+  std::time_t seconds = std::chrono::system_clock::to_time_t(current);
+  auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(current.time_since_epoch()).count() % 1000;
+  std::tm parts{};
+  gmtime_r(&seconds, &parts);
+  char text[32];
+  std::strftime(text, sizeof(text), "%Y-%m-%dT%H:%M:%S", &parts);
+  char out[40];
+  std::snprintf(out, sizeof(out), "%s.%03dZ", text, static_cast<int>(millis));
+  return out;
+}
 
 int AxACE::int_config(const std::string& key, int fallback) const {
   Value value = Core::get(config_, key);
@@ -44227,7 +46476,7 @@ std::vector<Value> AxACE::apply_operations(std::vector<Value>& resolved, Value& 
   Core::set(options, "allowDynamicSections", Core::get(config_, "allowDynamicSections"));
   Core::set(options, "enableAutoPrune", Value(true));
   Core::set(options, "protectedBulletIds", protected_ids);
-  Value result = Core::_ace_apply_curator_operations(playbook_, Value(resolved), options, Value(now_));
+  Value result = Core::_ace_apply_curator_operations(playbook_, Value(resolved), options, Value(now()));
   playbook_ = Core::get(result, "playbook");
   std::vector<Value> applied_ids;
   for (const auto& item : Core::iter(Core::get(result, "updatedBulletIds", Value::array()))) applied_ids.push_back(item);
@@ -44242,7 +46491,7 @@ std::vector<Value> AxACE::apply_operations(std::vector<Value>& resolved, Value& 
 
 void AxACE::apply_bullet_tags(const Value& reflection) {
   for (const auto& tag : Core::iter(Core::_ace_normalize_reflection_bullet_tags(reflection))) {
-    playbook_ = Core::_ace_update_bullet_feedback(playbook_, Core::get(tag, "id"), Core::get(tag, "tag"), Value(now_));
+    playbook_ = Core::_ace_update_bullet_feedback(playbook_, Core::get(tag, "id"), Core::get(tag, "tag"), Value(now()));
   }
 }
 
@@ -44291,7 +46540,7 @@ Value AxACE::compile(const std::vector<Value>& examples, const AceCallable& metr
       Core::set(feedback_event, "generatorOutput", generator_out);
       Core::set(feedback_event, "reflection", reflection);
       Core::set(feedback_event, "curator", curator_result);
-      Core::set(feedback_event, "timestamp", Value(now_));
+      Core::set(feedback_event, "timestamp", Value(now()));
       generator_history_.push_back(feedback_event);
       bool has_ops = !curator_result.is_null() && !Core::iter(Core::get(curator_result, "operations", Value::array())).empty();
       if (!applied_ids.empty() && has_ops) {
@@ -44344,7 +46593,7 @@ Value AxACE::apply_online_update(Value args) {
   Core::set(feedback_event, "generatorOutput", generator_out);
   Core::set(feedback_event, "reflection", reflection);
   Core::set(feedback_event, "curator", curator_result);
-  Core::set(feedback_event, "timestamp", Value(now_));
+  Core::set(feedback_event, "timestamp", Value(now()));
   generator_history_.push_back(feedback_event);
   bool has_ops = !curator_result.is_null() && !Core::iter(Core::get(curator_result, "operations", Value::array())).empty();
   if (!applied_ids.empty() && has_ops) {
@@ -44410,18 +46659,42 @@ static Value ace_curator_signature() {
        ace_field("operations", "json", kAceCuratorOperationsDescription)});
 }
 
-static const char* kAgentPlaybookWeaknessMinerSignature =
-    "clusterSignature:string \"Shared error signature of the cluster\", "
-    "taskSummaries:string \"One line per failing task\", "
-    "actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", "
-    "functionCallSummary?:string \"Digest of runtime/tool calls\", "
-    "toolErrors?:string \"Tool errors observed\", "
-    "currentPlaybook?:string \"Current failure-avoidance playbook\" "
-    "-> weaknessDescription:string \"Recurring weakness\", "
-    "rootCause:string \"Mechanical root cause\", "
-    "proposedGuidance:string \"One concise imperative avoidance rule\", "
-    "evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", "
-    "configRecommendations?:json \"Setup suggestions no prompt text can fix\"";
+// The weakness miner's description and signature, as TS builds them
+// (src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts).
+static const char* kAgentPlaybookWeaknessMinerDescription =
+    "You are a failure analyst for an LLM agent harness. You receive one "
+    "cluster of failed agent runs sharing an error signature, with excerpts "
+    "of what the agent actually did. Identify the single recurring weakness, "
+    "its root cause, and one narrow, durable avoidance rule the agent should "
+    "recall while acting. Ground every claim: evidenceQuotes must be verbatim "
+    "substrings copied from the excerpts. Keep proposedGuidance concise, "
+    "imperative, and general to the failure mode (not one task). Use "
+    "configRecommendations only for setup problems no prompt text can fix "
+    "(missing tools, timeouts, model choice).";
+
+static Value ace_array_field(const std::string& name, const std::string& type, const std::string& description, bool optional = false) {
+  return Core::record_new("Field", Value(Object{{"name", name},
+                                                {"type", Core::record_new("FieldType", Value(Object{{"name", type}, {"is_array", true}}))},
+                                                {"description", description},
+                                                {"isOptional", optional}}));
+}
+
+static Value agent_playbook_weakness_miner_signature() {
+  Value sig = ace_signature(
+      {ace_field("clusterSignature", "string", "Shared error signature of the cluster."),
+       ace_field("taskSummaries", "string", "One line per failing task."),
+       ace_field("actionLogExcerpts", "string", "Excerpts of the failing runs, centered on the failure."),
+       ace_field("functionCallSummary", "string", "Digest of runtime/tool calls in the failing runs.", true),
+       ace_field("toolErrors", "string", "Tool errors observed.", true),
+       ace_field("currentPlaybook", "string", "The failure-avoidance playbook currently applied.", true)},
+      {ace_field("weaknessDescription", "string", "The recurring weakness, one sentence."),
+       ace_field("rootCause", "string", "Why the runs fail, mechanically."),
+       ace_field("proposedGuidance", "string", "The avoidance rule to add to the playbook \xE2\x80\x94 concise, imperative."),
+       ace_array_field("evidenceQuotes", "string", "Verbatim substrings from actionLogExcerpts proving the weakness."),
+       ace_array_field("configRecommendations", "string", "Setup/config suggestions no prompt text can fix.", true)});
+  Core::set(sig, "description", Value(kAgentPlaybookWeaknessMinerDescription));
+  return sig;
+}
 
 static std::string playbook_compose_instruction(const std::string& base, const std::string& rendered) {
   std::vector<std::string> parts;
@@ -44724,6 +46997,11 @@ Value AxPlaybook::update(Value args) {
   return result;
 }
 
+void AxPlaybook::rebind_program(AxGen& program) {
+  program_ = &program;
+  base_instruction_ = display(program.get_instruction());
+}
+
 void AxPlaybook::apply_to(AxGen* program) {
   if (program != nullptr && program != program_) {
     program->set_instruction(Value(playbook_compose_instruction(display(program->get_instruction()), render())));
@@ -44911,10 +47189,7 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
     if (!playbook_collapse(current_playbook).empty()) Core::set(miner_request, "currentPlaybook", Value(current_playbook));
     Value mined;
     try {
-      AxGen miner(s(kAgentPlaybookWeaknessMinerSignature), object({
-          {"id", "agent.playbook.weakness-miner"},
-          {"instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."},
-      }));
+      AxGen miner(agent_playbook_weakness_miner_signature(), object({{"id", "agent.playbook.weakness-miner"}}));
       mined = miner.forward(*teacher_, miner_request, Core::map_merge(Value::object(), miner_options));
     } catch (...) {
       continue;
@@ -45550,6 +47825,7 @@ AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  attach_configured_playbook();
 }
 
 AxAgent& AxAgent::set_signature(Value signature) {
@@ -45560,6 +47836,7 @@ AxAgent& AxAgent::set_signature(Value signature) {
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  rebind_playbook();
   return *this;
 }
 
@@ -45567,13 +47844,13 @@ Value AxAgent::get_instruction() const { return Core::get(state_, "stage_instruc
 
 AxAgent& AxAgent::set_instruction(Value instruction) {
   Value composed = Core::_agent_set_instruction(state_, display(instruction));
-  executor_->set_instruction(composed);
+  set_stage_instruction(*executor_, composed);
   return *this;
 }
 
 AxAgent& AxAgent::add_actor_instruction(Value addendum) {
   Value composed = Core::_agent_add_actor_instruction(state_, display(addendum));
-  executor_->set_instruction(composed);
+  set_stage_instruction(*executor_, composed);
   return *this;
 }
 
@@ -45595,12 +47872,11 @@ Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRu
     Value modules=call_context ? call_context->agent_modules() : Value::array();
     Core::_agent_apply_run_context(state_,options_,options,modules);
     if(Core::truthy(Core::get(state_,"runtime_enabled",false))) {
-      distiller_->set_instruction(Core::get(state_,"distiller_description"));
-      executor_->set_instruction(Core::get(state_,"executor_description"));
-      responder_->set_instruction(Core::get(state_,"responder_description"));
+      set_stage_instruction(*distiller_, Core::get(state_,"distiller_description"));
+      set_stage_instruction(*executor_, Core::get(state_,"executor_description"));
+      set_stage_instruction(*responder_, Core::get(state_,"responder_description"));
     }
   }
-  ensure_configured_playbook(client);
   // Wire the built-in llmQuery primitive onto the runtime carried in agent
   // options (the same runtime the actor loop will create sessions on),
   // mirroring the Go/Python/Rust/Java wrappers. The logic lives in the
@@ -45707,6 +47983,7 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  rebind_playbook();
   return *this;
 }
 
@@ -45791,7 +48068,7 @@ AxAgent& AxAgent::apply_optimized_components(Value component_map) {
   executor_->apply_optimized_components(component_map);
   responder_->apply_optimized_components(component_map);
   Value composed = Core::_agent_apply_optimized_components(state_, component_map);
-  executor_->set_instruction(composed);
+  set_stage_instruction(*executor_, composed);
   return *this;
 }
 AxAgent& AxAgent::apply_optimization(Value artifact) {
@@ -45886,37 +48163,93 @@ AxPlaybook& AxAgent::playbook(AIClient& student, Value options, AIClient* teache
     if (teacher != nullptr || (options.is_object() && !Core::iter(Core::map_keys(options)).empty())) {
       throw AxError("validation", "AxAgent.playbook(): this agent already has a playbook; call playbook() without options to use it.");
     }
+    // A moved agent leaves the handle's back-pointer on the old object.
+    playbook_handle_->bind_agent(*this);
     return *playbook_handle_;
   }
   if (!options.is_object()) options = Value::object();
-  std::string target = display(Core::get(options, "target", Value("actor")));
-  AxGen* stage = target == "responder" ? responder_.get() : executor_.get();
+  playbook_target_ = display(Core::get(options, "target", Value("actor")));
+  playbook_apply_ = !Core::truthy(Core::eq(Core::get(options, "apply"), Value(false)));
+  AxGen* stage = playbook_stage();
   auto handle = std::make_unique<AxPlaybook>(*stage, student, teacher, options);
-  if (Core::truthy(Core::eq(Core::get(options, "apply"), Value(false)))) {
-    handle->set_apply_hook([](const std::string&) {});
-  } else {
-    std::string base = display(stage->get_instruction());
-    AxGen* stage_ptr = stage;
-    handle->set_apply_hook([stage_ptr, base](const std::string& rendered) {
-      stage_ptr->set_instruction(Value(playbook_compose_instruction(base, rendered)));
-    });
-  }
+  bind_playbook_stage(*handle, stage);
   handle->bind_agent(*this);
   playbook_handle_ = std::move(handle);
   return *playbook_handle_;
 }
 
-AxPlaybook* AxAgent::get_playbook() const { return playbook_handle_.get(); }
+// The stage the playbook targets: the actor, or the responder.
+AxGen* AxAgent::playbook_stage() const { return playbook_target_ == "responder" ? responder_.get() : executor_.get(); }
 
-void AxAgent::ensure_configured_playbook(AIClient& client) {
+// Point the playbook at an agent stage: the program it runs and the hook that
+// writes the rendered playbook into the stage prompt.
+void AxAgent::bind_playbook_stage(AxPlaybook& handle, AxGen* stage) {
+  handle.rebind_program(*stage);
+  if (!playbook_apply_) {
+    handle.set_apply_hook([](const std::string&) {});
+    return;
+  }
+  std::string base = display(stage->get_instruction());
+  handle.set_apply_hook([stage, base](const std::string& rendered) {
+    stage->set_instruction(Value(playbook_compose_instruction(base, rendered)));
+  });
+}
+
+// Point the playbook at its stage again and write it into that stage's prompt:
+// set_signature and add_tool_module replace the stage AxGen objects (the old
+// ones are freed), and set_stage_instruction rewrites the stage's instruction.
+void AxAgent::rebind_playbook() {
+  if (!playbook_handle_) return;
+  bind_playbook_stage(*playbook_handle_, playbook_stage());
+  playbook_handle_->apply_to();
+}
+
+// Write an agent stage's instruction. The stage the playbook targets gets the
+// rendered playbook composed on top, as TS keeps it in the stage prompt, so a
+// stage instruction, an actor addendum, optimized components or the run-context
+// refresh never drop it.
+void AxAgent::set_stage_instruction(AxGen& stage, Value instruction) {
+  stage.set_instruction(std::move(instruction));
+  if (playbook_handle_ && playbook_stage() == &stage) rebind_playbook();
+}
+
+AxPlaybook* AxAgent::get_playbook() const {
+  // The playbook is attached at construction, so a moved agent leaves the
+  // handle's back-pointer on the old object: point it here again.
+  if (playbook_handle_) playbook_handle_->bind_agent(const_cast<AxAgent&>(*this));
+  return playbook_handle_.get();
+}
+
+// The configured playbook's client under one of keys, a Core::client_ref.
+static AIClient* playbook_config_client(const Value& options, std::initializer_list<const char*> keys) {
+  for (const char* key : keys) {
+    Value ref = Core::get(options, key);
+    if (ref.is_null()) continue;
+    if (AIClient* client = registered_client(str(Core::get(ref, "__client_id", Value(""))))) return client;
+  }
+  return nullptr;
+}
+
+// Attach the `playbook` config's playbook at construction, as TS, Python and
+// Java do, so get_playbook() has it before the first forward. Its student is
+// the config's studentAI, else the agent's ai or client (Core::client_ref
+// values); a config without one is invalid, as in TS.
+void AxAgent::attach_configured_playbook() {
   if (playbook_handle_ || playbook_config_.is_null() || (playbook_config_.is_bool() && !Core::truthy(playbook_config_))) return;
-  Value config = playbook_config_.is_object() ? playbook_config_ : Value::object();
+  // A copy: the caller's config Value is shared and must not change.
+  Value config = Core::map_merge(Value::object(), playbook_config_.is_object() ? playbook_config_ : Value::object());
   if (Core::get(config, "maxReflectorRounds", Value()).is_null() && Core::get(config, "max_reflector_rounds", Value()).is_null()) {
     Core::set(config, "maxReflectorRounds", 1);
   }
+  AIClient* student = playbook_config_client(config, {"studentAI", "student_ai", "student", "client", "ai"});
+  if (student == nullptr) student = playbook_config_client(options_, {"ai", "client"});
+  if (student == nullptr) {
+    throw AxError("validation", "AxAgent: the `playbook` config option requires studentAI when the agent has no default ai.");
+  }
+  AIClient* teacher = playbook_config_client(config, {"teacherAI", "teacher_ai", "teacher"});
   Value seed = Core::get(config, "seed", Value());
   if (seed.is_null() && (!Core::get(config, "playbook", Value()).is_null() || !Core::get(config, "artifact", Value()).is_null())) seed = config;
-  AxPlaybook& handle = playbook(client, config);
+  AxPlaybook& handle = playbook(*student, config, teacher);
   if (seed.is_object()) {
     if (!Core::get(seed, "playbook", Value()).is_null()) handle.load(seed);
     else handle.load(object({{"playbook", seed}}));

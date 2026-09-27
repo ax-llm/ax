@@ -137,6 +137,83 @@ final class Core {
     return units;
   }
   static Object stringCodepointLength(Object value) { String text = String.valueOf(value); return text.codePointCount(0, text.length()); }
+  /**
+   * The epoch milliseconds of a java.time or java.util.Date value, read as
+   * TypeScript reads a Date: Instant, OffsetDateTime, ZonedDateTime and Date
+   * are their instant, a LocalDateTime is in the JVM's zone (as new Date(2024,
+   * 4, 9) is local), and a LocalDate is its UTC midnight (as new
+   * Date("2024-05-09") parses). Null for anything else.
+   */
+  static Long jsDateMillis(Object value) {
+    if (value instanceof java.time.Instant instant) return instant.toEpochMilli();
+    if (value instanceof java.time.OffsetDateTime time) return time.toInstant().toEpochMilli();
+    if (value instanceof java.time.ZonedDateTime time) return time.toInstant().toEpochMilli();
+    if (value instanceof java.time.LocalDateTime time) return time.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+    if (value instanceof java.time.LocalDate date) return date.toEpochDay() * 86_400_000L;
+    if (value instanceof java.util.Date date) return date.getTime();
+    return null;
+  }
+  /** Date.prototype.toISOString of epoch milliseconds. */
+  static String jsISOString(long millis) {
+    java.time.OffsetDateTime time = java.time.Instant.ofEpochMilli(millis).atOffset(java.time.ZoneOffset.UTC);
+    int year = time.getYear();
+    String yearText = year < 0 ? String.format("-%06d", -year) : year > 9999 ? String.format("+%06d", year) : String.format("%04d", year);
+    return String.format("%s-%02d-%02dT%02d:%02d:%02d.%03dZ", yearText, time.getMonthValue(), time.getDayOfMonth(), time.getHour(), time.getMinute(), time.getSecond(), time.getNano() / 1_000_000);
+  }
+  /**
+   * The prompt text TypeScript writes for a Date in a date-typed field
+   * (processValue in src/ax/dsp/prompt.ts): a date field's UTC day, a datetime
+   * without milliseconds, and for a range with two dates the {start, end}
+   * JSON of those; a range object holding anything else is its JSON with each
+   * date as toISOString. Null when TS would not see a Date.
+   */
+  static String jsDatePromptText(String typeName, Object value) {
+    if ("date".equals(typeName) || "datetime".equals(typeName)) {
+      Long millis = jsDateMillis(value);
+      if (millis == null) return null;
+      String iso = jsISOString(millis);
+      return "date".equals(typeName) ? iso.substring(0, iso.indexOf('T')) : iso.substring(0, iso.length() - 5) + "Z";
+    }
+    if (("dateRange".equals(typeName) || "datetimeRange".equals(typeName)) && value instanceof Map<?, ?> map && map.containsKey("start") && map.containsKey("end")) {
+      Long start = jsDateMillis(map.get("start"));
+      Long end = jsDateMillis(map.get("end"));
+      if (start != null && end != null) {
+        Map<String, Object> bounds = new LinkedHashMap<>();
+        boolean dayOnly = "dateRange".equals(typeName);
+        String startIso = jsISOString(start), endIso = jsISOString(end);
+        bounds.put("start", dayOnly ? startIso.substring(0, 10) : startIso.substring(0, startIso.length() - 5) + "Z");
+        bounds.put("end", dayOnly ? endIso.substring(0, 10) : endIso.substring(0, endIso.length() - 5) + "Z");
+        return Json.pretty(bounds);
+      }
+      boolean dated = false;
+      Map<String, Object> copied = new LinkedHashMap<>();
+      for (Map.Entry<?, ?> entry : map.entrySet()) {
+        Long millis = jsDateMillis(entry.getValue());
+        if (millis != null) dated = true;
+        copied.put(String.valueOf(entry.getKey()), millis != null ? jsISOString(millis) : entry.getValue());
+      }
+      if (dated) return Json.pretty(copied);
+    }
+    return null;
+  }
+  private static final java.util.concurrent.ConcurrentHashMap<String, java.time.zone.ZoneRules> DATE_ZONE_RULES = new java.util.concurrent.ConcurrentHashMap<>();
+  /**
+   * The UTC offset in seconds of the IANA zone {@code name} at an instant
+   * (epoch milliseconds), from java.time's tz database. Only region IDs count
+   * as zones (ZoneId.of would also read "GMT+5" as an offset); an unknown one
+   * throws.
+   */
+  static Object dateZoneOffset(Object name, Object epochMillis) {
+    String zone = String.valueOf(name);
+    java.time.zone.ZoneRules rules = DATE_ZONE_RULES.get(zone);
+    if (rules == null) {
+      if (!java.time.ZoneId.getAvailableZoneIds().contains(zone)) throw new RuntimeException("unknown time zone " + zone);
+      rules = java.time.ZoneId.of(zone).getRules();
+      DATE_ZONE_RULES.put(zone, rules);
+    }
+    long seconds = (long) Math.floor(asDouble(epochMillis) / 1000.0);
+    return (double) rules.getOffset(java.time.Instant.ofEpochSecond(seconds)).getTotalSeconds();
+  }
   static Object mathIsFinite(Object value) { return Double.isFinite(asDouble(value)); }
   static Object mathFloor(Object value) { return Math.floor(asDouble(value)); }
   static Object mathLog(Object value) { return Math.log(asDouble(value)); }
@@ -351,6 +428,9 @@ final class Core {
       case "boolean" -> value instanceof Boolean;
       case "null" -> value == null;
       case "json" -> value == null || value instanceof Map<?, ?> || value instanceof List<?> || value instanceof String || value instanceof Number || value instanceof Boolean;
+      // A java.time or java.util.Date value, which a date or datetime field
+      // takes where TypeScript takes a Date.
+      case "date" -> jsDateMillis(value) != null;
       default -> false;
     };
   }
@@ -708,15 +788,22 @@ final class Core {
     t.array = false;
     return new Field(f.name, t, f.description, f.title, f.optional, f.internal, f.cached);
   }
+  // A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts):
+  // underscores become spaces, and a word starts at a capital after a lowercase
+  // letter or digit, at the last capital of a run that begins a word, and at each
+  // run of digits; words are separated by one space. userID is "User ID",
+  // parseHTTPResponse "Parse HTTP Response", item123 "Item 123", field_2 "Field 2".
+  private static final Pattern TITLE_CAMEL_BOUNDARY = Pattern.compile("([a-z0-9])([A-Z])");
+  private static final Pattern TITLE_ACRONYM_BOUNDARY = Pattern.compile("([A-Z])([A-Z][a-z])");
+  private static final Pattern TITLE_DIGIT_BOUNDARY = Pattern.compile("([^0-9])([0-9])");
+  private static final Pattern TITLE_SPACES = Pattern.compile("\\s+");
+
   static String title(String name) {
-    String s = name == null ? "" : name.replace("_", " ");
-    StringBuilder out = new StringBuilder();
-    for (int i = 0; i < s.length(); i++) {
-      char ch = s.charAt(i);
-      if (i > 0 && (Character.isUpperCase(ch) || Character.isDigit(ch))) out.append(' ');
-      out.append(ch);
-    }
-    String text = out.toString().trim();
+    String text = name == null ? "" : name.replace("_", " ");
+    text = TITLE_CAMEL_BOUNDARY.matcher(text).replaceAll("$1 $2");
+    text = TITLE_ACRONYM_BOUNDARY.matcher(text).replaceAll("$1 $2");
+    text = TITLE_DIGIT_BOUNDARY.matcher(text).replaceAll("$1 $2");
+    text = TITLE_SPACES.matcher(text).replaceAll(" ").trim();
     return text.isEmpty() ? text : text.substring(0, 1).toUpperCase() + text.substring(1);
   }
   static Object descriptionAppend(Object base, Object hint) {
@@ -1101,7 +1188,9 @@ final class Core {
     List<String> lines = new ArrayList<>();
     for (Object raw : asList(get(get(gen, "signature", null), kind + "_fields", List.of()))) {
       Field field = (Field) raw;
-      if (map.containsKey(field.name)) lines.add(field.title + ": " + axgenValueText(map.get(field.name)));
+      if (!map.containsKey(field.name)) continue;
+      String dated = field.type == null ? null : jsDatePromptText(field.type.name, map.get(field.name));
+      lines.add(field.title + ": " + (dated != null ? dated : axgenValueText(map.get(field.name))));
     }
     if (lines.isEmpty()) for (Map.Entry<String, Object> e : map.entrySet()) lines.add(e.getKey() + ": " + axgenValueText(e.getValue()));
     return String.join("\n", lines);
@@ -1719,7 +1808,8 @@ class PromptRuntime {
         media.putIfAbsent("type", field.type.name);
         parts.add(media);
       } else {
-        String rendered = value instanceof String ? String.valueOf(value) : Json.pretty(value);
+        String dated = field.type == null ? null : Core.jsDatePromptText(field.type.name, value);
+        String rendered = dated != null ? dated : value instanceof String ? String.valueOf(value) : Json.pretty(value);
         Map<String, Object> part = new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": " + rendered + "\n"));
         if (field.cached) part.put("cache", true);
         parts.add(part);

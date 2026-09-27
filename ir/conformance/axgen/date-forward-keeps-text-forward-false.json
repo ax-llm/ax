@@ -1,0 +1,34 @@
+{
+  "description": "Port-only: parse_dates false on the forward call wins over the constructor and keeps the model text.",
+  "expected_output": {
+    "due": "2024-05-09",
+    "when": "2024-05-09 14:30 America/New_York",
+    "span": "2024-05-09/2024-05-12",
+    "window": "{\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00+00:00\"}",
+    "note": "all set"
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "parse_dates": false
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "date-forward-keeps-text-forward-false",
+  "options": {
+    "parse_dates": true
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Due: 2024-05-09\nWhen: 2024-05-09 14:30 America/New_York\nSpan: 2024-05-09/2024-05-12\nWindow: {\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00+00:00\"}\nNote: all set",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> due:date, when:datetime, span:dateRange, window:datetimeRange, note:string"
+}

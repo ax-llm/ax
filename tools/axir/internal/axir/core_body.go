@@ -186,6 +186,7 @@ const (
 	IntrinsicAxGenCallProcessor        CoreIntrinsic = "intrinsic.axgen.call_processor"
 	IntrinsicAxGenCheckStreamAssert    CoreIntrinsic = "intrinsic.axgen.check_streaming_assertion"
 	IntrinsicAxGenDeprecation          CoreIntrinsic = "intrinsic.axgen.deprecation"
+	IntrinsicDateZoneOffset            CoreIntrinsic = "intrinsic.date.zone_offset"
 	IntrinsicAxGenCachingFunction      CoreIntrinsic = "intrinsic.axgen.caching_function"
 	IntrinsicAxGenCacheRead            CoreIntrinsic = "intrinsic.axgen.cache_read"
 	IntrinsicAxGenCacheWrite           CoreIntrinsic = "intrinsic.axgen.cache_write"
@@ -340,6 +341,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAxGenCallProcessor:        "_core_axgen_call_processor",
 	IntrinsicAxGenCheckStreamAssert:    "_core_axgen_check_streaming_assertion",
 	IntrinsicAxGenDeprecation:          "_core_axgen_deprecation",
+	IntrinsicDateZoneOffset:            "_core_date_zone_offset",
 	IntrinsicAxGenCachingFunction:      "_core_axgen_caching_function",
 	IntrinsicAxGenCacheRead:            "_core_axgen_cache_read",
 	IntrinsicAxGenCacheWrite:           "_core_axgen_cache_write",
@@ -403,6 +405,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.axgen.call_processor":                  true,
 	"intrinsic.axgen.check_streaming_assertion":       true,
 	"intrinsic.axgen.deprecation":                     true,
+	"intrinsic.date.zone_offset":                      true,
 	"intrinsic.axgen.caching_function":                true,
 	"intrinsic.axgen.cache_read":                      true,
 	"intrinsic.axgen.cache_write":                     true,
@@ -812,6 +815,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.axgen.call_processor":            intrinsicInfo("intrinsic.axgen.call_processor", 3, 3, true, "json"),
 	"intrinsic.axgen.check_streaming_assertion": intrinsicInfo("intrinsic.axgen.check_streaming_assertion", 3, 3, true, "json"),
 	"intrinsic.axgen.deprecation":               intrinsicInfo("intrinsic.axgen.deprecation", 2, 2, true, "void"),
+	"intrinsic.date.zone_offset":                intrinsicInfo("intrinsic.date.zone_offset", 2, 2, true, "f64"),
 	"intrinsic.axgen.caching_function":          intrinsicInfo("intrinsic.axgen.caching_function", 2, 2, true, "json"),
 	"intrinsic.axgen.cache_read":                intrinsicInfo("intrinsic.axgen.cache_read", 2, 2, true, "json"),
 	"intrinsic.axgen.cache_write":               intrinsicInfo("intrinsic.axgen.cache_write", 3, 3, true, "void"),

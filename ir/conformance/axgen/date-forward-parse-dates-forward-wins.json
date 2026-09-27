@@ -1,0 +1,39 @@
+{
+  "expected_output": {
+    "due": "2024-05-09T00:00:00.000Z",
+    "when": "2024-05-09T18:30:00.000Z",
+    "span": {
+      "end": "2024-05-12T00:00:00.000Z",
+      "start": "2024-05-09T00:00:00.000Z"
+    },
+    "window": {
+      "end": "2024-05-09T15:30:00.000Z",
+      "start": "2024-05-09T14:30:00.000Z"
+    },
+    "note": "all set"
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "parse_dates": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "date-forward-parse-dates-forward-wins",
+  "options": {
+    "parse_dates": false
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Due: 2024-05-09\nWhen: 2024-05-09 14:30 America/New_York\nSpan: 2024-05-09/2024-05-12\nWindow: {\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00+00:00\"}\nNote: all set",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> due:date, when:datetime, span:dateRange, window:datetimeRange, note:string"
+}

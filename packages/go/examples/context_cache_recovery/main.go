@@ -18,9 +18,12 @@ func main() {
   request:=map[string]ax.Value{"chat_prompt":ax.Array(ax.Object("role","system","content","stable context"),ax.Object("role","user","content","answer briefly"))}
   recovery:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/cache-1",3600),failure(400,"cachedContent is invalid"),success("uncached recovery")})
   out,err:=service(recovery).Chat(context.Background(),request,nil); if err!=nil||out==nil||!same(methods(recovery.Requests),"POST","POST","POST"){panic(fmt.Sprint(out,err,recovery.Requests))}
-  refresh:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")})
+  // The old caches expire in two minutes: inside the 300-second refresh window,
+  // so the second chat refreshes them, and far enough out that a slow first
+  // chat cannot let them expire first.
+  refresh:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")})
   refreshClient:=service(refresh); if _,err=refreshClient.Chat(context.Background(),request,nil);err!=nil{panic(err)}; if _,err=refreshClient.Chat(context.Background(),request,nil);err!=nil||!same(methods(refresh.Requests),"POST","POST","PATCH","POST","POST"){panic(fmt.Sprint(err,refresh.Requests))}
-  fallback:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")})
+  fallback:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")})
   fallbackClient:=service(fallback); if _,err=fallbackClient.Chat(context.Background(),request,nil);err!=nil{panic(err)}; if _,err=fallbackClient.Chat(context.Background(),request,nil);err!=nil||!same(methods(fallback.Requests),"POST","POST","PATCH","POST","POST"){panic(fmt.Sprint(err,fallback.Requests))}
   fmt.Println("go-context-cache-recovery-ok")
 }

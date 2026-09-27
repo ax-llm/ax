@@ -70,6 +70,12 @@ For large MCP servers, keep the direct `ax()` path narrow. Prefer an agent with 
 
 {{axStreamingExample}}
 
+### Date fields
+
+`date`, `datetime`, `dateRange` and `datetimeRange` outputs take LLM-friendly text: `YYYY-MM-DD`; ISO 8601 with `Z` or an offset; or `YYYY-MM-DD HH:mm Zone` with an IANA zone name, `UTC`/`GMT`, an offset, or an abbreviation at its literal offset (`PST` is -08:00 all year; ambiguous ones such as `BST`, `IST` and `CST` are rejected with a correction). `PST`/`PDT` and `CDT` follow US usage; for Philippine time (`PST`) or Cuban daylight time (`CDT`), give an IANA name (`Asia/Manila`, `America/Havana`) or a UTC offset. A value the parser cannot read is a validation error that is retried with a correction. TypeScript returns `Date` values, and `{ start, end }` of them for ranges. The generated packages return the ISO 8601 text of those values when you set `parseDates` / `parse_dates`; without it they keep the model's text until the next major version.
+
+{{axDatesExample}}
+
 ## Production Notes
 
 Keep signatures small and specific. Put provider and model policy in `ai()` or forward options. Trace parse failures, retries, tool calls, max-step exits, token usage, and final parsed output shape. For tasks that need planning, memory, clarification, or delegation, move up to `agent()`.

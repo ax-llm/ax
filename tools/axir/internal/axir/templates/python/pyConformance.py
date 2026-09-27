@@ -3,11 +3,13 @@ from __future__ import annotations
 import copy
 import importlib
 import json
+import re
 import warnings
 import os
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,7 @@ from .ai import _snapshot_global_caching_function, set_caching_function
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
+    _stream_field_value_impl,
     ax,
     chat_session_create_state, chat_session_transition, chat_session_unresolved, chat_session_validate_required_arguments,
     fold_stream,
@@ -87,7 +90,7 @@ from .agent import (
 from .prompt import AxPromptTemplate, collect_template_variable_names, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, RuntimeCapabilities, RuntimeEnvelope, RuntimeProtocolError
 from .runtime_quickjs import AxQuickJsCodeRuntime
-from .schema import strip_internal, to_json_schema, validate_output, validate_value
+from .schema import strip_internal, to_json_schema, validate_fields, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
 from .mcp import AxExecutionContext, AxEventCancellationToken, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventSink, AxEventTarget, AxManualEventClock, AxMCPClient, AxMCPEventSource, AxMCPScriptedTransport, AxPushEventSource, AxSystemEventClock, event_continuation_match, event_map_input, event_normalize_mcp, event_path, event_retry_transition, event_route, event_route_commands, event_target, mcp_jsonrpc_notification, mcp_jsonrpc_request, mcp_normalize_error, mcp_protocol_constants, mcp_resource_subscription_ownership, mcp_resource_subscription_selection, run_mcp_conformance_fixture
@@ -559,6 +562,10 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_strip_internal(fixture)
         elif kind == "number_format":
             _run_number_format(fixture)
+        elif kind == "date_field_value":
+            _run_date_field_value(fixture)
+        elif kind == "date_input":
+            _run_date_input(fixture)
         elif kind == "forward":
             _run_forward(fixture)
         elif kind == "streaming_forward":
@@ -1079,6 +1086,56 @@ def _run_validate_output(fixture):
     if "expected_error_contains" in fixture:
         raise FixtureError("expected validate_output to fail")
     _assert_equal(result, fixture.get("expected_values", values), "validated output")
+
+
+def _run_date_field_value(fixture):
+    """TS validateAndParseFieldValue on date-typed fields with parse_dates
+    on: each case's {has, value}, or its exact error message."""
+    for index, case in enumerate(fixture.get("cases") or []):
+        field = dict(case["field"])
+        field["parse_dates"] = bool(fixture.get("parse_dates"))
+        label = f"case {index} {case['text'][:80]!r}"
+        try:
+            parsed = _stream_field_value_impl(field, case["text"])
+        except Exception as exc:
+            if "expected_error" not in case:
+                raise FixtureError(f"{label}: unexpected error {exc}") from exc
+            _assert_equal(str(exc), case["expected_error"], f"{label} error")
+            continue
+        if "expected_error" in case:
+            raise FixtureError(f"{label}: expected error {case['expected_error']!r}, got {parsed!r}")
+        actual = {"has": bool(parsed.get("has"))}
+        if actual["has"]:
+            actual["value"] = parsed.get("value")
+        _assert_equal(actual, case["expected"], label)
+
+
+def _native_date_values(value):
+    """Fixture date markers as Python values: {"$date": iso} is an aware
+    datetime, {"$date_only": "YYYY-MM-DD"} a date."""
+    import datetime as _datetime
+
+    if isinstance(value, list):
+        return [_native_date_values(item) for item in value]
+    if isinstance(value, dict):
+        if isinstance(value.get("$date"), str):
+            return _datetime.datetime.fromisoformat(value["$date"].replace("Z", "+00:00"))
+        if isinstance(value.get("$date_only"), str):
+            return _datetime.date.fromisoformat(value["$date_only"])
+        return {key: _native_date_values(item) for key, item in value.items()}
+    return value
+
+
+def _run_date_input(fixture):
+    """Native date inputs and range objects pass input validation and render
+    in the user prompt as TS renders Dates."""
+    sig = _build_signature(fixture)
+    for index, case in enumerate(fixture.get("cases") or []):
+        values = _native_date_values(case["values"])
+        label = f"case {index}"
+        validate_fields(sig.input_fields, values, "input")
+        messages = AxPromptTemplate(sig).render(values)
+        _assert_equal(messages[-1]["content"], case["expected_user_content"], label)
 
 
 def _run_number_format(fixture):
@@ -2264,8 +2321,13 @@ def _run_agent_forward(fixture):
     run_state_projections = []
     saved_runtime_state = None
     state_roundtrip_projection = {}
+    wall_clock_start = time.time()
+    playbook_state_before_forward = None
     try:
         ag = agent(fixture.get("signature"), agent_options)
+        if "expected_playbook_state_before_forward" in fixture:
+            handle = ag.get_playbook()
+            playbook_state_before_forward = copy.deepcopy(handle.get_state()) if handle is not None else None
         for child_spec in fixture.get("child_agents") or []:
             child_options = dict(child_spec.get("options") or {})
             owner = child_spec["namespace"]+"."+child_spec["name"]
@@ -2454,6 +2516,23 @@ def _run_agent_forward(fixture):
     if "expected_playbook_state" in fixture:
         handle = ag.get_playbook()
         _assert_equal(handle.get_state() if handle is not None else None, fixture["expected_playbook_state"], "agent playbook state")
+    if "expected_playbook_state_before_forward" in fixture:
+        _assert_equal(playbook_state_before_forward, fixture["expected_playbook_state_before_forward"], "agent playbook state before the first forward")
+    if fixture.get("expected_playbook_wall_clock"):
+        handle = ag.get_playbook()
+        state = handle.get_state() if handle is not None else {}
+        _assert_wall_clock_timestamps(
+            [(state.get("playbook") or {}).get("updatedAt"), ((state.get("artifact") or {}).get("playbook") or {}).get("updatedAt")],
+            wall_clock_start,
+            time.time(),
+            "agent playbook updatedAt",
+        )
+    if fixture.get("expected_playbook_config_unchanged"):
+        # The caller's playbook config, less the student client the runner
+        # added, is what the fixture passed.
+        config = agent_options.get("playbook")
+        config = {key: value for key, value in config.items() if key != "studentAI"} if isinstance(config, dict) else config
+        _assert_equal(config, (fixture.get("options") or {}).get("playbook"), "caller's playbook config")
     exported = ag.export_runtime_state()
     if "expected_runtime_contract_subset" in fixture:
         _assert_subset(ag.get_runtime_contract(), fixture["expected_runtime_contract_subset"], "runtime contract")
@@ -2551,6 +2630,15 @@ def _run_agent_playbook_evolve(fixture):
             _assert_equal(len(outcomes), expected["outcome_count"], f"playbook evolve {case.get('name')} outcome count")
         if "expected_teacher_request_count" in case and len(teacher.requests) != case["expected_teacher_request_count"]:
             raise FixtureError(f"playbook evolve {case.get('name')} expected {case['expected_teacher_request_count']} teacher requests, got {len(teacher.requests)}")
+        if "expected_teacher_system_prompts" in case:
+            # Each teacher request's system prompt, in call order, byte for byte.
+            prompts = [
+                message.get("content")
+                for request in teacher.requests
+                for message in (request.get("chat_prompt") or [])
+                if message.get("role") == "system"
+            ]
+            _assert_equal(prompts, case["expected_teacher_system_prompts"], f"playbook evolve {case.get('name')} teacher system prompts")
         if not outcomes:
             if expected.get("outcome_count") == 0:
                 continue
@@ -3730,6 +3818,21 @@ def _assert_equal(actual, expected, label):
         raise FixtureError(
             f"{label} mismatch\nactual: {json.dumps(actual, sort_keys=True)}\nexpected: {json.dumps(expected, sort_keys=True)}"
         )
+
+
+_ISO_MILLIS_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
+
+
+def _assert_wall_clock_timestamps(values, start, end, label):
+    """Each value is a UTC timestamp as JavaScript's toISOString writes it,
+    taken during the run: between start and end (seconds since the epoch),
+    with a second of slack for millisecond rounding."""
+    for value in values:
+        if not isinstance(value, str) or not _ISO_MILLIS_UTC.match(value):
+            raise FixtureError(f"{label} is not an ISO-8601 UTC millisecond timestamp: {value!r}")
+        stamp = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).timestamp()
+        if not start - 1 <= stamp <= end + 1:
+            raise FixtureError(f"{label} {value} is not the wall clock during the run")
 
 
 def _capture_error(errors, callback):

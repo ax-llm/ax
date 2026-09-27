@@ -1042,26 +1042,27 @@ impl SignatureBuilder {
     }
 }
 
-// A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts): each
-// underscore becomes a space, a space goes before each capital letter A-Z and
-// each run of digits, and the trimmed result starts with a capital letter.
-// "generator_answer" is "Generator answer", "keyInsight" "Key Insight" and
-// "item12" "Item 12".
+// A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts):
+// underscores become spaces, and a word starts at a capital after a lowercase
+// letter or digit, at the last capital of a run that begins a word, and at each
+// run of digits; words are separated by one space. userID is "User ID",
+// parseHTTPResponse "Parse HTTP Response", item123 "Item 123", field_2 "Field 2".
 fn title_case(name: &str) -> String {
-    let mut spaced = String::with_capacity(name.len() + 4);
-    let mut in_digits = false;
-    for ch in name.chars() {
-        if ch == '_' {
-            spaced.push(' ');
-        } else if ch.is_ascii_uppercase() || (ch.is_ascii_digit() && !in_digits) {
-            spaced.push(' ');
-            spaced.push(ch);
-        } else {
-            spaced.push(ch);
-        }
-        in_digits = ch.is_ascii_digit();
-    }
-    let mut chars = spaced.trim().chars();
+    static BOUNDARIES: OnceLock<[regex::Regex; 4]> = OnceLock::new();
+    let [camel, acronym, digit, spaces] = BOUNDARIES.get_or_init(|| {
+        [
+            regex::Regex::new("([a-z0-9])([A-Z])").expect("valid title regex"),
+            regex::Regex::new("([A-Z])([A-Z][a-z])").expect("valid title regex"),
+            regex::Regex::new("([^0-9])([0-9])").expect("valid title regex"),
+            regex::Regex::new(r"\s+").expect("valid title regex"),
+        ]
+    });
+    let text = name.replace('_', " ");
+    let text = camel.replace_all(&text, "${1} ${2}");
+    let text = acronym.replace_all(&text, "${1} ${2}");
+    let text = digit.replace_all(&text, "${1} ${2}");
+    let text = spaces.replace_all(&text, " ");
+    let mut chars = text.trim().chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
         None => String::new(),
@@ -5458,9 +5459,16 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
     };
     let distiller_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("distiller_description"), CoreValue::from("")));
     let base_executor_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("executor_description"), CoreValue::from("")));
+    let base_responder_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("responder_description"), CoreValue::from("")));
     let playbook_config = core_value_to_json(&core_get(&options, &CoreValue::from("playbook"), CoreValue::Null));
     let mut playbook_snapshot = Value::Null;
     let mut executor_instruction = base_executor_instruction.clone();
+    let mut responder_instruction = base_responder_instruction.clone();
+    // The configured playbook writes into the actor (executor) prompt, or the
+    // responder's for `{"target":"responder"}`, as TS binds it.
+    let playbook_on_responder = playbook_config.get("target").and_then(Value::as_str) == Some("responder");
+    let playbook_instruction_base = if playbook_on_responder { &base_responder_instruction } else { &base_executor_instruction }
+        .as_str().unwrap_or_default().to_string();
     if !playbook_config.is_null() && playbook_config.as_bool() != Some(false) {
         let config = playbook_config.as_object().cloned().unwrap_or_default();
         let seed = config.get("seed").cloned().or_else(|| {
@@ -5479,10 +5487,10 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         let rendered = core_value_to_json(&_ace_render_playbook(&[core_value_from_json(playbook_snapshot.get("playbook").unwrap_or(&Value::Null))])?)
             .as_str().unwrap_or_default().to_string();
         if config.get("apply").and_then(Value::as_bool) != Some(false) {
-            executor_instruction = Value::String(playbook_compose_instruction(base_executor_instruction.as_str().unwrap_or_default(), &rendered));
+            let composed = Value::String(playbook_compose_instruction(&playbook_instruction_base, &rendered));
+            if playbook_on_responder { responder_instruction = composed; } else { executor_instruction = composed; }
         }
     }
-    let responder_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("responder_description"), CoreValue::from("")));
     let llm_query_signature = core_get(
         &state,
         &CoreValue::from("llm_query_signature"),
@@ -5510,7 +5518,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         execution_context: None,
         playbook_config,
         playbook_snapshot,
-        playbook_instruction_base: base_executor_instruction.as_str().unwrap_or_default().to_string(),
+        playbook_instruction_base,
         citations_observer: None,
         playbook_observer: None,
         runtime_hooks: AxRuntimeHooks::default(),
@@ -5530,6 +5538,7 @@ impl AxAgent {
         rebuilt.playbook_observer = self.playbook_observer;
         rebuilt.playbook_config = self.playbook_config;
         rebuilt.playbook_snapshot = self.playbook_snapshot;
+        rebuilt.refresh_playbook_prompt();
         Ok(rebuilt)
     }
     pub fn with_tool_module(mut self,name:&str,tools:Vec<Tool>)->AxResult<Self> {
@@ -5545,6 +5554,7 @@ impl AxAgent {
         rebuilt.playbook_observer=self.playbook_observer;
         rebuilt.playbook_config=self.playbook_config;
         rebuilt.playbook_snapshot=self.playbook_snapshot;
+        rebuilt.refresh_playbook_prompt();
         Ok(rebuilt)
     }
     pub fn set_signature(&mut self, spec: &str) -> AxResult<&mut Self> {
@@ -5576,12 +5586,57 @@ impl AxAgent {
         self
     }
 
-    fn set_executor_instruction(&mut self, instruction: &str) {
-        if let CoreValue::Host(host) = &self.executor {
+    fn write_stage_instruction(stage: &CoreValue, instruction: &str) {
+        if let CoreValue::Host(host) = stage {
             if let Some(gen) = host.stage_gen_rc() {
                 gen.borrow_mut().set_instruction(instruction);
             }
         }
+    }
+
+    fn playbook_configured(&self) -> bool {
+        !self.playbook_config.is_null() && self.playbook_config.as_bool() != Some(false)
+    }
+
+    // The stage the configured playbook writes into: "responder" for
+    // `{"target":"responder"}`, else the actor's "executor".
+    fn playbook_stage_name(&self) -> &'static str {
+        if self.playbook_config.get("target").and_then(Value::as_str) == Some("responder") { "responder" } else { "executor" }
+    }
+
+    // Write an agent stage's instruction ("distiller", "executor" or
+    // "responder"). The configured playbook's stage gets the rendered playbook
+    // composed on top, as TS keeps it in the stage prompt, so a stage
+    // instruction, an actor addendum, optimized components or the run-context
+    // refresh never drop it.
+    fn set_stage_instruction(&mut self, stage: &str, instruction: &str) {
+        if self.playbook_configured() && stage == self.playbook_stage_name() {
+            self.playbook_instruction_base = instruction.to_string();
+            self.refresh_playbook_prompt();
+            return;
+        }
+        let target = match stage {
+            "distiller" => &self.distiller,
+            "responder" => &self.responder,
+            _ => &self.executor,
+        };
+        Self::write_stage_instruction(target, instruction);
+    }
+
+    // Write the configured playbook's stage prompt: its base instruction with
+    // the rendered playbook composed on top, unless `apply` is false.
+    fn refresh_playbook_prompt(&mut self) {
+        if !self.playbook_configured() { return; }
+        let mut instruction = self.playbook_instruction_base.clone();
+        if self.playbook_config.get("apply").and_then(Value::as_bool) != Some(false) {
+            let rendered = self.playbook_snapshot.get("playbook")
+                .and_then(|playbook| _ace_render_playbook(&[core_value_from_json(playbook)]).ok())
+                .map(|value| core_value_to_json(&value).as_str().unwrap_or_default().to_string())
+                .unwrap_or_default();
+            instruction = playbook_compose_instruction(&instruction, &rendered);
+        }
+        let target = if self.playbook_stage_name() == "responder" { &self.responder } else { &self.executor };
+        Self::write_stage_instruction(target, &instruction);
     }
 
     pub fn get_instruction(&self) -> String {
@@ -5593,7 +5648,7 @@ impl AxAgent {
             self.state.clone(),
             CoreValue::from(instruction),
         ])?.text();
-        self.set_executor_instruction(&composed);
+        self.set_stage_instruction("executor", &composed);
         Ok(self)
     }
 
@@ -5602,7 +5657,7 @@ impl AxAgent {
             self.state.clone(),
             CoreValue::from(addendum),
         ])?.text();
-        self.set_executor_instruction(&composed);
+        self.set_stage_instruction("executor", &composed);
         Ok(self)
     }
 
@@ -5629,8 +5684,9 @@ impl AxAgent {
             let modules=match &call_context {Some(context)=>agent_context_modules(context)?,None=>CoreValue::new_list()};
             _agent_apply_run_context(&[self.state.clone(),self.configured_options.clone(),core_value_from_json(&options),modules])?;
             if core_truthy(&core_get(&self.state,&CoreValue::from("runtime_enabled"),CoreValue::Bool(false))) {
-                for (field,stage) in [("distiller_description",&self.distiller),("executor_description",&self.executor),("responder_description",&self.responder)] {
-                    if let CoreValue::Host(host)=stage { if let Some(gen)=host.stage_gen_rc(){gen.borrow_mut().set_instruction(&core_get(&self.state,&CoreValue::from(field),CoreValue::from("")).text());} }
+                for (field,stage) in [("distiller_description","distiller"),("executor_description","executor"),("responder_description","responder")] {
+                    let instruction=core_get(&self.state,&CoreValue::from(field),CoreValue::from("")).text();
+                    self.set_stage_instruction(stage,&instruction);
                 }
             }
         }
@@ -5848,11 +5904,7 @@ impl AxAgent {
                 "playbook": engine.get_playbook(),
                 "artifact": engine.get_artifact(),
             });
-            if config.get("apply").and_then(Value::as_bool) != Some(false) {
-                let rendered = core_value_to_json(&_ace_render_playbook(&[core_value_from_json(&self.playbook_snapshot["playbook"])])?).as_str().unwrap_or_default().to_string();
-                let composed = playbook_compose_instruction(&self.playbook_instruction_base, &rendered);
-                self.set_executor_instruction(&composed);
-            }
+            self.refresh_playbook_prompt();
             if let Some(observer) = self.playbook_observer.as_mut() {
                 let update = json!({
                     "status": if stable_stringify(&self.playbook_snapshot["playbook"]) == before { "unchanged" } else { "updated" },
@@ -5988,7 +6040,7 @@ impl AxAgent {
             self.state.clone(),
             component_core,
         ])?.text();
-        self.set_executor_instruction(&composed);
+        self.set_stage_instruction("executor", &composed);
         Ok(())
     }
 
@@ -6167,6 +6219,7 @@ impl AxAgent {
         rebuilt.playbook_observer = self.playbook_observer;
         rebuilt.playbook_config = self.playbook_config;
         rebuilt.playbook_snapshot = self.playbook_snapshot;
+        rebuilt.refresh_playbook_prompt();
         Ok(rebuilt)
     }
 
@@ -7454,6 +7507,38 @@ fn ax_gepa_pareto_front(candidates: &[AxGEPACandidate], eps: f64) -> Vec<usize> 
 /// Agentic Context Engineering optimizer (Generator -> Reflector -> Curator).
 ///
 /// Deterministic playbook mutations reuse the Core-owned `_ace_*` ops; the
+// The current UTC time as JavaScript's toISOString writes it
+// (YYYY-MM-DDTHH:MM:SS.mmmZ).
+fn ace_wall_clock() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0);
+    let (days, day_millis) = (millis.div_euclid(86_400_000), millis.rem_euclid(86_400_000));
+    // The civil date of a day count since 1970-01-01, proleptic Gregorian.
+    let shifted = days + 719_468;
+    let era = shifted.div_euclid(146_097);
+    let day_of_era = shifted - era * 146_097;
+    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 { month_index + 3 } else { month_index - 9 };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        day_millis / 3_600_000,
+        day_millis / 60_000 % 60,
+        day_millis / 1000 % 60,
+        day_millis % 1000
+    )
+}
+
+// An ACE engine's timestamp: the injected clock, else the wall clock.
+fn ace_clock(injected: Option<&str>) -> String {
+    injected.map(str::to_string).unwrap_or_else(ace_wall_clock)
+}
+
 /// LLM-orchestrated reflect/curate steps are delegated to injected callables so
 /// the loop is reproducible under conformance with scripted responses (mirrors
 /// how `AxGEPA` accepts a reflection client).
@@ -7463,7 +7548,8 @@ pub struct AxACE {
     generator: Option<Box<dyn FnMut(&Value) -> Value>>,
     config: Map<String, Value>,
     initial_playbook: Option<Value>,
-    now: String,
+    // The injected clock (the `now` option); None for the wall clock.
+    now: Option<String>,
     playbook: Value,
     generator_history: Vec<Value>,
     delta_history: Vec<Value>,
@@ -7517,15 +7603,11 @@ impl AxACE {
                 }
             }
         }
-        let now = options
-            .get("now")
-            .and_then(Value::as_str)
-            .unwrap_or("1970-01-01T00:00:00.000Z")
-            .to_string();
+        let now = options.get("now").and_then(Value::as_str).map(str::to_string);
         let initial_playbook = options.get("initialPlaybook").cloned().filter(|v| !v.is_null());
         let playbook = match &initial_playbook {
             Some(pb) => pb.clone(),
-            None => ace_call_core(_ace_empty_playbook, &[Value::Null, json!(now)])
+            None => ace_call_core(_ace_empty_playbook, &[Value::Null, json!(ace_clock(now.as_deref()))])
                 .unwrap_or_else(|_| json!({})),
         };
         Self {
@@ -7585,8 +7667,14 @@ impl AxACE {
     }
 
     fn empty_playbook(&self) -> Value {
-        ace_call_core(_ace_empty_playbook, &[Value::Null, json!(self.now)])
+        ace_call_core(_ace_empty_playbook, &[Value::Null, json!(self.clock())])
             .unwrap_or_else(|_| json!({}))
+    }
+
+    // The injected clock (the `now` option), else the wall clock at each call,
+    // as TS's new Date().toISOString() stamps each playbook change.
+    fn clock(&self) -> String {
+        ace_clock(self.now.as_deref())
     }
 
     pub fn reset(&mut self) {
@@ -7783,7 +7871,7 @@ impl AxACE {
         });
         let result = ace_call_core(
             _ace_apply_curator_operations,
-            &[self.playbook.clone(), Value::Array(resolved.clone()), options, json!(self.now)],
+            &[self.playbook.clone(), Value::Array(resolved.clone()), options, json!(self.clock())],
         )?;
         self.playbook = result.get("playbook").cloned().unwrap_or(Value::Null);
         let applied_ids = result
@@ -7817,7 +7905,7 @@ impl AxACE {
                         self.playbook.clone(),
                         tag.get("id").cloned().unwrap_or(Value::Null),
                         tag.get("tag").cloned().unwrap_or(Value::Null),
-                        json!(self.now),
+                        json!(self.clock()),
                     ],
                 )?;
             }
@@ -7867,7 +7955,7 @@ impl AxACE {
             "generatorOutput": generator_output,
             "reflection": reflection,
             "curator": curator_result.clone().unwrap_or(Value::Null),
-            "timestamp": self.now.clone(),
+            "timestamp": self.clock(),
         });
         self.generator_history.push(feedback_event);
         let has_ops = curator_result
@@ -7972,7 +8060,7 @@ impl AxACE {
             "generatorOutput": generator_output,
             "reflection": reflection,
             "curator": curator_result.clone().unwrap_or(Value::Null),
-            "timestamp": self.now.clone(),
+            "timestamp": self.clock(),
         });
         self.generator_history.push(feedback_event);
         let has_ops = curator_result
@@ -8049,18 +8137,35 @@ fn ace_curator_signature() -> AxSignature {
     }
 }
 
-const AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE: &str =
-    "clusterSignature:string \"Shared error signature of the cluster\", \
-taskSummaries:string \"One line per failing task\", \
-actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", \
-functionCallSummary?:string \"Digest of runtime/tool calls\", \
-toolErrors?:string \"Tool errors observed\", \
-currentPlaybook?:string \"Current failure-avoidance playbook\" \
--> weaknessDescription:string \"Recurring weakness\", \
-rootCause:string \"Mechanical root cause\", \
-proposedGuidance:string \"One concise imperative avoidance rule\", \
-evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", \
-configRecommendations?:json \"Setup suggestions no prompt text can fix\"";
+// The weakness miner's description and signature, as TS builds them
+// (src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts).
+const AGENT_PLAYBOOK_WEAKNESS_MINER_DESCRIPTION: &str = "You are a failure analyst for an LLM agent harness. \
+You receive one cluster of failed agent runs sharing an error signature, with excerpts of what the agent actually did. \
+Identify the single recurring weakness, its root cause, and one narrow, durable avoidance rule the agent should recall while acting. \
+Ground every claim: evidenceQuotes must be verbatim substrings copied from the excerpts. \
+Keep proposedGuidance concise, imperative, and general to the failure mode (not one task). \
+Use configRecommendations only for setup problems no prompt text can fix (missing tools, timeouts, model choice).";
+
+fn agent_playbook_weakness_miner_signature() -> AxSignature {
+    AxSignature {
+        description: Some(AGENT_PLAYBOOK_WEAKNESS_MINER_DESCRIPTION.to_string()),
+        inputs: vec![
+            ace_field("clusterSignature", FieldType::string(), "Shared error signature of the cluster.", false),
+            ace_field("taskSummaries", FieldType::string(), "One line per failing task.", false),
+            ace_field("actionLogExcerpts", FieldType::string(), "Excerpts of the failing runs, centered on the failure.", false),
+            ace_field("functionCallSummary", FieldType::string(), "Digest of runtime/tool calls in the failing runs.", true),
+            ace_field("toolErrors", FieldType::string(), "Tool errors observed.", true),
+            ace_field("currentPlaybook", FieldType::string(), "The failure-avoidance playbook currently applied.", true),
+        ],
+        outputs: vec![
+            ace_field("weaknessDescription", FieldType::string(), "The recurring weakness, one sentence.", false),
+            ace_field("rootCause", FieldType::string(), "Why the runs fail, mechanically.", false),
+            ace_field("proposedGuidance", FieldType::string(), "The avoidance rule to add to the playbook \u{2014} concise, imperative.", false),
+            ace_field("evidenceQuotes", FieldType::string().array(), "Verbatim substrings from actionLogExcerpts proving the weakness.", false),
+            ace_field("configRecommendations", FieldType::string().array(), "Setup/config suggestions no prompt text can fix.", true),
+        ],
+    }
+}
 
 fn playbook_compose_instruction(base: &str, rendered: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
@@ -8737,8 +8842,8 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
             if !tool_errors.is_empty() { request["toolErrors"] = json!(tool_errors.join("\n")); }
             let current_playbook = self.render();
             if !current_playbook.trim().is_empty() { request["currentPlaybook"] = json!(current_playbook); }
-            let mut miner = match AxGen::new(AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE) { Ok(miner) => miner, Err(_) => continue };
-            miner.options = json!({"id":"agent.playbook.weakness-miner","instruction":"Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."});
+            let mut miner = AxGen::with_signature(agent_playbook_weakness_miner_signature());
+            miner.options = json!({"id":"agent.playbook.weakness-miner"});
             let mined = match &teacher {
                 Some(teacher) => miner.forward_with_options(&mut *teacher.borrow_mut(), request, miner_options.clone()),
                 None => miner.forward_with_options(client, request, miner_options.clone()),
@@ -10223,6 +10328,8 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "strip_internal" => run_strip_internal_fixture(&fixture)?,
         "prompt" => run_prompt_fixture(&fixture)?,
         "number_format" => run_number_format_fixture(&fixture)?,
+        "date_field_value" => run_date_field_value_fixture(&fixture)?,
+        "date_input" => run_date_input_fixture(&fixture)?,
         "template" => run_template_fixture(&fixture)?,
         "template_error" => run_template_error_fixture(&fixture)?,
         "template_validate" => run_template_validate_fixture(&fixture)?,
@@ -10887,6 +10994,20 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
         if let Some(count) = test_case.get("expected_teacher_request_count").and_then(Value::as_u64) {
             let requests = teacher.as_ref().unwrap_or(&playbook_client).borrow().requests.len();
             if requests as u64 != count { return Err(AxError::new("fixture", format!("{label} expected {count} teacher requests, got {requests}"))); }
+        }
+        if let Some(expected_prompts) = test_case.get("expected_teacher_system_prompts") {
+            // Each teacher request's system prompt, in call order, byte for byte.
+            let prompts = teacher
+                .as_ref()
+                .unwrap_or(&playbook_client)
+                .borrow()
+                .requests
+                .iter()
+                .flat_map(|request| request.get("chat_prompt").and_then(Value::as_array).cloned().unwrap_or_default())
+                .filter(|message| message.get("role").and_then(Value::as_str) == Some("system"))
+                .map(|message| message.get("content").cloned().unwrap_or(Value::Null))
+                .collect::<Vec<_>>();
+            expect_json_equal(&format!("{label} teacher system prompts"), &Value::Array(prompts), expected_prompts)?;
         }
         let Some(outcome) = outcomes.first() else {
             if expected.get("outcome_count").and_then(Value::as_u64) == Some(0) { continue; }
@@ -12584,6 +12705,10 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         .get("signature")
         .and_then(Value::as_str)
         .unwrap_or("question:string -> answer:string");
+    // The options the agent was given, to check afterwards that the agent left
+    // the caller's playbook config alone.
+    let caller_options = agent_options.clone();
+    let wall_clock_start = SystemTime::now();
     let mut agent = match agent_with_core_options(signature, agent_options) {
         Ok(agent) => agent,
         Err(error) => {
@@ -12595,6 +12720,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             return Err(error);
         }
     };
+    let playbook_state_before_forward = agent.get_playbook_state().unwrap_or(Value::Null);
     agent.execution_context=contexts.get("parent").cloned();
     for child in fixture.get("child_agents").and_then(Value::as_array).into_iter().flatten() {
         let mut program = agent_with_options(child["signature"].as_str().unwrap_or_default(), child.get("options").cloned().unwrap_or_else(|| json!({})))?;
@@ -12976,6 +13102,29 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     }
     if let Some(expected) = fixture.get("expected_playbook_state") {
         expect_json_equal("agent playbook state", &agent.get_playbook_state().unwrap_or(Value::Null), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_playbook_state_before_forward") {
+        expect_json_equal("agent playbook state before the first forward", &playbook_state_before_forward, expected)?;
+    }
+    if fixture.get("expected_playbook_wall_clock").and_then(Value::as_bool) == Some(true) {
+        let state = agent.get_playbook_state().unwrap_or(Value::Null);
+        expect_wall_clock_timestamps(
+            &[state["playbook"]["updatedAt"].clone(), state["artifact"]["playbook"]["updatedAt"].clone()],
+            wall_clock_start,
+            SystemTime::now(),
+            "agent playbook updatedAt",
+        )?;
+    }
+    if fixture.get("expected_playbook_config_unchanged").and_then(Value::as_bool) == Some(true) {
+        let mut actual = core_value_to_json(&core_get(&caller_options, &CoreValue::from("playbook"), CoreValue::Null));
+        if let Some(config) = actual.as_object_mut() {
+            config.remove("studentAI");
+        }
+        expect_json_equal(
+            "caller's playbook config",
+            &actual,
+            fixture.get("options").and_then(|options| options.get("playbook")).unwrap_or(&Value::Null),
+        )?;
     }
     let exported = agent.export_runtime_state()?;
     if let Some(expected) = fixture.get("expected_runtime_contract_subset") {
@@ -17319,6 +17468,79 @@ fn run_number_format_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+// TS validateAndParseFieldValue on date-typed fields with parse_dates on:
+// each case's {has, value}, or its exact error message.
+fn run_date_field_value_fixture(fixture: &Value) -> AxResult<()> {
+    let parse_dates = fixture.get("parse_dates").and_then(Value::as_bool).unwrap_or(false);
+    for (index, case) in fixture.get("cases").and_then(Value::as_array).into_iter().flatten().enumerate() {
+        let mut field = case.get("field").cloned().unwrap_or_else(|| json!({}));
+        if let Some(map) = field.as_object_mut() {
+            map.insert("parse_dates".to_string(), Value::Bool(parse_dates));
+        }
+        let text = case.get("text").and_then(Value::as_str).unwrap_or_default();
+        let shown: String = text.chars().take(80).collect();
+        let label = format!("case {index} {shown:?}");
+        let parsed = _stream_field_value_impl(&[core_value_from_json(&field), CoreValue::from(text)]);
+        match (parsed, case.get("expected_error")) {
+            (Err(error), Some(expected)) => {
+                expect_json_equal(&format!("{label} error"), &Value::String(error.message.clone()), expected)?;
+            }
+            (Err(error), None) => {
+                return Err(AxError::new("fixture", format!("{label}: unexpected error {}", error.message)));
+            }
+            (Ok(parsed), Some(expected)) => {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("{label}: expected error {expected}, got {}", core_value_to_json(&parsed)),
+                ));
+            }
+            (Ok(parsed), None) => {
+                let parsed = core_value_to_json(&parsed);
+                let has = parsed.get("has").and_then(Value::as_bool).unwrap_or(false);
+                let mut actual = json!({ "has": has });
+                if has {
+                    actual["value"] = parsed.get("value").cloned().unwrap_or(Value::Null);
+                }
+                expect_json_equal(&label, &actual, case.get("expected").unwrap_or(&Value::Null))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// Date inputs: range objects and strings pass input validation and render in
+// the user prompt as TS renders them. serde_json::Value has no date type, so
+// the native: true cases (Python, Go and Java date values) do not apply here.
+fn run_date_input_fixture(fixture: &Value) -> AxResult<()> {
+    let sig = build_fixture_signature(fixture)?;
+    for (index, case) in fixture.get("cases").and_then(Value::as_array).into_iter().flatten().enumerate() {
+        if case.get("native").and_then(Value::as_bool).unwrap_or(false) {
+            continue;
+        }
+        let values = case.get("values").cloned().unwrap_or_else(|| json!({}));
+        validate_fields_native(&sig.inputs, &values)?;
+        let messages = render_prompt(&[
+            core_signature_value(&sig)?,
+            core_value_from_json(&values),
+            core_value_from_json(&json!([])),
+            CoreValue::new_map(),
+        ])?;
+        let messages = core_value_to_json(&messages);
+        let content = messages
+            .as_array()
+            .and_then(|list| list.last())
+            .and_then(|message| message.get("content"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        expect_json_equal(
+            &format!("case {index}"),
+            &content,
+            case.get("expected_user_content").unwrap_or(&Value::Null),
+        )?;
+    }
+    Ok(())
+}
+
 fn expect_json_equal(label: &str, actual: &Value, expected: &Value) -> AxResult<()> {
     if actual != expected {
         return Err(AxError::new(
@@ -17329,6 +17551,54 @@ fn expect_json_equal(label: &str, actual: &Value, expected: &Value) -> AxResult<
                 stable_stringify(actual)
             ),
         ));
+    }
+    Ok(())
+}
+
+// Milliseconds since the Unix epoch of a UTC timestamp written as JavaScript's
+// toISOString writes it (YYYY-MM-DDTHH:MM:SS.mmmZ); None for any other text.
+fn parse_iso_millis_utc(text: &str) -> Option<i64> {
+    let bytes = text.as_bytes();
+    if bytes.len() != 24 || text.chars().any(|ch| !ch.is_ascii()) {
+        return None;
+    }
+    for (index, separator) in [(4, b'-'), (7, b'-'), (10, b'T'), (13, b':'), (16, b':'), (19, b'.'), (23, b'Z')] {
+        if bytes[index] != separator {
+            return None;
+        }
+    }
+    let number = |range: std::ops::Range<usize>| -> Option<i64> {
+        let digits = &text[range];
+        if digits.chars().all(|ch| ch.is_ascii_digit()) { digits.parse().ok() } else { None }
+    };
+    let (year, month, day) = (number(0..4)?, number(5..7)?, number(8..10)?);
+    let (hour, minute, second, millis) = (number(11..13)?, number(14..16)?, number(17..19)?, number(20..23)?);
+    // Days from 1970-01-01 to year-month-day in the proleptic Gregorian calendar.
+    let shifted_year = if month <= 2 { year - 1 } else { year };
+    let era = shifted_year.div_euclid(400);
+    let year_of_era = shifted_year - era * 400;
+    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    Some(((days * 24 + hour) * 60 + minute) * 60_000 + second * 1000 + millis)
+}
+
+// Each value is a UTC timestamp as JavaScript's toISOString writes it, taken
+// during the run: between start and end, with a second of slack for
+// millisecond rounding.
+fn expect_wall_clock_timestamps(values: &[Value], start: SystemTime, end: SystemTime, label: &str) -> AxResult<()> {
+    let millis = |time: SystemTime| time.duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    for value in values {
+        let text = value.as_str().unwrap_or_default();
+        let Some(stamp) = parse_iso_millis_utc(text) else {
+            return Err(AxError::new(
+                "fixture",
+                format!("{label} is not an ISO-8601 UTC millisecond timestamp: {}", stable_stringify(value)),
+            ));
+        };
+        if stamp < millis(start) - 1000 || stamp > millis(end) + 1000 {
+            return Err(AxError::new("fixture", format!("{label} {text} is not the wall clock during the run")));
+        }
     }
     Ok(())
 }
@@ -17847,6 +18117,8 @@ fn core_type_is(value: &CoreValue, type_name: CoreValue) -> CoreValue {
         "boolean" => matches!(value, CoreValue::Bool(_)),
         "null" => value.is_null(),
         "json" => !matches!(value, CoreValue::Error(_)),
+        // No native date type: date and datetime fields take strings here.
+        "date" => false,
         _ => false,
     };
     CoreValue::Bool(matched)
@@ -17935,6 +18207,388 @@ fn core_string_utf16_units(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 
 fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Num(core_arg(args, 0).text().chars().count() as f64))
+}
+
+// ----- intrinsic.date.zone_offset: the platform tz database -----
+// A std-only reader for TZif files (RFC 8536): $TZDIR, then the usual
+// zoneinfo directories. Past the last transition the POSIX TZ footer rule
+// decides; before the first, the zone's first local time type.
+
+#[derive(Clone, Debug)]
+struct DateTzRuleDate {
+    kind: u8, // b'J' (1-365, no Feb 29), b'n' (0-365), b'M' (month.week.day)
+    day: i64,
+    week: i64,
+    month: i64,
+    time: i64,
+}
+
+#[derive(Clone, Debug)]
+struct DateTzRule {
+    std_offset: i64,
+    dst: Option<(i64, DateTzRuleDate, DateTzRuleDate)>,
+}
+
+#[derive(Debug)]
+struct DateTzZone {
+    transitions: Vec<i64>,
+    transition_types: Vec<usize>,
+    offsets: Vec<i64>,
+    footer: Option<DateTzRule>,
+}
+
+fn date_days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+fn date_is_leap(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+// The UTC second of a rule date's local time in `year`, for a zone at
+// `offset` seconds east of UTC.
+fn date_rule_instant(year: i64, rule: &DateTzRuleDate, offset: i64) -> i64 {
+    let first = date_days_from_civil(year, 1, 1);
+    let day = match rule.kind {
+        b'J' => {
+            let mut day = rule.day - 1;
+            if date_is_leap(year) && rule.day >= 60 {
+                day += 1;
+            }
+            first + day
+        }
+        b'n' => first + rule.day,
+        _ => {
+            let month_first = date_days_from_civil(year, rule.month, 1);
+            // 1970-01-01 was a Thursday (4).
+            let weekday = (month_first + 4).rem_euclid(7);
+            let mut day = month_first + (rule.day - weekday).rem_euclid(7) + (rule.week - 1) * 7;
+            let next_month = if rule.month == 12 {
+                date_days_from_civil(year + 1, 1, 1)
+            } else {
+                date_days_from_civil(year, rule.month + 1, 1)
+            };
+            while day >= next_month {
+                day -= 7;
+            }
+            day
+        }
+    };
+    day * 86400 + rule.time - offset
+}
+
+impl DateTzRule {
+    fn offset_at(&self, seconds: i64) -> i64 {
+        let Some((dst_offset, start, end)) = &self.dst else {
+            return self.std_offset;
+        };
+        let year = (seconds + self.std_offset).div_euclid(86400);
+        let year = {
+            // The civil year of the day count.
+            let z = year + 719468;
+            let era = z.div_euclid(146097);
+            let doe = z - era * 146097;
+            let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+            let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+            let mp = (5 * doy + 2) / 153;
+            let month = if mp < 10 { mp + 3 } else { mp - 9 };
+            yoe + era * 400 + if month <= 2 { 1 } else { 0 }
+        };
+        // The latest DST start or end at or before the instant, over the
+        // neighbouring years, decides. Of two at the same instant the later
+        // one in the sequence wins: a permanent-DST footer such as
+        // "XXX-2<+01>-1,0/0,J365/23" ends one year where the next begins.
+        let mut latest: Option<(i64, bool)> = None;
+        for y in [year - 1, year, year + 1] {
+            let begins = date_rule_instant(y, start, self.std_offset);
+            let ends = date_rule_instant(y, end, *dst_offset);
+            for (at, dst) in [(begins, true), (ends, false)] {
+                if at <= seconds && latest.map_or(true, |(best, _)| at >= best) {
+                    latest = Some((at, dst));
+                }
+            }
+        }
+        match latest {
+            Some((_, true)) => *dst_offset,
+            _ => self.std_offset,
+        }
+    }
+}
+
+// [+-]hh[:mm[:ss]] as seconds.
+fn date_tz_parse_seconds(text: &[u8], at: &mut usize) -> Option<i64> {
+    let mut sign = 1;
+    if *at < text.len() && (text[*at] == b'+' || text[*at] == b'-') {
+        if text[*at] == b'-' {
+            sign = -1;
+        }
+        *at += 1;
+    }
+    let mut parts = [0i64; 3];
+    for (index, part) in parts.iter_mut().enumerate() {
+        if index > 0 {
+            if *at < text.len() && text[*at] == b':' {
+                *at += 1;
+            } else {
+                break;
+            }
+        }
+        let start = *at;
+        while *at < text.len() && text[*at].is_ascii_digit() {
+            *part = *part * 10 + i64::from(text[*at] - b'0');
+            *at += 1;
+        }
+        if *at == start {
+            return None;
+        }
+    }
+    Some(sign * (parts[0] * 3600 + parts[1] * 60 + parts[2]))
+}
+
+fn date_tz_parse_name(text: &[u8], at: &mut usize) -> bool {
+    if *at < text.len() && text[*at] == b'<' {
+        while *at < text.len() && text[*at] != b'>' {
+            *at += 1;
+        }
+        if *at >= text.len() {
+            return false;
+        }
+        *at += 1;
+        return true;
+    }
+    let start = *at;
+    while *at < text.len() && text[*at].is_ascii_alphabetic() {
+        *at += 1;
+    }
+    *at > start
+}
+
+fn date_tz_parse_rule_date(text: &[u8], at: &mut usize) -> Option<DateTzRuleDate> {
+    let read_number = |at: &mut usize| -> Option<i64> {
+        let start = *at;
+        let mut value = 0i64;
+        while *at < text.len() && text[*at].is_ascii_digit() {
+            value = value * 10 + i64::from(text[*at] - b'0');
+            *at += 1;
+        }
+        if *at == start { None } else { Some(value) }
+    };
+    let mut date = DateTzRuleDate { kind: b'n', day: 0, week: 0, month: 0, time: 7200 };
+    match text.get(*at) {
+        Some(b'J') => {
+            *at += 1;
+            date.kind = b'J';
+            date.day = read_number(at)?;
+        }
+        Some(b'M') => {
+            *at += 1;
+            date.kind = b'M';
+            date.month = read_number(at)?;
+            if text.get(*at) != Some(&b'.') {
+                return None;
+            }
+            *at += 1;
+            date.week = read_number(at)?;
+            if text.get(*at) != Some(&b'.') {
+                return None;
+            }
+            *at += 1;
+            date.day = read_number(at)?;
+            if !(1..=12).contains(&date.month) || !(1..=5).contains(&date.week) || date.day > 6 {
+                return None;
+            }
+        }
+        _ => date.day = read_number(at)?,
+    }
+    if text.get(*at) == Some(&b'/') {
+        *at += 1;
+        date.time = date_tz_parse_seconds(text, at)?;
+    }
+    Some(date)
+}
+
+// A POSIX TZ string such as "EST5EDT,M3.2.0,M11.1.0" or "<+0530>-5:30".
+fn date_tz_parse_rule(text: &str) -> Option<DateTzRule> {
+    let text = text.as_bytes();
+    let mut at = 0;
+    if !date_tz_parse_name(text, &mut at) {
+        return None;
+    }
+    let std_offset = -date_tz_parse_seconds(text, &mut at)?;
+    if at >= text.len() {
+        return Some(DateTzRule { std_offset, dst: None });
+    }
+    if !date_tz_parse_name(text, &mut at) {
+        return None;
+    }
+    let mut dst_offset = std_offset + 3600;
+    if at < text.len() && text[at] != b',' {
+        dst_offset = -date_tz_parse_seconds(text, &mut at)?;
+    }
+    let (start, end) = if at >= text.len() {
+        // POSIX leaves the rule to the implementation; this is the US one.
+        (
+            DateTzRuleDate { kind: b'M', day: 0, week: 2, month: 3, time: 7200 },
+            DateTzRuleDate { kind: b'M', day: 0, week: 1, month: 11, time: 7200 },
+        )
+    } else {
+        if text[at] != b',' {
+            return None;
+        }
+        at += 1;
+        let start = date_tz_parse_rule_date(text, &mut at)?;
+        if text.get(at) != Some(&b',') {
+            return None;
+        }
+        at += 1;
+        let end = date_tz_parse_rule_date(text, &mut at)?;
+        if at != text.len() {
+            return None;
+        }
+        (start, end)
+    };
+    Some(DateTzRule { std_offset, dst: Some((dst_offset, start, end)) })
+}
+
+fn date_tzif_u32(data: &[u8], at: usize) -> Option<u32> {
+    let bytes = data.get(at..at + 4)?;
+    Some(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+fn date_parse_tzif(data: &[u8]) -> Option<DateTzZone> {
+    if data.get(0..4)? != b"TZif" {
+        return None;
+    }
+    let version = *data.get(4)?;
+    let counts = |at: usize| -> Option<[usize; 6]> {
+        let mut out = [0usize; 6];
+        for (index, count) in out.iter_mut().enumerate() {
+            *count = date_tzif_u32(data, at + 20 + index * 4)? as usize;
+        }
+        Some(out)
+    };
+    let [isut, isstd, leap, time, typ, chars] = counts(0)?;
+    let v1_size = time * 5 + typ * 6 + chars + leap * 8 + isstd + isut;
+    let (mut at, time_size, counts) = if version >= b'2' {
+        let second = 44 + v1_size;
+        if data.get(second..second + 4)? != b"TZif" {
+            return None;
+        }
+        (second + 44, 8, counts(second)?)
+    } else {
+        (44, 4, [isut, isstd, leap, time, typ, chars])
+    };
+    let [isut, isstd, leap, time, typ, chars] = counts;
+    let mut transitions = Vec::with_capacity(time);
+    for index in 0..time {
+        let offset = at + index * time_size;
+        let value = if time_size == 8 {
+            let bytes = data.get(offset..offset + 8)?;
+            i64::from_be_bytes(bytes.try_into().ok()?)
+        } else {
+            i64::from(date_tzif_u32(data, offset)? as i32)
+        };
+        transitions.push(value);
+    }
+    at += time * time_size;
+    let mut transition_types = Vec::with_capacity(time);
+    for index in 0..time {
+        transition_types.push(*data.get(at + index)? as usize);
+    }
+    at += time;
+    let mut offsets = Vec::with_capacity(typ);
+    for index in 0..typ {
+        offsets.push(i64::from(date_tzif_u32(data, at + index * 6)? as i32));
+    }
+    at += typ * 6 + chars + leap * (time_size + 4) + isstd + isut;
+    if offsets.is_empty() || transition_types.iter().any(|&index| index >= offsets.len()) {
+        return None;
+    }
+    let mut footer = None;
+    if version >= b'2' && data.get(at) == Some(&b'\n') {
+        let rest = &data[at + 1..];
+        if let Some(end) = rest.iter().position(|&byte| byte == b'\n') {
+            let text = std::str::from_utf8(&rest[..end]).ok()?;
+            if !text.is_empty() {
+                footer = date_tz_parse_rule(text);
+            }
+        }
+    }
+    Some(DateTzZone { transitions, transition_types, offsets, footer })
+}
+
+impl DateTzZone {
+    fn offset_at(&self, seconds: i64) -> i64 {
+        if self.transitions.is_empty() {
+            return match &self.footer {
+                Some(rule) => rule.offset_at(seconds),
+                None => self.offsets[0],
+            };
+        }
+        if seconds < self.transitions[0] {
+            return self.offsets[0];
+        }
+        let index = self.transitions.partition_point(|&at| at <= seconds) - 1;
+        if index + 1 == self.transitions.len() {
+            if let Some(rule) = &self.footer {
+                return rule.offset_at(seconds);
+            }
+        }
+        self.offsets[self.transition_types[index]]
+    }
+}
+
+fn date_zone_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(dir) = std::env::var_os("TZDIR") {
+        if !dir.is_empty() {
+            dirs.push(std::path::PathBuf::from(dir));
+        }
+    }
+    for dir in ["/usr/share/zoneinfo", "/usr/lib/zoneinfo", "/usr/share/lib/zoneinfo", "/etc/zoneinfo"] {
+        dirs.push(std::path::PathBuf::from(dir));
+    }
+    dirs
+}
+
+fn date_zone_load(name: &str) -> Option<Arc<DateTzZone>> {
+    static ZONES: OnceLock<Mutex<std::collections::HashMap<String, Option<Arc<DateTzZone>>>>> = OnceLock::new();
+    let zones = ZONES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    if let Some(found) = zones.lock().ok()?.get(name) {
+        return found.clone();
+    }
+    let safe = !name.is_empty()
+        && !name.starts_with('/')
+        && !name.contains('\\')
+        && !name.contains('\0')
+        && name.split('/').all(|part| !part.is_empty() && part != "." && part != "..");
+    let mut loaded = None;
+    if safe {
+        for dir in date_zone_dirs() {
+            if let Ok(data) = std::fs::read(dir.join(name)) {
+                if let Some(zone) = date_parse_tzif(&data) {
+                    loaded = Some(Arc::new(zone));
+                    break;
+                }
+            }
+        }
+    }
+    zones.lock().ok()?.insert(name.to_string(), loaded.clone());
+    loaded
+}
+
+fn core_date_zone_offset(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let name = core_arg(args, 0).text();
+    let millis = core_number_arg(args, 1)?;
+    let zone = date_zone_load(&name).ok_or_else(|| AxError::runtime(format!("unknown time zone {name}")))?;
+    let seconds = (millis / 1000.0).floor() as i64;
+    Ok(CoreValue::Num(zone.offset_at(seconds) as f64))
 }
 fn core_math_is_finite(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Bool(core_number_arg(args, 0)?.is_finite()))

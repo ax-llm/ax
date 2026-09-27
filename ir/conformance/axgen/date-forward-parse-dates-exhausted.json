@@ -1,0 +1,36 @@
+{
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Window' has an invalid value 'sometime': Invalid date/time range for 'Window': Invalid range format. Provide a JSON object with \"start\" and \"end\", a two-item array, or an interval using start/end.. Prefer JSON like {\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00Z\"} or an ISO interval like 2024-05-09T14:30:00Z/2024-05-09T15:30:00Z. You provided: sometime.. Provide a datetime range ({ \"start\": \"2024-05-09T14:30:00Z\", \"end\": \"2024-05-09T15:30:00Z\" }). Ensure formatting exactly matches the expected type.",
+  "expected_request_count": 2,
+  "forward_options": {
+    "max_retries": 1
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "date-forward-parse-dates-exhausted",
+  "options": {
+    "parse_dates": true
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Window: 2024-05-09T15:30:00Z/2024-05-09T14:30:00Z",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Window: sometime",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> window:datetimeRange"
+}

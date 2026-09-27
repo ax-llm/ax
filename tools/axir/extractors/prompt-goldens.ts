@@ -423,15 +423,27 @@ stringPrompt(
 
 // Field titles follow TS's toTitle (src/ax/dsp/sig.ts): a snake_case name keeps
 // its later words lowercase ("Generator answer"), a camelCase name starts a
-// word at each capital ("Key Insight"), and a digit run starts a word ("Item 1").
+// word at each capital ("Key Insight") but keeps a run of capitals together
+// ("User ID", "Parse HTTP Response"), a digit run starts a word ("Item 123"),
+// and words are separated by one space ("Field 2").
 stringPrompt(
   'field-titles-snake-and-camel-case',
-  'generator_answer:string, question_context:string, keyInsight:string, item1:string -> root_cause:string, errorIdentification:string',
+  'generator_answer:string, question_context:string, snake_case_name:string, keyInsight:string, item1:string, item123:string, field_2:string, step2Result:string, x2Y:string, value99Count:string, userID:string, apiURL:string, orderID:string, parseHTTPResponse:string -> root_cause:string, errorIdentification:string',
   {
     generator_answer: 'Paris',
     question_context: 'European capitals',
+    snake_case_name: 'snake',
     keyInsight: 'Cite the source',
     item1: 'first',
+    item123: 'third',
+    field_2: 'second field',
+    step2Result: 'done',
+    x2Y: 'axis',
+    value99Count: '99',
+    userID: 'u-1',
+    apiURL: 'https://example.com',
+    orderID: 'o-7',
+    parseHTTPResponse: 'ok',
   }
 );
 

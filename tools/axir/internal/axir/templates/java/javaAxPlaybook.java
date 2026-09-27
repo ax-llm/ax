@@ -25,28 +25,28 @@ public final class AxPlaybook {
           + "just acknowledges that no change is needed (e.g. \"No update required\", "
           + "\"Keep the existing rule unchanged\"). "
           + "Each ADD content must be a standalone, reusable rule.";
-  private static final String WEAKNESS_MINER_SIGNATURE =
-      "clusterSignature:string \"Shared error signature of the cluster\", "
-          + "taskSummaries:string \"One line per failing task\", "
-          + "actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", "
-          + "functionCallSummary?:string \"Digest of runtime/tool calls\", "
-          + "toolErrors?:string \"Tool errors observed\", "
-          + "currentPlaybook?:string \"Current failure-avoidance playbook\" "
-          + "-> weaknessDescription:string \"Recurring weakness\", "
-          + "rootCause:string \"Mechanical root cause\", "
-          + "proposedGuidance:string \"One concise imperative avoidance rule\", "
-          + "evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", "
-          + "configRecommendations?:json \"Setup suggestions no prompt text can fix\"";
+  // The weakness miner's description, as TS writes it
+  // (src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts).
+  private static final String WEAKNESS_MINER_DESCRIPTION =
+      "You are a failure analyst for an LLM agent harness. You receive one "
+          + "cluster of failed agent runs sharing an error signature, with excerpts "
+          + "of what the agent actually did. Identify the single recurring weakness, "
+          + "its root cause, and one narrow, durable avoidance rule the agent should "
+          + "recall while acting. Ground every claim: evidenceQuotes must be verbatim "
+          + "substrings copied from the excerpts. Keep proposedGuidance concise, "
+          + "imperative, and general to the failure mode (not one task). Use "
+          + "configRecommendations only for setup problems no prompt text can fix "
+          + "(missing tools, timeouts, model choice).";
   private static final Pattern ERROR_SIGNATURE = Pattern.compile("^(\\w+Error:\\s*.{0,60})", Pattern.MULTILINE);
   private static final Pattern ACTION_ERROR_SIGNATURE = Pattern.compile("^\\s*(\\w+Error:\\s*.{0,60})", Pattern.MULTILINE);
 
-  private final AxGen program;
+  private AxGen program;
   private final AxACE engine;
   private final AiClient studentAI;
   private final AiClient teacherAI;
   private final Map<String, Object> teacherOptions;
   private final boolean verbose;
-  private final String baseInstruction;
+  private String baseInstruction;
   private boolean started = false;
   private java.util.function.Consumer<String> applyHook;
   private AxGen reflectorProgram;
@@ -57,6 +57,12 @@ public final class AxPlaybook {
   AxPlaybook bindAgent(AxAgent agent) {
     this.agent = agent;
     return this;
+  }
+
+  // Bind the playbook to another program: an agent rebuilds its stages.
+  void rebindProgram(AxGen program) {
+    this.program = program;
+    this.baseInstruction = program == null ? null : program.getInstruction();
   }
 
   public AxPlaybook(AxGen program, Map<String, Object> options) {
@@ -117,6 +123,25 @@ public final class AxPlaybook {
         .output("correctApproach", f.string("What the generator should do differently"))
         .output("keyInsight", f.string("Reusable insight to remember"))
         .output("bulletTags", f.json("Array of {id, tag} entries referencing playbook bullets"))
+        .build();
+  }
+
+  // The weakness miner's signature, as TS builds it.
+  static AxSignature weaknessMinerSignature() {
+    Field.Factory f = Ax.f();
+    return f.call()
+        .input("clusterSignature", f.string("Shared error signature of the cluster."))
+        .input("taskSummaries", f.string("One line per failing task."))
+        .input("actionLogExcerpts", f.string("Excerpts of the failing runs, centered on the failure."))
+        .input("functionCallSummary", f.string("Digest of runtime/tool calls in the failing runs.").optional())
+        .input("toolErrors", f.string("Tool errors observed.").optional())
+        .input("currentPlaybook", f.string("The failure-avoidance playbook currently applied.").optional())
+        .output("weaknessDescription", f.string("The recurring weakness, one sentence."))
+        .output("rootCause", f.string("Why the runs fail, mechanically."))
+        .output("proposedGuidance", f.string("The avoidance rule to add to the playbook — concise, imperative."))
+        .output("evidenceQuotes", f.string("Verbatim substrings from actionLogExcerpts proving the weakness.").array())
+        .output("configRecommendations", f.string("Setup/config suggestions no prompt text can fix.").array().optional())
+        .description(WEAKNESS_MINER_DESCRIPTION)
         .build();
   }
 
@@ -303,9 +328,7 @@ public final class AxPlaybook {
     String currentPlaybook = render();
     if (!currentPlaybook.isBlank()) request.put("currentPlaybook", currentPlaybook);
 
-    AxGen miner = new AxGen(AxSignature.create(WEAKNESS_MINER_SIGNATURE), Map.of(
-        "id", "agent.playbook.weakness-miner",
-        "instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."));
+    AxGen miner = new AxGen(weaknessMinerSignature(), Map.of("id", "agent.playbook.weakness-miner"));
     Map<String, Object> mined = miner.forward(teacher, request, new LinkedHashMap<>(teacherOptions));
     String haystack = collapse(excerpts.toString());
     List<Object> evidence = new ArrayList<>();
