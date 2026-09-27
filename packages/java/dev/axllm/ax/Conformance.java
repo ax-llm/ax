@@ -650,7 +650,8 @@ public final class Conformance {
       case "ai_speak" -> runAISpeak(fixture);
       case "ai_realtime" -> runAIRealtime(fixture);
       case "ai_context_cache" -> runAIContextCache(fixture);
-      case "agent_forward", "agent_streaming_forward" -> runAgentForward(fixture);
+      case "agent_forward" -> runAgentForward(fixture);
+      case "agent_streaming_forward" -> runAgentForward(fixture);
       case "agent_playbook_coverage" -> runAgentPlaybookCoverage(fixture);
       case "agent_playbook_evolve" -> runAgentPlaybookEvolve(fixture);
       case "agent_prompt" -> runAgentPrompt(fixture);

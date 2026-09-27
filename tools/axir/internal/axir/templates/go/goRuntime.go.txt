@@ -11391,7 +11391,9 @@ func runConformanceFixture(fixture map[string]Value) {
 		runMCPConformanceFixture(fixture)
 	case "event":
 		runConformanceEvent(fixture)
-	case "agent_forward", "agent_streaming_forward":
+	case "agent_forward":
+		runConformanceAgentForward(fixture)
+	case "agent_streaming_forward":
 		runConformanceAgentForward(fixture)
 	case "agent_playbook_coverage":
 		runConformanceAgentPlaybookCoverage(fixture)

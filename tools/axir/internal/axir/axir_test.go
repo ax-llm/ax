@@ -2879,6 +2879,12 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 		}
 		kind := fmt.Sprint(fixture["kind"])
 		switch kind {
+		case "agent_streaming_forward":
+			for _, key := range []string{"signature", "input", "expected_deltas"} {
+				if _, ok := fixture[key]; !ok {
+					t.Fatalf("%s missing %s", file, key)
+				}
+			}
 		case "agent_forward":
 			if _, ok := fixture["signature"]; !ok {
 				t.Fatalf("%s missing signature", file)

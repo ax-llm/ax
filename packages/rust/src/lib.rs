@@ -15911,7 +15911,8 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 
 fn run_agent_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     match kind {
-        "agent_forward" | "agent_streaming_forward" => run_agent_forward_contract_fixture(fixture),
+        "agent_forward" => run_agent_forward_contract_fixture(fixture),
+        "agent_streaming_forward" => run_agent_forward_contract_fixture(fixture),
         "agent_playbook_coverage" => run_agent_playbook_coverage_fixture(fixture),
         "agent_playbook_evolve" => run_agent_playbook_evolve_fixture(fixture),
         "agent_prompt" => run_agent_prompt_fixture(fixture),
