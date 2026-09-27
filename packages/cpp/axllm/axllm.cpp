@@ -491,6 +491,18 @@ static void ax_set_transfer_timeout(CURL* curl, double timeout_seconds, double t
 static AxError ax_call_timeout_error(const Value& timeout_ms) {
   return Core::as_error(Core::ai_error_timeout(Core::provider_call_timeout_message(timeout_ms), Value(), Value(), Value(), Value(), true));
 }
+
+// The client's own timeout (seconds here) ended the transfer: TS's
+// AxAIServiceTimeoutError in TS's words, with the timeout curl was given in
+// milliseconds and curl's text kept as the cause. Without a configured
+// timeout (curl's own connect timeout), curl's text stays the message.
+static AxError ax_transfer_timeout_error(double timeout_seconds, double timeout_ms, const std::string& message) {
+  if (timeout_seconds <= 0) return Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), Value(), false));
+  double transfer_ms = static_cast<double>(static_cast<long>(std::max(timeout_seconds * 1000.0, timeout_ms)));
+  AxError error = Core::as_error(Core::ai_error_timeout(Core::provider_call_timeout_message(transfer_ms), Value(), Value(), Value(), Value(), true));
+  error.set_cause(std::make_shared<AxError>("network", message));
+  return error;
+}
 #endif
 
 void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler, const AxCancellationToken* cancellation, std::shared_ptr<std::atomic<bool>> cancelled) {
@@ -580,8 +592,9 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   // key or credential tokens, and AxError has no request field to carry anyway.
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
-    if (rc == CURLE_OPERATION_TIMEDOUT) throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), Value(), false));
-    throw AxError("network", message, "AxAIServiceNetworkError", 0, "", true);
+    if (rc == CURLE_OPERATION_TIMEDOUT) throw ax_transfer_timeout_error(timeout, timeout_ms, message);
+    // TS's AxAIServiceNetworkError: "Network Error: " and curl's text.
+    throw AxError("network", "Network Error: " + message, "AxAIServiceNetworkError", 0, "", true);
   }
   if (status >= 400) {
     Value body;
@@ -734,9 +747,9 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
 
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
-    if (rc == CURLE_OPERATION_TIMEDOUT) {
-      throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), Value(), false));
-    }
+    if (rc == CURLE_OPERATION_TIMEDOUT) throw ax_transfer_timeout_error(timeout, timeout_ms, message);
+    // Untyped here, as the MCP transport shares this call; the AI client
+    // types it where it catches it (ax_transport_network_error).
     throw AxError("network", message);
   }
 
@@ -47361,6 +47374,16 @@ static void attach_error_request(AxError& error, const Value& call, const Value&
   error.request_body = Core::get(view, "json", Core::get(view, "data"));
 }
 
+// A transport's untyped network failure, as TS apiCall reports what fetch
+// throws: AxAIServiceNetworkError, "Network Error: " and the transport's text,
+// with the request a provider error keeps and the failure as its cause.
+static AxError ax_transport_network_error(const AxError& error, const Value& call, const Value& options) {
+  AxError network("network", std::string("Network Error: ") + error.what(), "AxAIServiceNetworkError", 0, "", true);
+  network.set_cause(std::make_shared<AxError>(error));
+  attach_error_request(network, call, options);
+  return network;
+}
+
 Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, Value payload, Value model, const std::string& endpoint) {
   Value cfg_value = Core::get(options, "contextCache", Core::get(options, "context_cache"));
   bool supported = Core::truthy(Core::get(Core::get(Core::get(descriptor_, "features", Value::object()), "caching", Value::object()), "supported", false));
@@ -47691,9 +47714,9 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
           // Retry transport/open failures before any SSE event. Once a provider
           // event exists, its normalized error is authoritative unless the
           // explicit transient-status classifier above requested a retry.
-          // As in TS apiCall, a call's timeoutMs is not retried here.
-          bool call_timed_out = error.type == "AxAIServiceTimeoutError" && !Core::get(call, "timeout_ms").is_null();
-          if (!received_event && !delivered && stream_error_retryable(error) && !call_timed_out && attempt < max_retries) retry_requested = true;
+          // As in TS apiCall, a timeout is not retried here.
+          bool timed_out = error.type == "AxAIServiceTimeoutError";
+          if (!received_event && !delivered && stream_error_retryable(error) && !timed_out && attempt < max_retries) retry_requested = true;
           else if (delivered) {
             AxError terminated("response", error.what(), "AxAIServiceStreamTerminatedError", error.status, error.code, true, error.response_body);
             terminated.url = error.url;
@@ -47776,6 +47799,7 @@ Value OpenAICompatibleClient::speak(Value request) {
   } catch (AxError& error) {
     // A transport failure keeps the request as TypeScript's network and
     // timeout errors do.
+    if (error.category == "network" && error.type.empty()) throw ax_transport_network_error(error, call, options_);
     if (error.category == "network" || error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceTimeoutError") attach_error_request(error, call, options_);
     throw;
   }
@@ -48145,6 +48169,7 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
   } catch (AxError& error) {
     // A transport failure keeps the request as TypeScript's network and
     // timeout errors do.
+    if (error.category == "network" && error.type.empty()) throw ax_transport_network_error(error, call, error_options);
     if (error.category == "network" || error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceTimeoutError") attach_error_request(error, call, error_options);
     throw;
   }
@@ -51708,7 +51733,8 @@ Value AxAITypesafeClient::call(const std::string& method, const std::string& pat
     try {
       return client.request_json(path, payload, false, "json", false, method);
     } catch (const AxError& error) {
-      if (!error.retryable || attempt >= retries) throw;
+      // As in TS apiCall, a timeout is not retried here.
+      if (!error.retryable || error.type == "AxAIServiceTimeoutError" || attempt >= retries) throw;
       double delay = std::min(num(Core::get(retry, "initial_delay_ms")) * std::pow(num(Core::get(retry, "backoff_factor")), attempt), num(Core::get(retry, "max_delay_ms")));
       auto duration = std::chrono::milliseconds(static_cast<long>(delay));
       if (cancellation) { cancellation->wait_for(duration); cancellation->throw_if_cancelled(); }

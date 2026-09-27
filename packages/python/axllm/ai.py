@@ -593,6 +593,17 @@ def _call_timeout_error(timeout_ms: Any, request: Any) -> AxAIServiceTimeoutErro
     return error
 
 
+def _client_timeout_error(timeout_seconds: Any, request: Any) -> AxAIServiceTimeoutError:
+    # The client's own timeout (in seconds here) in TS's words, in milliseconds.
+    # Like a call's timeoutMs, the request layer does not retry it.
+    return AxAIServiceTimeoutError(provider_call_timeout_message(round(float(timeout_seconds) * 1000)), request=request, retryable=True)
+
+
+def _network_error(exc: BaseException, request: Any) -> AxAIServiceNetworkError:
+    # TS's AxAIServiceNetworkError: "Network Error: " and the transport's message.
+    return AxAIServiceNetworkError(f"Network Error: {exc}", request=request, retryable=True)
+
+
 def _cancellation_token(options: dict[str, Any] | None) -> AxCancellationToken | None:
     if not isinstance(options, dict):
         return None
@@ -1471,8 +1482,8 @@ class ProviderOperationClient(AxBaseAI):
                 events = _iter_sse_json(raw)
                 first = next(events, sentinel)
             except AxAIServiceError as error:
-                # As in TS apiCall, a call's timeoutMs is not retried here.
-                if _is_retryable_ai_error(error) and getattr(error, "timeout_ms", None) is None and attempt < max_retries:
+                # As in TS apiCall, a timeout is not retried here.
+                if _is_retryable_ai_error(error) and not isinstance(error, AxAIServiceTimeoutError) and attempt < max_retries:
                     attempt += 1
                     delay = min(initial_delay * (backoff ** (attempt - 1)), max_delay)
                     _wait_backoff(delay, cancellation)
@@ -1821,7 +1832,7 @@ class ProviderOperationClient(AxBaseAI):
                 raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=error_request, retryable=True) from exc
             except OSError as exc:
                 if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                raise AxAIServiceNetworkError(str(exc), request=error_request, retryable=True) from exc
+                raise _network_error(exc, error_request) from exc
         if not self.api_key and not self.credential_provider:
             raise AxAIServiceAuthenticationError("api_key or credential_provider is required")
         request_headers = call["headers"]
@@ -1840,6 +1851,7 @@ class ProviderOperationClient(AxBaseAI):
             method=method,
         )
         opened = False
+        client_timeout = self.timeout
         try:
             if cancellation is not None: cancellation.throw_if_cancelled()
             res, stop_open = self._open_http_response(req, cancellation, timeout_ms)
@@ -1865,11 +1877,13 @@ class ProviderOperationClient(AxBaseAI):
                         except TimeoutError as exc:
                             self.close()
                             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                            raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=error_request, retryable=True) from exc
-                        except OSError as exc:
+                            raise _client_timeout_error(client_timeout, error_request) from exc
+                        except (OSError, http.client.HTTPException) as exc:
+                            # A connection that drops mid-stream (IncompleteRead) is a
+                            # network error, as TS reports a failed body read.
                             self.close()
                             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                            raise AxAIServiceNetworkError(str(exc), request=error_request, retryable=True) from exc
+                            raise _network_error(exc, error_request) from exc
                         if not chunk:
                             self.close()
                             raise StopIteration
@@ -1922,12 +1936,12 @@ class ProviderOperationClient(AxBaseAI):
             raise
         except http.client.HTTPException as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-            raise AxAIServiceNetworkError(str(exc), request=error_request, retryable=True) from exc
+            raise _network_error(exc, error_request) from exc
         except TimeoutError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
             if timeout_ms is not None and not opened:
                 raise _call_timeout_error(timeout_ms, error_request) from exc
-            raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=error_request, retryable=True) from exc
+            raise _client_timeout_error(client_timeout, error_request) from exc
         except urllib.error.HTTPError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
             try: body = exc.read().decode()
@@ -1939,11 +1953,13 @@ class ProviderOperationClient(AxBaseAI):
             raise openai_normalize_error(exc.code, parsed, error_request) from exc
         except OSError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-            # urllib reports a connect that ran out of the call's timeoutMs as a
-            # URLError around the timeout.
-            if timeout_ms is not None and not opened and isinstance(getattr(exc, "reason", None), TimeoutError):
-                raise _call_timeout_error(timeout_ms, error_request) from exc
-            raise AxAIServiceNetworkError(str(exc), request=error_request, retryable=True) from exc
+            # urllib reports a connect that ran out of the call's timeoutMs, or
+            # the client's timeout, as a URLError around the timeout.
+            if isinstance(getattr(exc, "reason", None), TimeoutError):
+                if timeout_ms is not None and not opened:
+                    raise _call_timeout_error(timeout_ms, error_request) from exc
+                raise _client_timeout_error(client_timeout, error_request) from exc
+            raise _network_error(exc, error_request) from exc
 
     def _headers(self):
         headers = {
@@ -2054,7 +2070,8 @@ class AxAITypesafeClient:
             try:
                 return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts)
             except AxAIServiceError as error:
-                if not _is_retryable_ai_error(error) or attempt >= int(retry["max_retries"]):
+                # As in TS apiCall, a timeout is not retried here.
+                if not _is_retryable_ai_error(error) or isinstance(error, AxAIServiceTimeoutError) or attempt >= int(retry["max_retries"]):
                     raise
                 delay = min(float(retry["initial_delay_ms"]) * float(retry["backoff_factor"]) ** attempt, float(retry["max_delay_ms"])) / 1000
                 attempt += 1

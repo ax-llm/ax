@@ -248,15 +248,23 @@ pub(crate) async fn session_http_wait<T>(
     future: impl std::future::Future<Output = Result<T, reqwest::Error>>,
     cancelled: &AtomicBool,
 ) -> AxResult<Option<T>> {
+    http_wait(future, cancelled).await.map_err(|error| {
+        let timeout=error.is_timeout();let mut error=AxError::from(error);
+        if timeout {error.error_type=Some("AxAIServiceTimeoutError".into());error.message=format!("Responses HTTP request timed out; work was not replayed: {}",error.message);}
+        error
+    })
+}
+// The request's result, or None once it is cancelled; reqwest's error stays
+// for the caller to map.
+pub(crate) async fn http_wait<T>(
+    future: impl std::future::Future<Output = Result<T, reqwest::Error>>,
+    cancelled: &AtomicBool,
+) -> Result<Option<T>, reqwest::Error> {
     let mut future = std::pin::pin!(future);
     loop {
         if cancelled.load(Ordering::SeqCst) { return Ok(None); }
         match tokio::time::timeout(Duration::from_millis(10), future.as_mut()).await {
-            Ok(result) => return result.map(Some).map_err(|error| {
-                let timeout=error.is_timeout();let mut error=AxError::from(error);
-                if timeout {error.error_type=Some("AxAIServiceTimeoutError".into());error.message=format!("Responses HTTP request timed out; work was not replayed: {}",error.message);}
-                error
-            }),
+            Ok(result) => return result.map(Some),
             Err(_) => continue,
         }
     }

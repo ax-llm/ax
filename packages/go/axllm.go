@@ -2778,11 +2778,12 @@ func errorRequestView(call Value, options map[string]Value) Value {
 	return mustCore(_ai_error_request(call, options))
 }
 
-// providerNetworkError is a transport failure that keeps the request as
-// TypeScript's AxAIServiceNetworkError does.
+// providerNetworkError is TypeScript's AxAIServiceNetworkError for a transport
+// failure: "Network Error: " and the transport's message, the request a
+// provider error keeps, and the transport's error as its cause.
 func providerNetworkError(err error, call Value, options map[string]Value) AxError {
 	view := errorRequestView(call, options)
-	return AxError{Category: "network", Message: err.Error(), URL: display(coreGet(view, "url", "")), RequestBody: publicValue(coreGet(view, "json", coreGet(view, "data", nil)))}
+	return AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: "Network Error: " + err.Error(), Retryable: true, URL: display(coreGet(view, "url", "")), RequestBody: publicValue(coreGet(view, "json", coreGet(view, "data", nil))), cause: err}
 }
 
 func clampIndex(n float64, max int) int {
@@ -93614,16 +93615,45 @@ func isAxTimeoutError(err error) bool {
 }
 
 // transportCallError keeps a timeout a transport reported as TS's
-// AxAIServiceTimeoutError, with the request view a provider error keeps, and
-// makes any other failure a network error.
+// AxAIServiceTimeoutError, with the request view a provider error keeps. Any
+// other Ax error the transport typed (an abort) stays as it is, and any other
+// failure is a network error, as TS apiCall wraps what fetch throws.
 func transportCallError(err error, call Value, options map[string]Value) error {
-	if typed, ok := AsAxError(err); ok && typed.Type == "AxAIServiceTimeoutError" {
+	typed, ok := AsAxError(err)
+	if ok && typed.Type == "AxAIServiceTimeoutError" {
 		view := errorRequestView(call, options)
 		typed.URL = display(coreGet(view, "url", ""))
 		typed.RequestBody = publicValue(coreGet(view, "json", coreGet(view, "data", nil)))
 		return AIServiceError{typed}
 	}
+	if ok && typed.Type != "" {
+		return err
+	}
 	return providerNetworkError(err, call, options)
+}
+
+// clientTimeoutError is TS's AxAIServiceTimeoutError for the client's own
+// timeout (seconds here), in TS's words and in milliseconds, with the
+// transport's error as its cause.
+func clientTimeoutError(seconds float64, err error, call Value, options map[string]Value) error {
+	view := errorRequestView(call, options)
+	return AIServiceError{AxError{Category: "ai", Type: "AxAIServiceTimeoutError", Message: display(mustCore(provider_call_timeout_message(math.Round(seconds * 1000)))), Retryable: true, URL: display(coreGet(view, "url", "")), RequestBody: publicValue(coreGet(view, "json", coreGet(view, "data", nil))), cause: err}}
+}
+
+// chatTransportError is transportCallError for a request the caller's context
+// may have ended. Its deadline is not a transport failure to retry, so that
+// error stays the untyped network error it was (a cancellation still surfaces
+// as AxAIServiceAbortedError once the operation ends).
+func chatTransportError(ctx context.Context, err error, call Value, options map[string]Value) error {
+	if ctx.Err() == nil {
+		return transportCallError(err, call, options)
+	}
+	if typed, ok := AsAxError(err); ok && typed.Type != "" {
+		return err
+	}
+	ended := providerNetworkError(err, call, options)
+	ended.Type, ended.Message, ended.Retryable = "", err.Error(), false
+	return ended
 }
 
 // warnCallTimeout: TS reads a per-call timeout in milliseconds; this port
@@ -93795,18 +93825,27 @@ func (c *AxAITypesafeClient) ListModels(ctx context.Context, options map[string]
 }
 func (c *AxAITypesafeClient) request(ctx context.Context, operation string, payload map[string]Value, options map[string]Value) (Value, error) {
     opts := mergeAIOptions(c.client.optionsSnapshot(), options)
-    if timeout := num(coreGet(opts, "timeout", 0)); timeout > 0 { var cancel context.CancelFunc; ctx,cancel=context.WithTimeout(ctx,time.Duration(timeout*float64(time.Second)));defer cancel() }
+    parent := ctx
+    timeout := num(coreGet(opts, "timeout", 0))
+    if timeout > 0 { var cancel context.CancelFunc; ctx,cancel=context.WithTimeout(ctx,time.Duration(timeout*float64(time.Second)));defer cancel() }
     retries,initial,maxDelay,factor := streamRetryParams(opts)
     for attempt:=0;;attempt++ {
         if err:=ctx.Err();err!=nil{return nil,normalizeContextError(ctx,err)}
         result,err:=safeValue(func() Value {
             call:=c.client.requestJSON(ctx,operation,Object(),false,opts,payload)
             raw,err:=c.client.Transport.Call(ctx,call)
-            if err!=nil { panic(err) }
+            if err!=nil {
+                // The client's own timeout, not the caller's deadline, ended it.
+                if timeout > 0 && parent.Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+                    panic(clientTimeoutError(timeout, err, call, opts))
+                }
+                panic(chatTransportError(ctx, err, call, opts))
+            }
             return normalizeTransportPayload(raw, call, opts)
         })
         if err==nil{return result,nil}
-        if !IsRetryable(err)||attempt>=retries{return nil,normalizeContextError(ctx,err)}
+        // As in TS apiCall, a timeout is not retried here.
+        if !IsRetryable(err)||isAxTimeoutError(err)||attempt>=retries{return nil,normalizeContextError(ctx,err)}
         if err=waitStreamRetry(ctx,math.Min(initial*math.Pow(factor,float64(attempt)),maxDelay));err!=nil{return nil,err}
     }
 }
@@ -94106,7 +94145,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 			}
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
-				panic(transportCallError(err, transportReq, mergedOptions))
+				panic(chatTransportError(ctx, err, transportReq, mergedOptions))
 			}
 			body := normalizeTransportPayload(raw, transportReq, mergedOptions)
             return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
@@ -94362,7 +94401,7 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 			transportReq := c.requestJSON(ctx, "embed", req, false, mergedOptions)
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
-				panic(transportCallError(err, transportReq, mergedOptions))
+				panic(chatTransportError(ctx, err, transportReq, mergedOptions))
 			}
 			return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw, transportReq, mergedOptions), c.Name, model))
 		})
@@ -94412,11 +94451,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 		response, err := transport.Stream(ctx, request)
 		if err != nil {
 			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-			if isAxTimeoutError(err) { return nil, transportCallError(err, request, errorOptions) }
-			networkErr := providerNetworkError(err, request, errorOptions)
-			networkErr.Type = "AxAIServiceNetworkError"
-			networkErr.Retryable = true
-			return nil, networkErr
+			return nil, transportCallError(err, request, errorOptions)
 		}
 		if response.Body == nil {
 			return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: "streaming transport returned no response body", Retryable: true}
@@ -94425,7 +94460,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 			data, readErr := io.ReadAll(response.Body)
 			_ = response.Body.Close()
 			if readErr != nil {
-				return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: readErr.Error(), Retryable: true}
+				return nil, providerNetworkError(readErr, request, errorOptions)
 			}
 			// A JSON error body is parsed so the error carries the provider's
 			// message, as the chat path's does; anything else stays text.
@@ -94447,11 +94482,7 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 	raw, err := c.Transport.Call(ctx, request)
 	if err != nil {
 		if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-		if isAxTimeoutError(err) { return nil, transportCallError(err, request, errorOptions) }
-		networkErr := providerNetworkError(err, request, errorOptions)
-		networkErr.Type = "AxAIServiceNetworkError"
-		networkErr.Retryable = true
-		return nil, networkErr
+		return nil, transportCallError(err, request, errorOptions)
 	}
 	body, normalizedErr := safeValue(func() Value { return normalizeTransportPayload(raw, request, errorOptions) })
 	if normalizedErr != nil {
@@ -94525,9 +94556,8 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				transportReq := c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
 				raw, err := c.openProviderStream(ctx, transportReq, mergedOptions)
 				if err != nil {
-					// As in TS apiCall, a call's timeoutMs is not retried here.
-					callTimedOut := coreGet(transportReq, "timeout_ms", nil) != nil && isAxTimeoutError(err)
-					if IsRetryable(err) && !callTimedOut && attempt < maxRetries {
+					// As in TS apiCall, a timeout is not retried here.
+					if IsRetryable(err) && !isAxTimeoutError(err) && attempt < maxRetries {
 						attempt++
 						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
 							panic(waitErr)
@@ -94540,7 +94570,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				if firstErr != nil && !errors.Is(firstErr, io.EOF) {
 					_ = raw.Close()
 					if ctx.Err() != nil { panic(normalizeContextError(ctx, firstErr)) }
-					wrapped := AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: firstErr.Error(), Retryable: true}
+					wrapped := providerNetworkError(firstErr, transportReq, mergedOptions)
 					if attempt < maxRetries {
 						attempt++
 						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
