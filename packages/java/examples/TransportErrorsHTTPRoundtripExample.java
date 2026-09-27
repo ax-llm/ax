@@ -56,6 +56,13 @@ public final class TransportErrorsHTTPRoundtripExample {
     expectCount("dropped stream events", delivered[0], 1);
     expectCount("dropped stream", dropped.get(), 1);
 
+    // The Typesafe client types the same failures, and does not retry a
+    // timeout.
+    expect("Typesafe refused", "AxAIServiceNetworkError", "Network Error: ", () -> new AxAITypesafeClient(Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + closedPort(), "retry", FAST_RETRY)).listModels());
+    before = held.get();
+    expect("Typesafe timeout", "AxAIServiceTimeoutError", "Request timed out after 300ms", () -> new AxAITypesafeClient(Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + silent, "timeout", 0.3, "retry", FAST_RETRY)).listModels());
+    expectCount("Typesafe timeout", held.get() - before, 1);
+
     // AxGen retries a network error and a timeout as infrastructure errors.
     // The client's own retries are off, so each request is one AxGen attempt:
     // maxRetries 1 is the first attempt and one retry.

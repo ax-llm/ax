@@ -1,4 +1,4 @@
-use axllm::{ai, ax, AxAIClient, AxResult, OpenAICompatibleClient};
+use axllm::{ai, ax, typesafe, AxAIClient, AxResult, OpenAICompatibleClient};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -211,6 +211,17 @@ fn main() {
     );
     assert_eq!(delivered, 1, "dropped stream events");
     assert_eq!(dropped.load(Ordering::SeqCst), 1, "dropped stream requests");
+
+    // The Typesafe client types the same failures, and does not retry a
+    // timeout.
+    let result = typesafe(json!({"api_key": "test-key", "base_url": format!("http://127.0.0.1:{}", closed_port()), "retry": fast_retry["retry"]}))
+        .and_then(|mut client| client.list_models());
+    expect("Typesafe refused", "AxAIServiceNetworkError", "Network Error: ", result);
+    let before = held.load(Ordering::SeqCst);
+    let result = typesafe(json!({"api_key": "test-key", "base_url": format!("http://127.0.0.1:{silent}"), "timeout": 0.3, "retry": fast_retry["retry"]}))
+        .and_then(|mut client| client.list_models());
+    expect("Typesafe timeout", "AxAIServiceTimeoutError", "Request timed out after 300ms", result);
+    assert_eq!(held.load(Ordering::SeqCst) - before, 1, "a timed-out Typesafe request was retried");
 
     // AxGen retries a network error and a timeout as infrastructure errors.
     // The client's own retries are off, so each request is one AxGen attempt:

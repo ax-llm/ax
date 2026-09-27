@@ -5872,6 +5872,7 @@ from axllm import (
     AxAIServiceTimeoutError,
     OpenAICompatibleClient,
     ax,
+    typesafe,
 )
 
 DROP_EVENT = (
@@ -5996,6 +5997,12 @@ def consume():
 expect("dropped stream", AxAIServiceNetworkError, "Network Error: ", consume)
 assert len(delivered) == 1 and dropped["connections"] == 1, f"dropped stream: {len(delivered)} events, {dropped['connections']} requests"
 
+# The Typesafe client types the same failures, and does not retry a timeout.
+expect("Typesafe refused", AxAIServiceNetworkError, "Network Error: ", lambda: typesafe(api_key="test-key", base_url=f"http://127.0.0.1:{closed_port()}", retry=fast_retry).list_models())
+before = held["connections"]
+expect("Typesafe timeout", AxAIServiceTimeoutError, "Request timed out after 300ms", lambda: typesafe(api_key="test-key", base_url=f"http://127.0.0.1:{silent}", timeout=0.3, retry=fast_retry).list_models())
+assert held["connections"] - before == 1, f"a timed-out Typesafe request was retried: {held['connections'] - before} requests"
+
 # AxGen retries a network error and a timeout as infrastructure errors. The
 # client's own retries are off, so each request is one AxGen attempt:
 # maxRetries 1 is the first attempt and one retry.
@@ -6077,6 +6084,13 @@ public final class TransportErrorsHTTPRoundtripExample {
     expect("dropped stream", "AxAIServiceStreamTerminatedError", "", () -> drain(client(dropping, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), delivered));
     expectCount("dropped stream events", delivered[0], 1);
     expectCount("dropped stream", dropped.get(), 1);
+
+    // The Typesafe client types the same failures, and does not retry a
+    // timeout.
+    expect("Typesafe refused", "AxAIServiceNetworkError", "Network Error: ", () -> new AxAITypesafeClient(Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + closedPort(), "retry", FAST_RETRY)).listModels());
+    before = held.get();
+    expect("Typesafe timeout", "AxAIServiceTimeoutError", "Request timed out after 300ms", () -> new AxAITypesafeClient(Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + silent, "timeout", 0.3, "retry", FAST_RETRY)).listModels());
+    expectCount("Typesafe timeout", held.get() - before, 1);
 
     // AxGen retries a network error and a timeout as infrastructure errors.
     // The client's own retries are off, so each request is one AxGen attempt:
@@ -6372,6 +6386,16 @@ int main() {
   });
   expect_count("dropped stream events", delivered, 1);
   expect_count("dropped stream", dropped->load(), 1);
+
+  // The Typesafe client types the same failures, and does not retry a timeout.
+  expect("Typesafe refused", "AxAIServiceNetworkError", "Network Error: ", [&] {
+    typesafe(object({{"api_key", "test-key"}, {"base_url", "http://127.0.0.1:" + std::to_string(closed_port())}, {"retry", fast_retry}})).list_models();
+  });
+  before = held->load();
+  expect("Typesafe timeout", "AxAIServiceTimeoutError", "Request timed out after 300ms", [&] {
+    typesafe(object({{"api_key", "test-key"}, {"base_url", "http://127.0.0.1:" + std::to_string(silent)}, {"timeout", 0.3}, {"retry", fast_retry}})).list_models();
+  });
+  expect_count("Typesafe timeout", held->load() - before, 1);
 
   // AxGen retries a network error and a timeout as infrastructure errors. The
   // client's own retries are off, so each request is one AxGen attempt:

@@ -16,6 +16,7 @@ from axllm import (
     AxAIServiceTimeoutError,
     OpenAICompatibleClient,
     ax,
+    typesafe,
 )
 
 DROP_EVENT = (
@@ -139,6 +140,12 @@ def consume():
 
 expect("dropped stream", AxAIServiceNetworkError, "Network Error: ", consume)
 assert len(delivered) == 1 and dropped["connections"] == 1, f"dropped stream: {len(delivered)} events, {dropped['connections']} requests"
+
+# The Typesafe client types the same failures, and does not retry a timeout.
+expect("Typesafe refused", AxAIServiceNetworkError, "Network Error: ", lambda: typesafe(api_key="test-key", base_url=f"http://127.0.0.1:{closed_port()}", retry=fast_retry).list_models())
+before = held["connections"]
+expect("Typesafe timeout", AxAIServiceTimeoutError, "Request timed out after 300ms", lambda: typesafe(api_key="test-key", base_url=f"http://127.0.0.1:{silent}", timeout=0.3, retry=fast_retry).list_models())
+assert held["connections"] - before == 1, f"a timed-out Typesafe request was retried: {held['connections'] - before} requests"
 
 # AxGen retries a network error and a timeout as infrastructure errors. The
 # client's own retries are off, so each request is one AxGen attempt:

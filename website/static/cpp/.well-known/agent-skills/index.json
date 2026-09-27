@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-cpp-ai/SKILL.md",
-      "digest": "sha256:6893dad2137a55cf6b56eda2dfe03ae90485dbc05f6eae8ae3fff50080f59722"
+      "digest": "sha256:55cafad9ba7adb2f816399794c6f9d0ad101436df2731b32ecb204f71e017af3"
     },
     {
       "name": "ax-cpp-typesafe",

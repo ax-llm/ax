@@ -6,6 +6,7 @@ import {
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
 import { AxAIOpenAIModel } from './openai/chat_types.js';
+import { AxAITypesafeClient } from './typesafe/client.js';
 import { ai } from './wrap.js';
 
 // How a real HTTP failure is typed and retried. The generated ports pin the
@@ -46,28 +47,38 @@ const closedPort = async () => {
   return port;
 };
 
-// A client whose fetch counts the requests it sends; retries back off 10 ms.
-const client = (
-  port: number,
+// Client options whose fetch counts the requests it sends; retries back off
+// 10 ms.
+const counted = (
   timeout?: number,
   retry: { maxRetries: number } = { maxRetries: 2 }
 ) => {
   let requests = 0;
+  const options = {
+    fetch: ((input: RequestInfo | URL, init?: RequestInit) => {
+      requests++;
+      return fetch(input, init);
+    }) as typeof fetch,
+    ...(timeout === undefined ? {} : { timeout }),
+    retry: { ...retry, initialDelayMs: 10, maxDelayMs: 20 },
+  };
+  return { options, requests: () => requests };
+};
+
+const client = (
+  port: number,
+  timeout?: number,
+  retry?: { maxRetries: number }
+) => {
+  const { options, requests } = counted(timeout, retry);
   const service = ai({
     name: 'openai',
     apiKey: 'test',
     apiURL: `http://127.0.0.1:${port}/v1`,
     config: { model: AxAIOpenAIModel.GPT54Mini },
-    options: {
-      fetch: ((input: RequestInfo | URL, init?: RequestInit) => {
-        requests++;
-        return fetch(input, init);
-      }) as typeof fetch,
-      ...(timeout === undefined ? {} : { timeout }),
-      retry: { ...retry, initialDelayMs: 10, maxDelayMs: 20 },
-    },
+    options,
   });
-  return { service, requests: () => requests };
+  return { service, requests };
 };
 
 const chatPrompt = [{ role: 'user' as const, content: 'hi' }];
@@ -193,5 +204,35 @@ describe('an AxGen forward over a real HTTP failure', () => {
       expect(findCause(error, AxAIServiceTimeoutError)).toBeDefined();
       expect(requests()).toBe(2);
     }
+  });
+});
+
+describe('a Typesafe request over a real HTTP failure', () => {
+  const typesafe = (port: number, timeout?: number) => {
+    const { options, requests } = counted(timeout);
+    const service = new AxAITypesafeClient({
+      apiKey: 'test',
+      apiURL: `http://127.0.0.1:${port}`,
+      options,
+    });
+    return { service, requests };
+  };
+
+  it('retries a network error', async () => {
+    const port = await listen((socket) => {
+      socket.once('data', () => socket.destroy());
+    });
+    const { service, requests } = typesafe(port);
+    const error = await service.listModels().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AxAIServiceNetworkError);
+    expect(requests()).toBe(3);
+  });
+
+  it('does not retry a timeout', async () => {
+    const port = await listen(() => {});
+    const { service, requests } = typesafe(port, 100);
+    const error = await service.listModels().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AxAIServiceTimeoutError);
+    expect(requests()).toBe(1);
   });
 });

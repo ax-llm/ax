@@ -593,9 +593,13 @@ def _call_timeout_error(timeout_ms: Any, request: Any) -> AxAIServiceTimeoutErro
     return error
 
 
-def _client_timeout_error(timeout_seconds: Any, request: Any) -> AxAIServiceTimeoutError:
+def _client_timeout_error(timeout_seconds: Any, exc: BaseException, request: Any) -> AxAIServiceError:
     # The client's own timeout (in seconds here) in TS's words, in milliseconds.
-    # Like a call's timeoutMs, the request layer does not retry it.
+    # Like a call's timeoutMs, the request layer does not retry it. Without a
+    # client timeout the operating system's timed out, which TS reports as a
+    # network error.
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or timeout_seconds <= 0:
+        return _network_error(exc, request)
     return AxAIServiceTimeoutError(provider_call_timeout_message(round(float(timeout_seconds) * 1000)), request=request, retryable=True)
 
 
@@ -1877,7 +1881,7 @@ class ProviderOperationClient(AxBaseAI):
                         except TimeoutError as exc:
                             self.close()
                             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                            raise _client_timeout_error(client_timeout, error_request) from exc
+                            raise _client_timeout_error(client_timeout, exc, error_request) from exc
                         except (OSError, http.client.HTTPException) as exc:
                             # A connection that drops mid-stream (IncompleteRead) is a
                             # network error, as TS reports a failed body read.
@@ -1941,7 +1945,7 @@ class ProviderOperationClient(AxBaseAI):
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
             if timeout_ms is not None and not opened:
                 raise _call_timeout_error(timeout_ms, error_request) from exc
-            raise _client_timeout_error(client_timeout, error_request) from exc
+            raise _client_timeout_error(client_timeout, exc, error_request) from exc
         except urllib.error.HTTPError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
             try: body = exc.read().decode()
@@ -1958,7 +1962,7 @@ class ProviderOperationClient(AxBaseAI):
             if isinstance(getattr(exc, "reason", None), TimeoutError):
                 if timeout_ms is not None and not opened:
                     raise _call_timeout_error(timeout_ms, error_request) from exc
-                raise _client_timeout_error(client_timeout, error_request) from exc
+                raise _client_timeout_error(client_timeout, exc, error_request) from exc
             raise _network_error(exc, error_request) from exc
 
     def _headers(self):

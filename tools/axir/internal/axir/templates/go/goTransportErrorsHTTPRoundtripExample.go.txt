@@ -63,11 +63,20 @@ func main() {
 	expectCount("dropped stream events", int32(delivered), 1)
 	expectCount("dropped stream", dropped.Load(), 1)
 
+	// The Typesafe client types the same failures, and does not retry its own
+	// timeout (in seconds).
+	_, err = ax.Typesafe(map[string]ax.Value{"api_key": "test-key", "base_url": "http://" + closedAddress(), "retry": fastRetry}).ListModels(context.Background(), nil)
+	expectType("Typesafe refused", err, "AxAIServiceNetworkError", "Network Error: ")
+	silent, held := serve("hold")
+	before = held.Load()
+	_, err = ax.Typesafe(map[string]ax.Value{"api_key": "test-key", "base_url": "http://" + silent, "timeout": 0.3, "retry": fastRetry}).ListModels(context.Background(), nil)
+	expectType("Typesafe timeout", err, "AxAIServiceTimeoutError", "Request timed out after 300ms")
+	expectCount("Typesafe timeout", held.Load()-before, 1)
+
 	// AxGen retries a network error and a timeout as infrastructure errors.
 	// The client's own retries are off, so each request is one AxGen attempt:
 	// maxRetries 1 is the first attempt and one retry.
 	noRequestRetry := map[string]ax.Value{"retry": ax.Object("maxRetries", 0)}
-	silent, held := serve("hold")
 	for _, stream := range []bool{false, true} {
 		before = closed.Load()
 		_, err = ax.NewAx("question:string -> answer:string", nil).Forward(context.Background(), newClient(closing, noRequestRetry), map[string]ax.Value{"question": "hi"}, map[string]ax.Value{"maxRetries": 1, "stream": stream})
