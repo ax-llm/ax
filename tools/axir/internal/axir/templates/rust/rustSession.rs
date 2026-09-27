@@ -62,7 +62,7 @@ impl AxRunControl {
         self.emit(json!({"type":"queued","path":update["target"],"update_id":id}));
         Ok(())
     }
-    fn emit(&self, event: Value) {
+    pub(crate) fn emit(&self, event: Value) {
         if let Some(relay)=&self.0.relay{relay(event);return;}
         let listeners = self.0.listeners.lock().unwrap().clone();
         for listener in listeners {
@@ -1621,6 +1621,41 @@ mod tests {
         let mut workflow=flow("balanced-fallback").execute("lookup",node).returns(json!({"result":"lookupResult"}));
         assert_eq!(workflow.forward(&mut client,json!({"question":"Lookup"}))?,json!({"result":{"answer":"FALLBACK"}}));
         assert_eq!(calls.load(Ordering::SeqCst),2);assert_eq!(unused.load(Ordering::SeqCst),0);assert_eq!(tools.load(Ordering::SeqCst),1);Ok(())
+    }
+
+    // Agent streams don't cover async run sessions yet: under a run control on
+    // a session-capable client, streaming_forward streams the responder
+    // through the request boundary, as AxGen::streaming_forward does, and the
+    // run reports its lifecycle at root and each stage at root/<stage>.
+    struct AgentStreamTransport {requests:Arc<AtomicUsize>}
+    impl AgentStreamTransport {
+        fn answer(&self)->&'static str {
+            match self.requests.fetch_add(1,Ordering::SeqCst)+1 {
+                1=>"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}",
+                2=>"{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"REF-42\"}]}}",
+                3=>"Answer: REF-42",
+                n=>panic!("unexpected request {n}"),
+            }
+        }
+    }
+    impl AxTransport for AgentStreamTransport {
+        fn send(&mut self,_request:Value)->AxResult<Value>{Ok(completed("stream-response",self.answer())["response"].clone())}
+        fn stream(&mut self,_request:Value)->AxResult<AxTransportStream>{
+            Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(completed("stream-response",self.answer()))).unwrap()})))
+        }
+    }
+    #[test]
+    fn agent_streaming_forward_under_control_streams_through_the_boundary()->AxResult<()> {
+        let requests=Arc::new(AtomicUsize::new(0));
+        let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(AgentStreamTransport{requests:requests.clone()});
+        let control=run_control();let events=Arc::new(Mutex::new(Vec::new()));let seen=events.clone();
+        control.on_event(move |event|{if matches!(event["type"].as_str(),Some("started"|"completed"|"failed"|"aborted")){seen.lock().unwrap().push(format!("{}@{}",event["type"].as_str().unwrap_or(""),event["path"].as_str().unwrap_or("")));}});
+        let mut program=agent_with_options("question -> answer",json!({"directResponse":"off"}))?;
+        let answer=Rc::new(RefCell::new(String::new()));let streamed=answer.clone();
+        program.streaming_forward(&mut client,json!({"question":"Find reference"}),AxForwardOptions::from(json!({})).with_control(control),move |update|{if let Some(text)=update.delta["answer"].as_str(){streamed.borrow_mut().push_str(text);}Ok(())})?;
+        assert_eq!(answer.borrow().as_str(),"REF-42");assert_eq!(requests.load(Ordering::SeqCst),3);
+        assert_eq!(events.lock().unwrap().join(","),"started@root,started@root/distiller,completed@root/distiller,started@root/executor,completed@root/executor,started@root/responder,completed@root/responder,completed@root");
+        Ok(())
     }
 
 }

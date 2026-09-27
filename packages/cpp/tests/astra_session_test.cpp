@@ -110,6 +110,34 @@ void native_agent(){
   Value duplicate=program.invoke_callable("tools.lookup",object({{"query","REF-42"}}));if(stringify(Core::get(duplicate,"status"))!="\"error\""||gate->calls.load()!=1)throw std::runtime_error("Native call replayed through actor machinery");
   std::cout<<"cpp native agent tools, authority boundaries, action logs, and duplicate prevention passed\n";
 }
+// Agent streams don't cover async run sessions yet: under a run control on a
+// session-capable client, streaming_forward streams the responder through the
+// request boundary, as AxGen::streaming_forward does, and the run reports its
+// lifecycle at root and each stage at root/<stage>.
+class AgentStreamTransport final:public Transport {
+ public:
+  std::atomic<int> requests{0};
+  std::string answer(){
+    int number=++requests;
+    if(number==1)return "{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}";
+    if(number==2)return "{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"REF-42\"}]}}";
+    if(number==3)return "Answer: REF-42";
+    throw std::runtime_error("Unexpected agent stream request "+std::to_string(number));
+  }
+  Value call(Value)override{return Core::get(completed("stream-response",answer()),"response");}
+  void stream(Value,AxTransportStreamHandler handler)override{handler(completed("stream-response",answer()));}
+};
+void agent_stream_under_control(){
+  auto transport=std::make_shared<AgentStreamTransport>();auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);
+  auto control=run_control();std::vector<std::string> events;std::mutex events_mutex;
+  control.on_event([&](Value event){std::string type=display(Core::get(event,"type"));if(type!="started"&&type!="completed"&&type!="failed"&&type!="aborted")return;std::lock_guard<std::mutex> lock(events_mutex);events.push_back(type+"@"+display(Core::get(event,"path")));});
+  auto program=agent("question -> answer",object({{"directResponse","off"}}));std::string answer;
+  program.streaming_forward(*client,object({{"question","Find reference"}}),object({{"control",control.value()}}),[&](const AxGenDelta& delta){Value text=Core::get(delta.delta,"answer");if(text.is_string())answer+=display(text);return true;});
+  if(answer!="REF-42"||transport->requests.load()!=3)throw std::runtime_error("Invalid agent stream under a run control: "+answer);
+  std::string joined;for(const auto& event:events)joined+=(joined.empty()?"":",")+event;
+  if(joined!="started@root,started@root/distiller,completed@root/distiller,started@root/executor,completed@root/executor,started@root/responder,completed@root/responder,completed@root")throw std::runtime_error("Agent stream control events: "+joined);
+  std::cout<<"cpp agent streams under a run control stream through the request boundary\n";
+}
 void cancellation(){
   auto socket=std::make_shared<SteeringSocket>();socket->pending=true;auto control=run_control();auto settled=std::make_shared<std::atomic<bool>>(false);auto interrupted_at=std::make_shared<std::atomic<long long>>(0);
   auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).session_web_socket_factory([socket](const std::string&,Value){return socket;});
@@ -734,5 +762,5 @@ int main(int argc,char** argv){
   Value result=program.forward(routed,object({{"question","Find reference"}}));
   if(stringify(Core::get(result,"answer"))!="\"REF-42\""||gate->calls.load()!=1)throw std::runtime_error("Provisional output escaped");
   std::cout<<"cpp high-level async overlap and final incorporation passed\n";
-  invalid_arguments_and_exhaustion();flow_isolation();native_steering();buffered_steering_boundary();cancellation();disconnect_pending();noncooperative_cancellation();native_agent();concurrent_native_mcp();mixed_balancer();
+  invalid_arguments_and_exhaustion();flow_isolation();native_steering();buffered_steering_boundary();cancellation();disconnect_pending();noncooperative_cancellation();native_agent();agent_stream_under_control();concurrent_native_mcp();mixed_balancer();
 }
