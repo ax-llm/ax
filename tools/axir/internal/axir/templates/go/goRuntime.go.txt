@@ -6839,28 +6839,65 @@ func (g *AxGen) forwardWithHooks(ctx context.Context, client AIClient, values ma
 	// forward (the call wins): its control, execution path, model and
 	// asyncMode decide the run's control boundary and native session too.
 	runOptions := g.runOptions(options)
-    control,_ := coreGet(runOptions,"control",nil).(*AxRunControl)
-    selectionClient := client
-    for { bound,ok:=selectionClient.(contextBoundAIClient);if !ok {break};selectionClient=bound.inner }
-    opener,_ := selectionClient.(SessionAIClient)
-    model := display(coreGet(runOptions,"model",""))
-    if model == "" { switch provider:=selectionClient.(type) {case *OpenAICompatibleClient:model=display(coreGet(provider.optionsSnapshot(),"model",""));case *OpenAIResponsesClient:model=display(coreGet(provider.optionsSnapshot(),"model",""))} }
-    if !coreTruthy(mustCore(chat_session_mode_enabled(runOptions))) {opener=nil} else if service,ok:=selectionClient.(interface{GetFeatures(string) map[string]Value}); !ok || !coreTruthy(coreGet(service.GetFeatures(model),"asyncTools",false)) {opener=nil}
-    _, selectable := selectionClient.(chatRunSelector)
-    selectable=selectable && coreTruthy(mustCore(chat_session_mode_enabled(runOptions)))
-    eligible := control!=nil
-    for _,tool:=range clone.Functions { eligible=eligible || ((opener!=nil || selectable) && tool.ExecutionMode=="background") }
-    if eligible {
-        sessionClient:=&genSessionClient{AIClient:client,gen:&clone,opener:opener,options:runOptions,control:control,path:display(coreGet(runOptions,"execution_path",coreGet(runOptions,"executionPath","root"))),deliveries:make(chan sessionDelivery,32),results:make(chan sessionToolResult,32)}
-        client=sessionClient
-        if opener!=nil || selectable {options=cloneMap(options);coreSet(options,"infraRetries",0)}
-        defer func(){sessionClient.close(err)}()
-    }
+	if sessionClient, sessions := newRunSessionClient(client, &clone, runOptions); sessionClient != nil {
+		client = sessionClient
+		if sessions {
+			// A session run's requests are not retried.
+			options = cloneMap(options)
+			coreSet(options, "infraRetries", 0)
+		}
+		defer func() { sessionClient.close(err) }()
+	}
 	out, err = safeValue(func() Value {
 		return mustCore(_forward_impl(&clone, bindAIClientContext(ctx, client), values, options))
 	})
 	return out, err
 }
+
+// newRunSessionClient returns the client for one run of the generator run,
+// or nil when the run needs none: a run with a control, or with a background
+// tool on a client that opens native chat sessions (or pins a provider that
+// may), goes through a genSessionClient. sessions says the run may use
+// native sessions, whose requests are not retried.
+func newRunSessionClient(client AIClient, run *AxGen, runOptions map[string]Value) (sessionClient *genSessionClient, sessions bool) {
+	control, _ := coreGet(runOptions, "control", nil).(*AxRunControl)
+	selectionClient := client
+	for {
+		bound, ok := selectionClient.(contextBoundAIClient)
+		if !ok {
+			break
+		}
+		selectionClient = bound.inner
+	}
+	enabled := coreTruthy(mustCore(chat_session_mode_enabled(runOptions)))
+	opener, _ := selectionClient.(SessionAIClient)
+	model := display(coreGet(runOptions, "model", ""))
+	if model == "" {
+		switch provider := selectionClient.(type) {
+		case *OpenAICompatibleClient:
+			model = display(coreGet(provider.optionsSnapshot(), "model", ""))
+		case *OpenAIResponsesClient:
+			model = display(coreGet(provider.optionsSnapshot(), "model", ""))
+		}
+	}
+	if !enabled {
+		opener = nil
+	} else if service, ok := selectionClient.(interface{ GetFeatures(string) map[string]Value }); !ok || !coreTruthy(coreGet(service.GetFeatures(model), "asyncTools", false)) {
+		opener = nil
+	}
+	_, selectable := selectionClient.(chatRunSelector)
+	selectable = selectable && enabled
+	eligible := control != nil
+	for _, tool := range run.Functions {
+		eligible = eligible || ((opener != nil || selectable) && tool.ExecutionMode == "background")
+	}
+	if !eligible {
+		return nil, false
+	}
+	sessionClient = &genSessionClient{AIClient: client, gen: run, opener: opener, options: runOptions, control: control, path: display(coreGet(runOptions, "execution_path", coreGet(runOptions, "executionPath", "root"))), deliveries: make(chan sessionDelivery, 32), results: make(chan sessionToolResult, 32)}
+	return sessionClient, opener != nil || selectable
+}
+
 // AxAssertion checks a forward's output values, as a TypeScript addAssert
 // function does: it returns nil or true to pass, a message string to fail
 // (the attempt is retried with that correction), or false to fail without a
@@ -7014,10 +7051,13 @@ var errStreamingConsumerStopped = errors.New("streaming consumer stopped")
 
 // StreamingForward runs the forward and yields TypeScript's streamed updates
 // as the model streams (see AxGenDelta); retries, steps and tools work as in
-// Forward. The forward runs in its own goroutine and waits while the caller
-// handles each update. An error ends the sequence as a final (AxGenDelta{},
-// err) pair. Stopping the iteration early cancels the run; with a run control
-// the run then ends with an "aborted" event instead of "failed".
+// Forward. On a client with native chat sessions each request runs in its own
+// session, as in Forward, and the updates stream from the session's partial
+// response events; the completed response sends only what they did not. The
+// forward runs in its own goroutine and waits while the caller handles each
+// update. An error ends the sequence as a final (AxGenDelta{}, err) pair.
+// Stopping the iteration early cancels the run; with a run control the run
+// then ends with an "aborted" event instead of "failed".
 func (g *AxGen) StreamingForward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) iter.Seq2[AxGenDelta, error] {
 	return func(yield func(AxGenDelta, error) bool) {
 		if ctx == nil {
@@ -7127,13 +7167,18 @@ func (g *AxGen) streamingForwardWith(ctx context.Context, client AIClient, value
 	}()
 	clone.Functions = runtimeScopedTools(ctx, g.Functions)
 	runOptions := g.runOptions(options)
-	if control, _ := coreGet(runOptions, "control", nil).(*AxRunControl); control != nil {
+	if sessionClient, sessions := newRunSessionClient(client, &clone, runOptions); sessionClient != nil {
 		// As Forward does, a run control (the call's, else the
 		// constructor's) applies its updates at each request and hears the
-		// run's lifecycle; a consumer that stops the stream early ends the
-		// run as aborted.
-		sessionClient := &genSessionClient{AIClient: client, gen: &clone, options: runOptions, control: control, path: display(coreGet(runOptions, "execution_path", coreGet(runOptions, "executionPath", "root"))), deliveries: make(chan sessionDelivery, 32), results: make(chan sessionToolResult, 32)}
+		// run's lifecycle, and a client with native chat sessions runs each
+		// request in its own session, whose items stream; a consumer that
+		// stops the stream early ends the run as aborted.
 		client = sessionClient
+		if sessions {
+			// A session run's requests are not retried.
+			options = cloneMap(options)
+			coreSet(options, "infraRetries", 0)
+		}
 		defer func() {
 			sessionClient.finish(err, errors.Is(context.Cause(ctx), errStreamingConsumerStopped))
 		}()
@@ -7463,8 +7508,9 @@ func (a *AxAgent) forwardWithHooks(ctx context.Context, client AIClient, values 
 // its own goroutine and waits while the caller handles each update. An error
 // ends the sequence as a final (AxGenDelta{}, err) pair. Stopping the
 // iteration early cancels the run; with a run control the run then ends with
-// an "aborted" event. Under a run control the responder streams through the
-// request boundary, as AxGen.StreamingForward does.
+// an "aborted" event. Under a run control the responder streams as
+// AxGen.StreamingForward does: through the request boundary, or on a client
+// with native chat sessions from its session's partial response events.
 func (a *AxAgent) StreamingForward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) iter.Seq2[AxGenDelta, error] {
 	return func(yield func(AxGenDelta, error) bool) {
 		if ctx == nil {
@@ -11706,12 +11752,172 @@ type conformanceScriptedAI struct {
 	// while it is in flight, before the scripted answer (a fixture's
 	// control_steer).
 	OnRequest func(number int)
+	// A fixture's native_session script makes the client open native chat
+	// sessions (asyncTools), each playing the next session's script.
+	// SessionLog records what the run did to its sessions: open, steer,
+	// thinking, continue (with the IDs of the tool results it submitted) and
+	// close.
+	NativeSessions  []Value
+	SessionScripted bool
+	sessionMu       sync.Mutex
+	SessionLog      []Value
 }
 
 func (f *conformanceScriptedAI) noteRequest() {
 	if f.OnRequest != nil {
 		f.OnRequest(len(f.Requests))
 	}
+}
+
+// conformanceScriptNativeSessions scripts the client's native chat sessions
+// from the fixture's native_session.
+func conformanceScriptNativeSessions(client *conformanceScriptedAI, fixture map[string]Value) *conformanceScriptedAI {
+	if sessions := coreGet(fixture, "native_session", nil); sessions != nil {
+		client.NativeSessions = append([]Value(nil), asSlice(cloneValue(sessions))...)
+		client.SessionScripted = true
+	}
+	return client
+}
+
+func (f *conformanceScriptedAI) logSession(entry Value) {
+	f.sessionMu.Lock()
+	f.SessionLog = append(f.SessionLog, entry)
+	f.sessionMu.Unlock()
+}
+
+// OpenChatSession opens a native chat session playing the next session's
+// script. Each open is one model request: it is recorded and counted as a
+// chat call, logged, and a fixture's control_steer runs while it is in
+// flight, as for a chat request.
+func (f *conformanceScriptedAI) OpenChatSession(ctx context.Context, request, options map[string]Value) (AxChatSession, error) {
+	if !f.SessionScripted {
+		return nil, AxError{Category: "runtime", Message: "scripted client has no native sessions"}
+	}
+	f.ChatCalls++
+	f.Requests = append(f.Requests, cloneMap(request))
+	f.ChatOptions = append(f.ChatOptions, cloneMap(options))
+	f.logSession(Object("op", "open"))
+	f.noteRequest()
+	if len(f.NativeSessions) == 0 {
+		return nil, AxError{Category: "runtime", Message: "scripted sessions exhausted"}
+	}
+	script := asSlice(f.NativeSessions[0])
+	f.NativeSessions = f.NativeSessions[1:]
+	session := &conformanceScriptedSession{client: f, script: append([]Value(nil), script...), wake: make(chan struct{}, 1)}
+	if err := session.play(); err != nil {
+		return nil, err
+	}
+	return session, nil
+}
+
+// conformanceScriptedSession is a native chat session playing a fixture
+// script: a list of responses, each a list of {type, response_id, results}
+// events. It plays its first response when it opens and the next one each
+// time the run continues it.
+type conformanceScriptedSession struct {
+	client *conformanceScriptedAI
+	mu     sync.Mutex
+	script []Value
+	queue  []Value
+	wake   chan struct{}
+	closed bool
+}
+
+// play queues the next response's events in the session event shape,
+// {type, response_id, response: {results}}.
+func (s *conformanceScriptedSession) play() error {
+	s.mu.Lock()
+	if len(s.script) == 0 {
+		s.mu.Unlock()
+		return AxError{Category: "runtime", Message: "scripted session exhausted"}
+	}
+	events := asSlice(s.script[0])
+	s.script = s.script[1:]
+	for _, event := range events {
+		s.queue = append(s.queue, Object("type", coreGet(event, "type", ""), "response_id", coreGet(event, "response_id", ""), "response", Object("results", cloneValue(coreGet(event, "results", Array())))))
+	}
+	s.mu.Unlock()
+	s.signal()
+	return nil
+}
+
+func (s *conformanceScriptedSession) signal() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+// Next returns the next event; after Close it ends the events.
+func (s *conformanceScriptedSession) Next(ctx context.Context) (Value, error) {
+	for {
+		s.mu.Lock()
+		if len(s.queue) > 0 {
+			event := s.queue[0]
+			s.queue = s.queue[1:]
+			s.mu.Unlock()
+			return event, nil
+		}
+		closed := s.closed
+		s.mu.Unlock()
+		if closed {
+			return nil, io.EOF
+		}
+		select {
+		case <-s.wake:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// Submit continues the session with the tool results (none for a plain
+// continue), logging their IDs, and plays the next response.
+func (s *conformanceScriptedSession) Submit(results []Value) error {
+	ids := Array()
+	for _, result := range results {
+		ids = append(ids, coreGet(result, "function_id", nil))
+	}
+	s.client.logSession(Object("op", "continue", "call_ids", ids))
+	return s.play()
+}
+
+// Update logs a steer or a thinking level; either applies with the next
+// response.
+func (s *conformanceScriptedSession) Update(update map[string]Value) (string, error) {
+	if coreGet(update, "type", "") == "steer" {
+		s.client.logSession(Object("op", "steer", "text", coreGet(update, "text", "")))
+	} else {
+		s.client.logSession(Object("op", "thinking", "level", coreGet(update, "level", nil)))
+	}
+	return "next-response", nil
+}
+
+// Close logs the close once and ends the events.
+func (s *conformanceScriptedSession) Close() error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	s.mu.Unlock()
+	s.client.logSession(Object("op", "close"))
+	s.signal()
+	return nil
+}
+
+// conformanceAssertSessionLog compares expected_session_log with what the
+// run did to its native sessions, in order.
+func conformanceAssertSessionLog(fixture map[string]Value, client *conformanceScriptedAI) {
+	expected, ok := fixture["expected_session_log"]
+	if !ok {
+		return
+	}
+	client.sessionMu.Lock()
+	log := Array(client.SessionLog...)
+	client.sessionMu.Unlock()
+	assertEqual(log, expected, "native session log")
 }
 
 // conformanceApplyScriptedClientSpec configures a scripted client from a
@@ -11730,10 +11936,14 @@ func conformanceApplyScriptedClientSpec(client *conformanceScriptedAI, spec Valu
 }
 
 func (f *conformanceScriptedAI) GetFeatures(string) map[string]Value {
-	if len(f.Features) == 0 {
-		return Object("functions", true, "structured_outputs", true)
+	features := Object("functions", true, "structured_outputs", true)
+	if len(f.Features) > 0 {
+		features = cloneMap(f.Features)
 	}
-	return cloneMap(f.Features)
+	if f.SessionScripted {
+		coreSet(features, "asyncTools", true)
+	}
+	return features
 }
 
 func (f *conformanceScriptedAI) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
@@ -13133,7 +13343,7 @@ func conformanceBuildTools(specs Value) ([]Tool, Value) {
 func runConformanceForward(fixture map[string]Value) {
 	tools, calls := conformanceBuildTools(coreGet(fixture, "tools", Array()))
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
-	client := conformanceScriptSpeak(conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil)), fixture)
+	client := conformanceScriptNativeSessions(conformanceScriptSpeak(conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil)), fixture), fixture)
 	controlEvents := func() Value { return Array() }
 	if coreTruthy(coreGet(fixture, "constructor_control", false)) {
 		// The run control is a constructor default, not a call option.
@@ -13154,6 +13364,10 @@ func runConformanceForward(fixture map[string]Value) {
 		for _, assertion := range asSlice(assertions) {
 			gen.AddAssert(assertion)
 		}
+	}
+	// A forward does not stream, so its streaming assertions do not run.
+	for _, assertion := range asSlice(coreGet(fixture, "streaming_assertions", Array())) {
+		gen.StreamingAssertions = coreAppend(gen.StreamingAssertions, cloneValue(assertion))
 	}
 	conformanceAddFixtureTransforms(gen, fixture)
 	processorCalls := MutableArray()
@@ -13194,6 +13408,7 @@ func runConformanceForward(fixture map[string]Value) {
 		// expectMaybeFixtureError returned, so the forward failed as expected.
 		assertExpectedErrorCause(forwardErr, fixture)
 	}
+	conformanceAssertSessionLog(fixture, client)
 	conformanceAssertSpeakRequests(fixture, client)
 	if expected := coreGet(fixture, "expected_processor_calls", nil); expected != nil {
 		assertEqual(processorCalls, expected, "field processor calls")
@@ -13428,7 +13643,7 @@ func conformanceAssertRequestRoles(fixture map[string]Value, client *conformance
 func runConformanceStreamingForward(fixture map[string]Value) {
 	tools, calls := conformanceBuildTools(coreGet(fixture, "tools", Array()))
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
-	client := conformanceScriptSpeak(conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil)), fixture)
+	client := conformanceScriptNativeSessions(conformanceScriptSpeak(conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil)), fixture), fixture)
 	controlEvents := func() Value { return Array() }
 	if coreTruthy(coreGet(fixture, "constructor_control", false)) {
 		// The run control is a constructor default, not a call option.
@@ -13499,6 +13714,7 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_control_events", nil); expected != nil {
 		assertEqual(controlEvents(), expected, "run control events")
 	}
+	conformanceAssertSessionLog(fixture, client)
 	conformanceAssertRequestRoles(fixture, client)
 	if expected := display(coreGet(fixture, "expected_error_contains", "")); expected != "" {
 		if err == nil {
