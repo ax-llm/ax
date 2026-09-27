@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AxBalancer } from '../ai/balance.js';
 import { AxMockAIService } from '../ai/mock/api.js';
+import type { AxChatRequest, AxChatResponse } from '../ai/types.js';
 import { ai } from '../ai/wrap.js';
 import { flow } from '../flow/flow.js';
+import { AxMemory } from '../mem/memory.js';
 import { runControl } from './runControl.js';
 import { f, fn } from './sig.js';
 import { ax } from './template.js';
+import { mergeDeltas } from './util.js';
 
 const model = 'gpt-6-astra' as const;
 const toolItem = (id = 'call1', name = 'lookup', args = '{}') => ({
@@ -994,4 +997,245 @@ it('does not report updates queued during a request as already applied', async (
     { id: 1, request: 2 },
     { id: 2, request: 3 },
   ]);
+});
+
+// A chat-session provider scripted per session: each session plays its
+// events, and every opened session's prompt is kept.
+function scriptedSessions(
+  sessions: {
+    type: 'response' | 'response.completed';
+    responseId: string;
+    results: AxChatResponse['results'];
+  }[][]
+) {
+  const prompts: AxChatRequest['chatPrompt'][] = [];
+  class SessionAI extends AxMockAIService<string> {
+    override getFeatures(model?: string) {
+      return { ...super.getFeatures(model), asyncTools: true };
+    }
+    async openChatSession(request: Readonly<AxChatRequest>) {
+      prompts.push(structuredClone(request.chatPrompt));
+      const events = sessions.shift() ?? [];
+      return {
+        model: 'scripted',
+        async *events() {
+          for (const event of events)
+            yield { ...event, response: { results: event.results } };
+        },
+        async submitToolResults() {},
+        async continue() {},
+        async steer() {
+          return 'next-response' as const;
+        },
+        async setThinkingTokenBudget() {
+          return 'next-response' as const;
+        },
+        close() {},
+      };
+    }
+  }
+  return {
+    llm: new SessionAI({ features: { functions: true, streaming: true } }),
+    prompts,
+  };
+}
+const partial = (
+  content?: string,
+  thought?: string
+): {
+  type: 'response';
+  responseId: string;
+  results: AxChatResponse['results'];
+} => ({
+  type: 'response',
+  responseId: 'r1',
+  results: [{ index: 0, content, thought }],
+});
+const done = (
+  content: string,
+  thought?: string,
+  responseId = 'r1'
+): {
+  type: 'response.completed';
+  responseId: string;
+  results: AxChatResponse['results'];
+} => ({
+  type: 'response.completed',
+  responseId,
+  results: [{ index: 0, content, thought, finishReason: 'stop' }],
+});
+async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
+  const out: T[] = [];
+  for await (const item of stream) out.push(item);
+  return out;
+}
+// What a consumer ends with: deltas merged per version, the last one kept.
+function merged(
+  deltas: readonly { version: number; index: number; delta: object }[]
+) {
+  let buffer: { version: number; index: number; delta: object }[] = [];
+  let version = 0;
+  for (const delta of deltas) {
+    if (delta.version !== version) buffer = [];
+    version = delta.version;
+    buffer = mergeDeltas(buffer as never, structuredClone(delta) as never);
+  }
+  return buffer[0]?.delta;
+}
+const plainStream = (chunks: AxChatResponse['results'][number][]) =>
+  new AxMockAIService<string>({
+    features: { functions: true, streaming: true },
+    chatResponse: async () =>
+      new ReadableStream<AxChatResponse>({
+        start(controller) {
+          for (const chunk of chunks) controller.enqueue({ results: [chunk] });
+          controller.enqueue({
+            results: [{ index: 0, content: '', finishReason: 'stop' }],
+          });
+          controller.close();
+        },
+      }),
+  });
+
+describe('streaming a chat session', () => {
+  it('streams a response like a plain stream when partial events split a field label', async () => {
+    const texts = ['Answer: Pa', 'ris\nRea', 'son: big ', 'city'];
+    const program = ax('question -> answer, reason');
+    const { llm } = scriptedSessions([
+      [...texts.map((text) => partial(text)), done(texts.join(''))],
+    ]);
+    const deltas = await collect(
+      program.streamingForward(
+        llm,
+        { question: 'Capital?' },
+        {
+          control: runControl(),
+        }
+      )
+    );
+    const plain = await collect(
+      program.streamingForward(
+        plainStream(texts.map((content) => ({ index: 0, content }))),
+        { question: 'Capital?' }
+      )
+    );
+    expect(deltas).toEqual(plain);
+    expect(merged(deltas)).toEqual({
+      answer: 'Paris',
+      reason: 'big city',
+    });
+
+    const { llm: again } = scriptedSessions([
+      [...texts.map((text) => partial(text)), done(texts.join(''))],
+    ]);
+    await expect(
+      program.forward(
+        again,
+        { question: 'Capital?' },
+        {
+          control: runControl(),
+          stream: true,
+        }
+      )
+    ).resolves.toEqual({ answer: 'Paris', reason: 'big city' });
+  });
+
+  it('streams thoughts and does not repeat output when the final pass starts with a thought', async () => {
+    const program = ax('question -> answer');
+    const { llm } = scriptedSessions([
+      [
+        partial(undefined, 'Think'),
+        partial('Answer: Pa', 'ing'),
+        partial('ris'),
+        done('Answer: Paris', 'Thinking'),
+      ],
+      [done('Answer: Paris', 'Thinking', 'r2')],
+    ]);
+    const streamed = await collect(
+      program.streamingForward(
+        llm,
+        { question: 'Capital?' },
+        {
+          control: runControl(),
+        }
+      )
+    );
+    expect(streamed.map(({ delta }) => delta)).toEqual([
+      { thought: 'Think' },
+      { thought: 'ing' },
+      { answer: 'Pa' },
+      { answer: 'ris' },
+    ]);
+    // Without partial events the completed response's thought still streams.
+    const completedOnly = await collect(
+      program.streamingForward(
+        llm,
+        { question: 'Capital?' },
+        {
+          control: runControl(),
+        }
+      )
+    );
+    expect(completedOnly.map(({ delta }) => delta)).toEqual([
+      { thought: 'Thinking' },
+      { answer: 'Paris' },
+    ]);
+  });
+
+  it('starts a new version when the completed response differs from its partial events', async () => {
+    const { llm } = scriptedSessions([
+      [partial('Answer: Lyon'), done('Answer: Paris')],
+    ]);
+    const deltas = await collect(
+      ax('question -> answer').streamingForward(
+        llm,
+        { question: 'Capital?' },
+        { control: runControl() }
+      )
+    );
+    expect(deltas.map(({ version, delta }) => ({ version, delta }))).toEqual([
+      { version: 0, delta: { answer: 'Lyon' } },
+      { version: 1, delta: { answer: 'Paris' } },
+    ]);
+  });
+
+  it('keeps the partial answer in the retry prompt and the question in memory when a streaming assertion fails', async () => {
+    const { llm, prompts } = scriptedSessions([
+      [partial('Answer: Ly'), partial('on BAD'), done('Answer: Lyon BAD')],
+      [done('Answer: Paris', undefined, 'r2')],
+    ]);
+    const program = ax('question -> answer');
+    program.addStreamingAssert(
+      'answer',
+      (text) => !text.includes('BAD'),
+      'No BAD.'
+    );
+    const mem = new AxMemory();
+    const deltas = await collect(
+      program.streamingForward(
+        llm,
+        { question: 'Capital?' },
+        {
+          control: runControl(),
+          mem,
+        }
+      )
+    );
+    expect(merged(deltas)).toEqual({ answer: 'Paris' });
+    // As in a plain stream: the fresh session sees the answer the
+    // correction refers to.
+    expect(prompts[1]?.slice(1)).toEqual([
+      { role: 'user', content: 'Question: Capital?\n' },
+      { role: 'assistant', content: 'Answer: Lyon BAD' },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Follow these instructions: No BAD.' }],
+      },
+    ]);
+    expect(mem.history(0).map(({ role }) => role)).toEqual([
+      'system',
+      'user',
+      'assistant',
+    ]);
+  });
 });
