@@ -44,6 +44,7 @@ import {
   AxAIServiceResponseError,
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
+  apiCall,
 } from '../../../src/ax/util/apicall.js';
 import {
   goldenValue,
@@ -104,9 +105,10 @@ const geminiDefaultEmbedModel = 'gemini-embedding-2';
 const anthropicDefaultModel = profileDefaultModel('anthropic');
 // The simple-chat fixtures check that sampling parameters reach the wire, so
 // they pin models that still accept them: the current defaults (Claude
-// Sonnet 5, Gemini 3.6 Flash) drop temperature and candidate counts.
+// Sonnet 5, Gemini 3.6 Flash) drop temperature and candidate counts, and the
+// Gemini API returns one candidate on every Gemini 3 model (probed 2026-09-27).
 const anthropicSamplingModel = 'claude-haiku-4-5';
-const geminiSamplingModel = 'gemini-3.5-flash';
+const geminiSamplingModel = 'gemini-2.5-flash';
 const catalogAll = axGetSupportedAIModels();
 const catalogText = axGetSupportedAIModels({ type: 'text' });
 const catalogEmbeddings = axGetSupportedAIModels({ type: 'embeddings' });
@@ -7650,7 +7652,7 @@ writeFixture('gemini-simple-chat', {
         maxOutputTokens: 64,
         responseMimeType: 'text/plain',
         stopSequences: ['END'],
-        temperature: 1,
+        temperature: 0.2,
       },
     },
   },
@@ -13179,13 +13181,21 @@ const samplingWireKeys: Record<string, string[]> = {
     'frequency_penalty',
     'reasoning.effort',
   ],
-  'anthropic-messages': ['temperature', 'top_p', 'top_k', 'max_tokens'],
+  'anthropic-messages': [
+    'temperature',
+    'top_p',
+    'top_k',
+    'max_tokens',
+    'thinking.type',
+  ],
   'gemini-generate-content': [
     'generationConfig.temperature',
     'generationConfig.topP',
     'generationConfig.topK',
     'generationConfig.maxOutputTokens',
     'generationConfig.candidateCount',
+    'generationConfig.frequencyPenalty',
+    'generationConfig.presencePenalty',
   ],
 };
 const samplingResponse = (transport: string, model: string) => {
@@ -13266,7 +13276,7 @@ const samplingChat = async (
   const originalWarn = console.warn;
   resetDroppedSamplingWarnings();
   console.warn = (message?: unknown) => {
-    if (String(message).startsWith('Ax dropped ')) {
+    if (/^Ax (dropped|raised) /.test(String(message))) {
       warnings.push(String(message));
     }
   };
@@ -13294,15 +13304,25 @@ const samplingChat = async (
   }
   return { body, url, warnings };
 };
+// Vertex clients take the access token from a function.
+const vertexTestKey = async () => 'test-key';
 const samplingModels: {
   provider: string;
   model: string;
+  // Names the fixture instead of the provider (the Vertex rows).
+  label?: string;
   base_url?: string;
-  // TS ai() arguments and the matching fixture keys (azure-openai).
+  // TS ai() arguments and the matching fixture keys (azure-openai, Vertex).
   args?: Record<string, unknown>;
   fixtureArgs?: Record<string, Json>;
   penalties?: boolean;
   reasoning?: boolean;
+  // Takes temperature 1 where it rejects other temperatures.
+  temperatureOne?: boolean;
+  // Anthropic thinking rules.
+  thinking?: boolean;
+  // Gemini penalties, candidate count and temperature floor.
+  gemini?: boolean;
 }[] = [
   // GPT-5.6 and 5.5 reject sampling unless a request turns reasoning off;
   // GPT-5.1 to 5.4 do not reason by default, so they take it unless a request
@@ -13313,30 +13333,44 @@ const samplingModels: {
     model: 'gpt-5.6-luna',
     penalties: true,
     reasoning: true,
+    temperatureOne: true,
   },
   {
     provider: 'openai',
     model: 'gpt-5.4-mini',
     penalties: true,
     reasoning: true,
+    temperatureOne: true,
   },
-  { provider: 'openai', model: 'gpt-5-mini', penalties: true },
+  {
+    provider: 'openai',
+    model: 'gpt-5-mini',
+    penalties: true,
+    temperatureOne: true,
+  },
   { provider: 'openai', model: 'gpt-4.1', penalties: true },
-  { provider: 'openai', model: 'o3', penalties: true },
+  { provider: 'openai', model: 'o3', penalties: true, temperatureOne: true },
   {
     provider: 'openai-responses',
     model: 'gpt-5.6-luna',
     penalties: true,
     reasoning: true,
+    temperatureOne: true,
   },
   {
     provider: 'openai-responses',
     model: 'gpt-5.4-mini',
     penalties: true,
     reasoning: true,
+    temperatureOne: true,
   },
   { provider: 'openai-responses', model: 'gpt-4.1', penalties: true },
-  { provider: 'openai-responses', model: 'o3', penalties: true },
+  {
+    provider: 'openai-responses',
+    model: 'o3',
+    penalties: true,
+    temperatureOne: true,
+  },
   // A profile carries no model info of its own, so GPT-5.x gets every
   // parameter, while an o-series name falls back to OpenAI's info.
   {
@@ -13364,13 +13398,88 @@ const samplingModels: {
       api_version: 'api-version=2024-10-21',
     },
     penalties: true,
+    temperatureOne: true,
   },
   { provider: 'meta', model: profileDefaultModel('meta') },
   { provider: 'deepseek-responses', model: deepseekResponsesDefaultModel },
-  { provider: 'anthropic', model: 'claude-sonnet-5' },
-  { provider: 'anthropic', model: anthropicSamplingModel },
-  { provider: 'google-gemini', model: 'gemini-3.6-flash' },
-  { provider: 'google-gemini', model: 'gemini-2.5-flash' },
+  // Anthropic (probed 2026-09-27): Sonnet 5 deprecated sampling (only
+  // temperature 1); Opus 4.6 and Haiku 4.5 take every value with thinking off
+  // and, while thinking, temperature 1, top_p >= 0.95 and no top_k, but never
+  // temperature and top_p together. Vertex was not probed and keeps the
+  // historical wire (the Haiku 4.5 Vertex row is the pair's negative).
+  {
+    provider: 'anthropic',
+    model: 'claude-sonnet-5',
+    thinking: true,
+    temperatureOne: true,
+  },
+  { provider: 'anthropic', model: 'claude-opus-4-6', thinking: true },
+  { provider: 'anthropic', model: anthropicSamplingModel, thinking: true },
+  {
+    provider: 'anthropic',
+    label: 'anthropic-vertex',
+    model: 'claude-opus-4-8',
+    args: { apiKey: vertexTestKey, projectId: 'demo-project', region: 'us' },
+    fixtureArgs: {
+      service_options: { projectId: 'demo-project', region: 'us' },
+    },
+    thinking: true,
+    temperatureOne: true,
+  },
+  {
+    provider: 'anthropic',
+    label: 'anthropic-vertex',
+    model: 'claude-opus-4-6',
+    args: { apiKey: vertexTestKey, projectId: 'demo-project', region: 'us' },
+    fixtureArgs: {
+      service_options: { projectId: 'demo-project', region: 'us' },
+    },
+    thinking: true,
+  },
+  {
+    provider: 'anthropic',
+    label: 'anthropic-vertex',
+    model: 'claude-haiku-4-5@20251001',
+    args: { apiKey: vertexTestKey, projectId: 'demo-project', region: 'us' },
+    fixtureArgs: {
+      service_options: { projectId: 'demo-project', region: 'us' },
+    },
+    thinking: true,
+  },
+  // Gemini: the server-managed Flash models ignore temperature, topP and topK;
+  // the Gemini API rejects the penalties and, on Gemini 3, more than one
+  // candidate; Gemini 3 takes no temperature below 1. Vertex keeps its wire.
+  { provider: 'google-gemini', model: 'gemini-3.6-flash', gemini: true },
+  { provider: 'google-gemini', model: 'gemini-3.5-flash', gemini: true },
+  { provider: 'google-gemini', model: 'gemini-2.5-flash', gemini: true },
+  {
+    provider: 'google-gemini',
+    label: 'google-gemini-vertex',
+    model: 'gemini-3.5-flash',
+    args: {
+      apiKey: vertexTestKey,
+      projectId: 'demo-project',
+      region: 'us-central1',
+    },
+    fixtureArgs: {
+      service_options: { projectId: 'demo-project', region: 'us-central1' },
+    },
+    gemini: true,
+  },
+  {
+    provider: 'google-gemini',
+    label: 'google-gemini-vertex',
+    model: 'gemini-2.5-flash',
+    args: {
+      apiKey: vertexTestKey,
+      projectId: 'demo-project',
+      region: 'us-central1',
+    },
+    fixtureArgs: {
+      service_options: { projectId: 'demo-project', region: 'us-central1' },
+    },
+    gemini: true,
+  },
 ];
 const samplingCases: {
   id: string;
@@ -13379,6 +13488,9 @@ const samplingCases: {
   budget?: 'none' | 'low';
   penalties?: boolean;
   reasoning?: boolean;
+  temperatureOne?: boolean;
+  thinking?: boolean;
+  gemini?: boolean;
 }[] = [
   { id: 'defaults' },
   {
@@ -13418,6 +13530,50 @@ const samplingCases: {
     aiConfig: { temperature: 0.3, reasoningEffort: 'none' },
     reasoning: true,
   },
+  // The value a model takes where it rejects every other temperature.
+  {
+    id: 'temperature-one',
+    requestConfig: { temperature: 1 },
+    temperatureOne: true,
+  },
+  // Anthropic: every sampling field with thinking off, while thinking, and the
+  // values a thinking model takes.
+  {
+    id: 'sampling-thinking-off',
+    requestConfig: { temperature: 0.5, topP: 0.9, topK: 40 },
+    thinking: true,
+  },
+  {
+    id: 'sampling-thinking-low',
+    requestConfig: { temperature: 0.5, topP: 0.9, topK: 40 },
+    budget: 'low',
+    thinking: true,
+  },
+  {
+    id: 'sampling-thinking-accepted',
+    requestConfig: { temperature: 1, topP: 0.95 },
+    budget: 'low',
+    thinking: true,
+  },
+  // Anthropic: an explicit top_p alone, which goes in place of the default
+  // temperature where a model rejects the pair.
+  {
+    id: 'top-p-only',
+    requestConfig: { topP: 0.9 },
+    thinking: true,
+  },
+  // Gemini: a temperature below 1, topK, both penalties and two candidates.
+  {
+    id: 'gemini-limits',
+    requestConfig: {
+      temperature: 0.2,
+      topK: 40,
+      presencePenalty: 0.1,
+      frequencyPenalty: 0.2,
+      n: 2,
+    },
+    gemini: true,
+  },
 ];
 for (const row of samplingModels) {
   const transport = axGetAIProfile(row.provider as any).transport as string;
@@ -13425,6 +13581,9 @@ for (const row of samplingModels) {
   for (const testCase of samplingCases) {
     if (testCase.penalties && !row.penalties) continue;
     if (testCase.reasoning && !row.reasoning) continue;
+    if (testCase.temperatureOne && !row.temperatureOne) continue;
+    if (testCase.thinking && !row.thinking) continue;
+    if (testCase.gemini && !row.gemini) continue;
     const response = samplingResponse(transport, row.model);
     const { body, warnings } = await samplingChat(
       {
@@ -13455,26 +13614,33 @@ for (const row of samplingModels) {
       target[parts[parts.length - 1]!] = value as Json;
     }
     const modelSlug = row.model.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-    writeFixture(`sampling-${row.provider}-${modelSlug}-${testCase.id}`, {
-      kind: 'ai_chat',
-      provider: row.provider,
-      model: row.model,
-      ...(row.base_url ? { base_url: row.base_url } : {}),
-      ...(row.fixtureArgs ?? {}),
-      ...(testCase.aiConfig ? { model_config: testCase.aiConfig } : {}),
-      request: {
-        chat_prompt: [{ role: 'user', content: 'Hi' }],
-        model_config: {
-          stream: false,
-          ...(testCase.requestConfig ?? {}),
-          ...(testCase.budget ? { thinkingTokenBudget: testCase.budget } : {}),
+    writeFixture(
+      `sampling-${row.label ?? row.provider}-${modelSlug}-${testCase.id}`,
+      {
+        kind: 'ai_chat',
+        provider: row.provider,
+        model: row.model,
+        ...(row.base_url ? { base_url: row.base_url } : {}),
+        ...(row.fixtureArgs ?? {}),
+        ...(testCase.aiConfig ? { model_config: testCase.aiConfig } : {}),
+        request: {
+          chat_prompt: [{ role: 'user', content: 'Hi' }],
+          model_config: {
+            stream: false,
+            ...(testCase.requestConfig ?? {}),
+            ...(testCase.budget
+              ? { thinkingTokenBudget: testCase.budget }
+              : {}),
+          },
         },
-      },
-      transport_responses: [response as unknown as Json],
-      expected_transport_request: { json: sent },
-      ...(absent.length > 0 ? { expected_transport_json_absent: absent } : {}),
-      expected_warnings: warnings,
-    });
+        transport_responses: [response as unknown as Json],
+        expected_transport_request: { json: sent },
+        ...(absent.length > 0
+          ? { expected_transport_json_absent: absent }
+          : {}),
+        expected_warnings: warnings,
+      }
+    );
   }
 }
 
@@ -13836,3 +14002,175 @@ providerErrorFixture(
     transport_responses: [errorResponse(500), errorResponse(500)],
   }
 );
+
+// Core owns the request a provider error keeps (@ai_error_request), and the
+// normalizer and the request-carrying ai.error intrinsics build every error
+// from it, so no call site can hand a raw transport call (headers included) to
+// an error. "view" calls the op directly; "normalize" gives the normalizer the
+// raw call. The URL and body come from TypeScript's AxAIServiceError for the
+// same request (apiCall with a rejecting fetch); the snake_case flag, the
+// multipart `data` body, the body-less GET and a non-object call are the ports'
+// own request shapes, which TypeScript's apiCall has no counterpart for.
+const viewSecret = 'sk-view-secret-3e1f';
+const viewHeaders = {
+  Authorization: `Bearer ${viewSecret}`,
+  'x-api-key': viewSecret,
+  'x-goog-api-key': viewSecret,
+};
+const viewUrl = 'https://api.openai.com/v1/chat/completions';
+const viewBody = {
+  model: AxAIOpenAIModel.GPT54Mini,
+  messages: [{ role: 'user', content: errorBodyMarker }],
+};
+async function tsApiCallError(
+  status: number,
+  includeRequestBodyInErrors?: boolean
+) {
+  const error = await apiCall(
+    {
+      url: viewUrl,
+      headers: viewHeaders,
+      fetch: (async () =>
+        Response.json(errorResponse(status).json, {
+          status,
+        })) as typeof globalThis.fetch,
+      retry: { maxRetries: 0 },
+      ...(includeRequestBodyInErrors === undefined
+        ? {}
+        : { includeRequestBodyInErrors }),
+    },
+    viewBody
+  ).catch((e: unknown) => e);
+  if (!(error instanceof AxAIServiceError)) {
+    throw new Error('TS apiCall did not fail with an AxAIServiceError');
+  }
+  const printed = `${String(error)}\n${JSON.stringify(error)}`;
+  if (printed.includes(viewSecret)) {
+    throw new Error('the TS error carries a request header');
+  }
+  // The view is what TypeScript's error keeps where it can be read or logged:
+  // the URL, and the body when includeRequestBodyInErrors lets it show.
+  const view: Record<string, Json> = { url: error.url };
+  if (printed.includes(errorBodyMarker)) {
+    view.json = error.requestBody as Json;
+  }
+  return { error, view };
+}
+const viewCall = (extra: Record<string, Json> = {}) => ({
+  method: 'POST',
+  url: viewUrl,
+  headers: viewHeaders,
+  json: viewBody,
+  stream: false,
+  ...extra,
+});
+const tsDefaultView = (await tsApiCallError(400)).view;
+const tsNoBodyView = (await tsApiCallError(400, false)).view;
+if (!('json' in tsDefaultView) || 'json' in tsNoBodyView) {
+  throw new Error('TS error body does not follow includeRequestBodyInErrors');
+}
+writeFixture('provider-error-request-view', {
+  kind: 'ai_error_request',
+  operation: 'view',
+  cases: [
+    { call: viewCall(), expected: tsDefaultView },
+    {
+      call: viewCall(),
+      options: { includeRequestBodyInErrors: true },
+      expected: tsDefaultView,
+    },
+    {
+      call: viewCall(),
+      options: { includeRequestBodyInErrors: false },
+      expected: tsNoBodyView,
+    },
+    {
+      call: viewCall(),
+      options: { include_request_body_in_errors: false },
+      expected: tsNoBodyView,
+    },
+    {
+      call: viewCall(),
+      options: {
+        includeRequestBodyInErrors: true,
+        include_request_body_in_errors: false,
+      },
+      expected: tsDefaultView,
+    },
+    {
+      call: {
+        method: 'POST',
+        url: 'https://api.openai.com/v1/audio/transcriptions',
+        headers: viewHeaders,
+        data: { model: 'whisper-1', file: errorBodyMarker },
+      },
+      expected: {
+        url: 'https://api.openai.com/v1/audio/transcriptions',
+        data: { model: 'whisper-1', file: errorBodyMarker },
+      },
+    },
+    {
+      call: {
+        method: 'GET',
+        url: 'https://api.typesafe.ai/v1/models',
+        headers: viewHeaders,
+      },
+      expected: { url: 'https://api.typesafe.ai/v1/models' },
+    },
+    { call: { headers: viewHeaders }, expected: {} },
+    { call: null, expected: null },
+  ],
+});
+
+const normalizeCase = (
+  status: number,
+  tsResult: Awaited<ReturnType<typeof tsApiCallError>>,
+  options?: Record<string, Json>,
+  errorType?: string
+) => ({
+  status,
+  body: errorResponse(status).json,
+  call: viewCall(),
+  ...(options ? { options } : {}),
+  expected_error_type: errorType ?? tsResult.error.name,
+  expected_status: status,
+  expected_error_excludes:
+    'json' in tsResult.view ? [viewSecret] : [viewSecret, errorBodyMarker],
+  expected_error_request: tsResult.view,
+});
+writeFixture('provider-error-normalizer-drops-headers', {
+  kind: 'ai_error_request',
+  operation: 'normalize',
+  cases: [
+    normalizeCase(400, await tsApiCallError(400)),
+    normalizeCase(401, await tsApiCallError(401)),
+    normalizeCase(400, await tsApiCallError(400, false), {
+      includeRequestBodyInErrors: false,
+    }),
+    // The ports map 408 and 504 to AxAIServiceTimeoutError (TypeScript keeps a
+    // status error), which pins the timeout intrinsic with a raw call too.
+    normalizeCase(
+      504,
+      await tsApiCallError(504, false),
+      { includeRequestBodyInErrors: false },
+      'AxAIServiceTimeoutError'
+    ),
+  ],
+});
+
+// Gemini Live takes the API key in its WebSocket URL, and TypeScript encodes it
+// with encodeURIComponent (src/ax/ai/google-gemini/live_audio.ts).
+const liveKey = 'key with/special&chars=é';
+const liveDescriptor = JSON.parse(
+  readFileSync(
+    join(process.cwd(), 'ir/axcore/data/provider-descriptors.json'),
+    'utf8'
+  )
+)['google-gemini'].operations.realtime as { url: string };
+writeFixture('gemini-live-ws-url-encodes-key', {
+  kind: 'ai_realtime',
+  provider: 'google-gemini',
+  model: 'gemini-3.8-live',
+  api_key: liveKey,
+  expected_ws_url: `${liveDescriptor.url}?key=${encodeURIComponent(liveKey)}`,
+});

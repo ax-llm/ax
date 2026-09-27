@@ -70,6 +70,17 @@ parallelFlow := ax.NewFlow(map[string]ax.Value{"id": "docs.parallelFlow"}).
   Returns(map[string]ax.Value{"briefText": "briefText"})
 ```
 
+### Undeclared steps
+
+A step added with a program and no `reads` or `writes` plans from the program's signature: it reads the input fields and writes `{name}Result` plus the output fields. An output field orders only the later steps that read it, so steps with independent inputs still share a group. A program without a signature (a nested flow, a custom program) runs alone, as a barrier.
+
+```go
+outlineFlow := ax.NewFlow(map[string]ax.Value{"id": "docs.outlineFlow"}).
+  Execute("outline", ax.NewAx("topic:string -> outline:string", nil), nil).
+  Execute("polish", ax.NewAx("outline:string -> answer:string", nil), nil). // after outline
+  Returns(map[string]ax.Value{"answer": "answer"})
+```
+
 ### Draft, critique, revise
 
 A linear refinement pipeline makes each dependency explicit.

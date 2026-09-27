@@ -570,27 +570,6 @@ class AxAIServiceAbortedError(AxAIServiceError):
         self.reason = reason
 
 
-def _include_request_body_in_errors(options: Any) -> bool:
-    # TypeScript's includeRequestBodyInErrors: on unless the call or client options set it false.
-    if isinstance(options, dict):
-        for key in ("includeRequestBodyInErrors", "include_request_body_in_errors"):
-            if options.get(key) is not None:
-                return bool(options[key])
-    return True
-
-
-def _error_request(call: Any, include_body: bool) -> dict[str, Any] | None:
-    # The request a provider error carries, as TypeScript's AxAIServiceError
-    # keeps it: the URL, plus the body unless includeRequestBodyInErrors is
-    # false. Never the headers, which hold the API key or credential tokens.
-    if not isinstance(call, dict):
-        return None
-    view = {"url": call["url"]} if "url" in call else {}
-    if include_body:
-        view.update({key: call[key] for key in ("json", "data") if key in call})
-    return view
-
-
 def _cancellation_token(options: dict[str, Any] | None) -> AxCancellationToken | None:
     if not isinstance(options, dict):
         return None
@@ -1254,7 +1233,7 @@ class ProviderOperationClient(AxBaseAI):
         raw = self._context_cache_chat(request, payload, model, endpoint, options)
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
-            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, cancellation=_cancellation_token(options), include_request_body_in_errors=_include_request_body_in_errors(options))
+            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, cancellation=_cancellation_token(options), error_options=options)
         return provider_normalize_chat_response(self.profile, raw, self.name, model, typesafe_response_context(payload, options) if self.profile == "typesafe" else payload)
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
@@ -1271,7 +1250,7 @@ class ProviderOperationClient(AxBaseAI):
         if explicit:
             cached_payload = copy.deepcopy(payload)
             cached_payload["cachedContent"] = explicit
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
 
         prompts = request.get("chat_prompt") or request.get("chatPrompt") or request.get("messages") or []
         non_system_seen = 0
@@ -1334,14 +1313,14 @@ class ProviderOperationClient(AxBaseAI):
         try:
             if plan.get("action") == "refresh":
                 ops = ai_gemini_cache_ops(cache_name, ttl_seconds, api_key, str(model), cache_body, options)
-                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation, error_options=options)
                 expires_at = expiry(refreshed)
                 if not expires_at:
                     raise AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", response_body=refreshed)
                 save({"cacheName": cache_name, "expiresAt": expires_at})
             if plan.get("action") in ("create", "refresh") and (plan.get("action") == "create" or not cache_name):
                 ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options)
                 cache_name = str((created or {}).get("name") or "")
                 expires_at = expiry(created)
                 if not cache_name or not expires_at:
@@ -1353,7 +1332,7 @@ class ProviderOperationClient(AxBaseAI):
             if plan.get("action") == "refresh":
                 try:
                     ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options)
                     cache_name = str((created or {}).get("name") or "")
                     expires_at = expiry(created)
                     if not cache_name or not expires_at:
@@ -1362,9 +1341,9 @@ class ProviderOperationClient(AxBaseAI):
                 except AxAIServiceAbortedError:
                     raise
                 except AxAIServiceError:
-                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
             else:
-                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
         if not cache_name:
             return None
         cached_payload = copy.deepcopy(payload)
@@ -1374,7 +1353,7 @@ class ProviderOperationClient(AxBaseAI):
         cached_payload.pop("toolConfig", None)
         cached_payload["cachedContent"] = cache_name
         try:
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
         except AxAIServiceError as error:
             if not ai_context_cache_rejection(error.status or 0, error.response_body):
                 raise
@@ -1385,7 +1364,7 @@ class ProviderOperationClient(AxBaseAI):
                     registry_call("set", namespace, cache_key, recovery.get("externalEntry"))
                 elif recovery.get("deleteInMemory"):
                     self._context_cache_entries.pop(cache_key, None)
-            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         request, options = self._resolve_model_key(_coerce_chat_request(request), options)
@@ -1429,7 +1408,7 @@ class ProviderOperationClient(AxBaseAI):
         # The client pops base_url out of its options; the embed route still honors an explicit one.
         route_options = {**options, "base_url": self.base_url_override} if self.base_url_override else options
         endpoint = provider_embed_url(self.profile, str(model or ""), route_options) or self._operation_path("embed", model)
-        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options), include_request_body_in_errors=_include_request_body_in_errors(options))
+        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options), error_options=options)
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
     def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1450,7 +1429,7 @@ class ProviderOperationClient(AxBaseAI):
             # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
             events = None
             try:
-                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", cancellation=cancellation, error_options=options)
                 events = _iter_sse_json(raw)
                 first = next(events, sentinel)
             except AxAIServiceError as error:
@@ -1495,7 +1474,7 @@ class ProviderOperationClient(AxBaseAI):
         if query:
             endpoint += ("&" if "?" in endpoint else "?") + urllib.parse.urlencode(query)
         event_stream = self.profile == "meta" and (request.get("partialMode") is not None or request.get("partial_mode") is not None or request.get("emitAudioProgress") is True or request.get("emit_audio_progress") is True)
-        raw = self._request_json(endpoint, payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe", accept="text/event-stream" if event_stream else None, cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(self._merged_options(options)))
+        raw = self._request_json(endpoint, payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe", accept="text/event-stream" if event_stream else None, cancellation=cancellation, error_options=self._merged_options(options))
         if event_stream and isinstance(raw, (str, bytes, bytearray)):
             raw = {"events": list(_iter_sse_json(raw))}
         return provider_normalize_transcribe_response(self.profile, raw, request)
@@ -1507,7 +1486,7 @@ class ProviderOperationClient(AxBaseAI):
         model = request.get("model") or descriptor.get("defaultModel") or self.model
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
         binary_response = descriptor.get("response") == "binary"
-        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(self._merged_options(options)))
+        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation, error_options=self._merged_options(options))
         # As TS's axFetchJsonSpeech: a JSON body arrives parsed, and a binary
         # one as base64 with its Content-Type, which names its mime type.
         content_type = None
@@ -1673,10 +1652,6 @@ class ProviderOperationClient(AxBaseAI):
         path = provider_chat_operation_path(self.profile, str(model or self.model), operation, str(descriptor.get("path", "/" + operation)))
         if model is not None:
             path = path.replace("{model}", urllib.parse.quote(str(model), safe=""))
-        if self.descriptor.get("auth") == "api_key_query":
-            key_name = self.descriptor.get("apiKeyQuery") or "key"
-            separator = "&" if "?" in path else "?"
-            path += separator + urllib.parse.quote(str(key_name), safe="") + "=" + urllib.parse.quote(self.api_key or "", safe="")
         if self.api_version:
             separator = "&" if "?" in path else "?"
             path += separator + "api-version=" + urllib.parse.quote(str(self.api_version), safe="")
@@ -1725,7 +1700,7 @@ class ProviderOperationClient(AxBaseAI):
             for connection in connections: connection.close()
             raise
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None, include_request_body_in_errors: bool | None = None):
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None, error_options: dict[str, Any] | None = None):
         if cancellation is not None: cancellation.throw_if_cancelled()
         method = str(method or "POST").upper()
         request_base_url = (base_url or self.base_url).rstrip("/")
@@ -1754,9 +1729,8 @@ class ProviderOperationClient(AxBaseAI):
         }
         if method in ("GET", "HEAD"):
             call.pop(body_key, None)
-        if include_request_body_in_errors is None:
-            include_request_body_in_errors = _include_request_body_in_errors(self.options)
-        error_request = _error_request(call, include_request_body_in_errors)
+        # The request this call's provider errors keep (Core owns the view).
+        error_request = _ai_error_request(call, self.options if error_options is None else error_options)
         if self.transport:
             try:
                 cancellable_name = "stream_with_cancellation" if stream else "call_with_cancellation"
@@ -1998,7 +1972,7 @@ class AxAITypesafeClient:
         attempt = 0
         while True:
             try:
-                return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(opts))
+                return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts)
             except AxAIServiceError as error:
                 if not _is_retryable_ai_error(error) or attempt >= int(retry["max_retries"]):
                     raise
@@ -3327,6 +3301,12 @@ def _core_string_replace(value, old, new):
     return str(value).replace(str(old), str(new))
 
 
+def _core_url_encode_component(value):
+    # JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+    # - _ . ! ~ * ' ( ) becomes %XX.
+    return urllib.parse.quote("" if value is None else str(value), safe="!~*'()")
+
+
 def _core_string_str(value):
     # String(x): a float two is "2", not "2.0".
     return _js_number_text(value) if isinstance(value, float) else str(value)
@@ -3349,15 +3329,15 @@ def _core_ai_error_unsupported(message):
 
 
 def _core_ai_error_auth(message, status=None, code=None, response_body=None, request=None):
-    return AxAIServiceAuthenticationError(str(message), status=status, code=code, response_body=response_body, request=request)
+    return AxAIServiceAuthenticationError(str(message), status=status, code=code, response_body=response_body, request=_ai_error_request(request))
 
 
 def _core_ai_error_timeout(message, status=None, code=None, response_body=None, request=None, retryable=True):
-    return AxAIServiceTimeoutError(str(message), status=status, code=code, response_body=response_body, request=request, retryable=bool(retryable))
+    return AxAIServiceTimeoutError(str(message), status=status, code=code, response_body=response_body, request=_ai_error_request(request), retryable=bool(retryable))
 
 
 def _core_ai_error_status(message, status=None, code=None, response_body=None, request=None, retryable=False):
-    return AxAIServiceStatusError(str(message), status=status, code=code, response_body=response_body, request=request, retryable=bool(retryable))
+    return AxAIServiceStatusError(str(message), status=status, code=code, response_body=response_body, request=_ai_error_request(request), retryable=bool(retryable))
 
 
 _CORE_AI_WARNINGS_SHOWN: set[str] = set()

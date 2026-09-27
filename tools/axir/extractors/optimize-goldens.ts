@@ -1,7 +1,11 @@
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
+import { clusterFailures } from '../../../src/ax/agent/agentInternal/playbookEvolve/failureClusters.js';
 import { mineWeakness } from '../../../src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.js';
+import {
+  AX_HOST_SNIPPET_MARKER,
+  AX_INPUTS_PATCH_GLOBAL,
+} from '../../../src/ax/agent/agentInternal/sharedSession.js';
 import { buildActionLog } from '../../../src/ax/agent/contextManager.js';
 import { agent } from '../../../src/ax/agent/index.js';
 import {
@@ -11,6 +15,7 @@ import {
   normalizeAgentEvalDataset,
   resolveAgentOptimizeTargetIds,
 } from '../../../src/ax/agent/optimize.js';
+import type { AxCodeRuntime } from '../../../src/ax/agent/rlm.js';
 import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
 import { AxACE } from '../../../src/ax/dsp/optimizers/ace.js';
 import {
@@ -3289,6 +3294,443 @@ await (async () => {
     };
     writeFileSync(
       join(agentOutDir, `${shape.name}.json`),
+      `${JSON.stringify(stable(fixture), null, 2)}\n`
+    );
+  }
+})();
+
+// --- evaluated agent predictions: function calls, tool errors and turns ----
+// TS's forwardPipelineForEvaluation records the run's tool calls
+// (qualifiedName, name, arguments, then the result or the error message),
+// lists the failed ones as "<qualifiedName>: <error>" tool errors, counts the
+// turns of the stage whose action log it keeps (the executor's, else the
+// distiller's), and starts every evaluation from a fresh state. The expected
+// values below come from TS runs of each scenario through a scripted runtime
+// whose code steps call the agent's tools; the ports script the same steps
+// with runtime_script callable steps, and callable_results answer the tools.
+const evalFinalCode = "final('Answer', {'answer': 'Docs'})";
+const evalCode = (text: string) => ({
+  content: JSON.stringify({ javascriptCode: text }),
+});
+const evalToolSpecs = {
+  search: {
+    name: 'search',
+    description: 'Search the docs',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string', description: 'Query' } },
+      required: ['query'],
+    },
+  },
+  fetch: {
+    name: 'fetch',
+    description: 'Fetch a page',
+    parameters: {
+      type: 'object',
+      properties: { url: { type: 'string', description: 'Page URL' } },
+      required: ['url'],
+    },
+  },
+} as const;
+const evalToolResults = {
+  search: { value: { title: 'Docs' } },
+  fetch: { error: 'fetch failed' },
+} as const;
+const evalSteps = {
+  final: {
+    expected_code: evalFinalCode,
+    result: { type: 'final', args: ['Answer', { answer: 'Docs' }] },
+  },
+  search: {
+    expected_code: 'search',
+    result: {
+      callable: { qualified_name: 'tools.search', args: { query: 'ax' } },
+      output: '{"title":"Docs"}',
+    },
+  },
+  fetch: {
+    expected_code: 'fetch',
+    result: {
+      callable: {
+        qualified_name: 'tools.fetch',
+        args: { url: 'https://example.com' },
+      },
+      is_error: true,
+      error: 'Error: fetch failed',
+      error_category: 'runtime_error',
+    },
+  },
+  clarify: {
+    expected_code: "askClarification('Which docs do you mean?')",
+    result: { type: 'askClarification', args: ['Which docs do you mean?'] },
+  },
+  respond: {
+    expected_code: "respond('Ready', {})",
+    result: { type: 'respond', args: ['Ready', {}] },
+  },
+} as const;
+
+// The ports' tool module for the named tools, and TS's with the same tools
+// answering as callable_results does.
+function evalPortTools(names: readonly (keyof typeof evalToolSpecs)[]) {
+  return [
+    {
+      namespace: 'tools',
+      title: 'Tools',
+      functions: names.map((name) => evalToolSpecs[name]),
+    },
+  ];
+}
+function evalTsTools(names: readonly (keyof typeof evalToolSpecs)[]) {
+  return [
+    {
+      namespace: 'tools',
+      title: 'Tools',
+      functions: names.map((name) => ({
+        ...evalToolSpecs[name],
+        func: async () => {
+          const scripted = evalToolResults[name] as {
+            value?: unknown;
+            error?: string;
+          };
+          if (scripted.error) throw new Error(scripted.error);
+          return scripted.value;
+        },
+      })),
+    },
+  ];
+}
+function evalCallableResults(names: readonly (keyof typeof evalToolSpecs)[]) {
+  return Object.fromEntries(
+    names.map((name) => [`tools.${name}`, evalToolResults[name]])
+  );
+}
+
+// Runs each scripted code step as the ports' runtime_script does: a tool step
+// calls the tool global and prints its JSON result (a thrown tool error fails
+// the step), and a completion step calls its primitive.
+function evalToolRuntime(): AxCodeRuntime {
+  return {
+    getUsageInstructions: () => '',
+    createSession(globals) {
+      const g = (globals ?? {}) as Record<string, any>;
+      return {
+        async execute(code: string) {
+          if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
+          if (code === 'search') {
+            return JSON.stringify(await g.tools.search({ query: 'ax' }));
+          }
+          if (code === 'fetch') {
+            return JSON.stringify(
+              await g.tools.fetch({ url: 'https://example.com' })
+            );
+          }
+          if (code === evalFinalCode) {
+            g.final('Answer', { answer: 'Docs' });
+            return '';
+          }
+          if (code === evalSteps.clarify.expected_code) {
+            g.askClarification('Which docs do you mean?');
+            return '';
+          }
+          if (code === evalSteps.respond.expected_code) {
+            g.respond('Ready', {});
+            return '';
+          }
+          throw new Error(`unscripted code: ${code}`);
+        },
+        async patchGlobals(patch: Record<string, unknown>) {
+          const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+          Object.assign(g, rest);
+          if (staged && typeof staged === 'object') {
+            g.inputs = Object.assign(
+              (g.inputs as Record<string, unknown>) ?? {},
+              staged
+            );
+          }
+        },
+        inspectGlobals() {
+          return JSON.stringify({ entries: [] });
+        },
+        snapshotGlobals() {
+          return { version: 1, entries: [], bindings: {} };
+        },
+        close() {},
+      };
+    },
+  };
+}
+
+// A scripted student that answers the scenario's model requests in order.
+function evalStudent(responses: readonly { content: string }[]) {
+  let turn = 0;
+  return new AxMockAIService<string>({
+    name: 'mock',
+    features: { functions: false, streaming: false },
+    chatResponse: async () => {
+      const next = responses[turn++];
+      if (!next) throw new Error('eval scenario: responses exhausted');
+      return {
+        results: [{ index: 0, content: next.content, finishReason: 'stop' }],
+      };
+    },
+  });
+}
+
+function evalAgent(
+  student: AxMockAIService<string>,
+  names: readonly (keyof typeof evalToolSpecs)[]
+) {
+  return agent('question:string -> answer:string', {
+    ai: student,
+    contextFields: [],
+    runtime: evalToolRuntime(),
+    ...(names.length > 0 ? { functions: evalTsTools(names) } : {}),
+  } as never) as unknown as {
+    _forwardForEvaluation: (
+      ai: unknown,
+      task: unknown
+    ) => Promise<Record<string, unknown>>;
+  };
+}
+
+await (async () => {
+  const scenarios = [
+    {
+      name: 'eval-prediction-function-calls',
+      tools: ['search', 'fetch'] as const,
+      responses: [
+        evalCode(evalFinalCode),
+        evalCode('search'),
+        evalCode('fetch'),
+        evalCode(evalFinalCode),
+        { content: 'Answer: Docs' },
+      ],
+      runtime_script: [
+        evalSteps.final,
+        evalSteps.search,
+        evalSteps.fetch,
+        evalSteps.final,
+      ],
+      completionType: 'final',
+    },
+    {
+      name: 'eval-prediction-clarification-function-calls',
+      tools: ['search'] as const,
+      responses: [
+        evalCode(evalFinalCode),
+        evalCode('search'),
+        evalCode(evalSteps.clarify.expected_code),
+      ],
+      runtime_script: [evalSteps.final, evalSteps.search, evalSteps.clarify],
+      completionType: 'askClarification',
+    },
+  ];
+  for (const scenario of scenarios) {
+    const student = evalStudent(scenario.responses);
+    const task = { input: { question: 'Find the docs.' } };
+    const prediction = await evalAgent(
+      student,
+      scenario.tools
+    )._forwardForEvaluation(student, task);
+    if (prediction.completionType !== scenario.completionType) {
+      throw new Error(
+        `${scenario.name}: TS completed with ${String(prediction.completionType)}`
+      );
+    }
+    writeFixture(scenario.name, {
+      kind: 'optimize',
+      operation: 'eval',
+      program: 'agent',
+      signature: 'question:string -> answer:string',
+      options: {
+        contextFields: [],
+        functions: evalPortTools(scenario.tools),
+        callable_results: evalCallableResults(scenario.tools),
+      },
+      runtime_language: 'JavaScript',
+      runtime_script: scenario.runtime_script,
+      task,
+      responses: scenario.responses,
+      expected_prediction_subset: {
+        completionType: prediction.completionType,
+        ...(prediction.completionType === 'final'
+          ? { output: prediction.output }
+          : {}),
+      },
+      // Compared exactly, so a list must match in full.
+      expected_prediction_fields: {
+        functionCalls: prediction.functionCalls,
+        toolErrors: prediction.toolErrors,
+        turnCount: prediction.turnCount,
+      },
+    } as never);
+  }
+})();
+
+// --- agent playbook evolve: the miner sees each run's calls and log -------
+// Two failing tasks run the executor's search tool before the final answer,
+// and a third scenario answers from the distiller (a direct respond, so the
+// executor never runs). The expected miner messages are TS's mineWeakness
+// over TS's evaluated predictions of the same runs, clustered by TS: each
+// record carries only its own run's action log and function calls, and a
+// direct respond's record carries the distiller's log.
+await (async () => {
+  const agentOutDir = join(outRoot, 'ir/conformance/axagent');
+  mkdirSync(agentOutDir, { recursive: true });
+  const seedPlaybook = {
+    version: 1,
+    sections: {
+      failures_to_avoid: [
+        {
+          id: 'failures-to-avoid-00001',
+          section: 'failures_to_avoid',
+          content: 'Check the evidence before answering.',
+          helpfulCount: 0,
+          harmfulCount: 0,
+          createdAt: '2026-07-15T00:00:00.000Z',
+          updatedAt: '2026-07-15T00:00:00.000Z',
+        },
+      ],
+    },
+    updatedAt: '2026-07-15T00:00:00.000Z',
+  };
+  // The miner's evidence quote must appear in the run's action log excerpt.
+  const minerAnswerQuoting = (quote: string) =>
+    [
+      'Weakness Description: The agent does not verify its final step.',
+      'Root Cause: The final step is accepted without a check.',
+      'Proposed Guidance: Verify the final step before completing the task.',
+      `Evidence Quotes: ["${quote}"]`,
+      'Config Recommendations: []',
+    ].join('\n');
+  const answer = { content: 'Answer: Docs' };
+  const scenarios = [
+    {
+      name: 'agent-playbook-evolve-miner-function-calls',
+      quote: 'Answer',
+      tools: ['search'] as const,
+      tasks: [
+        { input: { question: 'Find the docs.' } },
+        { input: { question: 'Find the API docs.' } },
+      ],
+      run: {
+        responses: [
+          evalCode(evalFinalCode),
+          evalCode('search'),
+          evalCode(evalFinalCode),
+          answer,
+        ],
+        runtime_script: [evalSteps.final, evalSteps.search, evalSteps.final],
+      },
+    },
+    {
+      name: 'agent-playbook-evolve-miner-direct-respond',
+      quote: 'Ready',
+      tools: [] as const,
+      tasks: [{ input: { question: 'Find the docs.' } }],
+      run: {
+        responses: [evalCode(evalSteps.respond.expected_code), answer],
+        runtime_script: [evalSteps.respond],
+      },
+    },
+  ];
+  for (const scenario of scenarios) {
+    const minerAnswer = minerAnswerQuoting(scenario.quote);
+    const responses = scenario.tasks.flatMap(() => scenario.run.responses);
+    const student = evalStudent(responses);
+    const tsAgent = evalAgent(student, scenario.tools);
+    const records = [];
+    for (const task of scenario.tasks) {
+      const prediction = await tsAgent._forwardForEvaluation(student, task);
+      records.push({ task, prediction, score: 0, passed: false });
+    }
+    const clusters = clusterFailures(records as never, 0.7, 1);
+    const systemPrompts: string[] = [];
+    const userMessages: string[] = [];
+    const teacherAI = new AxMockAIService<string>({
+      name: 'mock',
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        for (const message of req.chatPrompt) {
+          if (message.role === 'system') systemPrompts.push(message.content);
+          if (message.role === 'user') {
+            userMessages.push(String(message.content));
+          }
+        }
+        return {
+          results: [{ index: 0, content: minerAnswer, finishReason: 'stop' }],
+        };
+      },
+    });
+    const weakness = clusters[0]
+      ? await mineWeakness({
+          ai: teacherAI,
+          cluster: clusters[0],
+          currentPlaybook: renderPlaybook(
+            seedPlaybook as unknown as AxACEPlaybook
+          ),
+          index: 0,
+        })
+      : undefined;
+    if (!weakness || systemPrompts.length !== 1 || userMessages.length !== 1) {
+      throw new Error(`${scenario.name}: the miner did not run`);
+    }
+    const fixture = {
+      name: scenario.name,
+      kind: 'agent_playbook_evolve',
+      signature: 'question:string -> answer:string',
+      runtime_language: 'JavaScript',
+      options: {
+        name: 'qa',
+        description: 'Answer the question.',
+        contextFields: [],
+        ...(scenario.tools.length > 0
+          ? {
+              functions: evalPortTools(scenario.tools),
+              callable_results: evalCallableResults(scenario.tools),
+            }
+          : {}),
+      },
+      responses,
+      runtime_script: scenario.tasks.flatMap(() => scenario.run.runtime_script),
+      seed: { playbook: seedPlaybook, artifact: { feedback: [], history: [] } },
+      dataset: {
+        train: scenario.tasks.map((task) => ({ ...task, score: 0 })),
+      },
+      teacher_client: {
+        model: 'premium-model',
+        options: {
+          modelInfo: [
+            {
+              completionTokenCostPer1M: 600,
+              isExpensive: true,
+              name: 'premium-model',
+              promptTokenCostPer1M: 150,
+            },
+          ],
+        },
+      },
+      cases: [
+        {
+          name: 'miner-messages',
+          options: {
+            teacherOptions: { useExpensiveModel: 'yes' },
+            verify: true,
+            minHeldInGain: 0,
+            maxProposals: 1,
+            maxMetricCalls: 2 * scenario.tasks.length,
+          },
+          expected: { outcome_count: 1 },
+          expected_teacher_request_count: 1,
+          expected_teacher_system_prompts: systemPrompts,
+          expected_teacher_user_messages: userMessages,
+        },
+      ],
+      teacher_responses: [{ content: minerAnswer }],
+    };
+    writeFileSync(
+      join(agentOutDir, `${scenario.name}.json`),
       `${JSON.stringify(stable(fixture), null, 2)}\n`
     );
   }

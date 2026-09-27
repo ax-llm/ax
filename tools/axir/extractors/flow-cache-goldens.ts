@@ -51,9 +51,14 @@ function stable(value: unknown, parentKey = ''): unknown {
 }
 
 function writeFixture(name: string, fixture: Record<string, unknown>): void {
+  const source = {
+    tsDerived: true,
+    extractor: 'tools/axir/extractors/flow-cache-goldens.ts',
+    reference: ['src/ax/flow/flow.ts', 'src/ax/dsp/generate.ts'],
+  };
   writeFileSync(
     join(outDir, `${name}.json`),
-    `${JSON.stringify(stable({ name, ...fixture }), null, 2)}\n`
+    `${JSON.stringify(stable({ name, source, ...fixture }), null, 2)}\n`
   );
 }
 

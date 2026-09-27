@@ -848,6 +848,31 @@ func (c *sessionRoutingClient) Stream(context.Context, map[string]Value, map[str
 	return nil, nil
 }
 
+// steerRecordingSession records the steers an open native session gets and
+// stops the run at the first.
+type steerRecordingSession struct{ steered []Value }
+
+func (s *steerRecordingSession) Next(context.Context) (Value, error) { return nil, io.EOF }
+func (s *steerRecordingSession) Submit([]Value) error                { return nil }
+func (s *steerRecordingSession) Update(update map[string]Value) (string, error) {
+	s.steered = append(s.steered, update["text"])
+	return "", fmt.Errorf("stop after the steer")
+}
+func (s *steerRecordingSession) Close() error { return nil }
+
+// TestNativeSessionSteersListFeedbackAsText: a correction that continues an
+// open native session steers it with text. A field processor's feedback is
+// list content, [{type: "text", text}], and the steer carries the parts' text.
+func TestNativeSessionSteersListFeedbackAsText(t *testing.T) {
+	session := &steerRecordingSession{}
+	run := &genSessionClient{selected: true, opener: &sessionRoutingClient{}, session: session, gen: NewAx("question:string -> answer:string", nil), options: Object(), path: "root"}
+	feedback := Array(Object("type", "text", "text", "Check it."), Object("type", "text", "text", "Then answer."))
+	_, err := run.Chat(context.Background(), Object("chat_prompt", Array(Object("role", "system", "content", "sys"), Object("role", "user", "content", feedback))), Object())
+	if err == nil || len(session.steered) != 1 || session.steered[0] != "Check it.\nThen answer." {
+		t.Fatalf("steers = %#v (err %v), want the feedback's text", session.steered, err)
+	}
+}
+
 // TestConstructorOptionsChooseTheNativeSession: as in TypeScript, the AxGen
 // constructor's asyncMode and model are defaults for every forward, so they
 // decide, as the call's do, whether a run with a background tool uses the

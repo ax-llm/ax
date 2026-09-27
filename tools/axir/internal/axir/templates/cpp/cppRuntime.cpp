@@ -535,7 +535,7 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   if (status >= 400) {
     Value body;
     try { body = Core::json_parse(error_body); } catch (...) { body = Value(error_body); }
-    throw Core::as_error(Core::openai_normalize_error(static_cast<double>(status), body, Value()));
+    throw Core::as_error(Core::openai_normalize_error(static_cast<double>(status), body, Value(), Value()));
   }
 #endif
 }
@@ -1267,6 +1267,41 @@ Value Core::string_starts_with(Value value, Value prefix) {
   std::string s = str(value), p = str(prefix);
   return Value(s.rfind(p, 0) == 0);
 }
+// C++ strings are UTF-8, but parse_json keeps a lone surrogate escape (half of
+// a pair a provider split across stream events, such as "\ud83d" and then
+// "\ude00") as its 3-byte WTF-8 form: ED A0-AF xx for a high surrogate and
+// ED B0-BF xx for a low one.
+static bool wtf8_surrogate_at(const std::string& text, std::size_t at, unsigned char low, unsigned char high) {
+  if (at + 3 > text.size()) return false;
+  auto byte = [&](std::size_t offset) { return static_cast<unsigned char>(text[at + offset]); };
+  return byte(0) == 0xED && byte(1) >= low && byte(1) <= high && (byte(2) & 0xC0) == 0x80;
+}
+static unsigned wtf8_surrogate_unit(const std::string& text, std::size_t at) {
+  return 0xD000u | ((static_cast<unsigned char>(text[at + 1]) & 0x3Fu) << 6) | (static_cast<unsigned char>(text[at + 2]) & 0x3Fu);
+}
+// Streamed text appends chunk by chunk. As in a UTF-16 string (TS, Java), a
+// high surrogate ending the text and a low one starting the chunk join into
+// the code point they make, as 4-byte UTF-8.
+Value Core::string_concat_stream_text(Value left, Value right) {
+  std::string text = str(left), chunk = str(right);
+  if (text.size() >= 3 && wtf8_surrogate_at(text, text.size() - 3, 0xA0, 0xAF) && wtf8_surrogate_at(chunk, 0, 0xB0, 0xBF)) {
+    unsigned code_point = 0x10000u + ((wtf8_surrogate_unit(text, text.size() - 3) - 0xD800u) << 10) + (wtf8_surrogate_unit(chunk, 0) - 0xDC00u);
+    text.resize(text.size() - 3);
+    text.push_back(static_cast<char>(0xF0 | (code_point >> 18)));
+    text.push_back(static_cast<char>(0x80 | ((code_point >> 12) & 0x3F)));
+    text.push_back(static_cast<char>(0x80 | ((code_point >> 6) & 0x3F)));
+    text.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+    return Value(text + chunk.substr(3));
+  }
+  return Value(text + chunk);
+}
+// Until a field's text is final, a high surrogate at its end waits for its
+// pair, as TS holds it back, so no delta ends in half a character.
+Value Core::string_drop_trailing_high_surrogate(Value value) {
+  std::string text = str(value);
+  if (text.size() >= 3 && wtf8_surrogate_at(text, text.size() - 3, 0xA0, 0xAF)) return Value(text.substr(0, text.size() - 3));
+  return value;
+}
 Value Core::string_replace(Value value, Value old_value, Value new_value) {
   std::string s = str(value), old = str(old_value), repl = str(new_value);
   size_t pos = 0;
@@ -1696,7 +1731,7 @@ static Value ai_error_object(const std::string& type, Value message, Value statu
   out["status"] = status;
   out["code"] = code;
   out["response_body"] = response_body;
-  out["request"] = request;
+  out["request"] = request.is_null() ? Value() : Core::_ai_error_request(request, Value());
   out["retryable"] = Core::truthy(retryable);
   return Value(out);
 }
@@ -1715,6 +1750,12 @@ Value Core::exception_value(const std::exception& error) {
     if (!ax->code.empty()) out["code"] = ax->code;
     out["retryable"] = ax->retryable;
     if (!ax->response_body.is_null()) out["response_body"] = ax->response_body;
+    if (!ax->url.empty() || !ax->request_body.is_null()) {
+      Object request;
+      if (!ax->url.empty()) request["url"] = ax->url;
+      if (!ax->request_body.is_null()) request["json"] = ax->request_body;
+      out["request"] = Value(std::move(request));
+    }
     if (const AxError* cause = ax->cause()) out["cause"] = exception_value(*cause);
     return Value(out);
   }
@@ -1817,6 +1858,11 @@ AxError Core::as_error(Value error) {
   if (error.is_object() && has_key(error, "__error")) {
     int status = get_key(error, "status").is_null() ? 0 : static_cast<int>(num(get_key(error, "status")));
     AxError out(str(get_key(error, "__error")), str(get_key(error, "message")), str(get_key(error, "__type")), status, str(get_key(error, "code")), truthy(get_key(error, "retryable")), get_key(error, "response_body"));
+    Value request = get_key(error, "request");
+    if (request.is_object()) {
+      out.url = str(Core::get(request, "url", Value("")));
+      out.request_body = Core::get(request, "json", Core::get(request, "data"));
+    }
     Value cause = get_key(error, "cause");
     if (!cause.is_null()) out.set_cause(std::make_shared<AxError>(as_error(cause)));
     return out;
@@ -1955,6 +2001,14 @@ Value Core::program_apply_components(Value program, Value component_map) {
   auto* stage_ptr = registered_stage(stage_id);
   if (stage_ptr) stage_ptr->apply_optimized_components(std::move(component_map));
   return Value::object();
+}
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+Value Core::program_signature(Value program) {
+  auto* stage_ptr = registered_stage(str(get_key(program, "__agent_stage_id")));
+  if (auto* gen = dynamic_cast<AxGen*>(stage_ptr)) return Core::signature_to_string(Core::get(gen->value(), "signature"));
+  if (auto* agent = dynamic_cast<AxAgent*>(stage_ptr)) return Core::signature_to_string(Core::get(agent->state_, "signature"));
+  return Value();
 }
 Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
@@ -2396,6 +2450,19 @@ Value Core::description_append(Value base, Value hint) {
   if (b.empty()) return Value(h);
   if (b.back() != '.') b.push_back('.');
   return Value(b + " " + h);
+}
+// JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+// - _ . ! ~ * ' ( ) becomes %XX.
+Value Core::url_encode_component(Value value) {
+  static constexpr char digits[] = "0123456789ABCDEF";
+  const std::string keep = "-_.!~*'()";
+  std::string out;
+  for (unsigned char c : value.is_null() ? std::string() : str(value)) {
+    bool alnum = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+    if (alnum || keep.find(static_cast<char>(c)) != std::string::npos) out.push_back(static_cast<char>(c));
+    else { out.push_back('%'); out.push_back(digits[c >> 4]); out.push_back(digits[c & 15]); }
+  }
+  return Value(out);
 }
 Value Core::url_valid(Value value) {
   return Value(value.is_string() && std::regex_search(str(value), std::regex("^[a-zA-Z][a-zA-Z0-9+.-]*://")));
@@ -4688,6 +4755,16 @@ static double ax_context_cache_expiry_ms(Value response) {
   return static_cast<double>(timegm(&tm)) * 1000.0;
 }
 
+// Gives a transport-level provider error the request TypeScript keeps on it:
+// Core's view (the URL, plus the body unless includeRequestBodyInErrors is
+// false), never the headers. An error that already has one keeps it.
+static void attach_error_request(AxError& error, const Value& call, const Value& options) {
+  if (!error.url.empty() || !error.request_body.is_null()) return;
+  Value view = Core::_ai_error_request(call, options);
+  error.url = str(Core::get(view, "url", Value("")));
+  error.request_body = Core::get(view, "json", Core::get(view, "data"));
+}
+
 Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, Value payload, Value model, const std::string& endpoint) {
   Value cfg_value = Core::get(options, "contextCache", Core::get(options, "context_cache"));
   bool supported = Core::truthy(Core::get(Core::get(Core::get(descriptor_, "features", Value::object()), "caching", Value::object()), "supported", false));
@@ -4696,7 +4773,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
   std::string explicit_name = str(Core::get(cfg, "name", Core::get(cfg, "cacheName", Core::get(cfg, "cache_name", ""))));
   if (!explicit_name.empty()) {
     Value cached = payload; Core::set(cached, "cachedContent", explicit_name);
-    return request_json(endpoint, cached, false, "json", false, operation_method("chat"));
+    return request_json(endpoint, cached, false, "json", false, operation_method("chat"), options);
   }
   Value prompts = Core::get(request, "chat_prompt", Core::get(request, "chatPrompt", Core::get(request, "messages", Value::array())));
   std::size_t non_system = 0, cached_count = 0;
@@ -4728,7 +4805,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
     std::string endpoint = str(Core::get(op, "path"));
     Value op_base = Core::get(op, "base_url");
     if (!op_base.is_null()) endpoint = strip_trailing_slashes(str(op_base)) + endpoint;
-    return request_json(endpoint, Core::get(op, "request", Value::object()), false, "json", false, str(Core::get(op, "method", "POST")));
+    return request_json(endpoint, Core::get(op, "request", Value::object()), false, "json", false, str(Core::get(op, "method", "POST")), options);
   };
   auto create = [&]() {
     try {
@@ -4744,14 +4821,14 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
       Value ops = Core::ai_gemini_cache_ops(cache_name, ttl_seconds, api_key_, model, cache_body, options); Value refreshed = call_op(Core::get(ops, "update")); double expires_at = ax_context_cache_expiry_ms(refreshed);
       if (expires_at <= now_ms()) throw AxError("ai_service", "Gemini cache refresh omitted a future expireTime");
       set_entry(object({{"cacheName", cache_name}, {"expiresAt", expires_at}}));
-    } catch (const AxError&) { if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat")); }
+    } catch (const AxError&) { if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options); }
   } else if (action == "create") {
-    if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat"));
+    if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
   } else if (action == "none") return Value();
   if (cache_name.empty()) return Value();
   Value cached = payload; object_mut(cached).erase("systemInstruction"); object_mut(cached).erase("tools"); object_mut(cached).erase("toolConfig");
   Value suffix = Value::array(); for (std::size_t i = std::min(cached_count, contents.size()); i < contents.size(); ++i) Core::append(suffix, contents[i]); Core::set(cached, "contents", suffix); Core::set(cached, "cachedContent", cache_name);
-  try { return request_json(endpoint, cached, false, "json", false, operation_method("chat")); }
+  try { return request_json(endpoint, cached, false, "json", false, operation_method("chat"), options); }
   catch (const AxError& error) {
     if (!Core::truthy(Core::ai_context_cache_rejection(error.status, error.response_body))) throw;
     Value recovery = Core::ai_context_cache_recovery(get_entry(), cache_name, external);
@@ -4759,7 +4836,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
       if (external) context_cache_registry_->set(tenant_namespace, cache_key, Core::get(recovery, "externalEntry", Value::object()));
       else if (Core::truthy(Core::get(recovery, "deleteInMemory", false))) object_mut(context_cache_entries_).erase(cache_key);
     }
-    return request_json(endpoint, payload, false, "json", false, operation_method("chat"));
+    return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
   }
 }
 
@@ -4784,7 +4861,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
     double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
     int attempt = 0;
     while (true) {
-      Value raw = request_json(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"));
+      Value raw = request_json(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"), options);
       std::vector<Value> events = iter_sse_json(raw);
       if (!events.empty()) {
         Value status = Core::provider_classify_stream_error_status(profile_, events[0]);
@@ -4806,7 +4883,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
   std::string endpoint = operation_path("chat", model);
   Value raw = context_cache_chat(request, options, payload, model, endpoint);
-  if (raw.is_null()) raw = request_json(endpoint, payload, false, "json", false, operation_method("chat"));
+  if (raw.is_null()) raw = request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
   return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : payload);
 }
 
@@ -4825,7 +4902,7 @@ Value OpenAICompatibleClient::do_embed(Value request, Value options) {
   Value payload = Core::provider_build_embed_request(profile_, request, options);
   Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
   std::string embed_url = str(Core::provider_embed_url(profile_, model, options));
-  Value raw = request_json(embed_url.empty() ? operation_path("embed", model) : embed_url, payload, false, "json", false, operation_method("embed"));
+  Value raw = request_json(embed_url.empty() ? operation_path("embed", model) : embed_url, payload, false, "json", false, operation_method("embed"), options);
   return Core::provider_normalize_embed_response(profile_, raw, name_, model);
 }
 
@@ -4990,7 +5067,7 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         });
         auto consume = [&](Value chunk) {
           Value raw = chunk;
-          if (raw.is_object() && has_key(raw, "status")) raw = transport_result(raw, call);
+          if (raw.is_object() && has_key(raw, "status")) raw = transport_result(raw, call, merged_options);
           if (raw.is_array()) {
             for (const auto& event : array_ref(raw)) {
               if (display(event) == "[DONE]") return false;
@@ -5004,15 +5081,23 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         try {
           transport_->stream(call, consume, current_cancellation_token());
           if (!retry_requested && !cancelled && !decoder.done_marker()) decoder.finish();
-        } catch (const AxError& error) {
+        } catch (AxError& error) {
           if (error.type == "AxAIServiceAbortedError") throw;
           if (auto token = current_cancellation_token(); token && token->is_cancelled()) throw AxAIServiceAbortedError(token->reason());
           if (provider_error) throw;
+          // The HTTP transport's own status, network and timeout errors keep
+          // the request as TypeScript's do.
+          attach_error_request(error, call, merged_options);
           // Retry transport/open failures before any SSE event. Once a provider
           // event exists, its normalized error is authoritative unless the
           // explicit transient-status classifier above requested a retry.
           if (!received_event && !delivered && stream_error_retryable(error) && attempt < max_retries) retry_requested = true;
-          else if (delivered) throw AxError("response", error.what(), "AxAIServiceStreamTerminatedError", error.status, error.code, true, error.response_body);
+          else if (delivered) {
+            AxError terminated("response", error.what(), "AxAIServiceStreamTerminatedError", error.status, error.code, true, error.response_body);
+            terminated.url = error.url;
+            terminated.request_body = error.request_body;
+            throw terminated;
+          }
           else throw;
         }
         if (retry_requested) {
@@ -5083,9 +5168,17 @@ Value OpenAICompatibleClient::speak(Value request) {
   bool binary = str(Core::get(descriptor, "response", Value(""))) == "binary";
   Value call = build_request(operation_path("speak", model), payload, false, body_key, binary, operation_method("speak"));
   if (transport_ == nullptr) throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
-  Value result = transport_->call(call, current_cancellation_token());
+  Value result;
+  try {
+    result = transport_->call(call, current_cancellation_token());
+  } catch (AxError& error) {
+    // A transport failure keeps the request as TypeScript's network and
+    // timeout errors do.
+    if (error.category == "network" || error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceTimeoutError") attach_error_request(error, call, options_);
+    throw;
+  }
   std::string content_type = transport_content_type(result);
-  Value raw = transport_result(result, call);
+  Value raw = transport_result(result, call, options_);
   if (raw.is_string() && content_type.find("application/json") != std::string::npos) raw = Core::json_parse(raw);
   return Core::provider_normalize_speak_response(profile_, raw, request, content_type.empty() ? Value() : Value(content_type));
 }
@@ -5438,9 +5531,22 @@ std::string OpenAICompatibleClient::operation_method(const std::string& operatio
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
+  return request_json(endpoint, std::move(payload), stream, body_key, binary_response, method, options_);
+}
+
+Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options) {
   Value call = build_request(endpoint, std::move(payload), stream, body_key, binary_response, method);
-  if (transport_ != nullptr) return transport_result(transport_->call(call, current_cancellation_token()), call);
-  throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
+  if (transport_ == nullptr) throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
+  Value raw;
+  try {
+    raw = transport_->call(call, current_cancellation_token());
+  } catch (AxError& error) {
+    // A transport failure keeps the request as TypeScript's network and
+    // timeout errors do.
+    if (error.category == "network" || error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceTimeoutError") attach_error_request(error, call, error_options);
+    throw;
+  }
+  return transport_result(raw, call, error_options);
 }
 
 Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
@@ -5494,10 +5600,6 @@ std::string OpenAICompatibleClient::operation_path(const std::string& operation,
       pos += str(model).size();
     }
   }
-  if (str(Core::get(descriptor_, "auth")) == "api_key_query") {
-    std::string key = str(Core::get(descriptor_, "apiKeyQuery", "key"));
-    path += (path.find('?') == std::string::npos ? "?" : "&") + url_component(key) + "=" + url_component(api_key_);
-  }
   if (!api_version_.empty() && api_version_ != "null") {
     path += (path.find('?') == std::string::npos ? "?" : "&") + std::string("api-version=") + url_component(api_version_);
   }
@@ -5506,11 +5608,11 @@ std::string OpenAICompatibleClient::operation_path(const std::string& operation,
 
 // The request is not passed on: its headers hold the API key or credential
 // tokens, and a thrown AxError has no request field.
-Value OpenAICompatibleClient::transport_result(Value result, Value) {
+Value OpenAICompatibleClient::transport_result(Value result, Value request, Value options) {
   if (result.is_object() && Core::get(result, "status").is_number()) {
     int status = static_cast<int>(num(Core::get(result, "status", 200)));
     Value body = Core::get(result, "json", Core::get(result, "body", Core::get(result, "data")));
-    if (status >= 400) throw Core::as_error(Core::openai_normalize_error(status, body, Value()));
+    if (status >= 400) throw Core::as_error(Core::openai_normalize_error(status, body, request, options));
     return body;
   }
   return result;
@@ -8464,16 +8566,21 @@ Value AxAgent::evaluate_optimization_task(AIClient& client, Value task, Value op
   Value forward_options = Core::map_merge(Value::object(), Core::get(options, "forward_options", Value::object()));
   Value call_runtime = Core::get(options, "runtime");
   if (!call_runtime.is_null() && Core::get(forward_options, "runtime").is_null()) Core::set(forward_options, "runtime", call_runtime);
+  // As TS evaluates each task from a fresh state, the prediction carries only
+  // this run's share of the agent's logs.
+  Value marks = Core::_agent_eval_marks(state_);
+  Value completion;
   try {
     Value output = forward(client, input, forward_options);
-    return Core::_build_agent_eval_prediction(output, get_action_log(), get_usage(), export_trace());
+    completion = object({{"type", Value("final")}, {"output", output}});
   } catch (const AxError& e) {
     if (e.category == "AxAgentClarificationError") {
-      return object({{"completionType", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}, {"actionLog", get_action_log()}, {"functionCalls", Core::get(state_, "function_call_traces", Value::array())}, {"toolErrors", Value::array()}, {"turnCount", Value(0)}, {"usage", get_usage()}, {"trace", export_trace()}});
+      completion = object({{"type", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}});
+    } else {
+      completion = object({{"type", Value("error")}, {"message", Value(std::string(e.what()))}});
     }
-    Value err = object({{"message", Value(std::string(e.what()))}});
-    return object({{"completionType", Value("error")}, {"error", err}, {"actionLog", get_action_log()}, {"functionCalls", Core::get(state_, "function_call_traces", Value::array())}, {"toolErrors", array({Value(std::string(e.what()))})}, {"turnCount", Value(0)}, {"usage", get_usage()}, {"trace", export_trace()}});
   }
+  return Core::_build_agent_run_prediction(state_, marks, completion, get_usage(), export_trace());
 }
 Value AxAgent::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
   Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);

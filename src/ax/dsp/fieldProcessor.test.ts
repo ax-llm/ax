@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
+import { AxMockAIService } from '../ai/mock/api.js';
+import type { AxChatRequest, AxChatResponse } from '../ai/types.js';
 import { AxMemory } from '../mem/memory.js';
 
 import {
   processFieldProcessors,
   processStreamingFieldProcessors,
 } from './fieldProcessor.js';
+import { ax } from './template.js';
 import type { AxFieldValue, AxGenOut } from './types.js';
 
 describe('Field Processor Functions', () => {
@@ -126,5 +129,79 @@ describe('Field Processor Functions', () => {
       expect(userMessage.content).not.toContain('Code Execution Result:');
       expect(userMessage.content).not.toContain('was processed');
     }
+  });
+});
+
+describe('streaming field processor feedback', () => {
+  const streamOf = (contents: string[]) =>
+    new ReadableStream<AxChatResponse>({
+      start(controller) {
+        contents.forEach((content, i) =>
+          controller.enqueue({
+            results: [
+              i === contents.length - 1
+                ? { index: 0, content, finishReason: 'stop' }
+                : { index: 0, content },
+            ],
+          })
+        );
+        controller.close();
+      },
+    });
+
+  const run = async (
+    feedback: (value: string) => string | null | undefined
+  ) => {
+    const requests: AxChatRequest<unknown>[] = [];
+    const ai = new AxMockAIService<string>({
+      name: 'mock',
+      features: { functions: false, streaming: true },
+      chatResponse: async (req) => {
+        requests.push(req as AxChatRequest<unknown>);
+        return streamOf(['Answer: a draft', ' then more text']) as never;
+      },
+    });
+    const gen = ax('question:string -> answer:string');
+    gen.addStreamingFieldProcessor('answer', (value: string) =>
+      feedback(value)
+    );
+    const output = await gen.forward(
+      ai,
+      { question: 'q' },
+      { stream: true, maxSteps: 3 }
+    );
+    return { output, requests };
+  };
+
+  // Feedback returned mid-stream used to be written before the rest of the
+  // answer streamed in, so the run did not take another step with it.
+  it('adds mid-stream feedback after the full answer and takes another step', async () => {
+    let fired = false;
+    const { output, requests } = await run((value) => {
+      if (!fired && value.includes('draft')) {
+        fired = true;
+        return 'Please avoid the word draft.';
+      }
+      return undefined;
+    });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.chatPrompt.slice(-2)).toEqual([
+      { role: 'assistant', content: 'Answer: a draft then more text' },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Please avoid the word draft.' }],
+      },
+    ]);
+    expect(output).toEqual({ answer: 'a draft then more text' });
+  });
+
+  // A processor that returns null used to send the text "null" as feedback
+  // on every step until maxSteps ran out.
+  it('treats a null result as no feedback', async () => {
+    const { output, requests } = await run(() => null);
+
+    expect(requests).toHaveLength(1);
+    expect(output).toEqual({ answer: 'a draft then more text' });
   });
 });

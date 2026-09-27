@@ -115,6 +115,11 @@ export type AxModelInfo = {
     samplingWithoutReasoning?: boolean;
     /** The model does not reason when a request sets no reasoning effort. */
     reasoningOffByDefault?: boolean;
+    /**
+     * The model takes an explicit temperature of exactly 1, its default, where
+     * `notSupported.temperature` (or reasoning) rejects other values.
+     */
+    temperatureOne?: boolean;
   };
   /**
    * Sampling parameters the model rejects. With
@@ -126,8 +131,16 @@ export type AxModelInfo = {
   notSupported?: {
     temperature?: boolean;
     topP?: boolean;
+    topK?: boolean;
     presencePenalty?: boolean;
     frequencyPenalty?: boolean;
+    /**
+     * The model takes temperature or topP but not both in one request. An
+     * explicit topP with only the default temperature is sent alone; with an
+     * explicit temperature too, Ax keeps the temperature and drops topP with
+     * a one-time warning.
+     */
+    temperatureWithTopP?: boolean;
   };
   audio?: {
     input?: boolean;
@@ -808,7 +821,13 @@ export interface AxAIServiceMetrics {
 }
 
 export type AxInternalChatRequest<TModel> = Omit<AxChatRequest, 'model'> &
-  Required<Pick<AxChatRequest<TModel>, 'model'>>;
+  Required<Pick<AxChatRequest<TModel>, 'model'>> & {
+    /**
+     * The sampling keys in `modelConfig` the caller set (the AI's config, a
+     * model key's config or the request), as opposed to provider defaults.
+     */
+    explicitSamplingKeys?: readonly string[];
+  };
 
 export type AxInternalTranscriptionRequest<TModel> = Omit<
   AxTranscriptionRequest,
@@ -1289,9 +1308,11 @@ export type AxAIServiceOptions = {
   /**
    * Whether to include the request body in `AxAIServiceError` messages.
    *
-   * When `false`, the request body is omitted from thrown errors. Useful when
-   * requests may contain sensitive data (API keys, PII) or large base64-encoded
-   * content that would bloat error logs.
+   * When `false`, the request body is omitted from thrown errors: their
+   * message, stack, `JSON.stringify`, object spread and `Object.keys` leave it
+   * out, though `error.requestBody` still returns it. Useful when requests may
+   * contain sensitive data (API keys, PII) or large base64-encoded content that
+   * would bloat error logs. Request headers are never kept on errors.
    *
    * @default true
    */

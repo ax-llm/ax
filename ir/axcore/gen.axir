@@ -898,9 +898,7 @@ module @ax.gen version "0.1" {
             core.append %messages, %answer_message
             %feedback_messages = core.list
             core.for %feedback_text in %feedback {
-              %feedback_message = core.map
-              core.set %feedback_message["role"] = "user"
-              core.set %feedback_message["content"] = %feedback_text
+              %feedback_message = core.call @feedback_message_impl(%feedback_text)
               core.append %messages, %feedback_message
               core.append %feedback_messages, %feedback_message
             }
@@ -2380,9 +2378,7 @@ module @ax.gen version "0.1" {
               %feedback_texts = core.get %outcome["feedback"] default %empty_feedback_texts
               %feedback_messages = core.list
               core.for %feedback_text in %feedback_texts {
-                %feedback_message = core.map
-                core.set %feedback_message["role"] = "user"
-                core.set %feedback_message["content"] = %feedback_text
+                %feedback_message = core.call @feedback_message_impl(%feedback_text)
                 core.append %messages, %feedback_message
                 core.append %feedback_messages, %feedback_message
               }
@@ -2611,6 +2607,27 @@ module @ax.gen version "0.1" {
       %strict = core.get %call_options["strictMode"] default %call_snake
       %strict_mode = core.call intrinsic.truthy(%strict)
       core.return %strict_mode
+    }
+  }
+
+  op ax.gen.semantic @feedback_message_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/fieldProcessor.ts"
+    type signature = "(json) -> json"
+    body @entry(%text: json) {
+      // addToMemory: a field processor's feedback is a user message with one
+      // text part.
+      %part = core.map
+      core.set %part["type"] = "text"
+      core.set %part["text"] = %text
+      %parts = core.list
+      core.append %parts, %part
+      %message = core.map
+      core.set %message["role"] = "user"
+      core.set %message["content"] = %parts
+      core.return %message
     }
   }
 

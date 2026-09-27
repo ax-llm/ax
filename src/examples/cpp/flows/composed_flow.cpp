@@ -31,7 +31,11 @@ int main() {
   axllm::AxFlow program = axllm::flow(axllm::object({{"id", "examples.composedFlow"}}))
       .execute("step", step)
       .map("note", [](axllm::Value) { return axllm::object({{"note", "Mapped flow state after the provider-backed step."}}); })
-      .returns(axllm::object({{"step", "step"}, {"note", "note"}}));
+      .returns(axllm::object({{"outline", "outline"}, {"note", "note"}}));
   axllm::Value output = program.forward(*client, axllm::object({{"topic", "How Ax moves from typed generation to agents, flows, and optimization"}}));
+  for (const char* key : {"outline", "note"}) {
+    std::string text = axllm::stringify(axllm::Core::get(output, key));
+    if (text == "null" || text == "\"\"" || text == "[]") throw std::runtime_error(std::string("flow output field ") + key + " is empty: " + axllm::stringify(output));
+  }
   std::cout << axllm::stringify(output) << "\n";
 }

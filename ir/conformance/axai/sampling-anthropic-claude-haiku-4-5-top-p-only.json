@@ -1,0 +1,48 @@
+{
+  "expected_transport_json_absent": ["temperature", "top_k", "thinking.type"],
+  "expected_transport_request": {
+    "json": {
+      "max_tokens": 40000,
+      "top_p": 0.9
+    }
+  },
+  "expected_warnings": [],
+  "kind": "ai_chat",
+  "model": "claude-haiku-4-5",
+  "name": "sampling-anthropic-claude-haiku-4-5-top-p-only",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "topP": 0.9
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "msg_sampling",
+        "model": "claude-haiku-4-5",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}

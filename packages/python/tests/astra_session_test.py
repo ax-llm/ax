@@ -777,3 +777,32 @@ def test_actor_mcp_cancellation_context():
     print('Python actor invocation forwards MCP cancellation context')
 
 test_actor_mcp_cancellation_context()
+
+
+def test_native_session_steers_list_feedback_as_text():
+    # A correction that continues an open native session steers it with text.
+    # A field processor's feedback is list content, [{type: "text", text}].
+    from axllm.session import _SessionClient
+
+    class Stop(Exception):
+        pass
+
+    class Session:
+        def __init__(self):
+            self.steered = []
+        def steer(self, text):
+            self.steered.append(text)
+            raise Stop()
+
+    session = Session()
+    run = _SessionClient(ax('question:string -> answer:string'), object(), {})
+    run._selected, run._fallback, run.session = True, False, session
+    feedback = [{'type': 'text', 'text': 'Check it.'}]
+    try:
+        run.chat({'chat_prompt': [{'role': 'system', 'content': 'sys'}, {'role': 'user', 'content': feedback}]}, {})
+    except Stop:
+        pass
+    assert session.steered == ['Check it.'], session.steered
+    print('python native session steers list-content feedback as text')
+
+test_native_session_steers_list_feedback_as_text()

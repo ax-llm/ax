@@ -22,6 +22,9 @@ names. User-facing libraries should read as Ax libraries in each ecosystem.
 
 ## Versioning
 
+Breaking changes deferred to the next major version are listed in
+[NEXT_MAJOR.md](NEXT_MAJOR.md).
+
 Generated package metadata uses the same version as the root `@ax-llm/ax`
 package. Release automation may override this with `AX_PACKAGE_VERSION`; local
 compiler runs fall back to the nearest `package.json` version and then to a

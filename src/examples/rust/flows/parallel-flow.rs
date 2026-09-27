@@ -50,6 +50,10 @@ fn main() -> AxResult<()> {
         &mut client,
         json!({"topicText": "Why typed contracts make multi-step LLM systems easier to maintain"}),
     )?;
+    for key in ["briefText"] {
+        let value = &output[key];
+        assert!(!value.is_null() && value != "" && *value != json!([]), "flow output field {key} is empty: {output}");
+    }
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }

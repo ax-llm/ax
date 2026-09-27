@@ -59,6 +59,11 @@ public final class ParallelFlowExample {
             Map.of(
                 "topicText",
                 "Why typed contracts make multi-step LLM systems easier to maintain"));
+    for (String key : List.of("briefText")) {
+      if (List.of("null", "\"\"", "[]").contains(Json.stringify(output.get(key)))) {
+        throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(output));
+      }
+    }
     System.out.println(Json.stringify(output));
   }
 }

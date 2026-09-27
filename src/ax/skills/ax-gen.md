@@ -231,21 +231,25 @@ Rules:
 ## Field Processors
 
 ```typescript
-// Post-processing after generation
-gen.addFieldProcessor('summary', (value, context) => value.toUpperCase());
+// Runs once the field is complete; a returned string is feedback for
+// another step.
+gen.addFieldProcessor('summary', (value) =>
+  String(value).length > 200 ? 'Keep the summary under 200 characters.' : null
+);
 
-// Streaming field processor (called on each chunk)
-gen.addStreamingFieldProcessor('content', (partialValue, context) => {
-  console.log(`Received ${partialValue.length} chars`);
-  return partialValue;
-});
+// Runs on each streamed chunk of the field.
+gen.addStreamingFieldProcessor('content', (partialValue) =>
+  String(partialValue).includes('TODO') ? 'Finish every section.' : null
+);
 ```
 
 Rules:
 
 - `addFieldProcessor` runs once after the field is fully generated.
 - `addStreamingFieldProcessor` runs on each streaming chunk for the target field.
-- Both must return the (possibly transformed) value.
+- A processor's result is feedback, not a new field value. Unless it is `undefined`, `null`, `''` or the text `"null"` or `"undefined"`, it goes back to the model as a user message with one text part, and the run takes another step whose answer replaces the earlier one.
+- A streaming processor's feedback waits for the end of the step: it follows the full answer and comes before the final processors' feedback.
+- A streamed delta never ends in half of a surrogate pair; a trailing high surrogate waits for its low half.
 
 ## Function Calling
 
@@ -606,7 +610,7 @@ first model call; mapper exceptions become non-retryable
 
 ## Automatic sessions (TypeScript)
 
-Declare independent host tools with `.execution('background')`. AxGen automatically uses supported async sessions, submits results, and validates the final answer after pending work. Use `asyncMode: 'off'` for the ordinary loop. Attach `runControl()` through `{ control }` for steering, reasoning updates, and cancellation. Streamed session output is provisional until the run completes. Reset accumulated output when its `version` changes; the final output still passes assertions and field validation. Streaming assertions run before provisional text is emitted. An assertion may trigger a correction before tools start; after host work starts, a mid-stream assertion fails the run without replaying that work.
+Declare independent host tools with `.execution('background')`. AxGen automatically uses supported async sessions, submits results, and validates the final answer after pending work. Use `asyncMode: 'off'` for the ordinary loop. Attach `runControl()` through `{ control }` for steering, reasoning updates, and cancellation. Streamed session output is provisional until the run completes. Each session response streams like a plain stream of the same chunks, and a later response (after tool results) or a correction starts a new version. Reset accumulated output when its `version` changes; the final output still passes assertions and field validation. Streaming assertions run before provisional text is emitted, and their correction's prompt keeps the partial answer, as in a plain stream. An assertion may trigger a correction before tools start; after host work starts, a mid-stream assertion fails the run without replaying that work.
 
 For automatic tool runs and controller-attached runs, routers and balancers resolve a provider before execution and pin it for the run. Mixed balancers use sessions only when the selected provider supports them. Providers implementing only `.chat()` continue through the ordinary loop.
 

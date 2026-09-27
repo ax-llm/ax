@@ -56,6 +56,12 @@ func main() {
 		Invoke: func(input ax.Value, _ map[string]ax.Value) (ax.Value, error) {
 			out, err := program.Forward(context.Background(), llm, input.(map[string]ax.Value), nil)
 			if err == nil {
+				for _, key := range []string{"status"} {
+					switch fmt.Sprint(out.(map[string]ax.Value)[key]) {
+					case "", "<nil>", "[]":
+						panic(fmt.Sprintf("flow output field %s is empty: %v", key, out))
+					}
+				}
 				fmt.Println(out)
 				if calls.Add(1) >= 2 {
 					select {
@@ -81,11 +87,20 @@ func main() {
 	if err := runtime.Start(); err != nil {
 		panic(err)
 	}
-	taskResult, err := client.CallTool("start_reindex", map[string]ax.Value{"scope": "all"})
+	// A modern server answers with a task; a legacy server returns it inside a
+	// complete result.
+	outcome, err := client.CallToolOutcome("start_reindex", map[string]ax.Value{"scope": "all"})
 	if err != nil {
 		panic(err)
 	}
-	taskID := taskResult["task"].(map[string]ax.Value)["taskId"].(string)
+	task := outcome.Task
+	if outcome.Kind == "complete" {
+		task, _ = outcome.Result["task"].(map[string]ax.Value)
+	}
+	if task == nil {
+		panic("start_reindex did not start an MCP task")
+	}
+	taskID := task["taskId"].(string)
 	target.WaitFor[0]["metadata"] = map[string]ax.Value{"taskId": taskID}
 	if err := started.Publish(ax.AxEventEnvelope{SpecVersion: "1.0", ID: "task-start", Source: "app://tasks", Type: "app.task.started", Data: map[string]ax.Value{"taskId": taskID, "taskKey": "inventory:" + taskID}}); err != nil {
 		panic(err)

@@ -2,6 +2,7 @@ import { assertAssertions, assertStreamingAssertions } from '../asserts.js';
 import { ValidationError } from '../errors.js';
 import { streamingExtractFinalValue, streamValues } from '../extract.js';
 import {
+  addPendingFeedbackToMemory,
   processFieldProcessors,
   processStreamingFieldProcessors,
 } from '../fieldProcessor.js';
@@ -80,6 +81,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
     });
     state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
     state.functionCalls = [];
+    addPendingFeedbackToMemory(state.pendingFeedback, mem, sessionId);
   } else {
     const hasComplexFields =
       signature.hasComplexFields() || strictStructuredJson;
@@ -188,6 +190,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
           },
           sessionId
         );
+        addPendingFeedbackToMemory(state.pendingFeedback, mem, sessionId);
         return;
       }
     }
@@ -198,6 +201,10 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       state.content,
       true
     );
+
+    // Feedback from mid-stream processors follows the full assistant
+    // message, before the processors that run on the finished value.
+    addPendingFeedbackToMemory(state.pendingFeedback, mem, sessionId);
 
     if (fieldProcessors.length) {
       await processFieldProcessors(

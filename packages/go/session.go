@@ -248,7 +248,7 @@ func (s *responsesChatSession) send(items []Value, continuation bool) {
 	}
 	go func() {
 		_, err := safeValue(func() Value {
-			stream, err := s.client.openProviderStream(s.ctx, call)
+			stream, err := s.client.openProviderStream(s.ctx, call, s.options)
 			if err != nil {
 				panic(err)
 			}
@@ -603,9 +603,11 @@ func (p *genSessionClient) Chat(ctx context.Context, request, options map[string
 				}
 			}()
 		} else {
+			// A correction continues the open session: steer it with the last
+			// message's text.
 			messages := asSlice(coreGet(request, "chat_prompt", Array()))
 			if len(messages) > 0 {
-				_, err := p.session.Update(Object("type", "steer", "text", coreGet(messages[len(messages)-1], "content", "")))
+				_, err := p.session.Update(Object("type", "steer", "text", sessionSteerText(coreGet(messages[len(messages)-1], "content", ""))))
 				if err != nil {
 					panic(err)
 				}
@@ -746,6 +748,23 @@ func (p *genSessionClient) finish(err error, consumerStopped bool) {
 	default:
 		p.emit("completed")
 	}
+}
+
+// sessionSteerText is the text a steer carries: a message's string content,
+// or the text of its text parts joined by newlines (a field processor's
+// feedback is [{type: "text", text}]).
+func sessionSteerText(content Value) Value {
+	switch content.(type) {
+	case []Value, *AxArray:
+		texts := []string{}
+		for _, part := range asSlice(content) {
+			if display(coreGet(part, "type", "")) == "text" {
+				texts = append(texts, display(coreGet(part, "text", "")))
+			}
+		}
+		return strings.Join(texts, "\n")
+	}
+	return content
 }
 
 // controlBoundary returns the run control's request boundary behind client:

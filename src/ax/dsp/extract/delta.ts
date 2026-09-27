@@ -39,7 +39,10 @@ export function* yieldDelta<OUT extends AxGenOut>(
   }
 
   const isCode = fieldTypeName === 'code';
-  let d2 = d1.replace(/\s+$/, '');
+  // Until the field's text is complete, a high surrogate at the end waits
+  // for its pair, so no delta ever holds half a character.
+  const whole = final ? d1 : d1.replace(/[\uD800-\uDBFF]$/, '');
+  let d2 = whole.replace(/\s+$/, '');
 
   if (isCode) {
     d2 = d2.replace(/\s*```\s*$/, '');

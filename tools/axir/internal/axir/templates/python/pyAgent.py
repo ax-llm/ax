@@ -2166,31 +2166,17 @@ class AxAgent:
         forward_options = dict(opts.get("forward_options") or {})
         if opts.get("runtime") is not None and forward_options.get("runtime") is None:
             forward_options["runtime"] = opts["runtime"]
+        # As TS evaluates each task from a fresh state, the prediction carries
+        # only this run's share of the agent's logs.
+        marks = _agent_eval_marks(self.state)
         try:
             output = self.forward(client, task.get("input") or task, forward_options)
-            return _build_agent_eval_prediction(output, self.get_action_log(), self.get_usage(), self.export_trace())
+            completion = {"type": "final", "output": output}
         except AxAgentClarificationError as exc:
-            return {
-                "completionType": "askClarification",
-                "clarification": exc.clarification,
-                "actionLog": self.get_action_log(),
-                "functionCalls": _core_get(self.state, "function_call_traces", []) or [],
-                "toolErrors": [],
-                "turnCount": 0,
-                "usage": self.get_usage(),
-                "trace": self.export_trace(),
-            }
+            completion = {"type": "askClarification", "clarification": exc.clarification}
         except Exception as exc:
-            return {
-                "completionType": "error",
-                "error": {"message": str(exc)},
-                "actionLog": self.get_action_log(),
-                "functionCalls": _core_get(self.state, "function_call_traces", []) or [],
-                "toolErrors": [str(exc)],
-                "turnCount": 0,
-                "usage": self.get_usage(),
-                "trace": self.export_trace(),
-            }
+            completion = {"type": "error", "message": str(exc)}
+        return _build_agent_run_prediction(self.state, marks, completion, self.get_usage(), self.export_trace())
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
         opts = options or {}

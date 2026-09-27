@@ -137,6 +137,16 @@ final class Core {
     return units;
   }
   static Object stringCodepointLength(Object value) { String text = String.valueOf(value); return text.codePointCount(0, text.length()); }
+  // Streamed text appends chunk by chunk. Java strings hold UTF-16 units, so
+  // a surrogate pair a provider split across two chunks joins back into one
+  // character by plain concatenation.
+  static Object stringConcatStreamText(Object left, Object right) { return String.valueOf(left) + String.valueOf(right); }
+  // A streamed delta never ends in half of a surrogate pair: a trailing high
+  // surrogate waits for its low half, or for the end of the stream.
+  static Object stringDropTrailingHighSurrogate(Object value) {
+    String text = String.valueOf(value);
+    return !text.isEmpty() && Character.isHighSurrogate(text.charAt(text.length() - 1)) ? text.substring(0, text.length() - 1) : text;
+  }
   /**
    * The epoch milliseconds of a java.time or java.util.Date value, read as
    * TypeScript reads a Date: Instant, OffsetDateTime, ZonedDateTime and Date
@@ -713,9 +723,9 @@ final class Core {
   static Object aiErrorRefusal(Object message, Object responseBody) { return new AxAIRefusalError(String.valueOf(message), responseBody); }
   static Object aiErrorStream(Object message, Object responseBody, Object retryable) { return new AxAIServiceStreamTerminatedError(String.valueOf(message), responseBody, truthy(retryable)); }
   static Object aiErrorUnsupported(Object message) { return new AxUnsupportedCapabilityError(String.valueOf(message)); }
-  static Object aiErrorAuth(Object message, Object status, Object code, Object responseBody, Object request) { return new AxAIServiceAuthenticationError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request); }
-  static Object aiErrorTimeout(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceTimeoutError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request, truthy(retryable)); }
-  static Object aiErrorStatus(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceStatusError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request, truthy(retryable)); }
+  static Object aiErrorAuth(Object message, Object status, Object code, Object responseBody, Object request) { return new AxAIServiceAuthenticationError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null)); }
+  static Object aiErrorTimeout(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceTimeoutError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null), truthy(retryable)); }
+  static Object aiErrorStatus(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceStatusError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null), truthy(retryable)); }
 
   static Object recordNew(Object name, Object values) {
     Map<String, Object> v = asMap(values);
@@ -818,6 +828,19 @@ final class Core {
     if (!text.endsWith(".")) text += ".";
     return text + " " + hint;
   }
+  // JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+  // - _ . ! ~ * ' ( ) becomes %XX.
+  static Object urlEncodeComponent(Object value) {
+    String text = value == null ? "" : String.valueOf(value);
+    StringBuilder out = new StringBuilder();
+    for (byte raw : text.getBytes(java.nio.charset.StandardCharsets.UTF_8)) {
+      int c = raw & 0xff;
+      boolean alnum = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+      if (alnum || "-_.!~*'()".indexOf(c) >= 0) out.append((char) c);
+      else out.append('%').append("0123456789ABCDEF".charAt(c >> 4)).append("0123456789ABCDEF".charAt(c & 15));
+    }
+    return out.toString();
+  }
   static Object urlValid(Object value) { return value instanceof String s && Pattern.compile("^[a-zA-Z][a-zA-Z0-9+.-]*://").matcher(s).find(); }
   static Object validImage(Object value) { return value instanceof Map<?, ?> map && map.containsKey("mimeType") && map.containsKey("data"); }
   static Object validAudio(Object value) { return value instanceof String || (value instanceof Map<?, ?> map && (map.containsKey("data") || map.containsKey("id"))); }
@@ -841,6 +864,13 @@ final class Core {
   static Object programApplyComponents(Object program, Object componentMap) {
     if (program instanceof AxProgram axProgram) axProgram.applyOptimizedComponents(asMap(componentMap));
     return Map.of();
+  }
+  // An AxGen's or AxAgent's signature text. Any other program (a nested flow,
+  // a custom program) has none, and its undeclared step is a barrier.
+  static Object programSignature(Object program) {
+    if (program instanceof AxGen gen) return gen.signature.toString();
+    if (program instanceof AxAgent agent) return String.valueOf(signature_to_string(agent.signature));
+    return null;
   }
   static Object aiCompleteOnce(Object client, Object request, Object options) {
     try {

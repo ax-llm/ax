@@ -439,6 +439,13 @@ type AxError struct {
 	Code      string
 	Retryable bool
 	Payload   Value
+	// URL is a provider error's request URL, as TypeScript's
+	// AxAIServiceError.url keeps it.
+	URL string
+	// RequestBody is a provider error's request body, as TypeScript's
+	// AxAIServiceError.requestBody keeps it. It is nil when
+	// includeRequestBodyInErrors is false. Request headers are never kept.
+	RequestBody Value
 	// cause is the error this one rewraps with a new message ("Generate
 	// failed: ..."), as TypeScript's AxGenerateError keeps it as its cause.
 	cause error
@@ -1301,7 +1308,19 @@ func runtimeJSONValue(value Value) any {
 }
 
 func axErrorValue(v AxError) Value {
-	return Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable, "response_body", v.Payload)
+	out := Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable, "response_body", v.Payload)
+	if v.URL != "" || v.RequestBody != nil {
+		// A rewrapped provider error keeps its request, as in the other ports.
+		request := Object()
+		if v.URL != "" {
+			coreSet(request, "url", v.URL)
+		}
+		if v.RequestBody != nil {
+			coreSet(request, "json", v.RequestBody)
+		}
+		coreSet(out, "request", request)
+	}
+	return out
 }
 
 // outermostAxError returns the envelope of the first Ax error in err's chain,
@@ -1351,7 +1370,8 @@ func asAxError(value Value) AxError {
 	}
 	m := asMap(value)
 	if cat := display(m["__error"]); cat != "" {
-		return AxError{Category: cat, Message: display(m["message"]), Type: display(m["__type"]), Status: int(num(m["status"])), Code: display(m["code"]), Retryable: coreTruthy(m["retryable"]), Payload: coreGet(m, "response_body", m["payload"])}
+		request := coreGet(m, "request", nil)
+		return AxError{Category: cat, Message: display(m["message"]), Type: display(m["__type"]), Status: int(num(m["status"])), Code: display(m["code"]), Retryable: coreTruthy(m["retryable"]), Payload: coreGet(m, "response_body", m["payload"]), URL: display(coreGet(request, "url", "")), RequestBody: publicValue(coreGet(request, "json", coreGet(request, "data", nil)))}
 	}
 	return AxError{Category: "runtime", Message: display(value)}
 }
@@ -1443,6 +1463,21 @@ func _core_math_abs(value Value) Value             { return math.Abs(num(value))
 func _core_string_utf16_units(value Value) Value { units:=utf16.Encode([]rune(display(value)));out:=[]Value{};for _,unit:=range units{out=append(out,int(unit))};return out }
 
 func _core_string_codepoint_length(value Value) Value { return len([]rune(display(value))) }
+
+// _core_string_concat_stream_text appends streamed text. Go strings hold
+// UTF-8, which has no lone surrogates (JSON decoding turns an unpaired half
+// into U+FFFD), so there is no half pair to join and plain concatenation is
+// all there is to do.
+func _core_string_concat_stream_text(left Value, right Value) Value {
+	return display(left) + display(right)
+}
+
+// _core_string_drop_trailing_high_surrogate returns the text unchanged: a
+// UTF-8 Go string cannot end in half of a surrogate pair, so there is nothing
+// to hold back.
+func _core_string_drop_trailing_high_surrogate(value Value) Value {
+	return display(value)
+}
 
 // jsDateMillis is the epoch milliseconds of a time.Time (or *time.Time), which
 // a date or datetime field takes where TypeScript takes a Date.
@@ -1715,6 +1750,19 @@ func _core_program_apply_components(program Value, componentMap Value) Value {
 		p.ApplyOptimizedComponents(asMap(componentMap))
 	}
 	return Object()
+}
+
+// _core_program_signature is an AxGen's or AxAgent's signature text. Any other
+// program (a nested flow, a custom program) has none, and its undeclared step
+// is a barrier.
+func _core_program_signature(program Value) Value {
+	switch p := program.(type) {
+	case *AxGen:
+		return p.Signature.String()
+	case *AxAgent:
+		return p.Signature.String()
+	}
+	return nil
 }
 func _core_ai_complete_once(client Value, request Value, options Value) (Value, error) {
 	if c, ok := client.(AIClient); ok {
@@ -2319,6 +2367,27 @@ func _core_description_append(base Value, hint Value) Value {
 	}
 	return text + " " + display(hint)
 }
+// _core_url_encode_component is JavaScript's encodeURIComponent: every UTF-8
+// byte except A-Z a-z 0-9 and - _ . ! ~ * ' ( ) becomes %XX.
+func _core_url_encode_component(value Value) Value {
+	text := ""
+	if value != nil {
+		text = display(value)
+	}
+	const hex = "0123456789ABCDEF"
+	var out strings.Builder
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || strings.IndexByte("-_.!~*'()", c) >= 0 {
+			out.WriteByte(c)
+		} else {
+			out.WriteByte('%')
+			out.WriteByte(hex[c>>4])
+			out.WriteByte(hex[c&15])
+		}
+	}
+	return out.String()
+}
 func _core_url_valid(value Value) Value {
 	_, err := url.ParseRequestURI(display(value))
 	return err == nil
@@ -2394,7 +2463,7 @@ func aiError(kind string, message Value, rest ...Value) Value {
 				coreSet(out, "response_body", rest[2])
 			}
 			if len(rest) > 3 {
-				coreSet(out, "request", rest[3])
+				coreSet(out, "request", errorRequestView(rest[3], nil))
 			}
 			if len(rest) > 4 {
 				coreSet(out, "retryable", coreTruthy(rest[4]))
@@ -2412,7 +2481,7 @@ func aiError(kind string, message Value, rest ...Value) Value {
 				coreSet(out, "code", rest[2])
 			}
 			if len(rest) > 3 {
-				coreSet(out, "request", rest[3])
+				coreSet(out, "request", errorRequestView(rest[3], nil))
 			}
 			if len(rest) > 4 {
 				coreSet(out, "retryable", coreTruthy(rest[4]))
@@ -2420,6 +2489,22 @@ func aiError(kind string, message Value, rest ...Value) Value {
 		}
 	}
 	return out
+}
+
+// errorRequestView is the request a provider error keeps (Core's view: the
+// URL, plus the body unless includeRequestBodyInErrors is false, never headers).
+func errorRequestView(call Value, options map[string]Value) Value {
+	if call == nil {
+		return nil
+	}
+	return mustCore(_ai_error_request(call, options))
+}
+
+// providerNetworkError is a transport failure that keeps the request as
+// TypeScript's AxAIServiceNetworkError does.
+func providerNetworkError(err error, call Value, options map[string]Value) AxError {
+	view := errorRequestView(call, options)
+	return AxError{Category: "network", Message: err.Error(), URL: display(coreGet(view, "url", "")), RequestBody: publicValue(coreGet(view, "json", coreGet(view, "data", nil)))}
 }
 
 func clampIndex(n float64, max int) int {
@@ -3456,7 +3541,7 @@ func (c *AxAITypesafeClient) request(ctx context.Context, operation string, payl
             call:=c.client.requestJSON(ctx,operation,Object(),false,opts,payload)
             raw,err:=c.client.Transport.Call(ctx,call)
             if err!=nil { panic(err) }
-            return normalizeTransportPayload(raw)
+            return normalizeTransportPayload(raw, call, opts)
         })
         if err==nil{return result,nil}
         if !IsRetryable(err)||attempt>=retries{return nil,normalizeContextError(ctx,err)}
@@ -3758,9 +3843,9 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 			}
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
-				panic(AxError{Category: "network", Message: err.Error()})
+				panic(providerNetworkError(err, transportReq, mergedOptions))
 			}
-			body := normalizeTransportPayload(raw)
+			body := normalizeTransportPayload(raw, transportReq, mergedOptions)
             return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
 		})
 	}
@@ -3810,9 +3895,9 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 		raw, err := c.Transport.Call(ctx, call)
 		if err != nil {
 			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-			return nil, AxError{Category: "network", Message: err.Error()}
+			return nil, providerNetworkError(err, call, options)
 		}
-		return safeValue(func() Value { return normalizeTransportPayload(raw) })
+		return safeValue(func() Value { return normalizeTransportPayload(raw, call, options) })
 	}
 	if explicit != "" {
 		coreSet(payload, "cachedContent", explicit)
@@ -4010,9 +4095,9 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 			transportReq := c.requestJSON(ctx, "embed", req, false, mergedOptions)
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
-				panic(AxError{Category: "network", Message: err.Error()})
+				panic(providerNetworkError(err, transportReq, mergedOptions))
 			}
-			return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw), c.Name, model))
+			return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw, transportReq, mergedOptions), c.Name, model))
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "embed", Provider: c.Name, Model: modelName, Streaming: false, PreviousModelUsage: previousUsage})
@@ -4055,12 +4140,15 @@ func waitStreamRetry(ctx context.Context, delay float64) error {
 	}
 }
 
-func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request Value) (rawProviderStream, error) {
+func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request Value, errorOptions map[string]Value) (rawProviderStream, error) {
 	if transport, ok := c.Transport.(StreamingTransport); ok {
 		response, err := transport.Stream(ctx, request)
 		if err != nil {
 			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-			return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: err.Error(), Retryable: true}
+			networkErr := providerNetworkError(err, request, errorOptions)
+			networkErr.Type = "AxAIServiceNetworkError"
+			networkErr.Retryable = true
+			return nil, networkErr
 		}
 		if response.Body == nil {
 			return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: "streaming transport returned no response body", Retryable: true}
@@ -4071,8 +4159,14 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 			if readErr != nil {
 				return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: readErr.Error(), Retryable: true}
 			}
+			// A JSON error body is parsed so the error carries the provider's
+			// message, as the chat path's does; anything else stays text.
+			var body Value = string(data)
+			if parsed, parseErr := parseJSONErr(string(data)); parseErr == nil {
+				body = parsed
+			}
 			_, normalizedErr := safeValue(func() Value {
-				return normalizeTransportPayload(Object("status", float64(response.Status), "body", string(data)))
+				return normalizeTransportPayload(Object("status", float64(response.Status), "json", body), request, errorOptions)
 			})
 			if normalizedErr != nil {
 				return nil, normalizedErr
@@ -4085,9 +4179,12 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 	raw, err := c.Transport.Call(ctx, request)
 	if err != nil {
 		if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-		return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: err.Error(), Retryable: true}
+		networkErr := providerNetworkError(err, request, errorOptions)
+		networkErr.Type = "AxAIServiceNetworkError"
+		networkErr.Retryable = true
+		return nil, networkErr
 	}
-	body, normalizedErr := safeValue(func() Value { return normalizeTransportPayload(raw) })
+	body, normalizedErr := safeValue(func() Value { return normalizeTransportPayload(raw, request, errorOptions) })
 	if normalizedErr != nil {
 		return nil, normalizedErr
 	}
@@ -4156,7 +4253,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 			attempt := 0
 			for {
 				transportReq := c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
-				raw, err := c.openProviderStream(ctx, transportReq)
+				raw, err := c.openProviderStream(ctx, transportReq, mergedOptions)
 				if err != nil {
 					if IsRetryable(err) && attempt < maxRetries {
 						attempt++
@@ -4380,14 +4477,6 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	if pathModel != nil {
 		path = strings.ReplaceAll(path, "{model}", url.PathEscape(display(pathModel)))
 	}
-	if display(coreGet(descriptor, "auth", "")) == "api_key_query" {
-		keyName := display(coreGet(descriptor, "apiKeyQuery", "key"))
-		sep := "?"
-		if strings.Contains(path, "?") {
-			sep = "&"
-		}
-		path += sep + url.QueryEscape(keyName) + "=" + url.QueryEscape(apiKey)
-	}
 	requestURL := strings.TrimRight(base, "/") + path
 	if operation == "embed" {
 		if embedURL := display(mustCore(provider_embed_url(c.Profile, display(pathModel), opts))); embedURL != "" {
@@ -4455,11 +4544,11 @@ func transportContentType(raw Value) string {
 	return ""
 }
 
-func normalizeTransportPayload(raw Value) Value {
+func normalizeTransportPayload(raw Value, call Value, options map[string]Value) Value {
 	status := int(num(coreGet(raw, "status", 200)))
 	body := coreGet(raw, "json", coreGet(raw, "body", coreGet(raw, "data", raw)))
 	if status >= 400 {
-		panic(asAxError(mustCore(openai_normalize_error(float64(status), body, nil))))
+		panic(asAxError(mustCore(openai_normalize_error(float64(status), body, call, options))))
 	}
 	return body
 }
@@ -4468,11 +4557,12 @@ func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[str
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	value, err := safeValue(func() Value {
 		transportReq := c.requestJSON(ctx, "transcribe", request, false, options)
+		errorOptions := mergeAIOptions(c.optionsSnapshot(), options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
-			panic(AxError{Category: "network", Message: err.Error()})
+			panic(providerNetworkError(err, transportReq, errorOptions))
 		}
-		payload := normalizeTransportPayload(raw)
+		payload := normalizeTransportPayload(raw, transportReq, errorOptions)
 		if c.Profile == "meta" {
 			if _, ok := payload.(string); ok { payload = Object("events", iterSSE(payload)) }
 		}
@@ -4484,13 +4574,14 @@ func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]V
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
 	value, err := safeValue(func() Value {
 		transportReq := c.requestJSON(ctx, "speak", request, false, options)
+		errorOptions := mergeAIOptions(c.optionsSnapshot(), options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
-			panic(AxError{Category: "network", Message: err.Error()})
+			panic(providerNetworkError(err, transportReq, errorOptions))
 		}
 		// As TS's axFetchJsonSpeech: a JSON body (by its Content-Type) is read
 		// as JSON, and a binary one as base64 with its Content-Type.
-		payload := normalizeTransportPayload(raw)
+		payload := normalizeTransportPayload(raw, transportReq, errorOptions)
 		contentType := transportContentType(raw)
 		if text, ok := payload.(string); ok && strings.Contains(contentType, "application/json") {
 			parsed, parseErr := parseJSONErr(text)
@@ -7700,14 +7791,19 @@ func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Valu
 	if runtime := coreGet(opts, "runtime", nil); runtime != nil && coreGet(forwardOptions, "runtime", nil) == nil {
 		coreSet(forwardOptions, "runtime", runtime)
 	}
+	// As TS evaluates each task from a fresh state, the prediction carries
+	// only this run's share of the agent's logs.
+	marks := mustCore(_agent_eval_marks(a.State))
 	output, err := a.forward(context.Background(), client, asMap(input), forwardOptions)
-	if err == nil {
-		return mustCore(_build_agent_eval_prediction(output, a.GetActionLog(), a.GetUsage(), a.ExportTrace()))
+	completion := Object("type", "final", "output", output)
+	if err != nil {
+		if clarification, ok := agentClarificationFromError(err); ok {
+			completion = Object("type", "askClarification", "clarification", clarification)
+		} else {
+			completion = Object("type", "error", "message", err.Error())
+		}
 	}
-	if clarification, ok := agentClarificationFromError(err); ok {
-		return Object("completionType", "askClarification", "clarification", clarification, "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
-	}
-	return Object("completionType", "error", "error", Object("message", err.Error()), "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(err.Error()), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
+	return mustCore(_build_agent_run_prediction(a.State, marks, completion, a.GetUsage(), a.ExportTrace()))
 }
 func (a *AxAgent) EvaluateOptimization(client AIClient, dataset Value, candidateMap map[string]Value, options map[string]Value) Value {
 	opts := options
@@ -11821,7 +11917,27 @@ func (f *conformanceScriptedAI) Stream(ctx context.Context, request map[string]V
 	return []Value{response}, nil
 }
 
+// supportsLoneSurrogates declares the runner's string model: Go strings hold
+// UTF-8, which cannot represent half of a surrogate pair, so fixtures that
+// split a pair across stream chunks are skipped here.
+const supportsLoneSurrogates = false
+
+// ConformanceSkipReason is why this runner skips a fixture, or "" to run it:
+// a fixture that requires lone surrogates needs a UTF-16 or code point
+// string model.
+func ConformanceSkipReason(fixture Value) string {
+	if !supportsLoneSurrogates && coreTruthy(coreGet(fixture, "requires_lone_surrogates", false)) {
+		return "requires lone surrogates (utf-8 runner)"
+	}
+	return ""
+}
+
+// RunConformanceFixture runs one fixture; a fixture the runner skips
+// (ConformanceSkipReason) passes without running.
 func RunConformanceFixture(fixture Value) error {
+	if ConformanceSkipReason(fixture) != "" {
+		return nil
+	}
 	_, err := safeValue(func() Value {
 		runConformanceFixture(asMap(fixture))
 		return nil
@@ -11990,6 +12106,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAIContextCache(fixture)
 	case "ai_unsupported", "ai_error":
 		runConformanceAIError(fixture)
+	case "ai_error_request":
+		runConformanceAIErrorRequest(fixture)
 	case "program_contract":
 		runConformanceProgramContract(fixture)
 	case "flow":
@@ -13098,6 +13216,7 @@ func runConformanceForward(fixture map[string]Value) {
 			assertEqual(controlEvents(), expected, "run control events")
 		}
 		conformanceAssertRequestRoles(fixture, client)
+		conformanceAssertLastRequestTail(fixture, client)
 		if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
 			panic(AxError{Category: "fixture", Message: "expected request count mismatch"})
 		}
@@ -13269,6 +13388,35 @@ func conformanceAttachControl(fixture map[string]Value, client *conformanceScrip
 	}
 }
 
+// conformanceAssertLastRequestTail compares expected_last_request_tail with
+// the last messages of the last request's chat_prompt, each by its role and
+// content (text, or a list of parts).
+func conformanceAssertLastRequestTail(fixture map[string]Value, client *conformanceScriptedAI) {
+	expected, ok := fixture["expected_last_request_tail"]
+	if !ok {
+		return
+	}
+	var prompt []Value
+	if len(client.Requests) > 0 {
+		prompt = asSlice(coreGet(client.Requests[len(client.Requests)-1], "chat_prompt", Array()))
+	}
+	start := len(prompt) - len(asSlice(expected))
+	if start < 0 {
+		start = 0
+	}
+	tail := Array()
+	for _, message := range prompt[start:] {
+		kept := Object()
+		for _, key := range []string{"role", "content"} {
+			if value, present := asMap(message)[key]; present {
+				coreSet(kept, key, value)
+			}
+		}
+		tail = append(tail, kept)
+	}
+	assertEqual(tail, expected, "last request tail")
+}
+
 // conformanceAssertRequestRoles compares expected_request_roles with the
 // chat_prompt message roles of every request, in order.
 func conformanceAssertRequestRoles(fixture map[string]Value, client *conformanceScriptedAI) {
@@ -13390,6 +13538,7 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_processor_calls", nil); expected != nil {
 		assertEqual(processorCalls, expected, "field processor calls")
 	}
+	conformanceAssertLastRequestTail(fixture, client)
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
 		for _, item := range asSlice(expected) {
@@ -14195,6 +14344,11 @@ func runConformanceProviderOperation(fixture map[string]Value, op string) {
 		case "speak":
 			output = mustCore(provider_build_speak_request(profile, request, coreGet(fixture, "options", Object())))
 		case "realtime":
+			if expected := coreGet(fixture, "expected_ws_url", nil); expected != nil {
+				wsModel := coreGet(fixture, "model", coreGet(request, "model", ""))
+				target := mustCore(provider_realtime_ws_url(profile, display(wsModel), display(coreGet(fixture, "api_key", "test-key")), coreGet(fixture, "service_options", coreGet(fixture, "options", Object()))))
+				assertEqual(coreGet(target, "url", nil), expected, "realtime WebSocket URL")
+			}
 			if expected := coreGet(fixture, "expected_setup", nil); expected != nil {
 				assertSubset(mustCore(provider_build_realtime_audio_setup(profile, request, coreGet(fixture, "options", Object()))), expected, "realtime setup")
 			}
@@ -14230,7 +14384,7 @@ func conformanceProviderDefaultModel(profile string) string {
 	return display(coreGet(descriptor, "defaultModel", ""))
 }
 func runConformanceAIError(fixture map[string]Value) {
-	client, _ := conformanceAIClient(fixture)
+	client, transport := conformanceAIClient(fixture)
 	method := display(coreGet(fixture, "method", "chat"))
 	request := asMap(coreGet(fixture, "request", Object()))
 	options := asMap(coreGet(fixture, "options", Object()))
@@ -14260,19 +14414,58 @@ func runConformanceAIError(fixture map[string]Value) {
 		}
 		axErr = AxError{Category: "runtime", Message: err.Error()}
 	}
+	assertConformanceAIErrorAttributes(err, axErr, fixture)
+	assertTransportRequest(fixture, transport)
+}
+
+// assertConformanceAIErrorAttributes checks an AI error's type, status, the
+// strings it must never carry, and the request it keeps (TypeScript's url and
+// body, which Go keeps as AxError.URL and AxError.RequestBody).
+func assertConformanceAIErrorAttributes(err error, axErr AxError, fixture map[string]Value) {
 	if expected := display(coreGet(fixture, "expected_error_type", "")); expected != "" && axErr.Type != expected {
 		panic(AxError{Category: "fixture", Message: "expected error type " + expected + ", got " + axErr.Type})
 	}
 	if expected := coreGet(fixture, "expected_status", nil); expected != nil && axErr.Status != int(num(expected)) {
 		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected status %d, got %d", int(num(expected)), axErr.Status)})
 	}
-	// Go AI errors keep no request (AxError has no request field), so there is
-	// no expected_error_request to compare; the text check below still fails if
-	// anything the error carries holds a secret or, where excluded, the body.
 	text := conformanceErrorText(err)
 	for _, needle := range asSlice(coreGet(fixture, "expected_error_excludes", Array())) {
 		if strings.Contains(text, display(needle)) {
 			panic(AxError{Category: "fixture", Message: "error unexpectedly carries " + display(needle) + ": " + text})
+		}
+	}
+	if expected := coreGet(fixture, "expected_error_request", nil); expected != nil {
+		if url := display(coreGet(expected, "url", "")); axErr.URL != url {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected error request url %q, got %q", url, axErr.URL)})
+		}
+		body := coreGet(expected, "json", coreGet(expected, "data", nil))
+		if body == nil && axErr.RequestBody != nil {
+			panic(AxError{Category: "fixture", Message: "error unexpectedly keeps the request body: " + stableStringify(axErr.RequestBody)})
+		}
+		if body != nil {
+			if axErr.RequestBody == nil {
+				panic(AxError{Category: "fixture", Message: "error dropped the request body"})
+			}
+			assertSubset(axErr.RequestBody, body, "error request body")
+		}
+	}
+}
+
+// runConformanceAIErrorRequest calls Core's error-request view directly
+// ("view") and the provider error normalizer with a raw call ("normalize").
+func runConformanceAIErrorRequest(fixture map[string]Value) {
+	operation := display(coreGet(fixture, "operation", "view"))
+	for index, raw := range asSlice(coreGet(fixture, "cases", Array())) {
+		item := asMap(raw)
+		switch operation {
+		case "view":
+			actual := mustCore(_ai_error_request(coreGet(item, "call", nil), coreGet(item, "options", nil)))
+			assertEqual(actual, coreGet(item, "expected", nil), fmt.Sprintf("error request view case %d", index))
+		case "normalize":
+			axErr := asAxError(mustCore(openai_normalize_error(coreGet(item, "status", nil), coreGet(item, "body", nil), coreGet(item, "call", nil), coreGet(item, "options", nil))))
+			assertConformanceAIErrorAttributes(axErr, axErr, item)
+		default:
+			panic(AxError{Category: "fixture", Message: "unsupported error-request operation " + operation})
 		}
 	}
 }
@@ -14517,7 +14710,12 @@ func runConformanceFlowMermaid(fixture map[string]Value) {
 		built := NewFlow(Object())
 		for _, raw := range asSlice(coreGet(fixture, "builder_steps", Array())) {
 			step := asMap(raw)
-			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), Object("reads", coreGet(step, "reads", Array())))
+			// A builder step without "reads" declares none.
+			options := Object()
+			if reads, ok := step["reads"]; ok {
+				options["reads"] = reads
+			}
+			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), options)
 		}
 		assertEqual(built.String(), coreGet(fixture, "expected_rendered", ""), "flow mermaid builder render")
 		return
@@ -14748,6 +14946,11 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		prediction := ag.EvaluateOptimizationTask(client, task, asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil {
 			assertSubset(prediction, expected, "eval prediction")
+		}
+		// Fields that must match exactly: a list compares in full.
+		fields := asMap(coreGet(fixture, "expected_prediction_fields", Object()))
+		for _, key := range orderedKeys(fields) {
+			assertEqual(coreGet(prediction, key, nil), fields[key], "eval prediction "+key)
 		}
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
@@ -15231,7 +15434,15 @@ func conformanceBuildProgram(fixture map[string]Value) AxProgram {
 	tools, _ := conformanceBuildTools(coreGet(fixture, "tools", Array()))
 	switch display(coreGet(fixture, "program", "axgen")) {
 	case "agent":
-		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), asMap(coreGet(fixture, "options", Object())))
+		options := asMap(coreGet(fixture, "options", Object()))
+		// An agent's runtime_script runs its actor code, as in the agent fixtures.
+		if script := coreGet(fixture, "runtime_script", nil); script != nil {
+			options = cloneMap(options)
+			runtime := newConformanceScriptedCodeRuntime(script, Object())
+			runtime.LanguageName = display(coreGet(fixture, "runtime_language", "JavaScript"))
+			coreSet(options, "runtime", runtime)
+		}
+		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 		ag.Executor.Functions = tools
 		return ag
 	case "flow":

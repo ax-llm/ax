@@ -46,4 +46,5 @@ output = program.forward(
     client,
     {"request": "A customer says checkout is down for their enterprise account."},
 )
+assert all(output.get(key) for key in ("route", "response")), output
 print(json.dumps(output, indent=2, sort_keys=True))
