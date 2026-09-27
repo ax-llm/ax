@@ -2714,7 +2714,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `cargo run --example cancellation_no_key`: one-shot provider cancellation with no transport attempt",
 				"- `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool",
 				"- `cargo run --example axgen_streaming_no_key`: `streaming_forward` field deltas, streaming assertions, field processor feedback, field transforms, and `AxFlow::streaming_forward` through a scripted streaming client",
-				"- `cargo run --example axflow_program_graph`: AxFlow program graph",
+				"- `cargo run --example axflow_program_graph`: AxFlow program graph and a caching function, whose hits run no node and record no span",
 				"- `cargo run --example flow_mermaid`: portable Mermaid flow parsing and canonical round-trip",
 				"- `cargo run --example audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `cargo run --example realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding",
