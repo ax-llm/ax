@@ -692,14 +692,11 @@ public final class AxAgent implements AxProgram {
   private void attachConfiguredPlaybook() {
     Map<String, Object> config = this.playbookConfig instanceof Map<?, ?> ? new LinkedHashMap<>(Core.asMap(this.playbookConfig)) : new LinkedHashMap<>();
     config.putIfAbsent("maxReflectorRounds", 1);
-    Object seed = config.get("seed");
-    if (seed == null && (config.containsKey("playbook") || config.containsKey("artifact"))) seed = config;
+    // TS's `playbook` seed (a snapshot or a bare playbook), or the older `seed`
+    // key with a deprecation warning.
+    Object seed = Core._agent_playbook_config_seed(config);
     playbook(config);
-    if (seed instanceof Map<?, ?> seedMap) {
-      Map<String, Object> snapshot = Core.asMap(seedMap);
-      if (snapshot.containsKey("playbook")) playbookHandle.load(snapshot);
-      else playbookHandle.load(new LinkedHashMap<>(Map.of("playbook", snapshot)));
-    }
+    if (seed instanceof Map<?, ?> seedMap) playbookHandle.load(Core.asMap(seedMap));
   }
 
   @SuppressWarnings("unchecked")

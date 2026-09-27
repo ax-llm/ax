@@ -473,11 +473,16 @@ final class Core {
   static Object stringWords(Object value) { return Arrays.asList(String.valueOf(value).split("\\s+")); }
   static Object stringDefaultIfEmpty(Object value, Object fallback) { String text = String.valueOf(value).trim(); return text.isEmpty() ? fallback : text; }
   static Object stringFormat(Object template, Object... args) {
+    // Each value fills the next {} after the previous one, so a value that
+    // itself contains {} is not formatted again.
     String out = String.valueOf(template);
+    int cursor = 0;
     for (Object arg : args) {
-      int index = out.indexOf("{}");
+      int index = out.indexOf("{}", cursor);
       if (index < 0) break;
-      out = out.substring(0, index) + display(arg) + out.substring(index + 2);
+      String text = display(arg);
+      out = out.substring(0, index) + text + out.substring(index + 2);
+      cursor = index + text.length();
     }
     return out;
   }

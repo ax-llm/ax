@@ -5586,17 +5586,20 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         .as_str().unwrap_or_default().to_string();
     if !playbook_config.is_null() && playbook_config.as_bool() != Some(false) {
         let config = playbook_config.as_object().cloned().unwrap_or_default();
-        let seed = config.get("seed").cloned().or_else(|| {
-            if config.contains_key("playbook") || config.contains_key("artifact") { Some(playbook_config.clone()) } else { config.get("initialPlaybook").cloned().or_else(|| config.get("initial_playbook").cloned()) }
-        });
+        // TS's `playbook` seed (a snapshot or a bare playbook), or the older
+        // `seed` key with a deprecation warning; else an initialPlaybook.
+        let seed = core_value_to_json(&_agent_playbook_config_seed(&[core_value_from_json(&playbook_config)])?);
+        let seed = if seed.is_null() {
+            config.get("initialPlaybook").or_else(|| config.get("initial_playbook")).cloned().map(|value| json!({"playbook": value}))
+        } else {
+            Some(seed)
+        };
         // As TS's handle.getState() after loading the seed: the engine's playbook
         // and artifact. Without a seed the playbook is empty and stamped with the
         // engine clock (the config's `now`, as the other ports read it).
         let mut engine = AxACE::new(playbook_engine_clock(&config));
-        match seed {
-            Some(value) if value.get("playbook").is_some() => engine.hydrate(&value),
-            Some(value) => engine.hydrate(&json!({"playbook": value})),
-            None => {}
+        if let Some(value) = seed {
+            engine.hydrate(&value);
         }
         playbook_snapshot = json!({"playbook": engine.get_playbook(), "artifact": engine.get_artifact()});
         let rendered = core_value_to_json(&_ace_render_playbook(&[core_value_from_json(playbook_snapshot.get("playbook").unwrap_or(&Value::Null))])?)
@@ -8704,24 +8707,15 @@ fn playbook_record_signature(record: &Value) -> String {
         return error.lines().next().unwrap_or(error).chars().take(100).collect();
     }
     if let Some(error) = record.get("error").and_then(Value::as_str) { return playbook_error_signature(error); }
-    let action_log = prediction.get("actionLog").map(|value| value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string())).unwrap_or_default();
+    // The action log as TS's prediction carries it: the executor's code steps as text.
+    let action_log = _agent_playbook_action_log_text(&[core_value_from_json(prediction.get("actionLog").unwrap_or(&Value::Null))])
+        .map(|value| value.text())
+        .unwrap_or_default();
     let pattern = regex::Regex::new(r"(?m)^\s*(\w+Error:\s*.{0,60})").unwrap();
     if let Some(value) = pattern.captures(&action_log).and_then(|captures| captures.get(1)) {
         return playbook_error_signature(value.as_str());
     }
     "behavioral:no_error".to_string()
-}
-
-fn playbook_failure_excerpt(record: &Value, signature: &str) -> String {
-    if let Some(error) = record.get("error").and_then(Value::as_str) { return format!("Run threw: {error}"); }
-    let action_log = record.get("prediction").and_then(|prediction| prediction.get("actionLog")).map(|value| value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string())).unwrap_or_default();
-    if action_log.chars().count() <= 2000 { return action_log; }
-    let needle = signature.chars().take(40).collect::<String>();
-    let hit = action_log.find(&needle);
-    if hit.is_none() { return action_log.chars().rev().take(2000).collect::<String>().chars().rev().collect(); }
-    let hit_chars = action_log[..hit.unwrap()].chars().count();
-    let start = hit_chars.saturating_sub(1000);
-    action_log.chars().skip(start).take(2000).collect()
 }
 
 fn run_agent_playbook_batch<C: AxAIClient>(
@@ -9135,24 +9129,15 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
         let mut weaknesses = Vec::new();
         let mut outcomes = Vec::new();
         for (index, (signature, records)) in ranked.into_iter().enumerate() {
-            let selected = records.iter().take(4).collect::<Vec<_>>();
-            let bodies = selected.iter().map(|record| playbook_failure_excerpt(record, &signature)).collect::<Vec<_>>();
-            if bodies.iter().all(|body| playbook_collapse(body).is_empty()) { continue; }
-            let excerpts = bodies.iter().enumerate().map(|(record_index, body)| format!("--- run {} ---\n{}", record_index + 1, body)).collect::<Vec<_>>().join("\n\n");
-            let task_summaries = selected.iter().enumerate().map(|(record_index, record)| {
-                let task = record.get("task").unwrap_or(&Value::Null);
-                let label = task.get("id").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("#{}", record_index + 1));
-                let mut input = task.get("input").cloned().unwrap_or(Value::Null).to_string();
-                input = input.chars().take(240).collect();
-                format!("- {label} (score {:.2}): {input}", record.get("score").and_then(Value::as_f64).unwrap_or(0.0))
-            }).collect::<Vec<_>>().join("\n");
-            let function_calls = selected.iter().flat_map(|record| record.get("prediction").and_then(|prediction| prediction.get("functionCalls")).and_then(Value::as_array).cloned().unwrap_or_default()).take(20).map(|call| call.to_string()).collect::<Vec<_>>();
-            let tool_errors = selected.iter().flat_map(|record| record.get("prediction").and_then(|prediction| prediction.get("toolErrors")).and_then(Value::as_array).cloned().unwrap_or_default()).take(10).map(|error| error.as_str().map(str::to_string).unwrap_or_else(|| error.to_string())).collect::<Vec<_>>();
-            let mut request = json!({"clusterSignature":signature.clone(),"taskSummaries":task_summaries,"actionLogExcerpts":excerpts.clone()});
-            if !function_calls.is_empty() { request["functionCallSummary"] = json!(function_calls.join("\n")); }
-            if !tool_errors.is_empty() { request["toolErrors"] = json!(tool_errors.join("\n")); }
-            let current_playbook = self.render();
-            if !current_playbook.trim().is_empty() { request["currentPlaybook"] = json!(current_playbook); }
+            // TS's miner inputs: task summaries, action-log excerpts, function
+            // calls and tool errors of up to four records; none without an excerpt.
+            let request = core_value_to_json(&_agent_playbook_miner_inputs(&[
+                CoreValue::from(signature.as_str()),
+                core_value_from_json(&Value::Array(records.clone())),
+                CoreValue::from(self.render().as_str()),
+            ])?);
+            if !request.is_object() { continue; }
+            let excerpts = request.get("actionLogExcerpts").and_then(Value::as_str).unwrap_or_default().to_string();
             let mut miner = AxGen::with_signature(agent_playbook_weakness_miner_signature());
             miner.options = json!({"id":"agent.playbook.weakness-miner"});
             let mined = match &teacher {
@@ -11348,6 +11333,20 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
                 .map(|message| message.get("content").cloned().unwrap_or(Value::Null))
                 .collect::<Vec<_>>();
             expect_json_equal(&format!("{label} teacher system prompts"), &Value::Array(prompts), expected_prompts)?;
+        }
+        if let Some(expected_messages) = test_case.get("expected_teacher_user_messages") {
+            // Each teacher request's user message, in call order, byte for byte.
+            let messages = teacher
+                .as_ref()
+                .unwrap_or(&playbook_client)
+                .borrow()
+                .requests
+                .iter()
+                .flat_map(|request| request.get("chat_prompt").and_then(Value::as_array).cloned().unwrap_or_default())
+                .filter(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+                .map(|message| message.get("content").cloned().unwrap_or(Value::Null))
+                .collect::<Vec<_>>();
+            expect_json_equal(&format!("{label} teacher user messages"), &Value::Array(messages), expected_messages)?;
         }
         let Some(outcome) = outcomes.first() else {
             if expected.get("outcome_count").and_then(Value::as_u64) == Some(0) { continue; }

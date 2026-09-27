@@ -1,0 +1,60 @@
+{
+  "name": "function-call-name-with-braces",
+  "kind": "forward",
+  "signature": "query:string -> answer:string",
+  "input": {
+    "query": "ax docs"
+  },
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Docs"
+      },
+      "returns": {
+        "title": {
+          "type": "string"
+        }
+      }
+    }
+  ],
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "",
+          "function_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "look{}up",
+                "params": {
+                  "query": "ax docs"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "content": "{\"answer\":\"Docs\"}"
+    }
+  ],
+  "expected_tool_calls": [],
+  "expected_request_contains": [
+    "Function not found: look{}up. Available functions: search. Call one of these exact function names."
+  ],
+  "expected_output": {
+    "answer": "Docs"
+  },
+  "expected_request_count": 2
+}
