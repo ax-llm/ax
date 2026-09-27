@@ -46,7 +46,7 @@ final class ResponsesChatSession implements AxChatSession {
     executor.execute(()->{
       OpenAICompatibleClient.RawSseStream reader=null;
       try {
-        reader=client.requestSse(client.operationPath("stream_chat",model),payload,model);
+        reader=client.requestSse(client.operationPath("stream_chat",model),payload,model,options);
         readers.add(reader);
         if(closed.get()) return;
         boolean complete=false;

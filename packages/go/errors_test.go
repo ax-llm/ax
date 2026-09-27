@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"encoding/base64"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -99,6 +100,21 @@ func TestErrorsAsReachesAxErrorThroughServiceError(t *testing.T) {
 		if envelope.Status != 429 || envelope.Code != "rate_limit_exceeded" || !envelope.Retryable {
 			t.Fatalf("%s: envelope = %+v, want a retryable 429", name, envelope)
 		}
+	}
+}
+
+// A failed realtime dial repeats the URL, and a Gemini Live URL carries the API
+// key in its query (?key=). The error keeps the URL but not the query.
+func TestRealtimeDialErrorOmitsURLQuery(t *testing.T) {
+	_, err := dialRealtimeWebSocket(context.Background(), "ws://127.0.0.1:1/ws?key=sk-dial-secret", http.Header{})
+	if err == nil {
+		t.Fatal("expected the dial to fail")
+	}
+	if text := err.Error() + fmt.Sprintf("%#v", err); strings.Contains(text, "sk-dial-secret") {
+		t.Fatalf("dial error carries the key: %s", text)
+	}
+	if !strings.Contains(err.Error(), "127.0.0.1:1/ws?***") {
+		t.Fatalf("dial error = %q, want the URL with its query masked", err.Error())
 	}
 }
 

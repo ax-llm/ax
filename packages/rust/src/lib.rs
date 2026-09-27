@@ -4628,6 +4628,16 @@ fn realtime_event_is_done(event: &Value) -> bool {
     turn_complete && !in_progress
 }
 
+// A failed realtime connect repeats the URL, and a Gemini Live URL carries the
+// API key in its query (?key=), so the error masks the query.
+#[cfg_attr(not(feature = "realtime"), allow(dead_code))]
+fn redact_url_query(message: &str, url: &str) -> String {
+    match url.split_once('?') {
+        Some((_, query)) if !query.is_empty() => message.replace(&format!("?{query}"), "?***"),
+        _ => message.to_string(),
+    }
+}
+
 #[cfg(feature = "realtime")]
 pub struct WsRealtimeTransport {
     socket: tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>,
@@ -4660,7 +4670,7 @@ impl WsRealtimeTransport {
         use tungstenite::client::IntoClientRequest;
         let mut request = url
             .into_client_request()
-            .map_err(|e| AxError::runtime(e.to_string()))?;
+            .map_err(|e| AxError::runtime(redact_url_query(&e.to_string(), url)))?;
         for (key, value) in headers {
             let name = tungstenite::http::header::HeaderName::from_bytes(key.as_bytes())
                 .map_err(|e| AxError::runtime(e.to_string()))?;
@@ -4668,8 +4678,8 @@ impl WsRealtimeTransport {
                 .map_err(|e| AxError::runtime(e.to_string()))?;
             request.headers_mut().insert(name, val);
         }
-        let (socket, _) =
-            tungstenite::connect(request).map_err(|e| AxError::runtime(e.to_string()))?;
+        let (socket, _) = tungstenite::connect(request)
+            .map_err(|e| AxError::runtime(redact_url_query(&e.to_string(), url)))?;
         Ok(Self { socket })
     }
 
@@ -16077,16 +16087,46 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
         .and_then(Value::as_str)
         .unwrap_or(default_method);
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
-    let result: AxResult<Value> = match method {
-        "stream" => client.stream(request).map(Value::Array),
-        "embed" => client.embed(request),
-        "transcribe" => client.transcribe(request),
-        "speak" => client.speak(request),
-        _ => client.chat(request),
+    // Fixture "options" are the call options when service_options configure the client.
+    let call_options = fixture
+        .get("service_options")
+        .and(fixture.get("options"))
+        .cloned();
+    let result: AxResult<Value> = match (method, call_options) {
+        ("stream", Some(options)) => client
+            .stream_with_options(request, options)
+            .map(Value::Array),
+        ("stream", None) => client.stream(request).map(Value::Array),
+        ("embed", _) => client.embed(request),
+        ("transcribe", _) => client.transcribe(request),
+        ("speak", _) => client.speak(request),
+        (_, Some(options)) => client.chat_with_options(request, options),
+        (_, None) => client.chat(request),
     };
     let Err(err) = result else {
         return Err(AxError::new("fixture", "expected AxAI call to fail"));
     };
+    // Rust AI errors keep no request (AxError has no request field), so there is
+    // no expected_error_request to compare; this text check still fails if
+    // anything the error carries holds a secret or, where excluded, the body.
+    let text = format!(
+        "{err}\n{err:?}\n{}",
+        serde_json::to_string(&err).unwrap_or_default()
+    );
+    for needle in fixture
+        .get("expected_error_excludes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let needle = needle.as_str().unwrap_or_default();
+        if text.contains(needle) {
+            return Err(AxError::new(
+                "fixture",
+                format!("error unexpectedly carries {needle:?}: {text}"),
+            ));
+        }
+    }
     if let Some(expected) = fixture
         .get("expected_error_contains")
         .and_then(Value::as_str)
@@ -24837,7 +24877,10 @@ fn fixture_client(
         options["api_key"] = json!("");
     }
     if options.get("api_key").is_none() {
-        options["api_key"] = json!("test-key");
+        options["api_key"] = fixture
+            .get("api_key")
+            .cloned()
+            .unwrap_or_else(|| json!("test-key"));
     }
     let mut client = ai(provider, options)?.with_transport(transport);
     if let Some(credential_fixture) = fixture.get("credential_provider_fixture") {
@@ -33388,6 +33431,22 @@ fn python_repr(value: &Value) -> String {
 
 #[cfg(test)]
 mod request_url_security_tests {
+    // A failed realtime connect repeats the URL, whose Gemini Live query holds the key.
+    #[test]
+    fn realtime_connect_errors_mask_the_url_query() {
+        let url = "wss://generativelanguage.googleapis.com/ws/live?key=sk-connect-secret";
+        let masked =
+            super::redact_url_query(&format!("URL error: Unable to connect to {url}"), url);
+        assert_eq!(
+            masked,
+            "URL error: Unable to connect to wss://generativelanguage.googleapis.com/ws/live?***"
+        );
+        assert_eq!(
+            super::redact_url_query("IO error", "wss://host/ws"),
+            "IO error"
+        );
+    }
+
     #[test]
     fn meta_replay_metadata_survives_partial_updates() {
         use super::*;

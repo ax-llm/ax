@@ -1,5 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { inspect } from 'node:util';
+import { AxAIAnthropic } from '../../../src/ax/ai/anthropic/api.js';
+import { AxAIAnthropicModel } from '../../../src/ax/ai/anthropic/types.js';
 import { AxBalancer } from '../../../src/ax/ai/balance.js';
 import {
   AxInMemoryBalancerStatsStore,
@@ -13,7 +16,10 @@ import {
   AxAIGoogleGemini,
   axAIGoogleGeminiLiveAudioDefaultConfig,
 } from '../../../src/ax/ai/google-gemini/api.js';
-import { AxAIGoogleGeminiEmbedModel } from '../../../src/ax/ai/google-gemini/types.js';
+import {
+  AxAIGoogleGeminiEmbedModel,
+  AxAIGoogleGeminiModel,
+} from '../../../src/ax/ai/google-gemini/types.js';
 import { AxMultiServiceRouter } from '../../../src/ax/ai/multiservice.js';
 import { AxAIOpenAI } from '../../../src/ax/ai/openai/api.js';
 import { AxAIOpenAIModel } from '../../../src/ax/ai/openai/chat_types.js';
@@ -31,6 +37,7 @@ import {
 import { axValidateToolArguments } from '../../../src/ax/dsp/toolArguments.js';
 import {
   AxAIServiceAuthenticationError,
+  AxAIServiceError,
   AxAIServiceNetworkError,
   AxAIServiceResponseError,
   AxAIServiceStatusError,
@@ -12609,3 +12616,240 @@ writeFixture('openai-wire-json-numbers', {
   ),
   expected_transport_wire_json_contains: wireNumberNeedles,
 });
+
+// Provider errors never carry credentials. TypeScript's AxAIServiceError keeps
+// the URL and the request body, and never the request headers, which hold the
+// API key or the credential provider's tokens. includeRequestBodyInErrors
+// (default true; the call option overrides the client option) takes the body
+// out of the error TypeScript prints. The ports' errors have no printed form
+// with a body, so their error request is that printed view: the URL, plus the
+// body unless includeRequestBodyInErrors is false. Go, Rust and C++ errors keep
+// no request at all; every port checks the secret appears nowhere in the error.
+const errorApiKey = 'sk-fixture-secret-key-7b41';
+const errorCredentialToken = 'fixture-credential-token-5d08';
+const errorBodyMarker = 'fixture-body-marker-2c9e';
+const errorPrompt = [{ role: 'user', content: errorBodyMarker }];
+const errorResponse = (status: number) => ({
+  status,
+  json: { error: { message: `scripted ${status}`, code: 'invalid_request' } },
+});
+type ErrorClient = {
+  chat: (request: any, options?: any) => Promise<unknown>;
+};
+
+async function tsProviderError(
+  make: (fetch: typeof globalThis.fetch) => ErrorClient,
+  status: number,
+  callOptions?: Record<string, unknown>,
+  stream = false
+) {
+  let fetchCount = 0;
+  let sentHeaders = '';
+  const fetch = (async (_url: unknown, init?: RequestInit) => {
+    fetchCount++;
+    sentHeaders = JSON.stringify(init?.headers ?? {});
+    return Response.json(errorResponse(status).json, { status });
+  }) as typeof globalThis.fetch;
+  try {
+    await make(fetch).chat(
+      { chatPrompt: errorPrompt, modelConfig: { stream } },
+      callOptions
+    );
+  } catch (error) {
+    if (!(error instanceof AxAIServiceError)) throw error;
+    return { error, fetchCount, sentHeaders };
+  }
+  throw new Error('TS provider call did not fail');
+}
+
+function providerErrorFixture(
+  name: string,
+  result: Awaited<ReturnType<typeof tsProviderError>>,
+  secret: string,
+  bodyKey: 'messages' | 'contents',
+  fixture: Fixture
+) {
+  const { error, fetchCount, sentHeaders } = result;
+  if (!sentHeaders.includes(secret)) {
+    throw new Error(`${name}: TS did not send ${secret}`);
+  }
+  // What a logger, tracer or error reporter prints or serializes.
+  const printed = [
+    String(error),
+    error.stack ?? '',
+    inspect(error, { depth: 20 }),
+  ].join('\n');
+  if (printed.includes(secret) || JSON.stringify(error).includes(secret)) {
+    throw new Error(`${name}: the TS error carries ${secret}`);
+  }
+  const printsBody = printed.includes(errorBodyMarker);
+  if (printsBody !== error.includeRequestBodyInErrors) {
+    throw new Error(`${name}: the TS error prints its body against the flag`);
+  }
+  const requestBody = error.requestBody as Record<string, Json>;
+  writeFixture(name, {
+    kind: 'ai_error',
+    ...fixture,
+    request: {
+      chat_prompt: errorPrompt,
+      model_config: { stream: fixture.method === 'stream' },
+    },
+    expected_error_type: error.name,
+    ...(error instanceof AxAIServiceStatusError
+      ? { expected_status: error.status }
+      : {}),
+    expected_error_excludes: printsBody ? [secret] : [secret, errorBodyMarker],
+    expected_error_request: {
+      url: error.url,
+      ...(printsBody ? { json: { [bodyKey]: requestBody[bodyKey] } } : {}),
+    },
+    expected_transport_request_count: fetchCount,
+  });
+}
+
+const openAIErrorClient =
+  (options: Record<string, unknown> = {}, credentials = false) =>
+  (fetch: typeof globalThis.fetch): ErrorClient =>
+    new AxAIOpenAI({
+      name: 'openai',
+      ...(credentials
+        ? {
+            credentialProvider: async () => ({
+              Authorization: `Bearer ${errorCredentialToken}`,
+            }),
+          }
+        : { apiKey: errorApiKey }),
+      config: { model: AxAIOpenAIModel.GPT54Mini },
+      options: { fetch, ...options },
+    } as any);
+
+providerErrorFixture(
+  'provider-error-omits-credentials',
+  await tsProviderError(openAIErrorClient(), 400),
+  errorApiKey,
+  'messages',
+  {
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT54Mini,
+    api_key: errorApiKey,
+    transport_responses: [errorResponse(400)],
+  }
+);
+
+providerErrorFixture(
+  'provider-error-client-option-omits-body',
+  await tsProviderError(
+    openAIErrorClient({ includeRequestBodyInErrors: false }),
+    400
+  ),
+  errorApiKey,
+  'messages',
+  {
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT54Mini,
+    api_key: errorApiKey,
+    service_options: { includeRequestBodyInErrors: false },
+    transport_responses: [errorResponse(400)],
+  }
+);
+
+// The call option wins over the client option.
+providerErrorFixture(
+  'provider-error-call-option-omits-body',
+  await tsProviderError(
+    openAIErrorClient({ includeRequestBodyInErrors: true }),
+    400,
+    { includeRequestBodyInErrors: false }
+  ),
+  errorApiKey,
+  'messages',
+  {
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT54Mini,
+    api_key: errorApiKey,
+    service_options: { includeRequestBodyInErrors: true },
+    options: { includeRequestBodyInErrors: false },
+    transport_responses: [errorResponse(400)],
+  }
+);
+
+providerErrorFixture(
+  'provider-error-omits-credential-provider-token',
+  await tsProviderError(openAIErrorClient({}, true), 401),
+  errorCredentialToken,
+  'messages',
+  {
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT54Mini,
+    credential_provider_fixture: {
+      headers: [{ Authorization: `Bearer ${errorCredentialToken}` }],
+    },
+    transport_responses: [errorResponse(401)],
+    expected_status: 401,
+  }
+);
+
+providerErrorFixture(
+  'provider-error-anthropic-omits-api-key',
+  await tsProviderError(
+    (fetch) =>
+      new AxAIAnthropic({
+        apiKey: errorApiKey,
+        config: { model: AxAIAnthropicModel.Claude5Sonnet },
+        options: { fetch },
+      } as any),
+    401
+  ),
+  errorApiKey,
+  'messages',
+  {
+    provider: 'anthropic',
+    model: AxAIAnthropicModel.Claude5Sonnet,
+    api_key: errorApiKey,
+    transport_responses: [errorResponse(401)],
+    expected_status: 401,
+  }
+);
+
+providerErrorFixture(
+  'provider-error-gemini-omits-api-key',
+  await tsProviderError(
+    (fetch) =>
+      new AxAIGoogleGemini({
+        apiKey: errorApiKey,
+        config: { model: AxAIGoogleGeminiModel.Gemini36Flash },
+        options: { fetch },
+      } as any),
+    400
+  ),
+  errorApiKey,
+  'contents',
+  {
+    provider: 'google-gemini',
+    model: AxAIGoogleGeminiModel.Gemini36Flash,
+    api_key: errorApiKey,
+    transport_responses: [errorResponse(400)],
+  }
+);
+
+// The error left once the stream's retries run out.
+const errorRetry = { maxRetries: 1, initialDelayMs: 0, maxDelayMs: 0 };
+providerErrorFixture(
+  'provider-error-stream-retries-omit-credentials',
+  await tsProviderError(
+    openAIErrorClient({ retry: errorRetry, includeRequestBodyInErrors: false }),
+    500,
+    undefined,
+    true
+  ),
+  errorApiKey,
+  'messages',
+  {
+    method: 'stream',
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT54Mini,
+    api_key: errorApiKey,
+    service_options: { retry: errorRetry, includeRequestBodyInErrors: false },
+    transport_responses: [errorResponse(500), errorResponse(500)],
+  }
+);
