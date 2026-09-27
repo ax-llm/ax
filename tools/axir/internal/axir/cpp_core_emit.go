@@ -467,6 +467,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicAgentRuntimeExport:        "Core::agent_runtime_export_state",
 	IntrinsicAgentRuntimeRestore:       "Core::agent_runtime_restore_state",
 	IntrinsicAgentRuntimeClose:         "Core::agent_runtime_close",
+	IntrinsicAgentRuntimeLanguage:      "Core::agent_runtime_language",
 	IntrinsicAgentMemorySearch:         "Core::agent_memory_search",
 	IntrinsicAgentSkillSearch:          "Core::agent_skill_search",
 	IntrinsicAgentObserverNotify:       "Core::agent_observer_notify",

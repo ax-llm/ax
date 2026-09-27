@@ -236,6 +236,11 @@ type Case = {
   // date fields typed as strings, which gives that text; the fixture keeps the
   // date-typed signature and says why in its description.
   keeps_date_text?: string;
+  // The ports' agent gets no runtime on the constructor and the scripted
+  // runtime on the forward call, as the ports' examples pass one. TS's
+  // agent(sig, {}) runs with its default JavaScript runtime; the extractor
+  // gives TS the scripted runtime in its place.
+  runtime_on_forward?: boolean;
 };
 
 const DATE_TYPES = /:(datetimeRange|dateRange|datetime|date)\b/g;
@@ -344,10 +349,9 @@ async function record(name: string, spec: Case): Promise<void> {
     kind,
     signature,
     input,
-    options: {
-      ...clone(spec.options ?? {}),
-      runtime: { language: 'JavaScript' },
-    },
+    options: spec.runtime_on_forward
+      ? clone(spec.options ?? {})
+      : { ...clone(spec.options ?? {}), runtime: { language: 'JavaScript' } },
     features,
     responses: spec.responses,
     runtime_script: spec.runtime_script,
@@ -365,6 +369,7 @@ async function record(name: string, spec: Case): Promise<void> {
     'observers',
     'control',
     'control_steer',
+    'runtime_on_forward',
     'stop_after_deltas',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = clone(spec[key]);
@@ -629,6 +634,12 @@ const cases: Record<string, Case> = {
     responses: [...playbookActors(), answerStream(), ...playbookTeacher()],
     runtime_script: playbookRuntime(),
   },
+  'agent-streaming-forward-runtime-on-forward': {
+    options: { directResponse: 'off' },
+    runtime_on_forward: true,
+    responses: [...baseActors(), answerStream()],
+    runtime_script: baseRuntime(),
+  },
   'agent-streaming-forward-parse-dates': {
     signature: DATED,
     options: { directResponse: 'off', parse_dates: true },
@@ -748,6 +759,13 @@ const cases: Record<string, Case> = {
       ...playbookTeacher(),
     ],
     runtime_script: playbookRuntime(),
+  },
+  'agent-forward-runtime-on-forward': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    runtime_on_forward: true,
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
   },
   'agent-forward-parse-dates': {
     kind: 'agent_forward',

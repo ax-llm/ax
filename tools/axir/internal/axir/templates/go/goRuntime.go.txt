@@ -7074,6 +7074,17 @@ type AxAgent struct {
 	// prompt, kept to rebind the playbook when SetSignature rebuilds stages.
 	playbookTarget string
 	playbookApply  bool
+	// Each run uses the stage set of its mode (see useStageMode): "runtime",
+	// the RLM stages, or "plain", the runtime-less stages. The other mode's
+	// set is built on first use and kept; optimizedComponents apply to a set
+	// when a run switches to it.
+	stageMode           string
+	stageSets           map[string]agentStageSet
+	optimizedComponents map[string]Value
+}
+
+type agentStageSet struct {
+	distiller, executor, responder *AxGen
 }
 
 // AxMemoriesSearchFn / AxSkillsSearchFn are native host callbacks the agent invokes (from the agent
@@ -7114,8 +7125,60 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
 	a := &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: newAgentResponder(state, responderSignature, options), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions), ExecutionContext: executionContext, ExecutionContextError: contextErr, PlaybookConfig: coreGet(options, "playbook", nil), RuntimeHooks: hooks}
+	a.resetStageSets()
 	a.attachConfiguredPlaybook()
 	return a
+}
+
+// resetStageSets makes the stages just built the only stage set, for the
+// mode the agent was built in.
+func (a *AxAgent) resetStageSets() {
+	a.stageMode = "plain"
+	if coreTruthy(coreGet(a.State, "runtime_enabled", false)) {
+		a.stageMode = "runtime"
+	}
+	a.stageSets = map[string]agentStageSet{a.stageMode: {a.Distiller, a.Executor, a.Responder}}
+	a.optimizedComponents = map[string]Value{}
+}
+
+// useStageMode gives the run the stages of its runtime: the constructor's,
+// else the forward call's; without one, the runtime-less stages run. A set
+// coming back into use takes the instructions from the agent's state (a
+// standing instruction set since) and the optimized components again.
+func (a *AxAgent) useStageMode(options map[string]Value) error {
+	raw, err := _agent_use_stage_mode(a.State, options)
+	if err != nil {
+		return err
+	}
+	record := asMap(raw)
+	mode := display(coreGet(record, "mode", "plain"))
+	if mode == a.stageMode {
+		return nil
+	}
+	set, ok := a.stageSets[mode]
+	if !ok {
+		actorValidationRetries := coreGet(a.Options, "validation_retries", coreGet(a.Options, "validationRetries", 1))
+		set = agentStageSet{
+			distiller: NewAx(display(coreGet(record, "distiller_signature", "")), Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(record, "distiller_description", ""))),
+			executor:  NewAx(display(coreGet(record, "executor_signature", "")), Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(record, "executor_description", ""))),
+			responder: newAgentResponder(a.State, display(coreGet(a.State, "responder_signature", a.Signature.String())), a.Options),
+		}
+		a.stageSets[mode] = set
+	} else {
+		for stage, field := range map[*AxGen]string{set.distiller: "distiller_description", set.executor: "executor_description", set.responder: "responder_description"} {
+			stage.Instruction = display(coreGet(record, field, ""))
+			coreSet(stage.Options, "instruction", stage.Instruction)
+		}
+	}
+	if len(a.optimizedComponents) > 0 {
+		set.distiller.ApplyOptimizedComponents(a.optimizedComponents)
+		set.executor.ApplyOptimizedComponents(a.optimizedComponents)
+		set.responder.ApplyOptimizedComponents(a.optimizedComponents)
+	}
+	a.Distiller, a.Executor, a.Responder = set.distiller, set.executor, set.responder
+	a.stageMode = mode
+	a.rebindPlaybook()
+	return nil
 }
 // newAgentResponder builds the responder stage. As in TypeScript, its
 // validation budget is maxRetries unless validation_retries is set, and with
@@ -7165,6 +7228,7 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	a.Executor = NewAx(executorSignature, executorOptions)
 	a.Responder = newAgentResponder(state, responderSignature, a.Options)
 	a.LlmQuery = NewAx(llmQuerySignature, llmQueryOptions)
+	a.resetStageSets()
 	a.rebindPlaybook()
 	return a
 }
@@ -7291,6 +7355,9 @@ func (a *AxAgent) run(ctx context.Context, client AIClient, values map[string]Va
 	}
 	if a.ExecutionContextError != nil {
 		return nil, a.ExecutionContextError
+	}
+	if err := a.useStageMode(options); err != nil {
+		return nil, err
 	}
 	callOptions := map[string]Value{}
 	for key, value := range options {
@@ -7470,6 +7537,13 @@ func (a *AxAgent) GetOptimizableComponents() Value {
 }
 func (a *AxAgent) ApplyOptimizedComponents(m map[string]Value) {
 	mustCore(_validate_optimization_component_map(a.GetOptimizableComponents(), m))
+	// Kept for the other stage set, which gets them when a run switches to it.
+	if a.optimizedComponents == nil {
+		a.optimizedComponents = map[string]Value{}
+	}
+	for key, value := range m {
+		a.optimizedComponents[key] = value
+	}
 	a.Distiller.ApplyOptimizedComponents(m)
 	a.Executor.ApplyOptimizedComponents(m)
 	a.Responder.ApplyOptimizedComponents(m)
@@ -11135,6 +11209,29 @@ func _core_agent_runtime_restore_state(values ...Value) (Value, error) {
 	}
 	return Object(), nil
 }
+// _core_agent_runtime_language is a runtime's language: a runtime config's
+// "language", else the code runtime's own, else JavaScript, TS's default
+// runtime.
+func _core_agent_runtime_language(values ...Value) Value {
+	var runtime Value
+	if len(values) > 0 {
+		runtime = values[0]
+	}
+	language := ""
+	switch v := runtime.(type) {
+	case map[string]Value:
+		if raw := coreGet(v, "language", nil); raw != nil {
+			language = strings.TrimSpace(display(raw))
+		}
+	case CodeRuntime:
+		language = strings.TrimSpace(v.Language())
+	}
+	if language == "" {
+		return "JavaScript"
+	}
+	return language
+}
+
 func _core_agent_runtime_close(values ...Value) Value {
 	var session Value
 	if len(values) == 1 {
@@ -15507,6 +15604,9 @@ func conformanceAgentRequestStage(request map[string]Value) string {
 		return "executor"
 	case strings.Contains(system, "`Generator answer`"), strings.Contains(system, "`Question context`"):
 		return "playbook"
+	case strings.Contains(system, "Your task is to generate new fields: `Completion`"):
+		// The ports' runtime-less distiller or executor (port-only).
+		return "runtime_less"
 	case strings.Contains(system, "context-map Distiller"), strings.Contains(system, "context-map Cartographer"):
 		return "context_map"
 	}
@@ -15597,6 +15697,13 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		runtime.Usage = display(coreGet(runtimeConfig, "usageInstructions", coreGet(runtimeConfig, "usage_instructions", "")))
 		coreSet(options, "runtime", runtime)
 	}
+	// runtime_on_forward: the runtime goes on each forward call (unless a run
+	// says without_runtime) instead of the constructor.
+	var forwardRuntime Value
+	if coreTruthy(coreGet(fixture, "runtime_on_forward", false)) && options["runtime"] != nil {
+		forwardRuntime = options["runtime"]
+		delete(options, "runtime")
+	}
 	// As the other runners do, a playbook config gets the scripted client as
 	// its student, so the agent can attach the playbook at construction.
 	var playbookConfig map[string]Value
@@ -15640,6 +15747,9 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		if snapshot := coreGet(fixture, "restore_runtime_state", nil); snapshot != nil {
 			ag.RestoreRuntimeState(snapshot)
 		}
+		if components := coreGet(fixture, "apply_components", nil); components != nil {
+			ag.ApplyOptimizedComponents(cloneMap(asMap(components)))
+		}
 		if forwardRuns := coreGet(fixture, "forward_runs", nil); forwardRuns != nil {
 			outputs := MutableArray()
 			for _, rawRun := range asSlice(forwardRuns) {
@@ -15656,9 +15766,15 @@ func runConformanceAgentForward(fixture map[string]Value) {
 						"loaded_skill_docs", coreGet(restored, "loaded_skill_docs", Array()),
 					))
 				}
+				if signature := coreGet(run, "set_signature", nil); signature != nil {
+					ag.SetSignature(display(signature))
+				}
 				forwardOptions := cloneMap(asMap(coreGet(run, "forward_options", Object())))
 				installSemanticObserver(forwardOptions, "onUsedSkills", "forward.used_skills", false)
 				installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
+				if forwardRuntime != nil && !coreTruthy(coreGet(run, "without_runtime", false)) {
+					forwardOptions["runtime"] = forwardRuntime
+				}
 				out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(run, "input", Object())), forwardOptions)
 				if forwardErr != nil {
 					panic(forwardErr)
@@ -15686,6 +15802,9 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
 		for key, value := range controlOptions {
 			forwardOptions[key] = value
+		}
+		if forwardRuntime != nil {
+			forwardOptions["runtime"] = forwardRuntime
 		}
 		if streaming {
 			stopAfter := coreGet(fixture, "stop_after_deltas", nil)

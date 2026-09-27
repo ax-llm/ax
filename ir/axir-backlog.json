@@ -2366,6 +2366,28 @@
       "verification": "One IR op resolves a playbook config's seed as TS does (playbook.playbook: a snapshot or a bare playbook; the older playbook.seed snapshot loads with a deprecation warning); TS goldens axagent/playbook-config-ts-snapshot-seed and -ts-bare-seed pin TS's state and prompt. Two IR ops build the weakness miner's inputs as TS's mineWeakness does from the executor's action log text (entries now record their stage); the TS golden agent-playbook-evolve-miner-system-prompt pins the user message (expected_teacher_user_messages). TS tool fields use toFieldTitle (sigTools.test.ts fails on main). C++ string_format fills a null's {}, and Go and Java fill from after the previous argument (axgen/function-call-missing-name, function-call-name-with-braces). Each new fixture fails on main in the ports named in the PR; 11 mutated copies fail in all five. Full suites 1150/1150 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes; Python and Go perturbation gates pass."
     },
     {
+      "id": "axir-2026-09-27-name-the-rust-agent-playbook-student",
+      "status": "done",
+      "title": "Name the Rust agent playbook config's student, as TypeScript's studentAI does",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "b21806afa9e437e15569f3432ddc43ce5b699da5",
+      "tsPaths": [
+        "src/ax/agent/playbookConfig.ts",
+        "src/ax/agent/agentInternal/coordinator.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "TypeScript's playbook config takes studentAI (by default the agent's ai) to run the run-end reflector and curator calls. Rust agent options are JSON, which cannot hold a client, and a Rust agent has no default ai, so a Rust user could not name the student: the learning always ran on the client passed to forward.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "bfc9b32190d0a2e479e1d03f6d45cb61ff6e229d",
+      "verification": "AxAgent::with_playbook_student(Rc<RefCell<C>>) names the client that runs the run-end reflector and curator calls; without one they run on the forward's client, and a student that is already borrowed (for example because it is also the forward's client) is not borrowed again. Four Rust tests (agent_playbook_student_tests) run a failing agent run end to end: the named student gets the 2 learning requests and the forward client only the 4 run requests, the student survives with_tool_module and with_runtime, the forward client learns without a student, and a student that is the forward client does not panic. A mutant that ignores the student fails 2 of them, one that borrows the student while the forward holds it fails 1. Rust lib tests 62/62 and the Rust conformance suites (1215 fixtures) pass."
+    },
+    {
       "id": "axir-2026-09-27-port-speak-results-carry-typescript-speech-response-keys",
       "status": "done",
       "title": "Port speak() results carry TypeScript's AxSpeechResponse keys",
@@ -2421,25 +2443,6 @@
       "verification": "renderAudio (or render_audio) true renders through @render_audio_outputs_impl in ir/axcore/audio_output.axir at every @forward exit, on forward and streaming cache hits and on the streamingForward result-picker delta; unset keeps the text and warns once per process, and false keeps it silently. The 16 TS-derived axgen audio-output-* goldens and axflow/audio-output-flow-speaker-to-summarizer check speak requests and outputs; the 10 goldens that render fail on origin/main in all five ports. verify --mode release passes 1138 fixtures in python, java, cpp and rust; the Go conformance passes the whole tree after the load-flaky axai/portable-cancellation fixture passed 5/5 alone."
     },
     {
-      "id": "axir-2026-09-27-render-the-axgen-structured-output-contract-into-the-system-prom",
-      "status": "open",
-      "title": "Render the AxGen structured-output contract into the system prompt in the ports and select the rung by mode when structured output is required",
-      "createdAt": "2026-09-27",
-      "sourcePR": null,
-      "sourceCommit": "35469b35c0b41678fc1b5e2858766fbffeb52aad",
-      "tsPaths": ["src/ax/dsp/prompt.ts", "src/ax/dsp/generate.ts"],
-      "portableSurface": "axgen",
-      "impact": "TypeScript builds each forward's prompt template for the selected rung (structuredOutput when a rung is selected, the __axOutput function name and function under the function rung), so the system prompt ends its output fields with the exact JSON shape and gives the rung's formatting rule, with no turn after the user message; a provider that requires structured output gets a rung chosen by its modes. The ports appended a user instruction turn on every structured rung, gave the function rung the JSON rule without listing __axOutput, left a forced- or requires-structured simple signature (such as the agent actor stage) on the text-contract rule while demanding JSON, and always chose the native rung for requiresStructuredOutput.",
-      "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
-    },
-    {
       "id": "axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths",
       "status": "done",
       "title": "Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths",
@@ -2457,6 +2460,25 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "9b1f64a9a",
       "verification": "TS streamingForward runs its stages at root/distiller, root/executor and root/responder and reports the run at root (src/ax/agent/agent.streamingControl.test.ts: 3 tests fail on main, pass here). All five ports stream the responder through @agent_streaming_forward and intrinsic.agent.stage_streaming_forward, sharing @agent_run_actor_stages and @agent_complete_run with forward. 20 TS goldens from tools/axir/extractors/agent-streaming-goldens.ts (axagent/agent-streaming-forward-* and agent-forward-*) pin the deltas, the output, the request count, the order of model requests and observer callbacks (used memories and skills, citations, playbook onUpdate), run-control events with paths (completed, failed, aborted), the chat-log shape and TS's citation messages and errors; the axagent suite (167 fixtures) passes in python, go, java, rust and cpp, and mutated copies of the control and playbook goldens fail in all five. verify --mode release passes in python, go, java, rust and cpp (1131 fixtures each)."
+    },
+    {
+      "id": "axir-2026-09-27-render-the-axgen-structured-output-contract-into-the-system-prom",
+      "status": "open",
+      "title": "Render the AxGen structured-output contract into the system prompt in the ports and select the rung by mode when structured output is required",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "35469b35c0b41678fc1b5e2858766fbffeb52aad",
+      "tsPaths": ["src/ax/dsp/prompt.ts", "src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript builds each forward's prompt template for the selected rung (structuredOutput when a rung is selected, the __axOutput function name and function under the function rung), so the system prompt ends its output fields with the exact JSON shape and gives the rung's formatting rule, with no turn after the user message; a provider that requires structured output gets a rung chosen by its modes. The ports appended a user instruction turn on every structured rung, gave the function rung the JSON rule without listing __axOutput, left a forced- or requires-structured simple signature (such as the agent actor stage) on the text-contract rule while demanding JSON, and always chose the native rung for requiresStructuredOutput.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

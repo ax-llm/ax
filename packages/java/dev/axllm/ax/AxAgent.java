@@ -21,6 +21,13 @@ public final class AxAgent implements AxProgram {
   private boolean playbookApply = true;
   Object playbookConfig;
   volatile AxRuntimeHooks runtimeHooks;
+  // Each run uses the stage set of its mode (see useStageMode): "runtime", the
+  // RLM stages, or "plain", the runtime-less stages. The other mode's set is
+  // built on first use and kept; optimizedComponents apply to a set when a run
+  // switches to it.
+  private String stageMode = "plain";
+  private final Map<String, AxGen[]> stageSets = new LinkedHashMap<>();
+  private final Map<String, Object> optimizedComponents = new LinkedHashMap<>();
 
   public AxAgent(String signature, Map<String, Object> options) {
     this((Object) signature, options, AxRuntimeHooks.empty());
@@ -61,6 +68,42 @@ public final class AxAgent implements AxProgram {
     this.executor = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "executor_signature", "input:json -> completion:json"))), childOptions(actorValidationRetries, "task.root.actor", Core.get(state, "executor_description", "")));
     this.responder = newResponder();
     this.llmQuery = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "llm_query_signature", "task:string, context:json -> answer:string"))), childOptions(1, "rlm.llmquery", Core.get(state, "llm_query_description", "")));
+    this.stageMode = Core.truthy(Core.get(state, "runtime_enabled", false)) ? "runtime" : "plain";
+    stageSets.clear();
+    stageSets.put(stageMode, new AxGen[] {distiller, executor, responder});
+    optimizedComponents.clear();
+    rebindPlaybook();
+  }
+
+  // A run's stages follow its runtime: the constructor's, else the forward
+  // call's; without one, the runtime-less stages run. A set coming back into
+  // use takes the instructions from the agent's state (a standing instruction
+  // set since) and the optimized components again.
+  private void useStageMode(Map<String, Object> callOptions) {
+    Map<String, Object> record = Core.asMap(Core._agent_use_stage_mode(state, callOptions));
+    String mode = String.valueOf(record.getOrDefault("mode", "plain"));
+    if (mode.equals(stageMode)) return;
+    AxGen[] set = stageSets.get(mode);
+    if (set == null) {
+      Object retries = this.options.getOrDefault("validation_retries", this.options.getOrDefault("validationRetries", 1));
+      set = new AxGen[] {
+        new AxGen(AxSignature.create(String.valueOf(record.get("distiller_signature"))), childOptions(retries, "ctx.root.actor", record.getOrDefault("distiller_description", ""))),
+        new AxGen(AxSignature.create(String.valueOf(record.get("executor_signature"))), childOptions(retries, "task.root.actor", record.getOrDefault("executor_description", ""))),
+        newResponder(),
+      };
+      stageSets.put(mode, set);
+    } else {
+      set[0].setInstruction(String.valueOf(record.getOrDefault("distiller_description", "")));
+      set[1].setInstruction(String.valueOf(record.getOrDefault("executor_description", "")));
+      set[2].setInstruction(String.valueOf(record.getOrDefault("responder_description", "")));
+    }
+    if (!optimizedComponents.isEmpty()) {
+      for (AxGen stage : set) stage.applyOptimizedComponents(optimizedComponents);
+    }
+    distiller = set[0];
+    executor = set[1];
+    responder = set[2];
+    stageMode = mode;
     rebindPlaybook();
   }
 
@@ -208,6 +251,7 @@ public final class AxAgent implements AxProgram {
     Map<String, Object> callOptions = new LinkedHashMap<>(forwardOptions == null ? Map.of() : forwardOptions);
     if (sink != null) checkStreamRunSession(client, callOptions);
     if (callOptions.get("cancellation") instanceof AxCancellationToken cancellation) cancellation.throwIfCancelled();
+    useStageMode(callOptions);
     AxExecutionContext callContext = AxExecutionContext.resolve(callOptions, executionContext);
     if (callContext != null || Core.truthy(state.get("mcp_run_context_active"))) {
       List<Map<String,Object>> modules = List.of();
@@ -478,6 +522,8 @@ public final class AxAgent implements AxProgram {
   public AxAgent applyOptimizedComponents(Map<String, Object> componentMap) {
     Map<String, Object> updates = componentMap == null ? Map.of() : componentMap;
     Core._validate_optimization_component_map(getOptimizableComponents(), updates);
+    // Kept for the other stage set, which gets them when a run switches to it.
+    optimizedComponents.putAll(updates);
     distiller.applyOptimizedComponents(updates);
     executor.applyOptimizedComponents(updates);
     responder.applyOptimizedComponents(updates);

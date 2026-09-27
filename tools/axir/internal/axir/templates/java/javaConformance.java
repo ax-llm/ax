@@ -2336,6 +2336,8 @@ public final class Conformance {
     if (system.contains("You (`distiller`)")) return "distiller";
     if (system.contains("You (`executor`)")) return "executor";
     if (system.contains("`Generator answer`") || system.contains("`Question context`")) return "playbook";
+    // The ports' runtime-less distiller or executor (port-only).
+    if (system.contains("Your task is to generate new fields: `Completion`")) return "runtime_less";
     if (system.contains("context-map Distiller") || system.contains("context-map Cartographer")) return "context_map";
     return "responder";
   }
@@ -2458,6 +2460,9 @@ public final class Conformance {
         throw new RuntimeException("agent_runtime_real requires the quickjs profile (dev.axllm.ax.runtime.quickjs.AxQuickJsCodeRuntime) and quickjs4j on the classpath: " + e);
       }
     }
+    // runtime_on_forward: the runtime goes on each forward call (unless a run
+    // says without_runtime) instead of the constructor.
+    Object forwardRuntime = Boolean.TRUE.equals(fixture.get("runtime_on_forward")) ? agentOptions.remove("runtime") : null;
     var mcpTransports = new LinkedHashMap<String,AxMCPScriptedTransport>();
     var contextClients = new LinkedHashMap<String,List<AxMCPClient>>();
     for(Object raw:Core.asList(fixture.get("mcp_clients"))){var spec=Core.asMap(raw);String owner=String.valueOf(spec.getOrDefault("owner","parent")),namespace=String.valueOf(spec.get("namespace"));var transport=new AxMCPScriptedTransport(Core.asList(spec.get("responses")));mcpTransports.put(owner+"/"+namespace,transport);contextClients.computeIfAbsent(owner,key->new ArrayList<>()).add(new AxMCPClient(transport,Map.of("namespace",namespace,"era","modern")));}
@@ -2490,6 +2495,7 @@ public final class Conformance {
       if (fixture.containsKey("add_actor_instruction")) agent.addActorInstruction(String.valueOf(fixture.get("add_actor_instruction")));
       if (fixture.containsKey("set_state")) agent.setState(Core.asMap(fixture.get("set_state")));
       if (fixture.containsKey("restore_runtime_state")) agent.restoreRuntimeState(Core.asMap(fixture.get("restore_runtime_state")));
+      if (fixture.containsKey("apply_components")) agent.applyOptimizedComponents(new LinkedHashMap<>(Core.asMap(fixture.get("apply_components"))));
       Object output;
       if (fixture.containsKey("forward_runs")) {
         List<Object> outputs = new ArrayList<>();
@@ -2505,11 +2511,13 @@ public final class Conformance {
               "loaded_skill_docs", Core.asList(restored.get("loaded_skill_docs"))
             ));
           }
+          if (run.get("set_signature") != null) agent.setSignature(String.valueOf(run.get("set_signature")));
           Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(run.getOrDefault("forward_options", Map.of())));
           if (semanticObserversEnabled) {
             if (forwardOptions.containsKey("onUsedSkills")) forwardOptions.put("onUsedSkills", semanticObserver.apply("forward.used_skills", false));
             if (forwardOptions.containsKey("onUsedMemories")) forwardOptions.put("onUsedMemories", semanticObserver.apply("forward.used_memories", false));
           }
+          if (forwardRuntime != null && !Boolean.TRUE.equals(run.get("without_runtime"))) forwardOptions.put("runtime", forwardRuntime);
           outputs.add(agent.forward(client, Core.asMap(run.getOrDefault("input", Map.of())), forwardOptions));
           Map<String, Object> runExported = agent.exportRuntimeState();
           if (Boolean.TRUE.equals(run.get("save_runtime_state"))) {
@@ -2533,6 +2541,7 @@ public final class Conformance {
           if (forwardOptions.containsKey("onUsedMemories")) forwardOptions.put("onUsedMemories", semanticObserver.apply("forward.used_memories", false));
         }
         forwardOptions.putAll(controlOptions);
+        if (forwardRuntime != null) forwardOptions.put("runtime", forwardRuntime);
         if (streaming) {
           Object stopAfter = fixture.get("stop_after_deltas");
           try (AxGenDeltaStream stream = agent.streamingForward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions)) {

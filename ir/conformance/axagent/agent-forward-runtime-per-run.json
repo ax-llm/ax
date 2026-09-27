@@ -1,0 +1,155 @@
+{
+  "name": "agent-forward-runtime-per-run",
+  "kind": "agent_forward",
+  "description": "Port-only: an agent built without a runtime runs each forward with the stages of that run's runtime: the RLM stages when the forward call brings a runtime, the ports' runtime-less stages otherwise (TS's agent always has a runtime). Both stage sets are kept across runs, with the standing instruction on each executor and the optimized responder instruction on each responder.",
+  "signature": "question:string -> answer:string",
+  "options": {
+    "directResponse": "off"
+  },
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "runtime_on_forward": true,
+  "set_instruction": "STANDING RULE: cite the policy.",
+  "apply_components": {
+    "task.root.responder::instruction": "OPTIMIZED RESPONDER RULE: answer in one sentence."
+  },
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "type": "final",
+        "args": ["Answer the question", {}]
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "type": "final",
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ]
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "type": "final",
+        "args": ["Answer the question", {}]
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "type": "final",
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ]
+      }
+    }
+  ],
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: first"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"policy\":\"Refunds take 30 days.\"}]}}"
+    },
+    {
+      "content": "Answer: second"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: third"
+    }
+  ],
+  "forward_runs": [
+    {
+      "input": {
+        "question": "How long do refunds take?"
+      }
+    },
+    {
+      "input": {
+        "question": "How long do refunds take?"
+      },
+      "without_runtime": true
+    },
+    {
+      "input": {
+        "question": "How long do refunds take?"
+      }
+    }
+  ],
+  "expected_output": [
+    {
+      "answer": "first"
+    },
+    {
+      "answer": "second"
+    },
+    {
+      "answer": "third"
+    }
+  ],
+  "expected_request_count": 9,
+  "expected_transcript": [
+    "request:distiller",
+    "request:executor",
+    "request:responder",
+    "request:runtime_less",
+    "request:runtime_less",
+    "request:responder",
+    "request:distiller",
+    "request:executor",
+    "request:responder"
+  ],
+  "expected_request_checks": [
+    {
+      "index": 1,
+      "contains": ["STANDING RULE: cite the policy."]
+    },
+    {
+      "index": 2,
+      "contains": ["OPTIMIZED RESPONDER RULE: answer in one sentence."]
+    },
+    {
+      "index": 4,
+      "contains": ["STANDING RULE: cite the policy."]
+    },
+    {
+      "index": 5,
+      "contains": ["OPTIMIZED RESPONDER RULE: answer in one sentence."]
+    },
+    {
+      "index": 7,
+      "contains": ["STANDING RULE: cite the policy."]
+    },
+    {
+      "index": 8,
+      "contains": ["OPTIMIZED RESPONDER RULE: answer in one sentence."]
+    }
+  ]
+}
