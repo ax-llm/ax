@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 
 import copy
+import hashlib
 import inspect
 import math
 import json
@@ -29,6 +30,7 @@ from .ai import (
     _runtime_hook_scope,
     _runtime_hooks_from_options,
     _strip_runtime_hooks,
+    _snapshot_global_caching_function,
     chat_response_to_completion,
     ai_merge_replay_metadata,
     fold_chat_response_stream,
@@ -42,6 +44,35 @@ from .mcp import resolve_execution_context
 
 class _StreamingConsumerStopped(AxAIServiceAbortedError):
     """The streaming_forward consumer stopped the run early."""
+
+
+def _core_json_stable_stringify(value):
+    return _js_json_dumps(value or {}, sort_keys=True)
+
+
+def _core_crypto_sha256_hex(text):
+    return hashlib.sha256(str(text).encode("utf-8")).hexdigest()
+
+
+def _core_axgen_caching_function(gen, options):
+    # The forward call's caching function, else the constructor's, else the
+    # process-wide one (set_caching_function).
+    for source in (options, getattr(gen, "options", None)):
+        if isinstance(source, dict):
+            caching_function = source.get("caching_function", source.get("cachingFunction"))
+            if caching_function is not None:
+                return caching_function
+    return _snapshot_global_caching_function()
+
+
+def _core_axgen_cache_read(caching_function, key):
+    # fn(key) returns the stored output, or None for a miss.
+    return caching_function(key)
+
+
+def _core_axgen_cache_write(caching_function, key, value):
+    caching_function(key, value)
+    return None
 
 
 def _call_optimizer_engine(engine, request: dict[str, Any], evaluator):
@@ -526,6 +557,12 @@ class AxGen:
         options: dict[str, Any] | None = None,
         hooks: AxRuntimeHooks | None = None,
     ):
+        # As in TS, the cache is read before the run's span and metrics, so a
+        # stored output records neither.
+        run_options = _strip_runtime_hooks(options) or {}
+        lookup = _cache_lookup_impl(self, values, run_options, False)
+        if lookup.get("hit"):
+            return lookup.get("value")
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -533,7 +570,7 @@ class AxGen:
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen"},
         ):
-            return self._forward_unscoped(client, values, _strip_runtime_hooks(options))
+            return self._forward_unscoped(client, values, {**run_options, "_ax_cache_lookup": lookup})
 
     def _forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_context = resolve_execution_context(options, self.execution_context)
@@ -673,7 +710,14 @@ class AxGen:
 
     def _streaming_forward_with(self, client, values, options, sink, hooks=None):
         # Runs the streaming forward, sending each {version, index, delta} to
-        # sink, and returns the merged output of the picked sample.
+        # sink, and returns the merged output of the picked sample. As in TS,
+        # the cache is read before the run's span and metrics, a read error
+        # is ignored, and a stored output arrives as one delta.
+        run_options = _strip_runtime_hooks(options) or {}
+        lookup = _cache_lookup_impl(self, values, run_options, True)
+        if lookup.get("hit"):
+            sink({"version": 0, "index": 0, "delta": lookup.get("value")})
+            return lookup.get("value")
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -681,7 +725,7 @@ class AxGen:
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen", "ax.streaming": True},
         ):
-            return self._streaming_forward_unscoped_with(client, values, _strip_runtime_hooks(options), sink)
+            return self._streaming_forward_unscoped_with(client, values, {**run_options, "_ax_cache_lookup": lookup}, sink)
 
     def _streaming_forward_unscoped_with(self, client, values, options, sink):
         run_options = {**self.options, **(options or {})}

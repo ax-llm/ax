@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -169,10 +170,34 @@ struct AxCredentialRequest {
 };
 using AxCredentialProvider = std::function<std::map<std::string, std::string>(const AxCredentialRequest&)>;
 
+// TypeScript's cachingFunction for AxGen outputs. fn(key, nullptr) returns
+// the stored output, or std::nullopt for a miss; fn(key, &output) stores an
+// output, and what it returns is ignored. key is the lowercase hex SHA-256 of
+// the signature and the input values.
+using AxCachingFunction = std::function<std::optional<Value>(const std::string& key, const Value* value)>;
+
+// A caching function for a forward or streaming_forward call, passed as a run
+// control is: value() goes in the call options (or in the AxGen options) under
+// "caching_function". The function stays registered while a copy of the
+// handle lives; a value() used after that fails as expired.
+class AxCachingFunctionHandle {
+ public:
+  struct State;
+  explicit AxCachingFunctionHandle(AxCachingFunction fn);
+  Value value() const;
+
+ private:
+  std::shared_ptr<State> state_;
+};
+AxCachingFunctionHandle caching_function(AxCachingFunction fn);
+
 void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
 void set_tracer(std::shared_ptr<AxTracer> tracer);
 void set_meter(std::shared_ptr<AxMeter> meter);
+// The process-wide caching function, which AxGen uses when neither the call
+// nor the AxGen sets one; an empty function clears it.
+void set_caching_function(AxCachingFunction fn);
 
 class AxError : public std::runtime_error {
  public:
@@ -371,6 +396,8 @@ struct Core {
   // The error with a new message and the original as its cause; it keeps the
   // error's category, type and fields, so it raises as the same AxError class.
   static Value exception_rewrap(Value error, Value message);
+  // The lowercase hex SHA-256 of the text's UTF-8 bytes.
+  static Value crypto_sha256_hex(Value text);
   static Value exception_is_aborted(Value error);
   static Value exception_is_infrastructure(Value error);
   static Value exception_is_refusal(Value error);
@@ -458,6 +485,12 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  // AxGen cachingFunction seams: the call's, else the AxGen's own, else the
+  // process-wide caching function (a caching_function() handle value, or
+  // null); a read, whose errors propagate (null is a miss); and a write.
+  static Value axgen_caching_function(Value gen, Value options);
+  static Value axgen_cache_read(Value fn, Value key);
+  static Value axgen_cache_write(Value fn, Value key, Value value);
   // AXIR_CORE_CPP_DECLARATIONS
 
 };
@@ -1125,6 +1158,17 @@ class AxGen : public AxProgram {
   AxGen& set_demos(Value demos);
   AxGen& set_sample_count(int sample_count);
   AxGen& set_result_picker(std::function<int(const Value&)> result_picker);
+  // TypeScript's cachingFunction option. forward reads fn(key, nullptr) first,
+  // before the run's span and metrics, and returns a stored output without a
+  // request or telemetry (what the read throws propagates), then stores each
+  // output with fn(key, &output), ignoring what the store throws.
+  // streaming_forward sends a stored output as one {version 0, index 0}
+  // delta, ignores a failed read, and stores a run that yielded output. A
+  // call's "caching_function" option (a caching_function() handle value)
+  // comes before this function, and the process-wide
+  // axllm::set_caching_function() one after it; a run control bypasses the
+  // cache. An empty function clears it.
+  AxGen& set_caching_function(AxCachingFunction fn);
   AxGen& add_assert(Value assertion);
   AxGen& add_assert(std::function<Value(Value)> assertion);
   AxGen& add_assert(std::function<Value(Value)> assertion, std::string message);
@@ -1181,6 +1225,8 @@ class AxGen : public AxProgram {
   Value state_;
   AxMemory memory_;
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
+  // Keeps the caching function the options name registered.
+  std::optional<AxCachingFunctionHandle> caching_function_;
   void refresh_prompt_template();
 };
 
@@ -1462,6 +1508,12 @@ class AxPlaybook {
   void bind_callables();
   void inject();
 };
+
+namespace detail {
+// The SHA-256 digest of input's bytes, for intrinsic.crypto.sha256_hex and the
+// MCP PKCE challenge.
+std::array<unsigned char, 32> sha256(const std::string& input);
+}
 
 namespace detail {
 // Optional owned protocol context; core-only programs need no MCP implementation.

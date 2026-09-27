@@ -1400,6 +1400,63 @@ Value Core::exception_rewrap(Value error, Value message) {
   wrapped["cause"] = error;
   return Value(std::move(wrapped));
 }
+namespace detail {
+std::array<unsigned char, 32> sha256(const std::string& input) {
+  static constexpr std::array<std::uint32_t, 64> constants = {
+      0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+      0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+      0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+      0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+      0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+      0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+      0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+      0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2};
+  auto rotate = [](std::uint32_t value, unsigned count) { return (value >> count) | (value << (32 - count)); };
+  std::vector<unsigned char> bytes(input.begin(), input.end());
+  const std::uint64_t bit_length = static_cast<std::uint64_t>(bytes.size()) * 8;
+  bytes.push_back(0x80);
+  while (bytes.size() % 64 != 56) bytes.push_back(0);
+  for (int shift = 56; shift >= 0; shift -= 8) bytes.push_back(static_cast<unsigned char>(bit_length >> shift));
+  std::array<std::uint32_t, 8> hash = {0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19};
+  for (std::size_t offset = 0; offset < bytes.size(); offset += 64) {
+    std::array<std::uint32_t, 64> words{};
+    for (std::size_t index = 0; index < 16; ++index) {
+      const std::size_t at = offset + index * 4;
+      words[index] = (static_cast<std::uint32_t>(bytes[at]) << 24) | (static_cast<std::uint32_t>(bytes[at + 1]) << 16) |
+                     (static_cast<std::uint32_t>(bytes[at + 2]) << 8) | bytes[at + 3];
+    }
+    for (std::size_t index = 16; index < 64; ++index) {
+      const auto s0 = rotate(words[index - 15], 7) ^ rotate(words[index - 15], 18) ^ (words[index - 15] >> 3);
+      const auto s1 = rotate(words[index - 2], 17) ^ rotate(words[index - 2], 19) ^ (words[index - 2] >> 10);
+      words[index] = words[index - 16] + s0 + words[index - 7] + s1;
+    }
+    auto state = hash;
+    for (std::size_t index = 0; index < 64; ++index) {
+      const auto sum1 = rotate(state[4], 6) ^ rotate(state[4], 11) ^ rotate(state[4], 25);
+      const auto choice = (state[4] & state[5]) ^ (~state[4] & state[6]);
+      const auto temporary1 = state[7] + sum1 + choice + constants[index] + words[index];
+      const auto sum0 = rotate(state[0], 2) ^ rotate(state[0], 13) ^ rotate(state[0], 22);
+      const auto majority = (state[0] & state[1]) ^ (state[0] & state[2]) ^ (state[1] & state[2]);
+      const auto temporary2 = sum0 + majority;
+      state = {temporary1 + temporary2,state[0],state[1],state[2],state[3] + temporary1,state[4],state[5],state[6]};
+    }
+    for (std::size_t index = 0; index < hash.size(); ++index) hash[index] += state[index];
+  }
+  std::array<unsigned char, 32> digest{};
+  for (std::size_t index = 0; index < hash.size(); ++index) for (int byte = 0; byte < 4; ++byte) digest[index * 4 + byte] = static_cast<unsigned char>(hash[index] >> (24 - byte * 8));
+  return digest;
+}
+}  // namespace detail
+Value Core::crypto_sha256_hex(Value text) {
+  static constexpr char digits[] = "0123456789abcdef";
+  std::string hex;
+  hex.reserve(64);
+  for (unsigned char byte : detail::sha256(str(text))) {
+    hex.push_back(digits[byte >> 4]);
+    hex.push_back(digits[byte & 0x0f]);
+  }
+  return Value(std::move(hex));
+}
 Value Core::exception_is_aborted(Value error) {
   return Value(error.is_object() &&
                (str(get_key(error, "__type")) == "AxAIServiceAbortedError" ||
@@ -3614,6 +3671,116 @@ Value Core::axgen_deprecation(Value key, Value message) {
   return Value();
 }
 
+// Caching functions the AxGen IR reaches through {"__caching_function_id"}
+// markers, as run controls are reached: the registry holds each handle's
+// state weakly, and a handle (the caller's, an AxGen's or the process-wide
+// one) keeps it registered.
+struct AxCachingFunctionHandle::State {
+  std::string id;
+  AxCachingFunction fn;
+};
+
+namespace {
+
+struct CachingFunctionRegistry {
+  std::mutex mutex;
+  std::uint64_t next_id = 0;
+  std::map<std::string, std::weak_ptr<AxCachingFunctionHandle::State>> handles;
+  std::optional<AxCachingFunctionHandle> global;
+};
+
+CachingFunctionRegistry& caching_function_registry() {
+  static CachingFunctionRegistry registry;
+  return registry;
+}
+
+std::shared_ptr<AxCachingFunctionHandle::State> registered_caching_function(const Value& marker) {
+  std::string id = str(get_key(marker, "__caching_function_id"));
+  if (id.empty()) throw AxError("validation", "The caching_function option must be an axllm::caching_function() handle value");
+  auto& registry = caching_function_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  auto it = registry.handles.find(id);
+  auto state = it == registry.handles.end() ? nullptr : it->second.lock();
+  if (!state) throw AxError("validation", "Caching function handle has expired");
+  return state;
+}
+
+// Calls the caching function outside the registry lock. What it throws that
+// is not a std::exception becomes an AxError, so the IR, which catches
+// std::exception, ignores it where TypeScript ignores a cache error.
+std::optional<Value> call_caching_function(const Value& marker, const Value& key, const Value* value) {
+  auto state = registered_caching_function(marker);
+  try {
+    return state->fn(str(key), value);
+  } catch (const std::exception&) {
+    throw;
+  } catch (...) {
+    throw AxError("runtime", "caching function threw a non-standard exception");
+  }
+}
+
+// The process-wide caching function as a run starts: holding it keeps the
+// function the run resolved registered until the run ends, as TypeScript
+// keeps the function it read.
+std::optional<AxCachingFunctionHandle> global_caching_function() {
+  auto& registry = caching_function_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  return registry.global;
+}
+
+}  // namespace
+
+AxCachingFunctionHandle::AxCachingFunctionHandle(AxCachingFunction fn) : state_(std::make_shared<State>()) {
+  if (!fn) throw AxError("validation", "Caching function must be callable");
+  state_->fn = std::move(fn);
+  auto& registry = caching_function_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  state_->id = "__caching_function_" + std::to_string(++registry.next_id);
+  for (auto it = registry.handles.begin(); it != registry.handles.end();) {
+    if (it->second.expired()) it = registry.handles.erase(it);
+    else ++it;
+  }
+  registry.handles[state_->id] = state_;
+}
+
+Value AxCachingFunctionHandle::value() const { return object({{"__caching_function_id", state_->id}}); }
+
+AxCachingFunctionHandle caching_function(AxCachingFunction fn) { return AxCachingFunctionHandle(std::move(fn)); }
+
+// TS: options.cachingFunction ?? this.options.cachingFunction ??
+// axGlobals.cachingFunction.
+Value Core::axgen_caching_function(Value gen, Value options) {
+  Value gen_options = get_key(gen, "options");
+  for (const Value* source : {&options, &gen_options}) {
+    Value marker = get_key(*source, "caching_function", get_key(*source, "cachingFunction"));
+    if (!marker.is_null()) return marker;
+  }
+  auto global = global_caching_function();
+  return global ? global->value() : Value();
+}
+
+// fn(key) returns the stored output, or nothing for a miss. A copy comes back,
+// so the caller's output does not share state with the cache.
+Value Core::axgen_cache_read(Value fn, Value key) {
+  std::optional<Value> cached = call_caching_function(fn, key, nullptr);
+  return cached ? clone_usage_value(*cached) : Value();
+}
+
+// fn(key, output) stores a copy of the output; the IR ignores what it throws.
+Value Core::axgen_cache_write(Value fn, Value key, Value value) {
+  Value stored = clone_usage_value(value);
+  call_caching_function(fn, key, &stored);
+  return Value();
+}
+
+void set_caching_function(AxCachingFunction fn) {
+  std::optional<AxCachingFunctionHandle> next;
+  if (fn) next.emplace(std::move(fn));
+  auto& registry = caching_function_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  registry.global.swap(next);
+}
+
 void set_usage_observer(AxUsageObserver observer) {
   std::lock_guard<std::mutex> lock(usage_observer_mutex);
   usage_observer = std::move(observer);
@@ -4978,6 +5145,22 @@ AxGen& AxGen::set_result_picker(std::function<int(const Value&)> result_picker) 
   Value options = Core::get(state_, "options", Value::object());
   Core::set(options, "resultPicker", object({{"__result_picker_id", id}}));
   Core::set(state_, "options", options);
+  return *this;
+}
+
+// The AxGen's own caching function is its options' caching_function, as the
+// TypeScript constructor option; options another AxGen shares are copied, not
+// changed.
+AxGen& AxGen::set_caching_function(AxCachingFunction fn) {
+  std::optional<AxCachingFunctionHandle> handle;
+  if (fn) handle.emplace(std::move(fn));
+  Value options(object_ref(Core::get(state_, "options", Value::object())));
+  Core::map_delete(options, "cachingFunction");
+  Core::map_delete(options, "caching_function");
+  if (handle) Core::set(options, "caching_function", handle->value());
+  Core::set(state_, "options", options);
+  caching_function_ = std::move(handle);
+  refresh_prompt_template();
   return *this;
 }
 
@@ -6885,6 +7068,14 @@ static bool axgen_runs_in_session(const Value& state, const Value& run_options) 
 }
 
 Value AxGen::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  auto global_cache = global_caching_function();  // held for the run
+  // As in TS, the cache is read before the run's span and metrics, so a hit
+  // records neither; a read error propagates. A miss hands the lookup to the
+  // run, which then only stores.
+  Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(false));
+  if (Core::truthy(Core::get(lookup, "hit", false))) return Core::get(lookup, "value");
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_ax_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_forward", "ax_gen_generation",
                          object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}}));
@@ -6960,6 +7151,20 @@ struct AxGenDeltaConsumer {
 
 Value AxGen::streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler) {
   if (!handler) throw AxError("runtime", "AxGen::streaming_forward: handler must be callable");
+  auto global_cache = global_caching_function();  // held for the run
+  // As in TS, the cache is read before the run's span and metrics, and a
+  // read error is ignored: a hit is one {version 0, index 0} delta with no
+  // telemetry. A miss hands the lookup to the run, which then only stores.
+  Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(true));
+  if (Core::truthy(Core::get(lookup, "hit", false))) {
+    Value cached = Core::get(lookup, "value");
+    AxGenDelta delta;
+    delta.delta = clone_usage_value(cached);
+    handler(delta);
+    return cached;
+  }
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_ax_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(AxRuntimeHooks{}, program_hooks, "ax_gen_forward", "ax_gen_generation",
                          object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}, {"ax.streaming", true}}));
@@ -7012,8 +7217,8 @@ AxGen& AxGen::set_meter(std::shared_ptr<AxMeter> meter) {
 std::function<std::shared_ptr<AxProgram>()> AxGen::owned_worker_factory() const {
   auto options=Core::get(state_,"options",Value::object());
   if(!Core::get(options,"execution_context",Core::get(options,"executionContext")).is_null())return {};
-  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;
-  return [snapshot,hooks] {auto state=parse_json(snapshot);auto worker=std::make_shared<AxGen>(Core::get(state,"signature"),Core::get(state,"options"),*hooks);worker->state_=state;worker->memory_.value_ref()=Core::get(state,"memory",Value::array());worker->refresh_prompt_template();return worker;};
+  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;auto cache=caching_function_;
+  return [snapshot,hooks,cache] {auto state=parse_json(snapshot);auto worker=std::make_shared<AxGen>(Core::get(state,"signature"),Core::get(state,"options"),*hooks);worker->state_=state;worker->caching_function_=cache;worker->memory_.value_ref()=Core::get(state,"memory",Value::array());worker->refresh_prompt_template();return worker;};
 }
 std::function<std::shared_ptr<AxProgram>()> AxFlow::owned_worker_factory() const {
   std::vector<std::pair<std::size_t,std::function<std::shared_ptr<AxProgram>()>>> factories;

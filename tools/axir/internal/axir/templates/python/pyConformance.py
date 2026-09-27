@@ -14,6 +14,7 @@ from typing import Any
 from .ai import AnthropicClient, AxAIRefusalError, AxAIServiceAbortedError, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, AxCancellationToken, AxRuntimeHooks, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, _effective_runtime_hooks, _runtime_hook_scope, ai, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_meter, set_rate_limiter, set_tracer, set_usage_observer
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import openai_responses_transport_cursor, openai_responses_session_event, _wire_json_body
+from .ai import _snapshot_global_caching_function, set_caching_function
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
@@ -579,6 +580,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_forward(fixture)
         elif kind == "streaming_forward":
             _run_streaming_forward(fixture)
+        elif kind == "cache_sequence":
+            _run_cache_sequence(fixture)
         elif kind == "ai_session_state":
             _run_ai_session_state(fixture)
         elif kind == "ai_session_events":
@@ -1281,6 +1284,75 @@ def _assert_error_cause(fixture, exc):
     cause = exc.__cause__
     if cause is None or expected not in str(cause):
         raise FixtureError(f"expected an error cause containing {expected!r}, got {cause!r}")
+
+
+def _run_cache_sequence(fixture):
+    # Several forward / streaming_forward calls on one AxGen with one
+    # in-memory cache: each call's output, deltas and requests, and every
+    # cache read and write.
+    from .session import run_control
+    store = {}
+    reads = []
+    writes = []
+
+    def caching_function(key, value=None):
+        if value is not None:
+            if fixture.get("cache_write_error"):
+                raise RuntimeError(fixture["cache_write_error"])
+            writes.append(copy.deepcopy(value))
+            store[key] = copy.deepcopy(value)
+            return None
+        reads.append(key)
+        if fixture.get("cache_read_error"):
+            raise RuntimeError(fixture["cache_read_error"])
+        hit = store.get(key)
+        return copy.deepcopy(hit) if hit is not None else None
+
+    cache_in = fixture.get("cache_in", "call")
+    options = dict(fixture.get("options") or {})
+    if cache_in == "constructor":
+        options["caching_function"] = caching_function
+    gen = ax(_build_signature(fixture), options)
+    if "result_picker_index" in fixture:
+        gen.set_result_picker(lambda samples: fixture["result_picker_index"])
+    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"))
+    previous_global = _snapshot_global_caching_function()
+    if cache_in == "global":
+        set_caching_function(caching_function)
+    outputs, deltas_per_call, requests, errors = [], [], [], []
+    try:
+        for call in fixture.get("calls") or []:
+            before = len(client.requests)
+            call_options = dict(call.get("forward_options") or {})
+            if cache_in == "call":
+                call_options["caching_function"] = caching_function
+            if call.get("control"):
+                call_options["control"] = run_control()
+            errors.append(None)
+            if call.get("kind") == "streaming_forward":
+                deltas = []
+                outputs.append(gen._streaming_forward_with(client, call.get("input") or {}, call_options, deltas.append))
+                deltas_per_call.append(deltas)
+            else:
+                try:
+                    outputs.append(gen.forward(client, call.get("input") or {}, call_options))
+                except Exception as exc:  # noqa: BLE001 - compared with expected_errors
+                    errors[-1] = str(exc).split("\n")[0]
+                    outputs.append(None)
+                deltas_per_call.append(None)
+            requests.append(len(client.requests) - before)
+    finally:
+        set_caching_function(previous_global)
+    if any(error is not None for error in errors) or "expected_errors" in fixture:
+        _assert_equal(errors, fixture.get("expected_errors"), "cache sequence errors")
+    _assert_equal(outputs, fixture.get("expected_outputs"), "cache sequence outputs")
+    _assert_equal(deltas_per_call, fixture.get("expected_deltas"), "cache sequence deltas")
+    _assert_equal(requests, fixture.get("expected_requests"), "cache sequence requests per call")
+    if len(client.requests) != fixture.get("expected_request_count"):
+        raise FixtureError(f"expected {fixture.get('expected_request_count')} requests, got {len(client.requests)}")
+    if len(reads) != fixture.get("expected_cache_gets"):
+        raise FixtureError(f"expected {fixture.get('expected_cache_gets')} cache reads, got {len(reads)}")
+    _assert_equal(writes, fixture.get("expected_cache_sets"), "cache writes")
 
 
 def _run_streaming_forward(fixture):

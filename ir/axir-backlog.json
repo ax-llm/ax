@@ -1928,7 +1928,7 @@
     },
     {
       "id": "axir-2026-09-26-coerce-structured-values-and-cache-streamed-results-in-the-ports",
-      "status": "open",
+      "status": "done",
       "title": "Coerce structured output values and cache streamed results in the ports",
       "createdAt": "2026-09-26",
       "sourcePR": null,
@@ -1945,9 +1945,9 @@
         "Coerce numeric and boolean strings in the IR structured output validation and add TS-golden fixtures",
         "Store the merged streamed result through cachingFunction when the ports add it"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "d04c70791d74e1206288f6a613618c952a22e262",
+      "verification": "node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with the 13 axgen cache_sequence goldens; per-port host telemetry tests"
     },
     {
       "id": "axir-2026-09-26-fold-streamed-chunks-in-an-axgen-forward-with-stream-true-in-the",

@@ -514,6 +514,11 @@ public final class AxGen implements AxProgram {
   public Map<String,Object> forwardWithCancellation(AiClient client,Map<String,Object> values,Map<String,Object> options,AxCancellationToken cancellation){Map<String,Object> resolved=new LinkedHashMap<>(options==null?Map.of():options);resolved.put("cancellation",cancellation);return forward(client,values,resolved);}
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions, AxRuntimeHooks hooks) {
+    // As in TypeScript, the cache is read before the run's span and metrics,
+    // so a stored output records neither; an error from the read propagates.
+    Map<String, Object> callOptions = AxRuntimeHooks.strip(forwardOptions);
+    Map<String, Object> cached = readCacheFirst(values, callOptions, false);
+    if (cached != null) return cached;
     AxGlobals.Scope scope = AxGlobals.openScope(
         hooks,
         runtimeHooks,
@@ -521,7 +526,7 @@ public final class AxGen implements AxProgram {
         "ax_gen_generation",
         Map.of("ax.program.id", programId, "ax.program.type", "AxGen"));
     try {
-      return forwardUnscoped(client, values, AxRuntimeHooks.strip(forwardOptions));
+      return forwardUnscoped(client, values, callOptions);
     } catch (RuntimeException | Error error) {
       scope.fail(error);
       throw error;
@@ -529,6 +534,30 @@ public final class AxGen implements AxProgram {
       scope.close();
     }
   }
+
+  // The forward's cache read (Core._cache_lookup_impl), made before the run
+  // opens its span and metrics. It returns the stored output on a hit;
+  // after a miss it adds the lookup to callOptions as _ax_cache_lookup, so
+  // the forward only stores, and returns null. Options that already carry a
+  // lookup (an enclosing forward made it) are left as they are, and without
+  // a caching function the options stay unchanged.
+  private Map<String, Object> readCacheFirst(Map<String, Object> values, Map<String, Object> callOptions, boolean ignoreReadErrors) {
+    if (callOptions.containsKey(CACHE_LOOKUP)) return null;
+    Map<String, Object> lookup = Core.asMap(Core._cache_lookup_impl(this, values, callOptions, ignoreReadErrors));
+    if (lookup.get("fn") == null) return null;
+    if (Core.truthy(lookup.get("hit"))) return Core.asMap(lookup.get("value"));
+    callOptions.put(CACHE_LOOKUP, lookup);
+    return null;
+  }
+
+  // Call options holding only the cache lookup, for a call-scoped generator.
+  private static Map<String, Object> cacheLookupOnly(Map<String, Object> options) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    if (options != null && options.containsKey(CACHE_LOOKUP)) out.put(CACHE_LOOKUP, options.get(CACHE_LOOKUP));
+    return out;
+  }
+
+  private static final String CACHE_LOOKUP = "_ax_cache_lookup";
 
   /** Streams a forward with no options; see {@link #streamingForward(AiClient, Map, Map, AxCancellationToken)}. */
   public AxGenDeltaStream streamingForward(AiClient client, Map<String, Object> values) {
@@ -576,6 +605,20 @@ public final class AxGen implements AxProgram {
   // (e.g. AxAIServiceAbortedError) stops the run. streamingForward() runs it
   // on a worker thread.
   Map<String, Object> streamingForwardWith(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions, java.util.function.Consumer<Map<String, Object>> sink) {
+    Map<String, Object> input = values == null ? new LinkedHashMap<>() : values;
+    // As in TypeScript, the cache is read before the run's span and metrics,
+    // an error from the read is ignored, and a stored output arrives as one
+    // delta without a run.
+    Map<String, Object> callOptions = AxRuntimeHooks.strip(forwardOptions);
+    Map<String, Object> cached = readCacheFirst(input, callOptions, true);
+    if (cached != null) {
+      Map<String, Object> envelope = new LinkedHashMap<>();
+      envelope.put("version", 0);
+      envelope.put("index", 0);
+      envelope.put("delta", cached);
+      sink.accept(envelope);
+      return cached;
+    }
     Map<String, Object> attributes = new LinkedHashMap<>();
     attributes.put("ax.program.id", programId);
     attributes.put("ax.program.type", "AxGen");
@@ -583,7 +626,7 @@ public final class AxGen implements AxProgram {
     AxGlobals.Scope scope = AxGlobals.openScope(AxRuntimeHooks.fromOptions(forwardOptions), runtimeHooks, "ax_gen_forward", "ax_gen_generation", attributes);
     try {
       java.util.function.Consumer<Object> emit = envelope -> sink.accept(Core.asMap(envelope));
-      return streamingForwardUnscoped(client, values == null ? new LinkedHashMap<>() : values, AxRuntimeHooks.strip(forwardOptions), emit);
+      return streamingForwardUnscoped(client, input, callOptions, emit);
     } catch (RuntimeException | Error error) {
       scope.fail(error);
       throw error;
@@ -621,7 +664,7 @@ public final class AxGen implements AxProgram {
     if (callContext == executionContext) return Core.asMap(Core._streaming_forward_impl(this, client, values, options, emit));
     AxGen call = callScoped(callContext, options);
     try {
-      return Core.asMap(Core._streaming_forward_impl(call, client, values, new LinkedHashMap<>(), emit));
+      return Core.asMap(Core._streaming_forward_impl(call, client, values, cacheLookupOnly(options), emit));
     } finally {
       chatLog.addAll(call.chatLog);
       functionCallTraces.addAll(call.functionCallTraces);
@@ -634,6 +677,7 @@ public final class AxGen implements AxProgram {
   private AxGen callScoped(AxExecutionContext callContext, Map<String, Object> forwardOptions) {
     Map<String, Object> callOptions = new LinkedHashMap<>(options);
     callOptions.putAll(forwardOptions);
+    callOptions.remove(CACHE_LOOKUP);
     callOptions.put("functions", baseFunctions);
     if (callContext == null) {
       callOptions.remove("mcp");
@@ -664,6 +708,7 @@ public final class AxGen implements AxProgram {
     AxExecutionContext callContext = AxExecutionContext.resolve(forwardOptions, executionContext);
     if (callContext != executionContext) {
       Map<String, Object> callOptions = new LinkedHashMap<>(runOptions);
+      callOptions.remove(CACHE_LOOKUP);
       callOptions.put("functions", baseFunctions);
       if (callContext == null) {
         callOptions.remove("mcp");
@@ -671,7 +716,8 @@ public final class AxGen implements AxProgram {
         callOptions.remove("executionContext");
       } else callOptions.put("executionContext", callContext);
       AxGen call = new AxGen(signature, callOptions);
-      Map<String, Object> result = call.forward(client, values, Map.of());
+      // The call-scoped forward keeps this forward's cache read.
+      Map<String, Object> result = call.forward(client, values, cacheLookupOnly(forwardOptions));
       chatLog.addAll(call.chatLog);
       functionCallTraces.addAll(call.functionCallTraces);
       traces.addAll(call.traces);
