@@ -21,7 +21,7 @@ import (
 	axgoja "github.com/ax-llm/ax/packages/go/runtime/goja"
 )
 
-func openAIClient() *ax.OpenAICompatibleClient {
+func openAIClient() ax.AIClient {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENAI_APIKEY")
@@ -35,7 +35,7 @@ func openAIClient() *ax.OpenAICompatibleClient {
 		// pull memories + runbooks instead of stopping to ask for clarification.
 		model = "gpt-5.4"
 	}
-	return ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
+	return ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
 }
 
 func printJSON(value ax.Value) {

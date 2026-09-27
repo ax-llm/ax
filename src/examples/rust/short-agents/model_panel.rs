@@ -32,8 +32,10 @@ fn main() -> AxResult<()> {
     // A panel of three different providers, each answering the same question
     // independently. Plain ax() composition (no agent runtime): fan out to the
     // panel, judge the candidates, then synthesize one grounded answer.
-    let mut openai = OpenAICompatibleClient::new(openai_key, "gpt-5.4-mini")
-        .with_model_config(json!({"temperature": 0}));
+    let mut openai = axllm::ai(
+        "openai",
+        json!({"api_key": openai_key, "model": "gpt-5.4-mini", "model_config": {"temperature": 0}}),
+    )?;
     let mut gemini =
         GoogleGeminiClient::new(google_key, "gemini-3.5-flash").with_profile("google-gemini");
     let mut anthropic =

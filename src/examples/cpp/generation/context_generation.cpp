@@ -22,12 +22,12 @@ int main() {
     return 2;
   }
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
   axllm::AxGen program = axllm::ax("context:string, question:string -> answer:string, citations:string[]");
-  axllm::Value output = program.forward(client, axllm::object({{"context", "Ax uses signatures, ai(), ax(), agent(), flow(), and optimize()."}, {"question", "How should a new developer think about Ax?"}}));
+  axllm::Value output = program.forward(*client, axllm::object({{"context", "Ax uses signatures, ai(), ax(), agent(), flow(), and optimize()."}, {"question", "How should a new developer think about Ax?"}}));
   std::cout << axllm::stringify(output) << "\n";
 }

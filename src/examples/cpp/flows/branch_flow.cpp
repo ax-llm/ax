@@ -22,7 +22,7 @@ int main() {
     return 2;
   }
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
@@ -38,6 +38,6 @@ int main() {
                axllm::object({{"reads", axllm::array({"request", "route"})},
                               {"writes", axllm::array({"responderResult", "response"})}}))
       .returns(axllm::object({{"route", "route"}, {"response", "response"}}));
-  axllm::Value output = program.forward(client, axllm::object({{"request", "A customer says checkout is down for their enterprise account."}}));
+  axllm::Value output = program.forward(*client, axllm::object({{"request", "A customer says checkout is down for their enterprise account."}}));
   std::cout << axllm::stringify(output) << "\n";
 }

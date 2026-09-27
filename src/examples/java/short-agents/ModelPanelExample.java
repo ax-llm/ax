@@ -35,7 +35,7 @@ public final class ModelPanelExample {
         "google/gemini-3.5-flash",
         "anthropic/claude-haiku-4.5");
     List<AiClient> panelClients = List.of(
-        new OpenAICompatibleClient(Map.of(
+        Ax.ai("openai", Map.of(
             "api_key", openaiKey, "model", "gpt-5.4-mini", "model_config", Map.of("temperature", 0.0))),
         new GoogleGeminiClient(Map.of(
             "api_key", googleKey, "model", "gemini-3.5-flash")),

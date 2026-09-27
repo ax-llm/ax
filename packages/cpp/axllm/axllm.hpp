@@ -501,6 +501,10 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  static Value ai_warn_once(Value key, Value message);
+  // Conformance hook: forgets the one-time warnings already shown and sends
+  // new ones to sink (an empty sink prints them to stderr again).
+  static void ai_capture_warnings(std::function<void(const std::string&)> sink);
   // AxGen cachingFunction seams: the call's, else the AxGen's own, else the
   // process-wide caching function (a caching_function() handle value, or
   // null); a read, whose errors propagate (null is a miss); and a write.
@@ -799,6 +803,14 @@ struct Core {
   static Value provider_require_expensive_model_confirmation(Value provider, Value model, Value client_options, Value options);
   static Value _gemini_vertex_embed_content_model_impl(Value model);
   static Value provider_embed_url(Value profile, Value model, Value options);
+  static Value provider_require_api_url(Value profile, Value options);
+  static Value provider_missing_api_key_message(Value profile);
+  static Value _provider_reads_own_key_env_impl(Value provider_id);
+  static Value provider_default_model_config(Value profile);
+  static Value _provider_apply_model_sampling_support_impl(Value profile, Value provider, Value transport, Value request, Value options);
+  static Value _provider_sampling_snake_key_impl(Value key);
+  static Value _provider_sampling_request_reasons_impl(Value transport, Value model, Value config, Value supported);
+  static Value _provider_warn_dropped_sampling_impl(Value model, Value key, Value without_reasoning_only);
   static Value _openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model);
   static Value chat_session_mode_enabled(Value options);
   static Value fold_stream(Value events);

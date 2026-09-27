@@ -10,15 +10,22 @@
 # ax-example:end
 import os
 
-from axllm import AxMCPClient, AxMCPStreamableHTTPTransport, OpenAICompatibleClient, ax
+from axllm import AxMCPClient, AxMCPStreamableHTTPTransport, ai, ax
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 endpoint = os.getenv("MCP_URL")
 if not api_key or not endpoint:
     raise SystemExit("Set OPENAI_API_KEY and MCP_URL.")
 
-mcp = AxMCPClient(AxMCPStreamableHTTPTransport(endpoint), {"namespace": "inventory"})
-llm = OpenAICompatibleClient(api_key=api_key, model="gpt-5.4-mini")
+# The repo's demo MCP server runs on http://127.0.0.1; any other endpoint keeps
+# the default SSRF protection (https only, no local hosts).
+local = endpoint.startswith("http://127.0.0.1")
+transport = AxMCPStreamableHTTPTransport(
+    endpoint,
+    {"ssrfProtection": {"requireHttps": not local, "allowLocalhost": local, "allowPrivateNetworks": local}},
+)
+mcp = AxMCPClient(transport, {"namespace": "inventory"})
+llm = ai("openai", api_key=api_key, model="gpt-5.4-mini")
 program = ax(
     'request:string -> answer:string "Use the inventory MCP tool."',
     {"mcp": mcp},

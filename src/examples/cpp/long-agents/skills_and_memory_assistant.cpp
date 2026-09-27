@@ -23,7 +23,7 @@ int main() {
   const char* model = std::getenv("AX_OPENAI_MODEL");
   // gpt-5.4 (not -mini): the recall/discover loop needs reasoning to proactively
   // pull memories + runbooks instead of stopping to ask for clarification.
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
@@ -141,7 +141,7 @@ int main() {
 
   axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
   axllm::Value result = assistant.forward(
-      client,
+      *client,
       axllm::object({
           {"situation",
            std::string("Our primary database is unhealthy and we're about to fail over -- the same class of ") +

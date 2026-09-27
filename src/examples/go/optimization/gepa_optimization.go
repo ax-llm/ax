@@ -22,13 +22,13 @@ import (
 type localEvaluator struct{}
 func (localEvaluator) Evaluate(candidateMap map[string]ax.Value, options map[string]ax.Value) (ax.Value, error) { return ax.Object("rows", ax.Array(ax.Object("prediction", ax.Object("answer", "Ax composes typed LLM programs."), "scores", ax.Object("quality", 0.9), "scalar", 0.9)), "avg", 0.9, "count", 1), nil }
 
-func openAIClient() *ax.OpenAICompatibleClient {
+func openAIClient() ax.AIClient {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" { apiKey = os.Getenv("OPENAI_APIKEY") }
 	if apiKey == "" { panic("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.") }
 	model := os.Getenv("AX_OPENAI_MODEL")
 	if model == "" { model = "gpt-5.4-mini" }
-	return ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
+	return ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
 }
 
 func printJSON(value ax.Value) {

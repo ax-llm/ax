@@ -21,7 +21,7 @@ fn openai_client() -> AxResult<OpenAICompatibleClient> {
             axllm::AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.")
         })?;
     let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
-    Ok(OpenAICompatibleClient::new(api_key, model))
+    axllm::ai("openai", json!({"api_key": api_key, "model": model}))
 }
 
 fn main() -> AxResult<()> {
@@ -87,11 +87,13 @@ fn main() -> AxResult<()> {
             "score": 0
         }]
     });
+    // The playbook borrows `student` to reflect while the agent runs, so the
+    // agent runs on its own client for the same model.
     let evolution = {
-        let mut client = student.borrow_mut();
+        let mut runner = openai_client()?;
         playbook.evolve_agent(
             &mut assistant,
-            &mut *client,
+            &mut runner,
             &dataset,
             &json!({"verify": true, "maxProposals": 1}),
         )?
