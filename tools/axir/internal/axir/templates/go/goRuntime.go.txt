@@ -1694,8 +1694,15 @@ func _core_map_values(values Value) Value {
 	return out
 }
 func _core_record_new(name Value, values Value) Value { return recordNew(display(name), asMap(values)) }
-func _core_object_call_method(target Value, methodName Value, arg Value) (Value, error) {
-	return objectCallMethod(target, display(methodName), arg)
+// _core_object_call_method calls a method with one argument and, for a
+// prompt template's render, the render's options.
+func _core_object_call_method(target Value, methodName Value, args ...Value) (Value, error) {
+	var arg Value
+	var rest []Value
+	if len(args) > 0 {
+		arg, rest = args[0], args[1:]
+	}
+	return objectCallMethod(target, display(methodName), arg, rest...)
 }
 func _core_program_components(program Value) Value {
 	if p, ok := program.(AxProgram); ok {
@@ -10339,9 +10346,32 @@ func conformanceSanitizeRuntimeGlobals(globals map[string]Value) map[string]Valu
 	return out
 }
 
-func objectCallMethod(target Value, method string, arg Value) (Value, error) {
+// promptRenderOptions applies a render's options (AxGen passes the selected
+// structured-output rung's) to the template's functions and options: its
+// structured_output and structured_output_function_name win over the
+// template's, and its extra_functions (the function rung's __axOutput) are
+// listed after the template's own functions.
+func promptRenderOptions(functions Value, options Value, render Value) (Value, Value) {
+	merged := asMap(options)
+	listed := append([]Value(nil), asSlice(functions)...)
+	for _, key := range orderedKeys(asMap(render)) {
+		value := coreGet(render, key, nil)
+		if key == "extra_functions" || key == "extraFunctions" {
+			listed = append(listed, asSlice(value)...)
+			continue
+		}
+		coreSet(merged, key, value)
+	}
+	return listed, merged
+}
+
+func objectCallMethod(target Value, method string, arg Value, rest ...Value) (Value, error) {
 	if method == "render" {
-		return render_prompt(coreGet(target, "signature", nil), arg, coreGet(target, "functions", Array()), coreGet(target, "options", Object()))
+		functions, options := coreGet(target, "functions", Array()), coreGet(target, "options", Object())
+		if len(rest) > 0 && rest[0] != nil {
+			functions, options = promptRenderOptions(functions, options, rest[0])
+		}
+		return render_prompt(coreGet(target, "signature", nil), arg, functions, options)
 	}
 	if method == "call" {
 		if fn, ok := target.(func(map[string]Value) Value); ok {
@@ -13095,6 +13125,7 @@ func runConformanceForward(fixture map[string]Value) {
 				}
 			}
 		}
+		conformanceAssertChatPrompt(fixture, client)
 	} else {
 		if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
 			panic(AxError{Category: "fixture", Message: "expected request count mismatch"})
@@ -13316,6 +13347,20 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 			}
 		}
 	}
+	conformanceAssertChatPrompt(fixture, client)
+}
+
+// conformanceAssertChatPrompt compares expected_chat_prompt with the first
+// request's whole chat_prompt.
+func conformanceAssertChatPrompt(fixture map[string]Value, client *conformanceScriptedAI) {
+	expected, ok := fixture["expected_chat_prompt"]
+	if !ok {
+		return
+	}
+	if len(client.Requests) == 0 {
+		panic(FixtureError{Message: "fixture expected a request but none were sent"})
+	}
+	assertEqual(coreGet(client.Requests[0], "chat_prompt", nil), expected, "chat prompt")
 }
 
 // conformanceCache is a cache sequence fixture's in-memory cache: it counts
@@ -17217,7 +17262,12 @@ func goPromptAudioPart(value Value) Value {
 	return Object("type", "audio", "format", format, "data", data)
 }
 func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value, options map[string]Value) string {
+	// As TypeScript's structuredOutput option: AxGen renders with it set when
+	// a structured-output rung is selected; otherwise the signature decides.
 	complex := goPromptHasComplexFields(sig)
+	if structured, ok := coreGet(options, "structured_output", coreGet(options, "structuredOutput", nil)).(bool); ok {
+		complex = structured
+	}
 	outputFields := goPromptOutputFields(sig)
 	task := goPromptTaskDefinition(sig, options)
 	funcs := goPromptFunctionDescriptors(functions)
@@ -17232,7 +17282,7 @@ func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value,
 		"taskDefinitionText":           task,
 		"functionsList":                goPromptRenderFunctions(funcs),
 		"inputFieldsSection":           goPromptInputSection(sig, values),
-		"outputFieldsSection":          goPromptOutputSection(sig),
+		"outputFieldsSection":          goPromptOutputSection(sig, complex),
 		"structuredOutputFunctionName": coreGet(options, "structured_output_function_name", coreGet(options, "structuredOutputFunctionName", "")),
 	}
 	custom := coreGet(options, "custom_template", coreGet(options, "customTemplate", nil))
@@ -17346,10 +17396,13 @@ func goPromptTaskDefinition(sig AxSignature, options map[string]Value) string {
 func goPromptInputSection(sig AxSignature, values map[string]Value) string {
 	return "**Input Fields**: The following fields will be provided to you:\n\n" + goPromptRenderInputFields(goPromptInputFields(sig, values), goPromptFieldMap(sig))
 }
-func goPromptOutputSection(sig AxSignature) string {
+// goPromptOutputSection ends with the exact JSON shape when the output is
+// structured (the signature's complex fields, or the render's
+// structured_output).
+func goPromptOutputSection(sig AxSignature, structured bool) string {
 	fields := goPromptOutputFields(sig)
 	out := "**Output Fields**: You must generate the following fields:\n\n" + goPromptRenderOutputFields(fields, goPromptFieldMap(sig))
-	if goPromptHasComplexFields(sig) {
+	if structured {
 		shape := Object()
 		for _, field := range fields {
 			coreSet(shape, field.Name, goPromptOutputTypePlaceholder(field.Type))

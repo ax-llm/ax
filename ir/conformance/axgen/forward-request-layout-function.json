@@ -1,0 +1,53 @@
+{
+  "expected_chat_prompt": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Question`. Your task is to generate new fields: `User`.\n</identity>\n\n<available_functions>\n**Available Functions**: You can call the following functions to complete the task:\n\n- `__axOutput`: Emit the complete structured program output using the declared argument shape.\n\n## Function Call Instructions\n- Complete the task, using the functions defined earlier in this prompt.\n- Output fields should only be generated after all functions have been called.\n- Use the function results to generate the output fields.\n</available_functions>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nQuestion:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nUser (wire key: `user`): (This object { name: string } field must be included)\n\n**Exact JSON shape**: `{\"user\":{\"name\":\"<string>\"}}`\n</output_fields>\n\n\n<formatting_rules>\n\nReturn the complete output by calling `__axOutput`.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Question: Status?\n",
+      "role": "user"
+    }
+  ],
+  "expected_output": {
+    "user": {
+      "name": "Ada"
+    }
+  },
+  "expected_request_count": 1,
+  "expected_request_roles": [["system", "user"]],
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-request-layout-function",
+  "options": {
+    "structured_output_mode": "function"
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "__axOutput",
+                "params": "{\"user\":{\"name\":\"Ada\"}}"
+              },
+              "id": "output_1",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string}"
+}

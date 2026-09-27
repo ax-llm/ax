@@ -37,7 +37,7 @@
     "json_object",
     "javascriptCode",
     "structured_output_rung",
-    "no prose or Markdown fences"
+    "do not invent, rename, or wrap them"
   ],
   "expected_stage_request_not_contains": [
     {
