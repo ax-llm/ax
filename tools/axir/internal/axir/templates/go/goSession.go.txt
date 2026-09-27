@@ -847,7 +847,7 @@ func (p *genSessionClient) runSession(ctx context.Context, request, options map[
 }
 func (p *genSessionClient) submit(results []Value) {
 	if num(coreGet(p.state, "steps", 0)) >= num(coreGet(p.state, "max_steps", 25)) {
-		panic(mustCore(chat_session_step_limit_error(p.state)))
+		panic(asError(mustCore(chat_session_step_limit_error(p.state))))
 	}
 	if err := p.session.Submit(results); err != nil {
 		panic(err)
