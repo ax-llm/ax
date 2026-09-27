@@ -943,7 +943,11 @@ ordinary tool loop. Providers without session support retain that loop.
 Use `const control = runControl()` and pass `{ control }` in forward options.
 Call `control.steer(text)`, `control.setThinkingTokenBudget('high')`, or
 `control.abort()`. `control.onEvent(listener)` observes queued/applied updates,
-run lifecycle, tool activity, and model output activity. Untargeted updates apply
+run lifecycle, tool activity, and model output activity. A run emits `started`,
+then `completed`, `failed` with its `error`, or `aborted`. `aborted` means the
+run ended on purpose before completing: through `control.abort()`, or because
+the consumer stopped a `streamingForward` early (for example with `break`).
+Untargeted updates apply
 to the root and future descendants. `{ target: 'root/nodeName' }` restricts an
 update to a flow node and its descendants. Completed nodes are not rerun.
 Controller-attached runs bypass result caching; provider prompt caching remains enabled.

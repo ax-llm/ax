@@ -26,7 +26,7 @@ public final class AxGenScriptedClientToolExample {
     AxGen qa = Ax.ax("query:string -> answer:string")
       .addTool(search)
       .addAssert(Map.of("field", "answer", "contains", "Ax", "message", "answer should mention Ax"))
-      .addFieldProcessor("answer", "trim");
+      .addFieldTransform("answer", "trim");
     Map<String, Object> out = qa.forward(new ScriptedClient(), Map.of("query", "ax docs"));
     if (!"Found Ax docs".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
     if (qa.getTraces().isEmpty()) throw new RuntimeException("missing trace");

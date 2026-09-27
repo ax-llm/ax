@@ -1,0 +1,55 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "failed"
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "a"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_error_contains": "Field 'Score' has an invalid value 'x': Invalid number",
+  "expected_request_count": 1,
+  "forward_options": {
+    "max_retries": 0
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-control-failed",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: a\nScore: x",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, score:number"
+}

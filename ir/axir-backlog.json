@@ -2033,6 +2033,28 @@
       "verification": "@streaming_forward follows TypeScript #720: a step after emitted output fields starts a new version, resets the committed values and re-sends the thought so far; validation and refusal retries start a new version and infrastructure retries resume the last yielded one, so versions never decrease. @forward's feedback step replaces the earlier step's fields and keeps the joined thought. TS-golden streaming-forward-* (step reset, infra retry mid-stream and after a validation retry, replayed prefix) and forward-feedback-processor* fixtures deep-equal the delta sequence and output in all five ports. npm run test:axir (verify release python/java/cpp/go/rust 1039/1039); live TS/Python/Go on gemini-3.5-flash-lite, gemini-3.8-flash and gpt-5.4-mini."
     },
     {
+      "id": "axir-2026-09-26-public-feedback-field-processor-apis-in-the-ports",
+      "status": "done",
+      "title": "Public feedback field processor and streaming assertion APIs in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "6332cb0f64b4c643780e5d49b42e74ac01d8d648",
+      "tsPaths": [
+        "src/ax/dsp/fieldProcessor.ts",
+        "src/ax/dsp/generate.ts",
+        "src/ax/dsp/asserts.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript addFieldProcessor sends a non-empty processor result back to the model for another step, addStreamingFieldProcessor does the same on each streamed chunk, and addStreamingAssert takes a callable over the field's text. The Java, C++ and Rust ports had these only inside the runtime (conformance runners), their field processors rewrote the value instead, and their skills described raw chunk streaming.",
+      "suggestedAxirWork": [
+        "Add public feedback and streaming field processor methods and callable streaming assertions",
+        "Keep the rewrite under a permanent transform name and deprecate the old default"
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "55f195ce5",
+      "verification": "Java addFieldProcessor(field, processor, AxFieldProcessorMode.FEEDBACK), addStreamingFieldProcessor and callable addStreamingAssert; C++ add_field_processor(field, processor, AxFieldProcessorMode::Feedback), add_streaming_field_processor and add_streaming_assert; Rust add_field_processor, add_streaming_field_processor and add_streaming_assert returning AxResult<&mut Self>. The rewrite moves to addFieldTransform / add_field_transform / with_field_transform and the old defaults warn once (Rust #[deprecated]). The conformance runners use the public APIs; no-key package examples cover each; verify --mode dev 1085/1085 in all five ports."
+    },
+    {
       "id": "axir-2026-09-26-raise-typescript-s-axgen-failure-messages-in-the-ports",
       "status": "done",
       "title": "Raise TypeScript's AxGen failure messages in the ports",
@@ -2122,7 +2144,7 @@
     },
     {
       "id": "axir-2026-09-26-yield-typescript-style-field-deltas-from-the-ports-axgen-streami",
-      "status": "open",
+      "status": "done",
       "title": "Yield TypeScript-style field deltas from the ports' AxGen streaming APIs",
       "createdAt": "2026-09-26",
       "sourcePR": null,
@@ -2134,9 +2156,9 @@
         "Design a port streaming surface that yields versioned field deltas from the parsed stream",
         "Port TypeScript's delta and version semantics with fixtures per rung"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "55f195ce5",
+      "verification": "Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes."
     }
   ],
   "nonPortableExemptions": [

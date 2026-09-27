@@ -255,6 +255,23 @@
         ]
       }
     },
+    "ax": {
+      "streaming": {
+        "sourcePath": "src/examples/rust/generation/streaming_forward.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let mut story = ax(r#\"topic:string -> title:string, story:string \"Three short sentences\"\"#)?;",
+          "story.streaming_forward(&mut client, values, json!({}), move |update| {",
+          "    // update.version changes when a retry starts the output over.",
+          "    if let Some(text) = update.delta[\"story\"].as_str() {",
+          "        print!(\"{text}\");",
+          "    }",
+          "    Ok(())",
+          "})?;"
+        ]
+      }
+    },
     "signatures": {
       "string": {
         "sourcePath": "src/examples/rust/generation/basic_generation.rs",

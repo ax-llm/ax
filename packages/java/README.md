@@ -59,6 +59,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/SignatureSchemaExample.java`: signature parsing and JSON schema generation
 - `examples/ModelCatalogExample.java`: model catalog, named profiles, thinking levels, and service tiers
 - `examples/AxGenScriptedClientToolExample.java`: AxGen with a scripted client and tool
+- `examples/AxGenStreamingNoKeyExample.java`: `streamingForward` deltas with streaming assertions, streaming and feedback field processors, transforms, early close, and cancellation through a scripted streaming client and a scripted OpenAI SSE transport
 - `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport
 - `examples/RuntimeHooksNoKeyExample.java`: runtime-hook globals and typed program surfaces through a scripted transport
 - `examples/AdaptiveBalancerNoKeyExample.java`: adaptive balancer state, scoring, and stable route keys without a provider key

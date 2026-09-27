@@ -94,6 +94,19 @@ let output = parallel_flow.forward(
 )?;
 ```
 
+### Stream a flow
+
+`streaming_forward` runs the whole flow, as `forward_with_options` does, and returns its output as one update (`version` 1, `index` 0), as TypeScript's `streamingForward` does.
+
+```rust
+let updates = parallel_flow.streaming_forward(
+    &mut client,
+    json!({"topicText": "Typed LLM workflows"}),
+    json!({}),
+)?;
+let output = &updates[0].delta;
+```
+
 Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/rust/subsystems/flow/.
 
 ## Astra Session Work

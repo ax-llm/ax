@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
 import type { AxChatResponse } from '../../../src/ax/ai/types.js';
 import { AxGen } from '../../../src/ax/dsp/generate.js';
+import { runControl } from '../../../src/ax/dsp/runControl.js';
 import { f, fn } from '../../../src/ax/dsp/sig.js';
 import { mergeDeltas } from '../../../src/ax/dsp/util.js';
 import {
@@ -289,6 +290,10 @@ type Case = {
   streaming_processors?: ProcessorSpec[];
   result_picker_index?: number;
   stop_functions?: string[];
+  // Attach a run control and record its run lifecycle events.
+  control?: boolean;
+  // The consumer stops the stream after this many deltas.
+  stop_after_deltas?: number;
   responses: ResponseSpec[];
   // The part of TS's error message the ports must produce; defaults to the
   // first line without TS's "Generate failed: " wrapper.
@@ -340,6 +345,17 @@ async function record(name: string, spec: Case): Promise<void> {
     forwardOptions.stopFunction = [...spec.stop_functions];
   }
 
+  const controlEvents: JsonMap[] = [];
+  if (spec.control) {
+    const control = runControl();
+    control.onEvent(({ type, path }) => {
+      if (['started', 'completed', 'failed', 'aborted'].includes(type)) {
+        controlEvents.push({ type, path });
+      }
+    });
+    forwardOptions.control = control;
+  }
+
   const deltas: JsonMap[] = [];
   let output: Json | undefined;
   let error: string | undefined;
@@ -355,6 +371,7 @@ async function record(name: string, spec: Case): Promise<void> {
         forwardOptions
       )) {
         deltas.push(clone(delta) as unknown as JsonMap);
+        if (deltas.length === spec.stop_after_deltas) break;
       }
     }
   } catch (e) {
@@ -385,15 +402,19 @@ async function record(name: string, spec: Case): Promise<void> {
     'streaming_processors',
     'result_picker_index',
     'stop_functions',
+    'control',
+    'stop_after_deltas',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
   }
+  if (spec.control) fixture.expected_control_events = controlEvents;
   if (spec.tools) fixture.expected_tool_calls = toolCalls;
   if (spec.feedback_processors || spec.streaming_processors)
     fixture.expected_processor_calls = processorCalls;
   if (kind === 'streaming_forward') {
     fixture.expected_deltas = deltas;
-    if (error === undefined) {
+    // A consumer that stops early has no output to compare.
+    if (error === undefined && spec.stop_after_deltas === undefined) {
       // A consumer merges the deltas per index and starts over whenever the
       // version changes; the output is the picked sample (index 0 without a
       // result picker).
@@ -729,6 +750,41 @@ const cases: Record<string, Case> = {
       streamed(text('Answer: a\nScore: x'), done()),
       streamed(text('Answer: b\nScore: y'), done()),
     ],
+  },
+  // ----- run control lifecycle -----
+  // A run the consumer stops early ends on purpose: TS reports it as
+  // aborted, as control.abort() does, not as failed.
+  'streaming-forward-control-early-stop': {
+    signature: 'question:string -> answer:string',
+    control: true,
+    stop_after_deltas: 1,
+    responses: [
+      streamed(
+        text('Answer: The '),
+        text('quick '),
+        text('brown '),
+        done('fox.')
+      ),
+    ],
+  },
+  'streaming-forward-control-completed': {
+    signature: 'question:string -> answer:string',
+    control: true,
+    responses: [
+      streamed(
+        text('Answer: The '),
+        text('quick '),
+        text('brown '),
+        done('fox.')
+      ),
+    ],
+  },
+  'streaming-forward-control-failed': {
+    signature: 'question:string -> answer:string, score:number',
+    control: true,
+    forward_options: { max_retries: 0 },
+    error_contains: "Field 'Score' has an invalid value 'x': Invalid number",
+    responses: [streamed(text('Answer: a\nScore: x'), done())],
   },
   'streaming-forward-refusal-retry': {
     signature: 'question:string -> answer:string',

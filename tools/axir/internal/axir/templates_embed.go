@@ -283,6 +283,24 @@ var javaAxPlaybook string
 //go:embed templates/java/javaAxGen.java
 var javaAxGen string
 
+//go:embed templates/java/javaAxGenDelta.java
+var javaAxGenDelta string
+
+//go:embed templates/java/javaAxGenDeltaStream.java
+var javaAxGenDeltaStream string
+
+//go:embed templates/java/javaAxFieldProcessor.java
+var javaAxFieldProcessor string
+
+//go:embed templates/java/javaAxFieldProcessorContext.java
+var javaAxFieldProcessorContext string
+
+//go:embed templates/java/javaAxFieldProcessorMode.java
+var javaAxFieldProcessorMode string
+
+//go:embed templates/java/javaAxStreamingAssertion.java
+var javaAxStreamingAssertion string
+
 //go:embed templates/java/javaAxRunControl.java
 var javaAxRunControl string
 
@@ -650,6 +668,9 @@ var rustAxGenOpenAIExample string
 
 //go:embed templates/rust/rustAxGenScriptedClientToolExample.rs
 var rustAxGenScriptedClientToolExample string
+
+//go:embed templates/rust/rustAxGenStreamingNoKeyExample.rs
+var rustAxGenStreamingNoKeyExample string
 
 //go:embed templates/rust/rustCargoToml.toml
 var rustCargoToml string

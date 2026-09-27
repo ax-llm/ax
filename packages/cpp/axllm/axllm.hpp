@@ -1890,9 +1890,36 @@ class AxProgram {
   virtual Value get_usage() const { return Value::object(); }
 };
 
-namespace detail {
-struct AxGenInternal;
-}
+// One update of AxGen::streaming_forward, as TypeScript's streamingForward
+// yields it. Merge delta into the sample at index (strings and arrays append,
+// other values replace), and start that sample over when version changes: a
+// retry, or a step that replaces earlier output, sends it again.
+struct AxGenDelta {
+  int64_t version = 0;
+  int64_t index = 0;
+  Value delta;
+};
+
+// Handles one AxGenDelta on the thread that called streaming_forward. Return
+// true to keep streaming, false to stop the run.
+using AxGenDeltaHandler = std::function<bool(const AxGenDelta&)>;
+
+// What a field processor gets besides the value: the output values so far and
+// whether the value is final.
+struct AxFieldProcessorContext {
+  Value values;
+  bool done = false;
+};
+
+// A field processor. In Feedback mode, and as a streaming field processor, a
+// non-empty result goes back to the model as a user message and the forward
+// takes another step, whose answer replaces the earlier one; return null to
+// send nothing. In Transform mode the result replaces the field value.
+using AxFieldProcessor = std::function<Value(const Value& value, const AxFieldProcessorContext& context)>;
+
+// Feedback follows TypeScript's addFieldProcessor. Transform rewrites the
+// field value, a port extension (see AxGen::add_field_transform).
+enum class AxFieldProcessorMode { Transform, Feedback };
 
 class AxGen : public AxProgram {
  public:
@@ -1901,6 +1928,17 @@ class AxGen : public AxProgram {
   Value forward(AIClient& client, Value values, Value options = Value::object());
   Value forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation);
   Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
+  // Runs the forward as TypeScript's streamingForward does: handler gets each
+  // AxGenDelta as the model streams, on the calling thread, and the merged
+  // output of the picked sample is returned. Retries, steps and tools work as
+  // in forward. When handler returns false the run stops (the provider stream
+  // is closed and no further request is sent), nothing is thrown, and the
+  // result is what was merged so far: the first sample of the current
+  // version. An exception from handler stops the run and propagates as is.
+  // With a run control in options, a run the handler stops either way ends
+  // as aborted, as control.abort() reports it.
+  Value streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler);
+  Value streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler, const AxCancellationToken* cancellation);
   AxGen& set_rate_limiter(AxRateLimiter limiter);
   AxGen& set_tracer(std::shared_ptr<AxTracer> tracer);
   AxGen& set_meter(std::shared_ptr<AxMeter> meter);
@@ -1914,8 +1952,36 @@ class AxGen : public AxProgram {
   AxGen& add_assert(std::function<Value(Value)> assertion, std::string message);
   AxGen& add_streaming_assert(Value assertion);
   AxGen& add_streaming_assert(std::string field, std::string not_contains, std::string message = "");
+  // A streaming assertion on a string or code output field: assertion(text so
+  // far, done) returns null or true to pass, a message string to fail with it,
+  // or false to fail with message (or a default message). As in TypeScript, a
+  // failure stops the attempt and retries it with a correction; an exception
+  // the assertion throws ends the forward without a retry. Throws AxError
+  // when field is not a text output field.
+  AxGen& add_streaming_assert(std::string field, std::function<Value(const std::string& text, bool done)> assertion, std::string message = "");
+  // Rewrites an output field's final value before the assertions run: op is
+  // "uppercase", "lowercase", "trim", "prefix:<text>" or "suffix:<text>".
+  // A port extension; streaming_forward holds a transformed field back and
+  // sends it once, transformed.
+  AxGen& add_field_transform(std::string field, std::string op);
+  AxGen& add_field_transform(std::string field, std::function<Value(Value)> transform);
+  // Deprecated: rewrites the field like add_field_transform and warns once.
+  // In the next major version add_field_processor follows TypeScript (the
+  // Feedback mode below).
   AxGen& add_field_processor(std::string field, std::string op);
   AxGen& add_field_processor(std::string field, std::function<Value(Value)> processor);
+  // Feedback: TypeScript's addFieldProcessor. processor runs on the field's
+  // final value, and a non-empty result is sent to the model as a user
+  // message for another step, whose answer replaces the earlier one.
+  // Transform: the result replaces the field value, as add_field_transform.
+  // An exception processor throws ends the forward without a retry. Throws
+  // AxError when field is not an output field.
+  AxGen& add_field_processor(std::string field, AxFieldProcessor processor, AxFieldProcessorMode mode);
+  // TypeScript's addStreamingFieldProcessor: processor runs on each streamed
+  // chunk of a string or code field with the field's text so far, and a
+  // non-empty result goes back to the model as in Feedback mode. Throws
+  // AxError when field is not a text output field.
+  AxGen& add_streaming_field_processor(std::string field, AxFieldProcessor processor);
   AxGen& on_function_call(std::function<void(Value)> hook);
   AxGen& set_stop_functions(Value names);
   AxGen& set_instruction(Value instruction);
@@ -1934,36 +2000,11 @@ class AxGen : public AxProgram {
   Value value() const;
 
  private:
-  friend struct detail::AxGenInternal;
   Value state_;
   AxMemory memory_;
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   void refresh_prompt_template();
 };
-
-namespace detail {
-// Internal AxGen seams for the conformance runner until the public C++
-// streaming and field-processor API lands. Not part of the public API.
-struct AxGenInternal {
-  // Runs the streaming forward: each {version, index, delta} envelope goes to
-  // sink, a sink exception stops the run, and the merged output of the
-  // picked sample is returned.
-  static Value streaming_forward(AxGen& gen, AIClient& client, Value values, Value options,
-                                 std::function<void(Value)> sink, const AxRuntimeHooks& hooks = {});
-  // Rewrites a field's final value with an op ("uppercase", "lowercase",
-  // "trim", "prefix:...", "suffix:..."); streaming holds the field back.
-  static void add_field_transform(AxGen& gen, std::string field, std::string op);
-  // TypeScript field processors: processor(value, {values, done}); a
-  // non-empty result is sent to the model as a user message for another step.
-  // Feedback processors see the final value, streaming ones each chunk of a
-  // string or code field.
-  static void add_feedback_processor(AxGen& gen, std::string field, std::function<Value(Value, Value)> processor);
-  static void add_streaming_field_processor(AxGen& gen, std::string field, std::function<Value(Value, Value)> processor);
-  // check(text so far, done) returns null or true to pass, a message string
-  // to fail with it, or false to fail with message (or the default message).
-  static void add_streaming_assert(AxGen& gen, std::string field, std::function<Value(Value, bool)> check, std::string message = "");
-};
-}
 
 class AxFlow : public AxProgram {
  public:
