@@ -2252,6 +2252,25 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "44bb2306d4a4794442415e0164f44118c1092279",
       "verification": "TS: the new sig.test.ts field-title cases fail on main (User I D, Field  2) and pass; npm run test --workspace=@ax-llm/ax passes (a benchmark that timed out under load passes alone). TS goldens prompt/field-titles-snake-and-camel-case and axagent/agent-playbook-evolve-miner-system-prompt; runner keys expected_playbook_state_before_forward, expected_playbook_wall_clock, expected_playbook_config_unchanged and expected_teacher_system_prompts; hand-written axagent/playbook-config-empty-seed-wall-clock, playbook-config-kept-over-actor-instructions, -kept-after-child-agent, -kept-under-run-context, playbook-config-responder-target and axgen/function-call-chat-result-flat-shape and -nested-shape. Each fails on main in the ports named in the PR and passes in all five; 23 mutated copies fail in all five; per-port probes show a flat call runs its tool in every port. Full suites 1120/1120 in python, go, java, cpp and rust; the scripted-client tool examples assert the tool ran."
+    },
+    {
+      "id": "axir-2026-09-27-continue-the-axgen-step-loop-while-a-run-control-update-is-pendi",
+      "status": "done",
+      "title": "Continue the AxGen step loop while a run control update is pending in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "54f626c2a0bff242fea15d356b7f9b325d6befae",
+      "tsPaths": ["src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript applies a run control's pending updates when each step starts (a steer is a user message that stays in memory, a thinking level sets the budget, each starts a new streaming version) and takes another step after a final answer while an update is pending. The ports returned the first answer: a steer queued while the request was in flight was never applied and no applied event was emitted.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "1b6d8b9f84346048f73cad9b255adcb42b950e28",
+      "verification": "node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with forward-control-steer-continues, streaming-forward-control-steer-continues and forward-control-steer-persists-across-tool-steps"
     }
   ],
   "nonPortableExemptions": [

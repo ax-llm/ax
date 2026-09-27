@@ -1,0 +1,115 @@
+{
+  "control": true,
+  "control_steer": {
+    "during_request": 1,
+    "text": "Answer in French."
+  },
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "queued"
+    },
+    {
+      "path": "root",
+      "type": "applied"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_contains": ["Answer in French."],
+  "expected_request_count": 3,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "function", "user"],
+    ["system", "user", "assistant", "function", "user", "assistant", "function"]
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "a"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "b"
+      },
+      "name": "lookup"
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-control-steer-persists-across-tool-steps",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": "{\"key\":\"a\"}"
+              },
+              "id": "call_1",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": "{\"key\":\"b\"}"
+              },
+              "id": "call_2",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: done",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

@@ -114,6 +114,19 @@ class _BoundaryClient:
             self.control._emit({"type": "applied", "path": self.path, "update_id": update_id, "timing": "next-response"})
         return applied["request"]
 
+    def _take_control_updates(self):
+        # The forward applies these when a step starts, as TS does, so they
+        # are applied now and the next request boundary skips them.
+        updates = self.control._pending(self.path, self.after)
+        if updates:
+            self.after = max(int(update["id"]) for update in updates)
+        for update in updates:
+            self.control._emit({"type": "applied", "path": self.path, "update_id": update["id"], "timing": "next-response"})
+        return updates
+
+    def _pending_control_count(self):
+        return len(self.control._pending(self.path, self.after))
+
     def complete(self, request):
         return _core_ai_complete_once(self.client, self._apply(request), self.options)
 
