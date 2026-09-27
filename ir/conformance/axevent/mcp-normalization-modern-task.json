@@ -1,0 +1,24 @@
+{
+  "name": "MCP modern task notification normalizes to event correlation",
+  "description": "Port-only. A modern (Tasks v2) server sends notifications/tasks with the task as params. TypeScript's client records it as the task's status (src/ax/mcp/client.ts), and its event source turns that into mcp.task.status correlated by namespace:taskId (src/ax/event/mcpSource.ts).",
+  "kind": "event",
+  "operation": "mcp_normalization",
+  "namespace": "inventory",
+  "method": "notifications/tasks",
+  "params": {
+    "taskId": "42",
+    "status": "completed"
+  },
+  "expected": {
+    "source": "mcp://inventory",
+    "type": "mcp.task.status",
+    "data": {
+      "taskId": "42",
+      "status": "completed"
+    },
+    "correlation": {
+      "kind": "mcp.task",
+      "value": "inventory:42"
+    }
+  }
+}

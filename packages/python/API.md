@@ -654,13 +654,13 @@ Use MCP clients and transports while keeping JSON-RPC lifecycle, tools, prompts,
 
 ### `AxMCPClient`
 
-MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions.
+MCP client that lists tools/prompts/resources and converts MCP tools to Ax functions. `call_tool` waits for a modern server's task; `call_tool(..., task_handling="expose")` returns it as its CreateTaskResult, and `call_tool_outcome` returns `{"kind": "complete", "result": ...}` or `{"kind": "task", "task": ...}`, as TypeScript's callTool taskHandling and callToolOutcome. A legacy server's task-shaped result is a complete result.
 
 - Canonical Ax concept: `AxMCPClient`
 - Kind: `type`
 - Form: `AxMCPClient(transport, options=None)`
 - Returns: `MCP client`
-- Important options: transport, client info, roots, tool overrides, host tool authorization
+- Important options: transport, client info, roots, tool overrides, host tool authorization, task handling (await or expose), tool call outcome
 
 ```python
 client = AxMCPClient(transport)

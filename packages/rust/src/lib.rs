@@ -8,8 +8,9 @@ pub use mcp::{
     AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxExecutionContext,
     AxInMemoryEventStore, AxMCPCatalogSnapshot, AxMCPClient, AxMCPContinuationState,
     AxMCPEventSource, AxMCPOAuthOptions, AxMCPResourceSubscriptionPolicy, AxMCPScriptedTransport,
-    AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport,
-    AxMCPWebSocketTransport, AxManualEventClock, AxSystemEventClock, AxUCPBinding, AxUCPClient,
+    AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTaskHandling, AxMCPTokenSet,
+    AxMCPToolCallOutcome, AxMCPTransport, AxMCPWebSocketTransport, AxManualEventClock,
+    AxSystemEventClock, AxUCPBinding, AxUCPClient,
 };
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -122847,7 +122848,9 @@ fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_method = core_arg(args, 1);
     let mut v_params = core_arg(args, 2);
     let mut v_correlation = CoreValue::Null;
+    let mut v_legacy_task = CoreValue::Null;
     let mut v_logging = CoreValue::Null;
+    let mut v_modern_task = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_progress = CoreValue::Null;
     let mut v_prompts = CoreValue::Null;
@@ -122886,10 +122889,12 @@ fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     ])?;
     v_progress = core_eq(&[v_method.clone(), CoreValue::from("notifications/progress")])?;
     v_logging = core_eq(&[v_method.clone(), CoreValue::from("notifications/message")])?;
-    v_task = core_eq(&[
+    v_legacy_task = core_eq(&[
         v_method.clone(),
         CoreValue::from("notifications/tasks/status"),
     ])?;
+    v_modern_task = core_eq(&[v_method.clone(), CoreValue::from("notifications/tasks")])?;
+    v_task = core_or(&[v_legacy_task.clone(), v_modern_task.clone()])?;
     if core_truthy(&v_resource) {
         core_set(
             &v_out,
@@ -124146,20 +124151,54 @@ fn mcp_listen_interests(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_listen_interests");
     let mut v_subscribed_uris = core_arg(args, 0);
     let mut v_filters = core_arg(args, 1);
+    let mut v_task_ids = core_arg(args, 2);
     let mut v_count = CoreValue::Null;
     let mut v_duplicate = CoreValue::Null;
     let mut v_empty = CoreValue::Null;
     let mut v_filters_object = CoreValue::Null;
     let mut v_has_subscriptions = CoreValue::Null;
+    let mut v_has_tasks = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_skip = CoreValue::Null;
+    let mut v_sorted_tasks = CoreValue::Null;
     let mut v_subscriptions = CoreValue::Null;
+    let mut v_task_count = CoreValue::Null;
+    let mut v_task_id = CoreValue::Null;
+    let mut v_task_id_duplicate = CoreValue::Null;
+    let mut v_task_id_empty = CoreValue::Null;
+    let mut v_task_id_skip = CoreValue::Null;
+    let mut v_task_id_string = CoreValue::Null;
+    let mut v_task_ids_list = CoreValue::Null;
+    let mut v_tasks = CoreValue::Null;
     let mut v_uri = CoreValue::Null;
     let mut v_uri_string = CoreValue::Null;
     v_out = CoreValue::new_map();
     v_filters_object = core_type_is(&v_filters, CoreValue::from("object"));
     if core_truthy(&v_filters_object) {
         v_out = core_map_merge(&[v_out.clone(), v_filters.clone()])?;
+    }
+    v_tasks = CoreValue::new_list();
+    v_task_ids_list = core_type_is(&v_task_ids, CoreValue::from("list"));
+    if core_truthy(&v_task_ids_list) {
+        for v_task_id in core_iter(&v_task_ids)? {
+            let mut v_task_id = v_task_id;
+            v_task_id_string = core_type_is(&v_task_id, CoreValue::from("string"));
+            if core_truthy(&v_task_id_string) {
+                v_task_id_empty = core_eq(&[v_task_id.clone(), CoreValue::from("")])?;
+                v_task_id_duplicate = core_contains(&[v_tasks.clone(), v_task_id.clone()])?;
+                v_task_id_skip = core_or(&[v_task_id_empty.clone(), v_task_id_duplicate.clone()])?;
+                if core_truthy(&v_task_id_skip) {
+                } else {
+                    core_append(&v_tasks, v_task_id.clone())?;
+                }
+            }
+        }
+    }
+    v_task_count = core_len(&[v_tasks.clone()])?;
+    v_has_tasks = core_gt(&[v_task_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_tasks) {
+        v_sorted_tasks = core_sorted_strings(&[v_tasks.clone()])?;
+        core_set(&v_out, CoreValue::from("taskIds"), v_sorted_tasks.clone())?;
     }
     v_subscriptions = CoreValue::new_list();
     for v_uri in core_iter(&v_subscribed_uris)? {
@@ -125688,7 +125727,64 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (932 of 932 core functions)
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_tool_call_outcome");
+    let mut v_result = core_arg(args, 0);
+    let mut v_tasks_negotiated = core_arg(args, 1);
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_task = CoreValue::Null;
+    let mut v_no_tasks = CoreValue::Null;
+    let mut v_not_task = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_result_type = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_result_type = core_get(&v_result, &CoreValue::from("resultType"), CoreValue::Null);
+    v_is_task = core_eq(&[v_result_type.clone(), CoreValue::from("task")])?;
+    v_not_task = core_not(&[v_is_task.clone()])?;
+    if core_truthy(&v_not_task) {
+        core_set(&v_out, CoreValue::from("kind"), CoreValue::from("complete"))?;
+        core_set(&v_out, CoreValue::from("result"), v_result.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_no_tasks = core_not(&[v_tasks_negotiated.clone()])?;
+    if core_truthy(&v_no_tasks) {
+        core_set(
+            &v_out,
+            CoreValue::from("kind"),
+            CoreValue::from("violation"),
+        )?;
+        core_set(&v_out, CoreValue::from("message"), CoreValue::from("MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"))?;
+        return Ok(v_out.clone());
+    }
+    v_valid = mcp_validate_modern_task(&[v_result.clone()])?;
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        core_set(
+            &v_out,
+            CoreValue::from("kind"),
+            CoreValue::from("violation"),
+        )?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("MCP protocol violation: invalid CreateTaskResult"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    core_set(&v_out, CoreValue::from("kind"), CoreValue::from("task"))?;
+    core_set(&v_out, CoreValue::from("task"), v_result.clone())?;
+    return Ok(v_out.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (933 of 933 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
