@@ -1,0 +1,32 @@
+{
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request": {
+    "model_config": {
+      "temperature": 0.9
+    }
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "model_config": {
+      "temperature": 0.9
+    }
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "model-config-mixed-spellings-call-wins",
+  "options": {
+    "modelConfig": {
+      "temperature": 0.2
+    }
+  },
+  "responses": [
+    {
+      "content": "Answer: ok"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

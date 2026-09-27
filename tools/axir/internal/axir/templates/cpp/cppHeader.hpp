@@ -1110,7 +1110,7 @@ class AxGen : public AxProgram {
   // result is what was merged so far: the first sample of the current
   // version. An exception from handler stops the run and propagates as is.
   // With a run control in options, a run the handler stops either way ends
-  // as aborted, as control.abort() reports it.
+  // with an aborted event rather than failed.
   Value streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler);
   Value streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler, const AxCancellationToken* cancellation);
   AxGen& set_rate_limiter(AxRateLimiter limiter);

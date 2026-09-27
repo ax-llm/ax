@@ -1,0 +1,34 @@
+{
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request": {
+    "model_config": {
+      "maxTokens": 100,
+      "temperature": 0.9
+    }
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "modelConfig": {
+      "temperature": 0.9
+    }
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "model-config-call-overrides-constructor-key",
+  "options": {
+    "modelConfig": {
+      "maxTokens": 100,
+      "temperature": 0.2
+    }
+  },
+  "responses": [
+    {
+      "content": "Answer: ok"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}
