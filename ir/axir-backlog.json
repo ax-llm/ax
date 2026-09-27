@@ -2388,6 +2388,25 @@
       "verification": "AxAgent::with_playbook_student(Rc<RefCell<C>>) names the client that runs the run-end reflector and curator calls; without one they run on the forward's client, and a student that is already borrowed (for example because it is also the forward's client) is not borrowed again. Four Rust tests (agent_playbook_student_tests) run a failing agent run end to end: the named student gets the 2 learning requests and the forward client only the 4 run requests, the student survives with_tool_module and with_runtime, the forward client learns without a student, and a student that is the forward client does not panic. A mutant that ignores the student fails 2 of them, one that borrows the student while the forward holds it fails 1. Rust lib tests 62/62 and the Rust conformance suites (1215 fixtures) pass."
     },
     {
+      "id": "axir-2026-09-27-open-a-fresh-native-chat-session-for-each-axgen-request-in-the-p",
+      "status": "open",
+      "title": "Open a fresh native chat session for each AxGen request in the ports, as TypeScript does, instead of steering the open session with a correction",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "d691dd63fb7f6ec665309a3c354322e6320f229d",
+      "tsPaths": ["src/ax/dsp/chatSession.ts", "src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript's axRunChatSession opens a native chat session for each AxGen request and closes it when the request's response completes; a validation or assertion correction (and a processor-feedback continuation) is a new request, so it opens a fresh session whose prompt ends with the correction message. The ports keep one session for the whole run and steer it with the correction text, then continue it: reproduced in Python with a scripted session (TS: open, close, open with the correction [{type: 'text', text: 'Follow these instructions: The answer must be Paris.'}], close; Python: open, steer 'The previous response failed validation: The answer must be Paris.. Return only corrected JSON.', continue, close). The request sequence on the wire differs for session-capable providers (for example GPT-6 Astra WebSocket sessions).",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-27-port-speak-results-carry-typescript-speech-response-keys",
       "status": "done",
       "title": "Port speak() results carry TypeScript's AxSpeechResponse keys",
@@ -2443,6 +2462,25 @@
       "verification": "renderAudio (or render_audio) true renders through @render_audio_outputs_impl in ir/axcore/audio_output.axir at every @forward exit, on forward and streaming cache hits and on the streamingForward result-picker delta; unset keeps the text and warns once per process, and false keeps it silently. The 16 TS-derived axgen audio-output-* goldens and axflow/audio-output-flow-speaker-to-summarizer check speak requests and outputs; the 10 goldens that render fail on origin/main in all five ports. verify --mode release passes 1138 fixtures in python, java, cpp and rust; the Go conformance passes the whole tree after the load-flaky axai/portable-cancellation fixture passed 5/5 alone."
     },
     {
+      "id": "axir-2026-09-27-render-the-axgen-structured-output-contract-into-the-system-prom",
+      "status": "done",
+      "title": "Render the AxGen structured-output contract into the system prompt in the ports and select the rung by mode when structured output is required",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "35469b35c0b41678fc1b5e2858766fbffeb52aad",
+      "tsPaths": ["src/ax/dsp/prompt.ts", "src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript builds each forward's prompt template for the selected rung (structuredOutput when a rung is selected, the __axOutput function name and function under the function rung), so the system prompt ends its output fields with the exact JSON shape and gives the rung's formatting rule, with no turn after the user message; a provider that requires structured output gets a rung chosen by its modes. The ports appended a user instruction turn on every structured rung, gave the function rung the JSON rule without listing __axOutput, left a forced- or requires-structured simple signature (such as the agent actor stage) on the text-contract rule while demanding JSON, and always chose the native rung for requiresStructuredOutput.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "f95ab33cf",
+      "verification": "Ten TS goldens (axgen-streaming-goldens.ts pin_request_layout: forward-request-layout-* for the text contract, native, json_object, function and three requires-structured-output cases, and streaming-forward-request-layout-native/-json-object/-function) pin the first request's whole chat prompt, every request's roles and a forward's response format. On main they fail in all five ports (an extra user instruction turn; the function rung's JSON rule and missing __axOutput listing; no exact JSON shape for a requires-structured simple signature; json_schema for json_object- or function-only providers). Three hand-written fixtures now pin TS's JSON rule and fail on main (the forced-structured prompt carried the text-contract rule while demanding JSON; the axagent-real deepseek fixture passes 10/10 here). Per-port mutations: ignoring structured_output or extra_functions fails its goldens. verify --mode dev: 1235 fixtures in python, go, java, cpp and rust (Rust cargo test 67/67); Python response-perturbation gate 335 mutations across 134 fixtures."
+    },
+    {
       "id": "axir-2026-09-27-sampling-support-and-credential-routing",
       "status": "done",
       "title": "Match TypeScript's sampling support (explicit values the model accepts, one-time warnings) and keep credentials with their provider in the ports",
@@ -2489,25 +2527,6 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "9b1f64a9a",
       "verification": "TS streamingForward runs its stages at root/distiller, root/executor and root/responder and reports the run at root (src/ax/agent/agent.streamingControl.test.ts: 3 tests fail on main, pass here). All five ports stream the responder through @agent_streaming_forward and intrinsic.agent.stage_streaming_forward, sharing @agent_run_actor_stages and @agent_complete_run with forward. 20 TS goldens from tools/axir/extractors/agent-streaming-goldens.ts (axagent/agent-streaming-forward-* and agent-forward-*) pin the deltas, the output, the request count, the order of model requests and observer callbacks (used memories and skills, citations, playbook onUpdate), run-control events with paths (completed, failed, aborted), the chat-log shape and TS's citation messages and errors; the axagent suite (167 fixtures) passes in python, go, java, rust and cpp, and mutated copies of the control and playbook goldens fail in all five. verify --mode release passes in python, go, java, rust and cpp (1131 fixtures each)."
-    },
-    {
-      "id": "axir-2026-09-27-render-the-axgen-structured-output-contract-into-the-system-prom",
-      "status": "done",
-      "title": "Render the AxGen structured-output contract into the system prompt in the ports and select the rung by mode when structured output is required",
-      "createdAt": "2026-09-27",
-      "sourcePR": null,
-      "sourceCommit": "35469b35c0b41678fc1b5e2858766fbffeb52aad",
-      "tsPaths": ["src/ax/dsp/prompt.ts", "src/ax/dsp/generate.ts"],
-      "portableSurface": "axgen",
-      "impact": "TypeScript builds each forward's prompt template for the selected rung (structuredOutput when a rung is selected, the __axOutput function name and function under the function rung), so the system prompt ends its output fields with the exact JSON shape and gives the rung's formatting rule, with no turn after the user message; a provider that requires structured output gets a rung chosen by its modes. The ports appended a user instruction turn on every structured rung, gave the function rung the JSON rule without listing __axOutput, left a forced- or requires-structured simple signature (such as the agent actor stage) on the text-contract rule while demanding JSON, and always chose the native rung for requiresStructuredOutput.",
-      "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": "2026-09-27",
-      "completedByCommit": "f95ab33cf",
-      "verification": "Ten TS goldens (axgen-streaming-goldens.ts pin_request_layout: forward-request-layout-* for the text contract, native, json_object, function and three requires-structured-output cases, and streaming-forward-request-layout-native/-json-object/-function) pin the first request's whole chat prompt, every request's roles and a forward's response format. On main they fail in all five ports (an extra user instruction turn; the function rung's JSON rule and missing __axOutput listing; no exact JSON shape for a requires-structured simple signature; json_schema for json_object- or function-only providers). Three hand-written fixtures now pin TS's JSON rule and fail on main (the forced-structured prompt carried the text-contract rule while demanding JSON; the axagent-real deepseek fixture passes 10/10 here). Per-port mutations: ignoring structured_output or extra_functions fails its goldens. verify --mode dev: 1235 fixtures in python, go, java, cpp and rust (Rust cargo test 67/67); Python response-perturbation gate 335 mutations across 134 fixtures."
     }
   ],
   "nonPortableExemptions": [
