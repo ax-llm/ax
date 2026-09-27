@@ -5923,8 +5923,12 @@ impl ToolBuilder {
         self
     }
 
+    /// An argument; the field type's description, when it has one, goes into
+    /// the tool's JSON schema, as TypeScript's `fn(...).arg(name, f.string("..."))`
+    /// puts it there.
     pub fn arg(mut self, name: &str, field_type: FieldType) -> Self {
-        self.args.insert(name.to_string(), field_type.to_payload());
+        self.args
+            .insert(name.to_string(), field_type.to_payload_with_description());
         self
     }
 
@@ -23846,6 +23850,8 @@ struct FixtureClient {
     // What the run did to its sessions: open, steer, thinking, continue (with
     // the IDs of the tool results it submitted) and close.
     session_log: Rc<RefCell<Vec<Value>>>,
+    // The tool results the run submitted to its sessions, in order.
+    session_tool_results: Rc<RefCell<Vec<Value>>>,
 }
 
 impl AxAIClient for FixtureClient {
@@ -23876,6 +23882,7 @@ impl AxAIClient for FixtureClient {
             .ok_or_else(|| AxError::runtime("scripted sessions exhausted"))?;
         Ok(Some(Box::new(ScriptedChatSession::new(
             self.session_log.clone(),
+            self.session_tool_results.clone(),
             script,
         )?)))
     }
@@ -24032,6 +24039,7 @@ impl FixtureClient {
             chat_requests: 0,
             native_sessions: None,
             session_log: Rc::new(RefCell::new(Vec::new())),
+            session_tool_results: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -24109,16 +24117,22 @@ fn expect_fixture_speak_requests(fixture: &Value, requests: &[Value]) -> AxResul
 // delivered as {type, response_id, response: {results}}.
 struct ScriptedChatSession {
     log: Rc<RefCell<Vec<Value>>>,
+    tool_results: Rc<RefCell<Vec<Value>>>,
     script: VecDeque<Value>,
     events: VecDeque<Value>,
     closed: bool,
 }
 
 impl ScriptedChatSession {
-    fn new(log: Rc<RefCell<Vec<Value>>>, script: Value) -> AxResult<Self> {
+    fn new(
+        log: Rc<RefCell<Vec<Value>>>,
+        tool_results: Rc<RefCell<Vec<Value>>>,
+        script: Value,
+    ) -> AxResult<Self> {
         let script = script.as_array().cloned().unwrap_or_default().into();
         let mut session = Self {
             log,
+            tool_results,
             script,
             events: VecDeque::new(),
             closed: false,
@@ -24166,6 +24180,13 @@ impl AxChatSession for ScriptedChatSession {
         self.log
             .borrow_mut()
             .push(json!({"op": "continue", "call_ids": ids}));
+        for result in &results {
+            self.tool_results.borrow_mut().push(json!({
+                "call_id": result.get("function_id").cloned().unwrap_or(Value::Null),
+                "result": result.get("result").cloned().unwrap_or(Value::Null),
+                "is_error": result.get("is_error").and_then(Value::as_bool).unwrap_or(false),
+            }));
+        }
         self.play()
     }
 
@@ -24191,6 +24212,13 @@ impl AxChatSession for ScriptedChatSession {
 // python: _assert_session_log. expected_session_log is what the run did to
 // its native sessions, in order.
 fn expect_fixture_session_log(fixture: &Value, client: &FixtureClient) -> AxResult<()> {
+    if let Some(expected) = fixture.get("expected_session_tool_results") {
+        expect_json_equal(
+            "native session tool results",
+            &Value::Array(client.session_tool_results.borrow().clone()),
+            expected,
+        )?;
+    }
     if let Some(expected) = fixture.get("expected_session_log") {
         expect_json_equal(
             "native session log",
@@ -33366,6 +33394,13 @@ fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError
             CoreValue::from("type"),
             core_field_type_value(&field_type_from_payload(payload))?,
         )?;
+        if let Some(description) = payload.get("description").and_then(Value::as_str) {
+            core_set(
+                &values,
+                CoreValue::from("description"),
+                CoreValue::from(description),
+            )?;
+        }
         core_append(
             &fields,
             core_record_new(&[CoreValue::from("Field"), values])?,
@@ -68387,19 +68422,44 @@ fn chat_session_validate_required_arguments(args: &[CoreValue]) -> Result<CoreVa
     let mut v_count = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_errors = CoreValue::Null;
+    let mut v_failure = CoreValue::Null;
+    let mut v_failure_field = CoreValue::Null;
+    let mut v_failure_message = CoreValue::Null;
     let mut v_invalid = CoreValue::Null;
+    let mut v_joined = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     v_errors = _chat_session_argument_errors(&[
         v_schema.clone(),
         v_schema.clone(),
         v_arguments.clone(),
-        v_path.clone(),
+        CoreValue::from(""),
         CoreValue::Num(0f64),
     ])?;
     v_count = core_len(&[v_errors.clone()])?;
     v_invalid = core_gt(&[v_count.clone(), CoreValue::Num(0f64)])?;
     if core_truthy(&v_invalid) {
-        v_message = core_string_join(&CoreValue::from("; "), &v_errors)?;
+        v_lines = CoreValue::new_list();
+        for v_failure in core_iter(&v_errors)? {
+            let mut v_failure = v_failure;
+            v_failure_field = core_get(
+                &v_failure,
+                &CoreValue::from("field"),
+                CoreValue::from("arguments"),
+            );
+            v_failure_message =
+                core_get(&v_failure, &CoreValue::from("message"), CoreValue::from(""));
+            v_line = core_string_format(&[
+                CoreValue::from("{}: {}"),
+                v_failure_field.clone(),
+                v_failure_message.clone(),
+            ])?;
+            core_append(&v_lines, v_line.clone())?;
+        }
+        v_joined = core_string_join(&CoreValue::from("; "), &v_lines)?;
+        v_message =
+            core_string_format(&[CoreValue::from("{}: {}"), v_path.clone(), v_joined.clone()])?;
         v_error = core_validation_error(&[v_message.clone()])?;
         return Err(core_as_error(&v_error));
     }
@@ -68578,6 +68638,36 @@ fn stream_extraction_route(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _date_is_date_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_is_date_type_impl");
+    let mut v_name = core_arg(args, 0);
+    let mut v_is_date = CoreValue::Null;
+    let mut v_is_date_range = CoreValue::Null;
+    let mut v_is_datetime = CoreValue::Null;
+    let mut v_is_datetime_range = CoreValue::Null;
+    v_is_date = core_eq(&[v_name.clone(), CoreValue::from("date")])?;
+    if core_truthy(&v_is_date) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_is_datetime = core_eq(&[v_name.clone(), CoreValue::from("datetime")])?;
+    if core_truthy(&v_is_datetime) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_is_date_range = core_eq(&[v_name.clone(), CoreValue::from("dateRange")])?;
+    if core_truthy(&v_is_date_range) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_is_datetime_range = core_eq(&[v_name.clone(), CoreValue::from("datetimeRange")])?;
+    return Ok(v_is_datetime_range.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _chat_session_argument_equal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_chat_session_argument_equal");
     let mut v_left = core_arg(args, 0);
@@ -68700,36 +68790,6 @@ fn _chat_session_argument_equal(args: &[CoreValue]) -> Result<CoreValue, AxError
     }
     v_same = core_eq(&[v_left.clone(), v_right.clone()])?;
     return Ok(v_same.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _date_is_date_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_date_is_date_type_impl");
-    let mut v_name = core_arg(args, 0);
-    let mut v_is_date = CoreValue::Null;
-    let mut v_is_date_range = CoreValue::Null;
-    let mut v_is_datetime = CoreValue::Null;
-    let mut v_is_datetime_range = CoreValue::Null;
-    v_is_date = core_eq(&[v_name.clone(), CoreValue::from("date")])?;
-    if core_truthy(&v_is_date) {
-        return Ok(CoreValue::Bool(true));
-    }
-    v_is_datetime = core_eq(&[v_name.clone(), CoreValue::from("datetime")])?;
-    if core_truthy(&v_is_datetime) {
-        return Ok(CoreValue::Bool(true));
-    }
-    v_is_date_range = core_eq(&[v_name.clone(), CoreValue::from("dateRange")])?;
-    if core_truthy(&v_is_date_range) {
-        return Ok(CoreValue::Bool(true));
-    }
-    v_is_datetime_range = core_eq(&[v_name.clone(), CoreValue::from("datetimeRange")])?;
-    return Ok(v_is_datetime_range.clone());
 }
 
 #[allow(
@@ -69506,553 +69566,6 @@ fn _validate_optimization_component_map(args: &[CoreValue]) -> Result<CoreValue,
     unreachable_code,
     clippy::all
 )]
-fn _chat_session_argument_errors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_chat_session_argument_errors");
-    let mut v_root = core_arg(args, 0);
-    let mut v_schema = core_arg(args, 1);
-    let mut v_arguments = core_arg(args, 2);
-    let mut v_path = core_arg(args, 3);
-    let mut v_depth = core_arg(args, 4);
-    let mut v_additional = CoreValue::Null;
-    let mut v_additional_schema = CoreValue::Null;
-    let mut v_all = CoreValue::Null;
-    let mut v_allowed = CoreValue::Null;
-    let mut v_ambiguous = CoreValue::Null;
-    let mut v_array = CoreValue::Null;
-    let mut v_array_target = CoreValue::Null;
-    let mut v_branch = CoreValue::Null;
-    let mut v_branch_errors = CoreValue::Null;
-    let mut v_branches = CoreValue::Null;
-    let mut v_child = CoreValue::Null;
-    let mut v_child_errors = CoreValue::Null;
-    let mut v_child_path = CoreValue::Null;
-    let mut v_child_schema = CoreValue::Null;
-    let mut v_choice = CoreValue::Null;
-    let mut v_constant = CoreValue::Null;
-    let mut v_declared_type = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    let mut v_empty_list = CoreValue::Null;
-    let mut v_entry = CoreValue::Null;
-    let mut v_enum_values = CoreValue::Null;
-    let mut v_error = CoreValue::Null;
-    let mut v_error_count = CoreValue::Null;
-    let mut v_errors = CoreValue::Null;
-    let mut v_finite = CoreValue::Null;
-    let mut v_forbidden = CoreValue::Null;
-    let mut v_found = CoreValue::Null;
-    let mut v_has_const = CoreValue::Null;
-    let mut v_has_enum = CoreValue::Null;
-    let mut v_has_type = CoreValue::Null;
-    let mut v_high = CoreValue::Null;
-    let mut v_index = CoreValue::Null;
-    let mut v_index_key = CoreValue::Null;
-    let mut v_invalid_union = CoreValue::Null;
-    let mut v_is_empty = CoreValue::Null;
-    let mut v_is_false = CoreValue::Null;
-    let mut v_is_union = CoreValue::Null;
-    let mut v_is_zero = CoreValue::Null;
-    let mut v_item = CoreValue::Null;
-    let mut v_items = CoreValue::Null;
-    let mut v_key = CoreValue::Null;
-    let mut v_keyword = CoreValue::Null;
-    let mut v_keywords = CoreValue::Null;
-    let mut v_known = CoreValue::Null;
-    let mut v_length = CoreValue::Null;
-    let mut v_local = CoreValue::Null;
-    let mut v_low = CoreValue::Null;
-    let mut v_match = CoreValue::Null;
-    let mut v_matches = CoreValue::Null;
-    let mut v_maximum = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_minimum = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_names = CoreValue::Null;
-    let mut v_next_depth = CoreValue::Null;
-    let mut v_no_match = CoreValue::Null;
-    let mut v_number = CoreValue::Null;
-    let mut v_numeric = CoreValue::Null;
-    let mut v_object = CoreValue::Null;
-    let mut v_one = CoreValue::Null;
-    let mut v_part = CoreValue::Null;
-    let mut v_parts = CoreValue::Null;
-    let mut v_pattern = CoreValue::Null;
-    let mut v_present = CoreValue::Null;
-    let mut v_properties = CoreValue::Null;
-    let mut v_reference = CoreValue::Null;
-    let mut v_referenced_errors = CoreValue::Null;
-    let mut v_required = CoreValue::Null;
-    let mut v_same = CoreValue::Null;
-    let mut v_same_index = CoreValue::Null;
-    let mut v_slash = CoreValue::Null;
-    let mut v_string = CoreValue::Null;
-    let mut v_tail = CoreValue::Null;
-    let mut v_target = CoreValue::Null;
-    let mut v_target_boolean = CoreValue::Null;
-    let mut v_target_number = CoreValue::Null;
-    let mut v_target_string = CoreValue::Null;
-    let mut v_too_deep = CoreValue::Null;
-    let mut v_too_long = CoreValue::Null;
-    let mut v_too_many = CoreValue::Null;
-    let mut v_too_short = CoreValue::Null;
-    let mut v_type = CoreValue::Null;
-    let mut v_types = CoreValue::Null;
-    let mut v_union_branches = CoreValue::Null;
-    let mut v_value_array = CoreValue::Null;
-    let mut v_value_boolean = CoreValue::Null;
-    let mut v_value_integer = CoreValue::Null;
-    let mut v_value_null = CoreValue::Null;
-    let mut v_value_number = CoreValue::Null;
-    let mut v_value_object = CoreValue::Null;
-    let mut v_value_string = CoreValue::Null;
-    let mut v_wants_array = CoreValue::Null;
-    let mut v_wants_boolean = CoreValue::Null;
-    let mut v_wants_integer = CoreValue::Null;
-    let mut v_wants_null = CoreValue::Null;
-    let mut v_wants_number = CoreValue::Null;
-    let mut v_wants_object = CoreValue::Null;
-    let mut v_wants_string = CoreValue::Null;
-    let mut v_whole = CoreValue::Null;
-    v_errors = CoreValue::new_list();
-    v_empty = CoreValue::new_map();
-    v_empty_list = CoreValue::new_list();
-    v_too_deep = core_gt(&[v_depth.clone(), CoreValue::Num(64f64)])?;
-    if core_truthy(&v_too_deep) {
-        v_message = core_string_format(&[
-            CoreValue::from("{}: Arguments exceed schema nesting limit"),
-            v_path.clone(),
-        ])?;
-        core_append(&v_errors, v_message.clone())?;
-        return Ok(v_errors.clone());
-    }
-    v_next_depth = core_add(&[v_depth.clone(), CoreValue::Num(1f64)])?;
-    v_reference = core_get(&v_schema, &CoreValue::from("$ref"), CoreValue::from(""));
-    if core_truthy(&v_reference) {
-        v_local = core_string_starts_with(&[v_reference.clone(), CoreValue::from("#/")])?;
-        if core_truthy(&v_local) {
-            v_tail = core_string_slice(&[v_reference.clone(), CoreValue::Num(2f64)])?;
-            v_parts = core_string_split(&[v_tail.clone(), CoreValue::from("/")])?;
-            v_target = v_root.clone();
-            for v_part in core_iter(&v_parts)? {
-                let mut v_part = v_part;
-                v_slash = core_string_replace(&[
-                    v_part.clone(),
-                    CoreValue::from("~1"),
-                    CoreValue::from("/"),
-                ])?;
-                v_key = core_string_replace(&[
-                    v_slash.clone(),
-                    CoreValue::from("~0"),
-                    CoreValue::from("~"),
-                ])?;
-                v_array_target = core_type_is(&v_target, CoreValue::from("list"));
-                if core_truthy(&v_array_target) {
-                    v_found = core_get(&v_empty, &CoreValue::from("not_found"), CoreValue::Null);
-                    v_index = CoreValue::Num(0f64);
-                    for v_entry in core_iter(&v_target)? {
-                        let mut v_entry = v_entry;
-                        v_index_key =
-                            core_string_format(&[CoreValue::from("{}"), v_index.clone()])?;
-                        v_same_index = core_eq(&[v_index_key.clone(), v_key.clone()])?;
-                        if core_truthy(&v_same_index) {
-                            v_found = v_entry.clone();
-                        }
-                        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
-                    }
-                    v_target = v_found.clone();
-                } else {
-                    v_target = core_get(&v_target, &v_key.clone(), CoreValue::Null);
-                }
-            }
-            v_missing = core_is_none(&[v_target.clone()])?;
-            v_target_boolean = core_type_is(&v_target, CoreValue::from("boolean"));
-            if core_truthy(&v_target_boolean) {
-                v_is_false = core_not(&[v_target.clone()])?;
-                v_missing = core_or(&[v_missing.clone(), v_is_false.clone()])?;
-            }
-            v_target_number = core_type_is(&v_target, CoreValue::from("number"));
-            if core_truthy(&v_target_number) {
-                v_is_zero = core_eq(&[v_target.clone(), CoreValue::Num(0f64)])?;
-                v_missing = core_or(&[v_missing.clone(), v_is_zero.clone()])?;
-            }
-            v_target_string = core_type_is(&v_target, CoreValue::from("string"));
-            if core_truthy(&v_target_string) {
-                v_is_empty = core_eq(&[v_target.clone(), CoreValue::from("")])?;
-                v_missing = core_or(&[v_missing.clone(), v_is_empty.clone()])?;
-            }
-            if core_truthy(&v_missing) {
-                v_message = core_string_format(&[
-                    CoreValue::from("{}: Unresolved schema reference"),
-                    v_path.clone(),
-                ])?;
-                core_append(&v_errors, v_message.clone())?;
-                return Ok(v_errors.clone());
-            }
-            v_referenced_errors = _chat_session_argument_errors(&[
-                v_root.clone(),
-                v_target.clone(),
-                v_arguments.clone(),
-                v_path.clone(),
-                v_next_depth.clone(),
-            ])?;
-            return Ok(v_referenced_errors.clone());
-        } else {
-            v_message = core_string_format(&[
-                CoreValue::from("{}: External schema references are unsupported"),
-                v_path.clone(),
-            ])?;
-            core_append(&v_errors, v_message.clone())?;
-            return Ok(v_errors.clone());
-        }
-    }
-    v_all = core_get(&v_schema, &CoreValue::from("allOf"), v_empty_list.clone());
-    for v_branch in core_iter(&v_all)? {
-        let mut v_branch = v_branch;
-        v_branch_errors = _chat_session_argument_errors(&[
-            v_root.clone(),
-            v_branch.clone(),
-            v_arguments.clone(),
-            v_path.clone(),
-            v_next_depth.clone(),
-        ])?;
-        for v_error in core_iter(&v_branch_errors)? {
-            let mut v_error = v_error;
-            core_append(&v_errors, v_error.clone())?;
-        }
-    }
-    v_keywords = CoreValue::new_list();
-    core_append(&v_keywords, CoreValue::from("anyOf"))?;
-    core_append(&v_keywords, CoreValue::from("oneOf"))?;
-    for v_keyword in core_iter(&v_keywords)? {
-        let mut v_keyword = v_keyword;
-        v_branches = core_get(&v_schema, &v_keyword.clone(), CoreValue::Null);
-        v_union_branches = core_type_is(&v_branches, CoreValue::from("list"));
-        if core_truthy(&v_union_branches) {
-            v_matches = CoreValue::Num(0f64);
-            for v_branch in core_iter(&v_branches)? {
-                let mut v_branch = v_branch;
-                v_branch_errors = _chat_session_argument_errors(&[
-                    v_root.clone(),
-                    v_branch.clone(),
-                    v_arguments.clone(),
-                    v_path.clone(),
-                    v_next_depth.clone(),
-                ])?;
-                v_error_count = core_len(&[v_branch_errors.clone()])?;
-                v_match = core_eq(&[v_error_count.clone(), CoreValue::Num(0f64)])?;
-                if core_truthy(&v_match) {
-                    v_matches = core_add(&[v_matches.clone(), CoreValue::Num(1f64)])?;
-                }
-            }
-            v_no_match = core_eq(&[v_matches.clone(), CoreValue::Num(0f64)])?;
-            v_one = core_eq(&[v_keyword.clone(), CoreValue::from("oneOf")])?;
-            v_ambiguous = core_gt(&[v_matches.clone(), CoreValue::Num(1f64)])?;
-            v_too_many = core_and(&[v_one.clone(), v_ambiguous.clone()])?;
-            v_invalid_union = core_or(&[v_no_match.clone(), v_too_many.clone()])?;
-            if core_truthy(&v_invalid_union) {
-                v_message = core_string_format(&[
-                    CoreValue::from("{}: Arguments do not match {}"),
-                    v_path.clone(),
-                    v_keyword.clone(),
-                ])?;
-                core_append(&v_errors, v_message.clone())?;
-            }
-        }
-    }
-    v_declared_type = core_get(&v_schema, &CoreValue::from("type"), CoreValue::Null);
-    v_has_type = core_is_not_none(&[v_declared_type.clone()])?;
-    if core_truthy(&v_has_type) {
-        v_types = CoreValue::new_list();
-        v_is_union = core_type_is(&v_declared_type, CoreValue::from("list"));
-        if core_truthy(&v_is_union) {
-            v_types = v_declared_type.clone();
-        } else {
-            core_append(&v_types, v_declared_type.clone())?;
-        }
-        v_matches = CoreValue::Bool(false);
-        for v_type in core_iter(&v_types)? {
-            let mut v_type = v_type;
-            v_wants_string = core_eq(&[v_type.clone(), CoreValue::from("string")])?;
-            if core_truthy(&v_wants_string) {
-                v_value_string = core_type_is(&v_arguments, CoreValue::from("string"));
-                v_matches = core_or(&[v_matches.clone(), v_value_string.clone()])?;
-            }
-            v_wants_object = core_eq(&[v_type.clone(), CoreValue::from("object")])?;
-            if core_truthy(&v_wants_object) {
-                v_value_object = core_type_is(&v_arguments, CoreValue::from("object"));
-                v_matches = core_or(&[v_matches.clone(), v_value_object.clone()])?;
-            }
-            v_wants_array = core_eq(&[v_type.clone(), CoreValue::from("array")])?;
-            if core_truthy(&v_wants_array) {
-                v_value_array = core_type_is(&v_arguments, CoreValue::from("list"));
-                v_matches = core_or(&[v_matches.clone(), v_value_array.clone()])?;
-            }
-            v_wants_number = core_eq(&[v_type.clone(), CoreValue::from("number")])?;
-            if core_truthy(&v_wants_number) {
-                v_value_number = core_type_is(&v_arguments, CoreValue::from("number"));
-                v_matches = core_or(&[v_matches.clone(), v_value_number.clone()])?;
-            }
-            v_wants_boolean = core_eq(&[v_type.clone(), CoreValue::from("boolean")])?;
-            if core_truthy(&v_wants_boolean) {
-                v_value_boolean = core_type_is(&v_arguments, CoreValue::from("boolean"));
-                v_matches = core_or(&[v_matches.clone(), v_value_boolean.clone()])?;
-            }
-            v_wants_null = core_eq(&[v_type.clone(), CoreValue::from("null")])?;
-            if core_truthy(&v_wants_null) {
-                v_value_null = core_is_none(&[v_arguments.clone()])?;
-                v_matches = core_or(&[v_matches.clone(), v_value_null.clone()])?;
-            }
-            v_wants_integer = core_eq(&[v_type.clone(), CoreValue::from("integer")])?;
-            if core_truthy(&v_wants_integer) {
-                v_numeric = core_type_is(&v_arguments, CoreValue::from("number"));
-                if core_truthy(&v_numeric) {
-                    v_finite = core_math_is_finite(&[v_arguments.clone()])?;
-                    if core_truthy(&v_finite) {
-                        v_whole = core_math_floor(&[v_arguments.clone()])?;
-                        v_value_integer = core_eq(&[v_whole.clone(), v_arguments.clone()])?;
-                        v_matches = core_or(&[v_matches.clone(), v_value_integer.clone()])?;
-                    }
-                }
-            }
-        }
-        if core_truthy(&v_matches) {
-        } else {
-            v_message = core_string_format(&[
-                CoreValue::from("Validation failed: Expected '{}' to have type {}"),
-                v_path.clone(),
-                v_declared_type.clone(),
-            ])?;
-            core_append(&v_errors, v_message.clone())?;
-            return Ok(v_errors.clone());
-        }
-    }
-    v_enum_values = core_get(&v_schema, &CoreValue::from("enum"), CoreValue::Null);
-    v_has_enum = core_type_is(&v_enum_values, CoreValue::from("list"));
-    if core_truthy(&v_has_enum) {
-        v_allowed = CoreValue::Bool(false);
-        for v_choice in core_iter(&v_enum_values)? {
-            let mut v_choice = v_choice;
-            v_same = _chat_session_argument_equal(&[
-                v_choice.clone(),
-                v_arguments.clone(),
-                CoreValue::Num(0f64),
-            ])?;
-            v_allowed = core_or(&[v_allowed.clone(), v_same.clone()])?;
-        }
-        if core_truthy(&v_allowed) {
-        } else {
-            v_message = core_string_format(&[
-                CoreValue::from("{}: Value is not in the allowed enum"),
-                v_path.clone(),
-            ])?;
-            core_append(&v_errors, v_message.clone())?;
-        }
-    }
-    v_has_const = core_map_contains(&[v_schema.clone(), CoreValue::from("const")])?;
-    if core_truthy(&v_has_const) {
-        v_constant = core_get(&v_schema, &CoreValue::from("const"), CoreValue::Null);
-        v_same = _chat_session_argument_equal(&[
-            v_constant.clone(),
-            v_arguments.clone(),
-            CoreValue::Num(0f64),
-        ])?;
-        if core_truthy(&v_same) {
-        } else {
-            v_message = core_string_format(&[
-                CoreValue::from("{}: Value does not match const"),
-                v_path.clone(),
-            ])?;
-            core_append(&v_errors, v_message.clone())?;
-        }
-    }
-    v_string = core_type_is(&v_arguments, CoreValue::from("string"));
-    if core_truthy(&v_string) {
-        v_length = core_string_codepoint_length(&[v_arguments.clone()])?;
-        v_minimum = core_get(
-            &v_schema,
-            &CoreValue::from("minLength"),
-            CoreValue::Num(0f64),
-        );
-        v_maximum = core_get(&v_schema, &CoreValue::from("maxLength"), v_length.clone());
-        v_too_short = core_lt(&[v_length.clone(), v_minimum.clone()])?;
-        v_too_long = core_gt(&[v_length.clone(), v_maximum.clone()])?;
-        if core_truthy(&v_too_short) {
-            v_message =
-                core_string_format(&[CoreValue::from("{}: String is too short"), v_path.clone()])?;
-            core_append(&v_errors, v_message.clone())?;
-        }
-        if core_truthy(&v_too_long) {
-            v_message =
-                core_string_format(&[CoreValue::from("{}: String is too long"), v_path.clone()])?;
-            core_append(&v_errors, v_message.clone())?;
-        }
-        v_pattern = core_get(&v_schema, &CoreValue::from("pattern"), CoreValue::from(""));
-        if core_truthy(&v_pattern) {
-            v_matches = _regex_test(&[v_pattern.clone(), v_arguments.clone()])?;
-            if core_truthy(&v_matches) {
-            } else {
-                v_message = core_string_format(&[
-                    CoreValue::from("{}: String does not match pattern"),
-                    v_path.clone(),
-                ])?;
-                core_append(&v_errors, v_message.clone())?;
-            }
-        }
-    }
-    v_number = core_type_is(&v_arguments, CoreValue::from("number"));
-    if core_truthy(&v_number) {
-        v_finite = core_math_is_finite(&[v_arguments.clone()])?;
-        if core_truthy(&v_finite) {
-        } else {
-            v_message = core_string_format(&[
-                CoreValue::from("{}: Number must be finite"),
-                v_path.clone(),
-            ])?;
-            core_append(&v_errors, v_message.clone())?;
-        }
-        v_minimum = core_get(&v_schema, &CoreValue::from("minimum"), v_arguments.clone());
-        v_maximum = core_get(&v_schema, &CoreValue::from("maximum"), v_arguments.clone());
-        v_low = core_lt(&[v_arguments.clone(), v_minimum.clone()])?;
-        v_high = core_gt(&[v_arguments.clone(), v_maximum.clone()])?;
-        if core_truthy(&v_low) {
-            v_message = core_string_format(&[
-                CoreValue::from("{}: Number is below minimum"),
-                v_path.clone(),
-            ])?;
-            core_append(&v_errors, v_message.clone())?;
-        }
-        if core_truthy(&v_high) {
-            v_message = core_string_format(&[
-                CoreValue::from("{}: Number is above maximum"),
-                v_path.clone(),
-            ])?;
-            core_append(&v_errors, v_message.clone())?;
-        }
-    }
-    v_object = core_type_is(&v_arguments, CoreValue::from("object"));
-    if core_truthy(&v_object) {
-        v_required = core_get(
-            &v_schema,
-            &CoreValue::from("required"),
-            v_empty_list.clone(),
-        );
-        for v_name in core_iter(&v_required)? {
-            let mut v_name = v_name;
-            v_present = core_map_contains(&[v_arguments.clone(), v_name.clone()])?;
-            if core_truthy(&v_present) {
-            } else {
-                v_message = core_string_format(&[
-                    CoreValue::from("Required field is missing: '{}.{}'"),
-                    v_path.clone(),
-                    v_name.clone(),
-                ])?;
-                core_append(&v_errors, v_message.clone())?;
-            }
-        }
-        v_properties = core_get(&v_schema, &CoreValue::from("properties"), v_empty.clone());
-        v_additional = core_get(
-            &v_schema,
-            &CoreValue::from("additionalProperties"),
-            CoreValue::Bool(true),
-        );
-        v_forbidden = core_eq(&[v_additional.clone(), CoreValue::Bool(false)])?;
-        v_additional_schema = core_type_is(&v_additional, CoreValue::from("object"));
-        v_names = core_map_keys(&[v_arguments.clone()])?;
-        for v_name in core_iter(&v_names)? {
-            let mut v_name = v_name;
-            v_child = core_get(&v_arguments, &v_name.clone(), CoreValue::Null);
-            v_child_path =
-                core_string_format(&[CoreValue::from("{}.{}"), v_path.clone(), v_name.clone()])?;
-            v_child_schema = core_get(&v_properties, &v_name.clone(), CoreValue::Null);
-            v_known = core_is_not_none(&[v_child_schema.clone()])?;
-            if core_truthy(&v_known) {
-                v_child_errors = _chat_session_argument_errors(&[
-                    v_root.clone(),
-                    v_child_schema.clone(),
-                    v_child.clone(),
-                    v_child_path.clone(),
-                    v_next_depth.clone(),
-                ])?;
-                for v_error in core_iter(&v_child_errors)? {
-                    let mut v_error = v_error;
-                    core_append(&v_errors, v_error.clone())?;
-                }
-            } else {
-                if core_truthy(&v_forbidden) {
-                    v_message = core_string_format(&[
-                        CoreValue::from("{}: Unexpected property: {}"),
-                        v_path.clone(),
-                        v_name.clone(),
-                    ])?;
-                    core_append(&v_errors, v_message.clone())?;
-                }
-                if core_truthy(&v_additional_schema) {
-                    v_child_errors = _chat_session_argument_errors(&[
-                        v_root.clone(),
-                        v_additional.clone(),
-                        v_child.clone(),
-                        v_child_path.clone(),
-                        v_next_depth.clone(),
-                    ])?;
-                    for v_error in core_iter(&v_child_errors)? {
-                        let mut v_error = v_error;
-                        core_append(&v_errors, v_error.clone())?;
-                    }
-                }
-            }
-        }
-    }
-    v_array = core_type_is(&v_arguments, CoreValue::from("list"));
-    if core_truthy(&v_array) {
-        v_length = core_len(&[v_arguments.clone()])?;
-        v_minimum = core_get(
-            &v_schema,
-            &CoreValue::from("minItems"),
-            CoreValue::Num(0f64),
-        );
-        v_maximum = core_get(&v_schema, &CoreValue::from("maxItems"), v_length.clone());
-        v_too_short = core_lt(&[v_length.clone(), v_minimum.clone()])?;
-        v_too_long = core_gt(&[v_length.clone(), v_maximum.clone()])?;
-        if core_truthy(&v_too_short) {
-            v_message =
-                core_string_format(&[CoreValue::from("{}: Too few items"), v_path.clone()])?;
-            core_append(&v_errors, v_message.clone())?;
-        }
-        if core_truthy(&v_too_long) {
-            v_message =
-                core_string_format(&[CoreValue::from("{}: Too many items"), v_path.clone()])?;
-            core_append(&v_errors, v_message.clone())?;
-        }
-        v_items = core_get(&v_schema, &CoreValue::from("items"), v_empty.clone());
-        v_index = CoreValue::Num(0f64);
-        for v_item in core_iter(&v_arguments)? {
-            let mut v_item = v_item;
-            v_child_path =
-                core_string_format(&[CoreValue::from("{}[{}]"), v_path.clone(), v_index.clone()])?;
-            v_child_errors = _chat_session_argument_errors(&[
-                v_root.clone(),
-                v_items.clone(),
-                v_item.clone(),
-                v_child_path.clone(),
-                v_next_depth.clone(),
-            ])?;
-            for v_error in core_iter(&v_child_errors)? {
-                let mut v_error = v_error;
-                core_append(&v_errors, v_error.clone())?;
-            }
-            v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
-        }
-    }
-    return Ok(v_errors.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _regex_scan_groups(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_scan_groups");
     let mut v_u = core_arg(args, 0);
@@ -70229,6 +69742,264 @@ fn _regex_scan_groups(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_t44, CoreValue::from("count"), v_count.clone())?;
     core_set(&v_t44, CoreValue::from("names"), v_names.clone())?;
     return Ok(v_t44.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _chat_session_argument_errors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_chat_session_argument_errors");
+    let mut v_root = core_arg(args, 0);
+    let mut v_schema = core_arg(args, 1);
+    let mut v_arguments = core_arg(args, 2);
+    let mut v_path = core_arg(args, 3);
+    let mut v_depth = core_arg(args, 4);
+    let mut v_all = CoreValue::Null;
+    let mut v_all_is_list = CoreValue::Null;
+    let mut v_array_target = CoreValue::Null;
+    let mut v_at_root = CoreValue::Null;
+    let mut v_branch = CoreValue::Null;
+    let mut v_branch_errors = CoreValue::Null;
+    let mut v_branches = CoreValue::Null;
+    let mut v_deep = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_error_count = CoreValue::Null;
+    let mut v_errors = CoreValue::Null;
+    let mut v_external = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_index_key = CoreValue::Null;
+    let mut v_invalid_union = CoreValue::Null;
+    let mut v_is_empty = CoreValue::Null;
+    let mut v_is_false = CoreValue::Null;
+    let mut v_is_zero = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keyword = CoreValue::Null;
+    let mut v_keywords = CoreValue::Null;
+    let mut v_local = CoreValue::Null;
+    let mut v_match = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_next_depth = CoreValue::Null;
+    let mut v_no_match = CoreValue::Null;
+    let mut v_not_one = CoreValue::Null;
+    let mut v_one = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_reference = CoreValue::Null;
+    let mut v_reference_text = CoreValue::Null;
+    let mut v_referenced_errors = CoreValue::Null;
+    let mut v_same_index = CoreValue::Null;
+    let mut v_slash = CoreValue::Null;
+    let mut v_tail = CoreValue::Null;
+    let mut v_target = CoreValue::Null;
+    let mut v_target_boolean = CoreValue::Null;
+    let mut v_target_map = CoreValue::Null;
+    let mut v_target_number = CoreValue::Null;
+    let mut v_target_string = CoreValue::Null;
+    let mut v_too_deep = CoreValue::Null;
+    let mut v_too_many = CoreValue::Null;
+    let mut v_union_branches = CoreValue::Null;
+    let mut v_union_error = CoreValue::Null;
+    let mut v_union_message = CoreValue::Null;
+    let mut v_unresolved = CoreValue::Null;
+    let mut v_value_error = CoreValue::Null;
+    let mut v_value_errors = CoreValue::Null;
+    v_errors = CoreValue::new_list();
+    v_empty = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_field = v_path.clone();
+    v_at_root = core_eq(&[v_path.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_at_root) {
+        v_field = CoreValue::from("arguments");
+    }
+    v_too_deep = core_gt(&[v_depth.clone(), CoreValue::Num(64f64)])?;
+    if core_truthy(&v_too_deep) {
+        v_deep = CoreValue::new_map();
+        core_set(&v_deep, CoreValue::from("field"), v_field.clone())?;
+        core_set(
+            &v_deep,
+            CoreValue::from("message"),
+            CoreValue::from("Arguments exceed schema nesting limit"),
+        )?;
+        core_append(&v_errors, v_deep.clone())?;
+        return Ok(v_errors.clone());
+    }
+    v_next_depth = core_add(&[v_depth.clone(), CoreValue::Num(1f64)])?;
+    v_reference = core_get(&v_schema, &CoreValue::from("$ref"), CoreValue::from(""));
+    if core_truthy(&v_reference) {
+        v_reference_text = core_string_str(&[v_reference.clone()])?;
+        v_local = core_string_starts_with(&[v_reference_text.clone(), CoreValue::from("#/")])?;
+        if core_truthy(&v_local) {
+            v_tail = core_string_slice(&[v_reference_text.clone(), CoreValue::Num(2f64)])?;
+            v_parts = core_string_split(&[v_tail.clone(), CoreValue::from("/")])?;
+            v_target = v_root.clone();
+            for v_part in core_iter(&v_parts)? {
+                let mut v_part = v_part;
+                v_slash = core_string_replace(&[
+                    v_part.clone(),
+                    CoreValue::from("~1"),
+                    CoreValue::from("/"),
+                ])?;
+                v_key = core_string_replace(&[
+                    v_slash.clone(),
+                    CoreValue::from("~0"),
+                    CoreValue::from("~"),
+                ])?;
+                v_array_target = core_type_is(&v_target, CoreValue::from("list"));
+                if core_truthy(&v_array_target) {
+                    v_found = core_get(&v_empty, &CoreValue::from("not_found"), CoreValue::Null);
+                    v_index = CoreValue::Num(0f64);
+                    for v_entry in core_iter(&v_target)? {
+                        let mut v_entry = v_entry;
+                        v_index_key =
+                            core_string_format(&[CoreValue::from("{}"), v_index.clone()])?;
+                        v_same_index = core_eq(&[v_index_key.clone(), v_key.clone()])?;
+                        if core_truthy(&v_same_index) {
+                            v_found = v_entry.clone();
+                        }
+                        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+                    }
+                    v_target = v_found.clone();
+                } else {
+                    v_target_map = core_type_is(&v_target, CoreValue::from("object"));
+                    if core_truthy(&v_target_map) {
+                        v_target = core_get(&v_target, &v_key.clone(), CoreValue::Null);
+                    } else {
+                        v_target = core_none(&[])?;
+                    }
+                }
+            }
+            v_missing = core_is_none(&[v_target.clone()])?;
+            v_target_boolean = core_type_is(&v_target, CoreValue::from("boolean"));
+            if core_truthy(&v_target_boolean) {
+                v_is_false = core_not(&[v_target.clone()])?;
+                v_missing = core_or(&[v_missing.clone(), v_is_false.clone()])?;
+            }
+            v_target_number = core_type_is(&v_target, CoreValue::from("number"));
+            if core_truthy(&v_target_number) {
+                v_is_zero = core_eq(&[v_target.clone(), CoreValue::Num(0f64)])?;
+                v_missing = core_or(&[v_missing.clone(), v_is_zero.clone()])?;
+            }
+            v_target_string = core_type_is(&v_target, CoreValue::from("string"));
+            if core_truthy(&v_target_string) {
+                v_is_empty = core_eq(&[v_target.clone(), CoreValue::from("")])?;
+                v_missing = core_or(&[v_missing.clone(), v_is_empty.clone()])?;
+            }
+            if core_truthy(&v_missing) {
+                v_unresolved = CoreValue::new_map();
+                core_set(&v_unresolved, CoreValue::from("field"), v_field.clone())?;
+                core_set(
+                    &v_unresolved,
+                    CoreValue::from("message"),
+                    CoreValue::from("Unresolved schema reference"),
+                )?;
+                core_append(&v_errors, v_unresolved.clone())?;
+                return Ok(v_errors.clone());
+            }
+            v_referenced_errors = _chat_session_argument_errors(&[
+                v_root.clone(),
+                v_target.clone(),
+                v_arguments.clone(),
+                v_path.clone(),
+                v_next_depth.clone(),
+            ])?;
+            return Ok(v_referenced_errors.clone());
+        } else {
+            v_external = CoreValue::new_map();
+            core_set(&v_external, CoreValue::from("field"), v_field.clone())?;
+            core_set(
+                &v_external,
+                CoreValue::from("message"),
+                CoreValue::from("External schema references are unsupported"),
+            )?;
+            core_append(&v_errors, v_external.clone())?;
+            return Ok(v_errors.clone());
+        }
+    }
+    v_all = core_get(&v_schema, &CoreValue::from("allOf"), v_empty_list.clone());
+    v_all_is_list = core_type_is(&v_all, CoreValue::from("list"));
+    if core_truthy(&v_all_is_list) {
+        for v_branch in core_iter(&v_all)? {
+            let mut v_branch = v_branch;
+            v_branch_errors = _chat_session_argument_errors(&[
+                v_root.clone(),
+                v_branch.clone(),
+                v_arguments.clone(),
+                v_path.clone(),
+                v_next_depth.clone(),
+            ])?;
+            for v_error in core_iter(&v_branch_errors)? {
+                let mut v_error = v_error;
+                core_append(&v_errors, v_error.clone())?;
+            }
+        }
+    }
+    v_keywords = CoreValue::new_list();
+    core_append(&v_keywords, CoreValue::from("anyOf"))?;
+    core_append(&v_keywords, CoreValue::from("oneOf"))?;
+    for v_keyword in core_iter(&v_keywords)? {
+        let mut v_keyword = v_keyword;
+        v_branches = core_get(&v_schema, &v_keyword.clone(), CoreValue::Null);
+        v_union_branches = core_type_is(&v_branches, CoreValue::from("list"));
+        if core_truthy(&v_union_branches) {
+            v_matches = CoreValue::Num(0f64);
+            for v_branch in core_iter(&v_branches)? {
+                let mut v_branch = v_branch;
+                v_branch_errors = _chat_session_argument_errors(&[
+                    v_root.clone(),
+                    v_branch.clone(),
+                    v_arguments.clone(),
+                    v_path.clone(),
+                    v_next_depth.clone(),
+                ])?;
+                v_error_count = core_len(&[v_branch_errors.clone()])?;
+                v_match = core_eq(&[v_error_count.clone(), CoreValue::Num(0f64)])?;
+                if core_truthy(&v_match) {
+                    v_matches = core_add(&[v_matches.clone(), CoreValue::Num(1f64)])?;
+                }
+            }
+            v_no_match = core_eq(&[v_matches.clone(), CoreValue::Num(0f64)])?;
+            v_one = core_eq(&[v_keyword.clone(), CoreValue::from("oneOf")])?;
+            v_not_one = core_ne(&[v_matches.clone(), CoreValue::Num(1f64)])?;
+            v_too_many = core_and(&[v_one.clone(), v_not_one.clone()])?;
+            v_invalid_union = core_or(&[v_no_match.clone(), v_too_many.clone()])?;
+            if core_truthy(&v_invalid_union) {
+                v_union_message = core_string_format(&[
+                    CoreValue::from("Arguments do not match {}"),
+                    v_keyword.clone(),
+                ])?;
+                v_union_error = CoreValue::new_map();
+                core_set(&v_union_error, CoreValue::from("field"), v_field.clone())?;
+                core_set(
+                    &v_union_error,
+                    CoreValue::from("message"),
+                    v_union_message.clone(),
+                )?;
+                core_append(&v_errors, v_union_error.clone())?;
+            }
+        }
+    }
+    v_value_errors = _chat_session_argument_value_errors(&[
+        v_root.clone(),
+        v_schema.clone(),
+        v_arguments.clone(),
+        v_path.clone(),
+        v_next_depth.clone(),
+    ])?;
+    for v_value_error in core_iter(&v_value_errors)? {
+        let mut v_value_error = v_value_error;
+        core_append(&v_errors, v_value_error.clone())?;
+    }
+    return Ok(v_errors.clone());
 }
 
 #[allow(
@@ -71931,6 +71702,514 @@ fn _date_parse_datetime_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _chat_session_argument_value_errors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_chat_session_argument_value_errors");
+    let mut v_root = core_arg(args, 0);
+    let mut v_schema = core_arg(args, 1);
+    let mut v_arguments = core_arg(args, 2);
+    let mut v_path = core_arg(args, 3);
+    let mut v_next_depth = core_arg(args, 4);
+    let mut v_actual = CoreValue::Null;
+    let mut v_additional = CoreValue::Null;
+    let mut v_additional_schema = CoreValue::Null;
+    let mut v_allowed = CoreValue::Null;
+    let mut v_at_root = CoreValue::Null;
+    let mut v_child = CoreValue::Null;
+    let mut v_child_errors = CoreValue::Null;
+    let mut v_child_map = CoreValue::Null;
+    let mut v_child_path = CoreValue::Null;
+    let mut v_child_schema = CoreValue::Null;
+    let mut v_child_true = CoreValue::Null;
+    let mut v_choice = CoreValue::Null;
+    let mut v_const_error = CoreValue::Null;
+    let mut v_constant = CoreValue::Null;
+    let mut v_declared_type = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_enum_error = CoreValue::Null;
+    let mut v_enum_values = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_errors = CoreValue::Null;
+    let mut v_extra_errors = CoreValue::Null;
+    let mut v_extra_path = CoreValue::Null;
+    let mut v_few = CoreValue::Null;
+    let mut v_few_error = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_finite = CoreValue::Null;
+    let mut v_finite_error = CoreValue::Null;
+    let mut v_forbidden = CoreValue::Null;
+    let mut v_has_const = CoreValue::Null;
+    let mut v_has_enum = CoreValue::Null;
+    let mut v_has_items = CoreValue::Null;
+    let mut v_high = CoreValue::Null;
+    let mut v_high_error = CoreValue::Null;
+    let mut v_integer_check = CoreValue::Null;
+    let mut v_is_integer = CoreValue::Null;
+    let mut v_is_union = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_item_count = CoreValue::Null;
+    let mut v_item_errors = CoreValue::Null;
+    let mut v_item_index = CoreValue::Null;
+    let mut v_item_path = CoreValue::Null;
+    let mut v_items = CoreValue::Null;
+    let mut v_items_map = CoreValue::Null;
+    let mut v_items_true = CoreValue::Null;
+    let mut v_joined_types = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_length = CoreValue::Null;
+    let mut v_long_error = CoreValue::Null;
+    let mut v_low = CoreValue::Null;
+    let mut v_low_error = CoreValue::Null;
+    let mut v_many = CoreValue::Null;
+    let mut v_many_error = CoreValue::Null;
+    let mut v_matches_type = CoreValue::Null;
+    let mut v_max_items = CoreValue::Null;
+    let mut v_maximum = CoreValue::Null;
+    let mut v_min_items = CoreValue::Null;
+    let mut v_minimum = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    let mut v_number_finite = CoreValue::Null;
+    let mut v_number_maximum = CoreValue::Null;
+    let mut v_number_minimum = CoreValue::Null;
+    let mut v_pattern = CoreValue::Null;
+    let mut v_pattern_error = CoreValue::Null;
+    let mut v_pattern_matches = CoreValue::Null;
+    let mut v_present = CoreValue::Null;
+    let mut v_properties = CoreValue::Null;
+    let mut v_properties_map = CoreValue::Null;
+    let mut v_required = CoreValue::Null;
+    let mut v_required_error = CoreValue::Null;
+    let mut v_required_field = CoreValue::Null;
+    let mut v_required_is_list = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_same_const = CoreValue::Null;
+    let mut v_same_type = CoreValue::Null;
+    let mut v_short_error = CoreValue::Null;
+    let mut v_too_long = CoreValue::Null;
+    let mut v_too_short = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_type_count = CoreValue::Null;
+    let mut v_type_error = CoreValue::Null;
+    let mut v_type_given = CoreValue::Null;
+    let mut v_type_message = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    let mut v_type_names = CoreValue::Null;
+    let mut v_type_text = CoreValue::Null;
+    let mut v_typed = CoreValue::Null;
+    let mut v_types = CoreValue::Null;
+    let mut v_unexpected = CoreValue::Null;
+    let mut v_unexpected_message = CoreValue::Null;
+    let mut v_value_boolean = CoreValue::Null;
+    let mut v_value_list = CoreValue::Null;
+    let mut v_value_null = CoreValue::Null;
+    let mut v_value_number = CoreValue::Null;
+    let mut v_value_object = CoreValue::Null;
+    let mut v_value_string = CoreValue::Null;
+    let mut v_wants_integer = CoreValue::Null;
+    let mut v_whole = CoreValue::Null;
+    v_errors = CoreValue::new_list();
+    v_empty = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_field = v_path.clone();
+    v_at_root = core_eq(&[v_path.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_at_root) {
+        v_field = CoreValue::from("arguments");
+    }
+    v_actual = CoreValue::from("object");
+    v_value_null = core_is_none(&[v_arguments.clone()])?;
+    v_value_list = core_type_is(&v_arguments, CoreValue::from("list"));
+    v_value_string = core_type_is(&v_arguments, CoreValue::from("string"));
+    v_value_number = core_type_is(&v_arguments, CoreValue::from("number"));
+    v_value_boolean = core_type_is(&v_arguments, CoreValue::from("boolean"));
+    if core_truthy(&v_value_null) {
+        v_actual = CoreValue::from("null");
+    }
+    if core_truthy(&v_value_list) {
+        v_actual = CoreValue::from("array");
+    }
+    if core_truthy(&v_value_string) {
+        v_actual = CoreValue::from("string");
+    }
+    if core_truthy(&v_value_number) {
+        v_actual = CoreValue::from("number");
+    }
+    if core_truthy(&v_value_boolean) {
+        v_actual = CoreValue::from("boolean");
+    }
+    v_declared_type = core_get(&v_schema, &CoreValue::from("type"), CoreValue::Null);
+    v_types = CoreValue::new_list();
+    v_is_union = core_type_is(&v_declared_type, CoreValue::from("list"));
+    if core_truthy(&v_is_union) {
+        v_types = v_declared_type.clone();
+    } else {
+        v_type_given = core_truthy_value(&[v_declared_type.clone()])?;
+        if core_truthy(&v_type_given) {
+            core_append(&v_types, v_declared_type.clone())?;
+        }
+    }
+    v_type_count = core_len(&[v_types.clone()])?;
+    v_typed = core_gt(&[v_type_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_typed) {
+        v_matches_type = CoreValue::Bool(false);
+        for v_type in core_iter(&v_types)? {
+            let mut v_type = v_type;
+            v_same_type = core_eq(&[v_type.clone(), v_actual.clone()])?;
+            v_matches_type = core_or(&[v_matches_type.clone(), v_same_type.clone()])?;
+            v_wants_integer = core_eq(&[v_type.clone(), CoreValue::from("integer")])?;
+            v_integer_check = core_and(&[v_wants_integer.clone(), v_value_number.clone()])?;
+            if core_truthy(&v_integer_check) {
+                v_finite = core_math_is_finite(&[v_arguments.clone()])?;
+                if core_truthy(&v_finite) {
+                    v_whole = core_math_floor(&[v_arguments.clone()])?;
+                    v_is_integer = core_eq(&[v_whole.clone(), v_arguments.clone()])?;
+                    v_matches_type = core_or(&[v_matches_type.clone(), v_is_integer.clone()])?;
+                }
+            }
+        }
+        if core_truthy(&v_matches_type) {
+        } else {
+            v_type_names = CoreValue::new_list();
+            for v_type_name in core_iter(&v_types)? {
+                let mut v_type_name = v_type_name;
+                v_type_text = core_string_str(&[v_type_name.clone()])?;
+                core_append(&v_type_names, v_type_text.clone())?;
+            }
+            v_joined_types =
+                core_string_join_intrinsic(&[CoreValue::from(" or "), v_type_names.clone()])?;
+            v_type_message = core_string_format(&[
+                CoreValue::from("Expected {}, received {}"),
+                v_joined_types.clone(),
+                v_actual.clone(),
+            ])?;
+            v_type_error = CoreValue::new_map();
+            core_set(&v_type_error, CoreValue::from("field"), v_field.clone())?;
+            core_set(
+                &v_type_error,
+                CoreValue::from("message"),
+                v_type_message.clone(),
+            )?;
+            core_append(&v_errors, v_type_error.clone())?;
+            return Ok(v_errors.clone());
+        }
+    }
+    v_enum_values = core_get(&v_schema, &CoreValue::from("enum"), CoreValue::Null);
+    v_has_enum = core_type_is(&v_enum_values, CoreValue::from("list"));
+    if core_truthy(&v_has_enum) {
+        v_allowed = CoreValue::Bool(false);
+        for v_choice in core_iter(&v_enum_values)? {
+            let mut v_choice = v_choice;
+            v_same = _chat_session_argument_equal(&[
+                v_choice.clone(),
+                v_arguments.clone(),
+                CoreValue::Num(0f64),
+            ])?;
+            v_allowed = core_or(&[v_allowed.clone(), v_same.clone()])?;
+        }
+        if core_truthy(&v_allowed) {
+        } else {
+            v_enum_error = CoreValue::new_map();
+            core_set(&v_enum_error, CoreValue::from("field"), v_field.clone())?;
+            core_set(
+                &v_enum_error,
+                CoreValue::from("message"),
+                CoreValue::from("Value is not in the allowed enum"),
+            )?;
+            core_append(&v_errors, v_enum_error.clone())?;
+        }
+    }
+    v_has_const = core_map_contains(&[v_schema.clone(), CoreValue::from("const")])?;
+    if core_truthy(&v_has_const) {
+        v_constant = core_get(&v_schema, &CoreValue::from("const"), CoreValue::Null);
+        v_same_const = _chat_session_argument_equal(&[
+            v_constant.clone(),
+            v_arguments.clone(),
+            CoreValue::Num(0f64),
+        ])?;
+        if core_truthy(&v_same_const) {
+        } else {
+            v_const_error = CoreValue::new_map();
+            core_set(&v_const_error, CoreValue::from("field"), v_field.clone())?;
+            core_set(
+                &v_const_error,
+                CoreValue::from("message"),
+                CoreValue::from("Value does not match const"),
+            )?;
+            core_append(&v_errors, v_const_error.clone())?;
+        }
+    }
+    if core_truthy(&v_value_string) {
+        v_length = core_string_codepoint_length(&[v_arguments.clone()])?;
+        v_minimum = core_get(
+            &v_schema,
+            &CoreValue::from("minLength"),
+            CoreValue::Num(0f64),
+        );
+        v_maximum = core_get(&v_schema, &CoreValue::from("maxLength"), v_length.clone());
+        v_too_short = core_lt(&[v_length.clone(), v_minimum.clone()])?;
+        v_too_long = core_gt(&[v_length.clone(), v_maximum.clone()])?;
+        if core_truthy(&v_too_short) {
+            v_short_error = CoreValue::new_map();
+            core_set(&v_short_error, CoreValue::from("field"), v_field.clone())?;
+            core_set(
+                &v_short_error,
+                CoreValue::from("message"),
+                CoreValue::from("String is too short"),
+            )?;
+            core_append(&v_errors, v_short_error.clone())?;
+        }
+        if core_truthy(&v_too_long) {
+            v_long_error = CoreValue::new_map();
+            core_set(&v_long_error, CoreValue::from("field"), v_field.clone())?;
+            core_set(
+                &v_long_error,
+                CoreValue::from("message"),
+                CoreValue::from("String is too long"),
+            )?;
+            core_append(&v_errors, v_long_error.clone())?;
+        }
+        v_pattern = core_get(&v_schema, &CoreValue::from("pattern"), CoreValue::from(""));
+        if core_truthy(&v_pattern) {
+            v_pattern_matches = _regex_test(&[v_pattern.clone(), v_arguments.clone()])?;
+            if core_truthy(&v_pattern_matches) {
+            } else {
+                v_pattern_error = CoreValue::new_map();
+                core_set(&v_pattern_error, CoreValue::from("field"), v_field.clone())?;
+                core_set(
+                    &v_pattern_error,
+                    CoreValue::from("message"),
+                    CoreValue::from("String does not match pattern"),
+                )?;
+                core_append(&v_errors, v_pattern_error.clone())?;
+            }
+        }
+    }
+    if core_truthy(&v_value_number) {
+        v_number_finite = core_math_is_finite(&[v_arguments.clone()])?;
+        if core_truthy(&v_number_finite) {
+        } else {
+            v_finite_error = CoreValue::new_map();
+            core_set(&v_finite_error, CoreValue::from("field"), v_field.clone())?;
+            core_set(
+                &v_finite_error,
+                CoreValue::from("message"),
+                CoreValue::from("Number must be finite"),
+            )?;
+            core_append(&v_errors, v_finite_error.clone())?;
+        }
+        v_number_minimum = core_get(&v_schema, &CoreValue::from("minimum"), v_arguments.clone());
+        v_number_maximum = core_get(&v_schema, &CoreValue::from("maximum"), v_arguments.clone());
+        v_low = core_lt(&[v_arguments.clone(), v_number_minimum.clone()])?;
+        v_high = core_gt(&[v_arguments.clone(), v_number_maximum.clone()])?;
+        if core_truthy(&v_low) {
+            v_low_error = CoreValue::new_map();
+            core_set(&v_low_error, CoreValue::from("field"), v_field.clone())?;
+            core_set(
+                &v_low_error,
+                CoreValue::from("message"),
+                CoreValue::from("Number is below minimum"),
+            )?;
+            core_append(&v_errors, v_low_error.clone())?;
+        }
+        if core_truthy(&v_high) {
+            v_high_error = CoreValue::new_map();
+            core_set(&v_high_error, CoreValue::from("field"), v_field.clone())?;
+            core_set(
+                &v_high_error,
+                CoreValue::from("message"),
+                CoreValue::from("Number is above maximum"),
+            )?;
+            core_append(&v_errors, v_high_error.clone())?;
+        }
+    }
+    if core_truthy(&v_value_list) {
+        v_item_count = core_len(&[v_arguments.clone()])?;
+        v_min_items = core_get(
+            &v_schema,
+            &CoreValue::from("minItems"),
+            CoreValue::Num(0f64),
+        );
+        v_max_items = core_get(
+            &v_schema,
+            &CoreValue::from("maxItems"),
+            v_item_count.clone(),
+        );
+        v_few = core_lt(&[v_item_count.clone(), v_min_items.clone()])?;
+        v_many = core_gt(&[v_item_count.clone(), v_max_items.clone()])?;
+        if core_truthy(&v_few) {
+            v_few_error = CoreValue::new_map();
+            core_set(&v_few_error, CoreValue::from("field"), v_field.clone())?;
+            core_set(
+                &v_few_error,
+                CoreValue::from("message"),
+                CoreValue::from("Too few items"),
+            )?;
+            core_append(&v_errors, v_few_error.clone())?;
+        }
+        if core_truthy(&v_many) {
+            v_many_error = CoreValue::new_map();
+            core_set(&v_many_error, CoreValue::from("field"), v_field.clone())?;
+            core_set(
+                &v_many_error,
+                CoreValue::from("message"),
+                CoreValue::from("Too many items"),
+            )?;
+            core_append(&v_errors, v_many_error.clone())?;
+        }
+        v_items = core_get(&v_schema, &CoreValue::from("items"), CoreValue::Null);
+        v_items_map = core_type_is(&v_items, CoreValue::from("object"));
+        v_items_true = core_eq(&[v_items.clone(), CoreValue::Bool(true)])?;
+        v_has_items = core_or(&[v_items_map.clone(), v_items_true.clone()])?;
+        if core_truthy(&v_has_items) {
+            v_item_index = CoreValue::Num(0f64);
+            for v_item in core_iter(&v_arguments)? {
+                let mut v_item = v_item;
+                v_item_path = core_string_format(&[
+                    CoreValue::from("{}[{}]"),
+                    v_path.clone(),
+                    v_item_index.clone(),
+                ])?;
+                v_item_errors = _chat_session_argument_errors(&[
+                    v_root.clone(),
+                    v_items.clone(),
+                    v_item.clone(),
+                    v_item_path.clone(),
+                    v_next_depth.clone(),
+                ])?;
+                for v_error in core_iter(&v_item_errors)? {
+                    let mut v_error = v_error;
+                    core_append(&v_errors, v_error.clone())?;
+                }
+                v_item_index = core_add(&[v_item_index.clone(), CoreValue::Num(1f64)])?;
+            }
+        }
+    }
+    v_value_object = core_type_is(&v_arguments, CoreValue::from("object"));
+    if core_truthy(&v_value_object) {
+        v_required = core_get(
+            &v_schema,
+            &CoreValue::from("required"),
+            v_empty_list.clone(),
+        );
+        v_required_is_list = core_type_is(&v_required, CoreValue::from("list"));
+        if core_truthy(&v_required_is_list) {
+            for v_name in core_iter(&v_required)? {
+                let mut v_name = v_name;
+                v_present = core_map_contains(&[v_arguments.clone(), v_name.clone()])?;
+                if core_truthy(&v_present) {
+                } else {
+                    v_required_field = v_name.clone();
+                    if core_truthy(&v_at_root) {
+                    } else {
+                        v_required_field = core_string_format(&[
+                            CoreValue::from("{}.{}"),
+                            v_path.clone(),
+                            v_name.clone(),
+                        ])?;
+                    }
+                    v_required_error = CoreValue::new_map();
+                    core_set(
+                        &v_required_error,
+                        CoreValue::from("field"),
+                        v_required_field.clone(),
+                    )?;
+                    core_set(
+                        &v_required_error,
+                        CoreValue::from("message"),
+                        CoreValue::from("Required argument is missing"),
+                    )?;
+                    core_append(&v_errors, v_required_error.clone())?;
+                }
+            }
+        }
+        v_properties = core_get(&v_schema, &CoreValue::from("properties"), v_empty.clone());
+        v_additional = core_get(
+            &v_schema,
+            &CoreValue::from("additionalProperties"),
+            CoreValue::Null,
+        );
+        v_forbidden = core_eq(&[v_additional.clone(), CoreValue::Bool(false)])?;
+        v_additional_schema = core_type_is(&v_additional, CoreValue::from("object"));
+        v_names = core_map_keys(&[v_arguments.clone()])?;
+        for v_name in core_iter(&v_names)? {
+            let mut v_name = v_name;
+            v_child = core_get(&v_arguments, &v_name.clone(), CoreValue::Null);
+            v_properties_map = core_type_is(&v_properties, CoreValue::from("object"));
+            v_child_schema = core_none(&[])?;
+            if core_truthy(&v_properties_map) {
+                v_child_schema = core_get(&v_properties, &v_name.clone(), CoreValue::Null);
+            }
+            v_child_map = core_type_is(&v_child_schema, CoreValue::from("object"));
+            v_child_true = core_eq(&[v_child_schema.clone(), CoreValue::Bool(true)])?;
+            v_known = core_or(&[v_child_map.clone(), v_child_true.clone()])?;
+            if core_truthy(&v_known) {
+                v_child_path = v_name.clone();
+                if core_truthy(&v_at_root) {
+                } else {
+                    v_child_path = core_string_format(&[
+                        CoreValue::from("{}.{}"),
+                        v_path.clone(),
+                        v_name.clone(),
+                    ])?;
+                }
+                v_child_errors = _chat_session_argument_errors(&[
+                    v_root.clone(),
+                    v_child_schema.clone(),
+                    v_child.clone(),
+                    v_child_path.clone(),
+                    v_next_depth.clone(),
+                ])?;
+                for v_error in core_iter(&v_child_errors)? {
+                    let mut v_error = v_error;
+                    core_append(&v_errors, v_error.clone())?;
+                }
+            } else {
+                if core_truthy(&v_forbidden) {
+                    v_unexpected_message = core_string_format(&[
+                        CoreValue::from("Unexpected property: {}"),
+                        v_name.clone(),
+                    ])?;
+                    v_unexpected = CoreValue::new_map();
+                    core_set(&v_unexpected, CoreValue::from("field"), v_field.clone())?;
+                    core_set(
+                        &v_unexpected,
+                        CoreValue::from("message"),
+                        v_unexpected_message.clone(),
+                    )?;
+                    core_append(&v_errors, v_unexpected.clone())?;
+                } else {
+                    if core_truthy(&v_additional_schema) {
+                        v_extra_path = core_string_format(&[
+                            CoreValue::from("{}.{}"),
+                            v_path.clone(),
+                            v_name.clone(),
+                        ])?;
+                        v_extra_errors = _chat_session_argument_errors(&[
+                            v_root.clone(),
+                            v_additional.clone(),
+                            v_child.clone(),
+                            v_extra_path.clone(),
+                            v_next_depth.clone(),
+                        ])?;
+                        for v_error in core_iter(&v_extra_errors)? {
+                            let mut v_error = v_error;
+                            core_append(&v_errors, v_error.clone())?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return Ok(v_errors.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_field_labels_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_field_labels_impl");
     let mut v_field = core_arg(args, 0);
@@ -72736,76 +73015,6 @@ fn _date_datetime_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_record_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_record_result");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_state = core_arg(args, 1);
-    let mut v_call = core_arg(args, 2);
-    let mut v_result = core_arg(args, 3);
-    let mut v_ok = core_arg(args, 4);
-    let mut v_changed = CoreValue::Null;
-    let mut v_empty_turns = CoreValue::Null;
-    let mut v_failed = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_is_string = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_output = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    let mut v_turns = CoreValue::Null;
-    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-    v_text = v_result.clone();
-    v_is_string = core_type_is(&v_result, CoreValue::from("string"));
-    if core_truthy(&v_is_string) {
-    } else {
-        v_text = core_json_stringify(&[v_result.clone()])?;
-    }
-    v_output = CoreValue::new_map();
-    core_set(&v_output, CoreValue::from("function_id"), v_id.clone())?;
-    core_set(&v_output, CoreValue::from("result"), v_text.clone())?;
-    v_changed = chat_session_complete_call(&[v_state.clone(), v_id.clone(), v_output.clone()])?;
-    if core_truthy(&v_changed) {
-        v_status = CoreValue::from("error");
-        if core_truthy(&v_ok) {
-            v_status = CoreValue::from("ok");
-        }
-        core_axgen_memory_add_function_result(&[
-            v_gen.clone(),
-            v_call.clone(),
-            v_result.clone(),
-            v_ok.clone(),
-        ])?;
-        core_axgen_record_function_call(&[
-            v_gen.clone(),
-            v_call.clone(),
-            v_result.clone(),
-            v_status.clone(),
-        ])?;
-        v_empty_turns = CoreValue::new_list();
-        v_turns = core_get(&v_state, &CoreValue::from("turns"), v_empty_turns.clone());
-        v_message = _tool_result_message_impl(&[v_call.clone(), v_result.clone()])?;
-        v_failed = core_not(&[v_ok.clone()])?;
-        if core_truthy(&v_failed) {
-            core_set(&v_message, CoreValue::from("result"), v_text.clone())?;
-            core_set(
-                &v_message,
-                CoreValue::from("is_error"),
-                CoreValue::Bool(true),
-            )?;
-        }
-        core_append(&v_turns, v_message.clone())?;
-        core_set(&v_state, CoreValue::from("turns"), v_turns.clone())?;
-    }
-    return Ok(v_changed.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _parse_sample_outputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_parse_sample_outputs");
     let mut v_gen = core_arg(args, 0);
@@ -73047,55 +73256,6 @@ fn _stream_strip_trailing_fence_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     unreachable_code,
     clippy::all
 )]
-fn chat_session_observe_output(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_observe_output");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_state = core_arg(args, 1);
-    let mut v_event = core_arg(args, 2);
-    let mut v_delta = CoreValue::Null;
-    let mut v_empty_list = CoreValue::Null;
-    let mut v_empty_map = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_output = CoreValue::Null;
-    let mut v_response = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_results = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    let mut v_texts = CoreValue::Null;
-    let mut v_version = CoreValue::Null;
-    v_empty_map = CoreValue::new_map();
-    v_empty_list = CoreValue::new_list();
-    v_texts = core_get(&v_state, &CoreValue::from("texts"), v_empty_map.clone());
-    v_id = core_get(&v_event, &CoreValue::from("response_id"), CoreValue::Null);
-    v_text = core_get(&v_texts, &v_id.clone(), CoreValue::from(""));
-    v_response = core_get(&v_event, &CoreValue::from("response"), CoreValue::Null);
-    v_results = core_get(
-        &v_response,
-        &CoreValue::from("results"),
-        v_empty_list.clone(),
-    );
-    for v_result in core_iter(&v_results)? {
-        let mut v_result = v_result;
-        v_delta = core_get(&v_result, &CoreValue::from("content"), CoreValue::from(""));
-        v_text = core_string_format(&[CoreValue::from("{}{}"), v_text.clone(), v_delta.clone()])?;
-    }
-    core_set(&v_texts, v_id.clone(), v_text.clone())?;
-    core_set(&v_state, CoreValue::from("texts"), v_texts.clone())?;
-    v_version = core_get(&v_state, &CoreValue::from("version"), CoreValue::Num(0f64));
-    v_output = CoreValue::new_map();
-    core_set(&v_output, CoreValue::from("response_id"), v_id.clone())?;
-    core_set(&v_output, CoreValue::from("text"), v_text.clone())?;
-    core_set(&v_output, CoreValue::from("version"), v_version.clone())?;
-    return Ok(v_output.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _date_abbreviation_offset_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_abbreviation_offset_impl");
     let mut v_units = core_arg(args, 0);
@@ -73300,84 +73460,6 @@ fn _stream_markdown_list_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn chat_session_apply_boundary_updates(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_apply_boundary_updates");
-    let mut v_request = core_arg(args, 0);
-    let mut v_updates = core_arg(args, 1);
-    let mut v_level = core_arg(args, 2);
-    let mut v_applied = CoreValue::Null;
-    let mut v_config = CoreValue::Null;
-    let mut v_current_level = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    let mut v_has_level = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_kind = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_messages = CoreValue::Null;
-    let mut v_next_level = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_steering = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    let mut v_update = CoreValue::Null;
-    v_empty = CoreValue::new_map();
-    v_config = core_get(
-        &v_request,
-        &CoreValue::from("model_config"),
-        v_empty.clone(),
-    );
-    v_config = core_map_merge(&[v_config.clone(), v_empty.clone()])?;
-    v_messages = core_get(&v_request, &CoreValue::from("chat_prompt"), CoreValue::Null);
-    v_current_level = v_level.clone();
-    v_applied = CoreValue::new_list();
-    for v_update in core_iter(&v_updates)? {
-        let mut v_update = v_update;
-        v_kind = core_get(&v_update, &CoreValue::from("type"), CoreValue::Null);
-        v_steering = core_eq(&[v_kind.clone(), CoreValue::from("steer")])?;
-        if core_truthy(&v_steering) {
-            v_message = CoreValue::new_map();
-            v_text = core_get(&v_update, &CoreValue::from("text"), CoreValue::Null);
-            core_set(&v_message, CoreValue::from("role"), CoreValue::from("user"))?;
-            core_set(&v_message, CoreValue::from("content"), v_text.clone())?;
-            core_append(&v_messages, v_message.clone())?;
-        } else {
-            v_next_level = core_get(&v_update, &CoreValue::from("level"), CoreValue::Null);
-            v_current_level = v_next_level.clone();
-        }
-        v_id = core_get(&v_update, &CoreValue::from("id"), CoreValue::Null);
-        core_append(&v_applied, v_id.clone())?;
-    }
-    v_has_level = core_is_not_none(&[v_current_level.clone()])?;
-    if core_truthy(&v_has_level) {
-        core_set(
-            &v_config,
-            CoreValue::from("thinkingTokenBudget"),
-            v_current_level.clone(),
-        )?;
-    }
-    core_set(
-        &v_request,
-        CoreValue::from("model_config"),
-        v_config.clone(),
-    )?;
-    core_set(
-        &v_request,
-        CoreValue::from("chat_prompt"),
-        v_messages.clone(),
-    )?;
-    v_result = CoreValue::new_map();
-    core_set(&v_result, CoreValue::from("request"), v_request.clone())?;
-    core_set(&v_result, CoreValue::from("level"), v_current_level.clone())?;
-    core_set(&v_result, CoreValue::from("applied"), v_applied.clone())?;
-    return Ok(v_result.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _date_zone_resolve_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_zone_resolve_impl");
     let mut v_units = core_arg(args, 0);
@@ -73532,50 +73614,6 @@ fn _build_optimization_eval_row(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn chat_session_create_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_create_state");
-    let mut v_model = core_arg(args, 0);
-    let mut v_path = core_arg(args, 1);
-    let mut v_max_steps = core_arg(args, 2);
-    let mut v_pending = CoreValue::Null;
-    let mut v_responses = CoreValue::Null;
-    let mut v_state = CoreValue::Null;
-    let mut v_turns = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    v_state = CoreValue::new_map();
-    v_pending = CoreValue::new_map();
-    v_responses = CoreValue::new_map();
-    v_updates = CoreValue::new_map();
-    core_set(&v_state, CoreValue::from("model"), v_model.clone())?;
-    core_set(&v_state, CoreValue::from("path"), v_path.clone())?;
-    core_set(&v_state, CoreValue::from("max_steps"), v_max_steps.clone())?;
-    core_set(&v_state, CoreValue::from("steps"), CoreValue::Num(0f64))?;
-    core_set(&v_state, CoreValue::from("version"), CoreValue::Num(0f64))?;
-    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
-    core_set(&v_state, CoreValue::from("responses"), v_responses.clone())?;
-    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
-    core_set(
-        &v_state,
-        CoreValue::from("boundary"),
-        CoreValue::Bool(false),
-    )?;
-    core_set(
-        &v_state,
-        CoreValue::from("terminal"),
-        CoreValue::Bool(false),
-    )?;
-    v_turns = CoreValue::new_list();
-    core_set(&v_state, CoreValue::from("turns"), v_turns.clone())?;
-    return Ok(v_state.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _select_sample_index(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_select_sample_index");
     let mut v_samples = core_arg(args, 0);
@@ -73640,6 +73678,84 @@ fn _select_sample_index(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         return Err(core_as_error(&v_error));
     }
     return Ok(v_selected.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_record_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_record_result");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_call = core_arg(args, 2);
+    let mut v_result = core_arg(args, 3);
+    let mut v_ok = core_arg(args, 4);
+    let mut v_changed = CoreValue::Null;
+    let mut v_empty_turns = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_turns = CoreValue::Null;
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+    v_text = v_result.clone();
+    v_is_string = core_type_is(&v_result, CoreValue::from("string"));
+    if core_truthy(&v_is_string) {
+    } else {
+        v_text = core_json_stringify(&[v_result.clone()])?;
+    }
+    v_output = CoreValue::new_map();
+    core_set(&v_output, CoreValue::from("function_id"), v_id.clone())?;
+    core_set(&v_output, CoreValue::from("result"), v_text.clone())?;
+    if core_truthy(&v_ok) {
+    } else {
+        core_set(
+            &v_output,
+            CoreValue::from("is_error"),
+            CoreValue::Bool(true),
+        )?;
+    }
+    v_changed = chat_session_complete_call(&[v_state.clone(), v_id.clone(), v_output.clone()])?;
+    if core_truthy(&v_changed) {
+        v_status = CoreValue::from("error");
+        if core_truthy(&v_ok) {
+            v_status = CoreValue::from("ok");
+        }
+        core_axgen_memory_add_function_result(&[
+            v_gen.clone(),
+            v_call.clone(),
+            v_result.clone(),
+            v_ok.clone(),
+        ])?;
+        core_axgen_record_function_call(&[
+            v_gen.clone(),
+            v_call.clone(),
+            v_result.clone(),
+            v_status.clone(),
+        ])?;
+        v_empty_turns = CoreValue::new_list();
+        v_turns = core_get(&v_state, &CoreValue::from("turns"), v_empty_turns.clone());
+        v_message = _tool_result_message_impl(&[v_call.clone(), v_result.clone()])?;
+        v_failed = core_not(&[v_ok.clone()])?;
+        if core_truthy(&v_failed) {
+            core_set(&v_message, CoreValue::from("result"), v_text.clone())?;
+            core_set(
+                &v_message,
+                CoreValue::from("is_error"),
+                CoreValue::Bool(true),
+            )?;
+        }
+        core_append(&v_turns, v_message.clone())?;
+        core_set(&v_state, CoreValue::from("turns"), v_turns.clone())?;
+    }
+    return Ok(v_changed.clone());
 }
 
 #[allow(
@@ -73761,28 +73877,6 @@ fn _build_optimization_eval_result(args: &[CoreValue]) -> Result<CoreValue, AxEr
     core_set(&v_out, CoreValue::from("avg"), v_avg.clone())?;
     core_set(&v_out, CoreValue::from("count"), v_count.clone())?;
     return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_target_matches(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_target_matches");
-    let mut v_target = core_arg(args, 0);
-    let mut v_path = core_arg(args, 1);
-    let mut v_descendant = CoreValue::Null;
-    let mut v_exact = CoreValue::Null;
-    let mut v_matches = CoreValue::Null;
-    let mut v_prefix = CoreValue::Null;
-    v_exact = core_eq(&[v_target.clone(), v_path.clone()])?;
-    v_prefix = core_string_format(&[CoreValue::from("{}/"), v_target.clone()])?;
-    v_descendant = core_string_starts_with(&[v_path.clone(), v_prefix.clone()])?;
-    v_matches = core_or(&[v_exact.clone(), v_descendant.clone()])?;
-    return Ok(v_matches.clone());
 }
 
 #[allow(
@@ -74701,31 +74795,46 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_unresolved(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_unresolved");
-    let mut v_state = core_arg(args, 0);
-    let mut v_call = CoreValue::Null;
+fn chat_session_observe_output(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_observe_output");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_event = core_arg(args, 2);
+    let mut v_delta = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
     let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_sent = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_unresolved = CoreValue::Null;
-    v_out = CoreValue::new_list();
-    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    v_ids = core_map_keys(&[v_pending.clone()])?;
-    for v_id in core_iter(&v_ids)? {
-        let mut v_id = v_id;
-        v_call = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
-        v_status = core_get(&v_call, &CoreValue::from("status"), CoreValue::Null);
-        v_sent = core_eq(&[v_status.clone(), CoreValue::from("sent")])?;
-        v_unresolved = core_not(&[v_sent.clone()])?;
-        if core_truthy(&v_unresolved) {
-            core_append(&v_out, v_id.clone())?;
-        }
+    let mut v_output = CoreValue::Null;
+    let mut v_response = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_texts = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_texts = core_get(&v_state, &CoreValue::from("texts"), v_empty_map.clone());
+    v_id = core_get(&v_event, &CoreValue::from("response_id"), CoreValue::Null);
+    v_text = core_get(&v_texts, &v_id.clone(), CoreValue::from(""));
+    v_response = core_get(&v_event, &CoreValue::from("response"), CoreValue::Null);
+    v_results = core_get(
+        &v_response,
+        &CoreValue::from("results"),
+        v_empty_list.clone(),
+    );
+    for v_result in core_iter(&v_results)? {
+        let mut v_result = v_result;
+        v_delta = core_get(&v_result, &CoreValue::from("content"), CoreValue::from(""));
+        v_text = core_string_format(&[CoreValue::from("{}{}"), v_text.clone(), v_delta.clone()])?;
     }
-    return Ok(v_out.clone());
+    core_set(&v_texts, v_id.clone(), v_text.clone())?;
+    core_set(&v_state, CoreValue::from("texts"), v_texts.clone())?;
+    v_version = core_get(&v_state, &CoreValue::from("version"), CoreValue::Num(0f64));
+    v_output = CoreValue::new_map();
+    core_set(&v_output, CoreValue::from("response_id"), v_id.clone())?;
+    core_set(&v_output, CoreValue::from("text"), v_text.clone())?;
+    core_set(&v_output, CoreValue::from("version"), v_version.clone())?;
+    return Ok(v_output.clone());
 }
 
 #[allow(
@@ -75195,55 +75304,6 @@ fn _stream_js_number_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_register_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_register_call");
-    let mut v_state = core_arg(args, 0);
-    let mut v_call = core_arg(args, 1);
-    let mut v_execution = core_arg(args, 2);
-    let mut v_exists = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_terminal = CoreValue::Null;
-    v_terminal = core_get(
-        &v_state,
-        &CoreValue::from("terminal"),
-        CoreValue::Bool(false),
-    );
-    if core_truthy(&v_terminal) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::from(""));
-    v_missing = core_eq(&[v_id.clone(), CoreValue::from("")])?;
-    if core_truthy(&v_missing) {
-        return Err(AxError::runtime("Completed tool calls require a call ID"));
-    }
-    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    v_exists = core_map_contains(&[v_pending.clone(), v_id.clone()])?;
-    if core_truthy(&v_exists) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_record = CoreValue::new_map();
-    core_set(&v_record, CoreValue::from("call"), v_call.clone())?;
-    core_set(&v_record, CoreValue::from("execution"), v_execution.clone())?;
-    core_set(
-        &v_record,
-        CoreValue::from("status"),
-        CoreValue::from("running"),
-    )?;
-    core_set(&v_pending, v_id.clone(), v_record.clone())?;
-    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
-    return Ok(CoreValue::Bool(true));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _regex_character_class(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_character_class");
     let mut v_s = core_arg(args, 0);
@@ -75401,75 +75461,75 @@ fn _regex_character_class(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_result");
-    let mut v_response = core_arg(args, 0);
-    let mut v_id = core_arg(args, 1);
+fn chat_session_apply_boundary_updates(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_apply_boundary_updates");
+    let mut v_request = core_arg(args, 0);
+    let mut v_updates = core_arg(args, 1);
+    let mut v_level = core_arg(args, 2);
+    let mut v_applied = CoreValue::Null;
+    let mut v_config = CoreValue::Null;
+    let mut v_current_level = CoreValue::Null;
     let mut v_empty = CoreValue::Null;
-    v_empty = CoreValue::new_map();
-    v_response = core_map_merge(&[v_response.clone(), v_empty.clone()])?;
-    core_set(
-        &v_response,
-        CoreValue::from("__session_response_id"),
-        v_id.clone(),
-    )?;
-    return Ok(v_response.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_record_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_record_response");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_state = core_arg(args, 1);
-    let mut v_request = core_arg(args, 2);
-    let mut v_completion = core_arg(args, 3);
-    let mut v_call_count = CoreValue::Null;
-    let mut v_calls = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
-    let mut v_empty_turns = CoreValue::Null;
-    let mut v_has_calls = CoreValue::Null;
-    let mut v_has_content = CoreValue::Null;
+    let mut v_has_level = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
     let mut v_message = CoreValue::Null;
-    let mut v_turns = CoreValue::Null;
-    core_axgen_memory_add_response(&[v_gen.clone(), v_request.clone(), v_completion.clone()])?;
-    core_axgen_record_chat_log(&[v_gen.clone(), v_request.clone(), v_completion.clone()])?;
-    v_empty_turns = CoreValue::new_list();
-    v_turns = core_get(&v_state, &CoreValue::from("turns"), v_empty_turns.clone());
-    v_calls = _response_function_calls_impl(&[v_completion.clone()])?;
-    v_call_count = core_len(&[v_calls.clone()])?;
-    v_has_calls = core_gt(&[v_call_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_has_calls) {
-        v_turns = _append_tool_call_messages_impl(&[
-            v_turns.clone(),
-            v_completion.clone(),
-            v_calls.clone(),
-        ])?;
-    } else {
-        v_content = core_get(
-            &v_completion,
-            &CoreValue::from("content"),
-            CoreValue::from(""),
-        );
-        v_has_content = core_truthy_value(&[v_content.clone()])?;
-        if core_truthy(&v_has_content) {
+    let mut v_messages = CoreValue::Null;
+    let mut v_next_level = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_steering = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_update = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_config = core_get(
+        &v_request,
+        &CoreValue::from("model_config"),
+        v_empty.clone(),
+    );
+    v_config = core_map_merge(&[v_config.clone(), v_empty.clone()])?;
+    v_messages = core_get(&v_request, &CoreValue::from("chat_prompt"), CoreValue::Null);
+    v_current_level = v_level.clone();
+    v_applied = CoreValue::new_list();
+    for v_update in core_iter(&v_updates)? {
+        let mut v_update = v_update;
+        v_kind = core_get(&v_update, &CoreValue::from("type"), CoreValue::Null);
+        v_steering = core_eq(&[v_kind.clone(), CoreValue::from("steer")])?;
+        if core_truthy(&v_steering) {
             v_message = CoreValue::new_map();
-            core_set(
-                &v_message,
-                CoreValue::from("role"),
-                CoreValue::from("assistant"),
-            )?;
-            core_set(&v_message, CoreValue::from("content"), v_content.clone())?;
-            core_append(&v_turns, v_message.clone())?;
+            v_text = core_get(&v_update, &CoreValue::from("text"), CoreValue::Null);
+            core_set(&v_message, CoreValue::from("role"), CoreValue::from("user"))?;
+            core_set(&v_message, CoreValue::from("content"), v_text.clone())?;
+            core_append(&v_messages, v_message.clone())?;
+        } else {
+            v_next_level = core_get(&v_update, &CoreValue::from("level"), CoreValue::Null);
+            v_current_level = v_next_level.clone();
         }
+        v_id = core_get(&v_update, &CoreValue::from("id"), CoreValue::Null);
+        core_append(&v_applied, v_id.clone())?;
     }
-    core_set(&v_state, CoreValue::from("turns"), v_turns.clone())?;
-    return Ok(CoreValue::Null);
+    v_has_level = core_is_not_none(&[v_current_level.clone()])?;
+    if core_truthy(&v_has_level) {
+        core_set(
+            &v_config,
+            CoreValue::from("thinkingTokenBudget"),
+            v_current_level.clone(),
+        )?;
+    }
+    core_set(
+        &v_request,
+        CoreValue::from("model_config"),
+        v_config.clone(),
+    )?;
+    core_set(
+        &v_request,
+        CoreValue::from("chat_prompt"),
+        v_messages.clone(),
+    )?;
+    v_result = CoreValue::new_map();
+    core_set(&v_result, CoreValue::from("request"), v_request.clone())?;
+    core_set(&v_result, CoreValue::from("level"), v_current_level.clone())?;
+    core_set(&v_result, CoreValue::from("applied"), v_applied.clone())?;
+    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -75534,6 +75594,50 @@ fn _build_optimizer_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn chat_session_create_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_create_state");
+    let mut v_model = core_arg(args, 0);
+    let mut v_path = core_arg(args, 1);
+    let mut v_max_steps = core_arg(args, 2);
+    let mut v_pending = CoreValue::Null;
+    let mut v_responses = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_turns = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    v_state = CoreValue::new_map();
+    v_pending = CoreValue::new_map();
+    v_responses = CoreValue::new_map();
+    v_updates = CoreValue::new_map();
+    core_set(&v_state, CoreValue::from("model"), v_model.clone())?;
+    core_set(&v_state, CoreValue::from("path"), v_path.clone())?;
+    core_set(&v_state, CoreValue::from("max_steps"), v_max_steps.clone())?;
+    core_set(&v_state, CoreValue::from("steps"), CoreValue::Num(0f64))?;
+    core_set(&v_state, CoreValue::from("version"), CoreValue::Num(0f64))?;
+    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
+    core_set(&v_state, CoreValue::from("responses"), v_responses.clone())?;
+    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("boundary"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    )?;
+    v_turns = CoreValue::new_list();
+    core_set(&v_state, CoreValue::from("turns"), v_turns.clone())?;
+    return Ok(v_state.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _date_zone_offset_seconds_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_zone_offset_seconds_impl");
     let mut v_zone = core_arg(args, 0);
@@ -75552,37 +75656,6 @@ fn _date_zone_offset_seconds_impl(args: &[CoreValue]) -> Result<CoreValue, AxErr
     v_name = core_get(&v_zone, &CoreValue::from("name"), CoreValue::Null);
     v_seconds = core_date_zone_offset(&[v_name.clone(), v_millis.clone()])?;
     return Ok(v_seconds.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_final_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_final_result");
-    let mut v_state = core_arg(args, 0);
-    let mut v_response = core_arg(args, 1);
-    let mut v_empty_turns = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_turns = CoreValue::Null;
-    v_id = core_get(
-        &v_state,
-        &CoreValue::from("response_id"),
-        CoreValue::from(""),
-    );
-    v_result = chat_session_result(&[v_response.clone(), v_id.clone()])?;
-    v_empty_turns = CoreValue::new_list();
-    v_turns = core_get(&v_state, &CoreValue::from("turns"), v_empty_turns.clone());
-    core_set(
-        &v_result,
-        CoreValue::from("__session_turns"),
-        v_turns.clone(),
-    )?;
-    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -75666,6 +75739,28 @@ fn _prepare_optimizer_run(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn chat_session_target_matches(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_target_matches");
+    let mut v_target = core_arg(args, 0);
+    let mut v_path = core_arg(args, 1);
+    let mut v_descendant = CoreValue::Null;
+    let mut v_exact = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    v_exact = core_eq(&[v_target.clone(), v_path.clone()])?;
+    v_prefix = core_string_format(&[CoreValue::from("{}/"), v_target.clone()])?;
+    v_descendant = core_string_starts_with(&[v_path.clone(), v_prefix.clone()])?;
+    v_matches = core_or(&[v_exact.clone(), v_descendant.clone()])?;
+    return Ok(v_matches.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _date_parts_in_zone_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_parts_in_zone_impl");
     let mut v_zone = core_arg(args, 0);
@@ -75699,41 +75794,31 @@ fn _date_parts_in_zone_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_completion");
-    let mut v_response = core_arg(args, 0);
-    let mut v_id = core_arg(args, 1);
-    let mut v_completion = CoreValue::Null;
-    v_completion = chat_response_to_completion(&[v_response.clone()])?;
-    core_set(&v_completion, CoreValue::from("remote_id"), v_id.clone())?;
-    return Ok(v_completion.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_has_continuation_work(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_has_continuation_work");
+fn chat_session_unresolved(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_unresolved");
     let mut v_state = core_arg(args, 0);
-    let mut v_continuation = CoreValue::Null;
-    let mut v_native_wait = CoreValue::Null;
+    let mut v_call = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
     let mut v_pending = CoreValue::Null;
-    let mut v_work = CoreValue::Null;
-    v_pending = chat_session_unresolved(&[v_state.clone()])?;
-    v_pending = core_truthy_value(&[v_pending.clone()])?;
-    v_native_wait = chat_session_native_wait(&[v_state.clone()])?;
-    v_continuation = core_get(
-        &v_state,
-        &CoreValue::from("needs_continuation"),
-        CoreValue::Bool(false),
-    );
-    v_work = core_or(&[v_pending.clone(), v_native_wait.clone()])?;
-    v_work = core_or(&[v_work.clone(), v_continuation.clone()])?;
-    return Ok(v_work.clone());
+    let mut v_sent = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_unresolved = CoreValue::Null;
+    v_out = CoreValue::new_list();
+    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    v_ids = core_map_keys(&[v_pending.clone()])?;
+    for v_id in core_iter(&v_ids)? {
+        let mut v_id = v_id;
+        v_call = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
+        v_status = core_get(&v_call, &CoreValue::from("status"), CoreValue::Null);
+        v_sent = core_eq(&[v_status.clone(), CoreValue::from("sent")])?;
+        v_unresolved = core_not(&[v_sent.clone()])?;
+        if core_truthy(&v_unresolved) {
+            core_append(&v_out, v_id.clone())?;
+        }
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -76212,24 +76297,46 @@ fn _date_zone_offset_millis_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
-fn chat_session_normalize_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_normalize_call");
-    let mut v_call = core_arg(args, 0);
-    let mut v_function = CoreValue::Null;
+fn chat_session_register_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_register_call");
+    let mut v_state = core_arg(args, 0);
+    let mut v_call = core_arg(args, 1);
+    let mut v_execution = core_arg(args, 2);
+    let mut v_exists = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
     let mut v_missing = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    v_function = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-    v_missing = core_is_none(&[v_function.clone()])?;
-    if core_truthy(&v_missing) {
-        v_call = _completion_call_to_chat_impl(&[v_call.clone()])?;
-        v_function = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+    let mut v_pending = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_terminal = CoreValue::Null;
+    v_terminal = core_get(
+        &v_state,
+        &CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_terminal) {
+        return Ok(CoreValue::Bool(false));
     }
-    v_name = core_get(&v_function, &CoreValue::from("name"), CoreValue::Null);
-    v_params = core_get(&v_function, &CoreValue::from("params"), CoreValue::Null);
-    core_set(&v_call, CoreValue::from("name"), v_name.clone())?;
-    core_set(&v_call, CoreValue::from("params"), v_params.clone())?;
-    return Ok(v_call.clone());
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::from(""));
+    v_missing = core_eq(&[v_id.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing) {
+        return Err(AxError::runtime("Completed tool calls require a call ID"));
+    }
+    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    v_exists = core_map_contains(&[v_pending.clone(), v_id.clone()])?;
+    if core_truthy(&v_exists) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_record = CoreValue::new_map();
+    core_set(&v_record, CoreValue::from("call"), v_call.clone())?;
+    core_set(&v_record, CoreValue::from("execution"), v_execution.clone())?;
+    core_set(
+        &v_record,
+        CoreValue::from("status"),
+        CoreValue::from("running"),
+    )?;
+    core_set(&v_pending, v_id.clone(), v_record.clone())?;
+    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
+    return Ok(CoreValue::Bool(true));
 }
 
 #[allow(
@@ -76281,50 +76388,6 @@ fn _date_named_timestamp_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn chat_session_defer_final_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_defer_final_call");
-    let mut v_state = core_arg(args, 0);
-    let mut v_call = core_arg(args, 1);
-    let mut v_defer = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_registered = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_unresolved = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    v_unresolved = chat_session_unresolved(&[v_state.clone()])?;
-    v_pending = core_truthy_value(&[v_unresolved.clone()])?;
-    v_updates = core_get(
-        &v_state,
-        &CoreValue::from("needs_continuation"),
-        CoreValue::Bool(false),
-    );
-    v_defer = core_or(&[v_pending.clone(), v_updates.clone()])?;
-    if core_truthy(&v_defer) {
-        v_registered = chat_session_register_call(&[
-            v_state.clone(),
-            v_call.clone(),
-            CoreValue::from("blocking"),
-        ])?;
-        if core_truthy(&v_registered) {
-            v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-            v_result = CoreValue::new_map();
-            core_set(&v_result, CoreValue::from("function_id"), v_id.clone())?;
-            core_set(&v_result, CoreValue::from("result"), CoreValue::from("Not executed: incorporate the background tool results and queued updates before calling this finalization function again."))?;
-            chat_session_complete_call(&[v_state.clone(), v_id.clone(), v_result.clone()])?;
-        }
-        return Ok(v_registered.clone());
-    }
-    return Ok(CoreValue::Bool(false));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _stream_field_flag_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_field_flag_impl");
     let mut v_target = core_arg(args, 0);
@@ -76337,6 +76400,28 @@ fn _stream_field_flag_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_value = core_get(&v_target, &v_camel.clone(), v_snake_value.clone());
     v_flag = core_truthy_value(&[v_value.clone()])?;
     return Ok(v_flag.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_result");
+    let mut v_response = core_arg(args, 0);
+    let mut v_id = core_arg(args, 1);
+    let mut v_empty = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_response = core_map_merge(&[v_response.clone(), v_empty.clone()])?;
+    core_set(
+        &v_response,
+        CoreValue::from("__session_response_id"),
+        v_id.clone(),
+    )?;
+    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -76427,47 +76512,53 @@ fn _stream_field_type_label_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
-fn chat_session_complete_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_complete_call");
-    let mut v_state = core_arg(args, 0);
-    let mut v_id = core_arg(args, 1);
-    let mut v_result = core_arg(args, 2);
-    let mut v_exists = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_running = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_terminal = CoreValue::Null;
-    v_terminal = core_get(
-        &v_state,
-        &CoreValue::from("terminal"),
-        CoreValue::Bool(false),
-    );
-    if core_truthy(&v_terminal) {
-        return Ok(CoreValue::Bool(false));
+fn chat_session_record_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_record_response");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_request = core_arg(args, 2);
+    let mut v_completion = core_arg(args, 3);
+    let mut v_call_count = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_empty_turns = CoreValue::Null;
+    let mut v_has_calls = CoreValue::Null;
+    let mut v_has_content = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_turns = CoreValue::Null;
+    core_axgen_memory_add_response(&[v_gen.clone(), v_request.clone(), v_completion.clone()])?;
+    core_axgen_record_chat_log(&[v_gen.clone(), v_request.clone(), v_completion.clone()])?;
+    v_empty_turns = CoreValue::new_list();
+    v_turns = core_get(&v_state, &CoreValue::from("turns"), v_empty_turns.clone());
+    v_calls = _response_function_calls_impl(&[v_completion.clone()])?;
+    v_call_count = core_len(&[v_calls.clone()])?;
+    v_has_calls = core_gt(&[v_call_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_calls) {
+        v_turns = _append_tool_call_messages_impl(&[
+            v_turns.clone(),
+            v_completion.clone(),
+            v_calls.clone(),
+        ])?;
+    } else {
+        v_content = core_get(
+            &v_completion,
+            &CoreValue::from("content"),
+            CoreValue::from(""),
+        );
+        v_has_content = core_truthy_value(&[v_content.clone()])?;
+        if core_truthy(&v_has_content) {
+            v_message = CoreValue::new_map();
+            core_set(
+                &v_message,
+                CoreValue::from("role"),
+                CoreValue::from("assistant"),
+            )?;
+            core_set(&v_message, CoreValue::from("content"), v_content.clone())?;
+            core_append(&v_turns, v_message.clone())?;
+        }
     }
-    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    v_exists = core_map_contains(&[v_pending.clone(), v_id.clone()])?;
-    v_missing = core_not(&[v_exists.clone()])?;
-    if core_truthy(&v_missing) {
-        return Err(AxError::runtime("Tool result has no registered call"));
-    }
-    v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
-    v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
-    v_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
-    if core_truthy(&v_running) {
-        core_set(&v_record, CoreValue::from("result"), v_result.clone())?;
-        core_set(
-            &v_record,
-            CoreValue::from("status"),
-            CoreValue::from("ready"),
-        )?;
-        core_set(&v_pending, v_id.clone(), v_record.clone())?;
-        core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
-        return Ok(CoreValue::Bool(true));
-    }
-    return Ok(CoreValue::Bool(false));
+    core_set(&v_state, CoreValue::from("turns"), v_turns.clone())?;
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -76703,88 +76794,28 @@ fn _build_optimizer_evidence_batch(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
-fn chat_session_complete_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_complete_response");
+fn chat_session_final_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_final_result");
     let mut v_state = core_arg(args, 0);
-    let mut v_id = core_arg(args, 1);
-    let mut v_duplicate = CoreValue::Null;
-    let mut v_exhausted = CoreValue::Null;
-    let mut v_finished = CoreValue::Null;
-    let mut v_had_successor = CoreValue::Null;
-    let mut v_has_parent = CoreValue::Null;
-    let mut v_limit = CoreValue::Null;
-    let mut v_next = CoreValue::Null;
-    let mut v_parent = CoreValue::Null;
-    let mut v_queued = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_responses = CoreValue::Null;
-    let mut v_steps = CoreValue::Null;
-    let mut v_successor = CoreValue::Null;
-    let mut v_terminal = CoreValue::Null;
-    let mut v_update_id = CoreValue::Null;
-    let mut v_update_ids = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    v_terminal = core_get(
+    let mut v_response = core_arg(args, 1);
+    let mut v_empty_turns = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_turns = CoreValue::Null;
+    v_id = core_get(
         &v_state,
-        &CoreValue::from("terminal"),
-        CoreValue::Bool(false),
+        &CoreValue::from("response_id"),
+        CoreValue::from(""),
     );
-    if core_truthy(&v_terminal) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_responses = core_get(&v_state, &CoreValue::from("responses"), CoreValue::Null);
-    v_duplicate = core_map_contains(&[v_responses.clone(), v_id.clone()])?;
-    if core_truthy(&v_duplicate) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_steps = core_get(&v_state, &CoreValue::from("steps"), CoreValue::Num(0f64));
-    v_limit = core_get(&v_state, &CoreValue::from("max_steps"), CoreValue::Null);
-    v_exhausted = core_gte(&[v_steps.clone(), v_limit.clone()])?;
-    if core_truthy(&v_exhausted) {
-        return Err(AxError::runtime(
-            "Maximum model steps exhausted before final completion",
-        ));
-    }
-    v_next = core_add(&[v_steps.clone(), CoreValue::Num(1f64)])?;
-    core_set(&v_responses, v_id.clone(), CoreValue::Bool(true))?;
-    core_set(&v_state, CoreValue::from("responses"), v_responses.clone())?;
-    core_set(&v_state, CoreValue::from("response_id"), v_id.clone())?;
-    core_set(&v_state, CoreValue::from("steps"), v_next.clone())?;
-    core_set(&v_state, CoreValue::from("boundary"), CoreValue::Bool(true))?;
-    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
-    v_update_ids = core_map_keys(&[v_updates.clone()])?;
-    v_had_successor = CoreValue::Bool(false);
-    for v_update_id in core_iter(&v_update_ids)? {
-        let mut v_update_id = v_update_id;
-        v_record = core_get(&v_updates, &v_update_id.clone(), CoreValue::Null);
-        v_parent = core_get(
-            &v_record,
-            &CoreValue::from("native_parent"),
-            CoreValue::Null,
-        );
-        v_has_parent = core_is_not_none(&[v_parent.clone()])?;
-        v_successor = core_ne(&[v_parent.clone(), v_id.clone()])?;
-        v_finished = core_and(&[v_has_parent.clone(), v_successor.clone()])?;
-        if core_truthy(&v_finished) {
-            v_had_successor = CoreValue::Bool(true);
-            core_set(
-                &v_record,
-                CoreValue::from("native_state"),
-                CoreValue::from("done"),
-            )?;
-            core_set(&v_updates, v_update_id.clone(), v_record.clone())?;
-        }
-    }
-    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
-    if core_truthy(&v_had_successor) {
-        v_queued = chat_session_has_queued_updates(&[v_state.clone()])?;
-        core_set(
-            &v_state,
-            CoreValue::from("needs_continuation"),
-            v_queued.clone(),
-        )?;
-    }
-    return Ok(CoreValue::Bool(true));
+    v_result = chat_session_result(&[v_response.clone(), v_id.clone()])?;
+    v_empty_turns = CoreValue::new_list();
+    v_turns = core_get(&v_state, &CoreValue::from("turns"), v_empty_turns.clone());
+    core_set(
+        &v_result,
+        CoreValue::from("__session_turns"),
+        v_turns.clone(),
+    )?;
+    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -76799,6 +76830,23 @@ fn _date_range_format_error_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_error = CoreValue::Null;
     v_error = core_runtime_error(&[CoreValue::from("Invalid range format. Provide a JSON object with \"start\" and \"end\", a two-item array, or an interval using start/end.")])?;
     return Ok(v_error.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_completion");
+    let mut v_response = core_arg(args, 0);
+    let mut v_id = core_arg(args, 1);
+    let mut v_completion = CoreValue::Null;
+    v_completion = chat_response_to_completion(&[v_response.clone()])?;
+    core_set(&v_completion, CoreValue::from("remote_id"), v_id.clone())?;
+    return Ok(v_completion.clone());
 }
 
 #[allow(
@@ -76903,6 +76951,33 @@ fn _date_range_endpoints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
+fn chat_session_has_continuation_work(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_has_continuation_work");
+    let mut v_state = core_arg(args, 0);
+    let mut v_continuation = CoreValue::Null;
+    let mut v_native_wait = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_work = CoreValue::Null;
+    v_pending = chat_session_unresolved(&[v_state.clone()])?;
+    v_pending = core_truthy_value(&[v_pending.clone()])?;
+    v_native_wait = chat_session_native_wait(&[v_state.clone()])?;
+    v_continuation = core_get(
+        &v_state,
+        &CoreValue::from("needs_continuation"),
+        CoreValue::Bool(false),
+    );
+    v_work = core_or(&[v_pending.clone(), v_native_wait.clone()])?;
+    v_work = core_or(&[v_work.clone(), v_continuation.clone()])?;
+    return Ok(v_work.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_required_missing_error_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_required_missing_error_impl");
     let mut v_field = core_arg(args, 0);
@@ -76915,6 +76990,33 @@ fn _stream_required_missing_error_impl(args: &[CoreValue]) -> Result<CoreValue, 
     v_message = core_string_format(&[CoreValue::from("Required field is missing: '{}'. After the \"{}:\" label, provide a non-empty {}. Do not use null, undefined, or leave it blank."), v_title.clone(), v_title.clone(), v_label.clone()])?;
     v_error = core_validation_error(&[v_message.clone()])?;
     return Ok(v_error.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_normalize_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_normalize_call");
+    let mut v_call = core_arg(args, 0);
+    let mut v_function = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    v_function = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+    v_missing = core_is_none(&[v_function.clone()])?;
+    if core_truthy(&v_missing) {
+        v_call = _completion_call_to_chat_impl(&[v_call.clone()])?;
+        v_function = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+    }
+    v_name = core_get(&v_function, &CoreValue::from("name"), CoreValue::Null);
+    v_params = core_get(&v_function, &CoreValue::from("params"), CoreValue::Null);
+    core_set(&v_call, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_call, CoreValue::from("params"), v_params.clone())?;
+    return Ok(v_call.clone());
 }
 
 #[allow(
@@ -76964,78 +77066,41 @@ fn _stream_url_error_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_has_queued_updates(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_has_queued_updates");
+fn chat_session_defer_final_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_defer_final_call");
     let mut v_state = core_arg(args, 0);
+    let mut v_call = core_arg(args, 1);
+    let mut v_defer = CoreValue::Null;
     let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_queued = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_registered = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_unresolved = CoreValue::Null;
     let mut v_updates = CoreValue::Null;
-    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
-    v_ids = core_map_keys(&[v_updates.clone()])?;
-    for v_id in core_iter(&v_ids)? {
-        let mut v_id = v_id;
-        v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
-        v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
-        v_queued = core_eq(&[v_status.clone(), CoreValue::from("queued")])?;
-        if core_truthy(&v_queued) {
-            return Ok(CoreValue::Bool(true));
-        }
-    }
-    return Ok(CoreValue::Bool(false));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_native_update(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_native_update");
-    let mut v_state = core_arg(args, 0);
-    let mut v_id = core_arg(args, 1);
-    let mut v_baseline = CoreValue::Null;
-    let mut v_empty_baseline = CoreValue::Null;
-    let mut v_native_state = CoreValue::Null;
-    let mut v_new_native = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_responses = CoreValue::Null;
-    let mut v_terminal = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    v_terminal = core_get(
+    v_unresolved = chat_session_unresolved(&[v_state.clone()])?;
+    v_pending = core_truthy_value(&[v_unresolved.clone()])?;
+    v_updates = core_get(
         &v_state,
-        &CoreValue::from("terminal"),
+        &CoreValue::from("needs_continuation"),
         CoreValue::Bool(false),
     );
-    if core_truthy(&v_terminal) {
-        return Ok(CoreValue::Bool(false));
+    v_defer = core_or(&[v_pending.clone(), v_updates.clone()])?;
+    if core_truthy(&v_defer) {
+        v_registered = chat_session_register_call(&[
+            v_state.clone(),
+            v_call.clone(),
+            CoreValue::from("blocking"),
+        ])?;
+        if core_truthy(&v_registered) {
+            v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+            v_result = CoreValue::new_map();
+            core_set(&v_result, CoreValue::from("function_id"), v_id.clone())?;
+            core_set(&v_result, CoreValue::from("result"), CoreValue::from("Not executed: incorporate the background tool results and queued updates before calling this finalization function again."))?;
+            chat_session_complete_call(&[v_state.clone(), v_id.clone(), v_result.clone()])?;
+        }
+        return Ok(v_registered.clone());
     }
-    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
-    v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
-    v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
-    v_new_native = core_is_none(&[v_native_state.clone()])?;
-    if core_truthy(&v_new_native) {
-        core_set(
-            &v_record,
-            CoreValue::from("native_state"),
-            CoreValue::from("awaiting_ack"),
-        )?;
-        v_responses = core_get(&v_state, &CoreValue::from("responses"), CoreValue::Null);
-        v_empty_baseline = CoreValue::new_map();
-        v_baseline = core_map_merge(&[v_empty_baseline.clone(), v_responses.clone()])?;
-        core_set(
-            &v_record,
-            CoreValue::from("native_responses"),
-            v_baseline.clone(),
-        )?;
-        core_set(&v_updates, v_id.clone(), v_record.clone())?;
-        core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
-    }
-    return Ok(v_new_native.clone());
+    return Ok(CoreValue::Bool(false));
 }
 
 #[allow(
@@ -77583,38 +77648,45 @@ fn _ace_estimate_token_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_native_wait(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_native_wait");
+fn chat_session_complete_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_complete_call");
     let mut v_state = core_arg(args, 0);
-    let mut v_has_native = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_native_state = CoreValue::Null;
-    let mut v_queued = CoreValue::Null;
+    let mut v_id = core_arg(args, 1);
+    let mut v_result = core_arg(args, 2);
+    let mut v_exists = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
     let mut v_record = CoreValue::Null;
+    let mut v_running = CoreValue::Null;
     let mut v_status = CoreValue::Null;
-    let mut v_successor = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    let mut v_waiting = CoreValue::Null;
-    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
-    v_ids = core_map_keys(&[v_updates.clone()])?;
-    for v_id in core_iter(&v_ids)? {
-        let mut v_id = v_id;
-        v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
-        v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
-        v_has_native = core_is_not_none(&[v_native_state.clone()])?;
-        if core_truthy(&v_has_native) {
-            v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
-            v_queued = core_eq(&[v_status.clone(), CoreValue::from("queued")])?;
-            v_successor = core_eq(&[
-                v_native_state.clone(),
-                CoreValue::from("awaiting_successor"),
-            ])?;
-            v_waiting = core_or(&[v_queued.clone(), v_successor.clone()])?;
-            if core_truthy(&v_waiting) {
-                return Ok(CoreValue::Bool(true));
-            }
-        }
+    let mut v_terminal = CoreValue::Null;
+    v_terminal = core_get(
+        &v_state,
+        &CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_terminal) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    v_exists = core_map_contains(&[v_pending.clone(), v_id.clone()])?;
+    v_missing = core_not(&[v_exists.clone()])?;
+    if core_truthy(&v_missing) {
+        return Err(AxError::runtime("Tool result has no registered call"));
+    }
+    v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
+    v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
+    v_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
+    if core_truthy(&v_running) {
+        core_set(&v_record, CoreValue::from("result"), v_result.clone())?;
+        core_set(
+            &v_record,
+            CoreValue::from("status"),
+            CoreValue::from("ready"),
+        )?;
+        core_set(&v_pending, v_id.clone(), v_record.clone())?;
+        core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
+        return Ok(CoreValue::Bool(true));
     }
     return Ok(CoreValue::Bool(false));
 }
@@ -77716,235 +77788,88 @@ fn _ace_recompute_playbook_stats(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
-fn chat_session_native_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_native_event");
+fn chat_session_complete_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_complete_response");
     let mut v_state = core_arg(args, 0);
-    let mut v_event = core_arg(args, 1);
-    let mut v_accepted = CoreValue::Null;
-    let mut v_await_successor = CoreValue::Null;
-    let mut v_baseline = CoreValue::Null;
-    let mut v_can_clear = CoreValue::Null;
-    let mut v_candidate = CoreValue::Null;
-    let mut v_changed = CoreValue::Null;
-    let mut v_changed_ids = CoreValue::Null;
-    let mut v_changed_state = CoreValue::Null;
-    let mut v_choose_record = CoreValue::Null;
-    let mut v_done = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    let mut v_empty_map = CoreValue::Null;
-    let mut v_error = CoreValue::Null;
-    let mut v_failed = CoreValue::Null;
-    let mut v_found = CoreValue::Null;
-    let mut v_has_steer = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_matches = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_native_state = CoreValue::Null;
-    let mut v_new_response = CoreValue::Null;
-    let mut v_not_done = CoreValue::Null;
-    let mut v_not_parent = CoreValue::Null;
-    let mut v_not_pending = CoreValue::Null;
-    let mut v_old_required = CoreValue::Null;
-    let mut v_old_response = CoreValue::Null;
+    let mut v_id = core_arg(args, 1);
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_exhausted = CoreValue::Null;
+    let mut v_finished = CoreValue::Null;
+    let mut v_had_successor = CoreValue::Null;
+    let mut v_has_parent = CoreValue::Null;
+    let mut v_limit = CoreValue::Null;
+    let mut v_next = CoreValue::Null;
     let mut v_parent = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_pending_input = CoreValue::Null;
-    let mut v_pending_status = CoreValue::Null;
     let mut v_queued = CoreValue::Null;
     let mut v_record = CoreValue::Null;
-    let mut v_record_status = CoreValue::Null;
-    let mut v_record_steer = CoreValue::Null;
-    let mut v_required = CoreValue::Null;
-    let mut v_response_id = CoreValue::Null;
-    let mut v_response_ids = CoreValue::Null;
     let mut v_responses = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_same = CoreValue::Null;
-    let mut v_selected = CoreValue::Null;
-    let mut v_settled = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_steer_id = CoreValue::Null;
-    let mut v_successor_seen = CoreValue::Null;
+    let mut v_steps = CoreValue::Null;
+    let mut v_successor = CoreValue::Null;
     let mut v_terminal = CoreValue::Null;
-    let mut v_unassigned = CoreValue::Null;
+    let mut v_update_id = CoreValue::Null;
+    let mut v_update_ids = CoreValue::Null;
     let mut v_updates = CoreValue::Null;
-    let mut v_version = CoreValue::Null;
-    let mut v_waiting = CoreValue::Null;
-    v_result = CoreValue::new_map();
-    core_set(
-        &v_result,
-        CoreValue::from("changed"),
-        CoreValue::Bool(false),
-    )?;
     v_terminal = core_get(
         &v_state,
         &CoreValue::from("terminal"),
         CoreValue::Bool(false),
     );
     if core_truthy(&v_terminal) {
-        return Ok(v_result.clone());
+        return Ok(CoreValue::Bool(false));
     }
-    v_status = core_get(&v_event, &CoreValue::from("status"), CoreValue::Null);
-    v_failed = core_eq(&[v_status.clone(), CoreValue::from("failed")])?;
-    if core_truthy(&v_failed) {
-        v_error = core_get(
-            &v_event,
-            &CoreValue::from("error"),
-            CoreValue::from("Provider rejected steering"),
-        );
-        return Err(core_as_error(&v_error));
+    v_responses = core_get(&v_state, &CoreValue::from("responses"), CoreValue::Null);
+    v_duplicate = core_map_contains(&[v_responses.clone(), v_id.clone()])?;
+    if core_truthy(&v_duplicate) {
+        return Ok(CoreValue::Bool(false));
     }
+    v_steps = core_get(&v_state, &CoreValue::from("steps"), CoreValue::Num(0f64));
+    v_limit = core_get(&v_state, &CoreValue::from("max_steps"), CoreValue::Null);
+    v_exhausted = core_gte(&[v_steps.clone(), v_limit.clone()])?;
+    if core_truthy(&v_exhausted) {
+        return Err(AxError::runtime(
+            "Maximum model steps exhausted before final completion",
+        ));
+    }
+    v_next = core_add(&[v_steps.clone(), CoreValue::Num(1f64)])?;
+    core_set(&v_responses, v_id.clone(), CoreValue::Bool(true))?;
+    core_set(&v_state, CoreValue::from("responses"), v_responses.clone())?;
+    core_set(&v_state, CoreValue::from("response_id"), v_id.clone())?;
+    core_set(&v_state, CoreValue::from("steps"), v_next.clone())?;
+    core_set(&v_state, CoreValue::from("boundary"), CoreValue::Bool(true))?;
     v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
-    v_ids = core_map_keys(&[v_updates.clone()])?;
-    v_steer_id = core_get(&v_event, &CoreValue::from("steer_id"), CoreValue::Null);
-    v_selected = core_none(&[])?;
-    for v_id in core_iter(&v_ids)? {
-        let mut v_id = v_id;
-        v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
-        v_record_steer = core_get(&v_record, &CoreValue::from("steer_id"), CoreValue::Null);
-        v_same = core_eq(&[v_record_steer.clone(), v_steer_id.clone()])?;
-        v_has_steer = core_is_not_none(&[v_steer_id.clone()])?;
-        v_matches = core_and(&[v_same.clone(), v_has_steer.clone()])?;
-        if core_truthy(&v_matches) {
-            v_selected = v_id.clone();
-        }
-    }
-    v_missing = core_is_none(&[v_selected.clone()])?;
-    if core_truthy(&v_missing) {
-        for v_id in core_iter(&v_ids)? {
-            let mut v_id = v_id;
-            v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
-            v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
-            v_record_steer = core_get(&v_record, &CoreValue::from("steer_id"), CoreValue::Null);
-            v_waiting = core_eq(&[v_native_state.clone(), CoreValue::from("awaiting_ack")])?;
-            v_unassigned = core_is_none(&[v_record_steer.clone()])?;
-            v_missing = core_is_none(&[v_selected.clone()])?;
-            v_candidate = core_and(&[v_waiting.clone(), v_unassigned.clone()])?;
-            v_choose_record = core_and(&[v_missing.clone(), v_candidate.clone()])?;
-            if core_truthy(&v_choose_record) {
-                v_selected = v_id.clone();
-            }
-        }
-    }
-    v_found = core_is_not_none(&[v_selected.clone()])?;
-    if core_truthy(&v_found) {
-        v_record = core_get(&v_updates, &v_selected.clone(), CoreValue::Null);
-        core_set(&v_record, CoreValue::from("steer_id"), v_steer_id.clone())?;
-        v_parent = core_get(&v_event, &CoreValue::from("response_id"), CoreValue::Null);
-        core_set(
+    v_update_ids = core_map_keys(&[v_updates.clone()])?;
+    v_had_successor = CoreValue::Bool(false);
+    for v_update_id in core_iter(&v_update_ids)? {
+        let mut v_update_id = v_update_id;
+        v_record = core_get(&v_updates, &v_update_id.clone(), CoreValue::Null);
+        v_parent = core_get(
             &v_record,
-            CoreValue::from("native_parent"),
-            v_parent.clone(),
-        )?;
-        v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
-        v_empty_map = CoreValue::new_map();
-        v_baseline = core_get(
-            &v_record,
-            &CoreValue::from("native_responses"),
-            v_empty_map.clone(),
+            &CoreValue::from("native_parent"),
+            CoreValue::Null,
         );
-        v_responses = core_get(&v_state, &CoreValue::from("responses"), CoreValue::Null);
-        v_response_ids = core_map_keys(&[v_responses.clone()])?;
-        for v_response_id in core_iter(&v_response_ids)? {
-            let mut v_response_id = v_response_id;
-            v_old_response = core_map_contains(&[v_baseline.clone(), v_response_id.clone()])?;
-            v_new_response = core_not(&[v_old_response.clone()])?;
-            v_not_parent = core_ne(&[v_response_id.clone(), v_parent.clone()])?;
-            v_successor_seen = core_and(&[v_new_response.clone(), v_not_parent.clone()])?;
-            if core_truthy(&v_successor_seen) {
-                v_native_state = CoreValue::from("done");
-                core_set(
-                    &v_record,
-                    CoreValue::from("native_state"),
-                    CoreValue::from("done"),
-                )?;
-            }
-        }
-        v_pending_status = core_eq(&[v_status.clone(), CoreValue::from("pending")])?;
-        v_done = core_eq(&[v_native_state.clone(), CoreValue::from("done")])?;
-        v_not_done = core_not(&[v_done.clone()])?;
-        v_pending = core_and(&[v_pending_status.clone(), v_not_done.clone()])?;
-        if core_truthy(&v_pending) {
-            v_changed_state = core_ne(&[v_native_state.clone(), CoreValue::from("pending_input")])?;
+        v_has_parent = core_is_not_none(&[v_parent.clone()])?;
+        v_successor = core_ne(&[v_parent.clone(), v_id.clone()])?;
+        v_finished = core_and(&[v_has_parent.clone(), v_successor.clone()])?;
+        if core_truthy(&v_finished) {
+            v_had_successor = CoreValue::Bool(true);
             core_set(
                 &v_record,
                 CoreValue::from("native_state"),
-                CoreValue::from("pending_input"),
+                CoreValue::from("done"),
             )?;
-            v_empty = CoreValue::new_list();
-            v_required = core_get(
-                &v_event,
-                &CoreValue::from("required_call_ids"),
-                v_empty.clone(),
-            );
-            v_old_required = core_get(
-                &v_record,
-                &CoreValue::from("required_call_ids"),
-                v_empty.clone(),
-            );
-            v_changed_ids = core_ne(&[v_required.clone(), v_old_required.clone()])?;
-            v_changed = core_or(&[v_changed_state.clone(), v_changed_ids.clone()])?;
-            core_set(
-                &v_record,
-                CoreValue::from("required_call_ids"),
-                v_required.clone(),
-            )?;
-            core_set(
-                &v_state,
-                CoreValue::from("needs_continuation"),
-                CoreValue::Bool(true),
-            )?;
-            core_set(&v_result, CoreValue::from("changed"), v_changed.clone())?;
-        } else {
-            v_accepted = core_eq(&[v_status.clone(), CoreValue::from("accepted")])?;
-            if core_truthy(&v_accepted) {
-                v_record_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
-                v_queued = core_eq(&[v_record_status.clone(), CoreValue::from("queued")])?;
-                if core_truthy(&v_queued) {
-                    v_pending_input =
-                        core_eq(&[v_native_state.clone(), CoreValue::from("pending_input")])?;
-                    v_done = core_eq(&[v_native_state.clone(), CoreValue::from("done")])?;
-                    v_settled = core_or(&[v_pending_input.clone(), v_done.clone()])?;
-                    v_await_successor = core_not(&[v_settled.clone()])?;
-                    if core_truthy(&v_await_successor) {
-                        core_set(
-                            &v_record,
-                            CoreValue::from("native_state"),
-                            CoreValue::from("awaiting_successor"),
-                        )?;
-                    }
-                    core_set(
-                        &v_record,
-                        CoreValue::from("status"),
-                        CoreValue::from("applied"),
-                    )?;
-                    v_version =
-                        core_get(&v_state, &CoreValue::from("version"), CoreValue::Num(0f64));
-                    v_version = core_add(&[v_version.clone(), CoreValue::Num(1f64)])?;
-                    core_set(&v_state, CoreValue::from("version"), v_version.clone())?;
-                    core_set(&v_result, CoreValue::from("changed"), CoreValue::Bool(true))?;
-                    core_set(&v_result, CoreValue::from("applied_id"), v_selected.clone())?;
-                }
-            }
-        }
-        core_set(&v_updates, v_selected.clone(), v_record.clone())?;
-        core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
-        v_accepted = core_eq(&[v_status.clone(), CoreValue::from("accepted")])?;
-        v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
-        v_pending_input = core_eq(&[v_native_state.clone(), CoreValue::from("pending_input")])?;
-        v_not_pending = core_not(&[v_pending_input.clone()])?;
-        v_can_clear = core_and(&[v_accepted.clone(), v_not_pending.clone()])?;
-        if core_truthy(&v_can_clear) {
-            v_queued = chat_session_has_queued_updates(&[v_state.clone()])?;
-            core_set(
-                &v_state,
-                CoreValue::from("needs_continuation"),
-                v_queued.clone(),
-            )?;
+            core_set(&v_updates, v_update_id.clone(), v_record.clone())?;
         }
     }
-    return Ok(v_result.clone());
+    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
+    if core_truthy(&v_had_successor) {
+        v_queued = chat_session_has_queued_updates(&[v_state.clone()])?;
+        core_set(
+            &v_state,
+            CoreValue::from("needs_continuation"),
+            v_queued.clone(),
+        )?;
+    }
+    return Ok(CoreValue::Bool(true));
 }
 
 #[allow(
@@ -78130,6 +78055,36 @@ fn _ace_empty_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn chat_session_has_queued_updates(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_has_queued_updates");
+    let mut v_state = core_arg(args, 0);
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_queued = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
+    v_ids = core_map_keys(&[v_updates.clone()])?;
+    for v_id in core_iter(&v_ids)? {
+        let mut v_id = v_id;
+        v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
+        v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
+        v_queued = core_eq(&[v_status.clone(), CoreValue::from("queued")])?;
+        if core_truthy(&v_queued) {
+            return Ok(CoreValue::Bool(true));
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_set_examples");
     let mut v_gen = core_arg(args, 0);
@@ -78277,6 +78232,57 @@ fn _set_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_demos = core_arg(args, 1);
     core_set(&v_gen, CoreValue::from("demos"), v_demos.clone())?;
     return Ok(v_gen.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_native_update(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_native_update");
+    let mut v_state = core_arg(args, 0);
+    let mut v_id = core_arg(args, 1);
+    let mut v_baseline = CoreValue::Null;
+    let mut v_empty_baseline = CoreValue::Null;
+    let mut v_native_state = CoreValue::Null;
+    let mut v_new_native = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_responses = CoreValue::Null;
+    let mut v_terminal = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    v_terminal = core_get(
+        &v_state,
+        &CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_terminal) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
+    v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
+    v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
+    v_new_native = core_is_none(&[v_native_state.clone()])?;
+    if core_truthy(&v_new_native) {
+        core_set(
+            &v_record,
+            CoreValue::from("native_state"),
+            CoreValue::from("awaiting_ack"),
+        )?;
+        v_responses = core_get(&v_state, &CoreValue::from("responses"), CoreValue::Null);
+        v_empty_baseline = CoreValue::new_map();
+        v_baseline = core_map_merge(&[v_empty_baseline.clone(), v_responses.clone()])?;
+        core_set(
+            &v_record,
+            CoreValue::from("native_responses"),
+            v_baseline.clone(),
+        )?;
+        core_set(&v_updates, v_id.clone(), v_record.clone())?;
+        core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
+    }
+    return Ok(v_new_native.clone());
 }
 
 #[allow(
@@ -78554,6 +78560,49 @@ fn _date_range_keyword_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn chat_session_native_wait(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_native_wait");
+    let mut v_state = core_arg(args, 0);
+    let mut v_has_native = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_native_state = CoreValue::Null;
+    let mut v_queued = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_successor = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    let mut v_waiting = CoreValue::Null;
+    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
+    v_ids = core_map_keys(&[v_updates.clone()])?;
+    for v_id in core_iter(&v_ids)? {
+        let mut v_id = v_id;
+        v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
+        v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
+        v_has_native = core_is_not_none(&[v_native_state.clone()])?;
+        if core_truthy(&v_has_native) {
+            v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
+            v_queued = core_eq(&[v_status.clone(), CoreValue::from("queued")])?;
+            v_successor = core_eq(&[
+                v_native_state.clone(),
+                CoreValue::from("awaiting_successor"),
+            ])?;
+            v_waiting = core_or(&[v_queued.clone(), v_successor.clone()])?;
+            if core_truthy(&v_waiting) {
+                return Ok(CoreValue::Bool(true));
+            }
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_apply_field_processors");
     let mut v_gen = core_arg(args, 0);
@@ -78714,114 +78763,235 @@ fn _ace_update_bullet_feedback(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
-fn chat_session_boundary_action(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_boundary_action");
+fn chat_session_native_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_native_event");
     let mut v_state = core_arg(args, 0);
-    let mut v_action = CoreValue::Null;
-    let mut v_active = CoreValue::Null;
-    let mut v_blocking = CoreValue::Null;
-    let mut v_boundary = CoreValue::Null;
-    let mut v_execution = CoreValue::Null;
-    let mut v_has_results = CoreValue::Null;
+    let mut v_event = core_arg(args, 1);
+    let mut v_accepted = CoreValue::Null;
+    let mut v_await_successor = CoreValue::Null;
+    let mut v_baseline = CoreValue::Null;
+    let mut v_can_clear = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_changed = CoreValue::Null;
+    let mut v_changed_ids = CoreValue::Null;
+    let mut v_changed_state = CoreValue::Null;
+    let mut v_choose_record = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_has_steer = CoreValue::Null;
     let mut v_id = CoreValue::Null;
     let mut v_ids = CoreValue::Null;
-    let mut v_is_blocking = CoreValue::Null;
-    let mut v_is_running = CoreValue::Null;
-    let mut v_native_wait = CoreValue::Null;
-    let mut v_needs_continuation = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_native_state = CoreValue::Null;
+    let mut v_new_response = CoreValue::Null;
+    let mut v_not_done = CoreValue::Null;
+    let mut v_not_parent = CoreValue::Null;
+    let mut v_not_pending = CoreValue::Null;
+    let mut v_old_required = CoreValue::Null;
+    let mut v_old_response = CoreValue::Null;
+    let mut v_parent = CoreValue::Null;
     let mut v_pending = CoreValue::Null;
-    let mut v_ready = CoreValue::Null;
+    let mut v_pending_input = CoreValue::Null;
+    let mut v_pending_status = CoreValue::Null;
+    let mut v_queued = CoreValue::Null;
     let mut v_record = CoreValue::Null;
+    let mut v_record_status = CoreValue::Null;
+    let mut v_record_steer = CoreValue::Null;
+    let mut v_required = CoreValue::Null;
+    let mut v_response_id = CoreValue::Null;
+    let mut v_response_ids = CoreValue::Null;
+    let mut v_responses = CoreValue::Null;
     let mut v_result = CoreValue::Null;
-    let mut v_results = CoreValue::Null;
-    let mut v_running = CoreValue::Null;
-    let mut v_running_barrier = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_selected = CoreValue::Null;
+    let mut v_settled = CoreValue::Null;
     let mut v_status = CoreValue::Null;
+    let mut v_steer_id = CoreValue::Null;
+    let mut v_successor_seen = CoreValue::Null;
     let mut v_terminal = CoreValue::Null;
-    v_action = CoreValue::new_map();
-    core_set(&v_action, CoreValue::from("type"), CoreValue::from("wait"))?;
+    let mut v_unassigned = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    let mut v_waiting = CoreValue::Null;
+    v_result = CoreValue::new_map();
+    core_set(
+        &v_result,
+        CoreValue::from("changed"),
+        CoreValue::Bool(false),
+    )?;
     v_terminal = core_get(
         &v_state,
         &CoreValue::from("terminal"),
         CoreValue::Bool(false),
     );
     if core_truthy(&v_terminal) {
-        core_set(
-            &v_action,
-            CoreValue::from("type"),
-            CoreValue::from("closed"),
-        )?;
-        return Ok(v_action.clone());
+        return Ok(v_result.clone());
     }
-    v_native_wait = chat_session_native_wait(&[v_state.clone()])?;
-    if core_truthy(&v_native_wait) {
-        return Ok(v_action.clone());
+    v_status = core_get(&v_event, &CoreValue::from("status"), CoreValue::Null);
+    v_failed = core_eq(&[v_status.clone(), CoreValue::from("failed")])?;
+    if core_truthy(&v_failed) {
+        v_error = core_get(
+            &v_event,
+            &CoreValue::from("error"),
+            CoreValue::from("Provider rejected steering"),
+        );
+        return Err(core_as_error(&v_error));
     }
-    v_boundary = core_get(
-        &v_state,
-        &CoreValue::from("boundary"),
-        CoreValue::Bool(false),
-    );
-    v_active = core_not(&[v_boundary.clone()])?;
-    if core_truthy(&v_active) {
-        return Ok(v_action.clone());
-    }
-    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    v_ids = core_map_keys(&[v_pending.clone()])?;
-    v_results = CoreValue::new_list();
-    v_running = CoreValue::Bool(false);
-    v_blocking = CoreValue::Bool(false);
+    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
+    v_ids = core_map_keys(&[v_updates.clone()])?;
+    v_steer_id = core_get(&v_event, &CoreValue::from("steer_id"), CoreValue::Null);
+    v_selected = core_none(&[])?;
     for v_id in core_iter(&v_ids)? {
         let mut v_id = v_id;
-        v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
-        v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
-        v_is_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
-        v_execution = core_get(&v_record, &CoreValue::from("execution"), CoreValue::Null);
-        v_is_blocking = core_eq(&[v_execution.clone(), CoreValue::from("blocking")])?;
-        v_running_barrier = core_and(&[v_is_running.clone(), v_is_blocking.clone()])?;
-        v_blocking = core_or(&[v_blocking.clone(), v_running_barrier.clone()])?;
-        v_running = core_or(&[v_running.clone(), v_is_running.clone()])?;
-        v_ready = core_eq(&[v_status.clone(), CoreValue::from("ready")])?;
-        if core_truthy(&v_ready) {
-            v_result = core_get(&v_record, &CoreValue::from("result"), CoreValue::Null);
-            core_append(&v_results, v_result.clone())?;
+        v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
+        v_record_steer = core_get(&v_record, &CoreValue::from("steer_id"), CoreValue::Null);
+        v_same = core_eq(&[v_record_steer.clone(), v_steer_id.clone()])?;
+        v_has_steer = core_is_not_none(&[v_steer_id.clone()])?;
+        v_matches = core_and(&[v_same.clone(), v_has_steer.clone()])?;
+        if core_truthy(&v_matches) {
+            v_selected = v_id.clone();
         }
     }
-    if core_truthy(&v_blocking) {
-        return Ok(v_action.clone());
+    v_missing = core_is_none(&[v_selected.clone()])?;
+    if core_truthy(&v_missing) {
+        for v_id in core_iter(&v_ids)? {
+            let mut v_id = v_id;
+            v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
+            v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
+            v_record_steer = core_get(&v_record, &CoreValue::from("steer_id"), CoreValue::Null);
+            v_waiting = core_eq(&[v_native_state.clone(), CoreValue::from("awaiting_ack")])?;
+            v_unassigned = core_is_none(&[v_record_steer.clone()])?;
+            v_missing = core_is_none(&[v_selected.clone()])?;
+            v_candidate = core_and(&[v_waiting.clone(), v_unassigned.clone()])?;
+            v_choose_record = core_and(&[v_missing.clone(), v_candidate.clone()])?;
+            if core_truthy(&v_choose_record) {
+                v_selected = v_id.clone();
+            }
+        }
     }
-    v_has_results = core_truthy_value(&[v_results.clone()])?;
-    if core_truthy(&v_has_results) {
+    v_found = core_is_not_none(&[v_selected.clone()])?;
+    if core_truthy(&v_found) {
+        v_record = core_get(&v_updates, &v_selected.clone(), CoreValue::Null);
+        core_set(&v_record, CoreValue::from("steer_id"), v_steer_id.clone())?;
+        v_parent = core_get(&v_event, &CoreValue::from("response_id"), CoreValue::Null);
         core_set(
-            &v_action,
-            CoreValue::from("type"),
-            CoreValue::from("submit"),
+            &v_record,
+            CoreValue::from("native_parent"),
+            v_parent.clone(),
         )?;
-        core_set(&v_action, CoreValue::from("results"), v_results.clone())?;
-        return Ok(v_action.clone());
+        v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
+        v_empty_map = CoreValue::new_map();
+        v_baseline = core_get(
+            &v_record,
+            &CoreValue::from("native_responses"),
+            v_empty_map.clone(),
+        );
+        v_responses = core_get(&v_state, &CoreValue::from("responses"), CoreValue::Null);
+        v_response_ids = core_map_keys(&[v_responses.clone()])?;
+        for v_response_id in core_iter(&v_response_ids)? {
+            let mut v_response_id = v_response_id;
+            v_old_response = core_map_contains(&[v_baseline.clone(), v_response_id.clone()])?;
+            v_new_response = core_not(&[v_old_response.clone()])?;
+            v_not_parent = core_ne(&[v_response_id.clone(), v_parent.clone()])?;
+            v_successor_seen = core_and(&[v_new_response.clone(), v_not_parent.clone()])?;
+            if core_truthy(&v_successor_seen) {
+                v_native_state = CoreValue::from("done");
+                core_set(
+                    &v_record,
+                    CoreValue::from("native_state"),
+                    CoreValue::from("done"),
+                )?;
+            }
+        }
+        v_pending_status = core_eq(&[v_status.clone(), CoreValue::from("pending")])?;
+        v_done = core_eq(&[v_native_state.clone(), CoreValue::from("done")])?;
+        v_not_done = core_not(&[v_done.clone()])?;
+        v_pending = core_and(&[v_pending_status.clone(), v_not_done.clone()])?;
+        if core_truthy(&v_pending) {
+            v_changed_state = core_ne(&[v_native_state.clone(), CoreValue::from("pending_input")])?;
+            core_set(
+                &v_record,
+                CoreValue::from("native_state"),
+                CoreValue::from("pending_input"),
+            )?;
+            v_empty = CoreValue::new_list();
+            v_required = core_get(
+                &v_event,
+                &CoreValue::from("required_call_ids"),
+                v_empty.clone(),
+            );
+            v_old_required = core_get(
+                &v_record,
+                &CoreValue::from("required_call_ids"),
+                v_empty.clone(),
+            );
+            v_changed_ids = core_ne(&[v_required.clone(), v_old_required.clone()])?;
+            v_changed = core_or(&[v_changed_state.clone(), v_changed_ids.clone()])?;
+            core_set(
+                &v_record,
+                CoreValue::from("required_call_ids"),
+                v_required.clone(),
+            )?;
+            core_set(
+                &v_state,
+                CoreValue::from("needs_continuation"),
+                CoreValue::Bool(true),
+            )?;
+            core_set(&v_result, CoreValue::from("changed"), v_changed.clone())?;
+        } else {
+            v_accepted = core_eq(&[v_status.clone(), CoreValue::from("accepted")])?;
+            if core_truthy(&v_accepted) {
+                v_record_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
+                v_queued = core_eq(&[v_record_status.clone(), CoreValue::from("queued")])?;
+                if core_truthy(&v_queued) {
+                    v_pending_input =
+                        core_eq(&[v_native_state.clone(), CoreValue::from("pending_input")])?;
+                    v_done = core_eq(&[v_native_state.clone(), CoreValue::from("done")])?;
+                    v_settled = core_or(&[v_pending_input.clone(), v_done.clone()])?;
+                    v_await_successor = core_not(&[v_settled.clone()])?;
+                    if core_truthy(&v_await_successor) {
+                        core_set(
+                            &v_record,
+                            CoreValue::from("native_state"),
+                            CoreValue::from("awaiting_successor"),
+                        )?;
+                    }
+                    core_set(
+                        &v_record,
+                        CoreValue::from("status"),
+                        CoreValue::from("applied"),
+                    )?;
+                    v_version =
+                        core_get(&v_state, &CoreValue::from("version"), CoreValue::Num(0f64));
+                    v_version = core_add(&[v_version.clone(), CoreValue::Num(1f64)])?;
+                    core_set(&v_state, CoreValue::from("version"), v_version.clone())?;
+                    core_set(&v_result, CoreValue::from("changed"), CoreValue::Bool(true))?;
+                    core_set(&v_result, CoreValue::from("applied_id"), v_selected.clone())?;
+                }
+            }
+        }
+        core_set(&v_updates, v_selected.clone(), v_record.clone())?;
+        core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
+        v_accepted = core_eq(&[v_status.clone(), CoreValue::from("accepted")])?;
+        v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
+        v_pending_input = core_eq(&[v_native_state.clone(), CoreValue::from("pending_input")])?;
+        v_not_pending = core_not(&[v_pending_input.clone()])?;
+        v_can_clear = core_and(&[v_accepted.clone(), v_not_pending.clone()])?;
+        if core_truthy(&v_can_clear) {
+            v_queued = chat_session_has_queued_updates(&[v_state.clone()])?;
+            core_set(
+                &v_state,
+                CoreValue::from("needs_continuation"),
+                v_queued.clone(),
+            )?;
+        }
     }
-    if core_truthy(&v_running) {
-        return Ok(v_action.clone());
-    }
-    v_needs_continuation = core_get(
-        &v_state,
-        &CoreValue::from("needs_continuation"),
-        CoreValue::Bool(false),
-    );
-    if core_truthy(&v_needs_continuation) {
-        core_set(
-            &v_action,
-            CoreValue::from("type"),
-            CoreValue::from("continue"),
-        )?;
-    } else {
-        core_set(
-            &v_action,
-            CoreValue::from("type"),
-            CoreValue::from("validate"),
-        )?;
-    }
-    return Ok(v_action.clone());
+    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -79550,45 +79720,6 @@ fn _stream_field_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_mark_submitted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_mark_submitted");
-    let mut v_state = core_arg(args, 0);
-    let mut v_ids = core_arg(args, 1);
-    let mut v_id = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    for v_id in core_iter(&v_ids)? {
-        let mut v_id = v_id;
-        v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
-        core_set(
-            &v_record,
-            CoreValue::from("status"),
-            CoreValue::from("sent"),
-        )?;
-        core_set(&v_pending, v_id.clone(), v_record.clone())?;
-    }
-    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
-    core_set(
-        &v_state,
-        CoreValue::from("boundary"),
-        CoreValue::Bool(false),
-    )?;
-    core_set(
-        &v_state,
-        CoreValue::from("needs_continuation"),
-        CoreValue::Bool(false),
-    )?;
-    return Ok(CoreValue::Null);
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _date_string_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_string_mode_impl");
     let mut v_accented = CoreValue::Null;
@@ -79623,68 +79754,6 @@ fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_text = core_string_trim(&v_content);
     v_output = core_json_parse_strict(&[v_text.clone()])?;
     return Ok(v_output.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_queue_update(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_queue_update");
-    let mut v_state = core_arg(args, 0);
-    let mut v_update = core_arg(args, 1);
-    let mut v_exists = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_matches = CoreValue::Null;
-    let mut v_path = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_target = CoreValue::Null;
-    let mut v_terminal = CoreValue::Null;
-    let mut v_unmatched = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    v_terminal = core_get(
-        &v_state,
-        &CoreValue::from("terminal"),
-        CoreValue::Bool(false),
-    );
-    if core_truthy(&v_terminal) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_target = core_get(
-        &v_update,
-        &CoreValue::from("target"),
-        CoreValue::from("root"),
-    );
-    v_path = core_get(&v_state, &CoreValue::from("path"), CoreValue::Null);
-    v_matches = chat_session_target_matches(&[v_target.clone(), v_path.clone()])?;
-    v_unmatched = core_not(&[v_matches.clone()])?;
-    if core_truthy(&v_unmatched) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_id = core_get(&v_update, &CoreValue::from("id"), CoreValue::Null);
-    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
-    v_exists = core_map_contains(&[v_updates.clone(), v_id.clone()])?;
-    if core_truthy(&v_exists) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_record = CoreValue::new_map();
-    core_set(&v_record, CoreValue::from("update"), v_update.clone())?;
-    core_set(
-        &v_record,
-        CoreValue::from("status"),
-        CoreValue::from("queued"),
-    )?;
-    core_set(&v_updates, v_id.clone(), v_record.clone())?;
-    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
-    core_set(
-        &v_state,
-        CoreValue::from("needs_continuation"),
-        CoreValue::Bool(true),
-    )?;
-    return Ok(CoreValue::Bool(true));
 }
 
 #[allow(
@@ -80103,54 +80172,114 @@ fn _parse_json_string_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_record_unresolved(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_record_unresolved");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_state = core_arg(args, 1);
-    let mut v_call = CoreValue::Null;
+fn chat_session_boundary_action(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_boundary_action");
+    let mut v_state = core_arg(args, 0);
+    let mut v_action = CoreValue::Null;
+    let mut v_active = CoreValue::Null;
+    let mut v_blocking = CoreValue::Null;
+    let mut v_boundary = CoreValue::Null;
+    let mut v_execution = CoreValue::Null;
+    let mut v_has_results = CoreValue::Null;
     let mut v_id = CoreValue::Null;
     let mut v_ids = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_needed = CoreValue::Null;
-    let mut v_not_recorded = CoreValue::Null;
+    let mut v_is_blocking = CoreValue::Null;
+    let mut v_is_running = CoreValue::Null;
+    let mut v_native_wait = CoreValue::Null;
+    let mut v_needs_continuation = CoreValue::Null;
     let mut v_pending = CoreValue::Null;
+    let mut v_ready = CoreValue::Null;
     let mut v_record = CoreValue::Null;
-    let mut v_recorded = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
     let mut v_running = CoreValue::Null;
+    let mut v_running_barrier = CoreValue::Null;
     let mut v_status = CoreValue::Null;
+    let mut v_terminal = CoreValue::Null;
+    v_action = CoreValue::new_map();
+    core_set(&v_action, CoreValue::from("type"), CoreValue::from("wait"))?;
+    v_terminal = core_get(
+        &v_state,
+        &CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_terminal) {
+        core_set(
+            &v_action,
+            CoreValue::from("type"),
+            CoreValue::from("closed"),
+        )?;
+        return Ok(v_action.clone());
+    }
+    v_native_wait = chat_session_native_wait(&[v_state.clone()])?;
+    if core_truthy(&v_native_wait) {
+        return Ok(v_action.clone());
+    }
+    v_boundary = core_get(
+        &v_state,
+        &CoreValue::from("boundary"),
+        CoreValue::Bool(false),
+    );
+    v_active = core_not(&[v_boundary.clone()])?;
+    if core_truthy(&v_active) {
+        return Ok(v_action.clone());
+    }
     v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
     v_ids = core_map_keys(&[v_pending.clone()])?;
+    v_results = CoreValue::new_list();
+    v_running = CoreValue::Bool(false);
+    v_blocking = CoreValue::Bool(false);
     for v_id in core_iter(&v_ids)? {
         let mut v_id = v_id;
         v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
         v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
-        v_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
-        v_recorded = core_get(
-            &v_record,
-            &CoreValue::from("diagnostic_recorded"),
-            CoreValue::Bool(false),
-        );
-        v_not_recorded = core_not(&[v_recorded.clone()])?;
-        v_needed = core_and(&[v_running.clone(), v_not_recorded.clone()])?;
-        if core_truthy(&v_needed) {
-            v_call = core_get(&v_record, &CoreValue::from("call"), CoreValue::Null);
-            v_message = CoreValue::from("Run closed before the started tool settled; its external effects may still complete");
-            core_axgen_record_function_call(&[
-                v_gen.clone(),
-                v_call.clone(),
-                v_message.clone(),
-                CoreValue::from("unresolved"),
-            ])?;
-            core_set(
-                &v_record,
-                CoreValue::from("diagnostic_recorded"),
-                CoreValue::Bool(true),
-            )?;
-            core_set(&v_pending, v_id.clone(), v_record.clone())?;
+        v_is_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
+        v_execution = core_get(&v_record, &CoreValue::from("execution"), CoreValue::Null);
+        v_is_blocking = core_eq(&[v_execution.clone(), CoreValue::from("blocking")])?;
+        v_running_barrier = core_and(&[v_is_running.clone(), v_is_blocking.clone()])?;
+        v_blocking = core_or(&[v_blocking.clone(), v_running_barrier.clone()])?;
+        v_running = core_or(&[v_running.clone(), v_is_running.clone()])?;
+        v_ready = core_eq(&[v_status.clone(), CoreValue::from("ready")])?;
+        if core_truthy(&v_ready) {
+            v_result = core_get(&v_record, &CoreValue::from("result"), CoreValue::Null);
+            core_append(&v_results, v_result.clone())?;
         }
     }
-    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
-    return Ok(CoreValue::Null);
+    if core_truthy(&v_blocking) {
+        return Ok(v_action.clone());
+    }
+    v_has_results = core_truthy_value(&[v_results.clone()])?;
+    if core_truthy(&v_has_results) {
+        core_set(
+            &v_action,
+            CoreValue::from("type"),
+            CoreValue::from("submit"),
+        )?;
+        core_set(&v_action, CoreValue::from("results"), v_results.clone())?;
+        return Ok(v_action.clone());
+    }
+    if core_truthy(&v_running) {
+        return Ok(v_action.clone());
+    }
+    v_needs_continuation = core_get(
+        &v_state,
+        &CoreValue::from("needs_continuation"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_needs_continuation) {
+        core_set(
+            &v_action,
+            CoreValue::from("type"),
+            CoreValue::from("continue"),
+        )?;
+    } else {
+        core_set(
+            &v_action,
+            CoreValue::from("type"),
+            CoreValue::from("validate"),
+        )?;
+    }
+    return Ok(v_action.clone());
 }
 
 #[allow(
@@ -80246,22 +80375,6 @@ fn _parse_json_string_for_field(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn chat_session_close_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_close_state");
-    let mut v_state = core_arg(args, 0);
-    let mut v_unresolved = CoreValue::Null;
-    core_set(&v_state, CoreValue::from("terminal"), CoreValue::Bool(true))?;
-    v_unresolved = chat_session_unresolved(&[v_state.clone()])?;
-    return Ok(v_unresolved.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _date_js_trim_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_js_trim_impl");
     let mut v_text = core_arg(args, 0);
@@ -80284,222 +80397,6 @@ fn _date_js_trim_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_slice_to = _date_native_offset_impl(&[v_units.clone(), v_end.clone(), v_mode.clone()])?;
     v_trimmed = core_string_slice(&[v_text.clone(), v_slice_from.clone(), v_slice_to.clone()])?;
     return Ok(v_trimmed.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_transition");
-    let mut v_state = core_arg(args, 0);
-    let mut v_event = core_arg(args, 1);
-    let mut v_action = CoreValue::Null;
-    let mut v_action_type = CoreValue::Null;
-    let mut v_applied = CoreValue::Null;
-    let mut v_call = CoreValue::Null;
-    let mut v_change = CoreValue::Null;
-    let mut v_changed = CoreValue::Null;
-    let mut v_closed = CoreValue::Null;
-    let mut v_execution = CoreValue::Null;
-    let mut v_exists = CoreValue::Null;
-    let mut v_final_call = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_item = CoreValue::Null;
-    let mut v_kind = CoreValue::Null;
-    let mut v_native_queued = CoreValue::Null;
-    let mut v_next_version = CoreValue::Null;
-    let mut v_not_ready = CoreValue::Null;
-    let mut v_queued = CoreValue::Null;
-    let mut v_ready = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_response = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_steer = CoreValue::Null;
-    let mut v_steering = CoreValue::Null;
-    let mut v_submitted = CoreValue::Null;
-    let mut v_tool_call = CoreValue::Null;
-    let mut v_type = CoreValue::Null;
-    let mut v_update = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    let mut v_validated = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    let mut v_version = CoreValue::Null;
-    v_type = core_get(&v_event, &CoreValue::from("type"), CoreValue::Null);
-    v_call = core_eq(&[v_type.clone(), CoreValue::from("tool.validated")])?;
-    v_result = core_eq(&[v_type.clone(), CoreValue::from("tool.result")])?;
-    v_response = core_eq(&[v_type.clone(), CoreValue::from("response.completed")])?;
-    v_update = core_eq(&[v_type.clone(), CoreValue::from("update.queued")])?;
-    v_submitted = core_eq(&[v_type.clone(), CoreValue::from("results.submitted")])?;
-    v_closed = core_eq(&[v_type.clone(), CoreValue::from("closed")])?;
-    v_validated = core_eq(&[v_type.clone(), CoreValue::from("validated")])?;
-    v_applied = core_eq(&[v_type.clone(), CoreValue::from("update.applied")])?;
-    v_changed = CoreValue::Bool(false);
-    v_native_queued = core_eq(&[v_type.clone(), CoreValue::from("native.queued")])?;
-    if core_truthy(&v_native_queued) {
-        v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
-        v_changed = chat_session_native_update(&[v_state.clone(), v_id.clone()])?;
-        v_action = chat_session_boundary_action(&[v_state.clone()])?;
-        core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
-        return Ok(v_action.clone());
-    }
-    v_steering = core_eq(&[v_type.clone(), CoreValue::from("steering")])?;
-    if core_truthy(&v_steering) {
-        v_change = chat_session_native_event(&[v_state.clone(), v_event.clone()])?;
-        v_action = chat_session_boundary_action(&[v_state.clone()])?;
-        v_action = core_map_merge(&[v_action.clone(), v_change.clone()])?;
-        return Ok(v_action.clone());
-    }
-    v_final_call = core_eq(&[v_type.clone(), CoreValue::from("tool.final")])?;
-    if core_truthy(&v_final_call) {
-        v_tool_call = core_get(&v_event, &CoreValue::from("call"), CoreValue::Null);
-        v_changed = chat_session_defer_final_call(&[v_state.clone(), v_tool_call.clone()])?;
-        v_action = chat_session_boundary_action(&[v_state.clone()])?;
-        core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
-        return Ok(v_action.clone());
-    }
-    if core_truthy(&v_call) {
-        v_tool_call = core_get(&v_event, &CoreValue::from("call"), CoreValue::Null);
-        v_execution = core_get(
-            &v_event,
-            &CoreValue::from("execution"),
-            CoreValue::from("blocking"),
-        );
-        v_changed = chat_session_register_call(&[
-            v_state.clone(),
-            v_tool_call.clone(),
-            v_execution.clone(),
-        ])?;
-    } else {
-        if core_truthy(&v_result) {
-            v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
-            v_value = core_get(&v_event, &CoreValue::from("result"), CoreValue::Null);
-            v_changed =
-                chat_session_complete_call(&[v_state.clone(), v_id.clone(), v_value.clone()])?;
-        } else {
-            if core_truthy(&v_response) {
-                v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
-                v_changed = chat_session_complete_response(&[v_state.clone(), v_id.clone()])?;
-            } else {
-                if core_truthy(&v_update) {
-                    v_item = core_get(&v_event, &CoreValue::from("update"), CoreValue::Null);
-                    v_changed = chat_session_queue_update(&[v_state.clone(), v_item.clone()])?;
-                } else {
-                    if core_truthy(&v_submitted) {
-                        v_ids = core_get(&v_event, &CoreValue::from("ids"), CoreValue::Null);
-                        chat_session_mark_submitted(&[v_state.clone(), v_ids.clone()])?;
-                        v_changed = CoreValue::Bool(true);
-                    } else {
-                        if core_truthy(&v_closed) {
-                            chat_session_close_state(&[v_state.clone()])?;
-                            v_changed = CoreValue::Bool(true);
-                        } else {
-                            if core_truthy(&v_validated) {
-                                v_action = chat_session_boundary_action(&[v_state.clone()])?;
-                                v_action_type =
-                                    core_get(&v_action, &CoreValue::from("type"), CoreValue::Null);
-                                v_ready =
-                                    core_eq(&[v_action_type.clone(), CoreValue::from("validate")])?;
-                                v_not_ready = core_not(&[v_ready.clone()])?;
-                                if core_truthy(&v_not_ready) {
-                                    return Err(AxError::runtime(
-                                        "Cannot finalize while model or tool work is unresolved",
-                                    ));
-                                }
-                                core_set(
-                                    &v_state,
-                                    CoreValue::from("terminal"),
-                                    CoreValue::Bool(true),
-                                )?;
-                                v_changed = CoreValue::Bool(true);
-                            } else {
-                                if core_truthy(&v_applied) {
-                                    v_id =
-                                        core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
-                                    v_updates = core_get(
-                                        &v_state,
-                                        &CoreValue::from("updates"),
-                                        CoreValue::Null,
-                                    );
-                                    v_exists =
-                                        core_map_contains(&[v_updates.clone(), v_id.clone()])?;
-                                    if core_truthy(&v_exists) {
-                                        v_record =
-                                            core_get(&v_updates, &v_id.clone(), CoreValue::Null);
-                                        v_status = core_get(
-                                            &v_record,
-                                            &CoreValue::from("status"),
-                                            CoreValue::Null,
-                                        );
-                                        v_queued = core_eq(&[
-                                            v_status.clone(),
-                                            CoreValue::from("queued"),
-                                        ])?;
-                                        if core_truthy(&v_queued) {
-                                            core_set(
-                                                &v_record,
-                                                CoreValue::from("status"),
-                                                CoreValue::from("applied"),
-                                            )?;
-                                            core_set(&v_updates, v_id.clone(), v_record.clone())?;
-                                            core_set(
-                                                &v_state,
-                                                CoreValue::from("updates"),
-                                                v_updates.clone(),
-                                            )?;
-                                            v_item = core_get(
-                                                &v_record,
-                                                &CoreValue::from("update"),
-                                                CoreValue::Null,
-                                            );
-                                            v_kind = core_get(
-                                                &v_item,
-                                                &CoreValue::from("type"),
-                                                CoreValue::Null,
-                                            );
-                                            v_steer = core_eq(&[
-                                                v_kind.clone(),
-                                                CoreValue::from("steer"),
-                                            ])?;
-                                            if core_truthy(&v_steer) {
-                                                v_version = core_get(
-                                                    &v_state,
-                                                    &CoreValue::from("version"),
-                                                    CoreValue::Num(0f64),
-                                                );
-                                                v_next_version = core_add(&[
-                                                    v_version.clone(),
-                                                    CoreValue::Num(1f64),
-                                                ])?;
-                                                core_set(
-                                                    &v_state,
-                                                    CoreValue::from("version"),
-                                                    v_next_version.clone(),
-                                                )?;
-                                            }
-                                            v_changed = CoreValue::Bool(true);
-                                        }
-                                    }
-                                } else {
-                                    return Err(AxError::runtime(
-                                        "Unknown chat session transition",
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    v_action = chat_session_boundary_action(&[v_state.clone()])?;
-    core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
-    return Ok(v_action.clone());
 }
 
 #[allow(
@@ -80938,6 +80835,45 @@ fn _date_trim_bounds_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn chat_session_mark_submitted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_mark_submitted");
+    let mut v_state = core_arg(args, 0);
+    let mut v_ids = core_arg(args, 1);
+    let mut v_id = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    for v_id in core_iter(&v_ids)? {
+        let mut v_id = v_id;
+        v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
+        core_set(
+            &v_record,
+            CoreValue::from("status"),
+            CoreValue::from("sent"),
+        )?;
+        core_set(&v_pending, v_id.clone(), v_record.clone())?;
+    }
+    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("boundary"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("needs_continuation"),
+        CoreValue::Bool(false),
+    )?;
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _regex_member(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_member");
     let mut v_n = core_arg(args, 0);
@@ -81189,6 +81125,68 @@ fn _date_skip_space_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn chat_session_queue_update(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_queue_update");
+    let mut v_state = core_arg(args, 0);
+    let mut v_update = core_arg(args, 1);
+    let mut v_exists = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_path = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_target = CoreValue::Null;
+    let mut v_terminal = CoreValue::Null;
+    let mut v_unmatched = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    v_terminal = core_get(
+        &v_state,
+        &CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_terminal) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_target = core_get(
+        &v_update,
+        &CoreValue::from("target"),
+        CoreValue::from("root"),
+    );
+    v_path = core_get(&v_state, &CoreValue::from("path"), CoreValue::Null);
+    v_matches = chat_session_target_matches(&[v_target.clone(), v_path.clone()])?;
+    v_unmatched = core_not(&[v_matches.clone()])?;
+    if core_truthy(&v_unmatched) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_id = core_get(&v_update, &CoreValue::from("id"), CoreValue::Null);
+    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
+    v_exists = core_map_contains(&[v_updates.clone(), v_id.clone()])?;
+    if core_truthy(&v_exists) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_record = CoreValue::new_map();
+    core_set(&v_record, CoreValue::from("update"), v_update.clone())?;
+    core_set(
+        &v_record,
+        CoreValue::from("status"),
+        CoreValue::from("queued"),
+    )?;
+    core_set(&v_updates, v_id.clone(), v_record.clone())?;
+    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("needs_continuation"),
+        CoreValue::Bool(true),
+    )?;
+    return Ok(CoreValue::Bool(true));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _parse_json_string_for_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_parse_json_string_for_fields");
     let mut v_fields_map = core_arg(args, 0);
@@ -81274,6 +81272,63 @@ fn _date_space_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_blank = core_or(&[v_blank.clone(), v_ideographic.clone()])?;
     v_blank = core_or(&[v_blank.clone(), v_byte_order.clone()])?;
     return Ok(v_blank.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_record_unresolved(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_record_unresolved");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_call = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_needed = CoreValue::Null;
+    let mut v_not_recorded = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_recorded = CoreValue::Null;
+    let mut v_running = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    v_ids = core_map_keys(&[v_pending.clone()])?;
+    for v_id in core_iter(&v_ids)? {
+        let mut v_id = v_id;
+        v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
+        v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
+        v_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
+        v_recorded = core_get(
+            &v_record,
+            &CoreValue::from("diagnostic_recorded"),
+            CoreValue::Bool(false),
+        );
+        v_not_recorded = core_not(&[v_recorded.clone()])?;
+        v_needed = core_and(&[v_running.clone(), v_not_recorded.clone()])?;
+        if core_truthy(&v_needed) {
+            v_call = core_get(&v_record, &CoreValue::from("call"), CoreValue::Null);
+            v_message = CoreValue::from("Run closed before the started tool settled; its external effects may still complete");
+            core_axgen_record_function_call(&[
+                v_gen.clone(),
+                v_call.clone(),
+                v_message.clone(),
+                CoreValue::from("unresolved"),
+            ])?;
+            core_set(
+                &v_record,
+                CoreValue::from("diagnostic_recorded"),
+                CoreValue::Bool(true),
+            )?;
+            core_set(&v_pending, v_id.clone(), v_record.clone())?;
+        }
+    }
+    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -81443,6 +81498,22 @@ fn _stream_text_state_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn chat_session_close_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_close_state");
+    let mut v_state = core_arg(args, 0);
+    let mut v_unresolved = CoreValue::Null;
+    core_set(&v_state, CoreValue::from("terminal"), CoreValue::Bool(true))?;
+    v_unresolved = chat_session_unresolved(&[v_state.clone()])?;
+    return Ok(v_unresolved.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _date_is_line_terminator_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_is_line_terminator_impl");
     let mut v_unit = core_arg(args, 0);
@@ -81518,6 +81589,222 @@ fn _stream_text_note_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
         )?;
     }
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_transition");
+    let mut v_state = core_arg(args, 0);
+    let mut v_event = core_arg(args, 1);
+    let mut v_action = CoreValue::Null;
+    let mut v_action_type = CoreValue::Null;
+    let mut v_applied = CoreValue::Null;
+    let mut v_call = CoreValue::Null;
+    let mut v_change = CoreValue::Null;
+    let mut v_changed = CoreValue::Null;
+    let mut v_closed = CoreValue::Null;
+    let mut v_execution = CoreValue::Null;
+    let mut v_exists = CoreValue::Null;
+    let mut v_final_call = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_native_queued = CoreValue::Null;
+    let mut v_next_version = CoreValue::Null;
+    let mut v_not_ready = CoreValue::Null;
+    let mut v_queued = CoreValue::Null;
+    let mut v_ready = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_response = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_steer = CoreValue::Null;
+    let mut v_steering = CoreValue::Null;
+    let mut v_submitted = CoreValue::Null;
+    let mut v_tool_call = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_update = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    let mut v_validated = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    v_type = core_get(&v_event, &CoreValue::from("type"), CoreValue::Null);
+    v_call = core_eq(&[v_type.clone(), CoreValue::from("tool.validated")])?;
+    v_result = core_eq(&[v_type.clone(), CoreValue::from("tool.result")])?;
+    v_response = core_eq(&[v_type.clone(), CoreValue::from("response.completed")])?;
+    v_update = core_eq(&[v_type.clone(), CoreValue::from("update.queued")])?;
+    v_submitted = core_eq(&[v_type.clone(), CoreValue::from("results.submitted")])?;
+    v_closed = core_eq(&[v_type.clone(), CoreValue::from("closed")])?;
+    v_validated = core_eq(&[v_type.clone(), CoreValue::from("validated")])?;
+    v_applied = core_eq(&[v_type.clone(), CoreValue::from("update.applied")])?;
+    v_changed = CoreValue::Bool(false);
+    v_native_queued = core_eq(&[v_type.clone(), CoreValue::from("native.queued")])?;
+    if core_truthy(&v_native_queued) {
+        v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
+        v_changed = chat_session_native_update(&[v_state.clone(), v_id.clone()])?;
+        v_action = chat_session_boundary_action(&[v_state.clone()])?;
+        core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
+        return Ok(v_action.clone());
+    }
+    v_steering = core_eq(&[v_type.clone(), CoreValue::from("steering")])?;
+    if core_truthy(&v_steering) {
+        v_change = chat_session_native_event(&[v_state.clone(), v_event.clone()])?;
+        v_action = chat_session_boundary_action(&[v_state.clone()])?;
+        v_action = core_map_merge(&[v_action.clone(), v_change.clone()])?;
+        return Ok(v_action.clone());
+    }
+    v_final_call = core_eq(&[v_type.clone(), CoreValue::from("tool.final")])?;
+    if core_truthy(&v_final_call) {
+        v_tool_call = core_get(&v_event, &CoreValue::from("call"), CoreValue::Null);
+        v_changed = chat_session_defer_final_call(&[v_state.clone(), v_tool_call.clone()])?;
+        v_action = chat_session_boundary_action(&[v_state.clone()])?;
+        core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
+        return Ok(v_action.clone());
+    }
+    if core_truthy(&v_call) {
+        v_tool_call = core_get(&v_event, &CoreValue::from("call"), CoreValue::Null);
+        v_execution = core_get(
+            &v_event,
+            &CoreValue::from("execution"),
+            CoreValue::from("blocking"),
+        );
+        v_changed = chat_session_register_call(&[
+            v_state.clone(),
+            v_tool_call.clone(),
+            v_execution.clone(),
+        ])?;
+    } else {
+        if core_truthy(&v_result) {
+            v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
+            v_value = core_get(&v_event, &CoreValue::from("result"), CoreValue::Null);
+            v_changed =
+                chat_session_complete_call(&[v_state.clone(), v_id.clone(), v_value.clone()])?;
+        } else {
+            if core_truthy(&v_response) {
+                v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
+                v_changed = chat_session_complete_response(&[v_state.clone(), v_id.clone()])?;
+            } else {
+                if core_truthy(&v_update) {
+                    v_item = core_get(&v_event, &CoreValue::from("update"), CoreValue::Null);
+                    v_changed = chat_session_queue_update(&[v_state.clone(), v_item.clone()])?;
+                } else {
+                    if core_truthy(&v_submitted) {
+                        v_ids = core_get(&v_event, &CoreValue::from("ids"), CoreValue::Null);
+                        chat_session_mark_submitted(&[v_state.clone(), v_ids.clone()])?;
+                        v_changed = CoreValue::Bool(true);
+                    } else {
+                        if core_truthy(&v_closed) {
+                            chat_session_close_state(&[v_state.clone()])?;
+                            v_changed = CoreValue::Bool(true);
+                        } else {
+                            if core_truthy(&v_validated) {
+                                v_action = chat_session_boundary_action(&[v_state.clone()])?;
+                                v_action_type =
+                                    core_get(&v_action, &CoreValue::from("type"), CoreValue::Null);
+                                v_ready =
+                                    core_eq(&[v_action_type.clone(), CoreValue::from("validate")])?;
+                                v_not_ready = core_not(&[v_ready.clone()])?;
+                                if core_truthy(&v_not_ready) {
+                                    return Err(AxError::runtime(
+                                        "Cannot finalize while model or tool work is unresolved",
+                                    ));
+                                }
+                                core_set(
+                                    &v_state,
+                                    CoreValue::from("terminal"),
+                                    CoreValue::Bool(true),
+                                )?;
+                                v_changed = CoreValue::Bool(true);
+                            } else {
+                                if core_truthy(&v_applied) {
+                                    v_id =
+                                        core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
+                                    v_updates = core_get(
+                                        &v_state,
+                                        &CoreValue::from("updates"),
+                                        CoreValue::Null,
+                                    );
+                                    v_exists =
+                                        core_map_contains(&[v_updates.clone(), v_id.clone()])?;
+                                    if core_truthy(&v_exists) {
+                                        v_record =
+                                            core_get(&v_updates, &v_id.clone(), CoreValue::Null);
+                                        v_status = core_get(
+                                            &v_record,
+                                            &CoreValue::from("status"),
+                                            CoreValue::Null,
+                                        );
+                                        v_queued = core_eq(&[
+                                            v_status.clone(),
+                                            CoreValue::from("queued"),
+                                        ])?;
+                                        if core_truthy(&v_queued) {
+                                            core_set(
+                                                &v_record,
+                                                CoreValue::from("status"),
+                                                CoreValue::from("applied"),
+                                            )?;
+                                            core_set(&v_updates, v_id.clone(), v_record.clone())?;
+                                            core_set(
+                                                &v_state,
+                                                CoreValue::from("updates"),
+                                                v_updates.clone(),
+                                            )?;
+                                            v_item = core_get(
+                                                &v_record,
+                                                &CoreValue::from("update"),
+                                                CoreValue::Null,
+                                            );
+                                            v_kind = core_get(
+                                                &v_item,
+                                                &CoreValue::from("type"),
+                                                CoreValue::Null,
+                                            );
+                                            v_steer = core_eq(&[
+                                                v_kind.clone(),
+                                                CoreValue::from("steer"),
+                                            ])?;
+                                            if core_truthy(&v_steer) {
+                                                v_version = core_get(
+                                                    &v_state,
+                                                    &CoreValue::from("version"),
+                                                    CoreValue::Num(0f64),
+                                                );
+                                                v_next_version = core_add(&[
+                                                    v_version.clone(),
+                                                    CoreValue::Num(1f64),
+                                                ])?;
+                                                core_set(
+                                                    &v_state,
+                                                    CoreValue::from("version"),
+                                                    v_next_version.clone(),
+                                                )?;
+                                            }
+                                            v_changed = CoreValue::Bool(true);
+                                        }
+                                    }
+                                } else {
+                                    return Err(AxError::runtime(
+                                        "Unknown chat session transition",
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    v_action = chat_session_boundary_action(&[v_state.clone()])?;
+    core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
+    return Ok(v_action.clone());
 }
 
 #[allow(
@@ -82432,6 +82719,35 @@ fn _regex_push(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn chat_session_tool_argument_errors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_tool_argument_errors");
+    let mut v_schema = core_arg(args, 0);
+    let mut v_arguments = core_arg(args, 1);
+    let mut v_empty = CoreValue::Null;
+    let mut v_errors = CoreValue::Null;
+    let mut v_no_schema = CoreValue::Null;
+    v_empty = CoreValue::new_list();
+    v_no_schema = core_is_none(&[v_schema.clone()])?;
+    if core_truthy(&v_no_schema) {
+        return Ok(v_empty.clone());
+    }
+    v_errors = _chat_session_argument_errors(&[
+        v_schema.clone(),
+        v_schema.clone(),
+        v_arguments.clone(),
+        CoreValue::from(""),
+        CoreValue::Num(0f64),
+    ])?;
+    return Ok(v_errors.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _date_scan_date_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_scan_date_impl");
     let mut v_units = core_arg(args, 0);
@@ -82551,6 +82867,131 @@ fn _completion_call_to_chat_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
     core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_tool_argument_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_tool_argument_error");
+    let mut v_name = core_arg(args, 0);
+    let mut v_schema = core_arg(args, 1);
+    let mut v_arguments = core_arg(args, 2);
+    let mut v_bullet = CoreValue::Null;
+    let mut v_bullets = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_enum_count = CoreValue::Null;
+    let mut v_enum_joined = CoreValue::Null;
+    let mut v_enum_list = CoreValue::Null;
+    let mut v_enum_null = CoreValue::Null;
+    let mut v_enum_text = CoreValue::Null;
+    let mut v_enum_texts = CoreValue::Null;
+    let mut v_enum_value = CoreValue::Null;
+    let mut v_enum_values = CoreValue::Null;
+    let mut v_errors = CoreValue::Null;
+    let mut v_failure = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_has_enum = CoreValue::Null;
+    let mut v_joined = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_nothing = CoreValue::Null;
+    let mut v_properties = CoreValue::Null;
+    let mut v_properties_map = CoreValue::Null;
+    let mut v_property = CoreValue::Null;
+    let mut v_property_description = CoreValue::Null;
+    let mut v_property_map = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_errors = chat_session_tool_argument_errors(&[v_schema.clone(), v_arguments.clone()])?;
+    v_count = core_len(&[v_errors.clone()])?;
+    v_valid = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_valid) {
+        v_nothing = core_none(&[])?;
+        return Ok(v_nothing.clone());
+    }
+    v_empty = CoreValue::new_map();
+    v_properties = core_get(&v_schema, &CoreValue::from("properties"), v_empty.clone());
+    v_properties_map = core_type_is(&v_properties, CoreValue::from("object"));
+    if core_truthy(&v_properties_map) {
+    } else {
+        v_properties = v_empty.clone();
+    }
+    v_bullets = CoreValue::new_list();
+    for v_failure in core_iter(&v_errors)? {
+        let mut v_failure = v_failure;
+        v_field = core_get(
+            &v_failure,
+            &CoreValue::from("field"),
+            CoreValue::from("arguments"),
+        );
+        v_message = core_get(&v_failure, &CoreValue::from("message"), CoreValue::from(""));
+        v_description = CoreValue::from("");
+        v_property = core_get(&v_properties, &v_field.clone(), CoreValue::Null);
+        v_property_map = core_type_is(&v_property, CoreValue::from("object"));
+        if core_truthy(&v_property_map) {
+            v_has_description =
+                core_map_contains(&[v_property.clone(), CoreValue::from("description")])?;
+            v_property_description = core_get(
+                &v_property,
+                &CoreValue::from("description"),
+                CoreValue::from(""),
+            );
+            v_description = core_string_str(&[v_property_description.clone()])?;
+            v_enum_values = core_get(&v_property, &CoreValue::from("enum"), CoreValue::Null);
+            v_enum_list = core_type_is(&v_enum_values, CoreValue::from("list"));
+            if core_truthy(&v_enum_list) {
+                v_enum_count = core_len(&[v_enum_values.clone()])?;
+                v_has_enum = core_gt(&[v_enum_count.clone(), CoreValue::Num(0f64)])?;
+                if core_truthy(&v_has_enum) {
+                    if core_truthy(&v_has_description) {
+                    } else {
+                        v_description = CoreValue::from("undefined");
+                    }
+                    v_enum_texts = CoreValue::new_list();
+                    for v_enum_value in core_iter(&v_enum_values)? {
+                        let mut v_enum_value = v_enum_value;
+                        v_enum_null = core_is_none(&[v_enum_value.clone()])?;
+                        v_enum_text = CoreValue::from("");
+                        if core_truthy(&v_enum_null) {
+                        } else {
+                            v_enum_text = core_string_str(&[v_enum_value.clone()])?;
+                        }
+                        core_append(&v_enum_texts, v_enum_text.clone())?;
+                    }
+                    v_enum_joined =
+                        core_string_join_intrinsic(&[CoreValue::from(", "), v_enum_texts.clone()])?;
+                    v_description = core_string_format(&[
+                        CoreValue::from("{} Allowed values are: {}"),
+                        v_description.clone(),
+                        v_enum_joined.clone(),
+                    ])?;
+                }
+            }
+        }
+        v_bullet = core_string_format(&[
+            CoreValue::from("- `{}` - {} ({})."),
+            v_field.clone(),
+            v_message.clone(),
+            v_description.clone(),
+        ])?;
+        core_append(&v_bullets, v_bullet.clone())?;
+    }
+    v_joined = core_string_join_intrinsic(&[CoreValue::from("\n"), v_bullets.clone()])?;
+    v_text = core_string_format(&[
+        CoreValue::from(
+            "Errors In Function Arguments: Fix the following invalid arguments to '{}'\n{}",
+        ),
+        v_name.clone(),
+        v_joined.clone(),
+    ])?;
+    return Ok(v_text.clone());
 }
 
 #[allow(
@@ -129495,7 +129936,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (963 of 963 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (966 of 966 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
@@ -129562,6 +130003,13 @@ fn run_ai_session_state_fixture(fixture: &Value) -> AxResult<()> {
                 &json!(valid),
                 &case["valid"],
             )?;
+            if let Some(expected) = case.get("errors") {
+                let errors = core_value_to_json(&chat_session_tool_argument_errors(&[
+                    core_value_from_json(&case["schema"]),
+                    core_value_from_json(&case["arguments"]),
+                ])?);
+                expect_json_equal(&format!("raw argument errors: {case}"), &errors, expected)?;
+            }
         }
     }
     let state = chat_session_create_state(&[

@@ -36,6 +36,7 @@ import {
   axAIGrokDefaultConfig,
   axAIGrokVoiceDefaultConfig,
 } from '../../../src/ax/ai/x-grok/api.js';
+import { AxFunctionError } from '../../../src/ax/dsp/functions.js';
 import { axValidateToolArguments } from '../../../src/ax/dsp/toolArguments.js';
 import {
   AxAIServiceAuthenticationError,
@@ -11380,6 +11381,44 @@ const argumentValidationCases: { schema: any; arguments: Json }[] = [
     },
     arguments: 3,
   },
+  // Field paths and type names in the errors.
+  {
+    schema: {
+      type: 'object',
+      properties: {
+        a: {
+          type: 'object',
+          required: ['b'],
+          properties: { b: { type: 'string' } },
+        },
+      },
+    },
+    arguments: { a: {} },
+  },
+  {
+    schema: {
+      type: 'object',
+      properties: {
+        a: { type: 'object', properties: { b: { type: 'string' } } },
+      },
+    },
+    arguments: { a: { b: 1 } },
+  },
+  { schema: { type: 'string' }, arguments: [1] },
+  { schema: { type: 'boolean' }, arguments: null },
+  { schema: { type: ['integer', 'string'] }, arguments: {} },
+  {
+    schema: { type: 'object', properties: { a: { enum: ['x'] } } },
+    arguments: { a: 'y' },
+  },
+  {
+    schema: {
+      type: 'object',
+      required: ['a', 'b'],
+      properties: { a: { type: 'string' }, b: { type: 'number' } },
+    },
+    arguments: { b: 'two' },
+  },
 ];
 writeFixture('session-raw-argument-validation', {
   kind: 'ai_session_state',
@@ -11391,12 +11430,14 @@ writeFixture('session-raw-argument-validation', {
   expected_steps: 0,
   validation_cases: argumentValidationCases.map((item) => {
     let valid = true;
+    let errors: { field: string; message: string }[] = [];
     try {
       axValidateToolArguments(item.schema, item.arguments);
-    } catch {
+    } catch (error) {
       valid = false;
+      if (error instanceof AxFunctionError) errors = error.getFields();
     }
-    return { ...item, valid };
+    return { ...item, valid, errors };
   }),
 });
 const ecmaSchemaPatterns: readonly string[] = [

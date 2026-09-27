@@ -474,11 +474,13 @@ func (p *genSessionClient) start(call Value) {
 	if text, ok := args.(string); ok {
 		args, validationErr = parseJSONErr(text)
 	}
+	// As TS's session does, a call whose arguments fail the tool's schema
+	// does not run: its result is TS's fixing instructions.
+	var fixing Value
 	if selected == nil {
 		validationErr = fmt.Errorf("function %q not found", name)
 	} else if validationErr == nil {
-		_, validationErr = validate_fields(toolFields(selected.Args), args, "tool."+name+".args")
-        if validationErr == nil { _, validationErr = chat_session_validate_required_arguments(selected.Schema(), args, "tool."+name+".args") }
+		fixing, validationErr = chat_session_tool_argument_error(name, selected.Schema(), args)
 	}
 	execution := "blocking"
 	if selected != nil && selected.ExecutionMode == "background" {
@@ -488,6 +490,10 @@ func (p *genSessionClient) start(call Value) {
 	if validationErr != nil {
 		message := mustCore(_tool_error_message_impl(call, validationErr))
 		mustCore(chat_session_record_result(p.gen, p.state, call, coreGet(message, "result", validationErr.Error()), false))
+		return
+	}
+	if fixing != nil {
+		mustCore(chat_session_record_result(p.gen, p.state, call, fixing, false))
 		return
 	}
 	p.blocking = execution == "blocking"

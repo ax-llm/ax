@@ -25,6 +25,7 @@ from .gen import (
     _stream_field_value_impl,
     ax,
     chat_session_create_state, chat_session_transition, chat_session_unresolved, chat_session_validate_required_arguments,
+    chat_session_tool_argument_errors,
     fold_stream,
     stream_extraction_route,
     stream_structured_delta,
@@ -113,6 +114,8 @@ class ConformanceScriptedAI(AxBaseAI):
         # What the run did to its sessions: open, steer, continue (with the
         # IDs of the tool results it submitted) and close.
         self.session_log = []
+        # The tool results the run submitted to its sessions, in order.
+        self.session_tool_results = []
         self.responses = list(responses or [])
         self.stream_events = list(stream_events or [])
         self.transcribe_responses = list(transcribe_responses or [])
@@ -154,7 +157,7 @@ class ConformanceScriptedAI(AxBaseAI):
         self._note_request()
         if not self.native_sessions:
             raise RuntimeError("scripted sessions exhausted")
-        return _ScriptedChatSession(self.session_log, self.native_sessions.pop(0))
+        return _ScriptedChatSession(self.session_log, self.native_sessions.pop(0), self.session_tool_results)
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.requests.append(copy.deepcopy(request))
@@ -208,9 +211,10 @@ class _ScriptedChatSession:
 
     model = "scripted-session"
 
-    def __init__(self, log, script):
+    def __init__(self, log, script, results=None):
         import queue
         self._log = log
+        self._results = results if results is not None else []
         self._script = list(script)
         self._events = queue.Queue()
         self._closed = False
@@ -235,6 +239,12 @@ class _ScriptedChatSession:
 
     def submit_tool_results(self, results):
         self._log.append({"op": "continue", "call_ids": [result.get("function_id") for result in results]})
+        for result in results:
+            self._results.append({
+                "call_id": result.get("function_id"),
+                "result": result.get("result"),
+                "is_error": bool(result.get("is_error")),
+            })
         self._play()
 
     def continue_response(self):
@@ -260,6 +270,8 @@ class _ScriptedChatSession:
 def _assert_session_log(fixture, client):
     if "expected_session_log" in fixture:
         _assert_equal(client.session_log, fixture["expected_session_log"], "native session log")
+    if "expected_session_tool_results" in fixture:
+        _assert_equal(client.session_tool_results, fixture["expected_session_tool_results"], "native session tool results")
 
 
 def _assert_speak_requests(fixture, client):
@@ -4418,6 +4430,8 @@ def _run_ai_session_state(fixture):
         except Exception:
             valid = False
         _assert_equal(valid, case["valid"], "raw argument validation: " + json.dumps(case))
+        if "errors" in case:
+            _assert_equal(chat_session_tool_argument_errors(case["schema"], case["arguments"]), case["errors"], "raw argument errors: " + json.dumps(case))
     state = chat_session_create_state(fixture["model"], fixture["path"], fixture["max_steps"])
     for case in fixture["cases"]:
         _assert_equal(chat_session_transition(state, case["event"]), case["expected_action"], "session transition")

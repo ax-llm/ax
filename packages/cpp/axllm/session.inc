@@ -196,8 +196,11 @@ class SessionRun final:public AIClient {
     Value tool,params=Core::get(Core::get(call,"function"),"params",Value::object());
     for(const auto& candidate:array_ref(Core::get(gen_,"functions",Value::array())))if(display(Core::get(candidate,"name"))==name){tool=candidate;break;}
     std::string execution=display(Core::get(tool,"execution","blocking"));
-    try{if(tool.is_null())throw AxError("validation","Function '"+name+"' not found");if(params.is_string())params=parse_json(display(params));Core::validate_fields(Core::get(tool,"args",Value::array()),params,"tool."+name+".args");Core::chat_session_validate_required_arguments(Core::get(tool,"parameters",Value::object()),params,"tool."+name+".args");}
+    try{if(tool.is_null())throw AxError("validation","Function '"+name+"' not found");if(params.is_string())params=parse_json(display(params));}
     catch(const std::exception& error){Core::chat_session_register_call(state_,call,"blocking");Core::chat_session_record_result(gen_,state_,call,Core::get(Core::_tool_error_message_impl(call,object({{"message",error.what()}})),"result",error.what()),false);return;}
+    // As TS's session does, a call whose arguments fail the tool's schema does
+    // not run: its result is TS's fixing instructions.
+    {Value fixing=Core::chat_session_tool_argument_error(name,Core::get(tool,"parameters",Value::object()),params);if(!fixing.is_null()){Core::chat_session_register_call(state_,call,"blocking");Core::chat_session_record_result(gen_,state_,call,fixing,false);return;}}
     Core::chat_session_register_call(state_,call,execution);blocking_=execution!="background";emit("tool.started",object({{"call_id",id}}));
     auto callbacks=registered_tool(display(Core::get(tool,"__tool_id")));auto handler=callbacks.first;auto contextual=callbacks.second;
     auto inherited=runtime_hook_frames;auto results=results_;params=parse_json(stringify(params));call=parse_json(stringify(call));Value returns=parse_json(stringify(Core::get(tool,"returns",Value::array())));

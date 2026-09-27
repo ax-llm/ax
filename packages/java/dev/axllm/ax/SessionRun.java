@@ -145,12 +145,14 @@ final class SessionRun implements AiClient,AutoCloseable {
       try {
         if(args instanceof String text) args=Json.parse(text);
         if(tool==null) throw new IllegalArgumentException("Function '"+name+"' not found");
-        Core.validate_fields(tool.args,args,"tool."+name+".args");
-        Core.chat_session_validate_required_arguments(tool.schema(),args,"tool."+name+".args");
       } catch(RuntimeException error) {
         Core.chat_session_register_call(state,call,"blocking");
         Core.chat_session_record_result(gen,state,call,Core.get(Core._tool_error_message_impl(call,error),"result",error.getMessage()),false);return;
       }
+      // As TS's session does, a call whose arguments fail the tool's schema
+      // does not run: its result is TS's fixing instructions.
+      Object fixing=Core.chat_session_tool_argument_error(name,tool.schema(),args);
+      if(fixing!=null){Core.chat_session_register_call(state,call,"blocking");Core.chat_session_record_result(gen,state,call,fixing,false);return;}
       Core.chat_session_register_call(state,call,execution);blocking=!"background".equals(execution);
       emit("tool.started",Map.of("call_id",id));
       final Map<String,Object> values=new LinkedHashMap<>(Core.asMap(args));
