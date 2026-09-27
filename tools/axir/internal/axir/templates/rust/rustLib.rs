@@ -3489,6 +3489,16 @@ fn realtime_event_is_done(event: &Value) -> bool {
     turn_complete && !in_progress
 }
 
+// A failed realtime connect repeats the URL, and a Gemini Live URL carries the
+// API key in its query (?key=), so the error masks the query.
+#[cfg_attr(not(feature = "realtime"), allow(dead_code))]
+fn redact_url_query(message: &str, url: &str) -> String {
+    match url.split_once('?') {
+        Some((_, query)) if !query.is_empty() => message.replace(&format!("?{query}"), "?***"),
+        _ => message.to_string(),
+    }
+}
+
 #[cfg(feature = "realtime")]
 pub struct WsRealtimeTransport {
     socket: tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>,
@@ -3512,7 +3522,9 @@ impl WsRealtimeTransport {
     }
     fn connect(url: &str, headers: Vec<(String, String)>) -> AxResult<Self> {
         use tungstenite::client::IntoClientRequest;
-        let mut request = url.into_client_request().map_err(|e| AxError::runtime(e.to_string()))?;
+        let mut request = url
+            .into_client_request()
+            .map_err(|e| AxError::runtime(redact_url_query(&e.to_string(), url)))?;
         for (key, value) in headers {
             let name = tungstenite::http::header::HeaderName::from_bytes(key.as_bytes())
                 .map_err(|e| AxError::runtime(e.to_string()))?;
@@ -3520,7 +3532,8 @@ impl WsRealtimeTransport {
                 .map_err(|e| AxError::runtime(e.to_string()))?;
             request.headers_mut().insert(name, val);
         }
-        let (socket, _) = tungstenite::connect(request).map_err(|e| AxError::runtime(e.to_string()))?;
+        let (socket, _) = tungstenite::connect(request)
+            .map_err(|e| AxError::runtime(redact_url_query(&e.to_string(), url)))?;
         Ok(Self { socket })
     }
 
