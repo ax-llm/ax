@@ -17884,6 +17884,7 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     // (and source()) in the next major version.
     if fixture.get("expected_error_contains").is_some() {
         expect_validation_result(result.map(|_| ()), fixture)?;
+        expect_fixture_request_roles(fixture, &client)?;
         if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
             if client.requests.len() != expected as usize {
                 return Err(AxError::new(

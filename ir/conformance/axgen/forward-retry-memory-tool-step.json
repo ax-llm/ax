@@ -1,0 +1,74 @@
+{
+  "expected_output": {
+    "answer": "Paris",
+    "city": "Paris"
+  },
+  "expected_request_count": 3,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "user"],
+    ["system", "user", "assistant", "function"]
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "a"
+      },
+      "name": "lookup"
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-retry-memory-tool-step",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: Lyon",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": "{\"key\":\"a\"}"
+              },
+              "id": "call_1",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: Paris\nCity: Paris",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, city:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

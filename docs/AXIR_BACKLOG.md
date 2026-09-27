@@ -18,6 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-27-drop-a-failed-non-streaming-axgen-attempt-and-its-correction-whe` [axgen] Drop a failed non-streaming AxGen attempt and its correction when the next answer arrives in the ports
+  - Status: open
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/dsp/response/nonStreaming.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TS forward removes the memory tagged correction and error when a new answer arrives (response/nonStreaming.ts, unless disableMemoryCleanup), and generate.ts tags the failed answer error, so every validation retry sends one failed attempt and its correction. The ports keep them all. Plain ax('question:string -> answer:string') with an assert that always fails and maxRetries 3, request roles: TS [[system,user],[system,user,assistant,user],[system,user,assistant,user],[system,user,assistant,user]]; Python port [[system,user],[system,user,assistant,user],[system,user,assistant,user,assistant,user],[system,user,assistant,user,assistant,user,assistant,user]]. TS streamingForward keeps them all, as the ports do. The agent goldens agent-forward-citations-exhausted and agent-forward-control-failed leave expected_request_roles out until this lands.
+  - Suggested AxIR work: Port TS's non-streaming memory cleanup of correction and error tagged messages; Add an AxGen forward golden with two or more validation retries that pins the request roles; Re-add expected_request_roles to agent-forward-citations-exhausted and agent-forward-control-failed
 - `axir-2026-09-27-match-typescript-s-structured-output-validation-messages-for-str` [axgen] Match TypeScript's structured-output validation messages for string and number constraints in the ports
   - Status: open
   - Source commit: `7a45c6024cb4b7a32526b81b86e447a57ea49ed1`

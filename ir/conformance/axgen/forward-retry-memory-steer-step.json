@@ -1,0 +1,68 @@
+{
+  "control": true,
+  "control_steer": {
+    "during_request": 2,
+    "text": "Answer in French."
+  },
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "queued"
+    },
+    {
+      "path": "root",
+      "type": "applied"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris",
+    "city": "Paris"
+  },
+  "expected_request_contains": ["Answer in French."],
+  "expected_request_count": 3,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "user"],
+    ["system", "user", "assistant", "user"]
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-retry-memory-steer-step",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: Lyon",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: Paris\nCity: Paris",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: Paris\nCity: Paris",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, city:string"
+}

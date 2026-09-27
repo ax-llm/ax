@@ -1305,6 +1305,7 @@ def _run_forward(fixture):
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
             _assert_error_cause(fixture, exc)
+            _assert_request_roles(fixture, client)
             if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
                 raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
             if "expected_tool_calls" in fixture:

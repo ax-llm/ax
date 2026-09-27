@@ -448,8 +448,8 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "axgen-indexed-multi-sample-parse"
-    type signature = "(AxGen, list<Field>, json, bool, string, string, bool, bool) -> json throws"
-    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool, %thought_field: string, %thought_prefix: string, %text_contract: bool, %strict_mode: bool) {
+    type signature = "(AxGen, list<Field>, json, bool, string, string, bool, bool, json) -> json throws"
+    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool, %thought_field: string, %thought_prefix: string, %text_contract: bool, %strict_mode: bool, %parse_state: json) {
       %empty_results = core.list
       %completions = core.get %response["results"] default %empty_results
       %completion_count = core.call intrinsic.len(%completions)
@@ -504,6 +504,9 @@ module @ax.gen version "0.1" {
             core.call @stream_text_required_check_impl(%validated, %output_fields)
           }
         }
+        // The answer's values parsed: TS's memory cleanup runs here, before
+        // the field processors and assertions (response/nonStreaming.ts).
+        core.set %parse_state["parsed"] = true
         // TS field processors see the parsed values and feed back text for
         // another step.
         %processor_state = core.map
@@ -697,6 +700,14 @@ module @ax.gen version "0.1" {
       %thought_prefix = core.let ""
       %max_steps_snake = core.get %runtime_options["max_steps"] default 25
       %max_steps = core.get %runtime_options["maxSteps"] default %max_steps_snake
+      // TS keeps a failed answer and its correction in memory until a later
+      // answer parses or calls tools, and then drops them
+      // (response/nonStreaming.ts): a retry after an assertion failure sends
+      // only the latest failed answer, while parse and validation failures
+      // pile up. %failed_messages holds the failed attempts since the last
+      // such answer; disableMemoryCleanup keeps them all, as in TS.
+      %failed_messages = core.list
+      %memory_cleanup = core.call @memory_cleanup_option_impl(%runtime_options)
       %step = core.let 0
       %control_step = core.let -1
       core.loop {
@@ -716,7 +727,8 @@ module @ax.gen version "0.1" {
           %control_updates = core.call intrinsic.ai.control_take_pending(%client)
           %messages = core.call @apply_control_updates_impl(%gen, %messages, %runtime_options, %control_updates)
         }
-        %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
+        %request_messages = core.call @settle_failed_attempts_impl(%messages, %failed_messages, false)
+        %request = core.call @build_gen_chat_request(%gen, %request_messages, %runtime_options, %selection, %step)
         %response = core.map
         core.try {
           %completed = core.call intrinsic.ai.complete_once(%client, %request, %runtime_options)
@@ -811,8 +823,10 @@ module @ax.gen version "0.1" {
               %structured_next_attempt = core.call intrinsic.add(%attempt, 1)
               %attempt = core.let %structured_next_attempt
               %thought_prefix = core.let ""
-              %structured_retry_messages = core.call @append_structured_output_retry_messages_impl(%messages, %response, %structured_call, %structured_validation_error, %structured_stage)
-              %messages = core.let %structured_retry_messages
+              // As in TS, a failed __axOutput call keeps the failed attempts
+              // before it.
+              %structured_retry_messages = core.call @append_structured_output_retry_messages_impl(%failed_messages, %response, %structured_call, %structured_validation_error, %structured_stage)
+              %failed_messages = core.let %structured_retry_messages
               core.call intrinsic.axgen.memory_add_correction(%gen, %response, %structured_validation_error)
               core.continue
             }
@@ -830,6 +844,11 @@ module @ax.gen version "0.1" {
             %structured_fatal = core.call @generate_failed_impl(%structured_failure)
             core.raise %structured_fatal
           }
+          // As in TS, an answer that calls tools drops the failed attempts
+          // before it.
+          %settled_for_tools = core.call @settle_failed_attempts_impl(%messages, %failed_messages, %memory_cleanup)
+          %messages = core.let %settled_for_tools
+          %failed_messages = core.list
           %updated_messages = core.call @append_tool_call_messages_impl(%messages, %response, %calls)
           %messages = core.let %updated_messages
           core.for %call in %calls {
@@ -872,8 +891,9 @@ module @ax.gen version "0.1" {
           }
         } else {
           %parsed_bundle = core.map
+          %parse_state = core.map
           core.try {
-            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract, %strict_mode)
+            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract, %strict_mode, %parse_state)
             %parsed_bundle = core.let %parsed
           } catch %validation_error {
             %retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
@@ -885,8 +905,17 @@ module @ax.gen version "0.1" {
             %next_attempt = core.call intrinsic.add(%attempt, 1)
             %attempt = core.let %next_attempt
             %thought_prefix = core.let ""
-            %retry_messages = core.call @append_assertion_retry_messages(%messages, %response, %validation_error)
-            %messages = core.let %retry_messages
+            // As in TS, an answer whose values parsed (its field processors
+            // or assertions failed) drops the failed attempts before it; a
+            // parse or validation failure keeps them.
+            %answer_parsed = core.get %parse_state["parsed"] default false
+            core.if %answer_parsed {
+              %settled_for_retry = core.call @settle_failed_attempts_impl(%messages, %failed_messages, %memory_cleanup)
+              %messages = core.let %settled_for_retry
+              %failed_messages = core.list
+            }
+            %retry_messages = core.call @append_assertion_retry_messages(%failed_messages, %response, %validation_error)
+            %failed_messages = core.let %retry_messages
             core.call intrinsic.axgen.memory_add_correction(%gen, %response, %validation_error)
             core.continue
           }
@@ -911,7 +940,11 @@ module @ax.gen version "0.1" {
           core.if %fed_back {
             // As in TS, field processor feedback goes to the model after its
             // answer and the run takes another step; the answer is replaced
-            // and the thought joins across steps.
+            // and the thought joins across steps. The failed attempts before
+            // the answer are dropped.
+            %settled_for_feedback = core.call @settle_failed_attempts_impl(%messages, %failed_messages, %memory_cleanup)
+            %messages = core.let %settled_for_feedback
+            %failed_messages = core.list
             %answer_content = core.get %response["content"] default ""
             %answer_message = core.map
             core.set %answer_message["role"] = "assistant"
@@ -940,6 +973,9 @@ module @ax.gen version "0.1" {
           %control_pending = core.call intrinsic.ai.control_pending_count(%client)
           %steered = core.call intrinsic.gt(%control_pending, 0)
           core.if %steered {
+            %settled_for_steer = core.call @settle_failed_attempts_impl(%messages, %failed_messages, %memory_cleanup)
+            %messages = core.let %settled_for_steer
+            %failed_messages = core.list
             %steered_content = core.get %response["content"] default ""
             %steered_message = core.map
             core.set %steered_message["role"] = "assistant"
@@ -3013,6 +3049,59 @@ module @ax.gen version "0.1" {
         core.call intrinsic.axgen.deprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")
       }
       core.return
+    }
+  }
+
+  op ax.gen.semantic @memory_cleanup_option_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/nonStreaming.ts"
+    type signature = "(json) -> bool"
+    body @entry(%options: json) {
+      // TS's disableMemoryCleanup keeps every failed attempt and its
+      // correction.
+      %disabled_snake = core.get %options["disable_memory_cleanup"] default false
+      %disabled_value = core.get %options["disableMemoryCleanup"] default %disabled_snake
+      %disabled = core.call intrinsic.truthy(%disabled_value)
+      %cleanup = core.call intrinsic.not(%disabled)
+      core.return %cleanup
+    }
+  }
+
+  op ax.gen.semantic @settle_failed_attempts_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/nonStreaming.ts"
+    type signature = "(list<json>, list<json>, bool) -> list<json>"
+    body @entry(%messages: list<json>, %failed: list<json>, %cleanup: bool) {
+      // The messages followed by the failed attempts. With cleanup, the
+      // messages TS tags and drops are left out: a failed answer and every
+      // correction ('error' and 'correction'). A failed __axOutput call's
+      // assistant turn and its "done" result carry no tag, so they stay.
+      %failed_count = core.call intrinsic.len(%failed)
+      %none_failed = core.call intrinsic.eq(%failed_count, 0)
+      core.if %none_failed {
+        core.return %messages
+      }
+      %settled = core.list
+      core.for %message in %messages {
+        core.append %settled, %message
+      }
+      core.for %failed_message in %failed {
+        %keep = core.call intrinsic.not(%cleanup)
+        %role = core.get %failed_message["role"] default ""
+        %is_result = core.call intrinsic.eq(%role, "function")
+        %keep = core.call intrinsic.or(%keep, %is_result)
+        %calls = core.get %failed_message["function_calls"]
+        %has_calls = core.call intrinsic.truthy(%calls)
+        %keep = core.call intrinsic.or(%keep, %has_calls)
+        core.if %keep {
+          core.append %settled, %failed_message
+        }
+      }
+      core.return %settled
     }
   }
 }
