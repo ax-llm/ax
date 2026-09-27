@@ -10,7 +10,7 @@
 import json
 import os
 
-from axllm import GoogleGeminiClient, agent
+from axllm import GoogleGeminiClient, agent, f, fn
 from axllm.runtime_quickjs import AxQuickJsCodeRuntime
 
 api_key = os.getenv("GOOGLE_APIKEY")
@@ -73,9 +73,9 @@ BUSINESS RULES
   - Compare like-for-like: always group by region AND product, not either alone.
 
 TOOLS AVAILABLE (call them, never invent figures)
-  query  filter + aggregate a slice -> {matched, totalUnits, totalRevenue, avgReturnRate}
-  top    rank a metric ("revenue"|"units") grouped by "product"|"region" -> [{key, value}]
-  trend  monthly revenue series (Jan..Dec) for one region + product
+  warehouse.query  filter + aggregate a slice -> {matched, totalUnits, totalRevenue, avgReturnRate}
+  warehouse.top    rank a metric ("revenue"|"units") grouped by "product"|"region" -> [{key, value}]
+  warehouse.trend  monthly revenue series (Jan..Dec) for one region + product
 """.strip()
 
 
@@ -113,53 +113,39 @@ def trend_tool(p):
     return series
 
 
-runtime = AxQuickJsCodeRuntime()
-runtime.register_callable("query", query_tool)
-runtime.register_callable("top", top_tool)
-runtime.register_callable("trend", trend_tool)
+# The tools the agent advertises and calls: `warehouse.query`, `warehouse.top`
+# and `warehouse.trend`, each with its handler, as the TypeScript twin wires them
+# (a function group gives them their namespace).
+warehouse_tools = [
+    fn("query")
+    .description("Filter the sales table and return aggregates for the matching rows.")
+    .arg("region", f.string("Optional region filter").optional())
+    .arg("product", f.string("Optional product filter").optional())
+    .arg("month", f.string("Optional month filter, e.g. Jan").optional())
+    .handler(query_tool)
+    .build(),
+    fn("top")
+    .description("Rank a metric grouped by product or region, highest first.")
+    .arg("metric", f.string("revenue or units"))
+    .arg("groupBy", f.string("product or region"))
+    .arg("limit", f.number("How many groups to return").optional())
+    .handler(top_tool)
+    .build(),
+    fn("trend")
+    .description("Monthly revenue series (Jan..Dec) for one region and product.")
+    .arg("region", f.string())
+    .arg("product", f.string())
+    .handler(trend_tool)
+    .build(),
+]
 
 analyst = agent(
     'schema:string, question:string -> answer:string, evidence:string[] "Concrete figures the answer is based on"',
     {
         # Big data dictionary stays out of the prompt.
         "contextFields": ["schema"],
-        # Tool specs advertised to the model; handlers are registered on the runtime above.
-        "functions": [
-            {
-                "name": "query",
-                "description": "Filter the sales table and return aggregates for the matching rows.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "region": {"type": "string"},
-                        "product": {"type": "string"},
-                        "month": {"type": "string"},
-                    },
-                },
-            },
-            {
-                "name": "top",
-                "description": "Rank a metric (revenue|units) grouped by product|region, highest first.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "metric": {"type": "string"},
-                        "groupBy": {"type": "string"},
-                        "limit": {"type": "number"},
-                    },
-                    "required": ["metric", "groupBy"],
-                },
-            },
-            {
-                "name": "trend",
-                "description": "Monthly revenue series (Jan..Dec) for one region and product.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"region": {"type": "string"}, "product": {"type": "string"}},
-                    "required": ["region", "product"],
-                },
-            },
-        ],
+        # Tools reach the data the prompt never sees.
+        "functions": [{"namespace": "warehouse", "functions": warehouse_tools}],
         "contextPolicy": {"preset": "lean", "budget": "balanced"},
         "runtime": {"language": "JavaScript"},
     },
@@ -171,7 +157,7 @@ result = analyst.forward(
         "schema": schema,
         "question": "Which region+product had the strongest Jan->Dec revenue growth, and which products have an average return rate above the 5% review threshold?",
     },
-    {"runtime": runtime, "max_actor_steps": 40},
+    {"runtime": AxQuickJsCodeRuntime(), "max_actor_steps": 40},
 )
 
 print(json.dumps(result, indent=2, sort_keys=True))
