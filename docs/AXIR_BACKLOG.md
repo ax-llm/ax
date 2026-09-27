@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event` [axgen] Keep a surrogate pair that a provider splits across stream events in Go and Rust
+  - Status: open
+  - Source commit: `af38cd35839a83461ac28242a01a10fd9ff1632c`
+  - TS paths: `src/ax/dsp/extract/delta.ts`
+  - Impact: TypeScript joins an escaped surrogate pair split across stream events into one character (a trailing high surrogate waits for its low half). Go's encoding/json decodes each lone surrogate escape to U+FFFD, so the character is lost (two U+FFFD). Rust's serde_json rejects a lone surrogate escape, which failed the whole stream; since 2e its SSE parsers read each lone half as U+FFFD (the same loss as Go), and its WebSocket frame parsers (realtime and native chat sessions) still fail on one. Python and Java hold lone surrogates natively, and C++ keeps them as WTF-8 and joins them (2e). Go and Rust need surrogate-preserving JSON decoding of stream events (for example a pre-pass that turns escaped UTF-16 surrogates into WTF-8) plus 2e's join intrinsics, and then run streaming-forward-split-surrogate-pair instead of skipping it.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -1068,3 +1073,12 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `9b1f64a9a`
   - Verification: `TS streamingForward runs its stages at root/distiller, root/executor and root/responder and reports the run at root (src/ax/agent/agent.streamingControl.test.ts: 3 tests fail on main, pass here). All five ports stream the responder through @agent_streaming_forward and intrinsic.agent.stage_streaming_forward, sharing @agent_run_actor_stages and @agent_complete_run with forward. 20 TS goldens from tools/axir/extractors/agent-streaming-goldens.ts (axagent/agent-streaming-forward-* and agent-forward-*) pin the deltas, the output, the request count, the order of model requests and observer callbacks (used memories and skills, citations, playbook onUpdate), run-control events with paths (completed, failed, aborted), the chat-log shape and TS's citation messages and errors; the axagent suite (167 fixtures) passes in python, go, java, rust and cpp, and mutated copies of the control and playbook goldens fail in all five. verify --mode release passes in python, go, java, rust and cpp (1131 fixtures each).`
+- `axir-2026-09-27-match-typescript-s-processor-feedback-timing-and-shape-and-its-s` [axgen] Match TypeScript's processor feedback timing and shape and its surrogate-safe streamed deltas in the ports
+  - Status: done
+  - Source commit: `af38cd35839a83461ac28242a01a10fd9ff1632c`
+  - TS paths: `src/ax/dsp/fieldProcessor.ts`, `src/ax/dsp/response/finalize.ts`, `src/ax/dsp/response/streaming.ts`, `src/ax/dsp/response/types.ts`, `src/ax/dsp/extract/delta.ts`
+  - Impact: TypeScript now adds a streaming field processor's mid-stream feedback when the step ends (after the full assistant message, tagged processor) so the run continues with it, treats a null result as no feedback, sends each piece as a user message with one text part ([{type: 'text', text}]) before the final processors' feedback, and never streams a delta that ends in half of a surrogate pair. The ports sent feedback as a plain string and (Java) split a surrogate pair across deltas; hosts that steer an open native chat session with a correction now join the text parts.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `9ae25fc90`
+  - Verification: `Five TS goldens (forward-feedback-request-shape, streaming-forward-mid-stream-feedback-continues, streaming-forward-mid-stream-and-final-feedback-order, streaming-forward-processor-null-no-feedback, streaming-forward-split-surrogate-pair) with the runner key expected_last_request_tail and a declared string model per runner (TestLoneSurrogateFixturesHaveARunner). On main the three feedback goldens fail in every port on the feedback's string content and the split-pair golden fails in Java. Python, Java and C++ (WTF-8 join) run the split-pair golden; Go and Rust skip it (open entry for keeping the pair). Host tests pin the native-session steer text in all five ports; Rust's SSE parsers no longer fail a stream on a lone surrogate escape. TS fieldProcessor.test.ts and generate.streamParity.test.ts fail before the fixes; npm run test --workspace=@ax-llm/ax passes 3598 tests. verify --mode dev: 1345 fixtures in python, java and cpp, 1344 plus one skip in go and rust (Rust cargo test 70/70); Python response-perturbation gate 335 mutations across 134 fixtures.`

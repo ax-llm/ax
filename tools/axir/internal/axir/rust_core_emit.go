@@ -87,6 +87,8 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.mul":                                   "core_mul",
 	"intrinsic.string.lower":                          "core_string_lower",
 	"intrinsic.string.starts_with":                    "core_string_starts_with",
+	"intrinsic.string.drop_trailing_high_surrogate":   "core_string_drop_trailing_high_surrogate",
+	"intrinsic.string.concat_stream_text":             "core_string_concat_stream_text",
 	"intrinsic.string.ends_with":                      "core_string_ends_with",
 	"intrinsic.string.index_of":                       "core_string_index_of",
 	"intrinsic.ai.stream_open":                        "core_ai_stream_open",

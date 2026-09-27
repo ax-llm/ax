@@ -1267,6 +1267,41 @@ Value Core::string_starts_with(Value value, Value prefix) {
   std::string s = str(value), p = str(prefix);
   return Value(s.rfind(p, 0) == 0);
 }
+// C++ strings are UTF-8, but parse_json keeps a lone surrogate escape (half of
+// a pair a provider split across stream events, such as "\ud83d" and then
+// "\ude00") as its 3-byte WTF-8 form: ED A0-AF xx for a high surrogate and
+// ED B0-BF xx for a low one.
+static bool wtf8_surrogate_at(const std::string& text, std::size_t at, unsigned char low, unsigned char high) {
+  if (at + 3 > text.size()) return false;
+  auto byte = [&](std::size_t offset) { return static_cast<unsigned char>(text[at + offset]); };
+  return byte(0) == 0xED && byte(1) >= low && byte(1) <= high && (byte(2) & 0xC0) == 0x80;
+}
+static unsigned wtf8_surrogate_unit(const std::string& text, std::size_t at) {
+  return 0xD000u | ((static_cast<unsigned char>(text[at + 1]) & 0x3Fu) << 6) | (static_cast<unsigned char>(text[at + 2]) & 0x3Fu);
+}
+// Streamed text appends chunk by chunk. As in a UTF-16 string (TS, Java), a
+// high surrogate ending the text and a low one starting the chunk join into
+// the code point they make, as 4-byte UTF-8.
+Value Core::string_concat_stream_text(Value left, Value right) {
+  std::string text = str(left), chunk = str(right);
+  if (text.size() >= 3 && wtf8_surrogate_at(text, text.size() - 3, 0xA0, 0xAF) && wtf8_surrogate_at(chunk, 0, 0xB0, 0xBF)) {
+    unsigned code_point = 0x10000u + ((wtf8_surrogate_unit(text, text.size() - 3) - 0xD800u) << 10) + (wtf8_surrogate_unit(chunk, 0) - 0xDC00u);
+    text.resize(text.size() - 3);
+    text.push_back(static_cast<char>(0xF0 | (code_point >> 18)));
+    text.push_back(static_cast<char>(0x80 | ((code_point >> 12) & 0x3F)));
+    text.push_back(static_cast<char>(0x80 | ((code_point >> 6) & 0x3F)));
+    text.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+    return Value(text + chunk.substr(3));
+  }
+  return Value(text + chunk);
+}
+// Until a field's text is final, a high surrogate at its end waits for its
+// pair, as TS holds it back, so no delta ends in half a character.
+Value Core::string_drop_trailing_high_surrogate(Value value) {
+  std::string text = str(value);
+  if (text.size() >= 3 && wtf8_surrogate_at(text, text.size() - 3, 0xA0, 0xAF)) return Value(text.substr(0, text.size() - 3));
+  return value;
+}
 Value Core::string_replace(Value value, Value old_value, Value new_value) {
   std::string s = str(value), old = str(old_value), repl = str(new_value);
   size_t pos = 0;

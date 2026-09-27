@@ -1,0 +1,140 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "a draft"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": " then more text"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "a final"
+      },
+      "index": 0,
+      "version": 1
+    },
+    {
+      "delta": {
+        "answer": " answer"
+      },
+      "index": 0,
+      "version": 1
+    }
+  ],
+  "expected_last_request_tail": [
+    {
+      "content": "Answer: a draft then more text",
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "text": "Please avoid the word draft.",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "expected_output": {
+    "answer": "a final answer"
+  },
+  "expected_processor_calls": [
+    {
+      "done": false,
+      "field": "answer",
+      "value": " a draft"
+    },
+    {
+      "done": false,
+      "field": "answer",
+      "value": " a draft then more text"
+    },
+    {
+      "done": true,
+      "field": "answer",
+      "value": " a draft then more text"
+    },
+    {
+      "done": false,
+      "field": "answer",
+      "value": " a final"
+    },
+    {
+      "done": false,
+      "field": "answer",
+      "value": " a final answer"
+    },
+    {
+      "done": true,
+      "field": "answer",
+      "value": " a final answer"
+    }
+  ],
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-mid-stream-feedback-continues",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: a draft",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": " then more text",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: a final",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": " answer",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "streaming_processors": [
+    {
+      "field": "answer",
+      "returns": "Please avoid the word draft.",
+      "times": 1
+    }
+  ]
+}

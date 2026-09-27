@@ -561,9 +561,16 @@ def run_fixture_path(path):
     return run_fixture(data, source=str(path))
 
 
+# Python strings hold code points, so a lone surrogate (half of a pair a
+# provider split across stream events) is representable here.
+SUPPORTS_LONE_SURROGATES = True
+
+
 def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
     name = fixture.get("name") or source or "<fixture>"
     kind = fixture.get("kind", "forward")
+    if fixture.get("requires_lone_surrogates") and not SUPPORTS_LONE_SURROGATES:
+        return {"name": name, "ok": True, "skipped": "requires lone surrogates (utf-8 runner)"}
     try:
         if kind == "signature_error":
             _run_signature_error(fixture)
@@ -1252,6 +1259,7 @@ def _run_forward(fixture):
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected forward to fail")
+    _assert_last_request_tail(fixture, client)
     _assert_speak_requests(fixture, client)
     if "expected_processor_calls" in fixture:
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
@@ -1358,6 +1366,17 @@ def _fixture_processor(spec, calls):
         return result
 
     return processor
+
+
+def _assert_last_request_tail(fixture, client):
+    # The last messages of the last request's prompt, compared by role and
+    # content.
+    expected = fixture.get("expected_last_request_tail")
+    if expected is None:
+        return
+    prompt = (client.requests[-1] if client.requests else {}).get("chat_prompt") or []
+    tail = [{key: message[key] for key in ("role", "content") if key in message} for message in prompt[-len(expected):]]
+    _assert_equal(tail, expected, "last request tail")
 
 
 def _attach_fixture_control(fixture, client, run_options):
@@ -1608,6 +1627,7 @@ def _run_streaming_forward(fixture):
         _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
     if "expected_processor_calls" in fixture:
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
+    _assert_last_request_tail(fixture, client)
     if "expected_request_contains" in fixture:
         request_text = json.dumps(client.requests, sort_keys=True)
         for item in fixture.get("expected_request_contains") or []:
@@ -4172,7 +4192,10 @@ def main(argv=None):
     if not argv:
         raise SystemExit("usage: python -m axllm.conformance <fixture-or-dir>...")
     for result in run_fixtures(argv):
-        print("ok", result["name"])
+        if result.get("skipped"):
+            print(f"skip {result['name']}: {result['skipped']}")
+        else:
+            print("ok", result["name"])
 
 
 
