@@ -4,7 +4,9 @@
     "generationConfig.topP",
     "generationConfig.topK",
     "generationConfig.maxOutputTokens",
-    "generationConfig.candidateCount"
+    "generationConfig.candidateCount",
+    "generationConfig.frequencyPenalty",
+    "generationConfig.presencePenalty"
   ],
   "expected_transport_request": {
     "json": {}

@@ -100,7 +100,7 @@ A failed forward raises `Generate failed: <reason>`, as TypeScript's message rea
 - Set `sampleCount` / `sample_count` to request N provider candidates. Core parses and validates every candidate, preserving each provider result index.
 - Without a result picker, AxGen returns candidate 0. A result picker receives all `{ index, sample }` structured candidates and returns the winning list index; Core rejects an index outside `0..N-1`.
 - Native callback surface: `with_sample_count` / `with_result_picker` with `AxResultPickerSample`.
-- OpenAI-compatible Chat and Gemini map multi-sampling to `n` and `candidateCount`. Anthropic rejects `n > 1` explicitly.
+- OpenAI-compatible Chat and Gemini map multi-sampling to `n` and `candidateCount`. Anthropic rejects `n > 1` explicitly. Gemini 3 on the Gemini API returns one candidate, so `n > 1` is dropped with a one-time warning and AxGen gets one sample.
 
 ## Relevant API Surface
 

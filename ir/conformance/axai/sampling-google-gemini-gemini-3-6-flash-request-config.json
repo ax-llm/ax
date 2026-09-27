@@ -3,7 +3,9 @@
     "generationConfig.temperature",
     "generationConfig.topP",
     "generationConfig.topK",
-    "generationConfig.candidateCount"
+    "generationConfig.candidateCount",
+    "generationConfig.frequencyPenalty",
+    "generationConfig.presencePenalty"
   ],
   "expected_transport_request": {
     "json": {

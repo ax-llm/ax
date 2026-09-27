@@ -1,0 +1,67 @@
+{
+  "expected_transport_json_absent": [
+    "generationConfig.topK",
+    "generationConfig.frequencyPenalty",
+    "generationConfig.presencePenalty"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "generationConfig": {
+        "candidateCount": 1,
+        "maxOutputTokens": 123,
+        "temperature": 1,
+        "topP": 0.9
+      }
+    }
+  },
+  "expected_warnings": [
+    "Ax raised temperature 0.7 to 1 for gemini-3.5-flash: Google recommends 1.0 for Gemini 3 models."
+  ],
+  "kind": "ai_chat",
+  "model": "gemini-3.5-flash",
+  "model_config": {
+    "maxTokens": 123,
+    "temperature": 0.7,
+    "topP": 0.9
+  },
+  "name": "sampling-google-gemini-gemini-3-5-flash-ai-config",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ],
+              "role": "model"
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "modelVersion": "gemini-3.5-flash",
+        "responseId": "gem_sampling",
+        "usageMetadata": {
+          "candidatesTokenCount": 1,
+          "promptTokenCount": 1,
+          "totalTokenCount": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

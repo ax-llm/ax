@@ -1,5 +1,10 @@
 {
-  "expected_transport_json_absent": ["temperature", "top_p", "top_k"],
+  "expected_transport_json_absent": [
+    "temperature",
+    "top_p",
+    "top_k",
+    "thinking.type"
+  ],
   "expected_transport_request": {
     "json": {
       "max_tokens": 40000

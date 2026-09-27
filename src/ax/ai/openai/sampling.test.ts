@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetDroppedSamplingWarnings } from '../base.js';
 import type { AxAIServiceOptions, AxModelConfig } from '../types.js';
 import { ai } from '../wrap.js';
+import { AxAIOpenAIModel } from './chat_types.js';
 
 // Sampling support follows OpenAI's live behavior (probed 2026-09-27):
 // gpt-5, gpt-5-mini, gpt-5-nano and the o-series reject temperature, top_p
@@ -134,7 +135,7 @@ describe('OpenAI sampling support', () => {
     }
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(
-      'Ax dropped temperature for gpt-5.4-mini: the model accepts it only with reasoning effort none.'
+      'Ax dropped temperature for gpt-5.4-mini: the model accepts it only as 1 or with reasoning effort none.'
     );
   });
 
@@ -145,7 +146,7 @@ describe('OpenAI sampling support', () => {
     });
     expect(reasoning).not.toHaveProperty('temperature');
     expect(warn).toHaveBeenCalledWith(
-      'Ax dropped temperature for gpt-5.6-luna: the model accepts it only with reasoning effort none.'
+      'Ax dropped temperature for gpt-5.6-luna: the model accepts it only as 1 or with reasoning effort none.'
     );
 
     const off = await send({
@@ -189,7 +190,7 @@ describe('OpenAI sampling support', () => {
     expect(body).toMatchObject({ max_completion_tokens: 300, n: 2 });
     expect(body).not.toHaveProperty('temperature');
     expect(warn).toHaveBeenCalledWith(
-      'Ax dropped temperature for o3: the model does not accept it.'
+      'Ax dropped temperature for o3: the model accepts it only as 1.'
     );
   });
 
@@ -198,11 +199,11 @@ describe('OpenAI sampling support', () => {
     const llm = ai({
       name: 'openai',
       apiKey: 'test-key',
-      config: { model: 'gpt-5.4-mini' },
+      config: { model: AxAIOpenAIModel.GPT54Mini },
       models: [
         {
           key: 'precise',
-          model: 'gpt-5.4-mini',
+          model: AxAIOpenAIModel.GPT54Mini,
           description: 'Precise',
           modelConfig: { temperature: 0.2 },
         },
@@ -253,7 +254,7 @@ describe('OpenAI sampling support', () => {
     expect(bodies[1]).not.toHaveProperty('temperature');
     expect(bodies[1]).toMatchObject({ max_completion_tokens: 300, n: 2 });
     expect(warn).toHaveBeenCalledWith(
-      'Ax dropped temperature for o3-mini: the model does not accept it.'
+      'Ax dropped temperature for o3-mini: the model accepts it only as 1.'
     );
   });
 

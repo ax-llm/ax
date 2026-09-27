@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-python-ai/SKILL.md",
-      "digest": "sha256:3ef78bd493aefadcffd99b987bdd079bc9ace9b300533f2d034ddf8037fb0943"
+      "digest": "sha256:b69f2da75f7d7a4d526791598415dba2b34df34fdb5010f0f266522e957794d2"
     },
     {
       "name": "ax-python-typesafe",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-python-gen/SKILL.md",
-      "digest": "sha256:f1b00d46dada2119b341aa0ca870c7f49faaa77894ee68dd99804dbd00af90dd"
+      "digest": "sha256:4d11b1147919fe01c35de4699b1f620ead2f381e9eb2a41090cb0b32477a2b65"
     },
     {
       "name": "ax-python-flow",

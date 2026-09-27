@@ -2182,6 +2182,56 @@
       "verification": "Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes."
     },
     {
+      "id": "axir-2026-09-27-anthropic-gemini-sampling-support",
+      "status": "done",
+      "title": "Match TypeScript's Anthropic and Gemini sampling rules and explicit temperature 1 in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "e631792d8026e0b3a9aa61c3aae5653810d94d60",
+      "tsPaths": [
+        "src/ax/ai/base.ts",
+        "src/ax/ai/types.ts",
+        "src/ax/ai/anthropic/api.ts",
+        "src/ax/ai/anthropic/info.ts",
+        "src/ax/ai/google-gemini/api.ts",
+        "src/ax/ai/google-gemini/info.ts",
+        "src/ax/ai/openai/info.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TS dropped explicit Anthropic sampling silently (Opus 4.6 lost values the API accepts; models that deprecated sampling lost temperature 1), sent the Gemini API penalties and candidateCount 2 that it rejects with 400 on Gemini 3, and dropped an explicit temperature 1 on OpenAI models that accept only 1. TS now follows the probed APIs, passes the explicit sampling keys to the provider, and warns once for every value it drops or changes; Vertex keeps its wire and warns.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "55643ccb8085cfd3cc3d391390a977968512c2ea",
+      "verification": "sampling-providers.test.ts (6 tests), sampling.test.ts and anthropic/api.test.ts: 10 of 86 fail on main's sources (6 on behavior, 4 on warning text); npx vitest run src/ax/ai (1059) passes. axai-goldens.ts records the new Anthropic, Gemini and temperature-one fixtures from the real TS clients with their warnings. axai + axagent pass 778/778 in Python, Go, Java, C++ and Rust; npm run axir:conformance:check and axir:check-packages. Live, TS and Python send the same fields and warnings: gpt-5.6-luna and claude-sonnet-5 take temperature 1, claude-opus-4-6 takes 0.2, claude-sonnet-5 drops 0.2 with a warning, and gemini-3.5-flash drops frequencyPenalty and n 2 with warnings (HTTP 400 on main)."
+    },
+    {
+      "id": "axir-2026-09-27-anthropic-temperature-top-p-pair",
+      "status": "done",
+      "title": "Send Claude models that reject temperature with top_p only one of them, in TypeScript and the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "c9fa73a401abc6d0b35dbca77974e22adf46b7d4",
+      "tsPaths": [
+        "src/ax/ai/types.ts",
+        "src/ax/ai/anthropic/api.ts",
+        "src/ax/ai/anthropic/info.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Opus/Sonnet 4.6 and Opus/Sonnet/Haiku 4.5 answer 400 to temperature and top_p together, with and without thinking. TS and the ports sent the pair for explicit values, and an explicit topP next to the default temperature 0 made topP unusable. Model info now marks notSupported.temperatureWithTopP; an explicit topP goes alone in place of the default temperature, and an explicit temperature wins over it with a one-time warning.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "3f9c8e0c337d36e277568dc3f3268b9b7e7b770c",
+      "verification": "Raw probe (2026-09-27): every answering first-party model in AxAIAnthropicModel; Opus/Sonnet 4.6 and Opus/Sonnet/Haiku 4.5 return 400 for temperature+top_p with thinking off, enabled and adaptive, each alone 200; the Claude 4.1/4/3.x/2 ids return 404. sampling-providers.test.ts and anthropic/api.test.ts pin the rule (8 fail on main's sources on behavior); npx vitest run src/ax/ai src/ax/dsp (2185) passes. axai-goldens.ts records the pair cases, top-p-only and a Vertex Haiku 4.5 negative; axai + axagent + axgen pass 1118/1118 in Python, Go, Java, C++ and Rust. Live, TS and Python send the same fields and warnings and get 200 for Opus 4.6, Haiku 4.5 and Sonnet 4.6 pairs (with and without thinking) and Haiku 4.5 topP alone, where main answered 400 or dropped the values silently."
+    },
+    {
       "id": "axir-2026-09-27-apply-axgen-constructor-run-options-as-defaults-in-the-ports-and",
       "status": "done",
       "title": "Apply AxGen constructor run options as defaults in the ports and send promptCacheRetention on OpenAI Responses",

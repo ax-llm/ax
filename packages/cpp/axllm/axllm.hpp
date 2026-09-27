@@ -784,7 +784,7 @@ struct Core {
   static Value _gemini_build_chat_request(Value request, Value options, Value is_vertex);
   static Value _gemini_clamp_thinking_level_impl(Value model, Value level);
   static Value _gemini_apply_thinking_config_impl(Value payload, Value model, Value model_config);
-  static Value _gemini_apply_model_config_impl(Value payload, Value model, Value model_config, Value server_managed_sampling, Value strict_flash_parameters);
+  static Value _gemini_apply_model_config_impl(Value payload, Value model, Value model_config, Value server_managed_sampling, Value strict_flash_parameters, Value is_vertex, Value explicit_keys);
   static Value _gemini_message_impl(Value message, Value function_names);
   static Value _gemini_content_parts_impl(Value content);
   static Value _gemini_content_part_impl(Value part);
@@ -797,8 +797,8 @@ struct Core {
   static Value _gemini_extract_citations_impl(Value candidate);
   static Value _gemini_usage_impl(Value usage);
   static Value _gemini_normalize_embed_response(Value raw, Value ai_name, Value model);
-  static Value _anthropic_build_chat_request(Value request, Value supports_none);
-  static Value _anthropic_apply_model_config_impl(Value payload, Value model_config, Value model);
+  static Value _anthropic_build_chat_request(Value request, Value supports_none, Value is_vertex);
+  static Value _anthropic_apply_model_config_impl(Value payload, Value model_config, Value model, Value explicit_keys, Value is_vertex);
   static Value _anthropic_is_adaptive_model_impl(Value model);
   static Value _anthropic_thinking_always_on_impl(Value model);
   static Value _anthropic_thinking_on_by_default_impl(Value model);
@@ -838,8 +838,12 @@ struct Core {
   static Value _provider_apply_model_sampling_support_impl(Value profile, Value provider, Value transport, Value request, Value options);
   static Value _provider_sampling_snake_key_impl(Value key);
   static Value _provider_sampling_request_reasons_impl(Value transport, Value model, Value config, Value supported);
-  static Value _provider_warn_dropped_sampling_impl(Value model, Value key, Value without_reasoning_only);
+  static Value _provider_warn_dropped_sampling_impl(Value model, Value key, Value reason);
   static Value _openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model);
+  static Value _provider_sampling_is_one_impl(Value value);
+  static Value _anthropic_sampling_impl(Value payload, Value model_config, Value model, Value explicit_keys, Value is_vertex);
+  static Value _anthropic_deprecates_sampling_impl(Value model);
+  static Value _gemini_apply_sampling_limits_impl(Value payload, Value model, Value model_config, Value server_managed_sampling, Value strict_flash_parameters, Value is_vertex, Value explicit_keys);
   static Value _ai_error_request(Value request, Value options);
   static Value chat_session_mode_enabled(Value options);
   static Value fold_stream(Value events);
