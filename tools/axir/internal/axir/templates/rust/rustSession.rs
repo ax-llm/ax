@@ -543,6 +543,7 @@ pub(crate) struct SessionRun {
     level: Value,
     fallback_started: bool,
     finished: bool,
+    controls_use_session: Option<bool>,
 }
 impl SessionRun {
     pub(crate) fn new(gen: CoreValue, tools: Vec<Tool>, options: Value) -> Self {
@@ -574,6 +575,7 @@ impl SessionRun {
             level: Value::Null,
             fallback_started: false,
             finished: false,
+            controls_use_session: None,
         }
     }
     fn emit(&self, kind: &str, mut event: Value) {
@@ -694,6 +696,54 @@ impl SessionRun {
     ) -> AxResult<Value> {
         let request = self.boundary_request(request)?;
         client.chat_with_options(request, options)
+    }
+    // TS's controlsUseSession: whether a chat session applies this run's
+    // controls itself. A session is open, or else, decided when the run first
+    // asks, the run may open one (see session_enabled) and its client offers
+    // async tools for the run's model.
+    fn controls_use_session<C: AxAIClient + ?Sized>(&mut self, client: &C, model: Option<&str>) -> AxResult<bool> {
+        if self.session.is_some() {
+            return Ok(true);
+        }
+        if let Some(decided) = self.controls_use_session {
+            return Ok(decided);
+        }
+        let decided = self.session_enabled()? && client.get_features(model).get("asyncTools").and_then(Value::as_bool) == Some(true);
+        self.controls_use_session = Some(decided);
+        Ok(decided)
+    }
+    // The run control updates queued for this path after the cursor, which
+    // the forward applies when a step starts, as TS does. They count as
+    // applied now, so the next request boundary skips them. None when a chat
+    // session applies the controls.
+    pub(crate) fn take_control_updates<C: AxAIClient + ?Sized>(&mut self, client: &C, model: Option<&str>) -> AxResult<Vec<Value>> {
+        let Some(control) = self.control.clone() else {
+            return Ok(Vec::new());
+        };
+        if self.controls_use_session(client, model)? {
+            return Ok(Vec::new());
+        }
+        let (updates, after) = control.pending(&self.path, self.after)?;
+        self.after = after;
+        if !updates.is_empty() && !self.fallback_started {
+            self.emit("started", json!({}));
+            self.fallback_started = true;
+        }
+        for update in &updates {
+            self.emit("applied", json!({"update_id":update["id"],"timing":"next-response"}));
+        }
+        Ok(updates)
+    }
+    // How many run control updates are queued for this path after the
+    // cursor, without taking them.
+    pub(crate) fn pending_control_count<C: AxAIClient + ?Sized>(&mut self, client: &C, model: Option<&str>) -> AxResult<usize> {
+        let Some(control) = self.control.clone() else {
+            return Ok(0);
+        };
+        if self.controls_use_session(client, model)? {
+            return Ok(0);
+        }
+        Ok(control.pending(&self.path, self.after)?.0.len())
     }
     // Whether the run keeps a chat session when its client opens one.
     fn session_enabled(&self) -> AxResult<bool> {
