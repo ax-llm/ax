@@ -2270,7 +2270,7 @@
     },
     {
       "id": "axir-2026-09-27-count-utf-16-code-units-trim-with-javascript-s-whitespace-set-an",
-      "status": "open",
+      "status": "done",
       "title": "Count UTF-16 code units, trim with JavaScript's whitespace set, and send TypeScript's retry messages in the ports",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2289,9 +2289,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "7a45c6024",
+      "verification": "TS goldens that fail on main in the ports: validation/output-string-min-utf16-units, -max-utf16-units and -max-counts-units-not-bytes (UTF-16 length constraints); axgen streaming-forward-structured-cadence-utf16-parse and -wait (re-parse cadence); forward-text-trim-js-whitespace and -keeps-control-chars (JS trim); forward-retry-message-assertion, -assertion-adds-period, -missing-field, -json-object-parse and streaming-forward-retry-message-assertion (retry messages, pinned with expected_last_request_tail); axgen/assertion-retry now pins TS's text. New intrinsic.exception.is_validation in all five ports. verify --mode dev: 1398 fixtures in python, java and cpp, 1397 plus the lone-surrogate skip in go and rust (Rust cargo test 70/70); axagent-real 10/10 in Python; Python response-perturbation gate 343 mutations across 138 fixtures; npm run test --workspace=@ax-llm/ax passes 3612 tests."
     },
     {
       "id": "axir-2026-09-27-date-fields-parse-dates",

@@ -18,12 +18,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-27-count-utf-16-code-units-trim-with-javascript-s-whitespace-set-an` [axgen] Count UTF-16 code units, trim with JavaScript's whitespace set, and send TypeScript's retry messages in the ports
-  - Status: open
-  - Source commit: `eff7fd4ef847d94e80c60894e44946afb8930fe1`
-  - TS paths: `src/ax/dsp/validators.ts`, `src/ax/dsp/response/structuredDelta.ts`, `src/ax/dsp/asserts.ts`, `src/ax/dsp/errors.ts`, `src/ax/dsp/prompt.ts`
-  - Impact: TypeScript measures string length constraints and the structured stream re-parse cadence with String.prototype.length (UTF-16 code units), trims with String.prototype.trim (JS white space and line terminators only), and sends a retry as one user message with a text part: 'Invalid Field: <message>' for a validation error, 'Follow these instructions: <message>.' for an assertion, and a fixed message when a json_object answer isn't one JSON object. The ports counted code points (Python, Rust) or bytes (Go, C++), trimmed with each language's own whitespace set, and sent 'The previous response failed validation: <error>. Return only corrected JSON.' as a string (with the parser's error for json_object).
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event` [axgen] Keep a surrogate pair that a provider splits across stream events in Go and Rust
   - Status: open
   - Source commit: `af38cd35839a83461ac28242a01a10fd9ff1632c`
@@ -956,6 +950,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `1b6d8b9f84346048f73cad9b255adcb42b950e28`
   - Verification: `node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with forward-control-steer-continues, streaming-forward-control-steer-continues and forward-control-steer-persists-across-tool-steps`
+- `axir-2026-09-27-count-utf-16-code-units-trim-with-javascript-s-whitespace-set-an` [axgen] Count UTF-16 code units, trim with JavaScript's whitespace set, and send TypeScript's retry messages in the ports
+  - Status: done
+  - Source commit: `eff7fd4ef847d94e80c60894e44946afb8930fe1`
+  - TS paths: `src/ax/dsp/validators.ts`, `src/ax/dsp/response/structuredDelta.ts`, `src/ax/dsp/asserts.ts`, `src/ax/dsp/errors.ts`, `src/ax/dsp/prompt.ts`
+  - Impact: TypeScript measures string length constraints and the structured stream re-parse cadence with String.prototype.length (UTF-16 code units), trims with String.prototype.trim (JS white space and line terminators only), and sends a retry as one user message with a text part: 'Invalid Field: <message>' for a validation error, 'Follow these instructions: <message>.' for an assertion, and a fixed message when a json_object answer isn't one JSON object. The ports counted code points (Python, Rust) or bytes (Go, C++), trimmed with each language's own whitespace set, and sent 'The previous response failed validation: <error>. Return only corrected JSON.' as a string (with the parser's error for json_object).
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `7a45c6024`
+  - Verification: `TS goldens that fail on main in the ports: validation/output-string-min-utf16-units, -max-utf16-units and -max-counts-units-not-bytes (UTF-16 length constraints); axgen streaming-forward-structured-cadence-utf16-parse and -wait (re-parse cadence); forward-text-trim-js-whitespace and -keeps-control-chars (JS trim); forward-retry-message-assertion, -assertion-adds-period, -missing-field, -json-object-parse and streaming-forward-retry-message-assertion (retry messages, pinned with expected_last_request_tail); axgen/assertion-retry now pins TS's text. New intrinsic.exception.is_validation in all five ports. verify --mode dev: 1398 fixtures in python, java and cpp, 1397 plus the lone-surrogate skip in go and rust (Rust cargo test 70/70); axagent-real 10/10 in Python; Python response-perturbation gate 343 mutations across 138 fixtures; npm run test --workspace=@ax-llm/ax passes 3612 tests.`
 - `axir-2026-09-27-date-fields-parse-dates` [axgen] Parse date, datetime and range outputs as TypeScript does (opt-in parseDates) and fix time-zone abbreviations
   - Status: done
   - Source commit: `319c07a31b08bba2f246f8551c25d7433d15864d`
