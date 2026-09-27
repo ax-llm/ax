@@ -61,9 +61,21 @@ Independent flow nodes use owned program and client workers. Built-in providers,
 
 Use the provider-backed Astra examples under `src/examples/rust/generation/`, `short-agents/`, and `flows/`. All-five generated parity remains under verification in the shared-session AxIR backlog; do not infer full agent, parallel-flow, or transport parity from these examples alone.
 
+## Streaming An Agent Run
+
+`agent.streaming_forward(&mut client, values, options, on_delta)` runs the agent, calls `on_delta` with each `AxGenDelta` of the responder as TypeScript's `streamingForward` yields it, and returns the responder's output. Returning `Err(error)` from `on_delta` stops the run, and `streaming_forward` returns that same error.
+
+- The distiller and the executor, or the direct-respond skip, run first without streaming, as in TypeScript. A clarification request or a stage failure raises before any delta.
+- The deltas are the responder's AxGen deltas: merge each index's deltas (strings and lists append, other values replace) and start over when the version changes. A responder retry, such as a citation correction, streams a new version.
+- With `citations` on, the responder's assertion checks the cited ids against the run's evidence and retries with TypeScript's correction message, in forward and streaming alike. With `surface: "hidden"` each delta leaves out the citation field, so a delta can be empty, and the citations observer gets the ids streamed in the last version that streamed any.
+- As in forward, the used-memory and used-skill observers run before the responder, and the context map and the playbook learn after it.
+- `parseDates` / `parse_dates` on the agent or on the forward call (the call's wins) reaches the responder, so its `date`, `datetime`, `dateRange` and `datetimeRange` output fields come back parsed as AxGen parses them, in forward outputs and streamed deltas alike. Without it they keep the model's text, as before.
+- A run `control` hears the run at its own path (`root`) and each stage at `root/distiller`, `root/executor` and `root/responder`, in forward and streaming alike. Stopping the stream early ends the responder and the run as `aborted`. A steer queued while a stage's request is in flight makes that stage take another step, as AxGen does, and a steer without a target reaches every later stage too.
+- Under a run `control` the responder streams through the request boundary, as AxGen streaming does; on a client that opens async model sessions (such as `gpt-6-astra`) the session answers the responder in one chunk.
+
 ## Relevant API Surface
 
-- Agents And RLM: `agent`, `AxAgent`, `AxAgent::with_child_agent`
+- Agents And RLM: `agent`, `AxAgent`, `AxAgent::with_child_agent`, `AxAgent::streaming_forward`
 - MCP: `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPWebSocketTransport`, `AxMCPStdioTransport`
 - Runtime Profiles: `ProcessCodeRuntime`, `RuntimeCapabilities`, `RuntimeEnvelope`, `javascript-quickjs`
 

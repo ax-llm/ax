@@ -35,7 +35,7 @@ out = helper.forward(llm, {"question": "How should I proceed?"})
 
 ## Relevant API Surface
 
-- Agents And RLM: `agent`, `AxAgent`, `AxAgent.add_child_agent`
+- Agents And RLM: `agent`, `AxAgent`, `AxAgent.add_child_agent`, `AxAgent.streaming_forward`
 - Runtime Profiles: `ProcessCodeRuntime`, `RuntimeCapabilities`, `RuntimeEnvelope`, `javascript-quickjs`, `python-pyodide`
 - Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
 

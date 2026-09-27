@@ -1408,6 +1408,16 @@ final class Core {
     finally{var records=new ArrayList<>(gen.functionCallTraces);gen.functions.clear();gen.functions.addAll(original);gen.baseFunctions.clear();gen.baseFunctions.addAll(base);gen.functionCallTraces.clear();gen.functionCallTraces.addAll(previous);gen.functionCallTraces.addAll(records);_agent_record_native_calls(state,selected,records,options);}
   }
 
+  // Streams the stage's AxGen deltas to sink, each through the agent's
+  // citation handling (hidden citations leave the delta).
+  @SuppressWarnings("unchecked")
+  static Object agentStageStreamingForward(Object stage, Object state, Object client, Object values, Object options, Object sink) {
+    if (!(stage instanceof AxGen program)) throw new RuntimeException("the agent's streamed stage must be an AxGen");
+    if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
+    if (!(sink instanceof java.util.function.Consumer<?> consumer)) throw new IllegalArgumentException("the agent stream has no delta sink");
+    java.util.function.Consumer<Object> deliver = (java.util.function.Consumer<Object>) consumer;
+    return program.streamingForwardWith(ai, asMap(values), asMap(options), envelope -> deliver.accept(_agent_stream_citation_delta(state, envelope)));
+  }
   static Object agentStageForward(Object stage, Object client, Object values, Object options) {
     if (!(stage instanceof AxProgram program)) throw new RuntimeException("agent stage is not AxProgram");
     if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");

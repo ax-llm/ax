@@ -42,13 +42,13 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
     },
     {
+      "content": "{\"answer\":\"Paris\"}"
+    },
+    {
       "content": "{\"diagnosis\":\"capital lookup reused\",\"itemTags\":{\"cu-1\":\"helpful\"}}"
     },
     {
       "content": "{\"operations\":[{\"type\":\"ADD\",\"section\":\"reusable_results\",\"content\":\"France capital = Paris\"}]}"
-    },
-    {
-      "content": "{\"answer\":\"Paris\"}"
     }
   ],
   "signature": "question:string -> answer:string"

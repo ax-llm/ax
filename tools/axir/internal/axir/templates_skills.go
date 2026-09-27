@@ -380,6 +380,23 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 		) + "\n"
 	}
+	agentStreamingGuide := ""
+	if spec.ID == "agent" {
+		agentStreamingGuide = readmeLines(
+			"## Streaming An Agent Run",
+			"",
+			skillAgentStreamingText(target),
+			"",
+			"- The distiller and the executor, or the direct-respond skip, run first without streaming, as in TypeScript. A clarification request or a stage failure raises before any delta.",
+			"- The deltas are the responder's AxGen deltas: merge each index's deltas (strings and lists append, other values replace) and start over when the version changes. A responder retry, such as a citation correction, streams a new version.",
+			"- With `citations` on, the responder's assertion checks the cited ids against the run's evidence and retries with TypeScript's correction message, in forward and streaming alike. With `surface: \"hidden\"` each delta leaves out the citation field, so a delta can be empty, and the citations observer gets the ids streamed in the last version that streamed any.",
+			"- As in forward, the used-memory and used-skill observers run before the responder, and the context map and the playbook learn after it.",
+			"- `parseDates` / `parse_dates` on the agent or on the forward call (the call's wins) reaches the responder, so its `date`, `datetime`, `dateRange` and `datetimeRange` output fields come back parsed as AxGen parses them, in forward outputs and streamed deltas alike. Without it they keep the model's text, as before.",
+			"- A run `control` hears the run at its own path (`root`) and each stage at `root/distiller`, `root/executor` and `root/responder`, in forward and streaming alike. Stopping the stream early ends the responder and the run as `aborted`. A steer queued while a stage's request is in flight makes that stage take another step, as AxGen does, and a steer without a target reaches every later stage too.",
+			"- "+skillAgentStreamingSessionText(target),
+			"",
+		) + "\n"
+	}
 	agentMemoryGuide := ""
 	if spec.ID == "agent-memory-skills" {
 		legacyGet, legacySet, exportState, restoreState := skillAgentStateMethods(target)
@@ -465,7 +482,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		skillSnippet(target, spec.ID),
 		"```",
 		"",
-		expandedExamples+skillTypesafeGuide(target, spec.ID)+profileGuide+routingGuide+sessionGuide+genForwardGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
+		expandedExamples+skillTypesafeGuide(target, spec.ID)+profileGuide+routingGuide+sessionGuide+genForwardGuide+agentStreamingGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
 		"",
 		skillAPISurface(apiRef, spec.Sections),
 		"",
@@ -473,6 +490,36 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		"",
 		skillBulletList(guardrails),
 	)
+}
+
+func skillAgentStreamingText(target string) string {
+	switch target {
+	case "python":
+		return "`agent.streaming_forward(client, values, options)` runs the agent and yields the responder's `{\"version\", \"index\", \"delta\"}` deltas as TypeScript's `streamingForward` does. The run works on a worker thread that waits while you handle each delta; closing the generator stops the run."
+	case "go":
+		return "`(*AxAgent).StreamingForward(ctx, client, values, options)` runs the agent and returns an `iter.Seq2[AxGenDelta, error]` of the responder's deltas, as TypeScript's `streamingForward` does. The run works in its own goroutine; stopping the iteration cancels it, and an error ends the sequence as a final `(AxGenDelta{}, err)` pair."
+	case "java":
+		return "`agent.streamingForward(client, values, options)` runs the agent and returns an `AxGenDeltaStream` of the responder's deltas, as TypeScript's `streamingForward` does. Consume it once, in try-with-resources: the run starts on a worker thread with the iteration, and closing the stream stops it."
+	case "rust":
+		return "`agent.streaming_forward(&mut client, values, options, on_delta)` runs the agent, calls `on_delta` with each `AxGenDelta` of the responder as TypeScript's `streamingForward` yields it, and returns the responder's output. Returning `Err(error)` from `on_delta` stops the run, and `streaming_forward` returns that same error."
+	case "cpp":
+		return "`agent.streaming_forward(client, values, options, handler)` runs the agent, calls `handler(const AxGenDelta&)` with each delta of the responder as TypeScript's `streamingForward` yields it, on the calling thread, and returns the responder's output. Returning false stops the run without an exception; an exception the handler throws stops it and propagates."
+	default:
+		return "The agent streams the responder's deltas as TypeScript's `streamingForward` does."
+	}
+}
+
+func skillAgentStreamingSessionText(target string) string {
+	switch target {
+	case "python":
+		return "A run `control` on a client that opens async model sessions (such as `gpt-6-astra`) is not streamed through a session yet: `streaming_forward` raises `NotImplementedError` before any stage runs, as AxGen deltas do. Use `forward()` there."
+	case "java":
+		return "A run `control` on a client that opens async model sessions (such as `gpt-6-astra`) is not streamed through a session yet: the stream throws `UnsupportedOperationException` before any stage runs, as AxGen deltas do. Use `forward()` there."
+	case "go":
+		return "Under a run `control` the responder streams through the request boundary, as `AxGen.StreamingForward` does; it does not open an async model session yet."
+	default:
+		return "Under a run `control` the responder streams through the request boundary, as AxGen streaming does; on a client that opens async model sessions (such as `gpt-6-astra`) the session answers the responder in one chunk."
+	}
 }
 
 func skillStreamingForwardText(target string) string {

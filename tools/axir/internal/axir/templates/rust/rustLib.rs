@@ -4220,6 +4220,11 @@ pub(crate) struct AxGenFieldTransform {
     transform: AxGenFieldTransformFn,
 }
 
+// A host-callable assertion on the output values (the agent responder's
+// citation assert): null or true passes, a string fails with that message,
+// false fails without one, and an error ends the forward.
+pub(crate) type AxGenHostAssertionFn = Arc<dyn Fn(&Value) -> AxResult<Value> + Send + Sync>;
+
 // A streaming assertion: a {field, not_contains?, message?} spec, with the
 // callable check add_streaming_assert takes.
 pub(crate) type AxGenStreamingAssertionFn = Arc<dyn Fn(&str, bool) -> AxResult<Value> + Send + Sync>;
@@ -4255,6 +4260,7 @@ pub struct AxGen {
     streaming_field_processors: Vec<AxGenFieldProcessor>,
     field_transforms: Vec<AxGenFieldTransform>,
     caching_function: Option<AxCachingFunction>,
+    host_assertions: Vec<AxGenHostAssertionFn>,
 }
 
 pub fn ax(spec: &str) -> AxResult<AxGen> {
@@ -4288,7 +4294,13 @@ impl AxGen {
         let streaming_field_processors=self.streaming_field_processors.clone();
         let field_transforms=self.field_transforms.clone();
         let caching_function=self.caching_function.clone();
-        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms,caching_function}))
+        let host_assertions=self.host_assertions.clone();
+        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms,caching_function,host_assertions}))
+    }
+
+    // Adds a host-callable assertion, checked after the declarative ones.
+    pub(crate) fn add_host_assertion(&mut self, assertion: AxGenHostAssertionFn) {
+        self.host_assertions.push(assertion);
     }
 
     pub fn new(spec: &str) -> AxResult<Self> {
@@ -4318,6 +4330,7 @@ impl AxGen {
             streaming_field_processors: Vec::new(),
             field_transforms: Vec::new(),
             caching_function: None,
+            host_assertions: Vec::new(),
         }
     }
 
@@ -5443,6 +5456,60 @@ where
     agent_with_core_options(spec, options)
 }
 
+thread_local! {
+    // The agent runs active on this thread, innermost last: runs nest
+    // synchronously, so the innermost one owns the responder that is running.
+    static ACTIVE_AGENT_STATES: RefCell<Vec<CoreValue>> = const { RefCell::new(Vec::new()) };
+}
+
+struct ActiveAgentState;
+
+impl ActiveAgentState {
+    fn enter(state: CoreValue) -> Self {
+        ACTIVE_AGENT_STATES.with(|states| states.borrow_mut().push(state));
+        Self
+    }
+}
+
+impl Drop for ActiveAgentState {
+    fn drop(&mut self) {
+        ACTIVE_AGENT_STATES.with(|states| {
+            states.borrow_mut().pop();
+        });
+    }
+}
+
+// The responder's citation assert (TS _registerCitationsAssert): it checks the
+// cited ids against the evidence of the active run.
+fn agent_citation_assert_active(output: &Value) -> AxResult<Value> {
+    let state = ACTIVE_AGENT_STATES.with(|states| states.borrow().last().cloned());
+    match state {
+        Some(state) => Ok(core_value_to_json(&_agent_citation_assert(&[state, core_value_from_json(output)])?)),
+        None => Ok(Value::Null),
+    }
+}
+
+// The responder stage. As in TypeScript, its validation budget is maxRetries
+// unless validation_retries is set, and with citations on it asserts that the
+// cited ids exist in the run's evidence.
+fn agent_responder_gen(state: &CoreValue, options: &CoreValue, signature: AxSignature, instruction: Value) -> AxResult<CoreValue> {
+    let mut responder_options = json!({"id": "task.root.responder", "instruction": instruction});
+    let retries = core_get(options, &CoreValue::from("validation_retries"), CoreValue::Null);
+    if !retries.is_null() {
+        responder_options["validation_retries"] = core_value_to_json(&retries);
+    }
+    let responder = agent_stage_gen(signature, responder_options);
+    let citations = core_get(state, &CoreValue::from("citations"), CoreValue::Null);
+    if core_truthy(&core_get(&citations, &CoreValue::from("enabled"), CoreValue::Bool(false))) {
+        if let CoreValue::Host(host) = &responder {
+            if let Some(gen) = host.stage_gen_rc() {
+                gen.borrow_mut().add_host_assertion(Arc::new(agent_citation_assert_active));
+            }
+        }
+    }
+    Ok(responder)
+}
+
 pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResult<AxAgent> {
     let signature = s(spec)?;
     let state = _agent_factory(&[core_signature_value(&signature)?, options.clone()])?;
@@ -5461,10 +5528,6 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         &CoreValue::from("responder_signature"),
         CoreValue::Null,
     ))?;
-    let validation_retries = {
-        let raw = core_get(&options, &CoreValue::from("validation_retries"), CoreValue::Null);
-        if raw.is_null() { json!(2) } else { core_value_to_json(&raw) }
-    };
     let actor_validation_retries = {
         let raw = core_get(&options, &CoreValue::from("validation_retries"), core_get(&options, &CoreValue::from("validationRetries"), CoreValue::Num(1.0)));
         core_value_to_json(&raw)
@@ -5510,6 +5573,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
     )
     .text();
     let llm_query_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("llm_query_description"), CoreValue::from("")));
+    let responder = agent_responder_gen(&state, &options, responder_signature, responder_instruction)?;
     Ok(AxAgent {
         configured_options: options.clone(),
         state,
@@ -5521,10 +5585,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
             executor_signature,
             json!({"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": executor_instruction}),
         ),
-        responder: agent_stage_gen(
-            responder_signature,
-            json!({"validation_retries": validation_retries, "id": "task.root.responder", "instruction": responder_instruction}),
-        ),
+        responder,
         llm_query_signature,
         llm_query_instruction,
         execution_context: None,
@@ -5685,10 +5746,56 @@ impl AxAgent {
         input: Value,
         options: impl Into<AxForwardOptions>,
     ) -> AxResult<Value> {
-        session::with_control(options.into(), |options| {
+        self.run(client, input, options.into(), None)
+    }
+
+    /// Runs the agent and streams the responder's output, as TypeScript's
+    /// `streamingForward` does. The distiller and the executor (or the
+    /// direct-respond skip) run first without streaming; then `on_delta` gets
+    /// each [`AxGenDelta`] of the responder as it streams (see
+    /// [`AxGen::streaming_forward`]), and this returns the responder's output.
+    /// With citations `surface: "hidden"` the deltas leave out the citation
+    /// field, and the citations observer gets the streamed citations after the
+    /// stream. Returning `Err(error)` from `on_delta` stops the run at once,
+    /// and `streaming_forward` returns that same `error`; under a run control
+    /// the run then ends with an `aborted` event. Under a run control the
+    /// responder streams through the request boundary, as
+    /// [`AxGen::streaming_forward`] does.
+    pub fn streaming_forward<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: impl Into<AxForwardOptions>,
+        mut on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
+    ) -> AxResult<Value> {
+        let host = Rc::new(CoreDeltaSinkHost {
+            sink: RefCell::new(Box::new(move |envelope| on_delta(AxGenDelta::from_envelope(&envelope)))),
+            stopped: RefCell::new(None),
+        });
+        let result = self.run(client, input, options.into(), Some(host.clone()));
+        // The consumer's own error, not the abort that carried it out of the run.
+        let stop = host.stopped.borrow_mut().take();
+        match stop {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
+    // forward_with_options, and with a sink the streaming forward.
+    fn run<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: AxForwardOptions,
+        sink: Option<Rc<CoreDeltaSinkHost>>,
+    ) -> AxResult<Value> {
+        session::with_control(options, |options| {
         let defaults = self.runtime_hooks.clone();
         let mut attributes = BTreeMap::new();
         attributes.insert("ax.program.kind".to_string(), json!("AxAgent"));
+        if sink.is_some() {
+            attributes.insert("ax.streaming".to_string(), json!(true));
+        }
         with_runtime_scope(None, Some(&defaults), "ax_gen_agent_forward", "agent", attributes, || {
         let call_context=self.execution_context.clone().or_else(mcp::MCPRunScope::current);
         let _context_scope=mcp::MCPRunScope::enter(call_context.clone());
@@ -5713,6 +5820,9 @@ impl AxAgent {
                 Ok(session::publish_open_session(client.open_chat_session(request, options)?))
             } else if method == "observe_session" {
                 client.observe_chat_session_response(&request, &options); Ok(Value::Null)
+            } else if method == "stream_open" {
+                // A streamed stage reads the client's stream as it arrives.
+                Ok(publish_open_chat_stream(client.stream_iter_with_options(request, options)?))
             } else {
                 client.chat_with_options(request, options)
             }
@@ -5762,8 +5872,17 @@ impl AxAgent {
             });
             host.register_runtime_callable("llmQuery", callable);
         }
-        let result = with_core_client(&mut chat, || {
-            _agent_forward(&[
+        // As TypeScript's forward and streamingForward do, a run control hears
+        // the run's own lifecycle at its path; each stage reports at
+        // <path>/<stage>.
+        let _active = ActiveAgentState::enter(self.state.clone());
+        let control = session::current_control();
+        let run_path = options.get("execution_path").or_else(|| options.get("executionPath")).and_then(Value::as_str).unwrap_or("root").to_string();
+        if let Some(control) = &control {
+            control.emit(json!({"type": "started", "path": run_path}));
+        }
+        let result = with_core_client(&mut chat, || match &sink {
+            None => _agent_forward(&[
                 self.state.clone(),
                 self.distiller.clone(),
                 self.executor.clone(),
@@ -5771,15 +5890,46 @@ impl AxAgent {
                 CoreValue::Null,
                 core_value_from_json(&input),
                 core_value_from_json(&options),
-            ])
-        })?;
+            ]),
+            Some(sink) => _agent_streaming_forward(&[
+                self.state.clone(),
+                self.distiller.clone(),
+                self.executor.clone(),
+                self.responder.clone(),
+                CoreValue::Null,
+                core_value_from_json(&input),
+                core_value_from_json(&options),
+                CoreValue::Host(sink.clone()),
+            ]),
+        });
         drop(chat);
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                if let Some(control) = &control {
+                    if sink.as_ref().is_some_and(|sink| sink.stopped.borrow().is_some()) {
+                        // The consumer stopped the stream early: the run ended
+                        // on purpose, as with control.abort().
+                        control.emit(json!({"type": "aborted", "path": run_path}));
+                    } else {
+                        control.emit(json!({"type": "failed", "path": run_path, "error": error.to_string()}));
+                    }
+                }
+                return Err(error);
+            }
+        };
         let output = core_value_to_json(&result);
         let last_citations = self.state_json("last_citations");
         if let Some(observer) = self.citations_observer.as_mut() {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| observer(last_citations)));
         }
-        self.learn_playbook_failures(client, &output);
+        // TS learns from the responder's answer after forward; a stream has no
+        // single answer to hand the playbook.
+        let learned = if sink.is_some() { json!({}) } else { output.clone() };
+        self.learn_playbook_failures(client, &learned);
+        if let Some(control) = &control {
+            control.emit(json!({"type": "completed", "path": run_path}));
+        }
         Ok(output)
         })
         })
@@ -10388,6 +10538,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         | "ai_error"
         | "ai_unsupported" => run_ai_support_fixture(kind, &fixture)?,
         "agent_forward"
+        | "agent_streaming_forward"
         | "agent_playbook_coverage"
         | "agent_playbook_evolve"
         | "agent_prompt"
@@ -10892,6 +11043,7 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 fn run_agent_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     match kind {
         "agent_forward" => run_agent_forward_contract_fixture(fixture),
+        "agent_streaming_forward" => run_agent_forward_contract_fixture(fixture),
         "agent_playbook_coverage" => run_agent_playbook_coverage_fixture(fixture),
         "agent_playbook_evolve" => run_agent_playbook_evolve_fixture(fixture),
         "agent_prompt" => run_agent_prompt_fixture(fixture),
@@ -12660,6 +12812,39 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         install_semantic_observer(options, "onUsedSkills", "constructor.used_skills", false);
         install_semantic_observer(options, "onUsedMemories", "constructor.used_memories", false);
     }
+    // Observer calls, each marked with the number of model requests before it,
+    // so the transcript can interleave them with the requests.
+    let observer_calls = Rc::new(RefCell::new(Vec::<Value>::new()));
+    let observer_marks = Rc::new(RefCell::new(Vec::<(usize, String)>::new()));
+    let recording_observer = |label: &str| {
+        let calls = observer_calls.clone();
+        let marks = observer_marks.clone();
+        let label = label.to_string();
+        move |payload: Value| {
+            marks.borrow_mut().push((FIXTURE_CLIENT_REQUESTS.with(|count| count.get()), label.clone()));
+            calls.borrow_mut().push(json!({"callback": label, "payload": payload}));
+        }
+    };
+    let observers = fixture.get("observers").and_then(Value::as_array).cloned().unwrap_or_default();
+    if let Some(options) = raw_agent_options.as_object_mut() {
+        for label in observers.iter().filter_map(Value::as_str) {
+            match label {
+                "used_memories" => { options.insert("onUsedMemories".into(), agent_observer(recording_observer(label))); }
+                "used_skills" => { options.insert("onUsedSkills".into(), agent_observer(recording_observer(label))); }
+                _ => {}
+            }
+        }
+    }
+    // The run lifecycle events, in order, with their paths; with
+    // control_steer every event, and the steer lands during that request.
+    let (fixture_control, control_events) = if fixture.get("control").and_then(Value::as_bool).unwrap_or(false) {
+        let (control, events) = attach_fixture_control(fixture, &mut client);
+        (Some(control), events)
+    } else {
+        (None, Arc::new(Mutex::new(Vec::new())))
+    };
+    let streaming = fixture.get("kind").and_then(Value::as_str) == Some("agent_streaming_forward");
+    let stream_deltas = Rc::new(RefCell::new(Vec::<Value>::new()));
     let agent_options = core_value_from_json(&raw_agent_options);
     let scripted = fixture.get("runtime_script").and_then(Value::as_array).map(|script| {
         let runtime_config = fixture
@@ -12746,6 +12931,14 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             { return Err(AxError::runtime("Child runtime requires runtime-quickjs")); }
         }
         agent = agent.with_child_agent(child["namespace"].as_str().unwrap_or_default(), child["name"].as_str().unwrap_or_default(), program)?;
+    }
+    if observers.iter().any(|label| label.as_str() == Some("citations")) {
+        agent.set_citations_observer(recording_observer("citations"));
+    }
+    if observers.iter().any(|label| label.as_str() == Some("playbook_update")) {
+        // The playbook's onUpdate after run-end learning, by its status.
+        let record = recording_observer("playbook_update");
+        agent.set_playbook_observer(move |update| record(json!({"status": update["status"]})));
     }
     let observer_called = Rc::new(std::cell::Cell::new(false));
     if fixture
@@ -12847,8 +13040,63 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             install_semantic_observer(options, "onUsedSkills", "forward.used_skills", false);
             install_semantic_observer(options, "onUsedMemories", "forward.used_memories", false);
         }
-        agent.forward_with_options(&mut client, input, forward_options)
+        let mut run_options = AxForwardOptions::from(forward_options);
+        if let Some(control) = &fixture_control {
+            run_options = run_options.with_control(control.clone());
+        }
+        if streaming {
+            let deltas = stream_deltas.clone();
+            let stop_after = fixture.get("stop_after_deltas").and_then(Value::as_u64);
+            let result = agent.streaming_forward(&mut client, input, run_options, move |update| {
+                let mut deltas = deltas.borrow_mut();
+                deltas.push(json!({"version": update.version, "index": update.index, "delta": update.delta}));
+                if stop_after.is_some_and(|limit| deltas.len() as u64 >= limit) {
+                    return Err(AxError::new("fixture_consumer_stop", "the consumer stopped the stream"));
+                }
+                Ok(())
+            });
+            // The consumer's own stop: the run ended as the fixture asked.
+            return match result {
+                Err(error) if stop_after.is_some() && error.category == "fixture_consumer_stop" => Ok(Value::Null),
+                other => other,
+            };
+        }
+        agent.forward_with_options(&mut client, input, run_options)
     })();
+    let assert_run_projections = |agent: &mut AxAgent, client: &FixtureClient| -> AxResult<()> {
+        if streaming || fixture.get("expected_deltas").is_some() {
+            let expected = fixture.get("expected_deltas").cloned().unwrap_or_else(|| json!([]));
+            expect_json_equal("agent streaming deltas", &Value::Array(stream_deltas.borrow().clone()), &expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_control_events") {
+            expect_json_equal("agent run control events", &Value::Array(control_events.lock().unwrap().clone()), expected)?;
+        }
+        expect_fixture_request_roles(fixture, client)?;
+        if let Some(expected) = fixture.get("expected_observer_calls") {
+            expect_json_equal("agent observer calls", &Value::Array(observer_calls.borrow().clone()), expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_transcript") {
+            let mut marks = observer_marks.borrow().clone().into_iter().peekable();
+            let mut transcript = Vec::new();
+            for (index, request) in client.requests.iter().enumerate() {
+                while let Some((_, label)) = marks.next_if(|(count, _)| *count <= index) {
+                    transcript.push(json!(label));
+                }
+                transcript.push(json!(format!("request:{}", agent_request_stage(request))));
+            }
+            transcript.extend(marks.map(|(_, label)| json!(label)));
+            expect_json_equal("agent run transcript", &Value::Array(transcript), expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_chat_log_shape") {
+            let shape = agent
+                .get_chat_log()
+                .iter()
+                .map(|entry| json!({"name": entry.get("name").cloned().unwrap_or(Value::Null), "stage": entry.get("stage").cloned().unwrap_or(Value::Null)}))
+                .collect::<Vec<_>>();
+            expect_json_equal("agent chat log shape", &Value::Array(shape), expected)?;
+        }
+        Ok(())
+    };
     let output = match output_result {
         Ok(output) => output,
         Err(error) => {
@@ -12862,6 +13110,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                             expected_clarification,
                         )?;
                     }
+                    assert_run_projections(&mut agent, &client)?;
                     return assert_agent_trace(&mut agent, fixture);
                 }
             }
@@ -13187,7 +13436,32 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             &Value::Array(expected.clone()),
         )?;
     }
+    assert_run_projections(&mut agent, &client)?;
     assert_agent_trace(&mut agent, fixture)
+}
+
+// Which part of an agent run sent a model request, by its system prompt.
+fn agent_request_stage(request: &Value) -> &'static str {
+    let system = request
+        .get("chat_prompt")
+        .or_else(|| request.get("chatPrompt"))
+        .and_then(Value::as_array)
+        .and_then(|prompt| prompt.first())
+        .filter(|message| message.get("role").and_then(Value::as_str) == Some("system"))
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if system.contains("You (`distiller`)") {
+        "distiller"
+    } else if system.contains("You (`executor`)") {
+        "executor"
+    } else if system.contains("`Generator answer`") || system.contains("`Question context`") {
+        "playbook"
+    } else if system.contains("context-map Distiller") || system.contains("context-map Cartographer") {
+        "context_map"
+    } else {
+        "responder"
+    }
 }
 
 fn assert_agent_trace(agent: &mut AxAgent, fixture: &Value) -> AxResult<()> {
@@ -16107,6 +16381,12 @@ fn build_fixture_tools_recording(fixture: &Value) -> AxResult<(Vec<Tool>, std::s
     Ok((out, calls))
 }
 
+thread_local! {
+    // How many requests the scripted client has recorded, for callbacks that
+    // run while the client is in use.
+    static FIXTURE_CLIENT_REQUESTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 struct FixtureClient {
     responses: VecDeque<Value>,
     transcribe_responses: VecDeque<Value>,
@@ -16128,6 +16408,7 @@ impl AxAIClient for FixtureClient {
     }
     fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
+        FIXTURE_CLIENT_REQUESTS.with(|count| count.set(self.requests.len()));
         Ok(self
             .transcribe_responses
             .pop_front()
@@ -16177,6 +16458,7 @@ impl FixtureClient {
         };
         self.responses.pop_front();
         self.requests.push(request);
+        FIXTURE_CLIENT_REQUESTS.with(|count| count.set(self.requests.len()));
         if let Some(options) = options {
             self.chat_options.push(options);
         }
@@ -16207,6 +16489,7 @@ impl FixtureClient {
 
     fn scripted_chat(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
+        FIXTURE_CLIENT_REQUESTS.with(|count| count.set(self.requests.len()));
         self.note_chat_request()?;
         let response = self
             .responses
@@ -16227,6 +16510,7 @@ impl FixtureClient {
     }
 
     fn scripted(responses: impl Into<VecDeque<Value>>, features: Value) -> Self {
+        FIXTURE_CLIENT_REQUESTS.with(|count| count.set(0));
         Self {
             responses: responses.into(),
             transcribe_responses: VecDeque::new(),
@@ -22820,6 +23104,12 @@ fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
         core_set(&state, CoreValue::from(key),
             core_value_from_json(&Value::Array(items.clone())))?;
     }
+    if !gen.host_assertions.is_empty() {
+        let assertions = core_get(&state, &CoreValue::from("assertions"), CoreValue::Null);
+        for check in &gen.host_assertions {
+            core_append(&assertions, CoreValue::Host(Rc::new(CoreHostAssertionHost { check: check.clone() })))?;
+        }
+    }
     // Field transforms: the op specs, with each callable transform as a
     // {field, processor} spec at the place it was added.
     let transforms = CoreValue::new_list();
@@ -22983,6 +23273,24 @@ impl CoreHost for CoreFieldProcessorHost {
 // would be retried as a validation failure); the run then ends as a
 // consumer stop (`aborted` under a run control), and
 // streaming_forward_with_sink returns the kept error.
+// A host-callable assertion as a Core callable: call(output) returns the
+// assertion's outcome value.
+struct CoreHostAssertionHost {
+    check: AxGenHostAssertionFn,
+}
+
+impl CoreHost for CoreHostAssertionHost {
+    fn host_type(&self) -> &'static str {
+        "AxGenAssertion"
+    }
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        match name {
+            "call" => Ok(core_value_from_json(&(self.check)(&core_value_to_json(&core_arg(args, 0)))?)),
+            other => Err(AxError::runtime(format!("AxGenAssertion has no callable method '{other}'"))),
+        }
+    }
+}
+
 struct CoreDeltaSinkHost {
     sink: RefCell<Box<dyn FnMut(Value) -> AxResult<()>>>,
     stopped: RefCell<Option<AxError>>,
@@ -23134,6 +23442,26 @@ impl AxAIClient for RawScopedClient {
     fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         self.routed_call("transcribe", request, Value::Null)
     }
+
+    // A stage that streams reads the enclosing client's stream as it arrives
+    // when the enclosing callback opens one ("stream_open"); otherwise its
+    // chat response streams as one chunk per result, as before.
+    fn stream_iter_with_options(&mut self, request: Value, options: Value) -> AxResult<AxChatStream> {
+        if !self.1.is_empty() {
+            return self.stream_iter(request);
+        }
+        drop(take_open_chat_stream());
+        let response = self.routed_call("stream_open", request, options)?;
+        if response == Value::Bool(true) {
+            if let Some(stream) = take_open_chat_stream() {
+                return Ok(stream);
+            }
+        }
+        if let Some(results) = response.get("results").and_then(Value::as_array) {
+            return Ok(AxChatStream::from_values(results.iter().map(|result| json!({"results": [result.clone()]})).collect()));
+        }
+        Ok(AxChatStream::from_values(vec![response]))
+    }
 }
 
 fn core_scoped_client() -> AxResult<RawScopedClient> {
@@ -23198,6 +23526,24 @@ impl CoreHost for GenHost {
                     .gen
                     .borrow_mut()
                     .forward_with_options(&mut client, values, options)?;
+                Ok(core_value_from_json(&output))
+            }
+            // The agent's streamed stage: each delta goes through the agent's
+            // citation handling (hidden citations leave the delta) to the
+            // agent's sink.
+            "streaming_forward" => {
+                let values = core_value_to_json(&core_arg(args, 1));
+                let options = core_value_to_json(&core_arg(args, 2));
+                let state = core_arg(args, 3);
+                let sink = core_arg(args, 4);
+                let mut client = core_scoped_client()?;
+                let output = self.gen.borrow_mut().streaming_forward_with_sink(&mut client, values, options, move |envelope| {
+                    let filtered = _agent_stream_citation_delta(&[state.clone(), core_value_from_json(&envelope)])?;
+                    match &sink {
+                        CoreValue::Host(host) => host.call_method("call", &[filtered]).map(|_| ()),
+                        _ => Err(AxError::runtime("the agent stream has no delta sink")),
+                    }
+                })?;
                 Ok(core_value_from_json(&output))
             }
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(self.gen.borrow().chat_log.clone()))),
@@ -23408,6 +23754,23 @@ fn core_agent_native_stage_forward(args:&[CoreValue])->AxResult<CoreValue> {
     let records=gen.borrow().function_call_traces.clone();drop(restore);
     _agent_record_native_calls(&[state,selected,core_value_from_json(&json!(records)),options])?;
     result
+}
+
+// python: _core_agent_stage_streaming_forward(stage, state, client, values,
+// options, sink): the stage streams its deltas to sink.
+fn core_agent_stage_streaming_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let stage = core_arg(args, 0);
+    let state = core_arg(args, 1);
+    let client = core_arg(args, 2);
+    let values = core_arg(args, 3);
+    let values = if values.is_null() { CoreValue::new_map() } else { values };
+    let options = core_arg(args, 4);
+    let options = if options.is_null() { CoreValue::new_map() } else { options };
+    let sink = core_arg(args, 5);
+    match &stage {
+        CoreValue::Host(host) => host.call_method("streaming_forward", &[client, values, options, state, sink]),
+        _ => Err(AxError::runtime("the agent's streamed stage is not an AxGen")),
+    }
 }
 
 fn core_agent_stage_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
