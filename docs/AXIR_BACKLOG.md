@@ -18,12 +18,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-27-match-typescript-s-structured-output-validation-messages-for-str` [axgen] Match TypeScript's structured-output validation messages for string and number constraints in the ports
-  - Status: open
-  - Source commit: `7a45c6024cb4b7a32526b81b86e447a57ea49ed1`
-  - TS paths: `src/ax/dsp/errors.ts`, `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/validators.ts`
-  - Impact: TypeScript's validateStructuredOutputValues reports a constraint failure as "Field '<title>' failed validation: String must be at most 20 characters long. You provided: \"<value>\" (22 characters).", where a nested field's title is its key (structuredJson.ts nestedFieldFromType title: name). The ports' validate path (validate.axir @validate_string_constraints_impl and @validate_number_constraints_impl) drops the 'You provided' suffix and titles nested fields ('Username' for username); the streaming path (stream.axir) already has the suffix. The message reaches the model in a validation retry (Invalid Field: ...). Pinned so far only by substring in validation/output-string-*; add full-message goldens and fix.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-09-27-open-a-fresh-native-chat-session-for-each-axgen-request-in-the-p` [axgen] Open a fresh native chat session for each AxGen request in the ports, as TypeScript does, instead of steering the open session with a correction
   - Status: open
   - Source commit: `d691dd63fb7f6ec665309a3c354322e6320f229d`
@@ -1055,6 +1049,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `9ae25fc90`
   - Verification: `Five TS goldens (forward-feedback-request-shape, streaming-forward-mid-stream-feedback-continues, streaming-forward-mid-stream-and-final-feedback-order, streaming-forward-processor-null-no-feedback, streaming-forward-split-surrogate-pair) with the runner key expected_last_request_tail and a declared string model per runner (TestLoneSurrogateFixturesHaveARunner). On main the three feedback goldens fail in every port on the feedback's string content and the split-pair golden fails in Java. Python, Java and C++ (WTF-8 join) run the split-pair golden; Go and Rust skip it (open entry for keeping the pair). Host tests pin the native-session steer text in all five ports; Rust's SSE parsers no longer fail a stream on a lone surrogate escape. TS fieldProcessor.test.ts and generate.streamParity.test.ts fail before the fixes; npm run test --workspace=@ax-llm/ax passes 3598 tests. verify --mode dev: 1345 fixtures in python, java and cpp, 1344 plus one skip in go and rust (Rust cargo test 70/70); Python response-perturbation gate 335 mutations across 134 fixtures.`
+- `axir-2026-09-27-match-typescript-s-structured-output-validation-messages-for-str` [axgen] Match TypeScript's structured-output validation messages for string and number constraints in the ports
+  - Status: done
+  - Source commit: `7a45c6024cb4b7a32526b81b86e447a57ea49ed1`
+  - TS paths: `src/ax/dsp/errors.ts`, `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/validators.ts`
+  - Impact: TypeScript's validateStructuredOutputValues reports a constraint failure as "Field '<title>' failed validation: String must be at most 20 characters long. You provided: \"<value>\" (22 characters).", where a nested field's title is its key (structuredJson.ts nestedFieldFromType title: name). The ports' validate path (validate.axir @validate_string_constraints_impl and @validate_number_constraints_impl) drops the 'You provided' suffix and titles nested fields ('Username' for username); the streaming path (stream.axir) already has the suffix. The message reaches the model in a validation retry (Invalid Field: ...). Pinned so far only by substring in validation/output-string-*; add full-message goldens and fix.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `736a00c4f`
+  - Verification: `validate.axir words string and number constraint failures as TS's createStringConstraintError and createNumberConstraintError do (You provided: "<value>" (<n> characters). / You provided: <n>.), titles a nested object's fields by their keys (@validate_keyed_fields_impl, TS's nestedFieldFromType), and words a string field's url/uri format as TS's valid-URL constraint. 17 TS goldens in validation/ pin the whole message as expected_error_message (top-level, nested and array fields); each runner compares it exactly. Before the fix 15 of 30 validation fixtures fail in each of the five ports, and a perturbed expected_error_message fails in all five runners. verify --mode release on ccee3bda2 plus the fix: 1545 fixtures in python, go, java, cpp and rust.`
 - `axir-2026-09-27-mcp-tool-task-handling-in-the-ports` [axmcp] Give the ports TypeScript's MCP callToolOutcome and expose task handling, with task-ID listen filters
   - Status: done
   - Source commit: `439191e63628f5cd82001ffbdb8f2f89cab10023`

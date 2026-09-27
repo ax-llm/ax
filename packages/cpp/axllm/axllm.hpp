@@ -581,6 +581,7 @@ struct Core {
   static Value _schema_object_from_fields_impl(Value fields_map, Value is_nested, Value options);
   static Value _schema_field_schema_impl(Value field, Value is_nested, Value options);
   static Value _strip_internal_fields_impl(Value fields, Value values);
+  static Value _validate_keyed_fields_impl(Value fields_map);
   static Value _schema_to_json_schema_impl(Value fields, Value schema_title, Value options);
   static Value render_template_content(Value template_, Value vars, Value context);
   static Value collect_template_variable_names(Value source, Value context);

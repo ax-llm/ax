@@ -17613,6 +17613,17 @@ func expectMaybeFixtureError(fn func() Value, fixture map[string]Value, fallback
 		if !strings.Contains(display(errorValue(caught)), expected) && !strings.Contains(display(caught), expected) {
 			panic(AxError{Category: "fixture", Message: "expected error containing " + expected + ", got " + display(caught)})
 		}
+		// A validation message reaches the model as the retry's correction, so
+		// a fixture can pin TypeScript's whole message.
+		if message, ok := fixture["expected_error_message"]; ok {
+			got := display(caught)
+			if err, isErr := caught.(error); isErr {
+				got = err.Error()
+			}
+			if got != display(message) {
+				panic(AxError{Category: "fixture", Message: "expected error message " + display(message) + ", got " + got})
+			}
+		}
 		return fallback
 	}
 	if caught != nil {

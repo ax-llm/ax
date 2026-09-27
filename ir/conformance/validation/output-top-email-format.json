@@ -1,0 +1,48 @@
+{
+  "expected_error_category": "validation",
+  "expected_error_contains": "valid email address",
+  "expected_error_message": "Field 'Email' failed validation: String must be a valid email address. You provided: \"nope\".",
+  "kind": "validate_output",
+  "name": "output-top-email-format",
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "username": {
+        "max": 20,
+        "min": 3,
+        "type": "string"
+      },
+      "email": {
+        "email": true,
+        "type": "string"
+      },
+      "website": {
+        "type": "string",
+        "url": true
+      },
+      "outputCode": {
+        "pattern": "^[A-Z0-9]+$",
+        "patternDescription": "Must contain only uppercase letters and numbers",
+        "type": "string"
+      },
+      "age": {
+        "max": 120,
+        "min": 18,
+        "type": "number"
+      }
+    }
+  },
+  "ts_error_message": "Field 'Email' failed validation: String must be a valid email address. You provided: \"nope\".",
+  "ts_error_name": "ValidationError",
+  "values": {
+    "age": 36,
+    "email": "nope",
+    "outputCode": "AX42",
+    "username": "adalovelace",
+    "website": "https://axllm.dev"
+  }
+}

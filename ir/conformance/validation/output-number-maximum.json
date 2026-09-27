@@ -1,9 +1,9 @@
 {
   "expected_error_category": "validation",
-  "expected_error_contains": "at least 18",
-  "expected_error_message": "Field 'age' failed validation: Number must be at least 18. You provided: 12.",
+  "expected_error_contains": "at most 120",
+  "expected_error_message": "Field 'age' failed validation: Number must be at most 120. You provided: 121.",
   "kind": "validate_output",
-  "name": "output-number-minimum",
+  "name": "output-number-maximum",
   "signature_spec": {
     "inputs": {
       "query": {
@@ -34,11 +34,11 @@
       }
     }
   },
-  "ts_error_message": "Field 'age' failed validation: Number must be at least 18. You provided: 12.",
+  "ts_error_message": "Field 'age' failed validation: Number must be at most 120. You provided: 121.",
   "ts_error_name": "ValidationError",
   "values": {
     "user": {
-      "age": 12,
+      "age": 121,
       "username": "adalovelace"
     }
   }

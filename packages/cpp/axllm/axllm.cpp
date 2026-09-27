@@ -5165,7 +5165,7 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
   if (Core::truthy(has_min)) {
     Value too_short = Core::lt(length, min_length);
     if (Core::truthy(too_short)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: String must be at least {} characters long."), title, min_length);
+      Value message = Core::string_format(Value("Field '{}' failed validation: String must be at least {} characters long. You provided: \"{}\" ({} characters)."), title, min_length, value, length);
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -5175,7 +5175,7 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
   if (Core::truthy(has_max)) {
     Value too_long = Core::gt(length, max_length);
     if (Core::truthy(too_long)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: String must be at most {} characters long."), title, max_length);
+      Value message = Core::string_format(Value("Field '{}' failed validation: String must be at most {} characters long. You provided: \"{}\" ({} characters)."), title, max_length, value, length);
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -5186,7 +5186,7 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
     Value matches = Core::regex_match(pattern, value);
     Value pattern_failed = Core::not_(matches);
     if (Core::truthy(pattern_failed)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: String must match pattern /{}/."), title, pattern);
+      Value message = Core::string_format(Value("Field '{}' failed validation: String must match pattern /{}/. You provided: \"{}\"."), title, pattern, value);
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -5197,7 +5197,7 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
     Value valid_email = Core::regex_match(Value("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"), value);
     Value invalid_email = Core::not_(valid_email);
     if (Core::truthy(invalid_email)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: String must be a valid email address."), title);
+      Value message = Core::string_format(Value("Field '{}' failed validation: String must be a valid email address. You provided: \"{}\"."), title, value);
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -5210,7 +5210,7 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
     Value valid_url = Core::url_valid(value);
     Value invalid_url = Core::not_(valid_url);
     if (Core::truthy(invalid_url)) {
-      Value message = Core::string_format(Value("Invalid URL for '{}': Invalid URL format."), title);
+      Value message = Core::string_format(Value("Field '{}' failed validation: String must be a valid URL. You provided: \"{}\"."), title, value);
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -5227,7 +5227,7 @@ Value Core::_validate_number_constraints_impl(Value value, Value field) {
   if (Core::truthy(has_minimum)) {
     Value too_small = Core::lt(value, minimum);
     if (Core::truthy(too_small)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: Number must be at least {}."), title, minimum);
+      Value message = Core::string_format(Value("Field '{}' failed validation: Number must be at least {}. You provided: {}."), title, minimum, value);
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -5237,7 +5237,7 @@ Value Core::_validate_number_constraints_impl(Value value, Value field) {
   if (Core::truthy(has_maximum)) {
     Value too_large = Core::gt(value, maximum);
     if (Core::truthy(too_large)) {
-      Value message = Core::string_format(Value("Field '{}' failed validation: Number must be at most {}."), title, maximum);
+      Value message = Core::string_format(Value("Field '{}' failed validation: Number must be at most {}. You provided: {}."), title, maximum, value);
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -5498,7 +5498,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     Value nested_map = Core::get(typ, Value("fields"), Value());
     Value has_nested = Core::truthy_value(nested_map);
     if (Core::truthy(has_nested)) {
-      Value nested_fields = Core::fields_from_map(nested_map);
+      Value nested_fields = Core::_validate_keyed_fields_impl(nested_map);
       Core::_validate_fields_impl(nested_fields, value, path);
     }
     return Value();
@@ -5696,6 +5696,30 @@ Value Core::_strip_internal_fields_impl(Value fields, Value values) {
     }
   }
   return public_values;
+}
+
+Value Core::_validate_keyed_fields_impl(Value fields_map) {
+  axir_coverage_mark("_validate_keyed_fields_impl");
+  Value out = Value::array();
+  Value nested_fields = Core::fields_from_map(fields_map);
+  for (auto nested : Core::iter(nested_fields)) {
+    Value name = Core::get(nested, Value("name"), Value(""));
+    Value typ = Core::get(nested, Value("type"), Value());
+    Value optional_snake = Core::get(nested, Value("is_optional"), Value(false));
+    Value optional_value = Core::get(nested, Value("isOptional"), optional_snake);
+    Value optional = Core::truthy_value(optional_value);
+    Value internal_snake = Core::get(nested, Value("is_internal"), Value(false));
+    Value internal_value = Core::get(nested, Value("isInternal"), internal_snake);
+    Value internal = Core::truthy_value(internal_value);
+    Value field = Value::object();
+    Core::set(field, Value("name"), name);
+    Core::set(field, Value("title"), name);
+    Core::set(field, Value("type"), typ);
+    Core::set(field, Value("is_optional"), optional);
+    Core::set(field, Value("is_internal"), internal);
+    Core::append(out, field);
+  }
+  return out;
 }
 
 Value Core::_schema_to_json_schema_impl(Value fields, Value schema_title, Value options) {

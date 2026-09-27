@@ -1,6 +1,7 @@
 {
   "expected_error_category": "validation",
   "expected_error_contains": "Invalid URL for 'Resource Link': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: not a url.",
+  "expected_error_message": "Invalid URL for 'Resource Link': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: not a url.",
   "kind": "validate_output",
   "name": "output-url-scalar-invalid",
   "signature_spec": {
