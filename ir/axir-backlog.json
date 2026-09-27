@@ -2183,11 +2183,11 @@
     },
     {
       "id": "axir-2026-09-27-date-fields-parse-dates",
-      "status": "open",
+      "status": "done",
       "title": "Parse date, datetime and range outputs as TypeScript does (opt-in parseDates) and fix time-zone abbreviations",
       "createdAt": "2026-09-27",
       "sourcePR": null,
-      "sourceCommit": "88a3c1127576f60076647fdc40524e24e21a14c9",
+      "sourceCommit": "319c07a31b08bba2f246f8551c25d7433d15864d",
       "tsPaths": [
         "src/ax/dsp/datetime.ts",
         "src/ax/dsp/extract/fieldValue.ts",
@@ -2200,9 +2200,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "319c07a31b08bba2f246f8551c25d7433d15864d",
+      "verification": "npm run axir:conformance:check (25 date fixtures: 305 parser cases, 16 input cases, forward and streamingForward with and without parseDates); node scripts/run-axir.mjs verify --mode release per target (python, go, java, cpp: 1137 fixtures; rust conformance suites); npm run test --workspace=@ax-llm/ax"
     },
     {
       "id": "axir-2026-09-27-match-typescript-ace-prompts-required-inputs-titles-and-agent-seed",

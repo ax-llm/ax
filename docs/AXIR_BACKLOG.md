@@ -18,12 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-27-date-fields-parse-dates` [axgen] Parse date, datetime and range outputs as TypeScript does (opt-in parseDates) and fix time-zone abbreviations
-  - Status: open
-  - Source commit: `88a3c1127576f60076647fdc40524e24e21a14c9`
-  - TS paths: `src/ax/dsp/datetime.ts`, `src/ax/dsp/extract/fieldValue.ts`, `src/ax/dsp/prompt.ts`
-  - Impact: TypeScript parses date-typed text-contract outputs into Dates (time zones included) and retries unparseable ones with a correction; the ports kept the model's text and never retried. TypeScript also read ICU legacy IDs such as BST (Asia/Dhaka), AST, ART and NST as zones and PST/CST/CET as DST-aware zones; it now reads abbreviations at their literal offsets and rejects ambiguous ones. The ports implement both under the parseDates / parse_dates opt-in (default off until the next major), accept native date inputs (Python, Go, Java) and {start, end} range objects.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -902,6 +897,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `55f195ce5`
   - Verification: `Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes.`
+- `axir-2026-09-27-date-fields-parse-dates` [axgen] Parse date, datetime and range outputs as TypeScript does (opt-in parseDates) and fix time-zone abbreviations
+  - Status: done
+  - Source commit: `319c07a31b08bba2f246f8551c25d7433d15864d`
+  - TS paths: `src/ax/dsp/datetime.ts`, `src/ax/dsp/extract/fieldValue.ts`, `src/ax/dsp/prompt.ts`
+  - Impact: TypeScript parses date-typed text-contract outputs into Dates (time zones included) and retries unparseable ones with a correction; the ports kept the model's text and never retried. TypeScript also read ICU legacy IDs such as BST (Asia/Dhaka), AST, ART and NST as zones and PST/CST/CET as DST-aware zones; it now reads abbreviations at their literal offsets and rejects ambiguous ones. The ports implement both under the parseDates / parse_dates opt-in (default off until the next major), accept native date inputs (Python, Go, Java) and {start, end} range objects.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `319c07a31b08bba2f246f8551c25d7433d15864d`
+  - Verification: `npm run axir:conformance:check (25 date fixtures: 305 parser cases, 16 input cases, forward and streamingForward with and without parseDates); node scripts/run-axir.mjs verify --mode release per target (python, go, java, cpp: 1137 fixtures; rust conformance suites); npm run test --workspace=@ax-llm/ax`
 - `axir-2026-09-27-match-typescript-ace-prompts-required-inputs-titles-and-agent-seed` [axgen] Match TypeScript's ACE teacher prompts, required-input errors, field titles and agent playbook seed in the ports
   - Status: done
   - Source commit: `a88d66ffa9e2ff01cfab4530a32b889d588e67e7`
