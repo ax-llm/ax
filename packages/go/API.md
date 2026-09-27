@@ -97,6 +97,34 @@ Run control shared by active and future descendant programs. Cancellation report
 - Returns: `run controller`
 - Important options: steer, thinking token budget, target path, abort, event listener
 
+### `axllm.AxCachingFunction`
+
+TypeScript's cachingFunction: read and store finished AxGen outputs by key. The forward call's function comes first, then the program's, then the process-wide one, and a run control skips the cache.
+
+- Canonical Ax concept: `AxCachingFunction`
+- Kind: `type`
+- Form: `func(key string, value map[string]Value) (map[string]Value, error)`
+- Returns: `stored output or miss`
+- Important options: read, store, SHA-256 key, streamed hit as one delta
+
+```go
+qa := axllm.NewAx("question:string -> answer:string", map[string]axllm.Value{"cachingFunction": cache})
+```
+
+### `axllm.SetCachingFunction`
+
+Register, replace, or clear the process-wide AxGen caching function.
+
+- Canonical Ax concept: `set_caching_function`
+- Kind: `function`
+- Form: `axllm.SetCachingFunction(fn)`
+- Returns: `void`
+- Important options: caching function, clear
+
+```go
+axllm.SetCachingFunction(cache)
+```
+
 
 ## AxAI
 

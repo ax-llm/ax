@@ -6,7 +6,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-rust-llm/SKILL.md",
-      "digest": "sha256:7cdc23c4bb09d202a4c811b24405e916cd31651c5f63abdf38e860b3848cc49b"
+      "digest": "sha256:8a9bdbd604b081f82b15f1bb0bd11fd20cd62684e7522785ab40593aec8976ad"
     },
     {
       "name": "ax-rust-ai",
@@ -20,7 +20,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-rust-typesafe/SKILL.md",
-      "digest": "sha256:b03eb10d61c5fdbe015092276f092785d763499e2b10e3e978d8f5b522af8332"
+      "digest": "sha256:7fc74f53bfb112fe807c0184b7934645cded21b7328f84b23e35bf1f32080ada"
     },
     {
       "name": "ax-rust-audio",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:a58ab2e0557d87110e3c8a40cf0bc5bf4f2389a0cf12a1de493d5d0ac43c1be5"
+      "digest": "sha256:6535cdd85a1e231260eacc406b10c04ea6aeba0347f703ae223d8c4af80554ae"
     },
     {
       "name": "ax-rust-flow",
@@ -104,7 +104,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-rust-refine/SKILL.md",
-      "digest": "sha256:fec27b99e6bff9e0a841db484d1c8933e48beea59360567f06c8c5c3159de8ad"
+      "digest": "sha256:abdff51bb6614db21ce52b34f5d4e602fbadec83fc7346997c82d86ffefdfbce"
     },
     {
       "name": "ax-rust-playbook",

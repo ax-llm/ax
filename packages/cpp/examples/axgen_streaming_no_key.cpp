@@ -1,6 +1,8 @@
 #include "axllm/axllm.hpp"
 #include <cctype>
 #include <iostream>
+#include <map>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -48,6 +50,9 @@ int main() {
       "Title: calm sea\nStory: The sea rests under a quiet moon.",
       "Title: still water\nStory: The pond holds the sky.",
       "Title: still water\nStory: The reeds stay quiet.",
+      "Title: paper boat\nStory: The boat sails the gutter.",
+      "Title: paper boat\nStory: The boat carries a letter.",
+      "Title: paper boat\nStory: Rain folds the boat flat.",
   });
   axllm::OpenAICompatibleClient client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-5.4-mini"}}), &transport);
   auto story = axllm::ax("topic:string -> title:string, story:string");
@@ -194,5 +199,59 @@ int main() {
   } catch (const Interrupted&) {
   }
   if (lifecycle != std::vector<std::string>{"started", "aborted"} || transport.requests.size() != 8) return 16;
+
+  // A caching function, as TypeScript's cachingFunction: fn(key, nullptr)
+  // returns a stored output (std::nullopt is a miss) and fn(key, &output)
+  // stores one. A stored output comes back without a request, and
+  // streaming_forward sends it as one delta.
+  std::map<std::string, axllm::Value> shelf;
+  int shelf_reads = 0;
+  axllm::AxCachingFunction shelf_cache = [&](const std::string& key, const axllm::Value* output) -> std::optional<axllm::Value> {
+    if (output != nullptr) {
+      shelf[key] = *output;
+      return std::nullopt;
+    }
+    ++shelf_reads;
+    auto stored = shelf.find(key);
+    if (stored == shelf.end()) return std::nullopt;
+    return stored->second;
+  };
+  auto boat = axllm::ax("topic:string -> title:string, story:string");
+  boat.set_caching_function(shelf_cache);
+  const axllm::Value paper_boat = axllm::object({{"topic", "a paper boat"}});
+  axllm::Value fresh = boat.streaming_forward(client, paper_boat, axllm::Value::object(), [](const axllm::AxGenDelta&) { return true; });
+  if (transport.requests.size() != 9 || shelf.size() != 1) return 17;
+  std::vector<axllm::AxGenDelta> replayed;
+  axllm::Value replay = boat.streaming_forward(client, paper_boat, axllm::Value::object(), [&](const axllm::AxGenDelta& delta) {
+    replayed.push_back(delta);
+    return true;
+  });
+  if (replayed.size() != 1 || !axllm::equal(replayed[0].delta, fresh) || !axllm::equal(replay, fresh)) return 18;
+  if (!axllm::equal(boat.forward(client, paper_boat), fresh) || transport.requests.size() != 9 || shelf_reads != 3) return 19;
+
+  // A call's own caching function comes first. It is passed as a run control
+  // is: a handle's value() in the call options.
+  std::map<std::string, axllm::Value> drawer;
+  auto drawer_cache = axllm::caching_function([&](const std::string& key, const axllm::Value* output) -> std::optional<axllm::Value> {
+    if (output != nullptr) {
+      drawer[key] = *output;
+      return std::nullopt;
+    }
+    auto stored = drawer.find(key);
+    if (stored == drawer.end()) return std::nullopt;
+    return stored->second;
+  });
+  axllm::Value drawn = boat.forward(client, paper_boat, axllm::object({{"caching_function", drawer_cache.value()}, {"stream", true}}));
+  if (transport.requests.size() != 10 || drawer.size() != 1 || shelf_reads != 3 || axllm::equal(drawn, fresh)) return 20;
+
+  // The process-wide caching function applies when neither the call nor the
+  // AxGen sets one, and an empty function clears it.
+  auto plain = axllm::ax("topic:string -> title:string, story:string");
+  axllm::set_caching_function(shelf_cache);
+  axllm::Value shelved = plain.forward(client, paper_boat, axllm::object({{"stream", true}}));
+  axllm::set_caching_function({});
+  if (!axllm::equal(shelved, fresh) || transport.requests.size() != 10 || shelf_reads != 4) return 21;
+  plain.forward(client, paper_boat, axllm::object({{"stream", true}}));
+  if (transport.requests.size() != 11 || shelf_reads != 4) return 22;
   std::cout << "cpp-axgen-streaming-ok " << title << ": " << text << "\n";
 }

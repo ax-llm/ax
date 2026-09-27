@@ -97,6 +97,34 @@ Run control shared by active and future descendant programs. Cancellation report
 - Returns: `run controller`
 - Important options: steer, thinking token budget, target path, abort, event listener
 
+### `AxCachingFunction`
+
+TypeScript's cachingFunction: read and store finished AxGen outputs by key. The forward call's function comes first, then the program's, then the process-wide one, and a run control skips the cache.
+
+- Canonical Ax concept: `AxCachingFunction`
+- Kind: `type`
+- Form: `Map<String, Object> apply(String key, Map<String, Object> value)`
+- Returns: `stored output or miss`
+- Important options: read, store, SHA-256 key, streamed hit as one delta
+
+```java
+AxGen qa = new AxGen(Ax.s("question:string -> answer:string"), Map.of("cachingFunction", cache));
+```
+
+### `AxGlobals.setCachingFunction`
+
+Register, replace, or clear the process-wide AxGen caching function.
+
+- Canonical Ax concept: `set_caching_function`
+- Kind: `function`
+- Form: `AxGlobals.setCachingFunction(fn)`
+- Returns: `void`
+- Important options: caching function, clear
+
+```java
+AxGlobals.setCachingFunction(cache);
+```
+
 
 ## AxAI
 
