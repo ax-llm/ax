@@ -18857,8 +18857,14 @@ fn core_iter(value: &CoreValue) -> Result<Vec<CoreValue>, AxError> {
     }
 }
 
+// As JavaScript's String.prototype.trim: white space and line terminators,
+// not U+0085 or other control characters.
+fn is_js_whitespace(c: char) -> bool {
+    matches!(c, '\t' | '\n' | '\u{000b}' | '\u{000c}' | '\r' | ' ' | '\u{00a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
 fn core_string_trim(value: &CoreValue) -> CoreValue {
-    CoreValue::from_string(value.text().trim().to_string())
+    CoreValue::from_string(value.text().trim_matches(is_js_whitespace).to_string())
 }
 
 fn core_string_join(sep: &CoreValue, values: &CoreValue) -> Result<CoreValue, AxError> {

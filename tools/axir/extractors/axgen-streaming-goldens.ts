@@ -755,6 +755,29 @@ const cases: Record<string, Case> = {
     responses: [streamed(text('User: {"name":"Ada"}'), done())],
   },
 
+  // ----- JS trim -----
+  // TS trims values with String.prototype.trim: JS whitespace and line
+  // terminators (U+FEFF, U+00A0, U+2028, U+3000 among them) go, while
+  // control characters such as U+001C and U+0085 stay.
+  'forward-text-trim-js-whitespace': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [
+      {
+        results: [
+          { index: 0, content: 'Answer: \ufeff\u00a0Paris\u2028\u3000' },
+        ],
+      },
+    ],
+  },
+  'forward-text-trim-keeps-control-chars': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [
+      { results: [{ index: 0, content: 'Answer: \u001cParis\u0085' }] },
+    ],
+  },
+
   // ----- re-parse cadence in UTF-16 units -----
   // TS re-parses streamed structured output after 160 new characters of
   // String.prototype.length (UTF-16 code units): 90 emoji reach it (197

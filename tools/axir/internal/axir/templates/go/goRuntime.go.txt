@@ -1369,7 +1369,17 @@ func coreRegexMatch(pattern Value, value Value) Value {
 	return regexp.MustCompile(display(pattern)).FindStringIndex(display(value)) != nil
 }
 
-func coreStringTrim(value Value) Value { return strings.TrimSpace(display(value)) }
+// coreStringTrim trims as JavaScript's String.prototype.trim does: white
+// space and line terminators, not U+0085 or other control characters.
+func coreStringTrim(value Value) Value { return strings.TrimFunc(display(value), isJSWhitespace) }
+
+func isJSWhitespace(r rune) bool {
+	switch r {
+	case '\t', '\n', '\v', '\f', '\r', ' ', '\u00a0', '\u1680', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff':
+		return true
+	}
+	return r >= '\u2000' && r <= '\u200a'
+}
 
 func coreTypeIs(value Value, typeName Value) Value {
 	switch display(typeName) {

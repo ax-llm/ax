@@ -1212,12 +1212,39 @@ Value Core::type_is(Value value, Value type_name) {
 Value Core::regex_match(Value pattern, Value value) {
   return Value(value.is_string() && std::regex_search(str(value), std::regex(str(pattern))));
 }
+// The UTF-8 length of the JavaScript white space or line terminator at pos
+// (String.prototype.trim's set), or 0.
+static size_t js_space_at(const std::string& s, size_t pos) {
+  const auto at = [&](size_t i) { return i < s.size() ? static_cast<unsigned char>(s[i]) : 0; };
+  const unsigned char a = at(pos), b = at(pos + 1), c = at(pos + 2);
+  if (a == 0x09 || a == 0x0A || a == 0x0B || a == 0x0C || a == 0x0D || a == 0x20) return 1;
+  if (a == 0xC2 && b == 0xA0) return 2;
+  if (a == 0xE1 && b == 0x9A && c == 0x80) return 3;
+  if (a == 0xE2 && b == 0x80 && ((c >= 0x80 && c <= 0x8A) || c == 0xA8 || c == 0xA9 || c == 0xAF)) return 3;
+  if (a == 0xE2 && b == 0x81 && c == 0x9F) return 3;
+  if (a == 0xE3 && b == 0x80 && c == 0x80) return 3;
+  if (a == 0xEF && b == 0xBB && c == 0xBF) return 3;
+  return 0;
+}
+// As JavaScript's String.prototype.trim: white space and line terminators,
+// not other control characters.
 Value Core::string_trim(Value value) {
   std::string s = str(value);
-  auto start = s.find_first_not_of(" \t\n\r");
-  if (start == std::string::npos) return Value("");
-  auto end = s.find_last_not_of(" \t\n\r");
-  return Value(s.substr(start, end - start + 1));
+  size_t start = 0, end = s.size();
+  while (start < end) {
+    size_t n = js_space_at(s, start);
+    if (n == 0 || start + n > end) break;
+    start += n;
+  }
+  while (end > start) {
+    size_t trimmed = 0;
+    for (size_t n = 1; n <= 3 && n <= end - start; n++) {
+      if (js_space_at(s, end - n) == n) { trimmed = n; break; }
+    }
+    if (trimmed == 0) break;
+    end -= trimmed;
+  }
+  return Value(s.substr(start, end - start));
 }
 Value Core::string_join(Value sep, Value values) {
   std::string out;

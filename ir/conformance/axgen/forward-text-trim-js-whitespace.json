@@ -1,0 +1,22 @@
+{
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-text-trim-js-whitespace",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: ﻿ Paris 　",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}
