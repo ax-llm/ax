@@ -1,0 +1,42 @@
+{
+  "expected_output": {
+    "intro": "Welcome in",
+    "outro": "See you soon",
+    "summary": "A greeting"
+  },
+  "expected_request_count": 1,
+  "expected_speak_requests": [],
+  "forward_options": {
+    "renderAudio": false
+  },
+  "input": {
+    "question": "Say hi"
+  },
+  "kind": "forward",
+  "name": "audio-output-off-explicit-false",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Intro: Welcome in\nSummary: A greeting\nOutro: See you soon",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> intro:audio, summary:string, outro:audio",
+  "speak_responses": [
+    {
+      "data": "SUQzBAA=",
+      "format": "mp3",
+      "mimeType": "audio/mpeg"
+    },
+    {
+      "data": "UklGRg==",
+      "format": "wav",
+      "mimeType": "audio/wav",
+      "transcript": "see you soon, spoken"
+    }
+  ]
+}

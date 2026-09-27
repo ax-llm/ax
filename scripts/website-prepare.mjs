@@ -432,6 +432,7 @@ async function renderContext(language, page) {
     signatureValidationExample: snippetBlock(language, 'signatures.validation'),
     signatureHybridExample: snippetBlock(language, 'signatures.hybrid'),
     standardSchemaSection: standardSchemaSection(language),
+    audioFieldsSection: audioFieldsSection(language),
     toolsBasicExample: snippetBlock(language, 'tools.basic'),
     toolsStandardSchemaExample: snippetBlock(language, 'tools.standardSchema'),
     toolsNamespacesExample: snippetBlock(language, 'tools.namespaces'),
@@ -2145,6 +2146,27 @@ function generatedPackageSnippets(languageId) {
     'optimize.agent': base['optimize.axgen'],
     'optimize.artifact': base['optimize.axgen'],
   };
+}
+
+function audioFieldsSection(language) {
+  const inputs =
+    'An audio input given as a string, or as an audio object with a string `transcript` (such as a rendered audio output passed to the next program), reaches the model as text. Audio without a transcript goes as an audio part.';
+  if (language.id === 'typescript') {
+    return [
+      "An `audio` output field asks the model for text to speak, and the generator turns that text into audio with the AI client's `speak()`: the field becomes the speech result (`data`, `format`, `mimeType`) with the text as its `transcript`. The `speech.speak` forward option sets the `speak()` defaults and `speech.fields` sets them per field. A streaming forward streams the text; with a result picker, the picked sample is spoken before it goes out.",
+      '',
+      inputs,
+    ].join('\n');
+  }
+  const option =
+    language.id === 'python'
+      ? '`render_audio` (or `renderAudio`)'
+      : '`renderAudio` (or `render_audio`)';
+  return [
+    `An \`audio\` output field asks the model for text to speak. With the ${option} forward or constructor option, the generator turns that text into audio with the AI client's \`speak()\`, as TypeScript does: the field becomes the speech result (\`data\`, \`format\`, \`mimeType\`) with the text as its \`transcript\`. Without the option the field keeps the text, and a one-time deprecation warning names the option; speaking becomes the default in the next major version.`,
+    '',
+    inputs,
+  ].join('\n');
 }
 
 function standardSchemaSection(language) {

@@ -30,6 +30,16 @@ public final class Conformance {
     final List<Map<String, Object>> chatOptions = new ArrayList<>();
     final Map<String, Object> features;
     int chatCalls;
+    // A fixture's speak_responses script speak(); its requests are kept apart
+    // from the chat requests.
+    List<Object> speakResponses;
+    final List<Object> speakRequests = new ArrayList<>();
+
+    ConformanceScriptedAI scriptSpeak(Map<String, Object> fixture) {
+      if (fixture.containsKey("speak_responses")) speakResponses = new ArrayList<>(Core.asList(fixture.get("speak_responses")));
+      return this;
+    }
+
     // Called with each chat request's 1-based number while it is in flight,
     // before the scripted answer (a fixture's control_steer).
     java.util.function.IntConsumer onRequest;
@@ -136,9 +146,17 @@ public final class Conformance {
     }
 
     public Map<String, Object> speak(Map<String, Object> request) {
-      requests.add(new LinkedHashMap<>(request));
-      return Map.of("audio", "pcm");
+      speakRequests.add(Core.ownedCopy(request));
+      if (speakResponses == null) return Map.of("audio", "pcm");
+      if (speakResponses.isEmpty()) throw new RuntimeException("scripted speak exhausted");
+      Map<String, Object> raw = Core.asMap(speakResponses.remove(0));
+      if (raw.containsKey("error")) throw fixtureAIServiceError(Core.asMap(raw.get("error")));
+      return Core.asMap(Core.ownedCopy(raw));
     }
+  }
+
+  static void assertSpeakRequests(Map<String, Object> fixture, ConformanceScriptedAI client) {
+    if (fixture.containsKey("expected_speak_requests")) assertEqual(client.speakRequests, fixture.get("expected_speak_requests"), "speak requests");
   }
 
   static class ScriptedTransport implements OpenAICompatibleClient.Transport {
@@ -995,7 +1013,7 @@ public final class Conformance {
     ToolBuild toolBuild = buildTools(Core.asList(fixture.getOrDefault("tools", List.of())));
     Map<String, Object> options = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
     options.put("functions", toolBuild.tools);
-    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())), Core.asMap(fixture.get("client")));
+    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())), Core.asMap(fixture.get("client"))).scriptSpeak(fixture);
     List<Object> constructorEvents = attachConstructorControl(fixture, client, options);
     AxGen gen = new AxGen(sig, options);
     if (fixture.containsKey("examples")) gen.setExamples(Core.asMapList(fixture.get("examples")));
@@ -1022,6 +1040,7 @@ public final class Conformance {
     List<Object> callEvents = attachFixtureControl(fixture, client, forwardOptions);
     List<Object> controlEvents = Core.truthy(fixture.get("control")) ? callEvents : constructorEvents;
     Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions), fixture, error -> assertErrorCause(error, fixture));
+    assertSpeakRequests(fixture, client);
     if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");
     if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "run control events");
@@ -1131,7 +1150,7 @@ public final class Conformance {
   }
 
   static ConformanceScriptedAI streamingFixtureClient(Map<String, Object> fixture) {
-    return new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), List.of(), Core.asMap(fixture.getOrDefault("features", Map.of())));
+    return new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), List.of(), Core.asMap(fixture.getOrDefault("features", Map.of()))).scriptSpeak(fixture);
   }
 
   // control: true attaches a run control and records its lifecycle events as
@@ -1236,6 +1255,7 @@ public final class Conformance {
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) {
       throw new FixtureError("expected " + fixture.get("expected_request_count") + " requests, got " + client.requests.size());
     }
+    assertSpeakRequests(fixture, client);
     if (fixture.containsKey("expected_tool_calls")) assertEqual(toolBuild.calls, fixture.get("expected_tool_calls"), "tool calls");
     if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
     if (fixture.containsKey("expected_request_contains")) {
@@ -1343,6 +1363,7 @@ public final class Conformance {
     if (client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected " + fixture.get("expected_request_count") + " requests, got " + client.requests.size());
     if (reads.size() != Core.asInt(fixture.get("expected_cache_gets"))) throw new FixtureError("expected " + fixture.get("expected_cache_gets") + " cache reads, got " + reads.size());
     assertEqual(writes, fixture.get("expected_cache_sets"), "cache writes");
+    assertSpeakRequests(fixture, client);
   }
 
   // The in-memory caching function of a cache fixture: it records each read's
@@ -1615,7 +1636,7 @@ public final class Conformance {
       if (fixture.containsKey("expected_plan")) assertEqual(fl.getPlan(), fixture.get("expected_plan"), "flow plan");
       if (fixture.containsKey("expected_plan_subset")) assertListSubset(fl.getPlan(), fixture.get("expected_plan_subset"), "flow plan");
       if ("plan".equals(fixture.get("operation"))) return;
-      ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+      ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of()))).scriptSpeak(fixture);
       Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
       Object output = "streaming".equals(fixture.get("operation"))
         ? fl.streamingForward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions)
@@ -1623,6 +1644,7 @@ public final class Conformance {
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "flow output");
       if (fixture.containsKey("expected_streaming_output")) assertEqual(output, fixture.get("expected_streaming_output"), "flow streaming output");
       if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
+      assertSpeakRequests(fixture, client);
       if (fixture.containsKey("expected_request_contains")) {
         String text = Json.stringify(client.requests);
         for (Object item : Core.asList(fixture.get("expected_request_contains"))) if (!text.contains(String.valueOf(item))) throw new FixtureError("flow request missing " + item + ": " + text);

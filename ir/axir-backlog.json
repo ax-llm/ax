@@ -2182,31 +2182,26 @@
       "verification": "Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes."
     },
     {
-      "id": "axir-2026-09-27-apply-axgen-constructor-run-options-as-defaults-in-the-ports-and",
-      "status": "open",
-      "title": "Apply AxGen constructor run options as defaults in the ports and send promptCacheRetention on OpenAI Responses",
+      "id": "axir-2026-09-27-audio-inputs-with-a-transcript-reach-the-model-as-text",
+      "status": "done",
+      "title": "Audio inputs that hold text reach the model as text",
       "createdAt": "2026-09-27",
       "sourcePR": null,
-      "sourceCommit": "911d6a72ec504ee4e6fd70c6581d732b7f1b483b",
+      "sourceCommit": "35a91361cbeea57d0dad24817543d0dc6d23a0b1",
       "tsPaths": [
-        "src/ax/dsp/generate.ts",
-        "src/ax/ai/base.ts",
-        "src/ax/agent/agentInternal/runtimeExecutionLlmQuery.ts",
-        "src/ax/agent/agentInternal/signatureBuilders.ts",
-        "src/ax/agent/synthesizer.ts",
-        "src/ax/agent/contextManager.ts",
-        "src/ax/agent/agentInternal/initialization.ts"
+        "src/ax/dsp/prompt.ts",
+        "src/ax/dsp/prompt.test.ts",
+        "src/ax/flow/flow.test.ts"
       ],
       "portableSurface": "axgen",
-      "impact": "TypeScript AxGen now treats run and service options given to its constructor as defaults for every forward (control, stream, sessionId, abortSignal, timeout, fetch, webSocket, traceContext, executionPath, eventContext, speech, excludeContentFromTrace, serviceTier, verbose, beta, corsProxy, includeRequestBodyInErrors, promptCacheRetention; customLabels merges key by key) and passes the service options to ai.chat; the base AI honors a per-call corsProxy, timeout and fetch. In the ports, Go ignored a constructor run control and the IR's cache skip read only the call's control; Go and Rust read the execution path from the call's options only and Java read only execution_path; Go chose the native chat session from the call's asyncMode and model only, and Rust from the call's asyncMode; Rust had no constructor-level run control; and no port sent prompt_cache_retention on OpenAI Responses.",
+      "impact": "TypeScript AxGen threw 'Audio field value must be an object.' for an audio input that held a plain string or an audio object with a transcript, so its own rendered speak() output could not feed the next program. It now sends both as text, and audio without a transcript as {type: 'audio', format, data} with format defaulting to wav. On origin/main the ports sent a transcript-bearing object as audio, copied extra keys such as mimeType into audio parts (Python, Java, Rust) or sent audio as JSON text (Go, C++), and all five sent audio[] items as JSON text.",
       "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
+        "Send a transcript or a plain string as text and other audio as TypeScript's audio part in every port",
+        "Pin the part shape with prompt goldens and feed a rendered artifact to a second program and a two-step flow"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "94cd7049eb4ab244410f175fc0779cf1e275ec39",
+      "verification": "src/ax/dsp/prompt.ts lets strings fall through to text; the new prompt.test.ts and flow.test.ts cases fail on origin/main with 'Audio field value must be an object.' and pass here. Five TS-derived prompt goldens (transcript as text, plain string as text, object as audio part, wav default, audio[] as audio parts), axgen/audio-input-rendered-artifact-as-transcript and validation/value-audio-rendered-artifact-valid plus value-audio-older-speak-shape-invalid pass in all five ports. On origin/main the prompt goldens other than the plain string and the rendered-artifact golden fail in all five ports, and Go also fails the plain string."
     },
     {
       "id": "axir-2026-09-27-axflow-reads-and-stores-its-own-cachingfunction-entry-in-the-por",
@@ -2319,6 +2314,42 @@
       "verification": "TS: the new sig.test.ts field-title cases fail on main (User I D, Field  2) and pass; npm run test --workspace=@ax-llm/ax passes (a benchmark that timed out under load passes alone). TS goldens prompt/field-titles-snake-and-camel-case and axagent/agent-playbook-evolve-miner-system-prompt; runner keys expected_playbook_state_before_forward, expected_playbook_wall_clock, expected_playbook_config_unchanged and expected_teacher_system_prompts; hand-written axagent/playbook-config-empty-seed-wall-clock, playbook-config-kept-over-actor-instructions, -kept-after-child-agent, -kept-under-run-context, playbook-config-responder-target and axgen/function-call-chat-result-flat-shape and -nested-shape. Each fails on main in the ports named in the PR and passes in all five; 23 mutated copies fail in all five; per-port probes show a flat call runs its tool in every port. Full suites 1120/1120 in python, go, java, cpp and rust; the scripted-client tool examples assert the tool ran."
     },
     {
+      "id": "axir-2026-09-27-port-speak-results-carry-typescript-speech-response-keys",
+      "status": "done",
+      "title": "Port speak() results carry TypeScript's AxSpeechResponse keys",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "de478da3e9660d6cf727dc38ab6b43b6a0b88c4c",
+      "tsPaths": ["src/ax/ai/audio/api.ts", "src/ax/ai/audio/types.ts"],
+      "portableSurface": "axai",
+      "impact": "TypeScript speak() returns AxSpeechResponse: data, format, mimeType, sampleRate and channels from the mime type, and the request text as transcript. The ports returned audio, mime_type and sample_rate. A port speak() result fed to the next program as an audio input fails the ports' own validation, which, like TypeScript's validAudio, needs a string or an object with a data or id key.",
+      "suggestedAxirWork": [
+        "Add the TypeScript keys beside the older ones",
+        "Remove the older keys at the next major version"
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "94cd7049eb4ab244410f175fc0779cf1e275ec39",
+      "verification": "@speech_response_ts_keys_impl adds data, mimeType, sampleRate, channels and transcript beside the older keys in @provider_normalize_speak_response and @gemini_normalize_speak_response. axai/openai-speak-binary-body (TS keys from TypeScript's real OpenAI speak() on an mp3 body), responses-speak and the three Gemini TTS fixtures (TS keys from TypeScript's real Gemini speak()) fail on origin/main in all five ports and pass in all five with this change."
+    },
+    {
+      "id": "axir-2026-09-27-render-axgen-audio-output-fields-through-speak-in-the-ports",
+      "status": "done",
+      "title": "Render AxGen audio output fields through speak() in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "de478da3e9660d6cf727dc38ab6b43b6a0b88c4c",
+      "tsPaths": ["src/ax/dsp/audioArtifacts.ts", "src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript AxGen turns the text in a non-array audio output field into audio with ai.speak(). The request is speech.speak, then speech.fields.<field>, then the text; the field becomes the speak() result, with the text as its transcript unless speak() gave one. It renders after forward, on a cachingFunction cache hit and on the streamingForward delta that a result picker selects. The ports never called speak() for an output and returned the model's text.",
+      "suggestedAxirWork": [
+        "Add a renderAudio opt-in with TypeScript's semantics that warns once per process when it is unset",
+        "Make rendering the default at the next major version"
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "94cd7049eb4ab244410f175fc0779cf1e275ec39",
+      "verification": "renderAudio (or render_audio) true renders through @render_audio_outputs_impl in ir/axcore/audio_output.axir at every @forward exit, on forward and streaming cache hits and on the streamingForward result-picker delta; unset keeps the text and warns once per process, and false keeps it silently. The 16 TS-derived axgen audio-output-* goldens and axflow/audio-output-flow-speaker-to-summarizer check speak requests and outputs; the 10 goldens that render fail on origin/main in all five ports. verify --mode release passes 1138 fixtures in python, java, cpp and rust; the Go conformance passes the whole tree after the load-flaky axai/portable-cancellation fixture passed 5/5 alone."
+    },
+    {
       "id": "axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths",
       "status": "done",
       "title": "Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths",
@@ -2336,6 +2367,33 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "9b1f64a9a",
       "verification": "TS streamingForward runs its stages at root/distiller, root/executor and root/responder and reports the run at root (src/ax/agent/agent.streamingControl.test.ts: 3 tests fail on main, pass here). All five ports stream the responder through @agent_streaming_forward and intrinsic.agent.stage_streaming_forward, sharing @agent_run_actor_stages and @agent_complete_run with forward. 20 TS goldens from tools/axir/extractors/agent-streaming-goldens.ts (axagent/agent-streaming-forward-* and agent-forward-*) pin the deltas, the output, the request count, the order of model requests and observer callbacks (used memories and skills, citations, playbook onUpdate), run-control events with paths (completed, failed, aborted), the chat-log shape and TS's citation messages and errors; the axagent suite (167 fixtures) passes in python, go, java, rust and cpp, and mutated copies of the control and playbook goldens fail in all five. verify --mode release passes in python, go, java, rust and cpp (1131 fixtures each)."
+    },
+    {
+      "id": "axir-2026-09-27-apply-axgen-constructor-run-options-as-defaults-in-the-ports-and",
+      "status": "open",
+      "title": "Apply AxGen constructor run options as defaults in the ports and send promptCacheRetention on OpenAI Responses",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "911d6a72ec504ee4e6fd70c6581d732b7f1b483b",
+      "tsPaths": [
+        "src/ax/dsp/generate.ts",
+        "src/ax/ai/base.ts",
+        "src/ax/agent/agentInternal/runtimeExecutionLlmQuery.ts",
+        "src/ax/agent/agentInternal/signatureBuilders.ts",
+        "src/ax/agent/synthesizer.ts",
+        "src/ax/agent/contextManager.ts",
+        "src/ax/agent/agentInternal/initialization.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript AxGen now treats run and service options given to its constructor as defaults for every forward (control, stream, sessionId, abortSignal, timeout, fetch, webSocket, traceContext, executionPath, eventContext, speech, excludeContentFromTrace, serviceTier, verbose, beta, corsProxy, includeRequestBodyInErrors, promptCacheRetention; customLabels merges key by key) and passes the service options to ai.chat; the base AI honors a per-call corsProxy, timeout and fetch. In the ports, Go ignored a constructor run control and the IR's cache skip read only the call's control; Go and Rust read the execution path from the call's options only and Java read only execution_path; Go chose the native chat session from the call's asyncMode and model only, and Rust from the call's asyncMode; Rust had no constructor-level run control; and no port sent prompt_cache_retention on OpenAI Responses.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

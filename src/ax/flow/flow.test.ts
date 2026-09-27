@@ -90,6 +90,57 @@ describe('AxFlow', () => {
     });
   });
 
+  describe('audio between nodes', () => {
+    it('feeds a rendered audio output to the next node as its transcript', async () => {
+      const prompts: unknown[] = [];
+      const answers = ['Speech: Hello there', 'Summary: A greeting'];
+      const ai = new AxMockAIService({
+        features: { functions: false, streaming: false },
+        chatResponse: async (req) => {
+          prompts.push(req.chatPrompt);
+          return {
+            results: [
+              {
+                index: 0,
+                content: answers.shift() ?? '',
+                finishReason: 'stop' as const,
+              },
+            ],
+          };
+        },
+        speechResponse: (req) => ({
+          data: 'SUQzBAA=',
+          format: 'mp3',
+          mimeType: 'audio/mpeg',
+          transcript: req.text,
+        }),
+      });
+
+      const wf = flow<{ question: string }, { summary: string }>({
+        autoParallel: false,
+      })
+        .node('speaker', 'question:string -> speech:audio')
+        .node('summarizer', 'speech:audio -> summary:string')
+        .execute('speaker', (state) => ({ question: state.question }))
+        .execute('summarizer', (state) => ({
+          speech: state.speakerResult.speech,
+        }))
+        .returns((state) => ({ summary: state.summarizerResult.summary }));
+
+      const result = await wf.forward(ai, { question: 'Say hi' });
+
+      expect(result).toEqual({ summary: 'A greeting' });
+      const summarizerPrompt = prompts[1] as {
+        role: string;
+        content: unknown;
+      }[];
+      expect(summarizerPrompt.at(-1)).toEqual({
+        role: 'user',
+        content: 'Speech: Hello there\n',
+      });
+    });
+  });
+
   describe('node definition', () => {
     it('should define a node with simple signature', () => {
       const myFlow = flow();

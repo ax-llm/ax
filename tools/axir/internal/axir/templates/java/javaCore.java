@@ -1503,6 +1503,19 @@ final class Core {
     if (scripted instanceof List<?>) return scripted;
     return List.of();
   }
+  static Object axgenSpeak(Object client, Object request, Object options) {
+    // Backs intrinsic.axgen.speak: the AxGen audio output renderer calls the
+    // client's speak(), as TS calls ai.speak().
+    if (!(client instanceof AiClient ai)) throw new UnsupportedOperationException("Audio speech not supported by this AI client");
+    try {
+      return ai.speak(asMap(request), asMap(options));
+    } catch (RuntimeException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   static Object agentTranscribe(Object client, Object request, Object options) {
     // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
     // text before the agent loop (the client passes through _agent_forward as a real client).
@@ -1816,13 +1829,27 @@ class PromptRuntime {
 
   static Object userContent(AxSignature sig, Map<String, Object> values) {
     List<Map<String, Object>> parts = new ArrayList<>();
+    boolean audioParts = false;
     for (Field field : inputFieldsForValues(sig, values)) {
       Object value = values.get(field.name);
       if (!provided(value)) {
         if (field.optional || field.internal) continue;
         throw new IllegalArgumentException("Value for input field '" + field.name + "' is required.");
       }
-      if (field.type != null && List.of("image", "audio", "file", "url").contains(field.type.name) && value instanceof Map<?, ?> map) {
+      boolean audio = field.type != null && "audio".equals(field.type.name);
+      // As TS processValue: an audio object with a transcript (what an AxGen
+      // audio output renders to) reaches the model as that text.
+      if (audio && value instanceof Map<?, ?> audioMap && audioMap.get("transcript") instanceof String transcript) value = transcript;
+      if (audio && !(value instanceof String)) {
+        parts.add(new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": \n")));
+        if (field.type.array) {
+          if (!(value instanceof List<?> items)) throw new IllegalArgumentException("Audio field value must be an array.");
+          for (Object item : items) parts.add(audioPart(item));
+        } else {
+          parts.add(audioPart(value));
+        }
+        audioParts = true;
+      } else if (field.type != null && List.of("image", "audio", "file", "url").contains(field.type.name) && value instanceof Map<?, ?> map) {
         parts.add(new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": \n")));
         Map<String, Object> media = new LinkedHashMap<>(Core.asMap(map));
         media.putIfAbsent("type", field.type.name);
@@ -1842,7 +1869,32 @@ class PromptRuntime {
       for (Map<String, Object> part : parts) text.add(String.valueOf(part.getOrDefault("text", "")));
       return String.join("\n", text);
     }
-    return parts;
+    if (!audioParts) return parts;
+    // As TS: consecutive text parts join with a newline.
+    List<Map<String, Object>> combined = new ArrayList<>();
+    for (Map<String, Object> part : parts) {
+      Map<String, Object> previous = combined.isEmpty() ? null : combined.get(combined.size() - 1);
+      if ("text".equals(part.get("type")) && previous != null && "text".equals(previous.get("type"))) {
+        previous.put("text", previous.getOrDefault("text", "") + "\n" + part.getOrDefault("text", ""));
+        if (Boolean.TRUE.equals(part.get("cache"))) previous.put("cache", true);
+      } else {
+        combined.add(part);
+      }
+    }
+    return combined;
+  }
+
+  // TS defaultRenderInField: an audio part carries only its format (wav when
+  // it has none) and its data.
+  static Map<String, Object> audioPart(Object value) {
+    if (!(value instanceof Map<?, ?> map)) throw new IllegalArgumentException("Audio field value must be an object.");
+    if (!map.containsKey("data")) throw new IllegalArgumentException("Audio field must have data");
+    Map<String, Object> part = new LinkedHashMap<>();
+    part.put("type", "audio");
+    Object format = map.get("format");
+    part.put("format", format == null ? "wav" : format);
+    part.put("data", map.get("data"));
+    return part;
   }
 
   static List<Field> inputFieldsForValues(AxSignature sig, Map<String, Object> values) {

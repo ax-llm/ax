@@ -413,6 +413,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicAxGenCallProcessor:        "Core::axgen_call_processor",
 	IntrinsicAxGenCheckStreamAssert:    "Core::axgen_check_streaming_assertion",
 	IntrinsicAxGenDeprecation:          "Core::axgen_deprecation",
+	IntrinsicAxGenSpeak:                "Core::axgen_speak",
 	IntrinsicDateZoneOffset:            "Core::date_zone_offset",
 	IntrinsicAxGenCachingFunction:      "Core::axgen_caching_function",
 	IntrinsicAxGenCacheRead:            "Core::axgen_cache_read",

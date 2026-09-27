@@ -722,6 +722,7 @@ pub(crate) fn dispatch_run_route(
         }
         "route_chat" => client.chat_with_options(request, options),
         "route_transcribe" => client.transcribe(request),
+        "route_speak" => client.speak(request),
         _ => Err(AxError::validation("Invalid run route operation")),
     }
 }

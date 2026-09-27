@@ -4700,7 +4700,25 @@ impl AxGen {
             None => CoreValue::Null,
         };
         if core_truthy(&core_get(&lookup, &CoreValue::from("hit"), CoreValue::Null)) {
-            let cached = core_get(&lookup, &CoreValue::from("value"), CoreValue::Null);
+            // A stored output's audio outputs are rendered, as TS does; the
+            // renderer reaches the client only through speak().
+            let stored = core_get(&lookup, &CoreValue::from("value"), CoreValue::Null);
+            let render_options = core_forward_options(&options, caching_function.as_ref())?;
+            let mut speak = |method: &str, request: Value, _options: Value| -> AxResult<Value> {
+                if method == "speak" {
+                    client.speak(request)
+                } else {
+                    Err(AxError::runtime(format!("a stored output made a {method} call")))
+                }
+            };
+            let cached = with_core_client(&mut speak, || {
+                _render_audio_outputs_impl(&[
+                    prepared.clone().unwrap_or(CoreValue::Null),
+                    CoreValue::Null,
+                    stored,
+                    render_options,
+                ])
+            })?;
             if let Some(sink) = &sink {
                 let envelope = core_axgen_map_from(&[
                     ("version", CoreValue::Num(0.0)),
@@ -4762,6 +4780,8 @@ impl AxGen {
             }
             if method == "transcribe" {
                 client.transcribe(request)
+            } else if method == "speak" {
+                client.speak(request)
             } else if method == "features" {
                 Ok(client.get_features(request.as_str()))
             } else if method == "open_session" {
@@ -5819,6 +5839,8 @@ impl AxAgent {
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
             if method == "transcribe" {
                 client.transcribe(request)
+            } else if method == "speak" {
+                client.speak(request)
             } else if method == "features" {
                 Ok(client.get_features(request.as_str()))
             } else if method == "open_session" {
@@ -6055,6 +6077,8 @@ impl AxAgent {
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
                 if method == "transcribe" {
                 client.transcribe(request)
+            } else if method == "speak" {
+                client.speak(request)
             } else if method == "features" {
                 Ok(client.get_features(request.as_str()))
             } else if method == "open_session" {
@@ -6792,6 +6816,8 @@ impl AxFlow {
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
             if method == "transcribe" {
                 client.transcribe(request)
+            } else if method == "speak" {
+                client.speak(request)
             } else if method == "features" {
                 Ok(client.get_features(request.as_str()))
             } else if method == "open_session" {
@@ -10704,15 +10730,17 @@ fn run_validate_output_fixture(fixture: &Value) -> AxResult<()> {
 }
 
 fn run_validate_value_fixture(fixture: &Value) -> AxResult<()> {
+    // The field is named as the fixture says, since errors quote the name.
+    let name = fixture.get("field_name").and_then(Value::as_str).unwrap_or("value");
     let field = fixture
         .get("field")
-        .map(|raw| field_from_spec("value", raw))
+        .map(|raw| field_from_spec(name, raw))
         .or_else(|| {
             fixture
                 .get("field_spec")
-                .map(|raw| field_from_spec("value", raw))
+                .map(|raw| field_from_spec(name, raw))
         })
-        .unwrap_or_else(|| Field::new("value", FieldType::string()));
+        .unwrap_or_else(|| Field::new(name, FieldType::string()));
     let value = fixture.get("value").cloned().unwrap_or(Value::Null);
     let result = validate_field_value_native(&field, &value);
     expect_validation_result(result, fixture)
@@ -11220,6 +11248,9 @@ fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
     }
     if let Some(expected) = fixture.get("expected_request_count") {
         expect_json_equal("flow request count", &json!(actual["requests"].as_array().map_or(0,Vec::len)), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_speak_requests") {
+        expect_json_equal("speak requests", actual.get("speak_requests").unwrap_or(&json!([])), expected)?;
     }
     for (expectation, field) in [("expected_trace_subset","traces"),("expected_chat_log_subset","chat_log")] {
         if let Some(expected)=fixture.get(expectation).and_then(Value::as_array) {
@@ -14551,7 +14582,8 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
     let mut client = FixtureClient::scripted(
         responses,
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
-    );
+    )
+    .with_speak_responses(fixture);
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
     let forward_options = fixture
         .get("forward_options")
@@ -14573,6 +14605,8 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
             if method.starts_with("route_") {return session::dispatch_run_route(&mut client,method,request,options);}
             if method == "transcribe" {
                 client.transcribe(request)
+            } else if method == "speak" {
+                client.speak(request)
             } else if method == "features" {
                 Ok(client.get_features(request.as_str()))
             } else if method == "open_session" {
@@ -14595,6 +14629,7 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
     };
     Ok(json!({
         "requests": client.requests,
+        "speak_requests": client.speak_requests,
         "traces": core_value_to_json(&core_get(&state, &CoreValue::from("traces"), CoreValue::Null)),
         "chat_log": core_value_to_json(&core_get(&state, &CoreValue::from("chat_log"), CoreValue::Null)),
         "usage": core_value_to_json(&core_get(&state, &CoreValue::from("usage"), CoreValue::Null)),
@@ -16401,6 +16436,10 @@ struct FixtureClient {
     name: String,
     model: String,
     options: Value,
+    // A fixture's speak_responses script speak(); its requests are kept apart
+    // from the chat requests.
+    speak_responses: Option<VecDeque<Value>>,
+    speak_requests: Vec<Value>,
     // Called with each chat request's 1-based number while it is in flight,
     // before the scripted answer (a fixture's control_steer).
     on_request: Option<Box<dyn FnMut(usize) -> AxResult<()>>>,
@@ -16418,6 +16457,20 @@ impl AxAIClient for FixtureClient {
             .transcribe_responses
             .pop_front()
             .unwrap_or_else(|| json!({"text": ""})))
+    }
+
+    fn speak(&mut self, request: Value) -> AxResult<Value> {
+        self.speak_requests.push(request);
+        let Some(responses) = self.speak_responses.as_mut() else {
+            return Err(AxError::runtime("speech is not supported by this AI client"));
+        };
+        let response = responses
+            .pop_front()
+            .ok_or_else(|| AxError::runtime("scripted speak exhausted"))?;
+        if let Some(error) = response.get("error") {
+            return Err(fixture_ai_service_error(error));
+        }
+        Ok(response)
     }
 
     fn chat(&mut self, request: Value) -> AxResult<Value> {
@@ -16525,9 +16578,19 @@ impl FixtureClient {
             name: "scripted".to_string(),
             model: "scripted-chat".to_string(),
             options: json!({}),
+            speak_responses: None,
+            speak_requests: Vec::new(),
             on_request: None,
             chat_requests: 0,
         }
+    }
+
+    // Scripts speak() from the fixture's speak_responses.
+    fn with_speak_responses(mut self, fixture: &Value) -> Self {
+        if let Some(responses) = fixture.get("speak_responses").and_then(Value::as_array) {
+            self.speak_responses = Some(responses.iter().cloned().collect());
+        }
+        self
     }
 
     // A fixture client spec: {"name"?, "model"?, "options"?} for a scripted client.
@@ -16549,6 +16612,14 @@ impl FixtureClient {
     fn require_expensive_model_confirmation(&self, request: &Value, call_options: &Value) -> AxResult<()> {
         expensive_model_gate(&self.name, &self.model, request, &self.options, call_options)
     }
+}
+
+// Every speak() request against the fixture's expected_speak_requests.
+fn expect_fixture_speak_requests(fixture: &Value, requests: &[Value]) -> AxResult<()> {
+    if let Some(expected) = fixture.get("expected_speak_requests") {
+        expect_json_equal("speak requests", &Value::Array(requests.to_vec()), expected)?;
+    }
+    Ok(())
 }
 
 fn normalize_fixture_function_calls(calls: Value) -> Value {
@@ -16742,7 +16813,8 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
     let mut client = FixtureClient::scripted(
         fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default(),
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
-    );
+    )
+    .with_speak_responses(fixture);
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
     let mut options = AxForwardOptions::from(fixture.get("forward_options").cloned().unwrap_or_else(|| json!({})));
     let mut control_events = Arc::new(Mutex::new(Vec::new()));
@@ -16805,6 +16877,7 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
             return Err(AxError::new("fixture", format!("expected {expected} requests, got {}", client.requests.len())));
         }
     }
+    expect_fixture_speak_requests(fixture, &client.speak_requests)?;
     if let Some(expected) = fixture.get("expected_tool_calls") {
         let actual = Value::Array(recorded_calls.lock().unwrap().clone());
         expect_json_equal("tool calls", &actual, expected)?;
@@ -16934,7 +17007,8 @@ fn run_cache_sequence_fixture(fixture: &Value) -> AxResult<()> {
     let mut client = FixtureClient::scripted(
         fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default(),
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
-    );
+    )
+    .with_speak_responses(fixture);
     let mut calls = CacheSequenceCalls::default();
     let previous_global = global_caching_function();
     if cache_in == "global" {
@@ -16990,7 +17064,8 @@ fn run_cache_sequence_fixture(fixture: &Value) -> AxResult<()> {
     run?;
     let reads = reads.lock().unwrap().len();
     let writes = writes.lock().unwrap().clone();
-    expect_cache_sequence(fixture, "cache sequence", calls, client.requests.len(), reads, writes)
+    expect_cache_sequence(fixture, "cache sequence", calls, client.requests.len(), reads, writes)?;
+    expect_fixture_speak_requests(fixture, &client.speak_requests)
 }
 
 // python: _run_flow_cache_sequence. Several forward and streaming_forward
@@ -17129,7 +17204,8 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         responses,
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
     )
-    .with_client_spec(fixture.get("client"));
+    .with_client_spec(fixture.get("client"))
+    .with_speak_responses(fixture);
     let mut options = AxForwardOptions::from(fixture.get("forward_options").cloned().unwrap_or(Value::Null));
     // constructor_control puts the run control in the AxGen constructor's
     // options. Rust's AxGen.options is JSON and can't hold an AxRunControl,
@@ -17162,9 +17238,11 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
             let actual = Value::Array(processor_calls.lock().unwrap().clone());
             expect_json_equal("field processor calls", &actual, expected)?;
         }
+        expect_fixture_speak_requests(fixture, &client.speak_requests)?;
         return Ok(());
     }
     let output = result?;
+    expect_fixture_speak_requests(fixture, &client.speak_requests)?;
     if let Some(expected) = fixture.get("expected_processor_calls") {
         let actual = Value::Array(processor_calls.lock().unwrap().clone());
         expect_json_equal("field processor calls", &actual, expected)?;
@@ -20236,6 +20314,33 @@ fn core_prompt_combine_consecutive_text(parts: &CoreValue, separator: &str) -> R
     Ok(out)
 }
 
+// TS defaultRenderInField: an audio part carries only its format (wav when it
+// has none) and its data.
+#[allow(dead_code)]
+fn core_prompt_audio_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    let has_data = match value {
+        CoreValue::Map(map) => map.borrow().contains("data"),
+        _ => return Err(AxError::runtime("Audio field value must be an object.")),
+    };
+    if !has_data {
+        return Err(AxError::runtime("Audio field must have data"));
+    }
+    let format = core_get(value, &CoreValue::from("format"), CoreValue::Null);
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("audio"))?;
+    core_set(
+        &part,
+        CoreValue::from("format"),
+        if format.is_null() { CoreValue::from("wav") } else { format },
+    )?;
+    core_set(
+        &part,
+        CoreValue::from("data"),
+        core_get(value, &CoreValue::from("data"), CoreValue::Null),
+    )?;
+    Ok(part)
+}
+
 #[allow(dead_code)]
 fn core_prompt_default_render_in_field(field: &CoreValue, value: &CoreValue) -> Result<CoreValue, AxError> {
     let field_type = core_get(field, &CoreValue::from("type"), CoreValue::Null);
@@ -20245,6 +20350,30 @@ fn core_prompt_default_render_in_field(field: &CoreValue, value: &CoreValue) -> 
         "string".to_string()
     };
     let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
+    if typ == "audio" && !matches!(value, CoreValue::Str(_)) {
+        // A string (a plain one, or an audio object's transcript) renders as
+        // text below, like any text field.
+        let parts = CoreValue::new_list();
+        let text_part = CoreValue::new_map();
+        core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
+        core_set(
+            &text_part,
+            CoreValue::from("text"),
+            CoreValue::from_string(format!("{title}: ")),
+        )?;
+        core_append(&parts, text_part)?;
+        if core_truthy(&core_get(&field_type, &CoreValue::from("is_array"), CoreValue::Null)) {
+            if !matches!(value, CoreValue::List(_)) {
+                return Err(AxError::runtime("Audio field value must be an array."));
+            }
+            for item in core_iter(value)? {
+                core_append(&parts, core_prompt_audio_part(&item)?)?;
+            }
+        } else {
+            core_append(&parts, core_prompt_audio_part(value)?)?;
+        }
+        return Ok(parts);
+    }
     if matches!(typ.as_str(), "image" | "audio" | "file" | "url") {
         if matches!(value, CoreValue::List(_)) {
             let parts = CoreValue::new_list();
@@ -20603,6 +20732,17 @@ fn core_prompt_process_value(field: &CoreValue, value: &CoreValue) -> Result<Cor
     let field_type = core_get(field, &CoreValue::from("type"), CoreValue::Null);
     if core_truthy(&field_type) {
         let name = core_get(&field_type, &CoreValue::from("name"), CoreValue::Null);
+        if name.as_str() == Some("audio") {
+            // As TS processValue: an audio object with a transcript (what an
+            // AxGen audio output renders to) reaches the model as that text.
+            let transcript = core_get(value, &CoreValue::from("transcript"), CoreValue::Null);
+            if matches!(value, CoreValue::Map(_)) && matches!(transcript, CoreValue::Str(_)) {
+                return Ok(transcript);
+            }
+            if matches!(value, CoreValue::Map(_) | CoreValue::List(_)) {
+                return Ok(value.clone());
+            }
+        }
         if matches!(name.as_str(), Some("image") | Some("audio") | Some("file") | Some("url"))
             && matches!(value, CoreValue::Map(_))
         {
@@ -21648,6 +21788,27 @@ pub(crate) fn core_agent_transcribe(args: &[CoreValue]) -> Result<CoreValue, AxE
         }
         None => Ok(core_value_from_json(&json!({"text": ""}))),
     }
+}
+
+// Backs intrinsic.axgen.speak: the AxGen audio output renderer calls the
+// client's speak(), as TS calls ai.speak(), through the scoped client's
+// "speak" dispatch.
+#[allow(dead_code)]
+pub(crate) fn core_axgen_speak(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let request = core_arg(args, 1);
+    let options = core_arg(args, 2);
+    let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
+    let Some(ptr) = top else {
+        return Err(AxError::runtime("Audio speech not supported by this AI client"));
+    };
+    // SAFETY: as core_agent_transcribe, within the enclosing with_core_client.
+    let call = unsafe { &mut *ptr };
+    let response = call(
+        "speak",
+        core_value_to_json(&request),
+        core_value_to_json(&options),
+    )?;
+    Ok(core_value_from_json(&response))
 }
 
 // Scoped client callbacks carry JSON, so the provider stream a callback
@@ -23466,6 +23627,10 @@ impl AxAIClient for RawScopedClient {
         self.routed_call("transcribe", request, Value::Null)
     }
 
+    fn speak(&mut self, request: Value) -> AxResult<Value> {
+        self.routed_call("speak", request, Value::Null)
+    }
+
     // A stage that streams reads the enclosing client's stream as it arrives
     // when the enclosing callback opens one ("stream_open"); otherwise its
     // chat response streams as one chunk per result, as before.
@@ -25218,6 +25383,7 @@ fn owned_worker_client_call(client:&mut dyn AxAIClient,method:&str,request:Value
         "open_session"=>Ok(session::publish_open_session(client.open_chat_session(request,options)?)),
         "observe_session"=>{client.observe_chat_session_response(&request,&options);Ok(Value::Null)},
         "transcribe"=>client.transcribe(request),
+        "speak"=>client.speak(request),
         _=>client.chat_with_options(request,options),
     }
 }
