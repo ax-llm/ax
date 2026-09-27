@@ -710,6 +710,12 @@ func (p *genSessionClient) submit(results []Value) {
 	p.applied = nil
 }
 func (p *genSessionClient) close(err error) {
+	p.finish(err, false)
+}
+
+// finish ends the run. A run the consumer stopped early ends as aborted, as
+// control.abort() reports it; any other run as failed or completed.
+func (p *genSessionClient) finish(err error, consumerStopped bool) {
 	if p.cancel != nil {
 		p.cancel()
 	}
@@ -721,9 +727,12 @@ func (p *genSessionClient) close(err error) {
         mustCore(chat_session_record_unresolved(p.gen,p.state))
 		pending = mustCore(chat_session_close_state(p.state))
 	}
-	if err != nil {
+	switch {
+	case consumerStopped:
+		p.emit("aborted")
+	case err != nil:
 		p.emit("failed", "error", err.Error(), "pending_call_ids", pending)
-	} else {
+	default:
 		p.emit("completed")
 	}
 }

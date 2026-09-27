@@ -173,49 +173,136 @@ public final class AxGen implements AxProgram {
     return addStreamingAssert(spec);
   }
 
-  public AxGen addFieldProcessor(String field, String op) {
-    this.fieldProcessors.add(new java.util.LinkedHashMap<>(Map.of("field", field, "processor", op)));
-    return this;
+  /** Adds a streaming assertion without a message of its own; see {@link #addStreamingAssert(String, AxStreamingAssertion, String)}. */
+  public AxGen addStreamingAssert(String field, AxStreamingAssertion assertion) {
+    return addStreamingAssert(field, assertion, null);
   }
 
-  public AxGen addFieldProcessor(String field, FieldProcessorCallback processor) {
+  /**
+   * Adds a TypeScript streaming assertion on a string or code output field: {@code
+   * assertion.check(text, done)} sees the field's text so far as it streams. {@code null} or {@code
+   * true} passes; {@code false} or a message string stops the attempt and retries it with a
+   * correction (the returned message, else {@code message}, else a default). An exception the check
+   * throws ends the forward without a retry.
+   *
+   * @throws IllegalArgumentException when field is not a string or code output field
+   */
+  public AxGen addStreamingAssert(String field, AxStreamingAssertion assertion, String message) {
+    if (assertion == null) throw new IllegalArgumentException("addStreamingAssert: assertion is required");
+    Field output = null;
+    for (Field item : signature.outputs) if (item.name.equals(field)) output = item;
+    if (output == null) throw new IllegalArgumentException("addStreamingAssert: field " + field + " not found in output signature");
+    if (!isTextField(output)) throw new IllegalArgumentException("addStreamingAssert: field " + field + " must be a string field for streaming assertions");
     Map<String, Object> spec = new LinkedHashMap<>();
     spec.put("field", field);
-    spec.put("processor", processor);
-    this.fieldProcessors.add(spec);
+    spec.put("fn", assertion);
+    if (message != null) spec.put("message", message);
+    return addStreamingAssert(spec);
+  }
+
+  /**
+   * Rewrites an output field's final value before the assertions run. op is "uppercase",
+   * "lowercase", "trim", "prefix:&lt;text&gt;" or "suffix:&lt;text&gt;". This is a port extension:
+   * TypeScript field processors send their result back to the model instead ({@link
+   * #addFieldProcessor(String, AxFieldProcessor, AxFieldProcessorMode)} with {@link
+   * AxFieldProcessorMode#FEEDBACK}). {@link #streamingForward} holds a transformed field back and
+   * sends it once, transformed.
+   */
+  public AxGen addFieldTransform(String field, String op) {
+    this.fieldProcessors.add(processorSpec(field, op));
     return this;
   }
 
-  // Internal until the public streaming surface lands: rewrite a field's final
-  // value with an op ("uppercase", "lowercase", "trim", "prefix:...",
-  // "suffix:...") or a callback, as addFieldProcessor() does today.
-  AxGen addFieldTransform(String field, String op) {
-    return addFieldProcessor(field, op);
+  /** Rewrites an output field's final value with {@code transform}'s result; see {@link #addFieldTransform(String, String)}. */
+  public AxGen addFieldTransform(String field, FieldProcessorCallback transform) {
+    this.fieldProcessors.add(processorSpec(field, transform));
+    return this;
   }
 
-  AxGen addFieldTransform(String field, FieldProcessorCallback processor) {
-    return addFieldProcessor(field, processor);
+  /**
+   * Rewrites the field value, as {@link #addFieldTransform(String, String)} does.
+   *
+   * @deprecated Use {@link #addFieldTransform(String, String)}. In the next major version {@code
+   *     addFieldProcessor} follows TypeScript and sends the processor's result back to the model;
+   *     opt in now with {@link #addFieldProcessor(String, AxFieldProcessor, AxFieldProcessorMode)}
+   *     and {@link AxFieldProcessorMode#FEEDBACK}.
+   */
+  @Deprecated
+  public AxGen addFieldProcessor(String field, String op) {
+    Core.axgenDeprecation("java-add-field-processor-transform", FIELD_PROCESSOR_DEPRECATION);
+    return addFieldTransform(field, op);
   }
 
-  // Internal: a TypeScript field processor. processor(value, {values, done})
-  // runs on the field's final value; a non-empty result is sent to the model
-  // as a user message for another step.
-  AxGen addFeedbackFieldProcessor(String field, java.util.function.BiFunction<Object, Map<String, Object>, Object> processor) {
+  /**
+   * Rewrites the field value with the callback's result, as {@link #addFieldTransform(String,
+   * FieldProcessorCallback)} does.
+   *
+   * @deprecated Use {@link #addFieldTransform(String, FieldProcessorCallback)}. In the next major
+   *     version {@code addFieldProcessor} follows TypeScript and sends the processor's result back
+   *     to the model; opt in now with {@link #addFieldProcessor(String, AxFieldProcessor,
+   *     AxFieldProcessorMode)} and {@link AxFieldProcessorMode#FEEDBACK}.
+   */
+  @Deprecated
+  public AxGen addFieldProcessor(String field, FieldProcessorCallback processor) {
+    Core.axgenDeprecation("java-add-field-processor-transform", FIELD_PROCESSOR_DEPRECATION);
+    return addFieldTransform(field, processor);
+  }
+
+  /**
+   * Adds a field processor. With {@link AxFieldProcessorMode#FEEDBACK} it follows TypeScript:
+   * {@code processor.process(value, context)} runs on the field's final value, and a non-empty
+   * result goes back to the model as a user message for another step, whose answer replaces the
+   * earlier one. With {@link AxFieldProcessorMode#TRANSFORM} the returned value rewrites the field,
+   * as {@link #addFieldTransform} does.
+   *
+   * @throws IllegalArgumentException with FEEDBACK, when field is not an output field
+   */
+  public AxGen addFieldProcessor(String field, AxFieldProcessor processor, AxFieldProcessorMode mode) {
+    if (processor == null) throw new IllegalArgumentException("addFieldProcessor: processor is required");
+    if (mode == null) throw new IllegalArgumentException("addFieldProcessor: mode is required");
+    if (mode == AxFieldProcessorMode.TRANSFORM) {
+      this.fieldProcessors.add(processorSpec(field, processor));
+      return this;
+    }
+    outputField("addFieldProcessor", field, false);
     this.feedbackProcessors.add(processorSpec(field, processor));
     return this;
   }
 
-  // Internal: a TypeScript streaming field processor. processor(text, {values,
-  // done}) runs on each streamed chunk of a string or code output field; a
-  // non-empty result is sent to the model as a user message for another step.
-  AxGen addStreamingFieldProcessor(String field, java.util.function.BiFunction<Object, Map<String, Object>, Object> processor) {
-    Field output = null;
-    for (Field item : signature.outputs) if (item.name.equals(field)) output = item;
-    if (output == null) throw new IllegalArgumentException("addFieldProcessor: field " + field + " not found");
-    String typeName = output.type == null || output.type.name == null ? "string" : output.type.name;
-    if (!"string".equals(typeName) && !"code".equals(typeName)) throw new IllegalArgumentException("addFieldProcessor: field " + field + " must be a text field");
+  /**
+   * Adds a TypeScript streaming field processor: {@code processor.process(text, context)} runs on
+   * each streamed chunk of a string or code output field with the field's text so far ({@code
+   * context.done()} marks the final call); a non-empty result goes back to the model as a user
+   * message for another step.
+   *
+   * @throws IllegalArgumentException when field is not a string or code output field
+   */
+  public AxGen addStreamingFieldProcessor(String field, AxFieldProcessor processor) {
+    if (processor == null) throw new IllegalArgumentException("addFieldProcessor: processor is required");
+    outputField("addFieldProcessor", field, true);
     this.streamingFieldProcessors.add(processorSpec(field, processor));
     return this;
+  }
+
+  private static final String FIELD_PROCESSOR_DEPRECATION =
+      "AxGen.addFieldProcessor(field, op or callback) rewrites the field value; use addFieldTransform(field, ...) for that. "
+          + "In the next major version addFieldProcessor follows TypeScript and sends the processor's result back "
+          + "to the model for another step; opt in now with addFieldProcessor(field, processor, AxFieldProcessorMode.FEEDBACK).";
+
+  // Throws, as TypeScript does, when field is not an output field or, for
+  // text, not a string or code field.
+  private void outputField(String method, String field, boolean text) {
+    for (Field output : signature.outputs) {
+      if (!output.name.equals(field)) continue;
+      if (text && !isTextField(output)) throw new IllegalArgumentException(method + ": field " + field + " must be a text field");
+      return;
+    }
+    throw new IllegalArgumentException(method + ": field " + field + " not found");
+  }
+
+  private static boolean isTextField(Field field) {
+    String typeName = field.type == null || field.type.name == null ? "string" : field.type.name;
+    return "string".equals(typeName) || "code".equals(typeName);
   }
 
   private static Map<String, Object> processorSpec(String field, Object processor) {
@@ -443,11 +530,51 @@ public final class AxGen implements AxProgram {
     }
   }
 
-  // Internal until the public streaming surface lands: runs the TypeScript
-  // streaming forward, handing each {version, index, delta} envelope to sink
-  // as the provider stream arrives, and returns the merged output of the
-  // picked sample. A sink that throws (e.g. AxAIServiceAbortedError) stops
-  // the run.
+  /** Streams a forward with no options; see {@link #streamingForward(AiClient, Map, Map, AxCancellationToken)}. */
+  public AxGenDeltaStream streamingForward(AiClient client, Map<String, Object> values) {
+    return streamingForward(client, values, Map.of(), null);
+  }
+
+  /** Streams a forward; see {@link #streamingForward(AiClient, Map, Map, AxCancellationToken)}. */
+  public AxGenDeltaStream streamingForward(AiClient client, Map<String, Object> values, Map<String, Object> options) {
+    return streamingForward(client, values, options, null);
+  }
+
+  /**
+   * Runs the forward and returns TypeScript's streamed updates as the model streams (see {@link
+   * AxGenDelta}): merge each index's deltas (strings and lists append, other values replace) and
+   * discard what you merged when the version changes. Retries, steps, tools, assertions and field
+   * processors work as in {@link #forward}. The forward runs on a worker thread that starts when
+   * iteration starts and waits while the caller handles each delta. Use try-with-resources: closing
+   * the stream stops the run; cancelling {@code cancellation} (or an {@code AxCancellationToken}
+   * under the {@code cancellation} option) aborts it, and the iterator then throws the {@link
+   * AxAIServiceAbortedError}. A forward error is rethrown from the iterator as the forward raised it.
+   * With a run {@code control} option the run reports started, then completed or failed, and applies
+   * the control's updates at each request, as {@link #forward} does; a stream closed early ends the
+   * run as aborted, as {@code control.abort()} reports it.
+   */
+  public AxGenDeltaStream streamingForward(AiClient client, Map<String, Object> values, Map<String, Object> options, AxCancellationToken cancellation) {
+    Map<String, Object> runOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
+    AxCancellationToken parent = cancellation;
+    for (String key : List.of("cancellation", "cancellationToken", "cancellation_token")) {
+      Object token = runOptions.remove(key);
+      if (parent == null && token instanceof AxCancellationToken given) parent = given;
+    }
+    // A token among the constructor options applies too, as it does in forward().
+    for (String key : List.of("cancellation", "cancellationToken", "cancellation_token")) {
+      if (parent == null && this.options.get(key) instanceof AxCancellationToken given) parent = given;
+    }
+    AxGenDeltaStream.StopToken stop = new AxGenDeltaStream.StopToken();
+    runOptions.put("cancellation", stop);
+    Map<String, Object> input = values == null ? new LinkedHashMap<>() : new LinkedHashMap<>(values);
+    return new AxGenDeltaStream(sink -> streamingForwardWith(client, input, runOptions, sink), stop, parent);
+  }
+
+  // Runs the TypeScript streaming forward on the calling thread, handing each
+  // {version, index, delta} envelope to sink as the provider stream arrives,
+  // and returns the merged output of the picked sample. A sink that throws
+  // (e.g. AxAIServiceAbortedError) stops the run. streamingForward() runs it
+  // on a worker thread.
   Map<String, Object> streamingForwardWith(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions, java.util.function.Consumer<Map<String, Object>> sink) {
     Map<String, Object> attributes = new LinkedHashMap<>();
     attributes.put("ax.program.id", programId);
@@ -483,7 +610,9 @@ public final class AxGen implements AxProgram {
           bounded.finish(null);
           return output;
         } catch (RuntimeException | Error error) {
-          bounded.finish(error);
+          // A run the streamingForward() consumer stopped early ends as
+          // aborted, as control.abort() reports it.
+          bounded.finish(error, runOptions.get("cancellation") instanceof AxGenDeltaStream.StopToken stop && stop.consumerStopped());
           throw error;
         }
       }

@@ -838,6 +838,9 @@ final class Core {
   @SuppressWarnings("unchecked")
   static Object axgenCallProcessor(Object spec, Object value, Object context) {
     Object processor = spec instanceof Map<?, ?> map ? (map.containsKey("processor") ? map.get("processor") : map.get("fn")) : spec;
+    if (processor instanceof AxFieldProcessor fieldProcessor) {
+      return fieldProcessor.process(value, new AxFieldProcessorContext(asMap(get(context, "values", null)), truthy(get(context, "done", false))));
+    }
     Map<String, Object> processorContext = new LinkedHashMap<>();
     processorContext.put("values", new LinkedHashMap<>(asMap(get(context, "values", null))));
     processorContext.put("done", truthy(get(context, "done", false)));
@@ -853,7 +856,8 @@ final class Core {
   static Object axgenCheckStreamingAssertion(Object spec, Object value, Object done) {
     Object check = spec instanceof Map<?, ?> map ? (map.containsKey("fn") ? map.get("fn") : map.get("assert")) : spec;
     Object result;
-    if (check instanceof java.util.function.BiFunction<?, ?, ?> fn) result = ((java.util.function.BiFunction<Object, Object, Object>) fn).apply(value, truthy(done));
+    if (check instanceof AxStreamingAssertion assertion) result = assertion.check(value == null ? "" : String.valueOf(value), truthy(done));
+    else if (check instanceof java.util.function.BiFunction<?, ?, ?> fn) result = ((java.util.function.BiFunction<Object, Object, Object>) fn).apply(value, truthy(done));
     else if (check instanceof java.util.function.Function<?, ?> fn) result = ((java.util.function.Function<Object, Object>) fn).apply(value);
     else {
       Map<String, Object> descriptor = asMap(spec);
@@ -1094,6 +1098,12 @@ final class Core {
       Object processor = spec.getOrDefault("processor", spec.get("op"));
       if (processor instanceof AxGen.FieldProcessorCallback cb) {
         result.put(field, cb.apply(result.get(field)));
+        changed = true;
+        continue;
+      }
+      // AxFieldProcessorMode.TRANSFORM: the returned value rewrites the field.
+      if (processor instanceof AxFieldProcessor fieldProcessor) {
+        result.put(field, fieldProcessor.process(result.get(field), new AxFieldProcessorContext(result, true)));
         changed = true;
         continue;
       }

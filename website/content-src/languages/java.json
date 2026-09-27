@@ -261,6 +261,26 @@
         ]
       }
     },
+    "ax": {
+      "streaming": {
+        "sourcePath": "src/examples/java/generation/StreamingForwardExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "AxGen story = Ax.ax(\"topic:string -> title:string, story:string \\\"Three short sentences\\\"\");",
+          "",
+          "Map<String, Object> merged = new LinkedHashMap<>();",
+          "int version = 0;",
+          "try (AxGenDeltaStream stream = story.streamingForward(client, Map.of(\"topic\", topic), Map.of())) {",
+          "  for (AxGenDelta delta : stream) {",
+          "    if (delta.version() != version) { merged.clear(); version = delta.version(); } // a retry starts over",
+          "    delta.delta().forEach((field, value) -> merged.put(field,",
+          "        merged.get(field) instanceof String previous && value instanceof String text ? previous + text : value));",
+          "  }",
+          "}"
+        ]
+      }
+    },
     "signatures": {
       "string": {
         "sourcePath": "src/examples/java/generation/BasicGenerationExample.java",

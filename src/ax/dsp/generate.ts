@@ -3248,6 +3248,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     };
 
     let runSucceeded = false;
+    let runFailed = false;
     let runFailure: unknown;
     options.control?.emit({
       type: 'started',
@@ -3390,14 +3391,23 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         span.end();
       }
     } catch (error) {
+      runFailed = true;
       runFailure = error;
       throw error;
     } finally {
-      options.control?.emit({
-        type: runSucceeded ? 'completed' : 'failed',
-        path: options.executionPath ?? 'root',
-        error: runFailure,
-      });
+      const path = options.executionPath ?? 'root';
+      if (runSucceeded || runFailed) {
+        options.control?.emit({
+          type: runSucceeded ? 'completed' : 'failed',
+          path,
+          error: runFailure,
+        });
+      } else {
+        // The consumer stopped the run early, for example with `break` in a
+        // `for await` over streamingForward: it ended on purpose, as with
+        // control.abort().
+        options.control?.emit({ type: 'aborted', path });
+      }
       abortController.abort(new Error('Run finished'));
       this.activeAbortControllers.delete(abortController);
       this._stopRequested = false;

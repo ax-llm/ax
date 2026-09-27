@@ -8,7 +8,7 @@ import threading
 from typing import Any, Callable, Iterator, Protocol
 
 from .ai import _emit_usage_event, _iter_sse_json
-from .gen import _core_ai_client_features, _core_ai_complete_once, _core_ai_stream_open
+from .gen import _StreamingConsumerStopped, _core_ai_client_features, _core_ai_complete_once, _core_ai_stream_open
 
 
 class AxChatSession(Protocol):
@@ -131,6 +131,11 @@ class _BoundaryClient:
             handle.close()
 
     def close(self, error=None):
+        if isinstance(error, _StreamingConsumerStopped):
+            # The consumer stopped the run early: it ended on purpose, as
+            # with control.abort().
+            self.control._emit({"type": "aborted", "path": self.path})
+            return
         self.control._emit({"type": "failed" if error else "completed", "path": self.path,
             **({"error": str(error)} if error else {})})
 

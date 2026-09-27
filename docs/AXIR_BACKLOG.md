@@ -24,12 +24,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.structuredTypes.test.ts`, `src/ax/dsp/generate.streamParity.test.ts`
   - Impact: TypeScript now type-checks structured JSON output values: a numeric string becomes a number through Number() and a true or false string a boolean, as the text contract does, and any other type mismatch is a validation error that the model retries. The ports reject those strings. TypeScript streamingForward also stores the finished result through cachingFunction with or without a result picker, and the ports have no cachingFunction yet.
   - Suggested AxIR work: Coerce numeric and boolean strings in the IR structured output validation and add TS-golden fixtures; Store the merged streamed result through cachingFunction when the ports add it
-- `axir-2026-09-26-yield-typescript-style-field-deltas-from-the-ports-axgen-streami` [axgen] Yield TypeScript-style field deltas from the ports' AxGen streaming APIs
-  - Status: open
-  - Source commit: `a14c26b0f960cd360472b778263b606cbdda09fd`
-  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/response/streaming.ts`
-  - Impact: TypeScript AxGen streamingForward yields { version, index, delta } field deltas, with the thought as a delta under the thought field, and re-emits values with a new version after a retry. The generated ports' streaming APIs (streaming_forward / stream and their equivalents) yield the provider's raw chat response chunks instead. Thought chunks already reach callers as raw results[].thought, and a forward with stream: true returns the folded answer and thought.
-  - Suggested AxIR work: Design a port streaming surface that yields versioned field deltas from the parsed stream; Port TypeScript's delta and version semantics with fixtures per rung
 
 ## Done
 
@@ -836,6 +830,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-26
   - Completed by: `a38b9a54e6d28874b5e6225a68fdfedc929f8f69`
   - Verification: `@streaming_forward follows TypeScript #720: a step after emitted output fields starts a new version, resets the committed values and re-sends the thought so far; validation and refusal retries start a new version and infrastructure retries resume the last yielded one, so versions never decrease. @forward's feedback step replaces the earlier step's fields and keeps the joined thought. TS-golden streaming-forward-* (step reset, infra retry mid-stream and after a validation retry, replayed prefix) and forward-feedback-processor* fixtures deep-equal the delta sequence and output in all five ports. npm run test:axir (verify release python/java/cpp/go/rust 1039/1039); live TS/Python/Go on gemini-3.5-flash-lite, gemini-3.8-flash and gpt-5.4-mini.`
+- `axir-2026-09-26-public-feedback-field-processor-apis-in-the-ports` [axgen] Public feedback field processor and streaming assertion APIs in the ports
+  - Status: done
+  - Source commit: `6332cb0f64b4c643780e5d49b42e74ac01d8d648`
+  - TS paths: `src/ax/dsp/fieldProcessor.ts`, `src/ax/dsp/generate.ts`, `src/ax/dsp/asserts.ts`
+  - Impact: TypeScript addFieldProcessor sends a non-empty processor result back to the model for another step, addStreamingFieldProcessor does the same on each streamed chunk, and addStreamingAssert takes a callable over the field's text. The Java, C++ and Rust ports had these only inside the runtime (conformance runners), their field processors rewrote the value instead, and their skills described raw chunk streaming.
+  - Suggested AxIR work: Add public feedback and streaming field processor methods and callable streaming assertions; Keep the rewrite under a permanent transform name and deprecate the old default
+  - Completed at: 2026-09-27
+  - Completed by: `55f195ce5`
+  - Verification: `Java addFieldProcessor(field, processor, AxFieldProcessorMode.FEEDBACK), addStreamingFieldProcessor and callable addStreamingAssert; C++ add_field_processor(field, processor, AxFieldProcessorMode::Feedback), add_streaming_field_processor and add_streaming_assert; Rust add_field_processor, add_streaming_field_processor and add_streaming_assert returning AxResult<&mut Self>. The rewrite moves to addFieldTransform / add_field_transform / with_field_transform and the old defaults warn once (Rust #[deprecated]). The conformance runners use the public APIs; no-key package examples cover each; verify --mode dev 1085/1085 in all five ports.`
 - `axir-2026-09-26-raise-typescript-s-axgen-failure-messages-in-the-ports` [axgen] Raise TypeScript's AxGen failure messages in the ports
   - Status: done
   - Source commit: `399276d1fb57ae334b0e498b3f3f8361d26c71e7`
@@ -872,3 +875,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-26
   - Completed by: `399276d1f`
   - Verification: `@stream_json_validate_output_impl validates structured values with TS messages and Number() coercion, including array items of nested object fields (field.item accepts map-shaped fields), in forward and streaming_forward; @strict_mode_option_impl reads strictMode from the call, then the constructor; the text extractor requires the first required label in strict mode and skips early fail with functionCot and functions. TS goldens (structured-*, strict-mode-*, streaming-forward-function-cot-leading-text) pass and mutation checks fail them; verify --mode dev 1082/1082 in all five ports.`
+- `axir-2026-09-26-yield-typescript-style-field-deltas-from-the-ports-axgen-streami` [axgen] Yield TypeScript-style field deltas from the ports' AxGen streaming APIs
+  - Status: done
+  - Source commit: `a14c26b0f960cd360472b778263b606cbdda09fd`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/response/streaming.ts`
+  - Impact: TypeScript AxGen streamingForward yields { version, index, delta } field deltas, with the thought as a delta under the thought field, and re-emits values with a new version after a retry. The generated ports' streaming APIs (streaming_forward / stream and their equivalents) yield the provider's raw chat response chunks instead. Thought chunks already reach callers as raw results[].thought, and a forward with stream: true returns the folded answer and thought.
+  - Suggested AxIR work: Design a port streaming surface that yields versioned field deltas from the parsed stream; Port TypeScript's delta and version semantics with fixtures per rung
+  - Completed at: 2026-09-27
+  - Completed by: `55f195ce5`
+  - Verification: `Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes.`

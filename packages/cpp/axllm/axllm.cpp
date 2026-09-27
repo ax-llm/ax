@@ -2434,6 +2434,12 @@ Value Core::axgen_apply_field_processors(Value gen, Value output) {
         continue;
       }
     }
+    // An AxFieldProcessor added in Transform mode also gets the output so far.
+    if (!str(get_key(raw, "__field_processor_id")).empty()) {
+      set(result, field, axgen_call_processor(raw, get_key(result, field), object({{"values", result}, {"done", true}})));
+      changed = true;
+      continue;
+    }
     std::string op = str(processor);
     std::string value = str(get_key(result, field));
     if (op == "uppercase") {
@@ -41333,17 +41339,24 @@ void append_axgen_field_processor(Value& state, const std::string& key, std::str
 
 }  // namespace
 
+// Defined with the run session (session.inc).
+static AxAIService* session_stream_service(AIClient* client, Value& request);
+
 // Opens the client's provider stream as a pull handle. An AxAIService streams
 // on a worker thread that inherits the caller's cancellation (through a linked
 // token that closing can cancel alone), runtime hook frames and MCP context;
 // request and options are copied so the worker shares no mutable state with
-// the caller. Other clients answer with their chat response as one chunk.
+// the caller. A run session streams from its selected service through its
+// response boundary. Other clients answer with their chat response as one
+// chunk.
 Value Core::ai_stream_open(Value client, Value request, Value options) {
   AIClient* registered = registered_client(str(get_key(client, "__client_id")));
   if (registered == nullptr) throw AxError("runtime", "client does not implement AIClient");
   auto stream = std::make_shared<AxChatStream>();
   auto channel = stream->channel;
-  if (auto* service = dynamic_cast<AxAIService*>(registered)) {
+  AxAIService* service = dynamic_cast<AxAIService*>(registered);
+  if (service == nullptr) service = session_stream_service(registered, request);
+  if (service != nullptr) {
     auto cancellation = std::make_shared<AxCancellationToken>();
     stream->cancellation = cancellation;
     if (const AxCancellationToken* caller = current_cancellation_token()) {
@@ -42903,7 +42916,60 @@ AxGen& AxGen::add_streaming_assert(std::string field, std::string not_contains, 
   return add_streaming_assert(spec);
 }
 
-AxGen& AxGen::add_field_processor(std::string field, std::string op) {
+namespace {
+
+// The type name of the signature's output field (empty when it has none), or
+// nullopt when the signature has no such output field.
+std::optional<std::string> axgen_output_type(const Value& state, const std::string& field) {
+  for (const auto& item : array_ref(Core::get(Core::get(state, "signature"), "output_fields", Value::array()))) {
+    if (str(get_key(item, "name")) == field) return str(get_key(get_key(item, "type"), "name"));
+  }
+  return std::nullopt;
+}
+
+bool axgen_text_type(const std::string& type) { return type.empty() || type == "string" || type == "code"; }
+
+// The host form of an AxFieldProcessor: (value, {values, done}).
+std::function<Value(Value, Value)> axgen_field_processor_host(AxFieldProcessor processor) {
+  if (!processor) throw AxError("runtime", "addFieldProcessor: processor must be callable");
+  return [processor = std::move(processor)](Value value, Value context) {
+    AxFieldProcessorContext call_context;
+    call_context.values = Core::get(context, "values", Value::object());
+    call_context.done = Core::truthy(Core::get(context, "done"));
+    return processor(value, call_context);
+  };
+}
+
+void warn_field_processor_rewrite() {
+  Core::axgen_deprecation(
+      Value("cpp-add-field-processor-rewrite"),
+      Value("AxGen::add_field_processor(field, op) rewrites the field value; use add_field_transform(field, op) for that. "
+            "In the next major version add_field_processor follows TypeScript: a non-empty result goes back to the model "
+            "as a user message for another step. Opt in now with add_field_processor(field, processor, AxFieldProcessorMode::Feedback)."));
+}
+
+}  // namespace
+
+// As TypeScript addStreamingAssert, the field must be a string or code output
+// field.
+AxGen& AxGen::add_streaming_assert(std::string field, std::function<Value(const std::string& text, bool done)> assertion, std::string message) {
+  auto type = axgen_output_type(state_, field);
+  if (!type) throw AxError("signature", "addStreamingAssert: field " + field + " not found in output signature");
+  if (!axgen_text_type(*type)) throw AxError("signature", "addStreamingAssert: field " + field + " must be a string field for streaming assertions");
+  if (!assertion) throw AxError("runtime", "addStreamingAssert: assertion must be callable");
+  std::string id = next_axgen_host_key("streaming_assertion");
+  {
+    std::lock_guard<std::mutex> lock(axgen_host_mutex);
+    axgen_streaming_checks[id] = [assertion = std::move(assertion)](Value text, bool done) { return assertion(str(text), done); };
+  }
+  Value spec = Value::object();
+  Core::set(spec, "field", std::move(field));
+  Core::set(spec, "__streaming_assertion_id", id);
+  if (!message.empty()) Core::set(spec, "message", std::move(message));
+  return add_streaming_assert(spec);
+}
+
+AxGen& AxGen::add_field_transform(std::string field, std::string op) {
   Value processors = Core::get(state_, "field_processors", Value::array());
   Value spec = Value::object();
   Core::set(spec, "field", std::move(field));
@@ -42913,9 +42979,9 @@ AxGen& AxGen::add_field_processor(std::string field, std::string op) {
   return *this;
 }
 
-AxGen& AxGen::add_field_processor(std::string field, std::function<Value(Value)> processor) {
+AxGen& AxGen::add_field_transform(std::string field, std::function<Value(Value)> transform) {
   std::string id = pointer_id(this) + ":processor:" + std::to_string(processor_registry().size());
-  processor_registry()[id] = std::move(processor);
+  processor_registry()[id] = std::move(transform);
   Value processors = Core::get(state_, "field_processors", Value::array());
   Value spec = Value::object();
   Core::set(spec, "field", std::move(field));
@@ -42925,46 +42991,31 @@ AxGen& AxGen::add_field_processor(std::string field, std::function<Value(Value)>
   return *this;
 }
 
-Value detail::AxGenInternal::streaming_forward(AxGen& gen, AIClient& client, Value values, Value options,
-                                               std::function<void(Value)> sink, const AxRuntimeHooks& hooks) {
-  AxRuntimeHooks program_hooks = *std::atomic_load(&gen.runtime_hooks_);
-  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_forward", "ax_gen_generation",
-                         object({{"ax.program.id", Core::get(gen.state_, "program_id", "root")}, {"ax.program.type", "AxGen"}, {"ax.streaming", true}}));
-  AxGenSinkRegistration registration(std::move(sink));
-  return Core::_streaming_forward_impl(gen.state_, Core::client_ref(client), std::move(values), std::move(options), registration.marker());
+AxGen& AxGen::add_field_processor(std::string field, std::string op) {
+  warn_field_processor_rewrite();
+  return add_field_transform(std::move(field), std::move(op));
 }
 
-void detail::AxGenInternal::add_field_transform(AxGen& gen, std::string field, std::string op) {
-  gen.add_field_processor(std::move(field), std::move(op));
+AxGen& AxGen::add_field_processor(std::string field, std::function<Value(Value)> processor) {
+  warn_field_processor_rewrite();
+  return add_field_transform(std::move(field), std::move(processor));
 }
 
-void detail::AxGenInternal::add_feedback_processor(AxGen& gen, std::string field, std::function<Value(Value, Value)> processor) {
-  append_axgen_field_processor(gen.state_, "feedback_processors", std::move(field), std::move(processor));
+// As TypeScript addFieldProcessor, the field must be an output field.
+AxGen& AxGen::add_field_processor(std::string field, AxFieldProcessor processor, AxFieldProcessorMode mode) {
+  if (!axgen_output_type(state_, field)) throw AxError("signature", "addFieldProcessor: field " + field + " not found");
+  const char* key = mode == AxFieldProcessorMode::Feedback ? "feedback_processors" : "field_processors";
+  append_axgen_field_processor(state_, key, std::move(field), axgen_field_processor_host(std::move(processor)));
+  return *this;
 }
 
-void detail::AxGenInternal::add_streaming_field_processor(AxGen& gen, std::string field, std::function<Value(Value, Value)> processor) {
-  // As in TypeScript, streaming processors run on string and code fields.
-  Value output;
-  for (const auto& item : array_ref(Core::get(Core::get(gen.state_, "signature"), "output_fields", Value::array()))) {
-    if (str(get_key(item, "name")) == field) output = item;
-  }
-  if (output.is_null()) throw AxError("runtime", "addFieldProcessor: field " + field + " not found");
-  std::string type = str(get_key(get_key(output, "type"), "name", "string"));
-  if (type != "string" && type != "code") throw AxError("runtime", "addFieldProcessor: field " + field + " must be a text field");
-  append_axgen_field_processor(gen.state_, "streaming_field_processors", std::move(field), std::move(processor));
-}
-
-void detail::AxGenInternal::add_streaming_assert(AxGen& gen, std::string field, std::function<Value(Value, bool)> check, std::string message) {
-  std::string id = next_axgen_host_key("streaming_assertion");
-  {
-    std::lock_guard<std::mutex> lock(axgen_host_mutex);
-    axgen_streaming_checks[id] = std::move(check);
-  }
-  Value spec = Value::object();
-  Core::set(spec, "field", std::move(field));
-  Core::set(spec, "__streaming_assertion_id", id);
-  if (!message.empty()) Core::set(spec, "message", std::move(message));
-  gen.add_streaming_assert(spec);
+// As in TypeScript, streaming processors run on string and code fields.
+AxGen& AxGen::add_streaming_field_processor(std::string field, AxFieldProcessor processor) {
+  auto type = axgen_output_type(state_, field);
+  if (!type) throw AxError("signature", "addFieldProcessor: field " + field + " not found");
+  if (!axgen_text_type(*type)) throw AxError("signature", "addFieldProcessor: field " + field + " must be a text field");
+  append_axgen_field_processor(state_, "streaming_field_processors", std::move(field), axgen_field_processor_host(std::move(processor)));
+  return *this;
 }
 
 AxGen& AxGen::on_function_call(std::function<void(Value)> hook) {
@@ -44691,20 +44742,124 @@ Value AxGen::forward(AIClient& client, Value values, Value options, const AxCanc
   if(cancellation)cancellation->throw_if_cancelled();AxCancellationScope scope(cancellation);return forward(client,std::move(values),std::move(options));
 }
 
+// A forward with run control, or with background tools unless asyncMode is
+// "off", runs through a session.
+static bool axgen_runs_in_session(const Value& state, const Value& run_options) {
+  bool eligible = !Core::get(run_options,"control").is_null();
+  for(const auto& tool:array_ref(Core::get(state,"functions",Value::array()))) if(display(Core::get(tool,"execution","blocking"))=="background") eligible=true;
+  return eligible && (!Core::get(run_options,"control").is_null() || display(Core::get(run_options,"asyncMode",Core::get(run_options,"async_mode","auto")))!="off");
+}
+
 Value AxGen::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_forward", "ax_gen_generation",
                          object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}}));
   Value run_options = Core::map_merge(Core::get(state_, "options", Value::object()), options);
-  bool eligible = !Core::get(run_options,"control").is_null();
-  for(const auto& tool:array_ref(Core::get(state_,"functions",Value::array()))) if(display(Core::get(tool,"execution","blocking"))=="background") eligible=true;
-  if(eligible && (!Core::get(run_options,"control").is_null() || display(Core::get(run_options,"asyncMode",Core::get(run_options,"async_mode","auto")))!="off")) {
+  if(axgen_runs_in_session(state_, run_options)) {
     SessionRun session(state_,client,run_options);
     Core::set(run_options,"infraRetries",0);
     try {Value output=Core::_forward_impl(state_,Core::client_ref(session),std::move(values),run_options);session.finish();return output;}
     catch(const std::exception& error){session.finish(error.what());throw;}
   }
   return Core::_forward_impl(state_, Core::client_ref(client), std::move(values), std::move(options));
+}
+
+namespace {
+
+// What a streaming_forward caller holds: its handler, the deltas merged as a
+// TypeScript consumer merges them (per index, started over when the version
+// changes), and why the run stopped. The run's sink throws an aborted error to
+// stop the run, which the run raises without a retry.
+struct AxGenDeltaConsumer {
+  AxGenDeltaHandler handler;
+  int64_t version = 0;
+  std::vector<std::pair<int64_t, Value>> samples;
+  bool stopped = false;
+  std::exception_ptr error;
+
+  explicit AxGenDeltaConsumer(AxGenDeltaHandler on_delta) : handler(std::move(on_delta)) {}
+
+  void deliver(const Value& envelope) {
+    AxGenDelta delta;
+    delta.version = static_cast<int64_t>(num(get_key(envelope, "version", Value(0))));
+    delta.index = static_cast<int64_t>(num(get_key(envelope, "index", Value(0))));
+    delta.delta = get_key(envelope, "delta", Value::object());
+    merge(delta);
+    bool keep_streaming = false;
+    try {
+      keep_streaming = handler(delta);
+    } catch (...) {
+      error = std::current_exception();
+    }
+    if (error || !keep_streaming) {
+      stopped = true;
+      throw AxAIServiceAbortedError("streaming consumer stopped");
+    }
+  }
+
+  void merge(const AxGenDelta& delta) {
+    if (delta.version != version) {
+      samples.clear();
+      version = delta.version;
+    }
+    Value* view = nullptr;
+    for (auto& sample : samples) {
+      if (sample.first == delta.index) view = &sample.second;
+    }
+    if (view == nullptr) {
+      samples.emplace_back(delta.index, Value::object());
+      view = &samples.back().second;
+    }
+    for (const auto& key : Core::iter(delta.delta)) {
+      std::string name = str(key);
+      Value merged = Core::_stream_merge_value_impl(get_key(*view, name), Value(has_key(*view, name)), clone_usage_value(get_key(delta.delta, name)));
+      Core::set(*view, name, merged);
+    }
+  }
+
+  // Without a result picker the run returns the first sample of the last
+  // version; a stopped run returns that sample as merged so far.
+  Value result() const { return samples.empty() ? Value::object() : samples.front().second; }
+};
+
+}  // namespace
+
+Value AxGen::streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler) {
+  if (!handler) throw AxError("runtime", "AxGen::streaming_forward: handler must be callable");
+  AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
+  RuntimeHookScope scope(AxRuntimeHooks{}, program_hooks, "ax_gen_forward", "ax_gen_generation",
+                         object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}, {"ax.streaming", true}}));
+  AxGenDeltaConsumer consumer(std::move(handler));
+  AxGenSinkRegistration registration([&consumer](Value envelope) { consumer.deliver(envelope); });
+  Value run_options = Core::map_merge(Core::get(state_, "options", Value::object()), options);
+  try {
+    if (axgen_runs_in_session(state_, run_options)) {
+      SessionRun session(state_, client, run_options);
+      Core::set(run_options, "infraRetries", 0);
+      try {
+        Value output = Core::_streaming_forward_impl(state_, Core::client_ref(session), std::move(values), run_options, registration.marker());
+        session.finish();
+        return output;
+      } catch (const std::exception& error) {
+        // A handler that stops the run early, returning false or throwing,
+        // ends it as aborted, as control.abort() does, not as failed.
+        if (consumer.stopped) session.finish(std::nullopt, true);
+        else session.finish(error.what());
+        throw;
+      }
+    }
+    return Core::_streaming_forward_impl(state_, Core::client_ref(client), std::move(values), std::move(options), registration.marker());
+  } catch (...) {
+    if (consumer.error) std::rethrow_exception(consumer.error);
+    if (!consumer.stopped) throw;
+  }
+  return consumer.result();
+}
+
+Value AxGen::streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler, const AxCancellationToken* cancellation) {
+  if (cancellation) cancellation->throw_if_cancelled();
+  AxCancellationScope scope(cancellation);
+  return streaming_forward(client, std::move(values), std::move(options), std::move(handler));
 }
 
 AxGen& AxGen::set_rate_limiter(AxRateLimiter limiter) {

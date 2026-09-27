@@ -207,18 +207,38 @@ class SessionRun final:public AIClient {
       throw AxError(error.category,std::string(error.what())+"; unresolved calls: "+stringify(Core::chat_session_unresolved(state_)),error.type,error.status,error.code,error.retryable,error.response_body);
     }
   }
+ private:
+  void select_client(const Value& request){
+    if(selected_)return;
+    if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before selecting a provider");
+    std::set<AIClient*> visited;
+    while(true){if(!visited.insert(client_).second)throw AxError("runtime","Cyclic run routing");auto selected=client_->pin_chat_run(request,options_);if(!selected)break;selected_client_=std::move(selected);client_=selected_client_.get();}
+    selected_=true;
+  }
+  bool wants_native_session(const Value& request){return Core::truthy(Core::chat_session_mode_enabled(options_))&&Core::truthy(Core::get(features_for_run(Core::get(request,"model")),"asyncTools",false));}
+  // A model call without a native session: the path's pending control updates
+  // go into the request at this response boundary.
+  Value boundary_request(Value request){
+    if(!fallback_started_){emit("started");fallback_started_=true;}Value updates=Value::array();
+    if(control_){if(control_->is_aborted())throw AxError("runtime","Run aborted before the next model request");std::lock_guard<std::mutex> lock(control_->source()->mutex);for(;after_<control_->source()->updates.size();++after_){Value update=control_->source()->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))Core::append(updates,update);}}
+    Value applied=Core::chat_session_apply_boundary_updates(request,updates,level_);level_=Core::get(applied,"level");for(const auto& id:array_ref(Core::get(applied,"applied",Value::array())))emit("applied",object({{"update_id",id},{"timing","next-response"}}));return Core::get(applied,"request");
+  }
+ public:
+  // The service a streamed model call goes to, with request rewritten as chat()
+  // would send it; null when the call needs a native session or the selected
+  // client cannot stream, and chat() answers it instead.
+  AxAIService* stream_service(Value& request){
+    select_client(request);
+    if(session_)return nullptr;
+    if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before opening a session");
+    auto* service=dynamic_cast<AxAIService*>(client_);
+    if(service==nullptr||wants_native_session(request))return nullptr;
+    request=boundary_request(std::move(request));
+    return service;
+  }
   Value chat_impl(Value request,Value options) {
-    if(!selected_) {
-      if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before selecting a provider");
-      std::set<AIClient*> visited;
-      while(true){if(!visited.insert(client_).second)throw AxError("runtime","Cyclic run routing");auto selected=client_->pin_chat_run(request,options_);if(!selected)break;selected_client_=std::move(selected);client_=selected_client_.get();}
-      selected_=true;
-    }
-    if(!session_){if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before opening a session");if(Core::truthy(Core::chat_session_mode_enabled(options_))&&Core::truthy(Core::get(features_for_run(Core::get(request,"model")),"asyncTools",false)))session_=client_->open_chat_session(request,options);if(!session_){
-        if(!fallback_started_){emit("started");fallback_started_=true;}Value updates=Value::array();
-        if(control_){if(control_->is_aborted())throw AxError("runtime","Run aborted before the next model request");std::lock_guard<std::mutex> lock(control_->source()->mutex);for(;after_<control_->source()->updates.size();++after_){Value update=control_->source()->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))Core::append(updates,update);}}
-        Value applied=Core::chat_session_apply_boundary_updates(request,updates,level_);level_=Core::get(applied,"level");for(const auto& id:array_ref(Core::get(applied,"applied",Value::array())))emit("applied",object({{"update_id",id},{"timing","next-response"}}));return client_->chat(Core::get(applied,"request"),options);
-      }state_=Core::chat_session_create_state(Core::get(request,"model",""),path_,Core::get(options_,"maxSteps",Core::get(options_,"max_steps",10)));emit("started");}
+    select_client(request);
+    if(!session_){if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before opening a session");if(wants_native_session(request))session_=client_->open_chat_session(request,options);if(!session_)return client_->chat(boundary_request(std::move(request)),options);state_=Core::chat_session_create_state(Core::get(request,"model",""),path_,Core::get(options_,"maxSteps",Core::get(options_,"max_steps",10)));emit("started");}
     else{const auto& messages=array_ref(Core::get(request,"chat_prompt",Value::array()));if(!messages.empty())session_->update(object({{"type","steer"},{"text",Core::get(messages.back(),"content","")}}));submit(Value::array());}
     while(true){
       if(control_){if(control_->is_aborted())throw AxError("runtime","Run aborted; unresolved calls: "+stringify(Core::chat_session_unresolved(state_)));std::vector<Value> updates;{std::lock_guard<std::mutex> lock(control_->source()->mutex);for(;after_<control_->source()->updates.size();++after_){const auto& update=control_->source()->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))updates.push_back(update);}}
@@ -233,8 +253,17 @@ class SessionRun final:public AIClient {
       Value action=Core::chat_session_boundary_action(state_);std::string type=display(Core::get(action,"type"));if(type=="submit")submit(Core::get(action,"results",Value::array()));else if(type=="continue")submit(Value::array());else if(type=="validate"&&!last_.is_null())return Core::chat_session_result(last_,Core::get(state_,"response_id"));
     }
   }
-  void finish(std::optional<std::string> error=std::nullopt){if(finished_)return;finished_=true;results_->close();Value pending=Value::array();if(session_){Core::chat_session_record_unresolved(gen_,state_);pending=Core::chat_session_close_state(state_);session_->close();}if(!error)emit("completed");else emit("failed",object({{"error",*error},{"pending_call_ids",pending}}));}
+  // Ends the run. A run its streaming consumer stopped early ends as aborted,
+  // as control.abort() reports it; any other run as failed or completed.
+  void finish(std::optional<std::string> error=std::nullopt,bool consumer_stopped=false){if(finished_)return;finished_=true;results_->close();Value pending=Value::array();if(session_){Core::chat_session_record_unresolved(gen_,state_);pending=Core::chat_session_close_state(state_);session_->close();}if(consumer_stopped)emit("aborted");else if(!error)emit("completed");else emit("failed",object({{"error",*error},{"pending_call_ids",pending}}));}
 };
+
+// A streamed model call in a run session streams from the session's selected
+// service through the boundary chat() uses (see ai_stream_open).
+static AxAIService* session_stream_service(AIClient* client, Value& request) {
+  auto* session = dynamic_cast<SessionRun*>(client);
+  return session == nullptr ? nullptr : session->stream_service(request);
+}
 
 Value Core::flow_dispatch_group(Value flow,Value client,Value plans,Value state,Value options) {
   auto* source=registered_client(display(get(client,"__client_id")));if(!source)return {};
