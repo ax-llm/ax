@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-rust-ai/SKILL.md",
-      "digest": "sha256:b495a5965fe8988f8ea6d8869cdf0b3a5ba8e4e58a23fce65ba09cca4294cc9b"
+      "digest": "sha256:2e80cd2947d191e681027b10396375b116e0c84f1bf06cb7c8a92f5a66888398"
     },
     {
       "name": "ax-rust-typesafe",
@@ -41,21 +41,21 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:6535cdd85a1e231260eacc406b10c04ea6aeba0347f703ae223d8c4af80554ae"
+      "digest": "sha256:9cc54d4e2f55f35962fb31c0928e611707bee7086cf59a4aaa5fa8db315daef4"
     },
     {
       "name": "ax-rust-flow",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-rust-flow/SKILL.md",
-      "digest": "sha256:98bc97eed518c182e06ecfe77f1d621ce45a6e18c6837a999994f6fd565dae09"
+      "digest": "sha256:47f40c627a1e3bc7cd0dea7b9822994bcdcb83e361f63e5b2337842fd0afd197"
     },
     {
       "name": "ax-rust-agent",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-rust-agent/SKILL.md",
-      "digest": "sha256:616ae914da38ff68051edaadf32c64f942fea6a0e43a46678172b5b7d97c4cd4"
+      "digest": "sha256:a4f2f53b6533e02061bd83eeb744d27a5ee19be575b597d21d2d061d1b5dca7c"
     },
     {
       "name": "ax-rust-agent-rlm",
