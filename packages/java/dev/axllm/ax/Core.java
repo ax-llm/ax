@@ -788,15 +788,22 @@ final class Core {
     t.array = false;
     return new Field(f.name, t, f.description, f.title, f.optional, f.internal, f.cached);
   }
+  // A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts):
+  // underscores become spaces, and a word starts at a capital after a lowercase
+  // letter or digit, at the last capital of a run that begins a word, and at each
+  // run of digits; words are separated by one space. userID is "User ID",
+  // parseHTTPResponse "Parse HTTP Response", item123 "Item 123", field_2 "Field 2".
+  private static final Pattern TITLE_CAMEL_BOUNDARY = Pattern.compile("([a-z0-9])([A-Z])");
+  private static final Pattern TITLE_ACRONYM_BOUNDARY = Pattern.compile("([A-Z])([A-Z][a-z])");
+  private static final Pattern TITLE_DIGIT_BOUNDARY = Pattern.compile("([^0-9])([0-9])");
+  private static final Pattern TITLE_SPACES = Pattern.compile("\\s+");
+
   static String title(String name) {
-    String s = name == null ? "" : name.replace("_", " ");
-    StringBuilder out = new StringBuilder();
-    for (int i = 0; i < s.length(); i++) {
-      char ch = s.charAt(i);
-      if (i > 0 && (Character.isUpperCase(ch) || Character.isDigit(ch))) out.append(' ');
-      out.append(ch);
-    }
-    String text = out.toString().trim();
+    String text = name == null ? "" : name.replace("_", " ");
+    text = TITLE_CAMEL_BOUNDARY.matcher(text).replaceAll("$1 $2");
+    text = TITLE_ACRONYM_BOUNDARY.matcher(text).replaceAll("$1 $2");
+    text = TITLE_DIGIT_BOUNDARY.matcher(text).replaceAll("$1 $2");
+    text = TITLE_SPACES.matcher(text).replaceAll(" ").trim();
     return text.isEmpty() ? text : text.substring(0, 1).toUpperCase() + text.substring(1);
   }
   static Object descriptionAppend(Object base, Object hint) {
@@ -5795,8 +5802,10 @@ final class Core {
     for (Object call : Core.iter(function_calls)) {
       Object fn = Core.get(call, "function", null);
       Object id = Core.get(call, "id", null);
-      Object name = Core.get(fn, "name", null);
-      Object params = Core.get(fn, "params", null);
+      Object flat_name = Core.get(call, "name", null);
+      Object name = Core.get(fn, "name", flat_name);
+      Object flat_params = Core.get(call, "params", null);
+      Object params = Core.get(fn, "params", flat_params);
       Object compat_call = new java.util.LinkedHashMap<String, Object>();
       Core.set(compat_call, "id", id);
       Core.set(compat_call, "name", name);
@@ -6070,18 +6079,6 @@ final class Core {
     return out;
   }
 
-  static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
-    axirCoverageMark("ai_context_cache_expiry");
-    Object is_number = Core.typeIs(provider_expire_time, "number");
-    if (Core.truthy(is_number)) {
-      Object future = Core.gt(provider_expire_time, now);
-      if (Core.truthy(future)) {
-        return provider_expire_time;
-      }
-    }
-    return 0;
-  }
-
   static Object _openai_finish_reason_impl(Object value) {
     axirCoverageMark("_openai_finish_reason_impl");
     Object is_stop = Core.eq(value, "stop");
@@ -6104,6 +6101,18 @@ final class Core {
     }
     Object none = Core.none();
     return none;
+  }
+
+  static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
+    axirCoverageMark("ai_context_cache_expiry");
+    Object is_number = Core.typeIs(provider_expire_time, "number");
+    if (Core.truthy(is_number)) {
+      Object future = Core.gt(provider_expire_time, now);
+      if (Core.truthy(future)) {
+        return provider_expire_time;
+      }
+    }
+    return 0;
   }
 
   static Object ai_context_cache_plan(Object configured, Object supported, Object explicit_name, Object existing, Object now, Object refresh_window_ms, Object create_eligible) {

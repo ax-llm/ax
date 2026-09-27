@@ -1446,6 +1446,7 @@ class AxACE {
   AceCallable generator_;
   Value config_;
   Value initial_playbook_;
+  // The injected clock (the `now` option); empty for the wall clock.
   std::string now_;
   Value playbook_;
   std::vector<Value> generator_history_;
@@ -1454,6 +1455,7 @@ class AxACE {
   bool has_generator_ = false;
 
   Value empty_playbook() const;
+  std::string now() const;
   int int_config(const std::string& key, int fallback) const;
   std::string render_playbook() const;
   Value generator_output(const Value& prediction) const;
@@ -1504,7 +1506,11 @@ class AxPlaybook {
   std::unique_ptr<AxGen> curator_program_;
   std::function<void(const std::string&)> apply_hook_;
   AxAgent* agent_ = nullptr;
+  friend class AxAgent;
 
+  // An agent stage rebuild replaced the bound program: run and write into the
+  // new one.
+  void rebind_program(AxGen& program);
   Value run_generator(const Value& example);
   Value run_reflector(const Value& payload);
   Value run_curator(const Value& payload);
@@ -1610,10 +1616,18 @@ class AxAgent : public AxProgram {
   Value playbook_config_;
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   std::unique_ptr<AxPlaybook> playbook_handle_;
+  // The stage the playbook targets and whether it writes into that stage's
+  // prompt, kept to rebind the playbook when stages are rebuilt.
+  std::string playbook_target_ = "actor";
+  bool playbook_apply_ = true;
   std::function<void(Value)> citations_observer_;
   std::function<void(Value)> playbook_observer_;
   void refresh_observability() const;
-  void ensure_configured_playbook(AIClient& client);
+  void attach_configured_playbook();
+  AxGen* playbook_stage() const;
+  void bind_playbook_stage(AxPlaybook& handle, AxGen* stage);
+  void rebind_playbook();
+  void set_stage_instruction(AxGen& stage, Value instruction);
   void learn_playbook_failures(Value output);
 };
 

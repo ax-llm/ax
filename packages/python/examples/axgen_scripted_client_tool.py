@@ -17,11 +17,19 @@ class ScriptedClient:
         return {"content": "Answer:  Found Ax docs "}
 
 
+searches = []
+
+
+def search_docs(args):
+    searches.append(args)
+    return {"title": "Ax docs"}
+
+
 search = (
     fn("search")
     .description("Search docs")
     .arg("query", f.string().min(1))
-    .handler(lambda args: {"title": "Ax docs"})
+    .handler(search_docs)
     .build()
 )
 
@@ -30,6 +38,8 @@ qa.add_assert({"field": "answer", "contains": "Ax", "message": "answer should me
 qa.add_field_transform("answer", "trim")
 out = qa.forward(ScriptedClient(), {"query": "ax docs"})
 assert out == {"answer": "Found Ax docs"}, out
+# The tool ran once, with the model's arguments.
+assert searches == [{"query": "ax docs"}], searches
 assert qa.get_traces()[-1]["output"] == out
 
 # A caching function reads with fn(key), which returns a stored output or

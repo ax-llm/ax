@@ -3,6 +3,7 @@ import os
 
 from abc import ABC, abstractmethod
 import copy
+from datetime import datetime, timezone
 import json
 import math
 import re
@@ -667,6 +668,12 @@ def _ace_option(options, *keys, default=None):
     return default
 
 
+def _ace_wall_clock():
+    """The current UTC time as JavaScript's toISOString writes it."""
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+
 class AxACE:
     """Agentic Context Engineering optimizer (Generator -> Reflector -> Curator).
 
@@ -702,8 +709,10 @@ class AxACE:
             else _ace_empty_playbook(None, self._now())
         )
 
+    # The injected clock (`now`), else the wall clock at each call, as TS's
+    # new Date().toISOString() stamps each playbook change.
     def _now(self):
-        return self.options.get("now") or "1970-01-01T00:00:00.000Z"
+        return self.options.get("now") or _ace_wall_clock()
 
     def reset(self):
         self.playbook = (
@@ -1057,19 +1066,38 @@ def _ace_curator_signature():
         .build()
     )
 
-_AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE = (
-    'clusterSignature:string "Shared error signature of the cluster", '
-    'taskSummaries:string "One line per failing task", '
-    'actionLogExcerpts:string "Excerpts of the failing runs, centered on the failure", '
-    'functionCallSummary?:string "Digest of runtime/tool calls in the failing runs", '
-    'toolErrors?:string "Tool errors observed", '
-    'currentPlaybook?:string "The failure-avoidance playbook currently applied" '
-    '-> weaknessDescription:string "The recurring weakness, one sentence", '
-    'rootCause:string "Why the runs fail, mechanically", '
-    'proposedGuidance:string "One concise imperative avoidance rule", '
-    'evidenceQuotes:json "Verbatim substrings copied from actionLogExcerpts", '
-    'configRecommendations?:json "Setup suggestions no prompt text can fix"'
+# The weakness miner's description and signature, as TS builds them
+# (src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts).
+_AGENT_PLAYBOOK_WEAKNESS_MINER_DESCRIPTION = (
+    "You are a failure analyst for an LLM agent harness. You receive one "
+    "cluster of failed agent runs sharing an error signature, with excerpts "
+    "of what the agent actually did. Identify the single recurring weakness, "
+    "its root cause, and one narrow, durable avoidance rule the agent should "
+    "recall while acting. Ground every claim: evidenceQuotes must be verbatim "
+    "substrings copied from the excerpts. Keep proposedGuidance concise, "
+    "imperative, and general to the failure mode (not one task). Use "
+    "configRecommendations only for setup problems no prompt text can fix "
+    "(missing tools, timeouts, model choice)."
 )
+
+
+def _agent_playbook_weakness_miner_signature():
+    return (
+        _signature_builder()
+        .input("clusterSignature", _signature_builder.string("Shared error signature of the cluster."))
+        .input("taskSummaries", _signature_builder.string("One line per failing task."))
+        .input("actionLogExcerpts", _signature_builder.string("Excerpts of the failing runs, centered on the failure."))
+        .input("functionCallSummary", _signature_builder.string("Digest of runtime/tool calls in the failing runs.").optional())
+        .input("toolErrors", _signature_builder.string("Tool errors observed.").optional())
+        .input("currentPlaybook", _signature_builder.string("The failure-avoidance playbook currently applied.").optional())
+        .output("weaknessDescription", _signature_builder.string("The recurring weakness, one sentence."))
+        .output("rootCause", _signature_builder.string("Why the runs fail, mechanically."))
+        .output("proposedGuidance", _signature_builder.string("The avoidance rule to add to the playbook — concise, imperative."))
+        .output("evidenceQuotes", _signature_builder.string("Verbatim substrings from actionLogExcerpts proving the weakness.").array())
+        .output("configRecommendations", _signature_builder.string("Setup/config suggestions no prompt text can fix.").array().optional())
+        .description(_AGENT_PLAYBOOK_WEAKNESS_MINER_DESCRIPTION)
+        .build()
+    )
 
 
 def _playbook_option(options, *keys, default=None):
@@ -1592,16 +1620,7 @@ class AxAgentPlaybook:
                 "currentPlaybook": self.inner.render() or None,
             }
             request = {key: value for key, value in request.items() if value is not None}
-            miner = AxGen(
-                _AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE,
-                {
-                    "id": "agent.playbook.weakness-miner",
-                    "instruction": (
-                        "Identify one recurring weakness and one narrow durable avoidance rule. "
-                        "Every evidence quote must be copied verbatim from actionLogExcerpts."
-                    ),
-                },
-            )
+            miner = AxGen(_agent_playbook_weakness_miner_signature(), {"id": "agent.playbook.weakness-miner"})
             mined = miner.forward(teacher, request, dict(teacher_options))
             raw_quotes = mined.get("evidenceQuotes")
             candidates = raw_quotes if isinstance(raw_quotes, list) else ([] if raw_quotes is None else [raw_quotes])
@@ -1745,6 +1764,10 @@ class AxAgent:
             self.options["executionContext"] = self.execution_context
         self._playbook_handle = None
         self._agent_playbook = None
+        # The stage the playbook targets and whether it writes into that
+        # stage's prompt, kept to rebind the playbook when the stages rebuild.
+        self._playbook_target = "actor"
+        self._playbook_apply = True
         self._playbook_config = self.options.get("playbook")
         self._rebuild_from_signature(signature)
         if self._playbook_config not in (None, False):
@@ -1770,6 +1793,7 @@ class AxAgent:
         self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
         self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")})
         self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+        self._rebind_playbook()
 
     def add_child_agent(self, namespace: str, name: str, child: "AxAgent"):
         self.options = _agent_register_child(self.options, namespace, name, child, child.signature)
@@ -2164,22 +2188,42 @@ class AxAgent:
             student = self.options.get("ai") or self.options.get("client")
         if student is None:
             raise ValueError("AxAgent.playbook(): studentAI is required when the agent has no default ai.")
-        stage = self.responder if target == "responder" else self.executor
+        self._playbook_target = target
+        self._playbook_apply = opts.get("apply") is not False
+        stage = self._playbook_stage()
         handle_options = dict(opts)
         handle_options["studentAI"] = student
         handle = AxPlaybook(stage, handle_options)
-        if opts.get("apply") is False:
+        self._bind_playbook_stage(handle, stage)
+        self._playbook_handle = handle
+        self._agent_playbook = AxAgentPlaybook(self, handle)
+        return self._agent_playbook
+
+    # The stage the playbook targets: the actor, or the responder.
+    def _playbook_stage(self):
+        return self.responder if self._playbook_target == "responder" else self.executor
+
+    # Point the playbook at an agent stage: the program it runs and the hook
+    # that writes the rendered playbook into the stage prompt.
+    def _bind_playbook_stage(self, handle, stage):
+        handle.program = stage
+        if not self._playbook_apply:
             handle._set_apply_hook(lambda _rendered: None)
+            return
         base = stage.signature.get_description() if hasattr(stage.signature, "get_description") else None
 
         def _apply(rendered):
             stage.signature.description = _playbook_compose_instruction(base, rendered)
 
-        if opts.get("apply") is not False:
-            handle._set_apply_hook(_apply)
-        self._playbook_handle = handle
-        self._agent_playbook = AxAgentPlaybook(self, handle)
-        return self._agent_playbook
+        handle._set_apply_hook(_apply)
+
+    # set_signature and add_child_agent rebuild the stages: point the playbook
+    # at the new stage and write it into that stage's prompt.
+    def _rebind_playbook(self):
+        if self._playbook_handle is None:
+            return
+        self._bind_playbook_stage(self._playbook_handle, self._playbook_stage())
+        self._playbook_handle.apply_to()
 
     def get_playbook(self):
         return self._agent_playbook

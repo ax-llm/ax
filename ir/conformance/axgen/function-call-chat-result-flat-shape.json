@@ -1,0 +1,71 @@
+{
+  "name": "function-call-chat-result-flat-shape",
+  "kind": "forward",
+  "signature": "query:string -> answer:string",
+  "input": {
+    "query": "ax docs"
+  },
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Docs"
+      },
+      "returns": {
+        "title": {
+          "type": "string"
+        }
+      }
+    }
+  ],
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "",
+          "function_calls": [
+            {
+              "id": "call_1",
+              "name": "search",
+              "params": {
+                "query": "ax docs"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "content": "{\"answer\":\"Docs\"}"
+    }
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "expected_function_traces_subset": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "id": "call_1",
+      "name": "search",
+      "status": "ok"
+    }
+  ],
+  "expected_output": {
+    "answer": "Docs"
+  },
+  "expected_request_count": 2
+}
