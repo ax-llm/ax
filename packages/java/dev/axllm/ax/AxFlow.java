@@ -270,6 +270,11 @@ public final class AxFlow implements AxProgram {
   public Map<String,Object> forwardWithCancellation(AiClient client,Map<String,Object> values,Map<String,Object> options,AxCancellationToken cancellation){Map<String,Object> resolved=new LinkedHashMap<>(options==null?Map.of():options);resolved.put("cancellation",cancellation);return forward(client,values,resolved);}
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options, AxRuntimeHooks hooks) {
+    // As in TypeScript, the flow reads its cache before its span and metrics,
+    // so a stored output runs no node and records neither.
+    Map<String, Object> callOptions = AxRuntimeHooks.strip(options);
+    Map<String, Object> cached = readCacheFirst(values == null ? Map.of() : values, callOptions);
+    if (cached != null) return cached;
     AxGlobals.Scope scope = AxGlobals.openScope(
         hooks,
         runtimeHooks,
@@ -277,7 +282,7 @@ public final class AxFlow implements AxProgram {
         "ax_gen_flow",
         Map.of("ax.program.id", String.valueOf(state.getOrDefault("program_id", "root.flow")), "ax.program.type", "AxFlow"));
     try {
-      return forwardUnscoped(client, values, AxRuntimeHooks.strip(options));
+      return forwardUnscoped(client, values, callOptions);
     } catch (RuntimeException | Error error) {
       scope.fail(error);
       throw error;
@@ -285,6 +290,23 @@ public final class AxFlow implements AxProgram {
       scope.close();
     }
   }
+
+  // The flow's cache read (Core._flow_cache_lookup_impl), made before the run
+  // opens its span and metrics. It returns the stored output on a hit; after
+  // a miss it adds the lookup to callOptions as _ax_flow_cache_lookup, so the
+  // forward only stores, and returns null. Options that already carry a
+  // lookup are left as they are, and without a caching function (or under a
+  // run control) the options stay unchanged.
+  private Map<String, Object> readCacheFirst(Map<String, Object> values, Map<String, Object> callOptions) {
+    if (callOptions.containsKey(CACHE_LOOKUP)) return null;
+    Map<String, Object> lookup = Core.asMap(Core._flow_cache_lookup_impl(state, values, callOptions));
+    if (lookup.get("fn") == null) return null;
+    if (Core.truthy(lookup.get("hit"))) return Core.asMap(lookup.get("value"));
+    callOptions.put(CACHE_LOOKUP, lookup);
+    return null;
+  }
+
+  private static final String CACHE_LOOKUP = "_ax_flow_cache_lookup";
 
   private Map<String, Object> forwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> options) {
     Map<String, Object> callOptions = new LinkedHashMap<>(options == null ? Map.of() : options);

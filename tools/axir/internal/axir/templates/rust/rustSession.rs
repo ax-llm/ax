@@ -28,6 +28,11 @@ impl AxRunControl {
     pub fn is_aborted(&self) -> bool {
         self.0.aborted.load(Ordering::SeqCst) || self.0.parent.as_ref().is_some_and(|parent|parent.is_aborted())
     }
+    // Whether a caller's run control is behind this one: a flow worker's
+    // relay control stands in for its parent's, and has none without one.
+    pub(crate) fn has_caller(&self) -> bool {
+        self.0.relay.is_none() || self.0.parent.as_ref().is_some_and(AxRunControl::has_caller)
+    }
     pub fn on_event(&self, listener: impl Fn(Value) + Send + Sync + 'static) {
         self.0.listeners.lock().unwrap().push(Arc::new(listener));
     }

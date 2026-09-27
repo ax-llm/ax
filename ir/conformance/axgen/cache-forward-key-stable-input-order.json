@@ -1,0 +1,49 @@
+{
+  "calls": [
+    {
+      "input": {
+        "firstName": "Ada",
+        "lastName": "Lovelace"
+      },
+      "kind": "forward"
+    },
+    {
+      "input": {
+        "firstName": "Ada",
+        "lastName": "Lovelace"
+      },
+      "kind": "forward",
+      "reverse_input_keys": true
+    }
+  ],
+  "expected_cache_gets": 2,
+  "expected_cache_sets": [
+    {
+      "fullName": "Ada Lovelace"
+    }
+  ],
+  "expected_deltas": [null, null],
+  "expected_outputs": [
+    {
+      "fullName": "Ada Lovelace"
+    },
+    {
+      "fullName": "Ada Lovelace"
+    }
+  ],
+  "expected_request_count": 1,
+  "expected_requests": [1, 0],
+  "kind": "cache_sequence",
+  "name": "cache-forward-key-stable-input-order",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Full Name: Ada Lovelace",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "firstName:string, lastName:string -> fullName:string"
+}

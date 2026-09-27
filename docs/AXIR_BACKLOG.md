@@ -897,6 +897,24 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `55f195ce5`
   - Verification: `Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes.`
+- `axir-2026-09-27-axflow-reads-and-stores-its-own-cachingfunction-entry-in-the-por` [axflow] AxFlow reads and stores its own cachingFunction entry in the ports
+  - Status: done
+  - Source commit: `ec229a1fe66ae91383e7befff2205894e123abac`
+  - TS paths: `src/ax/flow/flow.ts`
+  - Impact: TypeScript AxFlow.forward reads a per-call or process-wide cachingFunction before running (a hit runs no node, read errors are ignored, a run control skips it) and stores its returned output afterwards; its options also reach the AxGen nodes. The ports had only a cache_store test seam at the flow level, so a flow cached nothing of its own. TypeScript also keyed a flow without nodes differently on its first call, so its first entry was never read.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `ae09148e2a4b5dd10d32725492b84a3fe0264068`
+  - Verification: `node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with 8 axflow flow-cache-* goldens and axgen/cache-forward-key-stable-input-order; per-port flow telemetry tests; npm run test --workspace=@ax-llm/ax`
+- `axir-2026-09-27-continue-the-axgen-step-loop-while-a-run-control-update-is-pendi` [axgen] Continue the AxGen step loop while a run control update is pending in the ports
+  - Status: done
+  - Source commit: `54f626c2a0bff242fea15d356b7f9b325d6befae`
+  - TS paths: `src/ax/dsp/generate.ts`
+  - Impact: TypeScript applies a run control's pending updates when each step starts (a steer is a user message that stays in memory, a thinking level sets the budget, each starts a new streaming version) and takes another step after a final answer while an update is pending. The ports returned the first answer: a steer queued while the request was in flight was never applied and no applied event was emitted.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `1b6d8b9f84346048f73cad9b255adcb42b950e28`
+  - Verification: `node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with forward-control-steer-continues, streaming-forward-control-steer-continues and forward-control-steer-persists-across-tool-steps`
 - `axir-2026-09-27-date-fields-parse-dates` [axgen] Parse date, datetime and range outputs as TypeScript does (opt-in parseDates) and fix time-zone abbreviations
   - Status: done
   - Source commit: `319c07a31b08bba2f246f8551c25d7433d15864d`
@@ -924,12 +942,3 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `44bb2306d4a4794442415e0164f44118c1092279`
   - Verification: `TS: the new sig.test.ts field-title cases fail on main (User I D, Field  2) and pass; npm run test --workspace=@ax-llm/ax passes (a benchmark that timed out under load passes alone). TS goldens prompt/field-titles-snake-and-camel-case and axagent/agent-playbook-evolve-miner-system-prompt; runner keys expected_playbook_state_before_forward, expected_playbook_wall_clock, expected_playbook_config_unchanged and expected_teacher_system_prompts; hand-written axagent/playbook-config-empty-seed-wall-clock, playbook-config-kept-over-actor-instructions, -kept-after-child-agent, -kept-under-run-context, playbook-config-responder-target and axgen/function-call-chat-result-flat-shape and -nested-shape. Each fails on main in the ports named in the PR and passes in all five; 23 mutated copies fail in all five; per-port probes show a flat call runs its tool in every port. Full suites 1120/1120 in python, go, java, cpp and rust; the scripted-client tool examples assert the tool ran.`
-- `axir-2026-09-27-continue-the-axgen-step-loop-while-a-run-control-update-is-pendi` [axgen] Continue the AxGen step loop while a run control update is pending in the ports
-  - Status: done
-  - Source commit: `54f626c2a0bff242fea15d356b7f9b325d6befae`
-  - TS paths: `src/ax/dsp/generate.ts`
-  - Impact: TypeScript applies a run control's pending updates when each step starts (a steer is a user message that stays in memory, a thinking level sets the budget, each starts a new streaming version) and takes another step after a final answer while an update is pending. The ports returned the first answer: a steer queued while the request was in flight was never applied and no applied event was emitted.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-09-27
-  - Completed by: `1b6d8b9f84346048f73cad9b255adcb42b950e28`
-  - Verification: `node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with forward-control-steer-continues, streaming-forward-control-steer-continues and forward-control-steer-persists-across-tool-steps`

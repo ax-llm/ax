@@ -984,6 +984,14 @@ final class Core {
     Object fromGen = cachingFunctionOption(get(gen, "options", null));
     return fromGen != null ? fromGen : AxGlobals.cachingFunction();
   }
+  // TS AxFlow's cachingFunction: the call's (cachingFunction or
+  // caching_function), else the process-wide one; the flow's constructor
+  // takes none. The flow passes its call options to its AxGen nodes, so they
+  // cache through the same function.
+  static Object flowCachingFunction(Object options) {
+    Object fromCall = cachingFunctionOption(options);
+    return fromCall != null ? fromCall : AxGlobals.cachingFunction();
+  }
   private static Object cachingFunctionOption(Object options) {
     if (!(options instanceof Map<?, ?> map)) return null;
     Object value = map.get("cachingFunction");
@@ -37256,71 +37264,72 @@ final class Core {
     return plan;
   }
 
-  static Object _flow_cache_key(Object values) {
+  static Object _flow_cache_key(Object flow, Object values) {
     axirCoverageMark("_flow_cache_key");
-    Object key = Core.jsonStableStringify(values);
+    Object plan = Core._flow_plan(flow);
+    Object plan_text = Core.jsonStableStringify(plan);
+    Object values_text = Core.jsonStableStringify(values);
+    Object parts = new java.util.ArrayList<Object>();
+    Core.append(parts, "axflow");
+    Core.append(parts, plan_text);
+    Core.append(parts, values_text);
+    Object text = Core.stringJoin("\n", parts);
+    Object key = Core.cryptoSha256Hex(text);
     return key;
   }
 
-  static Object _flow_cache_read_write(Object flow, Object values, Object options, Object mode, Object cached_value) {
-    axirCoverageMark("_flow_cache_read_write");
+  static Object _flow_cache_lookup_impl(Object flow, Object values, Object options) {
+    axirCoverageMark("_flow_cache_lookup_impl");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
     Object opts_missing = Core.isNone(options);
     Object opts = options;
     if (Core.truthy(opts_missing)) {
       opts = empty_map;
     }
-    Object key = Core._flow_cache_key(values);
-    Object store_snake = Core.get(opts, "cache_store", null);
-    Object store = Core.get(opts, "cacheStore", store_snake);
-    Object has_store = Core.isNotNone(store);
-    Object read_error_snake = Core.get(opts, "cache_read_error", Boolean.FALSE);
-    Object read_error = Core.get(opts, "cacheReadError", read_error_snake);
-    Object write_error_snake = Core.get(opts, "cache_write_error", Boolean.FALSE);
-    Object write_error = Core.get(opts, "cacheWriteError", write_error_snake);
-    Object is_read = Core.eq(mode, "read");
-    Object is_write = Core.eq(mode, "write");
     Object none = Core.none();
-    Object result = new java.util.LinkedHashMap<String, Object>();
-    Core.set(result, "key", key);
-    Core.set(result, "hit", Boolean.FALSE);
-    Core.set(result, "value", none);
+    Object lookup = new java.util.LinkedHashMap<String, Object>();
+    Core.set(lookup, "fn", none);
+    Core.set(lookup, "key", "");
+    Core.set(lookup, "hit", Boolean.FALSE);
     Object controller = Core.get(opts, "control", null);
     Object controlled = Core.isNotNone(controller);
     if (Core.truthy(controlled)) {
-      return result;
+      return lookup;
     }
-    if (Core.truthy(is_read)) {
-      Object can_read_store = Core.and(has_store, read_error);
-      Object skip_read = Core.truthyValue(can_read_store);
-      if (Core.truthy(skip_read)) {
-        // empty
-      }
-      if (!Core.truthy(skip_read)) {
-        if (Core.truthy(has_store)) {
-          Object cached = Core.get(store, key, null);
-          Object hit = Core.isNotNone(cached);
-          if (Core.truthy(hit)) {
-            Core.set(result, "hit", Boolean.TRUE);
-            Core.set(result, "value", cached);
-          }
-        }
-      }
+    Object cache_fn = Core.flowCachingFunction(opts);
+    Object no_cache = Core.isNone(cache_fn);
+    if (Core.truthy(no_cache)) {
+      return lookup;
     }
-    if (Core.truthy(is_write)) {
-      Object can_write_store = Core.and(has_store, write_error);
-      Object skip_write = Core.truthyValue(can_write_store);
-      if (Core.truthy(skip_write)) {
-        // empty
-      }
-      if (!Core.truthy(skip_write)) {
-        if (Core.truthy(has_store)) {
-          Core.set(store, key, cached_value);
-          Core.set(result, "value", cached_value);
-        }
-      }
+    Object key = Core._flow_cache_key(flow, values);
+    Core.set(lookup, "fn", cache_fn);
+    Core.set(lookup, "key", key);
+    Object cached = Core.none();
+    try {
+      cached = Core.axgenCacheRead(cache_fn, key);
+    } catch (RuntimeException read_error) {
+      // empty
     }
-    return result;
+    Object hit = Core.isNotNone(cached);
+    if (Core.truthy(hit)) {
+      Core.set(lookup, "hit", Boolean.TRUE);
+      Core.set(lookup, "value", cached);
+    }
+    return lookup;
+  }
+
+  static Object _flow_cache_store_impl(Object cache_fn, Object key, Object output) {
+    axirCoverageMark("_flow_cache_store_impl");
+    Object no_cache = Core.isNone(cache_fn);
+    if (Core.truthy(no_cache)) {
+      return null;
+    }
+    try {
+      Core.axgenCacheWrite(cache_fn, key, output);
+    } catch (RuntimeException write_error) {
+      // empty
+    }
+    return null;
   }
 
   static Object _flow_check_abort(Object options, Object location) {
@@ -37904,12 +37913,26 @@ final class Core {
     if (Core.truthy(opts_missing)) {
       opts = empty_map;
     }
-    Object cache_read = Core._flow_cache_read_write(flow, values, opts, "read", null);
-    Object cache_hit = Core.get(cache_read, "hit", Boolean.FALSE);
-    if (Core.truthy(cache_hit)) {
-      Object cached_value = Core.get(cache_read, "value", null);
-      return cached_value;
+    opts = Core.mapMerge(empty_map, opts);
+    Object cache_fn = Core.none();
+    Object flow_cache_key = "";
+    Object host_lookup = Core.get(opts, "_ax_flow_cache_lookup", null);
+    Object looked_up = Core.isNotNone(host_lookup);
+    if (Core.truthy(looked_up)) {
+      cache_fn = Core.get(host_lookup, "fn", null);
+      flow_cache_key = Core.get(host_lookup, "key", "");
     }
+    if (!Core.truthy(looked_up)) {
+      Object cache_read = Core._flow_cache_lookup_impl(flow, values, opts);
+      Object cache_hit = Core.get(cache_read, "hit", Boolean.FALSE);
+      if (Core.truthy(cache_hit)) {
+        Object cached_value = Core.get(cache_read, "value", null);
+        return cached_value;
+      }
+      cache_fn = Core.get(cache_read, "fn", null);
+      flow_cache_key = Core.get(cache_read, "key", "");
+    }
+    Core.mapDelete(opts, "_ax_flow_cache_lookup");
     Object fresh_traces = new java.util.ArrayList<Object>();
     Object fresh_chat_log = new java.util.ArrayList<Object>();
     Object fresh_usage = new java.util.LinkedHashMap<String, Object>();
@@ -37919,13 +37942,13 @@ final class Core {
     Object state = Core.mapMerge(empty_map, values);
     Object traces = Core.get(flow, "traces", null);
     Object program_id = Core.get(flow, "program_id", "root.flow");
-    Object cache_key = Core._flow_cache_key(values);
+    Object cache_key = Core._flow_cache_key(flow, values);
     Object begin = Core._program_trace_event(program_id, "flow_start", state);
     Core.append(traces, begin);
     state = Core._flow_execute_steps(flow, client, state, opts);
     Object returns = Core.get(flow, "returns", empty_map);
     Object output = Core._flow_project_returns(state, returns);
-    Core._flow_cache_read_write(flow, values, opts, "write", output);
+    Core._flow_cache_store_impl(cache_fn, flow_cache_key, output);
     Object done_payload = new java.util.LinkedHashMap<String, Object>();
     Core.set(done_payload, "cache_key", cache_key);
     Core.set(done_payload, "output", output);

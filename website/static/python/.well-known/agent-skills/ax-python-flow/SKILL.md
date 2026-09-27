@@ -97,6 +97,18 @@ Forward accepts the provider client and the public flow inputs.
 output = parallel_flow.forward(client, {"topicText": "Typed LLM workflows"})
 ```
 
+### Cache a flow
+
+A `caching_function` (or `cachingFunction`) in the forward options, or `set_caching_function(fn)` for the process, caches the flow's output as TypeScript does: a hit runs no node and records no span or metric, and a run `control` skips it. The flow constructor takes none; the function also reaches the flow's AxGen nodes, which cache their own outputs.
+
+```python
+output = parallel_flow.forward(
+    client,
+    {"topicText": "Typed LLM workflows"},
+    {"caching_function": cache},
+)
+```
+
 Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/python/subsystems/flow/.
 
 ## Astra Session Work

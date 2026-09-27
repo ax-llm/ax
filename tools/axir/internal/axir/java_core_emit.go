@@ -413,6 +413,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicAxGenRecordFunction:       "Core.axgenRecordFunctionCall",
 	IntrinsicRunControlAborted:         "Core.runControlAborted",
 	IntrinsicFlowDispatchGroup:         "Core.flowDispatchGroup",
+	IntrinsicFlowCachingFunction:       "Core.flowCachingFunction",
 	IntrinsicAgentStageForward:         "Core.agentStageForward",
 	IntrinsicAgentNativeStageForward:   "Core.agentNativeStageForward",
 	IntrinsicAgentStageChatLog:         "Core.agentStageChatLog",

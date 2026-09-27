@@ -34,6 +34,30 @@ describe('AxFlow caching via axGlobals', () => {
     expect(axGlobals.cachingFunction).toHaveBeenCalledTimes(1);
   });
 
+  it('hits on the second call for a flow without nodes', async () => {
+    const f = flow<{ firstName: string; lastName: string }>()
+      .map((state) => ({ ...state, fullName: 'Ada Lovelace' }))
+      .returns((state) => ({ fullName: (state as any).fullName }));
+
+    const store = new Map<string, unknown>();
+    const keys: string[] = [];
+    axGlobals.cachingFunction = vi
+      .fn()
+      .mockImplementation(async (key: string, value?: unknown) => {
+        if (value === undefined) {
+          keys.push(key);
+          return store.get(key);
+        }
+        store.set(key, value);
+      });
+
+    await f.forward(ai as any, { firstName: 'Ada', lastName: 'Lovelace' });
+    await f.forward(ai as any, { firstName: 'Ada', lastName: 'Lovelace' });
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+    expect(store.size).toBe(1);
+  });
+
   it('produces same cache key for different object key orders', async () => {
     const f = flow<{ firstName: string; lastName: string }>()
       .node('echo', 'firstName:string, lastName:string -> fullName:string')
