@@ -1,7 +1,10 @@
 {
   "expected_output": {
     "audio": "base64-speech",
-    "format": "mp3"
+    "data": "base64-speech",
+    "format": "mp3",
+    "mimeType": "audio/mpeg",
+    "transcript": "hello"
   },
   "expected_transport_request": {
     "json": {

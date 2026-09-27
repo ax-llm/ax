@@ -1,0 +1,79 @@
+{
+  "expected_output": {
+    "intro": {
+      "data": "UklGRg==",
+      "format": "wav",
+      "mimeType": "audio/wav",
+      "transcript": "Welcome in"
+    },
+    "outro": {
+      "data": "UklGRg==",
+      "format": "wav",
+      "mimeType": "audio/wav",
+      "transcript": "See you soon"
+    }
+  },
+  "expected_request_count": 1,
+  "expected_speak_requests": [
+    {
+      "format": "wav",
+      "model": "tts-model",
+      "text": "Welcome in",
+      "voice": "alloy"
+    },
+    {
+      "format": "wav",
+      "model": "tts-model",
+      "speed": 1.25,
+      "text": "See you soon",
+      "voice": "nova"
+    }
+  ],
+  "forward_options": {
+    "renderAudio": true,
+    "speech": {
+      "fields": {
+        "outro": {
+          "speed": 1.25,
+          "voice": "nova"
+        }
+      },
+      "speak": {
+        "format": "wav",
+        "model": "tts-model",
+        "voice": "alloy"
+      }
+    }
+  },
+  "input": {
+    "question": "Say hi"
+  },
+  "kind": "forward",
+  "name": "audio-output-forward-speech-config",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Intro: Welcome in\nOutro: See you soon",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> intro:audio, outro:audio",
+  "speak_responses": [
+    {
+      "data": "UklGRg==",
+      "format": "wav",
+      "mimeType": "audio/wav",
+      "transcript": "Welcome in"
+    },
+    {
+      "data": "UklGRg==",
+      "format": "wav",
+      "mimeType": "audio/wav",
+      "transcript": "See you soon"
+    }
+  ]
+}

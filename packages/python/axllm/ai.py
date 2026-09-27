@@ -10171,7 +10171,8 @@ def provider_normalize_speak_response(profile: str, raw: Any, request: Any) -> A
     out = {}
     out["audio"] = data
     out["format"] = format
-    return out
+    speech = _speech_response_ts_keys_impl(out, raw, request)
+    return speech
 
 
 def provider_normalize_realtime_event(profile: str, event: Any, state: Any, ai_name: str, model: str) -> AxChatResponse:
@@ -11434,7 +11435,86 @@ def _gemini_normalize_speak_response(raw: Any, request: Any) -> Any:
         out = _core_map_merge(out, mime_params)
     else:
         pass
+    speech = _speech_response_ts_keys_impl(out, raw, request)
+    return speech
+
+
+def _speech_response_ts_keys_impl(out: Any, raw: Any, request: Any) -> Any:
+    _core_coverage_mark("_speech_response_ts_keys_impl")
+    data = _core_get(out, "audio", None)
+    out["data"] = data
+    format = _core_get(out, "format", None)
+    mime_type = _core_get(out, "mime_type", "")
+    has_mime = _core_truthy(mime_type)
+    raw_is_object = _core_type_is(raw, "object")
+    read_raw_mime = _core_not(has_mime)
+    read_raw_mime = _core_and(read_raw_mime, raw_is_object)
+    if read_raw_mime:
+        raw_mime_snake = _core_get(raw, "mime_type", None)
+        snake_is_text = _core_type_is(raw_mime_snake, "string")
+        if snake_is_text:
+            mime_type = raw_mime_snake
+        else:
+            pass
+        raw_mime_camel = _core_get(raw, "mimeType", None)
+        camel_is_text = _core_type_is(raw_mime_camel, "string")
+        if camel_is_text:
+            mime_type = raw_mime_camel
+        else:
+            pass
+        has_mime = _core_truthy(mime_type)
+    else:
+        pass
+    if has_mime:
+        pass
+    else:
+        mime_type = _audio_mime_type_impl(format)
+    out["mimeType"] = mime_type
+    params = _audio_mime_params_impl(mime_type)
+    sample_rate = _core_get(params, "sample_rate", None)
+    has_sample_rate = _core_is_not_none(sample_rate)
+    if has_sample_rate:
+        out["sampleRate"] = sample_rate
+    else:
+        pass
+    channels = _core_get(params, "channels", None)
+    has_channels = _core_is_not_none(channels)
+    if has_channels:
+        out["channels"] = channels
+    else:
+        pass
+    request_input = _core_get(request, "input", None)
+    text = _core_get(request, "text", request_input)
+    has_text = _core_is_not_none(text)
+    if has_text:
+        out["transcript"] = text
+    else:
+        pass
     return out
+
+
+def _audio_mime_type_impl(format: Any) -> str:
+    _core_coverage_mark("_audio_mime_type_impl")
+    table = {}
+    table["wav"] = "audio/wav"
+    table["mp3"] = "audio/mpeg"
+    table["flac"] = "audio/flac"
+    table["opus"] = "audio/opus"
+    table["aac"] = "audio/aac"
+    table["pcm"] = "audio/pcm"
+    table["pcm16"] = "audio/pcm"
+    table["raw"] = "audio/pcm"
+    table["mulaw"] = "audio/basic"
+    table["ulaw"] = "audio/basic"
+    table["alaw"] = "audio/alaw"
+    table["ogg"] = "audio/ogg"
+    is_text = _core_type_is(format, "string")
+    if is_text:
+        mime = _core_get(table, format, "audio/mpeg")
+        return mime
+    else:
+        pass
+    return "audio/mpeg"
 
 
 def _audio_mime_params_impl(mime_type: str) -> Any:

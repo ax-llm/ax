@@ -200,6 +200,8 @@ class SessionRun final:public AIClient {
   ~SessionRun() override{results_->close();if(session_)session_->close();std::lock_guard<std::mutex> lock(client_registry_mutex());client_registry().erase(pointer_id(this));}
   Value complete(Value request) override{Value response=chat(request,options_);return session_?Core::chat_session_completion(response,Core::get(state_,"response_id")):Core::chat_response_to_completion(response);}
   Value features_for_run(Value model) override{if(auto* service=dynamic_cast<AxAIService*>(client_))return service->get_features(model);return client_->features_for_run(model);}
+  // The audio output renderer's speech goes to the wrapped client.
+  Value speak(Value request,Value options) override{return client_->speak(std::move(request),std::move(options));}
   Value chat(Value request,Value options) override {
     try{return chat_impl(std::move(request),std::move(options));}
     catch(const AxError& error){

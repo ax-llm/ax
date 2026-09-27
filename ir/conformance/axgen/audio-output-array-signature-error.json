@@ -1,0 +1,6 @@
+{
+  "expected_error_contains": "Arrays of audio are not supported",
+  "kind": "signature_error",
+  "name": "audio-output-array-signature-error",
+  "signature": "question:string -> clips:audio[]"
+}

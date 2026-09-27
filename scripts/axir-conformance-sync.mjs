@@ -463,6 +463,12 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(
       repoRoot,
       tempRoot,
+      'axgen-audio-goldens.ts',
+      'AxGen audio'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
       'date-goldens.ts',
       'AxGen dates'
     );

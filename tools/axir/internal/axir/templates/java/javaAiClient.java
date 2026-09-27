@@ -49,4 +49,9 @@ public interface AiClient {
   }
 
   default Map<String,Object> transcribe(Map<String,Object> request,Map<String,Object> options,AxCancellationToken cancellation)throws Exception{if(cancellation!=null)cancellation.throwIfCancelled();return transcribe(request,options);}
+
+  /** Synthesizes speech; AxAIService clients speak, and a client without speech throws. The AxGen audio output renderer calls it. */
+  default Map<String, Object> speak(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    throw new UnsupportedOperationException("Audio speech not supported by this AI client");
+  }
 }

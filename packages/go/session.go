@@ -403,6 +403,12 @@ func (p *genSessionClient) GetFeatures(model string) map[string]Value {
 	}
 	return Object("functions", true, "structured_outputs", true)
 }
+
+// Speak passes the audio output renderer's speech request to the client the
+// session wraps.
+func (p *genSessionClient) Speak(ctx context.Context, request, options map[string]Value) (Value, error) {
+	return speakWithClient(p.AIClient, ctx, request, options)
+}
 func (p *genSessionClient) emit(kind string, fields ...Value) {
 	if p.control != nil {
 		p.control.emit(Object(append([]Value{"type", kind, "path", p.path}, fields...)...))
