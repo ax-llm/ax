@@ -296,6 +296,11 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"- `timeoutMs` on a chat, stream or embed call bounds the wait for the response headers in milliseconds, as TypeScript's per-call `timeout` does. In the client's options it applies to every call. A request whose response has not started in time fails with `AxAIServiceTimeoutError` (`Request timed out after <N>ms`). The request layer does not retry it, and AxGen retries it as an infrastructure error. Once the response starts, the body reads as it did before. AxGen and agent forwards pass `timeoutMs` to every model call.",
 			"- "+skillCallTimeoutText(target),
 			"",
+			"## Transport Errors",
+			"",
+			"- A connection that is refused, reset, or closed before a response raises `AxAIServiceNetworkError` with TypeScript's message, `Network Error: <cause>`. The client's own timeout raises `AxAIServiceTimeoutError` (`Request timed out after <N>ms`, the timeout in milliseconds). As in TypeScript's apiCall, a stream's request layer retries a network error under the call's `retry` options (else the client's) and never retries a timeout, and AxGen retries both as infrastructure errors.",
+			"- "+skillTransportErrorsText(target),
+			"",
 			"## Routing And Balancing",
 			"",
 			"- Use the multi-service router when a logical model key selects a configured service or concrete model. It combines model lists; it does not learn from outcomes.",
@@ -598,6 +603,16 @@ func skillCallTimeoutText(target string) string {
 		"java":   ignored + "The client's `timeout` option stays in seconds.",
 		"cpp":    ignored + "The client's `timeout` option stays in seconds.",
 		"rust":   "Rust reads a per-call `timeout` in seconds, for streams too. The next major version reads it in milliseconds, as TypeScript does, so a call that gives it without `timeoutMs` warns once, naming `timeoutMs`. The client's `timeout` option stays in seconds.",
+	}[target]
+}
+
+func skillTransportErrorsText(target string) string {
+	return map[string]string{
+		"python": "The HTTP client's exception stays the error's `__cause__`. Until the next major version, a connect that runs out of the client's timeout is also an `AxAIServiceNetworkError`, and a connection dropped mid-stream is also an `http.client.IncompleteRead`, as they were.",
+		"go":     "The HTTP client's error stays the error's cause (`errors.Unwrap`). Go has no client timeout of its own: a timeout of an `http.Client` you give `HTTPTransport` is that client's failure, so it raises `AxAIServiceNetworkError`, as a custom fetch's own timeout does in TypeScript. Set `timeoutMs` in the client's options for a client-wide `AxAIServiceTimeoutError`.",
+		"java":   "Until the next major version, chat and embed throw the JDK's own exception for these failures (`ConnectException`, `IOException`, `HttpTimeoutException`), as they did, and warn once; set `typedTransportErrors: true` in the client's or the call's options for the typed errors, with the JDK exception as `getCause()`. Streams always throw the typed errors, and AxGen retries either kind as an infrastructure error. The JDK's `HttpClient` itself retries an idempotent GET whose connection closes before a response.",
+		"cpp":    "libcurl's message stays the error's `cause()`.",
+		"rust":   "`AxError` has no cause, so a network error's message carries reqwest's error and its causes.",
 	}[target]
 }
 

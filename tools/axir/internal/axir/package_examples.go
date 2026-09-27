@@ -5853,3 +5853,646 @@ int main() {
   return 0;
 }
 `
+
+const pyTransportErrorsHTTPRoundtripExample = `"""Send requests through the REAL urllib transport to in-process loopback
+servers that fail the way networks do, and check that the failures surface as
+TypeScript's apiCall reports fetch's: a refused or dropped connection is
+AxAIServiceNetworkError ("Network Error: ..."), which a stream's request layer
+retries under the call's retry options; a timeout is AxAIServiceTimeoutError
+("Request timed out after <ms>ms", the client's timeout in milliseconds), which
+the request layer never retries; and AxGen retries both as infrastructure
+errors. Exits non-zero on any mismatch so ` + "`" + `axir verify` + "`" + ` fails if it regresses."""
+
+import http.client
+import socket
+import threading
+import time
+
+from axllm import (
+    AxAIServiceError,
+    AxAIServiceNetworkError,
+    AxAIServiceTimeoutError,
+    OpenAICompatibleClient,
+    ax,
+    typesafe,
+)
+
+GATEWAY_BODY = b'{"error":{"message":"upstream timed out","type":"server_error"}}'
+GATEWAY_RESPONSE = (
+    b"HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\n"
+    + f"Content-Length: {len(GATEWAY_BODY)}\r\nConnection: close\r\n\r\n".encode()
+    + GATEWAY_BODY
+)
+DROP_EVENT = (
+    b'data: {"id":"chatcmpl_drop","object":"chat.completion.chunk","created":0,"model":"gpt-5.4-mini",'
+    b'"choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}\n\n'
+)
+
+
+def read_request(connection):
+    """Read the request headers and its Content-Length body."""
+    data = b""
+    while b"\r\n\r\n" not in data:
+        chunk = connection.recv(65536)
+        if not chunk:
+            return
+        data += chunk
+    head, _, body = data.partition(b"\r\n\r\n")
+    length = 0
+    for line in head.split(b"\r\n")[1:]:
+        name, _, value = line.partition(b":")
+        if name.strip().lower() == b"content-length":
+            length = int(value.strip())
+    while len(body) < length:
+        chunk = connection.recv(65536)
+        if not chunk:
+            return
+        body += chunk
+
+
+def serve(mode):
+    """Accept connections and count them: "close" closes each one without a
+    response, "drop" sends one stream event and drops it, "gateway" answers 504,
+    "hold" never answers."""
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(16)
+    state = {"connections": 0, "held": []}
+
+    def run():
+        while True:
+            try:
+                connection, _ = listener.accept()
+            except OSError:
+                return
+            state["connections"] += 1
+            if mode == "hold":
+                state["held"].append(connection)
+                continue
+            try:
+                read_request(connection)
+                if mode == "drop":
+                    head = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
+                    connection.sendall(head + f"{len(DROP_EVENT):x}\r\n".encode() + DROP_EVENT + b"\r\n")
+                    time.sleep(0.05)
+                elif mode == "gateway":
+                    connection.sendall(GATEWAY_RESPONSE)
+            except OSError:
+                pass
+            connection.close()
+
+    threading.Thread(target=run, daemon=True).start()
+    return listener.getsockname()[1], state
+
+
+def closed_port():
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    return port
+
+
+def client(port, **options):
+    return OpenAICompatibleClient(api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-5.4-mini", **options)
+
+
+def expect(label, error_type, prefix, run):
+    try:
+        run()
+    except Exception as error:  # noqa: BLE001
+        current = error
+        while current is not None and not isinstance(current, error_type):
+            current = current.__cause__
+        assert current is not None, f"{label}: want {error_type.__name__}, got {type(error).__name__}: {error}"
+        assert str(current).startswith(prefix), f"{label}: {str(current)!r} does not start with {prefix!r}"
+        return current
+    raise AssertionError(f"{label}: no error")
+
+
+request = {"chat_prompt": [{"role": "user", "content": "hi"}]}
+fast_retry = {"maxRetries": 2, "initialDelayMs": 10, "maxDelayMs": 20}
+
+# A refused connection.
+refused = client(closed_port())
+expect("refused chat", AxAIServiceNetworkError, "Network Error: ", lambda: refused.chat(request, {"stream": False}))
+expect("refused stream", AxAIServiceNetworkError, "Network Error: ", lambda: list(refused.stream(request, {"retry": fast_retry})))
+
+# A server that closes each connection without a response. The stream's
+# request layer retries it: the first request and two retries.
+closing, closed = serve("close")
+expect("closed chat", AxAIServiceNetworkError, "Network Error: ", lambda: client(closing).chat(request, {"stream": False}))
+before = closed["connections"]
+expect("closed stream", AxAIServiceNetworkError, "Network Error: ", lambda: list(client(closing).stream(request, {"retry": fast_retry})))
+assert closed["connections"] - before == 3, f"closed stream: {closed['connections'] - before} requests"
+
+# A 504 response is retried by its status, as TS apiCall retries it: it is not a
+# timeout the request ran out of.
+gateway, answered = serve("gateway")
+try:
+    list(client(gateway).stream(request, {"retry": fast_retry}))
+except AxAIServiceError:
+    pass
+else:
+    raise AssertionError("gateway stream: no error")
+assert answered["connections"] == 3, f"gateway stream: {answered['connections']} requests"
+
+# The client's own timeout (seconds) ends a chat or a stream whose response has
+# not started, in TS's words, and the request layer does not retry it.
+silent, held = serve("hold")
+before = held["connections"]
+expect("timed-out chat", AxAIServiceTimeoutError, "Request timed out after 300ms", lambda: client(silent, timeout=0.3).chat(request, {"stream": False}))
+expect("timed-out stream", AxAIServiceTimeoutError, "Request timed out after 300ms", lambda: list(client(silent, timeout=0.3).stream(request, {"retry": fast_retry})))
+assert held["connections"] - before == 2, f"a timed-out request was retried: {held['connections'] - before} requests"
+
+# A server that sends one event and drops the connection: the stream ends in a
+# network error after the event, and is not retried.
+dropping, dropped = serve("drop")
+delivered = []
+
+
+def consume():
+    for event in client(dropping).stream(request, {"retry": fast_retry}):
+        delivered.append(event)
+
+
+dropped_error = expect("dropped stream", AxAIServiceNetworkError, "Network Error: ", consume)
+# Until the next major version it is still the IncompleteRead it used to be.
+assert isinstance(dropped_error, http.client.IncompleteRead), f"dropped stream: {type(dropped_error).__mro__}"
+assert len(delivered) == 1 and dropped["connections"] == 1, f"dropped stream: {len(delivered)} events, {dropped['connections']} requests"
+
+# The Typesafe client types the same failures, and does not retry a timeout.
+expect("Typesafe refused", AxAIServiceNetworkError, "Network Error: ", lambda: typesafe(api_key="test-key", base_url=f"http://127.0.0.1:{closed_port()}", retry=fast_retry).list_models())
+before = held["connections"]
+expect("Typesafe timeout", AxAIServiceTimeoutError, "Request timed out after 300ms", lambda: typesafe(api_key="test-key", base_url=f"http://127.0.0.1:{silent}", timeout=0.3, retry=fast_retry).list_models())
+assert held["connections"] - before == 1, f"a timed-out Typesafe request was retried: {held['connections'] - before} requests"
+
+# AxGen retries a network error and a timeout as infrastructure errors. The
+# client's own retries are off, so each request is one AxGen attempt:
+# maxRetries 1 is the first attempt and one retry.
+for stream in (False, True):
+    before = closed["connections"]
+    expect(
+        f"AxGen network (stream {stream})",
+        AxAIServiceNetworkError,
+        "Network Error: ",
+        lambda: ax("question:string -> answer:string").forward(client(closing, retry={"maxRetries": 0}), {"question": "hi"}, {"maxRetries": 1, "stream": stream}),
+    )
+    assert closed["connections"] - before == 2, f"AxGen network (stream {stream}): {closed['connections'] - before} requests"
+    before = held["connections"]
+    expect(
+        f"AxGen timeout (stream {stream})",
+        AxAIServiceTimeoutError,
+        "Request timed out after 200ms",
+        lambda: ax("question:string -> answer:string").forward(client(silent, retry={"maxRetries": 0}), {"question": "hi"}, {"maxRetries": 1, "stream": stream, "timeoutMs": 200}),
+    )
+    assert held["connections"] - before == 2, f"AxGen timeout (stream {stream}): {held['connections'] - before} requests"
+
+print("transport-errors-http-roundtrip-ok")
+`
+
+const javaTransportErrorsHTTPRoundtripExample = `import dev.axllm.ax.*;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicInteger;
+
+// Send requests through the REAL HttpClient transport to in-process loopback
+// servers that fail the way networks do, and check that the failures surface
+// as TypeScript's apiCall reports fetch's: a refused or dropped connection is
+// AxAIServiceNetworkError ("Network Error: ..."), which a stream's request
+// layer retries under the call's retry options; a timeout is
+// AxAIServiceTimeoutError ("Request timed out after <ms>ms", the client's
+// timeout in milliseconds), which the request layer never retries; and AxGen
+// retries both as infrastructure errors. Until the next major version, chat
+// and embed throw these typed errors when the client sets
+// typedTransportErrors, and otherwise the JDK's own exception, which AxGen
+// retries too; streams always throw the typed errors. Exits non-zero on any
+// mismatch so ` + "`" + `axir verify` + "`" + ` fails if it regresses.
+public final class TransportErrorsHTTPRoundtripExample {
+  static final String GATEWAY_BODY = "{\"error\":{\"message\":\"upstream timed out\",\"type\":\"server_error\"}}";
+  static final String DROP_EVENT = "data: {\"id\":\"chatcmpl_drop\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"},\"finish_reason\":null}]}\n\n";
+  static final Map<String, Object> REQUEST = Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "hi")));
+  static final Map<String, Object> FAST_RETRY = Map.of("maxRetries", 2, "initialDelayMs", 10, "maxDelayMs", 20);
+  static final Map<String, Object> TYPED = Map.of("typedTransportErrors", true);
+
+  public static void main(String[] args) throws Exception {
+    // A refused connection.
+    int refused = closedPort();
+    expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(refused, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    expect("refused stream", "AxAIServiceNetworkError", "Network Error: ", () -> drain(client(refused, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
+    // Without typedTransportErrors, a chat throws the JDK's exception, as before.
+    expect("refused chat, default", "ConnectException", "", () -> client(refused, Map.of()).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+
+    // A server that closes each connection without a response. The stream's
+    // request layer retries it under the call's retry options: the first
+    // request and two retries.
+    AtomicInteger closed = new AtomicInteger();
+    int closing = serve("close", closed);
+    expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(closing, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    int before = closed.get();
+    expect("closed stream", "AxAIServiceNetworkError", "Network Error: ", () -> drain(client(closing, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
+    expectCount("closed stream", closed.get() - before, 3);
+
+    // A 504 response is retried by its status, as TS apiCall retries it: it is
+    // not a timeout the request ran out of.
+    AtomicInteger answered = new AtomicInteger();
+    int gateway = serve("gateway", answered);
+    try {
+      drain(client(gateway, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null);
+      throw new RuntimeException("gateway stream: no error");
+    } catch (AxAIServiceError error) {
+      expectCount("gateway stream", answered.get(), 3);
+    }
+
+    // The client's own timeout (seconds) ends a chat or a stream whose
+    // response has not started, in TS's words, and the request layer does not
+    // retry it.
+    AtomicInteger held = new AtomicInteger();
+    int silent = serve("hold", held);
+    before = held.get();
+    expect("timed-out chat", "AxAIServiceTimeoutError", "Request timed out after 300ms", () -> client(silent, with(TYPED, Map.of("timeout", 0.3))).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    expect("timed-out stream", "AxAIServiceTimeoutError", "Request timed out after 300ms", () -> drain(client(silent, Map.of("timeout", 0.3)), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
+    expectCount("timed-out requests", held.get() - before, 2);
+
+    // A server that sends one event and drops the connection: the stream ends
+    // in an infrastructure error after the event, and is not retried.
+    AtomicInteger dropped = new AtomicInteger();
+    int dropping = serve("drop", dropped);
+    int[] delivered = {0};
+    expect("dropped stream", "AxAIServiceStreamTerminatedError", "", () -> drain(client(dropping, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), delivered));
+    expectCount("dropped stream events", delivered[0], 1);
+    expectCount("dropped stream", dropped.get(), 1);
+
+    // The Typesafe client types the same failures, and does not retry a
+    // timeout.
+    expect("Typesafe refused", "AxAIServiceNetworkError", "Network Error: ", () -> new AxAITypesafeClient(with(TYPED, Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + closedPort(), "retry", FAST_RETRY))).listModels());
+    before = held.get();
+    expect("Typesafe timeout", "AxAIServiceTimeoutError", "Request timed out after 300ms", () -> new AxAITypesafeClient(with(TYPED, Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + silent, "timeout", 0.3, "retry", FAST_RETRY))).listModels());
+    expectCount("Typesafe timeout", held.get() - before, 1);
+
+    // AxGen retries a network error and a timeout as infrastructure errors.
+    // The client's own retries are off, so each request is one AxGen attempt:
+    // maxRetries 1 is the first attempt and one retry.
+    Map<String, Object> noRequestRetry = Map.of("retry", Map.of("maxRetries", 0));
+    for (boolean stream : new boolean[] {false, true}) {
+      before = closed.get();
+      expect("AxGen network (stream " + stream + ")", "AxAIServiceNetworkError", "Network Error: ", () -> Ax.ax("question:string -> answer:string").forward(client(closing, with(TYPED, noRequestRetry)), Map.of("question", "hi"), new LinkedHashMap<>(Map.of("maxRetries", 1, "stream", stream))));
+      expectCount("AxGen network (stream " + stream + ")", closed.get() - before, 2);
+      before = held.get();
+      expect("AxGen timeout (stream " + stream + ")", "AxAIServiceTimeoutError", "Request timed out after 200ms", () -> Ax.ax("question:string -> answer:string").forward(client(silent, noRequestRetry), Map.of("question", "hi"), new LinkedHashMap<>(Map.of("maxRetries", 1, "stream", stream, "timeoutMs", 200))));
+      expectCount("AxGen timeout (stream " + stream + ")", held.get() - before, 2);
+    }
+    // Without typedTransportErrors, AxGen retries the JDK's exception as an
+    // infrastructure error too.
+    before = closed.get();
+    expect("AxGen network, default", "IOException", "", () -> Ax.ax("question:string -> answer:string").forward(client(closing, noRequestRetry), Map.of("question", "hi"), new LinkedHashMap<>(Map.of("maxRetries", 1))));
+    expectCount("AxGen network, default", closed.get() - before, 2);
+    System.out.println("transport-errors-http-roundtrip-ok");
+    System.exit(0);
+  }
+
+  static Map<String, Object> with(Map<String, Object> first, Map<String, Object> second) {
+    Map<String, Object> merged = new LinkedHashMap<>(first);
+    merged.putAll(second);
+    return merged;
+  }
+
+  static OpenAICompatibleClient client(int port, Map<String, Object> options) {
+    Map<String, Object> config = new LinkedHashMap<>(Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port, "model", "gpt-5.4-mini"));
+    config.putAll(options);
+    return new OpenAICompatibleClient(config);
+  }
+
+  static Object drain(OpenAICompatibleClient client, Map<String, Object> options, int[] delivered) throws Exception {
+    try (AxChatStream stream = client.openStream(REQUEST, options, null)) {
+      for (Object ignored : stream) if (delivered != null) delivered[0]++;
+    }
+    return null;
+  }
+
+  // The error, or an error it wraps, must be of the named type with
+  // a message that starts with prefix.
+  static void expect(String label, String type, String prefix, Callable<Object> run) {
+    try {
+      run.call();
+    } catch (Throwable error) {
+      for (Throwable current = error; current != null; current = current.getCause()) {
+        if (type.equals(current.getClass().getSimpleName())) {
+          if (!String.valueOf(current.getMessage()).startsWith(prefix)) throw new RuntimeException(label + ": " + current.getMessage() + " does not start with " + prefix, error);
+          return;
+        }
+      }
+      throw new RuntimeException(label + ": want " + type + ", got " + error, error);
+    }
+    throw new RuntimeException(label + ": no error");
+  }
+
+  static void expectCount(String label, int got, int want) {
+    if (got != want) throw new RuntimeException(label + ": " + got + " requests, want " + want);
+  }
+
+  // A loopback port nothing listens on.
+  static int closedPort() throws Exception {
+    try (ServerSocket probe = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
+      return probe.getLocalPort();
+    }
+  }
+
+  // Read the request headers and its Content-Length body.
+  static void readRequest(Socket socket) throws Exception {
+    java.io.InputStream in = socket.getInputStream();
+    java.io.ByteArrayOutputStream head = new java.io.ByteArrayOutputStream();
+    int matched = 0;
+    while (matched < 4) {
+      int next = in.read();
+      if (next < 0) return;
+      head.write(next);
+      matched = next == "\r\n\r\n".charAt(matched) ? matched + 1 : next == '\r' ? 1 : 0;
+    }
+    int length = 0;
+    for (String line : head.toString(StandardCharsets.ISO_8859_1).split("\r\n")) {
+      int colon = line.indexOf(':');
+      if (colon > 0 && line.substring(0, colon).trim().equalsIgnoreCase("content-length")) length = Integer.parseInt(line.substring(colon + 1).trim());
+    }
+    in.readNBytes(length);
+  }
+
+  // Accept connections and count them: "close" closes each one without a
+  // response, "drop" sends one stream event and drops it, "gateway" answers
+  // 504, "hold" never answers.
+  static int serve(String mode, AtomicInteger connections) throws Exception {
+    ServerSocket listener = new ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"));
+    List<Socket> held = Collections.synchronizedList(new ArrayList<>());
+    Thread thread = new Thread(() -> {
+      while (true) {
+        try {
+          Socket socket = listener.accept();
+          connections.incrementAndGet();
+          if ("hold".equals(mode)) {
+            held.add(socket);
+            continue;
+          }
+          readRequest(socket);
+          if ("drop".equals(mode)) {
+            String response = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
+                + Integer.toHexString(DROP_EVENT.length()) + "\r\n" + DROP_EVENT + "\r\n";
+            socket.getOutputStream().write(response.getBytes(StandardCharsets.UTF_8));
+            socket.getOutputStream().flush();
+            Thread.sleep(50);
+          } else if ("gateway".equals(mode)) {
+            String response = "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\nContent-Length: "
+                + GATEWAY_BODY.length() + "\r\nConnection: close\r\n\r\n" + GATEWAY_BODY;
+            socket.getOutputStream().write(response.getBytes(StandardCharsets.UTF_8));
+            socket.getOutputStream().flush();
+          }
+          socket.close();
+        } catch (Exception error) {
+          return;
+        }
+      }
+    });
+    thread.setDaemon(true);
+    thread.start();
+    return listener.getLocalPort();
+  }
+}
+`
+
+const cppTransportErrorsHTTPRoundtripExample = `#include "axllm/axllm.hpp"
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <atomic>
+#include <cctype>
+#include <chrono>
+#include <csignal>
+#include <cstdio>
+#include <functional>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
+
+// Send requests through the REAL libcurl HttpTransport to in-process loopback
+// servers that fail the way networks do, and check that the failures surface
+// as TypeScript's apiCall reports fetch's: a refused or dropped connection is
+// AxAIServiceNetworkError ("Network Error: ..."), which a stream's request
+// layer retries under the call's retry options; a timeout is
+// AxAIServiceTimeoutError ("Request timed out after <ms>ms", the client's
+// timeout in milliseconds), which the request layer never retries; and AxGen
+// retries both as infrastructure errors. Returns non-zero on any mismatch so
+// axir verify fails if it regresses. Requires libcurl (AXLLM_ENABLE_CURL);
+// axir verify skips it when libcurl is unavailable.
+
+namespace {
+
+const std::string kGatewayBody = R"({"error":{"message":"upstream timed out","type":"server_error"}})";
+const std::string kDropEvent =
+    "data: {\"id\":\"chatcmpl_drop\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"gpt-5.4-mini\","
+    "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"},\"finish_reason\":null}]}\n\n";
+
+int listen_loopback(int* port) {
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) throw std::runtime_error("socket failed");
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  if (bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0 || listen(fd, 16) < 0)
+    throw std::runtime_error("listen failed");
+  socklen_t size = sizeof(address);
+  getsockname(fd, reinterpret_cast<sockaddr*>(&address), &size);
+  *port = ntohs(address.sin_port);
+  return fd;
+}
+
+// A loopback port nothing listens on.
+int closed_port() {
+  int port = 0;
+  close(listen_loopback(&port));
+  return port;
+}
+
+// Read the request headers and its Content-Length body.
+void drain_request(int fd) {
+  std::string buf;
+  char tmp[4096];
+  size_t header_end = std::string::npos;
+  size_t content_length = 0;
+  while (true) {
+    if (header_end == std::string::npos) {
+      size_t pos = buf.find("\r\n\r\n");
+      if (pos != std::string::npos) {
+        header_end = pos + 4;
+        std::string lower = buf.substr(0, pos);
+        for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        size_t at = lower.find("content-length:");
+        if (at != std::string::npos) content_length = std::stoul(lower.substr(at + 15));
+      }
+    }
+    if (header_end != std::string::npos && buf.size() >= header_end + content_length) break;
+    ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
+    if (n <= 0) break;
+    buf.append(tmp, static_cast<size_t>(n));
+  }
+}
+
+// Accept connections and count them: "close" closes each one without a
+// response, "drop" sends one stream event and drops it, "gateway" answers 504,
+// "hold" never answers.
+std::shared_ptr<std::atomic<int>> serve(const std::string& mode, int* port) {
+  int listener = listen_loopback(port);
+  auto connections = std::make_shared<std::atomic<int>>(0);
+  std::thread([listener, mode, connections] {
+    std::vector<int> held;
+    while (true) {
+      int fd = accept(listener, nullptr, nullptr);
+      if (fd < 0) return;
+      connections->fetch_add(1);
+      if (mode == "hold") {
+        held.push_back(fd);
+        continue;
+      }
+      drain_request(fd);
+      if (mode == "drop") {
+        char size[16];
+        std::snprintf(size, sizeof(size), "%zx", kDropEvent.size());
+        std::string response = std::string("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n") + size + "\r\n" + kDropEvent + "\r\n";
+        (void)send(fd, response.data(), response.size(), 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      } else if (mode == "gateway") {
+        std::string response = "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\nContent-Length: " +
+                               std::to_string(kGatewayBody.size()) + "\r\nConnection: close\r\n\r\n" + kGatewayBody;
+        (void)send(fd, response.data(), response.size(), 0);
+      }
+      close(fd);
+    }
+  }).detach();
+  return connections;
+}
+
+std::unique_ptr<axllm::OpenAICompatibleClient> client(int port, axllm::Value options = axllm::Value::object()) {
+  axllm::Value config = axllm::object({{"api_key", "test-key"}, {"base_url", "http://127.0.0.1:" + std::to_string(port)}, {"model", "gpt-5.4-mini"}});
+  for (const char* key : {"timeout", "retry"}) {
+    if (!axllm::Core::get(options, key).is_null()) axllm::Core::set(config, key, axllm::Core::get(options, key));
+  }
+  return std::make_unique<axllm::OpenAICompatibleClient>(config, nullptr);
+}
+
+// The error, or an error it wraps, must be of the Ax error type with a
+// message that starts with prefix.
+void expect(const std::string& label, const std::string& type, const std::string& prefix, const std::function<void()>& run) {
+  try {
+    run();
+  } catch (const axllm::AxError& error) {
+    for (const axllm::AxError* current = &error; current != nullptr; current = current->cause()) {
+      if (current->type == type) {
+        if (std::string(current->what()).rfind(prefix, 0) != 0) throw std::runtime_error(label + ": " + current->what() + " does not start with " + prefix);
+        return;
+      }
+    }
+    throw std::runtime_error(label + ": want " + type + ", got " + error.type + ": " + error.what());
+  }
+  throw std::runtime_error(label + ": no error");
+}
+
+void expect_count(const std::string& label, int got, int want) {
+  if (got != want) throw std::runtime_error(label + ": " + std::to_string(got) + " requests, want " + std::to_string(want));
+}
+
+}  // namespace
+
+int main() {
+  ::signal(SIGPIPE, SIG_IGN);
+  using namespace axllm;
+  Value request = object({{"chat_prompt", array({object({{"role", "user"}, {"content", "hi"}})})}});
+  Value fast_retry = object({{"maxRetries", 2}, {"initialDelayMs", 10}, {"maxDelayMs", 20}});
+  auto ignore = [](const Value&) { return true; };
+
+  // A refused connection.
+  int refused = closed_port();
+  expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(refused)->chat(request, object({{"stream", false}})); });
+  expect("refused stream", "AxAIServiceNetworkError", "Network Error: ", [&] { client(refused)->stream_each(request, ignore, object({{"retry", fast_retry}})); });
+
+  // A server that closes each connection without a response. The stream's
+  // request layer retries it under the call's retry options: the first
+  // request and two retries.
+  int closing = 0;
+  auto closed = serve("close", &closing);
+  expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->chat(request, object({{"stream", false}})); });
+  int before = closed->load();
+  expect("closed stream", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->stream_each(request, ignore, object({{"retry", fast_retry}})); });
+  expect_count("closed stream", closed->load() - before, 3);
+
+  // A 504 response is retried by its status, as TS apiCall retries it: it is
+  // not a timeout the request ran out of.
+  int gateway = 0;
+  auto answered = serve("gateway", &gateway);
+  bool gateway_failed = false;
+  try {
+    client(gateway)->stream_each(request, ignore, object({{"retry", fast_retry}}));
+  } catch (const AxError&) {
+    gateway_failed = true;
+  }
+  if (!gateway_failed) throw std::runtime_error("gateway stream: no error");
+  expect_count("gateway stream", answered->load(), 3);
+
+  // The client's own timeout (seconds) ends a chat or a stream whose response
+  // has not started, in TS's words, and the request layer does not retry it.
+  int silent = 0;
+  auto held = serve("hold", &silent);
+  before = held->load();
+  expect("timed-out chat", "AxAIServiceTimeoutError", "Request timed out after 300ms", [&] { client(silent, object({{"timeout", 0.3}}))->chat(request, object({{"stream", false}})); });
+  expect("timed-out stream", "AxAIServiceTimeoutError", "Request timed out after 300ms", [&] { client(silent, object({{"timeout", 0.3}}))->stream_each(request, ignore, object({{"retry", fast_retry}})); });
+  expect_count("timed-out requests", held->load() - before, 2);
+
+  // A server that sends one event and drops the connection: the stream ends
+  // in an infrastructure error after the event, and is not retried.
+  int dropping = 0;
+  auto dropped = serve("drop", &dropping);
+  int delivered = 0;
+  expect("dropped stream", "AxAIServiceStreamTerminatedError", "", [&] {
+    client(dropping)->stream_each(request, [&delivered](const Value&) { delivered++; return true; }, object({{"retry", fast_retry}}));
+  });
+  expect_count("dropped stream events", delivered, 1);
+  expect_count("dropped stream", dropped->load(), 1);
+
+  // The Typesafe client types the same failures, and does not retry a timeout.
+  expect("Typesafe refused", "AxAIServiceNetworkError", "Network Error: ", [&] {
+    typesafe(object({{"api_key", "test-key"}, {"base_url", "http://127.0.0.1:" + std::to_string(closed_port())}, {"retry", fast_retry}})).list_models();
+  });
+  before = held->load();
+  expect("Typesafe timeout", "AxAIServiceTimeoutError", "Request timed out after 300ms", [&] {
+    typesafe(object({{"api_key", "test-key"}, {"base_url", "http://127.0.0.1:" + std::to_string(silent)}, {"timeout", 0.3}, {"retry", fast_retry}})).list_models();
+  });
+  expect_count("Typesafe timeout", held->load() - before, 1);
+
+  // AxGen retries a network error and a timeout as infrastructure errors. The
+  // client's own retries are off, so each request is one AxGen attempt:
+  // maxRetries 1 is the first attempt and one retry.
+  Value no_request_retry = object({{"retry", object({{"maxRetries", 0}})}});
+  for (bool stream : {false, true}) {
+    std::string mode = stream ? " (stream)" : "";
+    before = closed->load();
+    expect("AxGen network" + mode, "AxAIServiceNetworkError", "Network Error: ", [&] {
+      ax("question:string -> answer:string").forward(*client(closing, no_request_retry), object({{"question", "hi"}}), object({{"maxRetries", 1}, {"stream", stream}}));
+    });
+    expect_count("AxGen network" + mode, closed->load() - before, 2);
+    before = held->load();
+    expect("AxGen timeout" + mode, "AxAIServiceTimeoutError", "Request timed out after 200ms", [&] {
+      ax("question:string -> answer:string").forward(*client(silent, no_request_retry), object({{"question", "hi"}}), object({{"maxRetries", 1}, {"stream", stream}, {"timeoutMs", 200}}));
+    });
+    expect_count("AxGen timeout" + mode, held->load() - before, 2);
+  }
+  std::cout << "transport-errors-http-roundtrip-ok" << std::endl;
+  std::_Exit(0);
+}
+`

@@ -112,7 +112,9 @@ public final class AxAITypesafeClient {
       try {
         return client.requestJson(path, payload, false, "json", false, method, operation, cancellation);
       } catch (AxAIServiceError error) {
-        if (!error.retryable || attempt >= retries) throw error;
+        // As in TS apiCall, a timeout the request ran out of is not retried
+        // here; a 408 or 504 response, typed as a timeout, is retried.
+        if (!error.retryable || error instanceof AxAIServiceTimeoutError && error.status == null || attempt >= retries) throw error;
         double delay = Math.min(((Number) retry.get("initial_delay_ms")).doubleValue() * Math.pow(((Number) retry.get("backoff_factor")).doubleValue(), attempt), ((Number) retry.get("max_delay_ms")).doubleValue());
         long until = System.nanoTime() + (long) (delay * 1_000_000);
         while (System.nanoTime() < until) {

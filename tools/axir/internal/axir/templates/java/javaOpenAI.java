@@ -407,7 +407,8 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
 
   protected AxChatStream streamEventsIncremental(Map<String, Object> payload, Object modelName, AxCancellationToken cancellation, Map<String, Object> errorOptions) throws Exception {
     if(cancellation!=null)cancellation.throwIfCancelled();
-    Map<String, Object> retryCfg = Core.asMap(Core.resolve_stream_retry(options));
+    // The call's retry options, else the client's (TS: options.retry ?? this.retry).
+    Map<String, Object> retryCfg = Core.asMap(Core.resolve_stream_retry(errorOptions == null ? options : errorOptions));
     int maxRetries = Core.asInt(retryCfg.getOrDefault("max_retries", 3));
     double initialDelay = Core.asDouble(retryCfg.getOrDefault("initial_delay_ms", 1000));
     double maxDelay = Core.asDouble(retryCfg.getOrDefault("max_delay_ms", 60000));
@@ -423,14 +424,14 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         if (raw != null) try { raw.close(); } catch (Exception ignored) {}
         AxAIServiceError error = failure instanceof AxAIServiceError serviceError
             ? serviceError
-            : new AxAIServiceNetworkError(failure.getMessage() == null ? failure.toString() : failure.getMessage());
-        // As in TS apiCall, a call's timeoutMs is not retried here.
-        boolean callTimedOut = error instanceof AxAIServiceTimeoutError && Core.provider_call_timeout_ms(errorOptions) != null;
-        boolean retryable = !callTimedOut && !(error instanceof AxAIServiceAbortedError) && (error instanceof AxAIServiceNetworkError
+            : networkError(failure, null);
+        // As in TS apiCall, a timeout the request ran out of is not retried
+        // here; a 408 or 504 response, typed as a timeout, is retried by its
+        // status.
+        boolean retryable = !(error instanceof AxAIServiceAbortedError) && (error instanceof AxAIServiceNetworkError
             || error instanceof AxAIServiceResponseError
             || error instanceof AxAIServiceStreamTerminatedError
-            || error instanceof AxAIServiceTimeoutError
-            || error instanceof AxAIServiceStatusError && error.status != null && Core.truthy(Core.is_retryable_status(error.status)));
+            || (error instanceof AxAIServiceStatusError || error instanceof AxAIServiceTimeoutError) && error.status != null && Core.truthy(Core.is_retryable_status(error.status)));
         if (!retryable || attempt >= maxRetries) throw error;
         attempt++;
         double delay = Math.min(initialDelay * Math.pow(backoff, attempt - 1), maxDelay);
@@ -1043,7 +1044,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (binaryResponse) {
       // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not be UTF-8
       // decoded; read the response as bytes and return them as a base64 String.
-      HttpResponse<byte[]> res = sendTimed(req, HttpResponse.BodyHandlers.ofByteArray(), cancellation, timeoutMs, errorRequest);
+      HttpResponse<byte[]> res = sendTimed(req, HttpResponse.BodyHandlers.ofByteArray(), cancellation, timeoutMs, errorRequest, typedTransportErrors(errorOptions));
       if (res.statusCode() >= 400) {
         String errorBody = new String(res.body(), StandardCharsets.UTF_8);
         Object parsed;
@@ -1056,7 +1057,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       if (contentType.contains("application/json")) return Json.parse(new String(res.body(), StandardCharsets.UTF_8));
       return new BinaryBody(Base64.getEncoder().encodeToString(res.body()), contentType);
     }
-    HttpResponse<String> res = sendTimed(req, HttpResponse.BodyHandlers.ofString(), cancellation, timeoutMs, errorRequest);
+    HttpResponse<String> res = sendTimed(req, HttpResponse.BodyHandlers.ofString(), cancellation, timeoutMs, errorRequest, typedTransportErrors(errorOptions));
     String responseBody = res.body();
     if (res.statusCode() >= 400) {
       Object parsed;
@@ -1103,7 +1104,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       .timeout(requestTimeout(timeoutMs));
     for (Map.Entry<String, Object> header : resolvedHeaders.entrySet()) builder.header(header.getKey(), String.valueOf(header.getValue()));
     HttpRequest req = builder.method(method, HttpRequest.BodyPublishers.ofString(Json.stringify(payload))).build();
-    HttpResponse<InputStream> res = sendTimed(req, HttpResponse.BodyHandlers.ofInputStream(), cancellation, timeoutMs, errorRequest);
+    HttpResponse<InputStream> res = sendTimed(req, HttpResponse.BodyHandlers.ofInputStream(), cancellation, timeoutMs, errorRequest, true);
     if (res.statusCode() >= 400) {
       try (InputStream body = res.body()) {
         String errorBody = new String(body.readAllBytes(), StandardCharsets.UTF_8);
@@ -1146,8 +1147,8 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   // apiCall's timer does: the body handler sees them arrive, and a request
   // without them in time is cancelled with TS's AxAIServiceTimeoutError.
   // (HttpRequest.timeout can't do it: newer JDKs apply it to the body too.)
-  private <T> HttpResponse<T> sendTimed(HttpRequest request, HttpResponse.BodyHandler<T> handler, AxCancellationToken cancellation, Object timeoutMs, Map<String, Object> errorRequest) throws Exception {
-    if (!(timeoutMs instanceof Number ms)) return sendCancellable(request, handler, cancellation);
+  private <T> HttpResponse<T> sendTimed(HttpRequest request, HttpResponse.BodyHandler<T> handler, AxCancellationToken cancellation, Object timeoutMs, Map<String, Object> errorRequest, boolean typed) throws Exception {
+    if (!(timeoutMs instanceof Number ms)) return sendCancellable(request, handler, cancellation, errorRequest, typed);
     if (cancellation != null) cancellation.throwIfCancelled();
     java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
     HttpResponse.BodyHandler<T> timed = info -> {
@@ -1170,7 +1171,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     } catch (ExecutionException error) {
       if (cancellation != null && cancellation.cancelled()) cancellation.throwIfCancelled();
       Throwable cause = error.getCause();
-      if (cause instanceof Exception exception) throw exception;
+      if (cause instanceof Exception exception) throw typed ? transportFailure(exception, request, errorRequest) : untypedTransportFailure(exception);
       if (cause instanceof Error fatal) throw fatal;
       throw new RuntimeException(cause);
     } catch (InterruptedException error) {
@@ -1182,15 +1183,55 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     }
   }
 
-  private <T> HttpResponse<T> sendCancellable(HttpRequest request,HttpResponse.BodyHandler<T> handler,AxCancellationToken cancellation)throws Exception{
+  private <T> HttpResponse<T> sendCancellable(HttpRequest request,HttpResponse.BodyHandler<T> handler,AxCancellationToken cancellation,Map<String, Object> errorRequest,boolean typed)throws Exception{
     if(cancellation!=null)cancellation.throwIfCancelled();
     CompletableFuture<HttpResponse<T>> future=http.sendAsync(request,handler);
     AxCancellationToken.Subscription subscription=cancellation==null?()->{}:cancellation.subscribe(()->future.cancel(true));
     try{return future.get();}
     catch(CancellationException error){if(cancellation!=null)cancellation.throwIfCancelled();throw error;}
-    catch(ExecutionException error){if(cancellation!=null&&cancellation.cancelled())cancellation.throwIfCancelled();Throwable cause=error.getCause();if(cause instanceof Exception exception)throw exception;if(cause instanceof Error fatal)throw fatal;throw new RuntimeException(cause);}
+    catch(ExecutionException error){if(cancellation!=null&&cancellation.cancelled())cancellation.throwIfCancelled();Throwable cause=error.getCause();if(cause instanceof Exception exception)throw typed?transportFailure(exception,request,errorRequest):untypedTransportFailure(exception);if(cause instanceof Error fatal)throw fatal;throw new RuntimeException(cause);}
     catch(InterruptedException error){Thread.currentThread().interrupt();if(cancellation!=null&&cancellation.cancelled())cancellation.throwIfCancelled();throw error;}
     finally{subscription.close();}
+  }
+
+  // How the HTTP client's failure surfaces, as TS apiCall reports fetch's: the
+  // request's own timeout is TS's AxAIServiceTimeoutError in its words (the
+  // client's timeout in milliseconds), any other I/O failure is a network
+  // error, and the JDK's exception stays the cause.
+  private static Exception transportFailure(Exception failure, HttpRequest request, Map<String, Object> errorRequest) {
+    if (failure instanceof java.net.http.HttpTimeoutException) {
+      long ms = request.timeout().map(Duration::toMillis).orElse(0L);
+      AxAIServiceTimeoutError timeout = new AxAIServiceTimeoutError(String.valueOf(Core.provider_call_timeout_message(ms)), null, null, null, errorRequest, true);
+      timeout.initCause(failure);
+      return timeout;
+    }
+    if (failure instanceof IOException) return networkError(failure, errorRequest);
+    return failure;
+  }
+
+  // Until the next major version, chat and embed throw the HTTP client's own
+  // exception for a failed connection or the client's timeout, as they did.
+  // typedTransportErrors: true (in the client's or the call's options) throws
+  // TS's AxAIServiceNetworkError and AxAIServiceTimeoutError instead, with the
+  // JDK exception as the cause. Streams always throw the typed errors, and
+  // AxGen retries either as an infrastructure error.
+  private boolean typedTransportErrors(Map<String, Object> callOptions) {
+    Map<String, Object> resolved = callOptions == null ? options : callOptions;
+    return Core.truthy(resolved.getOrDefault("typedTransportErrors", resolved.get("typed_transport_errors")));
+  }
+
+  private static Exception untypedTransportFailure(Exception failure) {
+    if (failure instanceof IOException) {
+      Core.aiWarnOnce("typed-transport-errors", "Ax throws the HTTP client's IOException for a failed connection or timeout. Set typedTransportErrors: true for TypeScript's AxAIServiceNetworkError and AxAIServiceTimeoutError, with the JDK exception as the cause; the next major version throws those by default.");
+    }
+    return failure;
+  }
+
+  // TS's AxAIServiceNetworkError: "Network Error: " and the transport's message.
+  private static AxAIServiceNetworkError networkError(Throwable failure, Map<String, Object> errorRequest) {
+    AxAIServiceNetworkError error = new AxAIServiceNetworkError("Network Error: " + (failure.getMessage() == null ? failure.toString() : failure.getMessage()), errorRequest);
+    error.initCause(failure);
+    return error;
   }
 
   // Encode a request payload as multipart/form-data. Multipart operations (e.g. OpenAI

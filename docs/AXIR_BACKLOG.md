@@ -24,12 +24,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/chatSession.ts`, `src/ax/dsp/generate.ts`
   - Impact: TypeScript's axRunChatSession lets one model request's native session make (maxSteps ?? 25) - stepIndex responses (generate.ts maxResponses) and then fails with 'Chat session failed: Maximum steps reached with unincorporated tool results (N); unresolved calls: ...'. The ports cap a session at the max_steps option or 10, without the step index, and fail with 'Maximum model steps exhausted before final completion'. Reproduced with a scripted session of 10 sequential tool-call responses and a final answer (11 responses): TypeScript completes with {answer: done} after 10 continues; Python on the 3b-2 branch fails with 'Generate failed: Maximum model steps exhausted before final completion'. At 26 responses TypeScript fails with its message. Go, Java, Rust and C++ create the session state with the same max_steps default of 10 (read, not run). Affects session-capable providers only, for a request whose session makes 11 to 25 responses.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-09-27-transport-error-classification` [axai] Real HTTP transport timeouts and connection failures raise TypeScript's typed, retryable errors in every port
-  - Status: open
-  - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
-  - TS paths: `src/ax/util/apicall.ts`
-  - Impact: TypeScript's apiCall raises AxAIServiceTimeoutError for a timeout and AxAIServiceNetworkError for a failed connection, and AxGen retries both as infrastructure errors (the #703/#707 classification). Rust's reqwest transport maps them to an untyped, non-retryable AxError (category ai_service), as a per-call timeout in seconds shows on origin/main ('error sending request for url', no error type). The other ports' real HTTP clients (urllib, net/http, HttpClient, libcurl) are not yet audited against TypeScript for these two cases.
-  - Suggested AxIR work: Audit the five ports' real HTTP clients for transport-level timeouts and connection failures against TypeScript; Type and mark retryable what TypeScript types and retries
 
 ## Done
 
@@ -1214,3 +1208,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `39c623f436c91b14d2c1ef1ca647a6c1200f324f`
   - Verification: `TS-derived streaming *native-session* goldens (deltas, versions, output, session log, prompts) pass in all five ports: partial events stream like a plain stream, a later response starts a new version, the completed response adds only what was not sent, a streaming-assertion retry keeps the partial answer, and after a started tool it fails the run. Agent streams under a run session stream the responder's session in every port. Five-port dev verify.`
+- `axir-2026-09-27-transport-error-classification` [axai] Real HTTP transport timeouts and connection failures raise TypeScript's typed, retryable errors in every port
+  - Status: done
+  - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
+  - TS paths: `src/ax/util/apicall.ts`
+  - Impact: TypeScript's apiCall raises AxAIServiceTimeoutError for a timeout and AxAIServiceNetworkError for a failed connection, and AxGen retries both as infrastructure errors (the #703/#707 classification). Rust's reqwest transport maps them to an untyped, non-retryable AxError (category ai_service), as a per-call timeout in seconds shows on origin/main ('error sending request for url', no error type). The other ports' real HTTP clients (urllib, net/http, HttpClient, libcurl) are not yet audited against TypeScript for these two cases.
+  - Suggested AxIR work: Audit the five ports' real HTTP clients for transport-level timeouts and connection failures against TypeScript; Type and mark retryable what TypeScript types and retries
+  - Completed at: 2026-09-27
+  - Completed by: `c1fc65ba7`
+  - Verification: `TS: src/ax/ai/transport_errors.test.ts pins fetch's failures against loopback servers (a refused or dropped connection is AxAIServiceNetworkError 'Network Error: ...', which apiCall retries; a timeout is AxAIServiceTimeoutError after one request; a dropped started stream is a network error; AxGen at maxRetries 1 sends both failures twice; the Typesafe client retries a network error and not a timeout). Ports: the transport_errors_http_roundtrip example (refused, closed without a response, never answering and a dropped started stream through the real HTTP client; stream retries; the Typesafe client; AxGen's retries; Java's default JDK exceptions and typedTransportErrors; Python's IncompleteRead base) fails on #761's head in all five ports and passes in all five. Before the fix AxGen sent a non-streaming network failure once in Go, Java, C++ and Rust (TS twice at maxRetries 1), and Rust's streams too. Full conformance passes in python, go and java; verify --mode release passes in all five.`

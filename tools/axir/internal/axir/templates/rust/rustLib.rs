@@ -2460,11 +2460,10 @@ impl OpenAICompatibleClient {
         let mut attempt: i64 = 0;
         loop {
             let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
-            // As in TS apiCall, a call's timeoutMs is not retried here.
-            let call_timeout = call_header_timeout_ms(&call).is_some();
+            // As in TS apiCall, a timeout is not retried here.
             let mut raw = match self.dispatch_transport_stream(call) {
                 Ok(value) => value,
-                Err(error) if is_retryable_ai_error(&error) && !(call_timeout && error.error_type.as_deref() == Some("AxAIServiceTimeoutError")) && attempt < max_retries => {
+                Err(error) if is_retryable_ai_error(&error) && !is_timeout_error(&error) && attempt < max_retries => {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
                     cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
@@ -2488,7 +2487,7 @@ impl OpenAICompatibleClient {
                         finish_runtime_span(&finish_span, error);
                     }))));
                 }
-                Some(Err(error)) if is_retryable_ai_error(&error) && attempt < max_retries => {
+                Some(Err(error)) if is_retryable_ai_error(&error) && !is_timeout_error(&error) && attempt < max_retries => {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
                     cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
@@ -2709,15 +2708,16 @@ impl OpenAICompatibleClient {
             builder
                 .header("Content-Type", content_type)
                 .body(body)
-                .send()?
+                .send()
         } else if let Some(body) = call.get("json") {
-            builder.json(body).send()?
+            builder.json(body).send()
         } else {
-            builder.send()?
-        };
+            builder.send()
+        }
+        .map_err(|error| transport_failure(error, timeout))?;
         if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         let status = response.status().as_u16();
-        let bytes = response.bytes()?;
+        let bytes = response.bytes().map_err(|error| transport_failure(error, timeout))?;
         if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         let body = if bytes.is_empty() {
             Value::Null
@@ -2770,7 +2770,7 @@ impl OpenAICompatibleClient {
                     for (key, value) in headers { builder = builder.header(key.as_str(), value.as_str().unwrap_or_default()); }
                 }
                 let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
-                let response = builder.js_json(&body).send()?;
+                let response = builder.js_json(&body).send().map_err(|error| transport_failure(error, timeout))?;
                 (response.status().as_u16(), Box::new(response))
             }
         };
@@ -3007,7 +3007,8 @@ impl OpenAICompatibleClient {
         }
         let raw = request_builder
             .js_json(&body)
-            .send()?
+            .send()
+            .map_err(|error| transport_failure(error, 60.0))?
             .error_for_status()?;
         // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
         // be UTF-8 decoded: the bytes go on as base64 with their Content-Type,
@@ -3023,7 +3024,7 @@ impl OpenAICompatibleClient {
             let response: Value = if content_type.contains("application/json") {
                 raw.json()?
             } else {
-                Value::String(encode_base64(&raw.bytes()?))
+                Value::String(encode_base64(&raw.bytes().map_err(|error| transport_failure(error, 60.0))?))
             };
             return Ok(json!({"status": 200, "json": response, "headers": {"content-type": content_type}}));
         }
@@ -3064,9 +3065,10 @@ impl OpenAICompatibleClient {
         let response = request_builder
             .header("Content-Type", content_type)
             .body(body)
-            .send()?
+            .send()
+            .map_err(|error| transport_failure(error, 60.0))?
             .error_for_status()?;
-        let bytes = response.bytes()?;
+        let bytes = response.bytes().map_err(|error| transport_failure(error, 60.0))?;
         let response: Value = serde_json::from_slice(&bytes)
             .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()));
         Ok(json!({"status": 200, "json": response}))
@@ -4047,7 +4049,8 @@ impl AxAITypesafeClient {
             match outcome {
                 Ok(raw) => return Ok(raw),
                 Err(error) => {
-                    if !error.retryable || attempt >= retries { return Err(error); }
+                    // As in TS apiCall, a timeout is not retried here.
+                    if !error.retryable || is_timeout_error(&error) || attempt >= retries { return Err(error); }
                     let delay = (retry["initial_delay_ms"].as_f64().unwrap_or(1000.0) * retry["backoff_factor"].as_f64().unwrap_or(2.0).powf(attempt as f64)).min(retry["max_delay_ms"].as_f64().unwrap_or(32000.0));
                     let duration = Duration::from_secs_f64(delay.max(0.0) / 1000.0);
                     if let Some(token) = &cancellation { token.wait_timeout(duration); token.throw_if_cancelled()?; } else { std::thread::sleep(duration); }
@@ -13002,6 +13005,13 @@ fn balancer_metrics(services: &[RouterFixtureService]) -> Value {
             "embed": {"count": embed_err_count, "rate": embed_rate, "total": embed_err_total}
         }
     })
+}
+
+// A timeout the request itself ran out of (the client's own, a call's
+// timeoutMs). TS apiCall does not retry it. A 408 or 504 response, which the
+// ports type as a timeout, carries its status and is retried by it.
+fn is_timeout_error(err: &AxError) -> bool {
+    err.error_type.as_deref() == Some("AxAIServiceTimeoutError") && err.status.is_none()
 }
 
 fn is_retryable_ai_error(err: &AxError) -> bool {
@@ -26808,6 +26818,37 @@ fn call_timeout_error(call: &Value) -> AxError {
     error
 }
 
+// How the HTTP client's failure surfaces, as TS apiCall reports fetch's: the
+// client's own timeout (seconds here) is TS's AxAIServiceTimeoutError in TS's
+// words and in milliseconds, and a failure to connect, send or read is TS's
+// AxAIServiceNetworkError: "Network Error: " and reqwest's message with its
+// causes (AxError has no cause to keep them in). Anything else stays as it was.
+pub(crate) fn transport_failure(error: reqwest::Error, timeout_seconds: f64) -> AxError {
+    if error.is_timeout() {
+        let message = provider_call_timeout_message(&[core_value_from_json(&json!((timeout_seconds * 1000.0).round()))])
+            .map(|value| value.text())
+            .unwrap_or_else(|_| "Request timed out".to_string());
+        let mut timeout = AxError::new("ai", message);
+        timeout.error_type = Some("AxAIServiceTimeoutError".to_string());
+        timeout.retryable = true;
+        return timeout;
+    }
+    if !(error.is_connect() || error.is_request() || error.is_body()) {
+        return AxError::from(error);
+    }
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(&error);
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    let mut network = AxError::new("network", format!("Network Error: {message}"));
+    network.error_type = Some("AxAIServiceNetworkError".to_string());
+    network.retryable = true;
+    network
+}
+
 // A stream body read from an async response: each read waits at most `idle`,
 // as the blocking client's timeout bounds each read.
 struct TimedStreamBody {
@@ -26856,7 +26897,7 @@ fn open_timed_stream(call: &Value, header_ms: f64, read_timeout: f64) -> AxResul
     let request = request.js_json(&body);
     let wait = Duration::from_secs_f64(header_ms / 1000.0);
     let response = match runtime.block_on(async move { tokio::time::timeout(wait, request.send()).await }) {
-        Ok(result) => result?,
+        Ok(result) => result.map_err(|error| transport_failure(error, read_timeout))?,
         Err(_) => return Err(call_timeout_error(call)),
     };
     let status = response.status().as_u16();
@@ -26881,18 +26922,18 @@ fn cancellable_http_json(call: &Value, timeout: f64, token: &AxCancellationToken
         for (key,value) in call["headers"].as_object().into_iter().flatten() { request = request.header(key.as_str(),value.as_str().unwrap_or_default()); }
         if let Some(data)=call.get("data") { let (body,content_type)=encode_multipart(data); request=request.header("Content-Type",content_type).body(body); }
         else if let Some(body)=call.get("json") { request=request.json(body); }
-        let send=session::session_http_wait(request.send(),&cancelled);
+        let send=session::http_wait(request.send(),&cancelled);
         let response=match header_ms {
             Some(ms)=>match tokio::time::timeout(Duration::from_secs_f64(ms/1000.0),send).await {
-                Ok(result)=>result?,
+                Ok(result)=>result.map_err(|error| transport_failure(error,total))?,
                 Err(_)=>return Err(call_timeout_error(call)),
             },
-            None=>send.await?,
+            None=>send.await.map_err(|error| transport_failure(error,total))?,
         };
         token.throw_if_cancelled()?;
         let response=response.ok_or_else(||AxError::new("aborted","Request aborted"))?;
         let status=response.status().as_u16();
-        let bytes=session::session_http_wait(response.bytes(),&cancelled).await?;
+        let bytes=session::http_wait(response.bytes(),&cancelled).await.map_err(|error| transport_failure(error,total))?;
         token.throw_if_cancelled()?;
         let bytes=bytes.ok_or_else(||AxError::new("aborted","Request aborted"))?;
         let body=if bytes.is_empty(){Value::Null}else{serde_json::from_slice(&bytes).unwrap_or_else(|_|json!(String::from_utf8_lossy(&bytes)))};
