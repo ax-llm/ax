@@ -27,7 +27,11 @@ final class SessionRun implements AiClient,AutoCloseable {
   SessionRun(AxGen gen,AiClient client,AxChatSession.Provider provider,Map<String,Object> options) {
     this.gen=gen;this.client=client;this.provider=provider;this.options=options;
     control=options.get("control") instanceof AxRunControl value?value:null;
-    path=String.valueOf(options.getOrDefault("execution_path","root"));
+    // The run's control path: execution_path, else TypeScript's executionPath,
+    // from the constructor options merged with the call's (the call wins).
+    Object executionPath=options.get("execution_path");
+    if(executionPath==null)executionPath=options.get("executionPath");
+    path=executionPath==null?"root":String.valueOf(executionPath);
   }
   private void emit(String kind,Map<String,Object> extra) { if(control!=null) {var event=new LinkedHashMap<>(extra);event.put("type",kind);event.put("path",path);control.emit(event);} }
   private void start(Map<String,Object> originalCall) {

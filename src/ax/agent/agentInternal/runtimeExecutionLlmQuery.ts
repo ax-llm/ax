@@ -1,5 +1,5 @@
 import type { AxAIService } from '../../ai/types.js';
-import { AxGen } from '../../dsp/generate.js';
+import { AxGen, withoutRunScopedOptions } from '../../dsp/generate.js';
 import type { AxSignature } from '../../dsp/sig.js';
 import type { AxFieldValue, AxProgramForwardOptions } from '../../dsp/types.js';
 import { axMCPChildExecutionOptions } from '../../mcp/execution.js';
@@ -64,7 +64,7 @@ export function buildLlmQueryBindings(
   const createSimpleSubAgent = () =>
     new AxGen<any, { answer: AxFieldValue }>(
       simpleChildSignature,
-      recursionForwardOptions
+      withoutRunScopedOptions(recursionForwardOptions)
     );
 
   const llmQuery = async (

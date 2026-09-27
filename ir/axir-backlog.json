@@ -2182,6 +2182,33 @@
       "verification": "Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes."
     },
     {
+      "id": "axir-2026-09-27-apply-axgen-constructor-run-options-as-defaults-in-the-ports-and",
+      "status": "done",
+      "title": "Apply AxGen constructor run options as defaults in the ports and send promptCacheRetention on OpenAI Responses",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "911d6a72ec504ee4e6fd70c6581d732b7f1b483b",
+      "tsPaths": [
+        "src/ax/dsp/generate.ts",
+        "src/ax/ai/base.ts",
+        "src/ax/agent/agentInternal/runtimeExecutionLlmQuery.ts",
+        "src/ax/agent/agentInternal/signatureBuilders.ts",
+        "src/ax/agent/synthesizer.ts",
+        "src/ax/agent/contextManager.ts",
+        "src/ax/agent/agentInternal/initialization.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript AxGen now treats run and service options given to its constructor as defaults for every forward (control, stream, sessionId, abortSignal, timeout, fetch, webSocket, traceContext, executionPath, eventContext, speech, excludeContentFromTrace, serviceTier, verbose, beta, corsProxy, includeRequestBodyInErrors, promptCacheRetention; customLabels merges key by key) and passes the service options to ai.chat; the base AI honors a per-call corsProxy, timeout and fetch. In the ports, Go ignored a constructor run control and the IR's cache skip read only the call's control; Go and Rust read the execution path from the call's options only and Java read only execution_path; Go chose the native chat session from the call's asyncMode and model only, and Rust from the call's asyncMode; Rust had no constructor-level run control; and no port sent prompt_cache_retention on OpenAI Responses.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "d2b265ddc",
+      "verification": "Four TS goldens (forward-constructor-control-events, streaming-forward-constructor-control-events, cache-constructor-control-skips-cache, forward-constructor-execution-path) via a constructor_control extractor flag that every runner honors, plus two axai goldens for prompt_cache_retention on OpenAI Responses (sent, and left out for GPT-6 Astra). On main the constructor-control goldens fail in Go (no events) and in the cache-skip IR, and the execution-path golden fails in Go, Java and Rust (events at root). Go TestConstructorOptionsChooseTheNativeSession and the Rust session and program-control tests (asyncMode, with_control events/steer/abort, cache skip with audio, parallel-flow workers) fail without the fixes; each port's mutations fail its goldens or host tests. verify --mode dev: 1216 fixtures in python, go, java, cpp and rust (Rust cargo test 62/62); npm run test --workspace=@ax-llm/ax passes 3579 tests."
+    },
+    {
       "id": "axir-2026-09-27-audio-inputs-with-a-transcript-reach-the-model-as-text",
       "status": "done",
       "title": "Audio inputs that hold text reach the model as text",
@@ -2395,7 +2422,7 @@
       ],
       "completedAt": "2026-09-27",
       "completedByCommit": "f3c069b14",
-      "verification": "Seven TS-derived axai fixtures (provider-error-*; new runner keys api_key, expected_error_excludes and expected_error_request in all five runners) fail on main in Python and Java (7/7 each: the error carried the fake key) and pass in all five ports; canary fixtures prove the key check bites in every runner. TS src/ax/util/apicall.test.ts pins that request headers never reach status, auth, retried or network errors. Go TestRealtimeDialErrorOmitsURLQuery and Rust realtime_connect_errors_mask_the_url_query pin the masked ?key= query. npm run axir:conformance:check and per-target verify --mode release."
+      "verification": "Seven TS-derived axai fixtures (provider-error-*; new runner keys api_key, expected_error_excludes and expected_error_request in all five runners) fail on main in Python and Java (7/7 each: the error carried the fixture's API key) and pass in all five ports; canary fixtures prove the key check bites in every runner. TS src/ax/util/apicall.test.ts pins that request headers never reach status, auth, retried or network errors. Go TestRealtimeDialErrorOmitsURLQuery and Rust realtime_connect_errors_mask_the_url_query pin the masked ?key= query. npm run axir:conformance:check and per-target verify --mode release."
     },
     {
       "id": "axir-2026-09-27-render-axgen-audio-output-fields-through-speak-in-the-ports",
