@@ -3973,6 +3973,11 @@ def _assert_expected_error(exc, fixture):
     expected = fixture.get("expected_error_contains")
     if expected and expected not in str(exc):
         raise FixtureError(f"expected error containing {expected!r}, got {exc!r}")
+    # A validation message reaches the model as the retry's correction, so a
+    # fixture can pin TypeScript's whole message.
+    expected_message = fixture.get("expected_error_message")
+    if expected_message is not None and str(exc) != expected_message:
+        raise FixtureError(f"expected error message {expected_message!r}, got {str(exc)!r}")
 
 
 def _error_category(exc):

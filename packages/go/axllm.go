@@ -6655,7 +6655,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_has_min) {
 		v_too_short = _core_lt(v_length, v_min_length)
 		if coreTruthy(v_too_short) {
-			v_message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long.", v_title, v_min_length)
+			v_message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long. You provided: \"{}\" ({} characters).", v_title, v_min_length, v_value, v_length)
 			v_error = _core_validation_error(v_message)
 			return nil, asError(v_error)
 		} else {
@@ -6669,7 +6669,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_has_max) {
 		v_too_long = _core_gt(v_length, v_max_length)
 		if coreTruthy(v_too_long) {
-			v_message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long.", v_title, v_max_length)
+			v_message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long. You provided: \"{}\" ({} characters).", v_title, v_max_length, v_value, v_length)
 			v_error = _core_validation_error(v_message)
 			return nil, asError(v_error)
 		} else {
@@ -6684,7 +6684,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 		v_matches = coreRegexMatch(v_pattern, v_value)
 		v_pattern_failed = _core_not(v_matches)
 		if coreTruthy(v_pattern_failed) {
-			v_message = _core_string_format("Field '{}' failed validation: String must match pattern /{}/.", v_title, v_pattern)
+			v_message = _core_string_format("Field '{}' failed validation: String must match pattern /{}/. You provided: \"{}\".", v_title, v_pattern, v_value)
 			v_error = _core_validation_error(v_message)
 			return nil, asError(v_error)
 		} else {
@@ -6699,7 +6699,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 		v_valid_email = coreRegexMatch("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", v_value)
 		v_invalid_email = _core_not(v_valid_email)
 		if coreTruthy(v_invalid_email) {
-			v_message = _core_string_format("Field '{}' failed validation: String must be a valid email address.", v_title)
+			v_message = _core_string_format("Field '{}' failed validation: String must be a valid email address. You provided: \"{}\".", v_title, v_value)
 			v_error = _core_validation_error(v_message)
 			return nil, asError(v_error)
 		} else {
@@ -6716,7 +6716,7 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 		v_valid_url = _core_url_valid(v_value)
 		v_invalid_url = _core_not(v_valid_url)
 		if coreTruthy(v_invalid_url) {
-			v_message = _core_string_format("Invalid URL for '{}': Invalid URL format.", v_title)
+			v_message = _core_string_format("Field '{}' failed validation: String must be a valid URL. You provided: \"{}\".", v_title, v_value)
 			v_error = _core_validation_error(v_message)
 			return nil, asError(v_error)
 		} else {
@@ -6763,7 +6763,7 @@ func _validate_number_constraints_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_has_minimum) {
 		v_too_small = _core_lt(v_value, v_minimum)
 		if coreTruthy(v_too_small) {
-			v_message = _core_string_format("Field '{}' failed validation: Number must be at least {}.", v_title, v_minimum)
+			v_message = _core_string_format("Field '{}' failed validation: Number must be at least {}. You provided: {}.", v_title, v_minimum, v_value)
 			v_error = _core_validation_error(v_message)
 			return nil, asError(v_error)
 		} else {
@@ -6777,7 +6777,7 @@ func _validate_number_constraints_impl(args ...Value) (Value, error) {
 	if coreTruthy(v_has_maximum) {
 		v_too_large = _core_gt(v_value, v_maximum)
 		if coreTruthy(v_too_large) {
-			v_message = _core_string_format("Field '{}' failed validation: Number must be at most {}.", v_title, v_maximum)
+			v_message = _core_string_format("Field '{}' failed validation: Number must be at most {}. You provided: {}.", v_title, v_maximum, v_value)
 			v_error = _core_validation_error(v_message)
 			return nil, asError(v_error)
 		} else {
@@ -7304,7 +7304,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		v_nested_map = coreGet(v_typ, "fields", nil)
 		v_has_nested = _core_truthy(v_nested_map)
 		if coreTruthy(v_has_nested) {
-			v_nested_fields = _core_fields_from_map(v_nested_map)
+			{ v, err := _validate_keyed_fields_impl(v_nested_map); if err != nil { return nil, err }; v_nested_fields = v }
 			if _, err := _validate_fields_impl(v_nested_fields, v_value, v_path); err != nil { return nil, err }
 		} else {
 		// empty
@@ -7707,6 +7707,57 @@ func _strip_internal_fields_impl(args ...Value) (Value, error) {
 		}
 	}
 	return v_public_values, nil
+}
+
+func _validate_keyed_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_validate_keyed_fields_impl")
+	var v_fields_map Value
+	var v_field Value
+	var v_internal Value
+	var v_internal_snake Value
+	var v_internal_value Value
+	var v_name Value
+	var v_nested Value
+	var v_nested_fields Value
+	var v_optional Value
+	var v_optional_snake Value
+	var v_optional_value Value
+	var v_out Value
+	var v_typ Value
+	if len(args) > 0 { v_fields_map = args[0] }
+	_ = v_fields_map
+	_ = v_field
+	_ = v_internal
+	_ = v_internal_snake
+	_ = v_internal_value
+	_ = v_name
+	_ = v_nested
+	_ = v_nested_fields
+	_ = v_optional
+	_ = v_optional_snake
+	_ = v_optional_value
+	_ = v_out
+	_ = v_typ
+	v_out = MutableArray()
+	v_nested_fields = _core_fields_from_map(v_fields_map)
+	for _, v_nested = range coreIter(v_nested_fields) {
+		v_name = coreGet(v_nested, "name", "")
+		v_typ = coreGet(v_nested, "type", nil)
+		v_optional_snake = coreGet(v_nested, "is_optional", false)
+		v_optional_value = coreGet(v_nested, "isOptional", v_optional_snake)
+		v_optional = _core_truthy(v_optional_value)
+		v_internal_snake = coreGet(v_nested, "is_internal", false)
+		v_internal_value = coreGet(v_nested, "isInternal", v_internal_snake)
+		v_internal = _core_truthy(v_internal_value)
+		v_field = Object()
+		if err := coreSet(v_field, "name", v_name); err != nil { return nil, err }
+		if err := coreSet(v_field, "title", v_name); err != nil { return nil, err }
+		if err := coreSet(v_field, "type", v_typ); err != nil { return nil, err }
+		if err := coreSet(v_field, "is_optional", v_optional); err != nil { return nil, err }
+		if err := coreSet(v_field, "is_internal", v_internal); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_field)
+	}
+	return v_out, nil
 }
 
 func _schema_to_json_schema_impl(args ...Value) (Value, error) {
@@ -107498,6 +107549,17 @@ func expectMaybeFixtureError(fn func() Value, fixture map[string]Value, fallback
 		assertExpectedErrorCategory(caught, fixture)
 		if !strings.Contains(display(errorValue(caught)), expected) && !strings.Contains(display(caught), expected) {
 			panic(AxError{Category: "fixture", Message: "expected error containing " + expected + ", got " + display(caught)})
+		}
+		// A validation message reaches the model as the retry's correction, so
+		// a fixture can pin TypeScript's whole message.
+		if message, ok := fixture["expected_error_message"]; ok {
+			got := display(caught)
+			if err, isErr := caught.(error); isErr {
+				got = err.Error()
+			}
+			if got != display(message) {
+				panic(AxError{Category: "fixture", Message: "expected error message " + display(message) + ", got " + got})
+			}
 		}
 		return fallback
 	}

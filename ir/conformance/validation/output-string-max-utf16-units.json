@@ -1,6 +1,7 @@
 {
   "expected_error_category": "validation",
   "expected_error_contains": "String must be at most 20 characters long.",
+  "expected_error_message": "Field 'username' failed validation: String must be at most 20 characters long. You provided: \"😀😀😀😀😀😀😀😀😀😀😀\" (22 characters).",
   "kind": "validate_output",
   "name": "output-string-max-utf16-units",
   "signature_spec": {

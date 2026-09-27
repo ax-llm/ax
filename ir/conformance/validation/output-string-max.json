@@ -1,9 +1,9 @@
 {
   "expected_error_category": "validation",
-  "expected_error_contains": "at least 18",
-  "expected_error_message": "Field 'age' failed validation: Number must be at least 18. You provided: 12.",
+  "expected_error_contains": "at most 20 characters",
+  "expected_error_message": "Field 'username' failed validation: String must be at most 20 characters long. You provided: \"ada-lovelace-countess\" (21 characters).",
   "kind": "validate_output",
-  "name": "output-number-minimum",
+  "name": "output-string-max",
   "signature_spec": {
     "inputs": {
       "query": {
@@ -34,12 +34,12 @@
       }
     }
   },
-  "ts_error_message": "Field 'age' failed validation: Number must be at least 18. You provided: 12.",
+  "ts_error_message": "Field 'username' failed validation: String must be at most 20 characters long. You provided: \"ada-lovelace-countess\" (21 characters).",
   "ts_error_name": "ValidationError",
   "values": {
     "user": {
-      "age": 12,
-      "username": "adalovelace"
+      "age": 36,
+      "username": "ada-lovelace-countess"
     }
   }
 }

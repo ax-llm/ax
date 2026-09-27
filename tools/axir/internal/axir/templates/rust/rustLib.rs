@@ -16937,6 +16937,13 @@ fn expect_validation_result(result: AxResult<()>, fixture: &Value) -> AxResult<(
     if let Some(expected) = expected {
         if let Err(err) = result {
             expect_error_category(&err, fixture)?;
+            // A validation message reaches the model as the retry's
+            // correction, so a fixture can pin TypeScript's whole message.
+            if let Some(message) = fixture.get("expected_error_message").and_then(Value::as_str) {
+                if err.message != message {
+                    return Err(AxError::new("fixture", format!("expected error message {message:?}, got {:?}", err.message)));
+                }
+            }
             if err.message.contains(expected) {
                 return Ok(());
             }

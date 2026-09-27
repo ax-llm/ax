@@ -572,7 +572,7 @@ def _validate_string_constraints_impl(value: str, field: Field) -> None:
     if has_min:
         too_short = _core_lt(length, min_length)
         if too_short:
-            message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long.", title, min_length)
+            message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long. You provided: \"{}\" ({} characters).", title, min_length, value, length)
             error = _core_validation_error(message)
             raise error
         else:
@@ -584,7 +584,7 @@ def _validate_string_constraints_impl(value: str, field: Field) -> None:
     if has_max:
         too_long = _core_gt(length, max_length)
         if too_long:
-            message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long.", title, max_length)
+            message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long. You provided: \"{}\" ({} characters).", title, max_length, value, length)
             error = _core_validation_error(message)
             raise error
         else:
@@ -597,7 +597,7 @@ def _validate_string_constraints_impl(value: str, field: Field) -> None:
         matches = _core_regex_match(pattern, value)
         pattern_failed = _core_not(matches)
         if pattern_failed:
-            message = _core_string_format("Field '{}' failed validation: String must match pattern /{}/.", title, pattern)
+            message = _core_string_format("Field '{}' failed validation: String must match pattern /{}/. You provided: \"{}\".", title, pattern, value)
             error = _core_validation_error(message)
             raise error
         else:
@@ -610,7 +610,7 @@ def _validate_string_constraints_impl(value: str, field: Field) -> None:
         valid_email = _core_regex_match("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", value)
         invalid_email = _core_not(valid_email)
         if invalid_email:
-            message = _core_string_format("Field '{}' failed validation: String must be a valid email address.", title)
+            message = _core_string_format("Field '{}' failed validation: String must be a valid email address. You provided: \"{}\".", title, value)
             error = _core_validation_error(message)
             raise error
         else:
@@ -625,7 +625,7 @@ def _validate_string_constraints_impl(value: str, field: Field) -> None:
         valid_url = _core_url_valid(value)
         invalid_url = _core_not(valid_url)
         if invalid_url:
-            message = _core_string_format("Invalid URL for '{}': Invalid URL format.", title)
+            message = _core_string_format("Field '{}' failed validation: String must be a valid URL. You provided: \"{}\".", title, value)
             error = _core_validation_error(message)
             raise error
         else:
@@ -644,7 +644,7 @@ def _validate_number_constraints_impl(value: float, field: Field) -> None:
     if has_minimum:
         too_small = _core_lt(value, minimum)
         if too_small:
-            message = _core_string_format("Field '{}' failed validation: Number must be at least {}.", title, minimum)
+            message = _core_string_format("Field '{}' failed validation: Number must be at least {}. You provided: {}.", title, minimum, value)
             error = _core_validation_error(message)
             raise error
         else:
@@ -656,7 +656,7 @@ def _validate_number_constraints_impl(value: float, field: Field) -> None:
     if has_maximum:
         too_large = _core_gt(value, maximum)
         if too_large:
-            message = _core_string_format("Field '{}' failed validation: Number must be at most {}.", title, maximum)
+            message = _core_string_format("Field '{}' failed validation: Number must be at most {}. You provided: {}.", title, maximum, value)
             error = _core_validation_error(message)
             raise error
         else:
@@ -954,7 +954,7 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         nested_map = _core_get(typ, "fields", None)
         has_nested = _core_truthy(nested_map)
         if has_nested:
-            nested_fields = _core_fields_from_map(nested_map)
+            nested_fields = _validate_keyed_fields_impl(nested_map)
             _validate_fields_impl(nested_fields, value, path)
         else:
             pass
@@ -1166,6 +1166,29 @@ def _strip_internal_fields_impl(fields: list[Any], values: Any) -> Any:
         else:
             pass
     return public_values
+
+
+def _validate_keyed_fields_impl(fields_map: Any) -> list[Any]:
+    _core_coverage_mark("_validate_keyed_fields_impl")
+    out = []
+    nested_fields = _core_fields_from_map(fields_map)
+    for nested in nested_fields:
+        name = _core_get(nested, "name", "")
+        typ = _core_get(nested, "type", None)
+        optional_snake = _core_get(nested, "is_optional", False)
+        optional_value = _core_get(nested, "isOptional", optional_snake)
+        optional = _core_truthy(optional_value)
+        internal_snake = _core_get(nested, "is_internal", False)
+        internal_value = _core_get(nested, "isInternal", internal_snake)
+        internal = _core_truthy(internal_value)
+        field = {}
+        field["name"] = name
+        field["title"] = name
+        field["type"] = typ
+        field["is_optional"] = optional
+        field["is_internal"] = internal
+        out.append(field)
+    return out
 
 
 def _schema_to_json_schema_impl(fields: list[Any], schema_title: str, options: Any) -> dict[str, Any]:
