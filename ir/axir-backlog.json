@@ -2368,7 +2368,7 @@
     },
     {
       "id": "axir-2026-09-27-drop-a-failed-non-streaming-axgen-attempt-and-its-correction-whe",
-      "status": "open",
+      "status": "done",
       "title": "Drop a failed non-streaming AxGen attempt and its correction when the next answer arrives in the ports",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2384,9 +2384,9 @@
         "Add an AxGen forward golden with two or more validation retries that pins the request roles",
         "Re-add expected_request_roles to agent-forward-citations-exhausted and agent-forward-control-failed"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "ba626dce1",
+      "verification": "gen.axir @forward holds the failed attempts since the last cleanup point apart and settles them where TS's non-streaming forward cleans up (response/nonStreaming.ts): a retry whose answer parsed, a tool step, a feedback step and a steer step; a failed __axOutput call keeps its call and done result; disableMemoryCleanup keeps everything; streaming is unchanged, as in TS. Scope per TS probes: only failures after an answer parses (assertions) drop earlier attempts; parse, missing-field and constraint failures, function-rung retries and streams keep them. 13 TS goldens (forward-retry-memory-*, streaming-forward-retry-memory-assertion) pin every request's roles; on main 8 fail in each of the five ports; Python mutation checks of each part are caught. The two citation agent goldens with TS's roles pinned pass in all five ports with the fix and fail on main (their roles pin lands with #766). verify --mode release on ccee3bda2 plus the fix: 1547 fixtures in python, go, java, cpp and rust."
     },
     {
       "id": "axir-2026-09-27-evaluated-agent-predictions-carry-the-runs-calls-errors-and-turns",
