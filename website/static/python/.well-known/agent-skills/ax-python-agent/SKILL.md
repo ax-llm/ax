@@ -61,9 +61,20 @@ Independent flow nodes use owned program and client workers. Built-in providers,
 
 Use the provider-backed Astra examples under `src/examples/python/generation/`, `short-agents/`, and `flows/`. All-five generated parity remains under verification in the shared-session AxIR backlog; do not infer full agent, parallel-flow, or transport parity from these examples alone.
 
+## Streaming An Agent Run
+
+`agent.streaming_forward(client, values, options)` runs the agent and yields the responder's `{"version", "index", "delta"}` deltas as TypeScript's `streamingForward` does. The run works on a worker thread that waits while you handle each delta; closing the generator stops the run.
+
+- The distiller and the executor, or the direct-respond skip, run first without streaming, as in TypeScript. A clarification request or a stage failure raises before any delta.
+- The deltas are the responder's AxGen deltas: merge each index's deltas (strings and lists append, other values replace) and start over when the version changes. A responder retry, such as a citation correction, streams a new version.
+- With `citations` on, the responder's assertion checks the cited ids against the run's evidence and retries with TypeScript's correction message, in forward and streaming alike. With `surface: "hidden"` each delta leaves out the citation field, so a delta can be empty, and the citations observer gets the ids streamed in the last version that streamed any.
+- As in forward, the used-memory and used-skill observers run before the responder, and the context map and the playbook learn after it.
+- A run `control` hears the run at its own path (`root`) and each stage at `root/distiller`, `root/executor` and `root/responder`, in forward and streaming alike. Stopping the stream early ends the responder and the run as `aborted`.
+- A run `control` on a client that opens async model sessions (such as `gpt-6-astra`) is not streamed through a session yet: `streaming_forward` raises `NotImplementedError` before any stage runs, as AxGen deltas do. Use `forward()` there.
+
 ## Relevant API Surface
 
-- Agents And RLM: `agent`, `AxAgent`, `AxAgent.add_child_agent`
+- Agents And RLM: `agent`, `AxAgent`, `AxAgent.add_child_agent`, `AxAgent.streaming_forward`
 - MCP: `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPWebSocketTransport`, `AxMCPStdioTransport`
 - Runtime Profiles: `ProcessCodeRuntime`, `RuntimeCapabilities`, `RuntimeEnvelope`, `javascript-quickjs`, `python-pyodide`
 

@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths` [axagent] Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths
+  - Status: open
+  - Source commit: `c3662628d8916a174fc1ef3bd0484f7b3ffd989c`
+  - TS paths: `src/ax/agent/agentInternal/pipelineForward.ts`
+  - Impact: TypeScript AxAgent.streamingForward now runs its stages under root/distiller, root/executor and root/responder and reports the run at root, as forward does (a steer targeted at a stage used to be ignored while streaming); the ports gain AxAgent streaming forward and the same run-control events
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

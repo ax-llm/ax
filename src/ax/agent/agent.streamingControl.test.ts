@@ -10,7 +10,7 @@ type Stage = 'distiller' | 'executor' | 'responder';
 // test act while a given stage's request is in flight.
 function scriptedAI(onRequest?: (stage: Stage) => void) {
   const requests: { stage: Stage; text: string }[] = [];
-  const ai = new AxMockAIService({
+  const ai = new AxMockAIService<string>({
     features: { functions: false, streaming: true },
     chatResponse: async (req) => {
       const system = String(req.chatPrompt[0]?.content ?? '');

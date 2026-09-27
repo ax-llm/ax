@@ -468,6 +468,18 @@ const cases: Record<string, Case> = {
     responses: [...baseActors(), answerStream()],
     runtime_script: baseRuntime(),
   },
+  'agent-streaming-forward-control-failed': {
+    options: { directResponse: 'off', citations: {} },
+    control: true,
+    responses: [
+      ...baseActors(),
+      citedStream('["made_up_source"]'),
+      citedStream('["made_up_source"]'),
+      citedStream('["made_up_source"]'),
+      citedStream('["made_up_source"]'),
+    ],
+    runtime_script: baseRuntime(),
+  },
   'agent-streaming-forward-context-map': {
     options: {
       directResponse: 'off',
@@ -537,6 +549,19 @@ const cases: Record<string, Case> = {
     options: { directResponse: 'off' },
     control: true,
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+  },
+  'agent-forward-control-failed': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off', citations: {} },
+    control: true,
+    responses: [
+      ...baseActors(),
+      cited('["made_up_source"]'),
+      cited('["made_up_source"]'),
+      cited('["made_up_source"]'),
+      cited('["made_up_source"]'),
+    ],
     runtime_script: baseRuntime(),
   },
   'agent-forward-context-map': {
