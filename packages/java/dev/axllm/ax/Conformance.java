@@ -623,11 +623,21 @@ public final class Conformance {
       for (Path path : expand(Path.of(arg))) {
         Map<String, Object> fixture = Core.asMap(Json.parse(Files.readString(path)));
         expandOrderedJsonFields(fixture);
+        Object name = fixture.getOrDefault("name", path.getFileName().toString());
+        if (Core.truthy(fixture.get("requires_lone_surrogates")) && !SUPPORTS_LONE_SURROGATES) {
+          System.out.println("skip " + name + ": requires lone surrogates (utf-8 runner)");
+          continue;
+        }
         run(fixture);
-        System.out.println("ok " + fixture.getOrDefault("name", path.getFileName().toString()));
+        System.out.println("ok " + name);
       }
     }
   }
+
+  // Java strings hold UTF-16 units, so a lone surrogate (half of a pair a
+  // provider split across stream events) is representable here, and fixtures
+  // that need one run.
+  static final boolean SUPPORTS_LONE_SURROGATES = true;
 
   static List<Path> expand(Path path) throws Exception {
     if (!Files.isDirectory(path)) return List.of(path);
@@ -1069,6 +1079,7 @@ public final class Conformance {
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");
     if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "run control events");
     assertRequestRoles(fixture, client);
+    assertLastRequestTail(fixture, client);
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
     // An expected failure (e.g. a gated expensive model) may stop before the provider call.
     if (!fixture.containsKey("expected_error_contains") && Boolean.TRUE.equals(fixture.getOrDefault("expect_chat_path", true)) && client.chatCalls == 0) throw new FixtureError("expected AxGen to use AxAIService.chat()");
@@ -1216,6 +1227,21 @@ public final class Conformance {
     return events;
   }
 
+  // expected_last_request_tail: the last messages of the last request's chat
+  // prompt, compared by role and content (a string or a list of parts).
+  static void assertLastRequestTail(Map<String, Object> fixture, ConformanceScriptedAI client) {
+    if (!fixture.containsKey("expected_last_request_tail")) return;
+    List<Object> expected = Core.asList(fixture.get("expected_last_request_tail"));
+    List<Object> prompt = client.requests.isEmpty() ? List.of() : Core.asList(client.requests.get(client.requests.size() - 1).get("chat_prompt"));
+    List<Object> tail = new ArrayList<>();
+    for (Object message : prompt.subList(Math.max(0, prompt.size() - expected.size()), prompt.size())) {
+      Map<String, Object> picked = new LinkedHashMap<>();
+      for (String key : List.of("role", "content")) if (Core.asMap(message).containsKey(key)) picked.put(key, Core.asMap(message).get(key));
+      tail.add(picked);
+    }
+    assertEqual(tail, expected, "last request tail");
+  }
+
   // expected_request_roles: the message roles of every request, in order.
   static void assertRequestRoles(Map<String, Object> fixture, ConformanceScriptedAI client) {
     if (!fixture.containsKey("expected_request_roles")) return;
@@ -1276,6 +1302,7 @@ public final class Conformance {
     }
     if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "run control events");
     assertRequestRoles(fixture, client);
+    assertLastRequestTail(fixture, client);
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) {
       throw new FixtureError("expected " + fixture.get("expected_request_count") + " requests, got " + client.requests.size());
     }
@@ -1738,6 +1765,13 @@ public final class Conformance {
     Map<String, Object> options = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
     ToolBuild toolBuild = buildTools(Core.asList(fixture.getOrDefault("tools", List.of())));
     if (!toolBuild.tools.isEmpty()) options.put("functions", toolBuild.tools);
+    // An agent's runtime_script runs its actor code, as in the agent fixtures.
+    if ("agent".equals(programKind) && fixture.containsKey("runtime_script")) {
+      options.put("runtime", new ScriptedCodeRuntime(
+          Core.asList(fixture.get("runtime_script")),
+          String.valueOf(fixture.getOrDefault("runtime_language", "JavaScript")),
+          ""));
+    }
     Object program = "axgen".equals(programKind)
       ? new AxGen(AxSignature.create(signature), options)
       : "flow".equals(programKind)
@@ -1965,6 +1999,9 @@ public final class Conformance {
         ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
         Map<String, Object> prediction = ((AxAgent) program).evaluateOptimizationTask(client, Core.asMap(fixture.getOrDefault("task", Map.of("input", fixture.getOrDefault("input", Map.of())))), Core.asMap(fixture.getOrDefault("eval_options", Map.of())));
         if (fixture.containsKey("expected_prediction_subset")) assertSubset(prediction, fixture.get("expected_prediction_subset"), "eval prediction");
+        // Fields that must match exactly: a list compares in full.
+        for (Map.Entry<String, Object> field : Core.asMap(fixture.getOrDefault("expected_prediction_fields", Map.of())).entrySet())
+          assertEqual(prediction.get(field.getKey()), field.getValue(), "eval prediction " + field.getKey());
         return;
       }
     } catch (RuntimeException e) {

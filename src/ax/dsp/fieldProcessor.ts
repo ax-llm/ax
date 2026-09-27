@@ -70,7 +70,10 @@ export async function processStreamingFieldProcessors(
   mem: AxAIMemory,
   values: AxGenOut,
   sessionId: string | undefined,
-  done = false
+  done = false,
+  // Mid-stream results wait here until the step ends; see
+  // addPendingFeedbackToMemory.
+  pendingFeedback?: unknown[]
 ): Promise<void> {
   for (const processor of fieldProcessors) {
     if (xstate.currField?.name !== processor.field.name) {
@@ -91,7 +94,25 @@ export async function processStreamingFieldProcessors(
       done,
     });
 
-    addToMemory(xstate.currField, mem, result, sessionId);
+    if (pendingFeedback) {
+      pendingFeedback.push(result);
+    } else {
+      addToMemory(xstate.currField, mem, result, sessionId);
+    }
+  }
+}
+
+/**
+ * Adds the feedback streaming field processors returned mid-stream, after
+ * the step's full assistant message, so the run takes another step with it.
+ */
+export function addPendingFeedbackToMemory(
+  pendingFeedback: unknown[] | undefined,
+  mem: AxAIMemory,
+  sessionId: string | undefined
+): void {
+  for (const result of pendingFeedback?.splice(0) ?? []) {
+    addFeedbackToMemory(mem, result, sessionId);
   }
 }
 
@@ -101,9 +122,19 @@ const addToMemory = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   result: any | any[],
   sessionId?: string
+) => addFeedbackToMemory(mem, result, sessionId);
+
+// A processor result becomes a user message tagged `processor`. undefined,
+// null, '' and the text "null" or "undefined" are no feedback.
+const addFeedbackToMemory = (
+  mem: AxAIMemory,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  result: any | any[],
+  sessionId?: string
 ) => {
   if (
     result === undefined ||
+    result === null ||
     (typeof result === 'string' &&
       (result === '' || /^(null|undefined)\s*$/i.test(result)))
   ) {

@@ -265,13 +265,16 @@ async function* processStreamingResult<OUT extends AxGenOut>({
     }
 
     if (streamingFieldProcessors.length !== 0) {
+      state.pendingFeedback ??= [];
       await processStreamingFieldProcessors(
         streamingFieldProcessors,
         state.content,
         state.xstate,
         mem,
         state.values,
-        sessionId
+        sessionId,
+        false,
+        state.pendingFeedback
       );
     }
 

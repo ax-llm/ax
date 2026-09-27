@@ -7843,9 +7843,10 @@ module @ax.agent version "0.1" {
     type signature = "(json) -> string"
     body @entry(%action_log: json) {
       // An evaluated run's action log as TS renders it into the prediction:
-      // the executor's code steps, each as a javascript fence and its result
-      // ("(no output)" when empty), separated by blank lines. A text log is
-      // kept as is.
+      // the executor's code steps, or the distiller's when the executor did
+      // not run (a direct respond, or a clarification the distiller asked
+      // for), each as a javascript fence and its result ("(no output)" when
+      // empty), separated by blank lines. A text log is kept as is.
       %is_text = core.type_is %action_log type "string"
       core.if %is_text {
         core.return %action_log
@@ -7856,12 +7857,21 @@ module @ax.agent version "0.1" {
         core.return ""
       }
       %tagged = core.let false
+      %executor_ran = core.let false
       core.for %probe in %action_log {
         %probe_stage = core.get %probe["stage"]
         %probe_has_stage = core.call intrinsic.is_not_none(%probe_stage)
         core.if %probe_has_stage {
           %tagged = core.let true
         }
+        %probe_executor = core.call intrinsic.eq(%probe_stage, "executor")
+        core.if %probe_executor {
+          %executor_ran = core.let true
+        }
+      }
+      %kept_stage = core.let "distiller"
+      core.if %executor_ran {
+        %kept_stage = core.let "executor"
       }
       %parts = core.list
       core.for %entry in %action_log {
@@ -7869,9 +7879,9 @@ module @ax.agent version "0.1" {
         %is_step = core.call intrinsic.eq(%type, "runtime_step")
         core.if %is_step {
           %stage = core.get %entry["stage"] default "executor"
-          %is_executor = core.call intrinsic.eq(%stage, "executor")
+          %is_kept_stage = core.call intrinsic.eq(%stage, %kept_stage)
           %untagged = core.call intrinsic.not(%tagged)
-          %keep = core.call intrinsic.or(%is_executor, %untagged)
+          %keep = core.call intrinsic.or(%is_kept_stage, %untagged)
           core.if %keep {
             %code = core.get %entry["code"] default ""
             %output = core.get %entry["output"] default ""

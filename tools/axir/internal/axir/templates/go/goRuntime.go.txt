@@ -1502,6 +1502,21 @@ func _core_string_utf16_units(value Value) Value { units:=utf16.Encode([]rune(di
 
 func _core_string_codepoint_length(value Value) Value { return len([]rune(display(value))) }
 
+// _core_string_concat_stream_text appends streamed text. Go strings hold
+// UTF-8, which has no lone surrogates (JSON decoding turns an unpaired half
+// into U+FFFD), so there is no half pair to join and plain concatenation is
+// all there is to do.
+func _core_string_concat_stream_text(left Value, right Value) Value {
+	return display(left) + display(right)
+}
+
+// _core_string_drop_trailing_high_surrogate returns the text unchanged: a
+// UTF-8 Go string cannot end in half of a surrogate pair, so there is nothing
+// to hold back.
+func _core_string_drop_trailing_high_surrogate(value Value) Value {
+	return display(value)
+}
+
 // jsDateMillis is the epoch milliseconds of a time.Time (or *time.Time), which
 // a date or datetime field takes where TypeScript takes a Date.
 func jsDateMillis(value Value) (int64, bool) {
@@ -7794,14 +7809,19 @@ func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Valu
 	if !coreTruthy(input) {
 		input = task
 	}
+	// As TS evaluates each task from a fresh state, the prediction carries
+	// only this run's share of the agent's logs.
+	marks := mustCore(_agent_eval_marks(a.State))
 	output, err := a.forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
-	if err == nil {
-		return mustCore(_build_agent_eval_prediction(output, a.GetActionLog(), a.GetUsage(), a.ExportTrace()))
+	completion := Object("type", "final", "output", output)
+	if err != nil {
+		if clarification, ok := agentClarificationFromError(err); ok {
+			completion = Object("type", "askClarification", "clarification", clarification)
+		} else {
+			completion = Object("type", "error", "message", err.Error())
+		}
 	}
-	if clarification, ok := agentClarificationFromError(err); ok {
-		return Object("completionType", "askClarification", "clarification", clarification, "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
-	}
-	return Object("completionType", "error", "error", Object("message", err.Error()), "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(err.Error()), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
+	return mustCore(_build_agent_run_prediction(a.State, marks, completion, a.GetUsage(), a.ExportTrace()))
 }
 func (a *AxAgent) EvaluateOptimization(client AIClient, dataset Value, candidateMap map[string]Value, options map[string]Value) Value {
 	opts := options
@@ -11915,7 +11935,27 @@ func (f *conformanceScriptedAI) Stream(ctx context.Context, request map[string]V
 	return []Value{response}, nil
 }
 
+// supportsLoneSurrogates declares the runner's string model: Go strings hold
+// UTF-8, which cannot represent half of a surrogate pair, so fixtures that
+// split a pair across stream chunks are skipped here.
+const supportsLoneSurrogates = false
+
+// ConformanceSkipReason is why this runner skips a fixture, or "" to run it:
+// a fixture that requires lone surrogates needs a UTF-16 or code point
+// string model.
+func ConformanceSkipReason(fixture Value) string {
+	if !supportsLoneSurrogates && coreTruthy(coreGet(fixture, "requires_lone_surrogates", false)) {
+		return "requires lone surrogates (utf-8 runner)"
+	}
+	return ""
+}
+
+// RunConformanceFixture runs one fixture; a fixture the runner skips
+// (ConformanceSkipReason) passes without running.
 func RunConformanceFixture(fixture Value) error {
+	if ConformanceSkipReason(fixture) != "" {
+		return nil
+	}
 	_, err := safeValue(func() Value {
 		runConformanceFixture(asMap(fixture))
 		return nil
@@ -13208,6 +13248,7 @@ func runConformanceForward(fixture map[string]Value) {
 			assertEqual(controlEvents(), expected, "run control events")
 		}
 		conformanceAssertRequestRoles(fixture, client)
+		conformanceAssertLastRequestTail(fixture, client)
 		if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
 			panic(AxError{Category: "fixture", Message: "expected request count mismatch"})
 		}
@@ -13379,6 +13420,35 @@ func conformanceAttachControl(fixture map[string]Value, client *conformanceScrip
 	}
 }
 
+// conformanceAssertLastRequestTail compares expected_last_request_tail with
+// the last messages of the last request's chat_prompt, each by its role and
+// content (text, or a list of parts).
+func conformanceAssertLastRequestTail(fixture map[string]Value, client *conformanceScriptedAI) {
+	expected, ok := fixture["expected_last_request_tail"]
+	if !ok {
+		return
+	}
+	var prompt []Value
+	if len(client.Requests) > 0 {
+		prompt = asSlice(coreGet(client.Requests[len(client.Requests)-1], "chat_prompt", Array()))
+	}
+	start := len(prompt) - len(asSlice(expected))
+	if start < 0 {
+		start = 0
+	}
+	tail := Array()
+	for _, message := range prompt[start:] {
+		kept := Object()
+		for _, key := range []string{"role", "content"} {
+			if value, present := asMap(message)[key]; present {
+				coreSet(kept, key, value)
+			}
+		}
+		tail = append(tail, kept)
+	}
+	assertEqual(tail, expected, "last request tail")
+}
+
 // conformanceAssertRequestRoles compares expected_request_roles with the
 // chat_prompt message roles of every request, in order.
 func conformanceAssertRequestRoles(fixture map[string]Value, client *conformanceScriptedAI) {
@@ -13500,6 +13570,7 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_processor_calls", nil); expected != nil {
 		assertEqual(processorCalls, expected, "field processor calls")
 	}
+	conformanceAssertLastRequestTail(fixture, client)
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
 		for _, item := range asSlice(expected) {
@@ -14915,6 +14986,11 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil {
 			assertSubset(prediction, expected, "eval prediction")
 		}
+		// Fields that must match exactly: a list compares in full.
+		fields := asMap(coreGet(fixture, "expected_prediction_fields", Object()))
+		for _, key := range orderedKeys(fields) {
+			assertEqual(coreGet(prediction, key, nil), fields[key], "eval prediction "+key)
+		}
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
 		request := Object("contractVersion", "axir-optimize-contract-v1", "programKind", conformanceProgramKind(fixture), "components", components, "dataset", mustCore(_normalize_optimization_dataset(coreGet(fixture, "dataset", Array()))), "options", coreGet(fixture, "optimize_options", Object()), "trace", Object(), "evaluator", Object("available", true, "contractVersion", "axir-optimizer-evaluator-v1"))
@@ -15397,7 +15473,15 @@ func conformanceBuildProgram(fixture map[string]Value) AxProgram {
 	tools, _ := conformanceBuildTools(coreGet(fixture, "tools", Array()))
 	switch display(coreGet(fixture, "program", "axgen")) {
 	case "agent":
-		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), asMap(coreGet(fixture, "options", Object())))
+		options := asMap(coreGet(fixture, "options", Object()))
+		// An agent's runtime_script runs its actor code, as in the agent fixtures.
+		if script := coreGet(fixture, "runtime_script", nil); script != nil {
+			options = cloneMap(options)
+			runtime := newConformanceScriptedCodeRuntime(script, Object())
+			runtime.LanguageName = display(coreGet(fixture, "runtime_language", "JavaScript"))
+			coreSet(options, "runtime", runtime)
+		}
+		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 		ag.Executor.Functions = tools
 		return ag
 	case "flow":

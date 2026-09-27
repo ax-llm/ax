@@ -428,6 +428,8 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicStringExtractSuf:          "Core::string_extract_quoted_suffix",
 	IntrinsicStringSplit:               "Core::string_split",
 	IntrinsicStringStartsWith:          "Core::string_starts_with",
+	IntrinsicStringDropHighSurrogate:   "Core::string_drop_trailing_high_surrogate",
+	IntrinsicStringConcatStreamText:    "Core::string_concat_stream_text",
 	IntrinsicStringStr:                 "Core::string_str",
 	IntrinsicRegexReplace:              "Core::regex_replace",
 	IntrinsicSortedStrings:             "Core::sorted_strings",
