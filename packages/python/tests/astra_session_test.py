@@ -214,21 +214,27 @@ assert agent_program.invoke_callable('tools.lookup',{'query':'REF-42'})['status'
 assert agent_calls==['REF-42'], 'native call executed again through actor machinery'
 print('python native agent tools, authority boundaries, action logs, and duplicate prevention passed')
 
-# Agent streams do not cover async run sessions yet: under a run control on a
-# session-capable client the stream fails before the distiller runs, with the
-# error AxGen deltas raise.
+# An agent stream under a run control on a session-capable client runs each
+# stage in its own native session; the responder streams its session's
+# partial output as AxGen deltas.
 stream_requests=[]
 def stream_session_transport(request):
-    stream_requests.append(request)
-    raise AssertionError('an agent stream under a run session sent a model request')
+    stream_requests.append(request);number=len(stream_requests)
+    if number in (1,2):
+        text='{"completion":{"type":"final","args":["Find reference",{}]}}' if number==1 else '{"completion":{"type":"final","args":["Report reference",{"answer":"REF-42"}]}}'
+        return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':agent_response('stage'+str(number),text)})+'\n\n'}
+    assert number==3, 'an agent stream sent more requests than its three stages'
+    events=[{'type':'response.created','response':{'id':'responder','model':'gpt-6-astra','output':[]}},
+        {'type':'response.output_text.delta','delta':'Answer: REF'},
+        {'type':'response.output_text.delta','delta':'-42'},
+        {'type':'response.completed','response':agent_response('responder','Answer: REF-42')}]
+    return {'status':200,'body':''.join('data: '+json.dumps(event)+'\n\n' for event in events)}
 stream_agent=agent('question -> answer',{'directResponse':'off'})
-try:
-    list(stream_agent.streaming_forward(ai('openai',model='gpt-6-astra',api_key='test',transport=stream_session_transport),{'question':'Find reference'},{'control':run_control()}))
-    raise AssertionError('an agent stream under a run session did not fail')
-except NotImplementedError as error:
-    assert 'do not cover async run sessions' in str(error), str(error)
-assert stream_requests==[], stream_requests
-print('python agent streams under a run session fail before any stage, as AxGen deltas do')
+stream_deltas=list(stream_agent.streaming_forward(ai('openai',model='gpt-6-astra',api_key='test',transport=stream_session_transport),{'question':'Find reference'},{'control':run_control()}))
+streamed_answer=''.join(str(delta['delta'].get('answer','')) for delta in stream_deltas)
+assert streamed_answer=='REF-42', stream_deltas
+assert len(stream_requests)==3, len(stream_requests)
+print('python agent streams under a run session stream the responder session')
 
 # A real stalled HTTP body must close promptly when the run is cancelled.
 import socket
@@ -777,32 +783,3 @@ def test_actor_mcp_cancellation_context():
     print('Python actor invocation forwards MCP cancellation context')
 
 test_actor_mcp_cancellation_context()
-
-
-def test_native_session_steers_list_feedback_as_text():
-    # A correction that continues an open native session steers it with text.
-    # A field processor's feedback is list content, [{type: "text", text}].
-    from axllm.session import _SessionClient
-
-    class Stop(Exception):
-        pass
-
-    class Session:
-        def __init__(self):
-            self.steered = []
-        def steer(self, text):
-            self.steered.append(text)
-            raise Stop()
-
-    session = Session()
-    run = _SessionClient(ax('question:string -> answer:string'), object(), {})
-    run._selected, run._fallback, run.session = True, False, session
-    feedback = [{'type': 'text', 'text': 'Check it.'}]
-    try:
-        run.chat({'chat_prompt': [{'role': 'system', 'content': 'sys'}, {'role': 'user', 'content': feedback}]}, {})
-    except Stop:
-        pass
-    assert session.steered == ['Check it.'], session.steered
-    print('python native session steers list-content feedback as text')
-
-test_native_session_steers_list_feedback_as_text()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"iter"
 	"strings"
 	"sync"
 	"time"
@@ -374,16 +375,27 @@ type sessionToolResult struct {
 type chatRunSelector interface {
     pinChatRun(context.Context,map[string]Value,map[string]Value)(AIClient,error)
 }
+
+// genSessionClient is a run's client: it pins the run's provider on the first
+// request and then either applies the run control's updates at each request
+// boundary, or, for a client with native chat sessions, runs each model
+// request in its own session, as TypeScript's axRunChatSession does.
 type genSessionClient struct {
-    selected bool
-	level           Value
-	fallbackStarted bool
+	selected bool
+	level    Value
+	// started says the run has reported its start, which it does once,
+	// before its first request goes out.
+	started bool
 	AIClient
-	gen        *AxGen
-	opener     SessionAIClient
-	options    map[string]Value
-	control    *AxRunControl
-	path       string
+	gen     *AxGen
+	opener  SessionAIClient
+	options map[string]Value
+	control *AxRunControl
+	path    string
+	// One request's native session (see resetSession): the session, its
+	// state, its last completed response, its events and its tool workers'
+	// results, the context that cancels it, and the run updates it has
+	// applied. after is also the request boundary's update cursor.
 	session    AxChatSession
 	state      Value
 	last       Value
@@ -395,6 +407,16 @@ type genSessionClient struct {
 	waiting    []Value
 	after      int
 	applied    []string
+	// stopStream stops the session stream a streamed request left open.
+	stopStream func()
+}
+
+// sessionItem is what one request's native session yields: a partial
+// response event, the ID of a response the session continues from
+// ("completed"), or the final response.
+type sessionItem struct {
+	kind  string
+	value Value
 }
 
 func (p *genSessionClient) GetFeatures(model string) map[string]Value {
@@ -412,6 +434,15 @@ func (p *genSessionClient) Speak(ctx context.Context, request, options map[strin
 func (p *genSessionClient) emit(kind string, fields ...Value) {
 	if p.control != nil {
 		p.control.emit(Object(append([]Value{"type", kind, "path", p.path}, fields...)...))
+	}
+}
+
+// emitStarted reports the run's start once, before its first request goes
+// out.
+func (p *genSessionClient) emitStarted() {
+	if !p.started {
+		p.started = true
+		p.emit("started")
 	}
 }
 func (p *genSessionClient) start(call Value) {
@@ -464,13 +495,16 @@ func (p *genSessionClient) start(call Value) {
 	tool := *selected
 	ownedArgs := cloneMap(asMap(args))
 	ownedCall := cloneValue(call)
+	// The worker's result goes to the session that started it, never to a
+	// later request's session, and closing that session cancels it.
+	ctx, results := p.ctx, p.results
 	go func() {
 		result, err := safeValue(func() Value {
-			return mustCore(tool.invokeContext(p.ctx, ownedArgs))
+			return mustCore(tool.invokeContext(ctx, ownedArgs))
 		})
 		select {
-		case p.results <- sessionToolResult{ownedCall, result, err}:
-		case <-p.ctx.Done():
+		case results <- sessionToolResult{ownedCall, result, err}:
+		case <-ctx.Done():
 		}
 	}()
 }
@@ -512,10 +546,7 @@ func (p *genSessionClient) pinRun(ctx context.Context, request map[string]Value)
 // boundaryRequest applies the run's pending updates to a request made
 // without a chat session.
 func (p *genSessionClient) boundaryRequest(request map[string]Value) map[string]Value {
-	if !p.fallbackStarted {
-		p.emit("started")
-		p.fallbackStarted = true
-	}
+	p.emitStarted()
 	var updates []map[string]Value
 	if p.control != nil {
 		select {
@@ -539,8 +570,8 @@ func (p *genSessionClient) boundaryRequest(request map[string]Value) map[string]
 
 // StreamEvents lets a streamed request through the run boundary: without a
 // chat session it applies the pending updates as Chat does and streams from
-// the run's client; a chat session answers with its final response as one
-// chunk.
+// the run's client; with one, the request runs in its own native session and
+// streams the session's items as they happen (see sessionStream).
 func (p *genSessionClient) StreamEvents(ctx context.Context, request, options map[string]Value) (AxChatStream, error) {
 	prepared, err := safeValue(func() Value {
 		p.pinRun(ctx, request)
@@ -553,156 +584,263 @@ func (p *genSessionClient) StreamEvents(ctx context.Context, request, options ma
 		return nil, err
 	}
 	if p.opener != nil {
-		response, err := p.Chat(ctx, request, options)
-		if err != nil {
-			return nil, err
-		}
-		return singleChunkStream(response), nil
+		return p.sessionStream(ctx, request, options), nil
 	}
 	return openAIClientStream(ctx, p.AIClient, asMap(prepared), options)
 }
 
+// Chat answers a request: without a chat session through the run boundary,
+// with one in the request's own native session, whose final response it
+// returns.
 func (p *genSessionClient) Chat(ctx context.Context, request, options map[string]Value) (Value, error) {
 	return safeValue(func() Value {
 		p.pinRun(ctx, request)
 		if p.opener == nil {
 			return mustCore(p.AIClient.Chat(ctx, p.boundaryRequest(request), options))
 		}
-		if p.session == nil {
-			if p.control != nil {
-				select {
-				case <-p.control.Done():
-					panic(fmt.Errorf("run aborted before opening a session"))
-				default:
-				}
+		var final Value
+		p.runSession(ctx, request, options, func(item sessionItem) bool {
+			if item.kind != "final" {
+				return true
 			}
-			p.ctx, p.cancel = context.WithCancel(ctx)
-			session, err := p.opener.OpenChatSession(p.ctx, request, mergeAIOptions(p.options, options))
+			final = item.value
+			return false
+		})
+		if final == nil {
+			panic(fmt.Errorf("chat session ended without a response"))
+		}
+		return final
+	})
+}
+
+// sessionStream streams one request's native session for the streaming
+// forward. The session runs while the forward waits for its next item and
+// hands each one over as it happens: a partial response event with its
+// results, a response the session continues from, and the final response.
+// Closing the stream closes the session.
+func (p *genSessionClient) sessionStream(ctx context.Context, request, options map[string]Value) AxChatStream {
+	var failure error
+	next, stop := iter.Pull(func(yield func(Value) bool) {
+		_, failure = safeValue(func() Value {
+			p.runSession(ctx, request, options, func(item sessionItem) bool {
+				return yield(p.sessionStreamValue(item))
+			})
+			return nil
+		})
+	})
+	p.stopStream = stop
+	return newAxChatStream(func() (Value, error) {
+		if value, ok := next(); ok {
+			return value, nil
+		}
+		if failure != nil {
+			return nil, failure
+		}
+		return nil, io.EOF
+	}, func() error {
+		stop()
+		return nil
+	}, nil)
+}
+
+// sessionStreamValue is the stream chunk of a session item: its "session"
+// key tells the streaming forward what the item is, the response it belongs
+// to and the session's turns so far.
+func (p *genSessionClient) sessionStreamValue(item sessionItem) Value {
+	turns := coreGet(p.state, "turns", Array())
+	switch item.kind {
+	case "partial":
+		started := false
+		for id := range asMap(coreGet(p.state, "pending", Object())) {
+			if id != "__order" {
+				started = true
+				break
+			}
+		}
+		info := Object("type", "partial", "response_id", coreGet(item.value, "response_id", ""), "calls_started", started, "pending_calls", mustCore(chat_session_unresolved(p.state)), "turns", turns)
+		return Object("session", info, "results", coreGet(coreGet(item.value, "response", Object()), "results", Array()))
+	case "completed":
+		return Object("session", Object("type", "completed", "response_id", item.value, "turns", turns))
+	}
+	// The final response, as the chat answers it, without the session's
+	// own keys.
+	response := asMap(item.value)
+	final := Object()
+	for _, key := range orderedKeys(response) {
+		if key != "__order" && !strings.HasPrefix(key, "__session") {
+			coreSet(final, key, response[key])
+		}
+	}
+	coreSet(final, "session", Object("type", "final", "response_id", coreGet(p.state, "response_id", nil), "turns", turns))
+	return final
+}
+
+// resetSession starts the state of one request's native session: its
+// events, its tool workers' results and the context that cancels them, and
+// its update cursor, back at the start, so each session applies all of the
+// run's updates again.
+func (p *genSessionClient) resetSession(ctx context.Context) {
+	p.ctx, p.cancel = context.WithCancel(ctx)
+	p.deliveries = make(chan sessionDelivery, 32)
+	p.results = make(chan sessionToolResult, 32)
+	p.session = nil
+	p.state = nil
+	p.last = nil
+	p.blocking = false
+	p.waiting = nil
+	p.after = 0
+	p.applied = nil
+}
+
+// closeSession cancels the open session's context, which also stops its
+// tool workers, and closes the session.
+func (p *genSessionClient) closeSession() {
+	if p.cancel != nil {
+		p.cancel()
+	}
+	if session := p.session; session != nil {
+		p.session = nil
+		_ = session.Close()
+	}
+}
+
+// runSession runs one model request in its own native session, as
+// TypeScript's axRunChatSession does: the session opens with the request's
+// whole prompt, applies the run's updates for its path, runs its tool loop,
+// and closes once the request's response completes. It yields each partial
+// response event, the ID of each response the session continues from, and
+// then the final response; yield returning false stops it. It panics on
+// failure; the session is closed either way.
+func (p *genSessionClient) runSession(ctx context.Context, request, options map[string]Value, yield func(sessionItem) bool) {
+	p.emitStarted()
+	if p.control != nil {
+		select {
+		case <-p.control.Done():
+			panic(fmt.Errorf("run aborted before opening a session"))
+		default:
+		}
+	}
+	p.resetSession(ctx)
+	defer p.closeSession()
+	session, err := p.opener.OpenChatSession(p.ctx, request, mergeAIOptions(p.options, options))
+	if err != nil {
+		panic(err)
+	}
+	p.session = session
+	p.state = mustCore(chat_session_create_state(coreGet(request, "model", ""), p.path, coreGet(p.options, "maxSteps", coreGet(p.options, "max_steps", 10))))
+	sessionCtx, deliveries, results := p.ctx, p.deliveries, p.results
+	go func() {
+		for {
+			event, err := session.Next(sessionCtx)
+			select {
+			case deliveries <- sessionDelivery{event, err}:
+			case <-sessionCtx.Done():
+				return
+			}
 			if err != nil {
-				panic(err)
+				return
 			}
-			p.session = session
-			p.state = mustCore(chat_session_create_state(coreGet(request, "model", ""), p.path, coreGet(p.options, "maxSteps", coreGet(p.options, "max_steps", 10))))
-			// A routed run pins its session on the first request, after the
-			// first step may have taken updates and started the run.
-			if !p.fallbackStarted {
-				p.emit("started")
-				p.fallbackStarted = true
-			}
-			go func() {
-				for {
-					event, err := session.Next(p.ctx)
-					select {
-					case p.deliveries <- sessionDelivery{event, err}:
-					case <-p.ctx.Done():
-						return
-					}
-					if err != nil {
-						return
-					}
+		}
+	}()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var aborted <-chan struct{}
+		if p.control != nil {
+			aborted = p.control.Done()
+			updates, after := p.control.pending(p.path, p.after)
+			p.after = after
+			for _, update := range updates {
+				if !coreTruthy(mustCore(chat_session_queue_update(p.state, update))) {
+					continue
 				}
-			}()
-		} else {
-			// A correction continues the open session: steer it with the last
-			// message's text.
-			messages := asSlice(coreGet(request, "chat_prompt", Array()))
-			if len(messages) > 0 {
-				_, err := p.session.Update(Object("type", "steer", "text", sessionSteerText(coreGet(messages[len(messages)-1], "content", ""))))
+				timing, err := p.session.Update(update)
 				if err != nil {
 					panic(err)
 				}
+				if timing == "native" {
+					mustCore(chat_session_native_update(p.state, coreGet(update, "id", "")))
+				} else {
+					p.applied = append(p.applied, display(coreGet(update, "id", "")))
+				}
 			}
-			p.submit(nil)
 		}
-		ticker := time.NewTicker(10 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			var aborted <-chan struct{}
-			if p.control != nil {
-				aborted = p.control.Done()
-				updates, after := p.control.pending(p.path, p.after)
-				p.after = after
-				for _, update := range updates {
-					mustCore(chat_session_queue_update(p.state, update))
-					timing, err := p.session.Update(update)
-					if err != nil {
-						panic(err)
-					}
-					if timing == "native" {
-						mustCore(chat_session_native_update(p.state, coreGet(update, "id", "")))
-					} else {
-						p.applied = append(p.applied, display(coreGet(update, "id", "")))
-					}
+		select {
+		case <-ctx.Done():
+			panic(fmt.Errorf("run aborted; unresolved calls: %v: %w", mustCore(chat_session_unresolved(p.state)), ctx.Err()))
+		case <-aborted:
+			panic(fmt.Errorf("run aborted; unresolved calls: %v", mustCore(chat_session_unresolved(p.state))))
+		case <-ticker.C:
+		case result := <-results:
+			id := display(coreGet(result.call, "id", ""))
+			value := result.result
+			if result.err != nil {
+				value = coreGet(mustCore(_tool_error_message_impl(result.call, result.err)), "result", result.err.Error())
+			}
+			if !coreTruthy(mustCore(chat_session_record_result(p.gen, p.state, result.call, value, result.err == nil))) {
+				continue
+			}
+			p.emit("tool.completed", "call_id", id)
+			record := coreGet(coreGet(p.state, "pending", Object()), id, Object())
+			if coreGet(record, "execution", "") == "blocking" {
+				p.blocking = false
+				queued := p.waiting
+				p.waiting = nil
+				for _, call := range queued {
+					p.start(call)
 				}
 			}
-			select {
-			case <-ctx.Done():
-				panic(fmt.Errorf("run aborted; unresolved calls: %v: %w", mustCore(chat_session_unresolved(p.state)), ctx.Err()))
-			case <-aborted:
-				panic(fmt.Errorf("run aborted; unresolved calls: %v", mustCore(chat_session_unresolved(p.state))))
-			case <-ticker.C:
-			case result := <-p.results:
-				id := display(coreGet(result.call, "id", ""))
-				value := result.result
-				if result.err != nil {
-					value = coreGet(mustCore(_tool_error_message_impl(result.call, result.err)), "result", result.err.Error())
+		case delivery := <-deliveries:
+			if delivery.err != nil {
+				panic(fmt.Errorf("session failed; unresolved calls: %v: %w", mustCore(chat_session_unresolved(p.state)), delivery.err))
+			}
+			event := delivery.event
+			switch coreGet(event, "type", "") {
+			case "response":
+				output := mustCore(chat_session_observe_output(p.gen, p.state, event))
+				p.emit("model.output", "response_id", coreGet(output, "response_id", nil), "text", coreGet(output, "text", ""), "version", coreGet(output, "version", 0))
+				if !yield(sessionItem{"partial", event}) {
+					return
 				}
-				if !coreTruthy(mustCore(chat_session_record_result(p.gen, p.state, result.call, value, result.err == nil))) {
-					continue
+			case "steering":
+				result := mustCore(chat_session_native_event(p.state, event))
+				if id := coreGet(result, "applied_id", nil); id != nil {
+					p.emit("applied", "update_id", id, "timing", "native")
 				}
-				p.emit("tool.completed", "call_id", id)
-				record := coreGet(coreGet(p.state, "pending", Object()), id, Object())
-				if coreGet(record, "execution", "") == "blocking" {
-					p.blocking = false
-					queued := p.waiting
-					p.waiting = nil
-					for _, call := range queued {
+			case "tool.call":
+				p.start(coreGet(event, "call", Object()))
+			case "response.completed":
+				id := coreGet(event, "response_id", "")
+				if coreTruthy(mustCore(chat_session_complete_response(p.state, id))) {
+					p.last = coreGet(event, "response", Object())
+					completion := mustCore(chat_session_completion(p.last, id))
+					for _, call := range asSlice(mustCore(_response_function_calls_impl(completion))) {
 						p.start(call)
 					}
-				}
-			case delivery := <-p.deliveries:
-				if delivery.err != nil {
-					panic(fmt.Errorf("session failed; unresolved calls: %v: %w", mustCore(chat_session_unresolved(p.state)), delivery.err))
-				}
-				event := delivery.event
-				switch coreGet(event, "type", "") {
-				case "response":
-					output := mustCore(chat_session_observe_output(p.gen, p.state, event))
-					p.emit("model.output", "response_id", coreGet(output, "response_id", nil), "text", coreGet(output, "text", ""), "version", coreGet(output, "version", 0))
-				case "steering":
-					result := mustCore(chat_session_native_event(p.state, event))
-					if id := coreGet(result, "applied_id", nil); id != nil {
-						p.emit("applied", "update_id", id, "timing", "native")
+					// A response the session continues from joins memory,
+					// the chat log and the session's turns.
+					if coreTruthy(mustCore(chat_session_has_continuation_work(p.state))) {
+						mustCore(chat_session_record_response(p.gen, p.state, request, completion))
 					}
-				case "tool.call":
-					p.start(coreGet(event, "call", Object()))
-				case "response.completed":
-					if coreTruthy(mustCore(chat_session_complete_response(p.state, coreGet(event, "response_id", "")))) {
-						p.last = coreGet(event, "response", Object())
-						completion := mustCore(chat_session_completion(p.last, coreGet(event, "response_id", "")))
-						for _, call := range asSlice(mustCore(_response_function_calls_impl(completion))) {
-							p.start(call)
-						}
-						if coreTruthy(mustCore(chat_session_has_continuation_work(p.state))) {
-							_core_axgen_memory_add_response(p.gen, request, completion)
-							_core_axgen_record_chat_log(p.gen, request, completion)
-						}
+					if !yield(sessionItem{"completed", id}) {
+						return
 					}
-				}
-			}
-			action := mustCore(chat_session_boundary_action(p.state))
-			switch coreGet(action, "type", "") {
-			case "submit":
-				p.submit(asSlice(coreGet(action, "results", Array())))
-			case "continue":
-				p.submit(nil)
-			case "validate":
-				if p.last != nil {
-					return mustCore(chat_session_result(p.last, coreGet(p.state, "response_id", "")))
 				}
 			}
 		}
-	})
+		action := mustCore(chat_session_boundary_action(p.state))
+		switch coreGet(action, "type", "") {
+		case "submit":
+			p.submit(asSlice(coreGet(action, "results", Array())))
+		case "continue":
+			p.submit(nil)
+		case "validate":
+			if p.last != nil {
+				yield(sessionItem{"final", mustCore(chat_session_final_result(p.state, p.last))})
+				return
+			}
+		}
+	}
 }
 func (p *genSessionClient) submit(results []Value) {
 	if num(coreGet(p.state, "steps", 0)) >= num(coreGet(p.state, "max_steps", 10)) {
@@ -726,15 +864,15 @@ func (p *genSessionClient) close(err error) {
 	p.finish(err, false)
 }
 
-// finish ends the run. A run the consumer stopped early ends with an aborted
+// finish ends the run. It stops a session stream left open and closes a
+// session still open after an error, and records the last session's
+// unresolved calls. A run the consumer stopped early ends with an aborted
 // event rather than failed; any other run as failed or completed.
 func (p *genSessionClient) finish(err error, consumerStopped bool) {
-	if p.cancel != nil {
-		p.cancel()
+	if p.stopStream != nil {
+		p.stopStream()
 	}
-	if p.session != nil {
-		_ = p.session.Close()
-	}
+	p.closeSession()
 	pending := Value(Array())
 	if p.state != nil {
         mustCore(chat_session_record_unresolved(p.gen,p.state))
@@ -748,23 +886,6 @@ func (p *genSessionClient) finish(err error, consumerStopped bool) {
 	default:
 		p.emit("completed")
 	}
-}
-
-// sessionSteerText is the text a steer carries: a message's string content,
-// or the text of its text parts joined by newlines (a field processor's
-// feedback is [{type: "text", text}]).
-func sessionSteerText(content Value) Value {
-	switch content.(type) {
-	case []Value, *AxArray:
-		texts := []string{}
-		for _, part := range asSlice(content) {
-			if display(coreGet(part, "type", "")) == "text" {
-				texts = append(texts, display(coreGet(part, "text", "")))
-			}
-		}
-		return strings.Join(texts, "\n")
-	}
-	return content
 }
 
 // controlBoundary returns the run control's request boundary behind client:
@@ -792,9 +913,8 @@ func controlBoundary(client Value) *genSessionClient {
 func (p *genSessionClient) takeControlUpdates() []map[string]Value {
 	updates, after := p.control.pending(p.path, p.after)
 	p.after = after
-	if len(updates) > 0 && !p.fallbackStarted {
-		p.emit("started")
-		p.fallbackStarted = true
+	if len(updates) > 0 {
+		p.emitStarted()
 	}
 	for _, update := range updates {
 		p.emit("applied", "update_id", coreGet(update, "id", nil), "timing", "next-response")

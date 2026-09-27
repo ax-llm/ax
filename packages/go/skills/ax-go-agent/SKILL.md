@@ -51,6 +51,8 @@ Attach the language-native run controller through forward options for steering, 
 
 As in TypeScript, an update queued while a request is in flight applies when the next step starts. If that request gave the final answer, the run takes one more step to apply it, and the answer comes from that step; a steer stays in the conversation for the steps after it.
 
+Each model request opens its own native session with the whole conversation and closes it when that request's response completes, as in TypeScript. A correction or a later step opens a fresh session, which applies the run's updates again. A stream sends a session's partial output as it arrives: each response streams like a plain stream, a later response starts a new version, and the completed response adds only what was not sent. A forward does not apply streaming assertions.
+
 A provisional answer is not successful completion while started tools remain unresolved. Cancellation closes the session, reports unresolved call IDs, and retains unresolved started calls in tool traces and native agent action logs; it cannot undo an external action. Handlers may cooperate through the invocation cancellation context. Late results from noncooperative work must not change a closed run or trigger replay.
 
 Java, C++, and Rust WebSocket adapters track activity when frames arrive. Consuming buffered events does not reactivate a completed response. When no response is active, steering is queued for the next response; an active successor can still receive native steering. Observe lifecycle timing instead of assuming native application.
@@ -79,7 +81,7 @@ Give the agent a code runtime on the constructor (`"runtime"`: a `CodeRuntime`, 
 - As in forward, the used-memory and used-skill observers run before the responder, and the context map and the playbook learn after it.
 - `parseDates` / `parse_dates` on the agent or on the forward call (the call's wins) reaches the responder, so its `date`, `datetime`, `dateRange` and `datetimeRange` output fields come back parsed as AxGen parses them, in forward outputs and streamed deltas alike. Without it they keep the model's text, as before.
 - A run `control` hears the run at its own path (`root`) and each stage at `root/distiller`, `root/executor` and `root/responder`, in forward and streaming alike. Stopping the stream early ends the responder and the run as `aborted`. A steer queued while a stage's request is in flight makes that stage take another step, as AxGen does, and a steer without a target reaches every later stage too.
-- Under a run `control` the responder streams through the request boundary, as `AxGen.StreamingForward` does; it does not open an async model session yet.
+- Under a run `control` on a client that opens native chat sessions (such as `gpt-6-astra`), each stage's model request runs in its own session, and the responder streams its session's output as it arrives, as AxGen streaming does. Without sessions the responder streams through the request boundary.
 
 ## Relevant API Surface
 
