@@ -9,7 +9,7 @@ import { ai } from './wrap.js';
 // - Anthropic Opus 4.7+, Opus 5, Fable 5 and Sonnet 5 deprecated sampling:
 //   only temperature 1 is accepted. The other models take every value with
 //   thinking off; while thinking, only temperature 1, top_p of 0.95 or above,
-//   and no top_k.
+//   and no top_k. Those models reject temperature and top_p together.
 // - The Gemini API ignores temperature, topP and topK on the server-managed
 //   Flash models, rejects the penalties on every probed model, and returns one
 //   candidate on Gemini 3. Vertex was not probed.
@@ -173,14 +173,20 @@ describe('provider sampling support', () => {
     });
     expect(defaults).not.toHaveProperty('temperature');
 
+    // Opus 4.6 takes temperature or top_p, not both: the temperature wins.
     const off = await send({
       name: 'anthropic',
       model: 'claude-opus-4-6',
       modelConfig: { temperature: 0.5, topP: 0.9, topK: 40 },
     });
-    expect(off).toMatchObject({ temperature: 0.5, top_p: 0.9, top_k: 40 });
-    expect(warn).not.toHaveBeenCalled();
+    expect(off).toMatchObject({ temperature: 0.5, top_k: 40 });
+    expect(off).not.toHaveProperty('top_p');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      'Ax dropped topP for claude-opus-4-6: the model accepts temperature or topP, not both.'
+    );
 
+    resetDroppedSamplingWarnings();
     const thinking = await send({
       name: 'anthropic',
       model: 'claude-opus-4-6',
@@ -201,13 +207,87 @@ describe('provider sampling support', () => {
       'Ax dropped topK for claude-opus-4-6: the model accepts it only with thinking off.'
     );
 
+    // Each value thinking allows is sent, but not the pair.
+    resetDroppedSamplingWarnings();
+    warn.mockClear();
     const accepted = await send({
       name: 'anthropic',
       model: 'claude-opus-4-6',
       modelConfig: { temperature: 1, topP: 0.95 },
       options: { thinkingTokenBudget: 'low' },
     });
-    expect(accepted).toMatchObject({ temperature: 1, top_p: 0.95 });
+    expect(accepted).toMatchObject({ temperature: 1 });
+    expect(accepted).not.toHaveProperty('top_p');
+    expect(warn).toHaveBeenCalledWith(
+      'Ax dropped topP for claude-opus-4-6: the model accepts temperature or topP, not both.'
+    );
+
+    const topPWhileThinking = await send({
+      name: 'anthropic',
+      model: 'claude-opus-4-6',
+      modelConfig: { topP: 0.95 },
+      options: { thinkingTokenBudget: 'low' },
+    });
+    expect(topPWhileThinking).toMatchObject({ top_p: 0.95 });
+    expect(topPWhileThinking).not.toHaveProperty('temperature');
+  });
+
+  it('sends Claude Haiku 4.5 temperature or top_p, never both', async () => {
+    // An explicit top_p goes alone in place of the default temperature,
+    // without a warning: the temperature was Ax's default, not the caller's.
+    const topP = await send({
+      name: 'anthropic',
+      model: 'claude-haiku-4-5',
+      modelConfig: { topP: 0.9 },
+    });
+    expect(topP).toMatchObject({ top_p: 0.9 });
+    expect(topP).not.toHaveProperty('temperature');
+    expect(warn).not.toHaveBeenCalled();
+
+    const both = await send({
+      name: 'anthropic',
+      model: 'claude-haiku-4-5',
+      config: { temperature: 0.7, topP: 0.9 },
+    });
+    expect(both).toMatchObject({ temperature: 0.7 });
+    expect(both).not.toHaveProperty('top_p');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      'Ax dropped topP for claude-haiku-4-5: the model accepts temperature or topP, not both.'
+    );
+
+    const thinking = await send({
+      name: 'anthropic',
+      model: 'claude-haiku-4-5',
+      modelConfig: { temperature: 1, topP: 0.95 },
+      options: { thinkingTokenBudget: 'low' },
+    });
+    expect(thinking).toMatchObject({ temperature: 1 });
+    expect(thinking).not.toHaveProperty('top_p');
+  });
+
+  it('keeps the Claude wire on Vertex, which was not probed for the pair', async () => {
+    const vertex = {
+      apiKey: async () => 'vertex-token',
+      projectId: 'demo-project',
+      region: 'us',
+    };
+    const both = await send({
+      name: 'anthropic',
+      model: 'claude-haiku-4-5@20251001',
+      args: vertex,
+      modelConfig: { temperature: 0.7, topP: 0.9 },
+    });
+    expect(both).toMatchObject({ temperature: 0.7, top_p: 0.9 });
+
+    const topP = await send({
+      name: 'anthropic',
+      model: 'claude-haiku-4-5@20251001',
+      args: vertex,
+      modelConfig: { topP: 0.9 },
+    });
+    expect(topP).toMatchObject({ temperature: 0, top_p: 0.9 });
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('keeps the Claude Haiku 4.5 default temperature without thinking and drops it silently while thinking', async () => {

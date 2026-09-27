@@ -134,6 +134,13 @@ export type AxModelInfo = {
     topK?: boolean;
     presencePenalty?: boolean;
     frequencyPenalty?: boolean;
+    /**
+     * The model takes temperature or topP but not both in one request. An
+     * explicit topP with only the default temperature is sent alone; with an
+     * explicit temperature too, Ax keeps the temperature and drops topP with
+     * a one-time warning.
+     */
+    temperatureWithTopP?: boolean;
   };
   audio?: {
     input?: boolean;

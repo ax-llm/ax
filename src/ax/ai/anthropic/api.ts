@@ -150,6 +150,15 @@ const deprecatesSampling = (model: string): boolean =>
   model.includes('claude-fable-5');
 
 /**
+ * Models that answer 400 "`temperature` and `top_p` cannot both be specified
+ * for this model" (their Anthropic model info sets
+ * `notSupported.temperatureWithTopP`; probed 2026-09-27).
+ */
+const rejectsTemperatureWithTopP = (model: string): boolean =>
+  getModelInfo({ model, modelInfo: axModelInfoAnthropic })?.notSupported
+    ?.temperatureWithTopP === true;
+
+/**
  * Models whose thinking cannot be switched off: `thinking.type.disabled` is a
  * 400, so the lowest effort is the closest Ax can get to `'none'`.
  */
@@ -172,12 +181,17 @@ const isThinkingOnByDefault = (model: string): boolean =>
  * accepts it (probed 2026-09-27) and otherwise dropped with a one-time warning:
  * models that deprecated sampling take only temperature 1; the others take
  * every value with thinking off, and while thinking only temperature 1, top_p
- * of 0.95 or above, and no top_k. Vertex was not probed, so there explicit
- * values keep the historical rule, and a dropped one is warned about.
+ * of 0.95 or above, and no top_k. Models whose info sets
+ * `notSupported.temperatureWithTopP` answer 400 to temperature and top_p
+ * together, so after those limits an explicit top_p goes alone in place of
+ * the default temperature, and loses to an explicit temperature with a
+ * warning. Vertex was not probed, so there explicit values keep the
+ * historical rule, and a dropped one is warned about.
  */
 const anthropicSampling = ({
   model,
   probed,
+  pairRejected,
   thinkingWire,
   explicit,
   temperature,
@@ -186,6 +200,7 @@ const anthropicSampling = ({
 }: Readonly<{
   model: string;
   probed: boolean;
+  pairRejected: boolean;
   thinkingWire: AxAIAnthropicThinkingWire | undefined;
   explicit: ReadonlySet<string>;
   temperature: number | undefined;
@@ -247,6 +262,24 @@ const anthropicSampling = ({
         'topK',
         reason('the model accepts it only with thinking off')
       );
+    }
+  }
+  if (
+    probed &&
+    pairRejected &&
+    out.temperature !== undefined &&
+    out.top_p !== undefined
+  ) {
+    if (explicit.has('temperature')) {
+      delete out.top_p;
+      warnDroppedSampling(
+        model,
+        'topP',
+        'the model accepts temperature or topP, not both'
+      );
+    } else {
+      // The provider's default temperature gives way to the caller's top_p.
+      delete out.temperature;
     }
   }
   return out;
@@ -886,6 +919,7 @@ class AxAIAnthropicImpl
     const sampling = anthropicSampling({
       model: modelStr,
       probed: !this.isVertex,
+      pairRejected: rejectsTemperatureWithTopP(modelStr),
       thinkingWire,
       explicit: new Set(req.explicitSamplingKeys ?? []),
       temperature,

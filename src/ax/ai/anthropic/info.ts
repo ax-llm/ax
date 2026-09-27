@@ -277,6 +277,8 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     fastCacheWriteTokenCostPer1M: 37.5,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    // Takes temperature or top_p, not both (400 for the pair).
+    notSupported: { temperatureWithTopP: true },
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -307,6 +309,8 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheReadTokenCostPer1M: 0.3,
     cacheWriteTokenCostPer1M: 3.75,
     maxTokens: 64000,
+    // Takes temperature or top_p, not both (400 for the pair).
+    notSupported: { temperatureWithTopP: true },
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -336,6 +340,8 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheReadTokenCostPer1M: 0.5,
     cacheWriteTokenCostPer1M: 6.25,
     maxTokens: 64000,
+    // Takes temperature or top_p, not both (400 for the pair).
+    notSupported: { temperatureWithTopP: true },
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -366,6 +372,8 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheReadTokenCostPer1M: 0.3,
     cacheWriteTokenCostPer1M: 3.75,
     maxTokens: 200000,
+    // Takes temperature or top_p, not both (400 for the pair).
+    notSupported: { temperatureWithTopP: true },
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -396,6 +404,8 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheReadTokenCostPer1M: 0.1,
     cacheWriteTokenCostPer1M: 1.25,
     maxTokens: 200000, // match modern context window similar to Sonnet 4.5 era
+    // Takes temperature or top_p, not both (400 for the pair).
+    notSupported: { temperatureWithTopP: true },
     supported: { thinkingBudget: true, showThoughts: true },
   },
   {
