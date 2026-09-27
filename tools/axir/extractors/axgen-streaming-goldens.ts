@@ -2383,6 +2383,28 @@ const sessionCases: Record<string, Case> = {
     ],
     responses: [],
   },
+  // A streamed correction's fresh session gets the first session's tool call
+  // and result too.
+  'streaming-forward-native-session-tool-then-correction': {
+    signature: 'question:string -> answer:string',
+    input: { question: 'Capital of France?' },
+    control: true,
+    tools: [lookupTool],
+    assertions: [mustBeParis],
+    native_session: [
+      [
+        [lookupCall],
+        [
+          sessionPartial('r2', { content: 'Answer: Ly' }),
+          sessionPartial('r2', { content: 'on' }),
+          sessionAnswer('r2', 'Answer: Lyon'),
+        ],
+      ],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+    request_tail: 2,
+  },
   'streaming-forward-native-session-label-split': {
     signature: 'question:string -> answer:string, reason:string',
     control: true,
