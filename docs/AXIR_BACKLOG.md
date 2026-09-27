@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-27-axflow-reads-and-stores-its-own-cachingfunction-entry-in-the-por` [axflow] AxFlow reads and stores its own cachingFunction entry in the ports
+  - Status: open
+  - Source commit: `ec229a1fe66ae91383e7befff2205894e123abac`
+  - TS paths: `src/ax/flow/flow.ts`
+  - Impact: TypeScript AxFlow.forward reads a per-call or process-wide cachingFunction before running (a hit runs no node, read errors are ignored, a run control skips it) and stores its returned output afterwards; its options also reach the AxGen nodes. The ports had only a cache_store test seam at the flow level, so a flow cached nothing of its own. TypeScript also keyed a flow without nodes differently on its first call, so its first entry was never read.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

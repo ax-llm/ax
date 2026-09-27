@@ -2182,6 +2182,25 @@
       "verification": "Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes."
     },
     {
+      "id": "axir-2026-09-27-axflow-reads-and-stores-its-own-cachingfunction-entry-in-the-por",
+      "status": "open",
+      "title": "AxFlow reads and stores its own cachingFunction entry in the ports",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "ec229a1fe66ae91383e7befff2205894e123abac",
+      "tsPaths": ["src/ax/flow/flow.ts"],
+      "portableSurface": "axflow",
+      "impact": "TypeScript AxFlow.forward reads a per-call or process-wide cachingFunction before running (a hit runs no node, read errors are ignored, a run control skips it) and stores its returned output afterwards; its options also reach the AxGen nodes. The ports had only a cache_store test seam at the flow level, so a flow cached nothing of its own. TypeScript also keyed a flow without nodes differently on its first call, so its first entry was never read.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-27-match-typescript-ace-prompts-required-inputs-titles-and-agent-seed",
       "status": "done",
       "title": "Match TypeScript's ACE teacher prompts, required-input errors, field titles and agent playbook seed in the ports",
