@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -115,6 +117,31 @@ func TestRealtimeDialErrorOmitsURLQuery(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "127.0.0.1:1/ws?***") {
 		t.Fatalf("dial error = %q, want the URL with its query masked", err.Error())
+	}
+}
+
+// A streamed request the provider rejects with a JSON body fails with the
+// provider's message, as chat does, and keeps TypeScript's url and body but
+// never the API key.
+func TestStreamHTTPErrorCarriesProviderMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"bad stream request","code":"invalid_request"}}`))
+	}))
+	defer server.Close()
+	client := NewAI("openai", map[string]Value{"api_key": "sk-stream-secret", "base_url": server.URL + "/v1"})
+	_, err := client.Stream(context.Background(), map[string]Value{"chat_prompt": Array(Object("role", "user", "content", "stream body"))}, nil)
+	envelope, ok := AsAxError(err)
+	if !ok || envelope.Message != "bad stream request" || envelope.Status != http.StatusBadRequest {
+		t.Fatalf("stream error = %#v, want the provider's message and status 400", err)
+	}
+	body, _ := json.Marshal(envelope.RequestBody)
+	if envelope.URL != server.URL+"/v1/chat/completions" || !strings.Contains(string(body), "stream body") || strings.Contains(string(body), "__order") {
+		t.Fatalf("stream error keeps url %q and body %v, want the request's", envelope.URL, envelope.RequestBody)
+	}
+	if text := fmt.Sprintf("%#v", err); strings.Contains(text, "sk-stream-secret") {
+		t.Fatalf("stream error carries the key: %s", text)
 	}
 }
 

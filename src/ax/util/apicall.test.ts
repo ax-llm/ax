@@ -372,7 +372,7 @@ describe('apiCall', () => {
       }
     });
 
-    it('should still store requestBody on error object even when not included in toString', async () => {
+    it('keeps requestBody readable but out of every serialization when includeRequestBodyInErrors is false', async () => {
       const mockFetch = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ error: 'bad request' }), {
           status: 500,
@@ -398,9 +398,36 @@ describe('apiCall', () => {
         expect(serviceError.requestBody).toEqual({
           sensitiveData: 'secret123',
         });
-        // But not in the string representation
+        // But no serialization a logger or error reporter uses shows it.
+        expect(Object.keys(serviceError)).not.toContain('requestBody');
+        expect(JSON.stringify(serviceError)).not.toContain('secret123');
+        expect(JSON.stringify({ ...serviceError })).not.toContain('secret123');
         expect(serviceError.toString()).not.toContain('secret123');
+        expect(serviceError.stack).not.toContain('secret123');
       }
+    });
+
+    it('serializes requestBody by default', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'bad request' }), {
+          status: 500,
+          statusText: 'Internal Server Error',
+          headers: { 'content-type': 'application/json' },
+        })
+      );
+
+      const error = await apiCall(
+        {
+          url: 'https://api.example.com/test',
+          fetch: mockFetch,
+          retry: { maxRetries: 0 },
+        },
+        { sensitiveData: 'secret123' }
+      ).catch((e: AxAIServiceError) => e);
+
+      expect(error).toBeInstanceOf(AxAIServiceStatusError);
+      expect(Object.keys(error)).toContain('requestBody');
+      expect(JSON.stringify(error)).toContain('secret123');
     });
 
     it('should exclude request body from network errors when includeRequestBodyInErrors is false', async () => {
