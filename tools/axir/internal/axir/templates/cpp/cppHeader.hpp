@@ -363,8 +363,12 @@ struct Core {
   static Value string_remove_suffix(Value value, Value suffix);
   static Value string_words(Value value);
   static Value string_default_if_empty(Value value, Value fallback);
-  static Value string_format(Value templ, Value a = Value(), Value b = Value(), Value c = Value(),
-                             Value d = Value(), Value e = Value(), Value f = Value());
+  // intrinsic.string.format: each {} takes the next argument, in order.
+  template <typename... Args>
+  static Value string_format(Value templ, Args&&... args) {
+    return string_format_values(std::move(templ), std::vector<Value>{Value(std::forward<Args>(args))...});
+  }
+  static Value string_format_values(Value templ, const std::vector<Value>& args);
   static Value string_split(Value value, Value sep);
   static Value string_split_once(Value value, Value sep);
   static Value string_split_trim_nonempty(Value value, Value sep);
@@ -466,6 +470,7 @@ struct Core {
   static Value agent_runtime_export_state(Value session, Value options);
   static Value agent_runtime_restore_state(Value session, Value snapshot, Value options);
   static Value agent_runtime_close(Value session);
+  static Value agent_runtime_language(Value runtime);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
   static Value agent_observer_notify(Value state, Value forward_options, Value kind, Value payload);
@@ -496,6 +501,10 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  static Value ai_warn_once(Value key, Value message);
+  // Conformance hook: forgets the one-time warnings already shown and sends
+  // new ones to sink (an empty sink prints them to stderr again).
+  static void ai_capture_warnings(std::function<void(const std::string&)> sink);
   // AxGen cachingFunction seams: the call's, else the AxGen's own, else the
   // process-wide caching function (a caching_function() handle value, or
   // null); a read, whose errors propagate (null is a miss); and a write.
@@ -1654,6 +1663,20 @@ class AxAgent : public AxProgram {
   void learn_playbook_failures(Value output);
   std::unique_ptr<AxGen> make_responder(const Value& options);
   Value run(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks, Value sink, const bool* consumer_stopped);
+  // Each run uses the stage set of its mode (see use_stage_mode): "runtime",
+  // the RLM stages, or "plain", the runtime-less stages. The members hold the
+  // set in use; the other mode's set waits in stage_sets_, and
+  // optimized_components_ apply to a set when a run switches to it.
+  struct StageSet {
+    std::unique_ptr<AxGen> distiller;
+    std::unique_ptr<AxGen> executor;
+    std::unique_ptr<AxGen> responder;
+  };
+  std::string stage_mode_ = "plain";
+  std::map<std::string, StageSet> stage_sets_;
+  Value optimized_components_ = Value::object();
+  void reset_stage_sets();
+  void use_stage_mode(const Value& options);
 };
 
 std::string stringify(const Value& value);

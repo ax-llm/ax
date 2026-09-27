@@ -19,7 +19,7 @@ int main() {
     return 2;
   }
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
@@ -39,7 +39,7 @@ int main() {
                               {"writes", axllm::array({"joinResult", "briefText"})}}))
       .returns(axllm::object({{"briefText", "briefText"}}));
   axllm::Value output = program.forward(
-      client,
+      *client,
       axllm::object({{"topicText", "Why typed contracts make multi-step LLM systems easier to maintain"}}));
   std::cout << axllm::stringify(output) << "\n";
 }

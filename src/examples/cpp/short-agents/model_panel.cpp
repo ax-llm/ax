@@ -34,7 +34,7 @@ int main() {
   // A panel of three different providers, each answering the same question
   // independently. Plain ax() composition (no agent runtime): fan out to the
   // panel, judge the candidates, then synthesize one grounded answer.
-  axllm::OpenAICompatibleClient openai(axllm::object({
+  auto openai = axllm::ai("openai", axllm::object({
       {"api_key", openai_key},
       {"model", "gpt-5.4-mini"},
       {"model_config", axllm::object({{"temperature", 0}})},
@@ -49,7 +49,7 @@ int main() {
   }));
 
   std::vector<std::pair<std::string, axllm::AIClient*>> panel = {
-      {"openai/gpt-5.4-mini", &openai},
+      {"openai/gpt-5.4-mini", openai.get()},
       {"google/gemini-3.5-flash", &gemini},
       {"anthropic/claude-haiku-4.5", &anthropic},
   };
@@ -74,7 +74,7 @@ int main() {
   }
 
   // The judge + synthesizer run on one of the panel clients (OpenAI here).
-  axllm::AIClient& orchestrator = openai;
+  axllm::AIClient& orchestrator = *openai;
   axllm::Value review = judge.forward(orchestrator, axllm::object({{"question", question}, {"candidates", candidates}}));
   axllm::Value final = synthesizer.forward(
       orchestrator,

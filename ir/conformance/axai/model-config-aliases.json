@@ -1,6 +1,7 @@
 {
   "name": "model-config-aliases",
   "kind": "ai_chat",
+  "model": "gpt-4.1-mini",
   "request": {
     "chat_prompt": [
       {

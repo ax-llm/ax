@@ -61,6 +61,14 @@ Independent flow nodes use owned program and client workers. Built-in providers,
 
 Use the provider-backed Astra examples under `src/examples/cpp/generation/`, `short-agents/`, and `flows/`. All-five generated parity remains under verification in the shared-session AxIR backlog; do not infer full agent, parallel-flow, or transport parity from these examples alone.
 
+## Where The Runtime Goes
+
+Give the agent a code runtime on the constructor (`"runtime"`: `axllm::Core::code_runtime_ref(runtime)`, or a `{"language": ...}` config with the runtime passed per call) or on a forward call's options (`{"runtime", axllm::Core::code_runtime_ref(runtime)}`). The constructor's runtime wins; without one, a run uses the forward call's.
+
+- A run with a runtime runs the RLM stages, as TypeScript's agent always does with its default JavaScript runtime: the distiller and the executor write code in the runtime's language and run it in the runtime.
+- A run without one runs the ports' runtime-less stages, which answer with a completion payload instead of code; TypeScript has no such mode.
+- Each run picks its stages from its own runtime, so one agent can alternate. Both stage sets are kept, and each keeps the standing instruction, actor addenda and optimized components; `set_signature` rebuilds them.
+
 ## Streaming An Agent Run
 
 `agent.streaming_forward(client, values, options, handler)` runs the agent, calls `handler(const AxGenDelta&)` with each delta of the responder as TypeScript's `streamingForward` yields it, on the calling thread, and returns the responder's output. Returning false stops the run without an exception; an exception the handler throws stops it and propagates.

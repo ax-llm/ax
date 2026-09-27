@@ -902,6 +902,7 @@ export class AxAIOpenAIProfile<TModelKey = string> extends AxAIOpenAIBase<
     });
     this.setName(profile.name);
     this.setHeaders(async () => profileHeaders(profile, apiKey));
+    this.setExplicitModelConfigKeys(args.config);
     this.profileSpec = profile;
     this.profileApiURL = apiURL;
   }
@@ -1219,6 +1220,7 @@ export class AxAIOpenAIResponsesProfile<
     });
     this.setName(profile.name);
     this.setHeaders(async () => profileHeaders(profile, apiKey));
+    this.setExplicitModelConfigKeys(args.config);
     this.profileSpec = profile;
     this.profileApiURL = apiURL;
   }

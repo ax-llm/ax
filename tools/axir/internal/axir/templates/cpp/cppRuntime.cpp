@@ -1306,13 +1306,13 @@ Value Core::string_words(Value value) {
 Value Core::string_default_if_empty(Value value, Value fallback) {
   return truthy(string_trim(value)) ? string_trim(value) : fallback;
 }
-Value Core::string_format(Value templ, Value a, Value b, Value c, Value d, Value e, Value f) {
+Value Core::string_format_values(Value templ, const std::vector<Value>& args) {
   // Each value fills the next {} after the previous one, so a value that
-  // itself contains {} is not formatted again.
+  // itself contains {} is not formatted again. A null value fills its {} as
+  // well (display() writes it as the empty string, as Go's does).
   std::string out = str(templ);
   size_t cursor = 0;
-  for (const auto& arg : Array{a, b, c, d, e, f}) {
-    if (arg.is_null()) continue;
+  for (const auto& arg : args) {
     size_t pos = out.find("{}", cursor);
     if (pos == std::string::npos) break;
     std::string text = display(arg);
@@ -2130,6 +2130,25 @@ Value Core::agent_runtime_restore_state(Value session, Value snapshot, Value opt
   auto it = code_session_registry().find(session_id);
   if (it == code_session_registry().end() || it->second == nullptr) throw AxError("runtime", "agent code session is not active");
   return it->second->restore_state(snapshot, options);
+}
+// A runtime's language: a runtime config's "language", else the code runtime's
+// own, else JavaScript, TS's default runtime.
+Value Core::agent_runtime_language(Value runtime) {
+  std::string language;
+  if (runtime.is_object()) {
+    std::string runtime_id = str(Core::get(runtime, "__code_runtime_id", Value("")));
+    if (!runtime_id.empty()) {
+      auto it = code_runtime_registry().find(runtime_id);
+      if (it != code_runtime_registry().end() && it->second != nullptr) language = it->second->language();
+    } else {
+      Value raw = Core::get(runtime, "language", Value());
+      if (!raw.is_null()) language = display(raw);
+    }
+  }
+  size_t start = language.find_first_not_of(" \t\r\n");
+  size_t end = language.find_last_not_of(" \t\r\n");
+  language = start == std::string::npos ? std::string() : language.substr(start, end - start + 1);
+  return Value(language.empty() ? std::string("JavaScript") : language);
 }
 Value Core::agent_runtime_close(Value session) {
   std::string session_id = str(get_key(session, "__code_session_id"));
@@ -4110,6 +4129,42 @@ Value Core::axgen_check_streaming_assertion(Value spec, Value value, Value done)
   return object({{"status", "pass"}});
 }
 
+static std::mutex& ai_warnings_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+static std::set<std::string>& ai_warnings_shown() {
+  static std::set<std::string> shown;
+  return shown;
+}
+static std::function<void(const std::string&)>& ai_warning_sink() {
+  static std::function<void(const std::string&)> sink;
+  return sink;
+}
+
+// TS console.warn, once per key per process: a setting Ax could not send,
+// such as a sampling parameter the selected model rejects.
+Value Core::ai_warn_once(Value key, Value message) {
+  std::function<void(const std::string&)> sink;
+  {
+    std::lock_guard<std::mutex> lock(ai_warnings_mutex());
+    if (!ai_warnings_shown().insert(str(key)).second) return Value();
+    sink = ai_warning_sink();
+  }
+  if (sink) {
+    sink(str(message));
+  } else {
+    std::cerr << "axllm: " << str(message) << std::endl;
+  }
+  return Value();
+}
+
+void Core::ai_capture_warnings(std::function<void(const std::string&)> sink) {
+  std::lock_guard<std::mutex> lock(ai_warnings_mutex());
+  ai_warnings_shown().clear();
+  ai_warning_sink() = std::move(sink);
+}
+
 // Deprecated port behavior warns once per key per process.
 Value Core::axgen_deprecation(Value key, Value message) {
   static std::mutex shown_mutex;
@@ -4441,6 +4496,22 @@ static std::string env_or_default(const char* name, const std::string& fallback)
   return value == nullptr ? fallback : std::string(value);
 }
 
+// OPENAI_BASE_URL and OPENAI_API_KEY belong to OpenAI's own profiles and the
+// generic client: any other provider's key never goes to that host, and the
+// OpenAI key never goes to another provider.
+static bool reads_openai_env(const std::string& profile) {
+  return profile == "openai" || profile == "openai-responses" || profile == "openai-compatible";
+}
+
+// Built directly without a base_url (or OPENAI_BASE_URL), the generic client
+// talks to OpenAI, as it does in the other languages.
+static Value with_default_openai_base_url(Value options) {
+  if (!Core::get(options, "base_url").is_null() || !Core::get(options, "baseUrl").is_null() || std::getenv("OPENAI_BASE_URL") != nullptr) return options;
+  Value resolved = Core::map_merge(Value::object(), options);
+  Core::set(resolved, "base_url", "https://api.openai.com/v1");
+  return resolved;
+}
+
 static std::string strip_trailing_slashes(std::string value) {
   while (!value.empty() && value.back() == '/') value.pop_back();
   return value;
@@ -4459,7 +4530,7 @@ static std::string url_component(std::string value) {
 }
 
 OpenAICompatibleClient::OpenAICompatibleClient(Value options, Transport* transport, AxCredentialProvider credential_provider)
-    : OpenAICompatibleClient("openai-compatible", "openai", std::move(options), transport, "gpt-4.1-mini", "text-embedding-3-small", std::move(credential_provider)) {}
+    : OpenAICompatibleClient("openai-compatible", "openai", with_default_openai_base_url(std::move(options)), transport, "gpt-4.1-mini", "text-embedding-3-small", std::move(credential_provider)) {}
 
 OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model, AxCredentialProvider credential_provider)
     : AxBaseAI(
@@ -4470,16 +4541,31 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
           Core::map_merge(options, Core::get(options, "options", Value::object()))),
       profile_(std::move(profile)),
       descriptor_(Core::provider_resolve_descriptor(profile_, Core::map_merge(options, Core::get(options, "options", Value::object())))),
-      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", (profile_ == "typesafe" ? str(Core::get(descriptor_, "baseUrl")) : env_or_default("OPENAI_BASE_URL", str(Core::get(descriptor_, "baseUrl", "https://api.openai.com/v1"))))))),
-      api_key_(option_string(options, "api_key", "apiKey", (profile_ == "typesafe" ? env_or_default("TYPESAFE_APIKEY", env_or_default("TYPESAFE_API_KEY", "")) : env_or_default("OPENAI_API_KEY", "")))),
+      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", [&]() {
+        std::string descriptor_base = Core::get(descriptor_, "baseUrl").is_null() ? std::string("https://api.openai.com/v1") : str(Core::get(descriptor_, "baseUrl"));
+        return reads_openai_env(profile_) ? env_or_default("OPENAI_BASE_URL", descriptor_base) : descriptor_base;
+      }()))),
+      api_key_(option_string(options, "api_key", "apiKey", (profile_ == "typesafe" ? env_or_default("TYPESAFE_APIKEY", env_or_default("TYPESAFE_API_KEY", "")) : reads_openai_env(profile_) ? env_or_default("OPENAI_API_KEY", "") : std::string()))),
       api_version_(str(Core::get(descriptor_, "apiVersion", option_string(options, "api_version", "apiVersion", "")))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),
       credential_provider_(std::move(credential_provider)),
       transport_(transport) {
+  // Only the caller's settings: provider_build_chat_request adds the
+  // provider's sampling defaults (as its TS class starts from) under them,
+  // after dropping the explicit ones the model rejects.
+  model_config_ = Core::map_merge(Value::object(), Core::get(options, "model_config", Value::object()));
   if (profile_ == "typesafe") {
-    model_config_ = Core::get(options, "model_config", Value::object());
     Core::typesafe_require_number(Core::get(options_, "trueThreshold", Core::get(options_, "true_threshold", 0.5)), "trueThreshold", 0, 1);
   }
+  // TS resolveProfileURL: a profile without a base URL of its own needs the
+  // caller's instead of sending its key to another host. The generic client
+  // also takes OPENAI_BASE_URL, and built directly it defaults to OpenAI.
+  Value url_options = Core::map_merge(Core::get(options, "options", Value::object()), options);
+  std::string env_base_url = reads_openai_env(profile_) ? env_or_default("OPENAI_BASE_URL", "") : std::string();
+  if (!env_base_url.empty() && !Core::truthy(Core::get(url_options, "base_url")) && !Core::truthy(Core::get(url_options, "baseUrl")) && !Core::truthy(Core::get(url_options, "apiURL"))) {
+    Core::set(url_options, "base_url", env_base_url);
+  }
+  Core::provider_require_api_url(profile_, url_options);
   if (transport_ == nullptr) {
     owned_transport_ = std::make_shared<HttpTransport>();
     transport_ = owned_transport_.get();
@@ -4529,6 +4615,8 @@ GoogleGeminiClient::GoogleGeminiClient(Value options, Transport* transport)
 GoogleGeminiClient::GoogleGeminiClient(std::string profile, Value options, Transport* transport)
     : OpenAICompatibleClient(profile, profile, [&]() {
         Value out = std::move(options);
+        // The Google env vars belong to the google-gemini profile only.
+        if (profile != "google-gemini") return out;
         bool vertex = (!Core::get(out, "project_id").is_null() || !Core::get(out, "projectId").is_null()) && !Core::get(out, "region").is_null();
         if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", vertex ? env_or_default("GOOGLE_VERTEX_ACCESS_TOKEN", "") : env_or_default("GOOGLE_API_KEY", env_or_default("GEMINI_API_KEY", "")));
         std::string base = env_or_default("GOOGLE_GEMINI_BASE_URL", "");
@@ -4544,6 +4632,9 @@ AnthropicClient::AnthropicClient(Value options, Transport* transport)
 AnthropicClient::AnthropicClient(std::string profile, Value options, Transport* transport)
     : OpenAICompatibleClient(profile, profile, [&]() {
         Value out = std::move(options);
+        // The Anthropic env vars belong to the anthropic profile only: an
+        // Anthropic key never goes to another anthropic-messages host.
+        if (profile != "anthropic") return out;
         bool vertex = (!Core::get(out, "project_id").is_null() || !Core::get(out, "projectId").is_null()) && !Core::get(out, "region").is_null();
         if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", vertex ? env_or_default("GOOGLE_VERTEX_ACCESS_TOKEN", "") : env_or_default("ANTHROPIC_API_KEY", ""));
         std::string base = env_or_default("ANTHROPIC_BASE_URL", "");
@@ -5358,7 +5449,15 @@ Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value p
   // Signals the transport to return the raw body as base64 instead of JSON.
   if (binary_response) Core::set(call, "binary", Value(true));
   Core::set(call, "timeout", timeout_seconds_);
-  if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) throw Core::as_error(Core::ai_error_auth("api_key or credential_provider is required", Value(), Value(), Value(), Value()));
+  if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) {
+    // A credential provider can still be attached after construction, so a
+    // missing key fails here, before anything is sent. The error carries no
+    // request, so no credentials.
+    std::string message = Core::truthy(Core::get(descriptor_, "authRequired", false))
+        ? str(Core::provider_missing_api_key_message(profile_))
+        : std::string("api_key or credential_provider is required");
+    throw Core::as_error(Core::ai_error_auth(message, Value(), Value(), Value(), Value()));
+  }
   return call;
 }
 
@@ -7044,24 +7143,13 @@ static std::string playbook_record_signature(const Value& record) {
   }
   Value error = Core::get(record, "error");
   if (!error.is_null()) return playbook_error_signature(display(error));
-  std::string action_log = display(Core::get(prediction, "actionLog", Value("")));
+  // The action log as TS's prediction carries it: the executor's code steps as text.
+  std::string action_log = display(Core::_agent_playbook_action_log_text(Core::get(prediction, "actionLog")));
   std::smatch match;
   if (std::regex_search(action_log, match, std::regex("^\\s*(\\w+Error:\\s*.{0,60})", std::regex_constants::multiline))) {
     return playbook_error_signature(match[1].str());
   }
   return "behavioral:no_error";
-}
-
-static std::string playbook_failure_excerpt(const Value& record, const std::string& signature) {
-  Value error = Core::get(record, "error");
-  if (!error.is_null()) return "Run threw: " + display(error);
-  std::string action_log = display(Core::get(Core::get(record, "prediction", Value::object()), "actionLog", Value("")));
-  if (action_log.size() <= 2000) return action_log;
-  std::string needle = signature.substr(0, std::min<size_t>(40, signature.size()));
-  size_t hit = action_log.find(needle);
-  if (hit == std::string::npos) return action_log.substr(action_log.size() - 2000);
-  size_t start = hit > 1000 ? hit - 1000 : 0;
-  return action_log.substr(start, std::min<size_t>(2000, action_log.size() - start));
 }
 
 AxPlaybook::AxPlaybook(AxGen& program, AIClient& student, AIClient* teacher, Value options)
@@ -7332,53 +7420,11 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
   size_t index = 0;
   for (const auto& cluster : ranked) {
     ++index;
-    std::vector<Value> selected(cluster.second.begin(), cluster.second.begin() + std::min<size_t>(4, cluster.second.size()));
-    std::vector<std::string> bodies;
-    std::string excerpts;
-    std::string task_summaries;
-    std::vector<std::string> function_calls;
-    std::vector<std::string> tool_errors;
-    for (size_t record_index = 0; record_index < selected.size(); ++record_index) {
-      const Value& record = selected[record_index];
-      std::string body = playbook_failure_excerpt(record, cluster.first);
-      bodies.push_back(body);
-      if (!excerpts.empty()) excerpts += "\n\n";
-      excerpts += "--- run " + std::to_string(record_index + 1) + " ---\n" + body;
-      Value task = Core::get(record, "task", Value::object());
-      std::string label = Core::get(task, "id").is_null() ? "#" + std::to_string(record_index + 1) : display(Core::get(task, "id"));
-      std::string input = stringify(Core::get(task, "input"));
-      if (input.size() > 240) input.resize(240);
-      if (!task_summaries.empty()) task_summaries += "\n";
-      std::ostringstream score_text;
-      score_text << std::fixed << std::setprecision(2) << num(Core::get(record, "score", Value(0)));
-      task_summaries += "- " + label + " (score " + score_text.str() + "): " + input;
-      Value prediction = Core::get(record, "prediction", Value::object());
-      for (const auto& call : Core::iter(Core::get(prediction, "functionCalls", Value::array()))) {
-        if (function_calls.size() < 20) function_calls.push_back(stringify(call));
-      }
-      for (const auto& error : Core::iter(Core::get(prediction, "toolErrors", Value::array()))) {
-        if (tool_errors.size() < 10) tool_errors.push_back(display(error));
-      }
-    }
-    bool has_body = std::any_of(bodies.begin(), bodies.end(), [](const std::string& body) { return !playbook_collapse(body).empty(); });
-    if (!has_body) continue;
-    Value miner_request = object({
-        {"clusterSignature", Value(cluster.first)},
-        {"taskSummaries", Value(task_summaries)},
-        {"actionLogExcerpts", Value(excerpts)},
-    });
-    if (!function_calls.empty()) {
-      std::string joined;
-      for (const auto& call : function_calls) { if (!joined.empty()) joined += "\n"; joined += call; }
-      Core::set(miner_request, "functionCallSummary", Value(joined));
-    }
-    if (!tool_errors.empty()) {
-      std::string joined;
-      for (const auto& error : tool_errors) { if (!joined.empty()) joined += "\n"; joined += error; }
-      Core::set(miner_request, "toolErrors", Value(joined));
-    }
-    std::string current_playbook = render();
-    if (!playbook_collapse(current_playbook).empty()) Core::set(miner_request, "currentPlaybook", Value(current_playbook));
+    // TS's miner inputs: task summaries, action-log excerpts, function calls
+    // and tool errors of up to four records; none without an excerpt.
+    Value miner_request = Core::_agent_playbook_miner_inputs(Value(cluster.first), Value(Array(cluster.second.begin(), cluster.second.end())), Value(render()));
+    if (!miner_request.is_object()) continue;
+    std::string excerpts = display(Core::get(miner_request, "actionLogExcerpts", Value("")));
     Value mined;
     try {
       AxGen miner(agent_playbook_weakness_miner_signature(), object({{"id", "agent.playbook.weakness-miner"}}));
@@ -8026,7 +8072,52 @@ AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  reset_stage_sets();
   attach_configured_playbook();
+}
+
+// The stages just built are the set in use, for the mode the agent was built in.
+void AxAgent::reset_stage_sets() {
+  stage_mode_ = Core::truthy(Core::get(state_, "runtime_enabled", false)) ? "runtime" : "plain";
+  stage_sets_.clear();
+  optimized_components_ = Value::object();
+}
+
+// A run's stages follow its runtime: the constructor's, else the forward
+// call's; without one, the runtime-less stages run. A set coming back into use
+// takes the instructions from the agent's state (a standing instruction set
+// since) and the optimized components again.
+void AxAgent::use_stage_mode(const Value& options) {
+  Value record = Core::_agent_use_stage_mode(state_, options);
+  std::string mode = str(Core::get(record, "mode", Value("plain")));
+  if (mode == stage_mode_) return;
+  StageSet incoming;
+  auto cached = stage_sets_.find(mode);
+  if (cached != stage_sets_.end()) {
+    incoming = std::move(cached->second);
+    stage_sets_.erase(cached);
+    incoming.distiller->set_instruction(Core::get(record, "distiller_description", Value("")));
+    incoming.executor->set_instruction(Core::get(record, "executor_description", Value("")));
+    incoming.responder->set_instruction(Core::get(record, "responder_description", Value("")));
+  } else {
+    Value actor_validation_retries = Core::get(options_, "validation_retries", Core::get(options_, "validationRetries", 1));
+    incoming.distiller = std::make_unique<AxGen>(s(str(Core::get(record, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(record, "distiller_description", "")}}));
+    incoming.executor = std::make_unique<AxGen>(s(str(Core::get(record, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(record, "executor_description", "")}}));
+    incoming.responder = make_responder(options_);
+  }
+  incoming.distiller->apply_optimized_components(optimized_components_);
+  incoming.executor->apply_optimized_components(optimized_components_);
+  incoming.responder->apply_optimized_components(optimized_components_);
+  StageSet outgoing;
+  outgoing.distiller = std::move(distiller_);
+  outgoing.executor = std::move(executor_);
+  outgoing.responder = std::move(responder_);
+  stage_sets_[stage_mode_] = std::move(outgoing);
+  distiller_ = std::move(incoming.distiller);
+  executor_ = std::move(incoming.executor);
+  responder_ = std::move(incoming.responder);
+  stage_mode_ = mode;
+  rebind_playbook();
 }
 
 // The responder stage. As in TypeScript, its validation budget is maxRetries
@@ -8052,6 +8143,7 @@ AxAgent& AxAgent::set_signature(Value signature) {
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  reset_stage_sets();
   rebind_playbook();
   return *this;
 }
@@ -8101,6 +8193,7 @@ Value AxAgent::run(AIClient& client, Value values, Value options, const AxRuntim
   Value attributes = object({{"ax.program.id", "root.agent"}, {"ax.program.type", "AxAgent"}});
   if (!sink.is_null()) Core::set(attributes, "ax.streaming", true);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_agent_forward", "ax_gen_agent", attributes);
+  use_stage_mode(options);
   auto call_context=execution_context_ ? execution_context_ : detail::MCPRunScope::current();
   detail::MCPRunScope context_scope(call_context);
   if(call_context || Core::truthy(Core::get(state_,"mcp_run_context_active",false))) {
@@ -8249,6 +8342,7 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
+  reset_stage_sets();
   rebind_playbook();
   return *this;
 }
@@ -8330,6 +8424,8 @@ Value AxAgent::get_optimizable_components() const {
 }
 AxAgent& AxAgent::apply_optimized_components(Value component_map) {
   Core::_validate_optimization_component_map(get_optimizable_components(), component_map);
+  // Kept for the other stage set, which gets them when a run switches to it.
+  optimized_components_ = Core::map_merge(optimized_components_, component_map);
   distiller_->apply_optimized_components(component_map);
   executor_->apply_optimized_components(component_map);
   responder_->apply_optimized_components(component_map);
@@ -8513,13 +8609,11 @@ void AxAgent::attach_configured_playbook() {
     throw AxError("validation", "AxAgent: the `playbook` config option requires studentAI when the agent has no default ai.");
   }
   AIClient* teacher = playbook_config_client(config, {"teacherAI", "teacher_ai", "teacher"});
-  Value seed = Core::get(config, "seed", Value());
-  if (seed.is_null() && (!Core::get(config, "playbook", Value()).is_null() || !Core::get(config, "artifact", Value()).is_null())) seed = config;
+  // TS's `playbook` seed (a snapshot or a bare playbook), or the older `seed`
+  // key with a deprecation warning.
+  Value seed = Core::_agent_playbook_config_seed(config);
   AxPlaybook& handle = playbook(*student, config, teacher);
-  if (seed.is_object()) {
-    if (!Core::get(seed, "playbook", Value()).is_null()) handle.load(seed);
-    else handle.load(object({{"playbook", seed}}));
-  }
+  if (seed.is_object()) handle.load(seed);
 }
 
 void AxAgent::learn_playbook_failures(Value output) {

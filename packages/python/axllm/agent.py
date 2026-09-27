@@ -20,6 +20,8 @@ from .ai import (
     AxRuntimeHooks,
     AxTracer,
     _coerce_runtime_hooks,
+    _core_math_abs,
+    _core_math_floor,
     _merge_runtime_hooks,
     _runtime_hook_scope,
     _runtime_hooks_from_options,
@@ -33,6 +35,9 @@ from .gen import (
     chat_session_mode_enabled,
     _core_ai_complete_once,
     _core_ai_client_features,
+    _core_axgen_deprecation,
+    _core_string_index_of,
+    _core_string_str,
     _core_tool_invoke,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
@@ -1572,58 +1577,22 @@ class AxAgentPlaybook:
                 return str(tool_errors[0]).split("\n", 1)[0][:100]
             if record.get("error"):
                 return error_signature(record.get("error"))
-            action_log = str(prediction.get("actionLog") or "")
+            # The action log as TS's prediction carries it: the executor's code
+            # steps as text.
+            action_log = _agent_playbook_action_log_text(prediction.get("actionLog"))
             match = re.search(r"^\s*(\w+Error:\s*.{0,60})", action_log, re.MULTILINE)
             return error_signature(match.group(1)) if match else "behavioral:no_error"
-
-        def failure_excerpt(record, signature):
-            if record.get("error"):
-                return f"Run threw: {record['error']}"
-            action_log = str((record.get("prediction") or {}).get("actionLog") or "")
-            if len(action_log) <= 2000:
-                return action_log
-            hit = action_log.find(signature[:40])
-            if hit < 0:
-                return action_log[-2000:]
-            start = max(0, hit - 1000)
-            return action_log[start : start + 2000]
 
         def collapse(value):
             return re.sub(r"\s+", " ", str(value or "")).strip()
 
         def mine_weakness(signature, records, proposal_index):
-            selected = records[:4]
-            bodies = [failure_excerpt(record, signature) for record in selected]
-            excerpts = "\n\n".join(
-                f"--- run {index + 1} ---\n{body}" for index, body in enumerate(bodies)
-            )
-            if not any(collapse(body) for body in bodies):
+            # TS's miner inputs: task summaries, action-log excerpts, function
+            # calls and tool errors of up to four records.
+            request = _agent_playbook_miner_inputs(signature, list(records), self.inner.render() or "")
+            if request is None:
                 return None
-            task_summaries = "\n".join(
-                f"- {record.get('task', {}).get('id') or f'#{index + 1}'} "
-                f"(score {float(record.get('score', 0)):.2f}): "
-                f"{_js_json_dumps(record.get('task', {}).get('input'), sort_keys=True, default=str, separators=(', ', ': '))[:240]}"
-                for index, record in enumerate(selected)
-            )
-            function_calls = [
-                call
-                for record in selected
-                for call in ((record.get("prediction") or {}).get("functionCalls") or [])
-            ][:20]
-            tool_errors = [
-                str(error)
-                for record in selected
-                for error in ((record.get("prediction") or {}).get("toolErrors") or [])
-            ][:10]
-            request = {
-                "clusterSignature": signature,
-                "taskSummaries": task_summaries,
-                "actionLogExcerpts": excerpts,
-                "functionCallSummary": "\n".join(_js_json_dumps(call, sort_keys=True, default=str, separators=(", ", ": ")) for call in function_calls) or None,
-                "toolErrors": "\n".join(tool_errors) or None,
-                "currentPlaybook": self.inner.render() or None,
-            }
-            request = {key: value for key, value in request.items() if value is not None}
+            excerpts = request["actionLogExcerpts"]
             miner = AxGen(_agent_playbook_weakness_miner_signature(), {"id": "agent.playbook.weakness-miner"})
             mined = miner.forward(teacher, request, dict(teacher_options))
             raw_quotes = mined.get("evidenceQuotes")
@@ -1792,19 +1761,60 @@ class AxAgent:
     def _rebuild_from_signature(self, signature):
         self.state = _agent_factory(signature, self.options)
         self.signature = _core_get(self.state, "signature")
+        self.distiller, self.executor, self.responder = self._build_stage_set({
+            "distiller_signature": _core_get(self.state, "distiller_signature"),
+            "executor_signature": _core_get(self.state, "executor_signature"),
+            "distiller_description": _core_get(self.state, "distiller_description", ""),
+            "executor_description": _core_get(self.state, "executor_description", ""),
+            "responder_description": _core_get(self.state, "responder_description", ""),
+        })
+        # Each run uses the stage set of its mode (see _use_stage_mode): this
+        # one, or the other, built on first use and kept.
+        self._stage_mode = "runtime" if _core_get(self.state, "runtime_enabled", False) else "plain"
+        self._stage_sets = {self._stage_mode: (self.distiller, self.executor, self.responder)}
+        self._optimized_components = {}
+        self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+        self._rebind_playbook()
+
+    def _build_stage_set(self, record):
         actor_validation_retries = self.options.get("validation_retries", self.options.get("validationRetries", 1))
-        self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": actor_validation_retries, "id": "ctx.root.actor", "instruction": _core_get(self.state, "distiller_description", "")})
-        self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": _core_get(self.state, "executor_description", "")})
-        responder_options = {"id": "task.root.responder", "instruction": _core_get(self.state, "responder_description", "")}
+        distiller = AxGen(record["distiller_signature"], {"validation_retries": actor_validation_retries, "id": "ctx.root.actor", "instruction": record.get("distiller_description") or ""})
+        executor = AxGen(record["executor_signature"], {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": record.get("executor_description") or ""})
+        responder_options = {"id": "task.root.responder", "instruction": record.get("responder_description") or ""}
         # As in TS, the responder's validation budget is maxRetries (3 by
         # default) unless validation_retries is set.
         if "validation_retries" in self.options:
             responder_options["validation_retries"] = self.options["validation_retries"]
-        self.responder = AxGen(_core_get(self.state, "responder_signature", self.signature), responder_options)
+        responder = AxGen(_core_get(self.state, "responder_signature", self.signature), responder_options)
         if (_core_get(self.state, "citations", {}) or {}).get("enabled"):
             state = self.state
-            self.responder.add_assert(lambda output: _agent_citation_assert(state, output))
-        self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
+            responder.add_assert(lambda output: _agent_citation_assert(state, output))
+        return distiller, executor, responder
+
+    def _use_stage_mode(self, options):
+        # A run's stages follow its runtime: the constructor's, else the
+        # forward call's; without one, the runtime-less stages run. The other
+        # mode's set is built on first use and kept, with the optimized
+        # components applied so far.
+        record = _agent_use_stage_mode(self.state, options)
+        mode = record.get("mode")
+        if mode == self._stage_mode:
+            return
+        stages = self._stage_sets.get(mode)
+        if stages is None:
+            stages = self._build_stage_set(record)
+            self._stage_sets[mode] = stages
+        else:
+            # The instructions follow the agent's state (a standing instruction
+            # set since), and the optimized components apply again below.
+            stages[0].set_instruction(record.get("distiller_description") or "")
+            stages[1].set_instruction(record.get("executor_description") or "")
+            stages[2].set_instruction(record.get("responder_description") or "")
+        if self._optimized_components:
+            for stage in stages:
+                stage.apply_optimized_components(self._optimized_components)
+        self.distiller, self.executor, self.responder = stages
+        self._stage_mode = mode
         self._rebind_playbook()
 
     def add_child_agent(self, namespace: str, name: str, child: "AxAgent"):
@@ -1922,6 +1932,7 @@ class AxAgent:
         options = dict(options or {})
         if sink is not None:
             _agent_check_stream_run_session(self, client, options)
+        self._use_stage_mode(options)
         call_context = resolve_execution_context(options, self.execution_context)
         if call_context is not None or self.state.get("mcp_run_context_active"):
             modules = []
@@ -2134,6 +2145,9 @@ class AxAgent:
     def apply_optimized_components(self, component_map: dict[str, Any]):
         updates = dict(component_map or {})
         _validate_optimization_component_map(self.get_optimizable_components(), updates)
+        # Kept for the other stage set, which gets them when a run switches to
+        # it (see _use_stage_mode).
+        self._optimized_components.update(updates)
         self.distiller.apply_optimized_components(updates)
         self.executor.apply_optimized_components(updates)
         self.responder.apply_optimized_components(updates)
@@ -2243,15 +2257,12 @@ class AxAgent:
         raw = self._playbook_config
         config = dict(raw) if isinstance(raw, dict) else {}
         config.setdefault("maxReflectorRounds", 1)
-        seed = config.get("seed")
-        if seed is None and ("playbook" in config or "artifact" in config):
-            seed = config
+        # TS's `playbook` seed (a snapshot or a bare playbook), or the older
+        # `seed` key with a deprecation warning.
+        seed = _agent_playbook_config_seed(config)
         self.playbook(config)
         if seed is not None:
-            if isinstance(seed, dict) and "playbook" in seed:
-                self._playbook_handle.load(seed)
-            elif isinstance(seed, dict):
-                self._playbook_handle.load({"playbook": seed})
+            self._playbook_handle.load(seed)
 
     def _learn_playbook_failures(self, output):
         if self._playbook_handle is None or self._playbook_config in (None, False):
@@ -2326,7 +2337,12 @@ class AxAgent:
         if not self._playbook_apply:
             handle._set_apply_hook(lambda _rendered: None)
             return
-        base = stage.signature.get_description() if hasattr(stage.signature, "get_description") else None
+        # A stage keeps the description it had when first bound, so binding a
+        # stage again (a kept stage set coming back into use) doesn't compose
+        # the playbook twice.
+        if not hasattr(stage, "_playbook_base"):
+            stage._playbook_base = stage.signature.get_description() if hasattr(stage.signature, "get_description") else None
+        base = stage._playbook_base
 
         def _apply(rendered):
             stage.signature.description = _playbook_compose_instruction(base, rendered)
@@ -2701,6 +2717,19 @@ def _core_agent_runtime_close(session):
     return {"closed": True}
 
 
+def _core_agent_runtime_language(runtime):
+    # A runtime's language: a runtime config's "language", else the code
+    # runtime's own, else JavaScript, TS's default runtime.
+    if isinstance(runtime, dict):
+        language = runtime.get("language")
+    else:
+        language = getattr(runtime, "language", None)
+        if callable(language):
+            language = language()
+    language = str(language or "").strip()
+    return language or "JavaScript"
+
+
 def _core_agent_memory_search(state, searches, already_loaded):
     options = _core_get(state, "options", {}) or {}
     callback = options.get("on_memories_search") or options.get("onMemoriesSearch")
@@ -2911,19 +2940,10 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     state["executor_exclude_fields"] = executor_exclude
     state["responder_exclude_fields"] = responder_exclude
     code_field_name = _core_get(runtime_contract, "code_field_name", "javascriptCode")
-    runtime_distiller_signature = _core_string_format("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
-    distiller_signature = "input:json, context:json -> completion:json"
-    if runtime_enabled:
-        distiller_signature = runtime_distiller_signature
-    else:
-        pass
+    actor_signatures = _agent_actor_stage_signatures(runtime_enabled, code_field_name)
+    distiller_signature = _core_get(actor_signatures, "distiller", None)
     state["distiller_signature"] = distiller_signature
-    runtime_executor_signature = _core_string_format("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
-    executor_signature = "input:json, executorRequest:string, distilledContext:json -> completion:json"
-    if runtime_enabled:
-        executor_signature = runtime_executor_signature
-    else:
-        pass
+    executor_signature = _core_get(actor_signatures, "executor", None)
     state["executor_signature"] = executor_signature
     llm_query_signature = "task:string, context:json -> answer:string"
     state["llm_query_signature"] = llm_query_signature
@@ -8295,6 +8315,16 @@ def _agent_runtime_append_action_log(state: Any, entry: Any) -> Any:
             else:
                 pass
             entry["tags"] = tags
+        has_stage = _core_map_contains(entry, "stage")
+        if has_stage:
+            pass
+        else:
+            active_stage = _core_get(state, "active_stage", None)
+            stage_known = _core_is_not_none(active_stage)
+            if stage_known:
+                entry["stage"] = active_stage
+            else:
+                pass
     else:
         pass
     log.append(entry)
@@ -10074,6 +10104,292 @@ def _agent_finalize_citations(state: Any, output: Any) -> Any:
     else:
         pass
     return output
+
+
+def _agent_playbook_config_seed(config: Any) -> Any:
+    _core_coverage_mark("_agent_playbook_config_seed")
+    none = _core_none()
+    value = _core_get(config, "playbook", None)
+    value_is_object = _core_type_is(value, "object")
+    if value_is_object:
+        has_playbook = _core_map_contains(value, "playbook")
+        has_artifact = _core_map_contains(value, "artifact")
+        is_snapshot = _core_and(has_playbook, has_artifact)
+        if is_snapshot:
+            return value
+        else:
+            pass
+        bare = {}
+        bare["playbook"] = value
+        config_artifact = _core_get(config, "artifact", None)
+        has_config_artifact = _core_is_not_none(config_artifact)
+        if has_config_artifact:
+            bare["artifact"] = config_artifact
+        else:
+            pass
+        return bare
+    else:
+        pass
+    legacy = _core_get(config, "seed", None)
+    legacy_is_object = _core_type_is(legacy, "object")
+    if legacy_is_object:
+        _core_axgen_deprecation("agent-playbook-seed-snapshot", "A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed.")
+        legacy_has_playbook = _core_map_contains(legacy, "playbook")
+        if legacy_has_playbook:
+            return legacy
+        else:
+            pass
+        wrapped = {}
+        wrapped["playbook"] = legacy
+        return wrapped
+    else:
+        pass
+    artifact = _core_get(config, "artifact", None)
+    has_artifact_only = _core_is_not_none(artifact)
+    if has_artifact_only:
+        artifact_seed = {}
+        artifact_seed["artifact"] = artifact
+        return artifact_seed
+    else:
+        pass
+    return none
+
+
+def _agent_playbook_action_log_text(action_log: Any) -> str:
+    _core_coverage_mark("_agent_playbook_action_log_text")
+    is_text = _core_type_is(action_log, "string")
+    if is_text:
+        return action_log
+    else:
+        pass
+    is_list = _core_type_is(action_log, "list")
+    not_list = _core_not(is_list)
+    if not_list:
+        return ""
+    else:
+        pass
+    tagged = False
+    for probe in action_log:
+        probe_stage = _core_get(probe, "stage", None)
+        probe_has_stage = _core_is_not_none(probe_stage)
+        if probe_has_stage:
+            tagged = True
+        else:
+            pass
+    parts = []
+    for entry in action_log:
+        type = _core_get(entry, "type", "")
+        is_step = _core_eq(type, "runtime_step")
+        if is_step:
+            stage = _core_get(entry, "stage", "executor")
+            is_executor = _core_eq(stage, "executor")
+            untagged = _core_not(tagged)
+            keep = _core_or(is_executor, untagged)
+            if keep:
+                code = _core_get(entry, "code", "")
+                output = _core_get(entry, "output", "")
+                output_empty = _core_eq(output, "")
+                is_error = _core_get(entry, "is_error", False)
+                error = _core_get(entry, "error", "")
+                error_text = _core_ne(error, "")
+                use_error = _core_and(output_empty, is_error)
+                use_error = _core_and(use_error, error_text)
+                if use_error:
+                    output = error
+                else:
+                    pass
+                still_empty = _core_eq(output, "")
+                if still_empty:
+                    output = "(no output)"
+                else:
+                    pass
+                part = _core_string_format("```javascript\n{}\n```\nResult:\n{}", code, output)
+                parts.append(part)
+            else:
+                pass
+        else:
+            pass
+    text = _core_string_join("\n\n", parts)
+    return text
+
+
+def _agent_playbook_truncate(text: str, max_chars: int) -> str:
+    _core_coverage_mark("_agent_playbook_truncate")
+    length = _core_len(text)
+    too_long = _core_gt(length, max_chars)
+    if too_long:
+        head = _core_string_slice(text, 0, max_chars)
+        cut = _core_string_format("{}…", head)
+        return cut
+    else:
+        pass
+    return text
+
+
+def _agent_playbook_score_text(score: Any) -> str:
+    _core_coverage_mark("_agent_playbook_score_text")
+    negative = _core_lt(score, 0)
+    magnitude = _core_math_abs(score)
+    scaled = _core_mul(magnitude, 100)
+    shifted = _core_add(scaled, 0.5)
+    hundredths = _core_math_floor(shifted)
+    whole_float = _core_div(hundredths, 100)
+    whole = _core_math_floor(whole_float)
+    whole_hundredths = _core_mul(whole, -100)
+    fraction = _core_add(hundredths, whole_hundredths)
+    whole_text = _core_string_str(whole)
+    fraction_text = _core_string_str(fraction)
+    one_digit = _core_lt(fraction, 10)
+    if one_digit:
+        fraction_text = _core_string_format("0{}", fraction_text)
+    else:
+        pass
+    text = _core_string_format("{}.{}", whole_text, fraction_text)
+    nonzero = _core_gt(hundredths, 0)
+    show_sign = _core_and(negative, nonzero)
+    if show_sign:
+        text = _core_string_format("-{}", text)
+    else:
+        pass
+    return text
+
+
+def _agent_playbook_miner_inputs(signature: str, records: list[Any], current_playbook: str) -> Any:
+    _core_coverage_mark("_agent_playbook_miner_inputs")
+    selected = []
+    for record in records:
+        count = _core_len(selected)
+        room = _core_lt(count, 4)
+        if room:
+            selected.append(record)
+        else:
+            pass
+    summaries = []
+    excerpts = []
+    calls = []
+    errors = []
+    position = 0
+    any_body = False
+    needle = _core_string_slice(signature, 0, 40)
+    for record in selected:
+        number = _core_add(position, 1)
+        position = number
+        empty_map = {}
+        task = _core_get(record, "task", empty_map)
+        number_text = _core_string_str(number)
+        default_label = _core_string_format("#{}", number_text)
+        label = _core_get(task, "id", default_label)
+        input = _core_get(task, "input", None)
+        input_json = _core_json_stringify(input)
+        input_text = _agent_playbook_truncate(input_json, 240)
+        score = _core_get(record, "score", 0)
+        score_text = _agent_playbook_score_text(score)
+        summary = _core_string_format("- {} (score {}): {}", label, score_text, input_text)
+        summaries.append(summary)
+        prediction = _core_get(record, "prediction", empty_map)
+        error = _core_get(record, "error", None)
+        error_is_map = _core_type_is(error, "object")
+        if error_is_map:
+            error = _core_get(error, "message", "")
+        else:
+            pass
+        has_error = _core_truthy(error)
+        body = ""
+        if has_error:
+            body = _core_string_format("Run threw: {}", error)
+        else:
+            raw_log = _core_get(prediction, "actionLog", None)
+            log = _agent_playbook_action_log_text(raw_log)
+            log_length = _core_len(log)
+            fits = _core_lte(log_length, 2000)
+            if fits:
+                body = log
+            else:
+                hit = _core_string_index_of(log, needle, 0)
+                missing = _core_lt(hit, 0)
+                if missing:
+                    tail_start = _core_add(log_length, -2000)
+                    body = _core_string_slice(log, tail_start)
+                else:
+                    window_start = _core_add(hit, -1000)
+                    before_zero = _core_lt(window_start, 0)
+                    if before_zero:
+                        window_start = 0
+                    else:
+                        pass
+                    window_end = _core_add(window_start, 2000)
+                    body = _core_string_slice(log, window_start, window_end)
+        body_trimmed = str(body).strip()
+        body_present = _core_ne(body_trimmed, "")
+        if body_present:
+            any_body = True
+        else:
+            pass
+        excerpt = _core_string_format("--- run {} ---\n{}", number_text, body)
+        excerpts.append(excerpt)
+        empty_list = []
+        record_calls = _core_get(prediction, "functionCalls", empty_list)
+        for call in record_calls:
+            call_count = _core_len(calls)
+            call_room = _core_lt(call_count, 20)
+            if call_room:
+                qualified = _core_get(call, "qualifiedName", "")
+                arguments = _core_get(call, "arguments", None)
+                arguments_json = _core_json_stringify(arguments)
+                arguments_text = _agent_playbook_truncate(arguments_json, 120)
+                line = _core_string_format("{}({})", qualified, arguments_text)
+                call_error = _core_get(call, "error", None)
+                has_call_error = _core_truthy(call_error)
+                if has_call_error:
+                    call_error_text = _core_string_str(call_error)
+                    call_error_cut = _agent_playbook_truncate(call_error_text, 120)
+                    line = _core_string_format("{} -> ERROR {}", line, call_error_cut)
+                else:
+                    pass
+                calls.append(line)
+            else:
+                pass
+        record_errors = _core_get(prediction, "toolErrors", empty_list)
+        for tool_error in record_errors:
+            error_count = _core_len(errors)
+            error_room = _core_lt(error_count, 10)
+            if error_room:
+                tool_error_text = _core_string_str(tool_error)
+                errors.append(tool_error_text)
+            else:
+                pass
+    no_body = _core_not(any_body)
+    if no_body:
+        nothing = _core_none()
+        return nothing
+    else:
+        pass
+    inputs = {}
+    inputs["clusterSignature"] = signature
+    summaries_text = _core_string_join("\n", summaries)
+    inputs["taskSummaries"] = summaries_text
+    excerpts_text = _core_string_join("\n\n", excerpts)
+    inputs["actionLogExcerpts"] = excerpts_text
+    call_total = _core_len(calls)
+    has_calls = _core_gt(call_total, 0)
+    if has_calls:
+        calls_text = _core_string_join("\n", calls)
+        inputs["functionCallSummary"] = calls_text
+    else:
+        pass
+    error_total = _core_len(errors)
+    has_errors = _core_gt(error_total, 0)
+    if has_errors:
+        errors_text = _core_string_join("\n", errors)
+        inputs["toolErrors"] = errors_text
+    else:
+        pass
+    has_playbook = _core_ne(current_playbook, "")
+    if has_playbook:
+        inputs["currentPlaybook"] = current_playbook
+    else:
+        pass
+    return inputs
 
 
 def _agent_collect_covered_failure_signatures(snapshot: Any) -> list[Any]:
@@ -12006,5 +12322,136 @@ def _agent_stage_parse_dates(out: Any, base_options: Any, stage_options: Any, fo
     else:
         pass
     return out
+
+
+def _agent_actor_stage_signatures(runtime_enabled: bool, code_field_name: str) -> Any:
+    _core_coverage_mark("_agent_actor_stage_signatures")
+    distiller = "input:json, context:json -> completion:json"
+    executor = "input:json, executorRequest:string, distilledContext:json -> completion:json"
+    if runtime_enabled:
+        distiller = _core_string_format("input:json, context:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
+        executor = _core_string_format("input:json, executorRequest:string, distilledContextSummary?:string, contextMetadata?:string, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, relevanceHints?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", code_field_name)
+    else:
+        pass
+    out = {}
+    out["distiller"] = distiller
+    out["executor"] = executor
+    return out
+
+
+def _agent_runtime_configured(state: Any) -> bool:
+    _core_coverage_mark("_agent_runtime_configured")
+    empty_map = {}
+    options = _core_get(state, "options", empty_map)
+    has_runtime = _core_map_contains(options, "runtime")
+    has_config = _core_map_contains(options, "runtimeConfig")
+    has_config_snake = _core_map_contains(options, "runtime_config")
+    has_any_config = _core_or(has_config, has_config_snake)
+    configured = _core_or(has_runtime, has_any_config)
+    return configured
+
+
+def _agent_stage_mode_fields(state: Any) -> Any:
+    _core_coverage_mark("_agent_stage_mode_fields")
+    keys = []
+    keys.append("runtime_enabled")
+    keys.append("runtime_contract")
+    keys.append("distiller_signature")
+    keys.append("executor_signature")
+    keys.append("distiller_description")
+    keys.append("executor_description_base")
+    keys.append("responder_description")
+    fields = {}
+    for key in keys:
+        value = _core_get(state, key, None)
+        fields[key] = value
+    return fields
+
+
+def _agent_runtime_stage_fields(state: Any, runtime: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_stage_fields")
+    language = _core_agent_runtime_language(runtime)
+    config = {}
+    config["language"] = language
+    contract_options = {}
+    contract_options["runtime"] = config
+    contract = _normalize_agent_runtime(contract_options)
+    empty_map = {}
+    saved_contract = _core_get(state, "runtime_contract", empty_map)
+    state["runtime_contract"] = contract
+    options = _core_get(state, "options", empty_map)
+    executor_description = _render_rlm_executor_description(state, options)
+    responder_description = _render_rlm_responder_description(state, options)
+    distiller_description = _render_rlm_distiller_description(state, options)
+    state["runtime_contract"] = saved_contract
+    code_field_name = _core_get(contract, "code_field_name", "javascriptCode")
+    runtime_stages = True
+    signatures = _agent_actor_stage_signatures(runtime_stages, code_field_name)
+    distiller_signature = _core_get(signatures, "distiller", None)
+    executor_signature = _core_get(signatures, "executor", None)
+    fields = {}
+    fields["runtime_enabled"] = True
+    fields["runtime_contract"] = contract
+    fields["distiller_signature"] = distiller_signature
+    fields["executor_signature"] = executor_signature
+    fields["distiller_description"] = distiller_description
+    fields["executor_description_base"] = executor_description
+    fields["responder_description"] = responder_description
+    return fields
+
+
+def _agent_use_stage_mode(state: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_use_stage_mode")
+    configured = _agent_runtime_configured(state)
+    runtime = _core_get(options, "runtime", None)
+    has_runtime = _core_is_not_none(runtime)
+    runtime_mode = _core_or(configured, has_runtime)
+    mode = "plain"
+    if runtime_mode:
+        mode = "runtime"
+    else:
+        pass
+    state_runtime = _core_get(state, "runtime_enabled", False)
+    active_default = "plain"
+    if state_runtime:
+        active_default = "runtime"
+    else:
+        pass
+    active = _core_get(state, "stage_mode", active_default)
+    switching = _core_ne(mode, active)
+    if switching:
+        empty_modes = {}
+        modes = _core_get(state, "stage_modes", empty_modes)
+        current_fields = _agent_stage_mode_fields(state)
+        modes[active] = current_fields
+        target = _core_get(modes, mode, None)
+        cached = _core_is_not_none(target)
+        if cached:
+            pass
+        else:
+            target = _agent_runtime_stage_fields(state, runtime)
+        for field in target:
+            field_value = _core_get(target, field, None)
+            state[field] = field_value
+        state["stage_modes"] = modes
+        state["stage_mode"] = mode
+        prompt_policy = _build_agent_actor_prompt_policy(state)
+        state["actor_prompt_policy"] = prompt_policy
+        _agent_refresh_actor_instruction(state)
+    else:
+        pass
+    record = {}
+    record["mode"] = mode
+    record_distiller_signature = _core_get(state, "distiller_signature", "")
+    record["distiller_signature"] = record_distiller_signature
+    record_executor_signature = _core_get(state, "executor_signature", "")
+    record["executor_signature"] = record_executor_signature
+    record_distiller_description = _core_get(state, "distiller_description", "")
+    record["distiller_description"] = record_distiller_description
+    record_executor_description = _core_get(state, "executor_description", "")
+    record["executor_description"] = record_executor_description
+    record_responder_description = _core_get(state, "responder_description", "")
+    record["responder_description"] = record_responder_description
+    return record
 
 # END AXIR CORE EMITTED FUNCTIONS

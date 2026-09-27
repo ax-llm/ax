@@ -1,5 +1,5 @@
 import type { AxAIService } from '../ai/types.js';
-import { AxGen } from '../dsp/generate.js';
+import { AxGen, withoutRunScopedOptions } from '../dsp/generate.js';
 import type { AxIField, AxSignature } from '../dsp/sig.js';
 import type {
   AxChatLogEntry,
@@ -212,10 +212,13 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
     if (this.program) {
       this.program.setDescription(description);
     } else {
-      this.program = new AxGen<any, OUT>(this.init.signature, {
-        ...(this.options.forwardOptions ?? {}),
-        description,
-      });
+      this.program = new AxGen<any, OUT>(
+        this.init.signature,
+        withoutRunScopedOptions({
+          ...(this.options.forwardOptions ?? {}),
+          description,
+        })
+      );
       if (this.options.id) {
         this.program.setId(this.options.id);
       }

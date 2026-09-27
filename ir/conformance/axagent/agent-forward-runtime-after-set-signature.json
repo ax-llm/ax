@@ -1,0 +1,106 @@
+{
+  "name": "agent-forward-runtime-after-set-signature",
+  "kind": "agent_forward",
+  "description": "Port-only: set_signature rebuilds an agent built without a runtime, and a later forward with a runtime runs the RLM stages again, for the new signature.",
+  "signature": "question:string -> answer:string",
+  "options": {
+    "directResponse": "off"
+  },
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "runtime_on_forward": true,
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "type": "final",
+        "args": ["Answer the question", {}]
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "type": "final",
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ]
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "type": "final",
+        "args": ["Answer the question", {}]
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "type": "final",
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ]
+      }
+    }
+  ],
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: first"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: second\nNote: rebuilt"
+    }
+  ],
+  "forward_runs": [
+    {
+      "input": {
+        "question": "How long do refunds take?"
+      }
+    },
+    {
+      "input": {
+        "question": "How long do refunds take?"
+      },
+      "set_signature": "question:string -> answer:string, note:string"
+    }
+  ],
+  "expected_output": [
+    {
+      "answer": "first"
+    },
+    {
+      "answer": "second",
+      "note": "rebuilt"
+    }
+  ],
+  "expected_request_count": 6,
+  "expected_transcript": [
+    "request:distiller",
+    "request:executor",
+    "request:responder",
+    "request:distiller",
+    "request:executor",
+    "request:responder"
+  ]
+}

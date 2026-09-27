@@ -4493,6 +4493,10 @@ module @ax.provider version "0.1" {
         %payload = core.call @typesafe_build_chat_request(%request, %options)
         core.return %payload
       }
+      // Model info decides which sampling parameters the model accepts on this
+      // request; the provider's sampling defaults fill in under the rest before
+      // any provider sees the model config.
+      %sampled_request = core.call @provider_apply_model_sampling_support_impl(%profile, %provider_id, %transport, %request, %options)
       %is_responses = core.call intrinsic.eq(%transport, "openai-responses")
       %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
       %is_anthropic = core.call intrinsic.eq(%transport, "anthropic-messages")
@@ -4500,23 +4504,25 @@ module @ax.provider version "0.1" {
       %reasoning_details_mode = core.call @provider_reasoning_details_replay_field(%provider_id, %model)
       %payload = core.map
       core.if %is_responses {
-        %responses_payload = core.call @openai_responses_build_chat_request(%request)
+        %responses_payload = core.call @openai_responses_build_chat_request(%sampled_request)
         %is_meta = core.call intrinsic.eq(%provider_id, "meta")
         core.if %is_meta {
-          %responses_payload = core.call @meta_prepare_responses_request(%responses_payload, %request, %options)
+          %responses_payload = core.call @meta_prepare_responses_request(%responses_payload, %sampled_request, %options)
+        } else {
+          %responses_payload = core.call @openai_responses_apply_prompt_cache_retention(%responses_payload, %sampled_request, %options, %model)
         }
-        %payload = core.call @openai_responses_apply_astra_caching(%responses_payload, %request, %options)
+        %payload = core.call @openai_responses_apply_astra_caching(%responses_payload, %sampled_request, %options)
       } else {
         core.if %is_gemini {
           %is_vertex = core.get %descriptor["vertex"] default false
-          %gemini_payload = core.call @gemini_build_chat_request(%request, %options, %is_vertex)
+          %gemini_payload = core.call @gemini_build_chat_request(%sampled_request, %options, %is_vertex)
           %payload = core.let %gemini_payload
         } else {
           core.if %is_anthropic {
             %is_meta_messages = core.call intrinsic.eq(%provider_id, "meta-messages")
-            %anthropic_payload = core.call @anthropic_build_chat_request(%request, %is_meta_messages)
+            %anthropic_payload = core.call @anthropic_build_chat_request(%sampled_request, %is_meta_messages)
             core.if %is_meta_messages {
-              %anthropic_payload = core.call @meta_prepare_messages_request(%anthropic_payload, %request, %options)
+              %anthropic_payload = core.call @meta_prepare_messages_request(%anthropic_payload, %sampled_request, %options)
             }
             %is_vertex = core.get %descriptor["vertex"] default false
             core.if %is_vertex {
@@ -4526,10 +4532,10 @@ module @ax.provider version "0.1" {
             %payload = core.let %anthropic_payload
           } else {
             %is_official_openai = core.call intrinsic.eq(%provider_id, "openai")
-            %compatible_payload = core.call @openai_build_chat_request_impl(%request, %options, %is_official_openai, %reasoning_content_mode, %reasoning_details_mode)
+            %compatible_payload = core.call @openai_build_chat_request_impl(%sampled_request, %options, %is_official_openai, %reasoning_content_mode, %reasoning_details_mode)
             %is_meta_chat = core.call intrinsic.eq(%provider_id, "meta-chat")
             core.if %is_meta_chat {
-              %compatible_payload = core.call @meta_apply_prompt_cache_options(%compatible_payload, %options, %request)
+              %compatible_payload = core.call @meta_apply_prompt_cache_options(%compatible_payload, %options, %sampled_request)
             }
             %payload = core.let %compatible_payload
           }
@@ -4538,15 +4544,15 @@ module @ax.provider version "0.1" {
       %empty_rules = core.map
       %empty_list = core.list
       %profile_rules = core.get %descriptor["request"] default %empty_rules
-      %payload = core.call @provider_apply_request_rules(%payload, %request, %profile_rules, %options)
+      %payload = core.call @provider_apply_request_rules(%payload, %sampled_request, %profile_rules, %options)
       %model_rule = core.call @provider_resolve_model_rule(%provider_id, %model)
       %model_rules = core.get %model_rule["request"] default %empty_rules
-      %payload = core.call @provider_apply_request_rules(%payload, %request, %model_rules, %options)
+      %payload = core.call @provider_apply_request_rules(%payload, %sampled_request, %model_rules, %options)
       %features = core.call @provider_resolve_features(%provider_id, %model, %options)
-      %payload = core.call @provider_apply_service_tier(%provider_id, %payload, %request, %options, %features, %profile_rules, %model_rules)
+      %payload = core.call @provider_apply_service_tier(%provider_id, %payload, %sampled_request, %options, %features, %profile_rules, %model_rules)
       %is_meta_messages_final = core.call intrinsic.eq(%provider_id, "meta-messages")
       core.if %is_meta_messages_final {
-        %payload = core.call @meta_prepare_messages_request(%payload, %request, %options)
+        %payload = core.call @meta_prepare_messages_request(%payload, %sampled_request, %options)
       }
       %response_format = core.get %payload["response_format"] default %empty_rules
       %response_format_type = core.get %response_format["type"] default ""
@@ -5950,6 +5956,16 @@ module @ax.provider version "0.1" {
       %has_reasoning = core.call intrinsic.truthy(%reasoning)
       core.if %has_reasoning {
         core.set %payload["reasoning"] = %reasoning
+      } else {
+        // TS AxAIOpenAIResponsesConfig.reasoningEffort: reasoning.effort.
+        %configured_effort_snake = core.get %model_config["reasoning_effort"]
+        %configured_effort = core.get %model_config["reasoningEffort"] default %configured_effort_snake
+        %has_configured_effort = core.call intrinsic.truthy(%configured_effort)
+        core.if %has_configured_effort {
+          %configured_reasoning = core.map
+          core.set %configured_reasoning["effort"] = %configured_effort
+          core.set %payload["reasoning"] = %configured_reasoning
+        }
       }
       core.call @openai_responses_apply_model_config_impl(%payload, %model_config)
       %include = core.get %model_config["include"]
@@ -11029,6 +11045,357 @@ module @ax.provider version "0.1" {
       %project = core.get %options["projectId"] default %project_snake
       %url = core.call intrinsic.string.format("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", %base_url, %project, %model)
       core.return %url
+    }
+  }
+
+  // TS resolveProfileURL: a profile without a base URL of its own (the generic
+  // openai-compatible client, databricks, amazon-bedrock, vertex-ai, ...) needs
+  // one from the caller. Without it, ai() fails instead of sending the
+  // provider's key to another host.
+  op ax.provider.semantic @provider_require_api_url {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/provider_profiles.ts"
+    tag "axai-credential-routing"
+    type signature = "(profile:string, options?:json) -> void throws"
+    body @entry(%profile: string, %options: json) {
+      %empty_map = core.map
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %descriptor = core.call @provider_descriptor(%provider_id)
+      %requires_flag = core.get %descriptor["requiresApiURL"] default false
+      %requires = core.call intrinsic.truthy(%requires_flag)
+      core.if %requires {
+      } else {
+        core.return
+      }
+      %opts = core.call intrinsic.coalesce(%options, %empty_map)
+      %resolved = core.call @provider_resolve_descriptor(%provider_id, %opts)
+      %base_url = core.get %resolved["baseUrl"]
+      %has_base_url = core.call intrinsic.truthy(%base_url)
+      core.if %has_base_url {
+        core.return
+      }
+      %name = core.get %descriptor["name"] default %provider_id
+      %message = core.call intrinsic.string.format("{} requires apiURL", %name)
+      %error = core.call intrinsic.error.validation(%message)
+      core.raise %error
+    }
+  }
+
+  // The error for a client that needs a key and has none. The ports read
+  // OPENAI_API_KEY only for openai, openai-responses and openai-compatible, and
+  // ANTHROPIC_API_KEY only for anthropic (before, an OpenAI or Anthropic key
+  // from the environment went to other providers' servers), so the message
+  // names the rule for the profiles that used to fall back to them.
+  op ax.provider.semantic @provider_missing_api_key_message {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "axai-credential-routing"
+    type signature = "(profile:string) -> string"
+    body @entry(%profile: string) {
+      %message = core.call intrinsic.string.format("{} requires api_key or credential_provider", %profile)
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %reads_env = core.call @provider_reads_own_key_env_impl(%provider_id)
+      core.if %reads_env {
+        core.return %message
+      }
+      %descriptor = core.call @provider_descriptor(%provider_id)
+      %transport = core.get %descriptor["transport"] default ""
+      %is_anthropic_messages = core.call intrinsic.eq(%transport, "anthropic-messages")
+      core.if %is_anthropic_messages {
+        %anthropic_message = core.call intrinsic.string.format("{} (ANTHROPIC_API_KEY is only read for anthropic)", %message)
+        core.return %anthropic_message
+      }
+      %openai_message = core.call intrinsic.string.format("{} (OPENAI_API_KEY is only read for openai, openai-responses and openai-compatible)", %message)
+      core.return %openai_message
+    }
+  }
+
+  op ax.provider.semantic @provider_reads_own_key_env_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "axai-credential-routing"
+    type signature = "(string) -> bool"
+    body @entry(%provider_id: string) {
+      %own = core.regex_match %provider_id pattern "^(?:openai|openai-responses|openai-compatible|anthropic|google-gemini|typesafe)$"
+      core.return %own
+    }
+  }
+
+  // The model config a client starts from before its own model_config, as each
+  // TS provider class does: axBaseAIDefaultConfig (temperature 0) for the
+  // OpenAI Chat profiles, Anthropic and Gemini; axAIOpenAIResponsesDefaultConfig
+  // (temperature 0.7, topP 1) for openai-responses; nothing for the other
+  // Responses profiles (AxAIOpenAIResponsesBase) or for Typesafe.
+  op ax.provider.semantic @provider_default_model_config {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/base.ts"
+    tag "src/ax/ai/openai/responses_api_base.ts"
+    tag "axai-sampling-defaults"
+    type signature = "(profile:string) -> json"
+    body @entry(%profile: string) {
+      %config = core.map
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_typesafe = core.call intrinsic.eq(%provider_id, "typesafe")
+      core.if %is_typesafe {
+        core.return %config
+      }
+      %is_openai_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
+      core.if %is_openai_responses {
+        core.set %config["temperature"] = 0.7
+        core.set %config["topP"] = 1
+        core.return %config
+      }
+      %descriptor = core.call @provider_descriptor(%provider_id)
+      %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_responses_profile = core.call intrinsic.eq(%transport, "openai-responses")
+      core.if %is_responses_profile {
+        core.return %config
+      }
+      core.set %config["temperature"] = 0
+      core.return %config
+    }
+  }
+
+  // AxBaseAI resolveChatModelConfig (applySamplingSupport). Model info can mark
+  // temperature, topP and the presence/frequency penalties notSupported. The
+  // provider's own default for such a parameter is never sent. An explicit
+  // value (the client's model_config, a model key's config or the request's;
+  // the provider defaults are not merged in yet) is sent when the model accepts
+  // it while it does not reason (supported.samplingWithoutReasoning) and this
+  // request does not reason; otherwise it is dropped with a one-time warning
+  // naming the setting and the model. The provider's defaults then fill in
+  // under the explicit values.
+  op ax.provider.semantic @provider_apply_model_sampling_support_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/base.ts"
+    tag "axai-sampling-defaults"
+    type signature = "(profile:string, provider:string, transport:string, request:AxChatRequest, options:json) -> AxChatRequest throws"
+    body @entry(%profile: string, %provider: string, %transport: string, %request: AxChatRequest, %options: json) {
+      %empty_map = core.map
+      %opts = core.call intrinsic.coalesce(%options, %empty_map)
+      %model = core.get %request["model"] default ""
+      %model_info_snake = core.get %opts["model_info"]
+      %model_info = core.get %opts["modelInfo"] default %model_info_snake
+      %info = core.call @provider_find_model_info(%provider, %model, %model_info)
+      %has_info = core.call intrinsic.is_not_none(%info)
+      core.if %has_info {
+      } else {
+        // TS samplingModelInfo: a profile without model info (azure-openai,
+        // openai-compatible, ...) uses OpenAI's own info for a model named
+        // exactly like an o-series reasoning model.
+        %is_chat = core.call intrinsic.eq(%transport, "openai-chat")
+        %is_responses_transport = core.call intrinsic.eq(%transport, "openai-responses")
+        %openai_transport = core.call intrinsic.or(%is_chat, %is_responses_transport)
+        %o_series = core.regex_match %model pattern "^(?:o1|o1-mini|o1-pro|o3|o3-mini|o3-pro|o4-mini)$"
+        %use_openai_info = core.call intrinsic.and(%openai_transport, %o_series)
+        core.if %use_openai_info {
+          %no_user_info = core.call intrinsic.none()
+          %info = core.call @provider_find_model_info("openai", %model, %no_user_info)
+          %missing_chat_info = core.call intrinsic.is_none(%info)
+          core.if %missing_chat_info {
+            %info = core.call @provider_find_model_info("openai-responses", %model, %no_user_info)
+          }
+          %has_info = core.call intrinsic.is_not_none(%info)
+        }
+      }
+      %not_supported = core.map
+      %supported = core.map
+      core.if %has_info {
+        %not_supported_snake = core.get %info["not_supported"] default %empty_map
+        %not_supported_value = core.get %info["notSupported"] default %not_supported_snake
+        %not_supported = core.call intrinsic.coalesce(%not_supported_value, %empty_map)
+        %supported_value = core.get %info["supported"] default %empty_map
+        %supported = core.call intrinsic.coalesce(%supported_value, %empty_map)
+      }
+      %without_reasoning_snake = core.get %supported["sampling_without_reasoning"] default false
+      %without_reasoning_flag = core.get %supported["samplingWithoutReasoning"] default %without_reasoning_snake
+      %without_reasoning = core.call intrinsic.truthy(%without_reasoning_flag)
+      %model_config_camel = core.get %request["modelConfig"] default %empty_map
+      %model_config_value = core.get %request["model_config"] default %model_config_camel
+      %model_config = core.call intrinsic.coalesce(%model_config_value, %empty_map)
+      %config = core.call intrinsic.map.merge(%model_config, %empty_map)
+      %defaults = core.call @provider_default_model_config(%profile)
+      %keys = core.list
+      core.append %keys, "temperature"
+      core.append %keys, "topP"
+      core.append %keys, "presencePenalty"
+      core.append %keys, "frequencyPenalty"
+      core.for %key in %keys {
+        %snake = core.call @provider_sampling_snake_key_impl(%key)
+        %flag_snake = core.get %not_supported[%snake] default false
+        %flag = core.get %not_supported[%key] default %flag_snake
+        %rejected = core.call intrinsic.truthy(%flag)
+        core.if %rejected {
+          core.call intrinsic.map.delete(%defaults, %key)
+          core.call intrinsic.map.delete(%defaults, %snake)
+          %camel_value = core.get %config[%key]
+          %snake_value = core.get %config[%snake]
+          %has_camel = core.call intrinsic.is_not_none(%camel_value)
+          %has_snake = core.call intrinsic.is_not_none(%snake_value)
+          %is_explicit = core.call intrinsic.or(%has_camel, %has_snake)
+          core.if %is_explicit {
+            %keep = core.let false
+            core.if %without_reasoning {
+              %reasons = core.call @provider_sampling_request_reasons_impl(%transport, %model, %config, %supported)
+              %keep = core.call intrinsic.not(%reasons)
+            }
+            %drop = core.call intrinsic.not(%keep)
+            core.if %drop {
+              core.call intrinsic.map.delete(%config, %key)
+              core.call intrinsic.map.delete(%config, %snake)
+              core.call @provider_warn_dropped_sampling_impl(%model, %key, %without_reasoning)
+            }
+          }
+        }
+      }
+      %default_keys = core.call intrinsic.map.keys(%defaults)
+      core.for %default_key in %default_keys {
+        %default_snake = core.call @provider_sampling_snake_key_impl(%default_key)
+        %has_default_camel = core.call intrinsic.map.contains(%config, %default_key)
+        %has_default_snake = core.call intrinsic.map.contains(%config, %default_snake)
+        %configured = core.call intrinsic.or(%has_default_camel, %has_default_snake)
+        core.if %configured {
+        } else {
+          %default_value = core.get %defaults[%default_key]
+          core.set %config[%default_key] = %default_value
+        }
+      }
+      %out = core.call intrinsic.map.merge(%request, %empty_map)
+      core.set %out["model_config"] = %config
+      %has_camel_config = core.call intrinsic.map.contains(%request, "modelConfig")
+      core.if %has_camel_config {
+        core.set %out["modelConfig"] = %config
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_sampling_snake_key_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "axai-sampling-defaults"
+    type signature = "(string) -> string"
+    body @entry(%key: string) {
+      %is_top_p = core.call intrinsic.eq(%key, "topP")
+      core.if %is_top_p {
+        core.return "top_p"
+      }
+      %is_presence = core.call intrinsic.eq(%key, "presencePenalty")
+      core.if %is_presence {
+        core.return "presence_penalty"
+      }
+      %is_frequency = core.call intrinsic.eq(%key, "frequencyPenalty")
+      core.if %is_frequency {
+        core.return "frequency_penalty"
+      }
+      core.return %key
+    }
+  }
+
+  // Whether the model reasons on this request: the reasoning effort the OpenAI
+  // Chat or Responses payload will carry (a thinkingTokenBudget first, else the
+  // configured effort), and with none, the model's own default
+  // (supported.reasoningOffByDefault). TS: AxAIServiceImpl.resolveReasoningEffort.
+  op ax.provider.semantic @provider_sampling_request_reasons_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/base.ts"
+    tag "src/ax/ai/openai/api.ts"
+    tag "src/ax/ai/openai/responses_api.ts"
+    tag "axai-sampling-defaults"
+    type signature = "(transport:string, model:string, config:json, supported:json) -> bool throws"
+    body @entry(%transport: string, %model: string, %config: json, %supported: json) {
+      %budget_snake = core.get %config["thinking_token_budget"]
+      %budget = core.get %config["thinkingTokenBudget"] default %budget_snake
+      %has_budget = core.call intrinsic.is_not_none(%budget)
+      %is_responses = core.call intrinsic.eq(%transport, "openai-responses")
+      %effort = core.call intrinsic.none()
+      core.if %has_budget {
+        core.if %is_responses {
+          %effort = core.call @openai_reasoning_effort(%model, %budget)
+        } else {
+          %effort = core.call @openai_chat_reasoning_effort(%model, %budget)
+        }
+      } else {
+        %configured_snake = core.get %config["reasoning_effort"]
+        %effort = core.get %config["reasoningEffort"] default %configured_snake
+        core.if %is_responses {
+          %reasoning_value = core.get %config["reasoning"]
+          %has_reasoning_object = core.type_is %reasoning_value type "object"
+          core.if %has_reasoning_object {
+            %effort = core.get %reasoning_value["effort"]
+          }
+        }
+      }
+      %has_effort = core.call intrinsic.is_not_none(%effort)
+      core.if %has_effort {
+        %effort_none = core.call intrinsic.eq(%effort, "none")
+        %reasons = core.call intrinsic.not(%effort_none)
+        core.return %reasons
+      }
+      %off_snake = core.get %supported["reasoning_off_by_default"] default false
+      %off_flag = core.get %supported["reasoningOffByDefault"] default %off_snake
+      %off = core.call intrinsic.truthy(%off_flag)
+      %reasons_by_default = core.call intrinsic.not(%off)
+      core.return %reasons_by_default
+    }
+  }
+
+  // TS warnDroppedSampling: once per process for each model and setting.
+  op ax.provider.semantic @provider_warn_dropped_sampling_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/base.ts"
+    tag "axai-sampling-defaults"
+    type signature = "(model:string, key:string, without_reasoning_only:bool) -> void"
+    body @entry(%model: string, %key: string, %without_reasoning_only: bool) {
+      %reason = core.let "the model does not accept it"
+      core.if %without_reasoning_only {
+        %reason = core.let "the model accepts it only with reasoning effort none"
+      }
+      %message = core.call intrinsic.string.format("Ax dropped {} for {}: {}.", %key, %model, %reason)
+      %warning_key = core.call intrinsic.string.format("sampling:{}:{}", %model, %key)
+      core.call intrinsic.ai.warn_once(%warning_key, %message)
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_apply_prompt_cache_retention {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/openai/responses_api.ts"
+    type signature = "(payload:json, request:AxChatRequest, options:json, model:string) -> json"
+    body @entry(%payload: json, %request: AxChatRequest, %options: json, %model: string) {
+      // As in TS, an OpenAI Responses request sends promptCacheRetention from
+      // the call's options, else the service's, else the model config; GPT-6
+      // Astra refuses it, so it is left out there.
+      %empty_map = core.map
+      %model_config_snake = core.get %request["model_config"] default %empty_map
+      %model_config = core.get %request["modelConfig"] default %model_config_snake
+      %config_retention_snake = core.get %model_config["prompt_cache_retention"]
+      %config_retention = core.get %model_config["promptCacheRetention"] default %config_retention_snake
+      %option_retention_snake = core.get %options["prompt_cache_retention"] default %config_retention
+      %retention = core.get %options["promptCacheRetention"] default %option_retention_snake
+      %has_retention = core.call intrinsic.truthy(%retention)
+      %is_astra = core.call @openai_is_gpt6_astra_impl(%model)
+      %not_astra = core.call intrinsic.not(%is_astra)
+      %send = core.call intrinsic.and(%has_retention, %not_astra)
+      core.if %send {
+        core.set %payload["prompt_cache_retention"] = %retention
+      }
+      core.return %payload
     }
   }
 }

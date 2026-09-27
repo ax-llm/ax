@@ -19,6 +19,7 @@ import threading
 import time
 import uuid
 import urllib.error
+import warnings
 import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
@@ -633,6 +634,13 @@ def ai(provider: str = "openai", **options):
         raise ValueError(f"unsupported AxAI provider: expected a provider name, got {type(provider).__name__}")
     canonical = resolved.get("id")
     descriptor = provider_descriptor(canonical)
+    # A profile without a base URL of its own needs the caller's (TS
+    # resolveProfileURL); the generic client also takes OPENAI_BASE_URL.
+    url_options = {**(options.get("options") or {}), **options}
+    env_base_url = os.environ.get("OPENAI_BASE_URL")
+    if canonical == "openai-compatible" and env_base_url and not any(url_options.get(key) for key in ("base_url", "baseUrl", "apiURL")):
+        url_options["base_url"] = env_base_url
+    provider_require_api_url(canonical, url_options)
     transport = descriptor.get("transport")
     if transport == "openai-responses":
         return OpenAIResponsesClient(_profile=canonical, **options)
@@ -1116,6 +1124,9 @@ class AxBaseAI(AIClient):
             errors["rate"] = errors["count"] / errors["total"] if errors["total"] else 0.0
 
 
+_OPENAI_ENV_PROFILES = frozenset({"openai", "openai-responses", "openai-compatible"})
+
+
 class ProviderOperationClient(AxBaseAI):
     def owned_worker_factory(self):
         transport_factory = None
@@ -1169,18 +1180,27 @@ class ProviderOperationClient(AxBaseAI):
             features=descriptor.get("features") or default_features(),
         )
         self.profile = profile
+        # Only the caller's settings: provider_build_chat_request adds the
+        # provider's sampling defaults (as its TS class starts from) under them,
+        # after dropping the explicit ones the model rejects.
+        self.model_config = copy.deepcopy(model_config or {})
         if profile == "typesafe":
-            self.model_config = copy.deepcopy(model_config or {})
             typesafe_require_number(self.options.get("trueThreshold", self.options.get("true_threshold", 0.5)), "trueThreshold", 0, 1)
         self.descriptor = descriptor
-        self.base_url = (base_url or (os.environ.get("OPENAI_BASE_URL") if profile != "typesafe" else None) or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
+        # OPENAI_BASE_URL and OPENAI_API_KEY belong to OpenAI's own profiles and
+        # the generic client; any other provider's key never goes to that host,
+        # and the OpenAI key never goes to another provider.
+        reads_openai_env = profile in _OPENAI_ENV_PROFILES
+        self.base_url = (base_url or (os.environ.get("OPENAI_BASE_URL") if reads_openai_env else None) or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
         self.base_url_override = base_url.rstrip("/") if base_url else None
-        self.api_key = api_key or (os.environ.get("TYPESAFE_APIKEY") or os.environ.get("TYPESAFE_API_KEY") if profile == "typesafe" else os.environ.get("OPENAI_API_KEY"))
+        if profile == "typesafe":
+            env_api_key = os.environ.get("TYPESAFE_APIKEY") or os.environ.get("TYPESAFE_API_KEY")
+        else:
+            env_api_key = os.environ.get("OPENAI_API_KEY") if reads_openai_env else None
+        self.api_key = api_key or env_api_key
         self.credential_provider = credential_provider or credentialProvider
         if self.descriptor.get("authRequired") and not self.api_key and not self.credential_provider:
-            raise AxAIServiceAuthenticationError(
-                f"{self.profile} requires api_key or credential_provider"
-            )
+            raise AxAIServiceAuthenticationError(provider_missing_api_key_message(self.profile))
         self.api_version = descriptor.get("apiVersion") or api_version
         self.timeout = timeout
         self.transport = transport
@@ -2033,8 +2053,10 @@ class GoogleGeminiClient(ProviderOperationClient):
         if embed_model is None:
             embed_model = options.pop("embedModel", "gemini-embedding-2")
         is_vertex = bool((options.get("project_id") or options.get("projectId")) and options.get("region"))
-        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or (os.environ.get("GOOGLE_VERTEX_ACCESS_TOKEN") if is_vertex else None) or os.environ.get("GOOGLE_APIKEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("GOOGLE_GEMINI_BASE_URL")
+        # The Google env vars belong to the google-gemini profile only.
+        own_env = _profile == "google-gemini"
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or ((os.environ.get("GOOGLE_VERTEX_ACCESS_TOKEN") if is_vertex else None) or os.environ.get("GOOGLE_APIKEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY") if own_env else None)
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or (os.environ.get("GOOGLE_GEMINI_BASE_URL") if own_env else None)
         super().__init__(
             _profile,
             _profile,
@@ -2050,8 +2072,11 @@ class AnthropicClient(ProviderOperationClient):
     def __init__(self, _profile="anthropic", **options):
         descriptor = provider_descriptor(_profile)
         is_vertex = bool((options.get("project_id") or options.get("projectId")) and options.get("region"))
-        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or (os.environ.get("GOOGLE_VERTEX_ACCESS_TOKEN") if is_vertex else None) or os.environ.get("ANTHROPIC_API_KEY")
-        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("ANTHROPIC_BASE_URL")
+        # The Anthropic env vars belong to the anthropic profile only: an
+        # Anthropic key never goes to another anthropic-messages host.
+        own_env = _profile == "anthropic"
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or ((os.environ.get("GOOGLE_VERTEX_ACCESS_TOKEN") if is_vertex else os.environ.get("ANTHROPIC_API_KEY")) if own_env else None)
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or (os.environ.get("ANTHROPIC_BASE_URL") if own_env else None)
         super().__init__(
             _profile,
             _profile,
@@ -3333,6 +3358,35 @@ def _core_ai_error_timeout(message, status=None, code=None, response_body=None, 
 
 def _core_ai_error_status(message, status=None, code=None, response_body=None, request=None, retryable=False):
     return AxAIServiceStatusError(str(message), status=status, code=code, response_body=response_body, request=request, retryable=bool(retryable))
+
+
+_CORE_AI_WARNINGS_SHOWN: set[str] = set()
+_CORE_AI_WARNINGS_LOCK = threading.Lock()
+_core_ai_warning_sink: Callable[[str], None] | None = None
+
+
+def _core_ai_warn_once(key, message):
+    # TS console.warn, once per key per process: a setting Ax could not send,
+    # such as a sampling parameter the selected model rejects.
+    with _CORE_AI_WARNINGS_LOCK:
+        if key in _CORE_AI_WARNINGS_SHOWN:
+            return None
+        _CORE_AI_WARNINGS_SHOWN.add(key)
+        sink = _core_ai_warning_sink
+    if sink is not None:
+        sink(str(message))
+    else:
+        warnings.warn(str(message), UserWarning, stacklevel=2)
+    return None
+
+
+def _core_ai_capture_warnings(sink):
+    # Conformance hook: forgets the one-time warnings already shown and sends
+    # new ones to ``sink`` (None shows them as warnings again).
+    global _core_ai_warning_sink
+    with _CORE_AI_WARNINGS_LOCK:
+        _CORE_AI_WARNINGS_SHOWN.clear()
+        _core_ai_warning_sink = sink
 
 
 # AXIR_CORE_AI_FUNCTIONS

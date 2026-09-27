@@ -501,6 +501,26 @@
       "state": "VERIFIED IN ALL FIVE LANGUAGES against TypeScript goldens: the order of model requests and observer callbacks, and run-control events with paths."
     },
     {
+      "capability": "agent.runtime.stage_mode",
+      "summary": "Each run's stages follow its runtime, the constructor's, else the forward call's: a run with a runtime runs the RLM stages, as TypeScript's agent always does with its default JavaScript runtime, and a run without one runs the ports' runtime-less stages. Both stage sets are kept, with the standing instruction and optimized components, and set_signature rebuilds them.",
+      "ir_ops": [
+        "@agent_use_stage_mode",
+        "@agent_runtime_stage_fields",
+        "@agent_actor_stage_signatures",
+        "@agent_runtime_configured"
+      ],
+      "fixtures": [
+        "axagent/agent-forward-runtime-on-forward.json",
+        "axagent/agent-streaming-forward-runtime-on-forward.json",
+        "axagent/agent-forward-runtime-per-run.json",
+        "axagent/agent-forward-runtime-after-set-signature.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES: TypeScript goldens pin an agent built without a runtime and run with one on the forward call (forward and streaming); port-only fixtures pin runs with, without and with a runtime (the standing instruction and an optimized responder instruction in every run) and a run after set_signature. With the switch disabled all four fail in all five ports."
+    },
+    {
       "capability": "agent.responder.parse_dates",
       "summary": "The agent's parse_dates opt-in reaches the responder, the forward call's first, then responderOptions', then the agent constructor's, so date-typed output fields come back as TypeScript's JSON of its Dates in forward and streaming; without it they keep the model's text.",
       "ir_ops": ["@agent_stage_options", "@agent_stage_parse_dates"],

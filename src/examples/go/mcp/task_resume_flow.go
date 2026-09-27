@@ -43,7 +43,7 @@ func main() {
 	mcp := ax.NewAxMCPEventSource(client, "inventory", "tenant:demo", "authenticated", nil)
 	started := &ax.AxPushEventSource{ID: "task-started", IdentityScope: "tenant:demo", Trust: "authenticated"}
 	program := ax.NewFlow(map[string]ax.Value{"id": "reindex-flow"}).Execute("status", ax.NewAx("taskId:string -> status:string", nil), nil).Returns(map[string]ax.Value{"status": "status"})
-	llm := ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": key, "model": "gpt-5.4-mini"})
+	llm := ax.NewAI("openai", map[string]ax.Value{"api_key": key, "model": "gpt-5.4-mini"})
 	done := make(chan struct{}, 1)
 	var calls atomic.Int32
 	target := ax.AxEventTarget{ID: "reindex-flow", RetrySafety: "idempotent", WaitFor: []map[string]ax.Value{{"kind": "mcp.task", "value": "taskKey", "metadata": map[string]ax.Value{}}},

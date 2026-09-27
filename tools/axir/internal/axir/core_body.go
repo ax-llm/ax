@@ -100,6 +100,7 @@ const (
 	IntrinsicAIErrorAuth               CoreIntrinsic = "intrinsic.ai.error.auth"
 	IntrinsicAIErrorTimeout            CoreIntrinsic = "intrinsic.ai.error.timeout"
 	IntrinsicAIErrorStatus             CoreIntrinsic = "intrinsic.ai.error.status"
+	IntrinsicAIWarnOnce                CoreIntrinsic = "intrinsic.ai.warn_once"
 	IntrinsicStringEndsWith            CoreIntrinsic = "intrinsic.string.ends_with"
 	IntrinsicStringJoin                CoreIntrinsic = "intrinsic.string.join"
 	IntrinsicStringLower               CoreIntrinsic = "intrinsic.string.lower"
@@ -161,6 +162,7 @@ const (
 	IntrinsicAgentRuntimeExport        CoreIntrinsic = "intrinsic.agent.runtime.export_state"
 	IntrinsicAgentRuntimeRestore       CoreIntrinsic = "intrinsic.agent.runtime.restore_state"
 	IntrinsicAgentRuntimeClose         CoreIntrinsic = "intrinsic.agent.runtime.close"
+	IntrinsicAgentRuntimeLanguage      CoreIntrinsic = "intrinsic.agent.runtime.language"
 	IntrinsicAgentMemorySearch         CoreIntrinsic = "intrinsic.agent.memory_search"
 	IntrinsicAgentSkillSearch          CoreIntrinsic = "intrinsic.agent.skill_search"
 	IntrinsicAgentObserverNotify       CoreIntrinsic = "intrinsic.agent.observer.notify"
@@ -259,6 +261,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAIErrorAuth:               "_core_ai_error_auth",
 	IntrinsicAIErrorTimeout:            "_core_ai_error_timeout",
 	IntrinsicAIErrorStatus:             "_core_ai_error_status",
+	IntrinsicAIWarnOnce:                "_core_ai_warn_once",
 	IntrinsicStringEndsWith:            "_core_string_ends_with",
 	IntrinsicStringJoin:                "_core_string_join",
 	IntrinsicStringLower:               "_core_string_lower",
@@ -320,6 +323,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAgentRuntimeExport:        "_core_agent_runtime_export_state",
 	IntrinsicAgentRuntimeRestore:       "_core_agent_runtime_restore_state",
 	IntrinsicAgentRuntimeClose:         "_core_agent_runtime_close",
+	IntrinsicAgentRuntimeLanguage:      "_core_agent_runtime_language",
 	IntrinsicAgentMemorySearch:         "_core_agent_memory_search",
 	IntrinsicAgentSkillSearch:          "_core_agent_skill_search",
 	IntrinsicAgentObserverNotify:       "_core_agent_observer_notify",
@@ -433,6 +437,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.ai.error.auth":                         true,
 	"intrinsic.ai.error.timeout":                      true,
 	"intrinsic.ai.error.status":                       true,
+	"intrinsic.ai.warn_once":                          true,
 	"intrinsic.description.append":                    true,
 	"intrinsic.error.signature":                       true,
 	"intrinsic.error.validation":                      true,
@@ -504,6 +509,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.agent.runtime.export_state":            true,
 	"intrinsic.agent.runtime.restore_state":           true,
 	"intrinsic.agent.runtime.close":                   true,
+	"intrinsic.agent.runtime.language":                true,
 	"intrinsic.agent.memory_search":                   true,
 	"intrinsic.agent.skill_search":                    true,
 	"intrinsic.agent.observer.notify":                 true,
@@ -802,6 +808,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.agent.runtime.export_state":      intrinsicInfo("intrinsic.agent.runtime.export_state", 2, 2, true, "json"),
 	"intrinsic.agent.runtime.restore_state":     intrinsicInfo("intrinsic.agent.runtime.restore_state", 3, 3, true, "json"),
 	"intrinsic.agent.runtime.close":             intrinsicInfo("intrinsic.agent.runtime.close", 1, 1, true, "json"),
+	"intrinsic.agent.runtime.language":          intrinsicInfo("intrinsic.agent.runtime.language", 1, 1, true, "string"),
 	"intrinsic.agent.memory_search":             intrinsicInfo("intrinsic.agent.memory_search", 3, 3, true, "json"),
 	"intrinsic.agent.skill_search":              intrinsicInfo("intrinsic.agent.skill_search", 2, 2, true, "json"),
 	"intrinsic.agent.observer.notify":           intrinsicInfo("intrinsic.agent.observer.notify", 4, 4, true, "json"),
@@ -830,6 +837,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.axgen.call_processor":            intrinsicInfo("intrinsic.axgen.call_processor", 3, 3, true, "json"),
 	"intrinsic.axgen.check_streaming_assertion": intrinsicInfo("intrinsic.axgen.check_streaming_assertion", 3, 3, true, "json"),
 	"intrinsic.axgen.deprecation":               intrinsicInfo("intrinsic.axgen.deprecation", 2, 2, true, "void"),
+	"intrinsic.ai.warn_once":                    intrinsicInfo("intrinsic.ai.warn_once", 2, 2, true, "void"),
 	"intrinsic.axgen.speak":                     intrinsicInfo("intrinsic.axgen.speak", 3, 3, true, "json"),
 	"intrinsic.date.zone_offset":                intrinsicInfo("intrinsic.date.zone_offset", 2, 2, true, "f64"),
 	"intrinsic.axgen.caching_function":          intrinsicInfo("intrinsic.axgen.caching_function", 2, 2, true, "json"),

@@ -1,23 +1,23 @@
 {
   "target": "python",
   "enforced": true,
-  "emitted_functions": 914,
+  "emitted_functions": 933,
   "files": {
     "axllm/agent.py": {
-      "emitted_lines": 9195,
-      "total_lines": 12011
+      "emitted_lines": 9613,
+      "total_lines": 12458
     },
     "axllm/ai.py": {
-      "emitted_lines": 11898,
-      "total_lines": 15449
+      "emitted_lines": 12180,
+      "total_lines": 15785
     },
     "axllm/flow.py": {
       "emitted_lines": 2424,
       "total_lines": 3153
     },
     "axllm/gen.py": {
-      "emitted_lines": 13860,
-      "total_lines": 15518
+      "emitted_lines": 13862,
+      "total_lines": 15520
     },
     "axllm/mcp.py": {
       "emitted_lines": 2328,

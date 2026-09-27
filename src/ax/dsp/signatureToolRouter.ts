@@ -303,11 +303,3 @@ function sanitizeFieldName(name: string): string {
     .replace(/^_|_$/g, '')
     .replace(/[^a-z0-9_]/g, '_');
 }
-
-function _formatTitle(name: string): string {
-  // Convert camelCase to Title Case
-  return name
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, (str) => str.toUpperCase())
-    .trim();
-}

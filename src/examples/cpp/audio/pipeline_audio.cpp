@@ -53,8 +53,8 @@ int main() {
   std::ostringstream buffer;
   buffer << file.rdbuf();
   axllm::Value transcript = client.transcribe(axllm::object({{"audio", b64encode(buffer.str())}, {"language", "en"}, {"model", "gpt-4o-mini-transcribe"}, {"format", "json"}}));
-  axllm::OpenAICompatibleClient text_client(axllm::object({{"api_key", key}, {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model}, {"model_config", axllm::object({{"temperature", 0}})}}));
+  auto text_client = axllm::ai("openai", axllm::object({{"api_key", key}, {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model}, {"model_config", axllm::object({{"temperature", 0}})}}));
   axllm::AxGen summarize = axllm::ax("transcript:string -> summary:string, followUps:string[]");
-  axllm::Value result = summarize.forward(text_client, axllm::object({{"transcript", axllm::Core::get(transcript, "text")}}));
+  axllm::Value result = summarize.forward(*text_client, axllm::object({{"transcript", axllm::Core::get(transcript, "text")}}));
   std::cout << axllm::stringify(axllm::object({{"transcript", axllm::Core::get(transcript, "text")}, {"result", result}})) << "\n";
 }

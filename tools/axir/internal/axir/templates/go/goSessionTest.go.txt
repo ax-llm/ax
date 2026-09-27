@@ -817,6 +817,70 @@ func TestActorMCPInvocationCancellation(t *testing.T){
  program.InvokeCallable("tools.lookup",Object("query","probe"),Object("context",ctx))
 }
 
+// sessionRoutingClient opens a native chat session when the features of the
+// requested model have asyncTools (it records the attempt and refuses it),
+// and otherwise answers the chat, after a 503 with unavailableFirst.
+type sessionRoutingClient struct {
+	asyncModel       string // the model with asyncTools; "" for every model
+	unavailableFirst bool
+	sessions         int
+	chats            int
+}
+
+func (c *sessionRoutingClient) GetFeatures(model string) map[string]Value {
+	return Object("functions", true, "structured_outputs", true, "asyncTools", c.asyncModel == "" || model == c.asyncModel)
+}
+func (c *sessionRoutingClient) OpenChatSession(context.Context, map[string]Value, map[string]Value) (AxChatSession, error) {
+	c.sessions++
+	return nil, fmt.Errorf("native chat session opened")
+}
+func (c *sessionRoutingClient) Chat(context.Context, map[string]Value, map[string]Value) (Value, error) {
+	c.chats++
+	if c.unavailableFirst && c.chats == 1 {
+		return nil, AIServiceError{AxError{Category: "ai", Type: "AxAIServiceStatusError", Message: "Service Unavailable", Status: 503, Retryable: true}}
+	}
+	return Object("results", Array(Object("content", "Answer: ok", "function_calls", Array()))), nil
+}
+func (c *sessionRoutingClient) Embed(context.Context, map[string]Value, map[string]Value) (Value, error) {
+	return nil, nil
+}
+func (c *sessionRoutingClient) Stream(context.Context, map[string]Value, map[string]Value) ([]Value, error) {
+	return nil, nil
+}
+
+// TestConstructorOptionsChooseTheNativeSession: as in TypeScript, the AxGen
+// constructor's asyncMode and model are defaults for every forward, so they
+// decide, as the call's do, whether a run with a background tool uses the
+// client's native chat session.
+func TestConstructorOptionsChooseTheNativeSession(t *testing.T) {
+	ctx := context.Background()
+	question := map[string]Value{"question": "Status?"}
+	background := Fn("lookup").Execution("background").WithHandler(func(map[string]Value) (Value, error) { return "green", nil })
+
+	// asyncMode "off" in the constructor keeps the run off the native session
+	// and off the session run, whose requests are not retried: the 503 is.
+	offClient := &sessionRoutingClient{unavailableFirst: true}
+	off := NewAx("question:string -> answer:string", map[string]Value{"functions": Array(background), "asyncMode": "off"})
+	if out, err := off.Forward(ctx, offClient, question, nil); err != nil || coreGet(out, "answer", nil) != "ok" || offClient.sessions != 0 || offClient.chats != 2 {
+		t.Fatalf("constructor asyncMode off = %v, %v with %d sessions and %d chats, want the chat retried once", out, err, offClient.sessions, offClient.chats)
+	}
+
+	// A constructor control puts the run behind a control boundary, which
+	// also keeps to the constructor's asyncMode when it picks the client.
+	controlClient := &sessionRoutingClient{}
+	controlled := NewAx("question:string -> answer:string", map[string]Value{"asyncMode": "off", "control": RunControl()})
+	if out, err := controlled.Forward(ctx, controlClient, question, nil); err != nil || coreGet(out, "answer", nil) != "ok" || controlClient.sessions != 0 || controlClient.chats != 1 {
+		t.Fatalf("constructor control with asyncMode off = %v, %v with %d sessions and %d chats, want the chat", out, err, controlClient.sessions, controlClient.chats)
+	}
+
+	// A constructor model whose features have asyncTools opens the session.
+	modelClient := &sessionRoutingClient{asyncModel: "session-model"}
+	withModel := NewAx("question:string -> answer:string", map[string]Value{"functions": Array(background), "model": "session-model"})
+	if _, err := withModel.Forward(ctx, modelClient, question, nil); modelClient.sessions != 1 || modelClient.chats != 0 {
+		t.Fatalf("constructor model with asyncTools = %v with %d sessions and %d chats, want the native session", err, modelClient.sessions, modelClient.chats)
+	}
+}
+
 // Agent streams don't cover async run sessions yet: under a run control on a
 // session-capable client, StreamingForward streams the responder through the
 // request boundary, as AxGen.StreamingForward does, and the run reports its

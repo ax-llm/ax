@@ -21,8 +21,7 @@ public final class ProviderStreamExample {
     ));
     long started = System.nanoTime();
     try (AxChatStream stream = client.openStream(Map.of(
-      "chat_prompt", List.of(Map.of("role", "user", "content", "Reply with exactly: streaming works")),
-      "model_config", Map.of("temperature", 1)
+      "chat_prompt", List.of(Map.of("role", "user", "content", "Reply with exactly: streaming works"))
     ))) {
       for (Map<String, Object> event : stream) {
         List<?> results = (List<?>) event.get("results");

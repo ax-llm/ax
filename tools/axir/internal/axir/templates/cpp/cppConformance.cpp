@@ -899,6 +899,13 @@ static void run_forward(Value fixture) {
   Value sig = build_signature(fixture);
   ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
   Value options = Core::map_merge(Core::get(fixture, "options", Value::object()), Value(Object{{"functions", tool_build.values}}));
+  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
+  client.script_speak(fixture);
+  auto control_events = std::make_shared<FixtureControlEvents>();
+  // constructor_control: the run control is a constructor default, not a
+  // call option.
+  std::optional<AxRunControl> constructor_control;
+  if (Core::truthy(Core::get(fixture, "constructor_control", false))) constructor_control = attach_fixture_control(fixture, client, options, control_events);
   AxGen gen(sig, options);
   if (!Core::get(fixture, "examples").is_null()) gen.set_examples(Core::get(fixture, "examples"));
   if (!Core::get(fixture, "demos").is_null()) gen.set_demos(Core::get(fixture, "demos"));
@@ -919,10 +926,7 @@ static void run_forward(Value fixture) {
       return std::stoi(display(picker_index));
     });
   }
-  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
-  client.script_speak(fixture);
   Value forward_options = Core::get(fixture, "forward_options", Value::object());
-  auto control_events = std::make_shared<FixtureControlEvents>();
   std::optional<AxRunControl> control;
   if (Core::truthy(Core::get(fixture, "control", false))) {
     forward_options = Core::map_merge(Value::object(), forward_options);
@@ -1022,6 +1026,13 @@ static void run_streaming_forward(Value fixture) {
   Value sig = build_signature(fixture);
   ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
   Value options = Core::map_merge(Core::get(fixture, "options", Value::object()), Value(Object{{"functions", tool_build.values}}));
+  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
+  client.script_speak(fixture);
+  auto control_events = std::make_shared<FixtureControlEvents>();
+  // constructor_control: the run control is a constructor default, not a
+  // call option.
+  std::optional<AxRunControl> constructor_control;
+  if (Core::truthy(Core::get(fixture, "constructor_control", false))) constructor_control = attach_fixture_control(fixture, client, options, control_events);
   AxGen gen(sig, options);
   for (const auto& assertion : Core::iter(Core::get(fixture, "assertions", Value::array()))) gen.add_assert(assertion);
   for (const auto& assertion : Core::iter(Core::get(fixture, "streaming_assertions", Value::array()))) gen.add_streaming_assert(assertion);
@@ -1039,10 +1050,7 @@ static void run_streaming_forward(Value fixture) {
     gen.set_result_picker([index](const Value&) { return index; });
   }
   if (!Core::get(fixture, "stop_functions").is_null()) gen.set_stop_functions(Core::get(fixture, "stop_functions", Value::array()));
-  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
-  client.script_speak(fixture);
   Value run_options = Core::map_merge(Value::object(), Core::get(fixture, "forward_options", Value::object()));
-  auto control_events = std::make_shared<FixtureControlEvents>();
   std::optional<AxRunControl> control;
   if (Core::truthy(Core::get(fixture, "control", false))) control = attach_fixture_control(fixture, client, run_options, control_events);
   // stop_after_deltas: the handler stops the run after that many deltas.
@@ -1174,7 +1182,15 @@ static void run_cache_sequence(Value fixture) {
   auto cache = std::make_shared<FixtureCache>();
   AxCachingFunction fn = fixture_caching_function(fixture, cache);
   std::string cache_in = Core::truthy(Core::get(fixture, "cache_in")) ? display(Core::get(fixture, "cache_in")) : "call";
-  AxGen gen(build_signature(fixture), Core::map_merge(Value::object(), Core::get(fixture, "options", Value::object())));
+  Value options = Core::map_merge(Value::object(), Core::get(fixture, "options", Value::object()));
+  // constructor_control: a run control in the constructor's options, which
+  // skips the cache as a call's does.
+  std::optional<AxRunControl> constructor_control;
+  if (Core::truthy(Core::get(fixture, "constructor_control", false))) {
+    constructor_control = run_control();
+    Core::set(options, "control", constructor_control->value());
+  }
+  AxGen gen(build_signature(fixture), options);
   if (cache_in == "constructor") gen.set_caching_function(fn);
   Value picker_index = Core::get(fixture, "result_picker_index");
   if (!picker_index.is_null()) {
@@ -1944,6 +1960,17 @@ static void run_agent_playbook_evolve(Value fixture) {
       }
       assert_equal(Value(prompts), expected_teacher_prompts, label + " teacher system prompts");
     }
+    Value expected_teacher_users = Core::get(test_case, "expected_teacher_user_messages");
+    if (!expected_teacher_users.is_null()) {
+      // Each teacher request's user message, in call order, byte for byte.
+      Array messages;
+      for (const auto& request : teacher.requests) {
+        for (const auto& message : Core::iter(Core::get(request, "chat_prompt", Value::array()))) {
+          if (display(Core::get(message, "role")) == "user") messages.push_back(Core::get(message, "content"));
+        }
+      }
+      assert_equal(Value(messages), expected_teacher_users, label + " teacher user messages");
+    }
     if (outcomes.empty()) {
       if (!Core::get(expected, "outcome_count").is_null() && Core::number(Core::get(expected, "outcome_count")) == 0) continue;
       throw AxError("fixture", label + " produced no outcome: " + stringify(actual));
@@ -2058,6 +2085,8 @@ static std::string agent_request_stage(const Value& request) {
   if (system.find("You (`distiller`)") != std::string::npos) return "distiller";
   if (system.find("You (`executor`)") != std::string::npos) return "executor";
   if (system.find("`Generator answer`") != std::string::npos || system.find("`Question context`") != std::string::npos) return "playbook";
+  // The ports' runtime-less distiller or executor (port-only).
+  if (system.find("Your task is to generate new fields: `Completion`") != std::string::npos) return "runtime_less";
   if (system.find("context-map Distiller") != std::string::npos || system.find("context-map Cartographer") != std::string::npos) return "context_map";
   return "responder";
 }
@@ -2158,6 +2187,13 @@ static void run_agent_forward(Value fixture) {
     throw AxError("fixture", "agent_runtime_real requires building conformance with -DAX_CONFORMANCE_QUICKJS and the quickjs runtime");
   }
 #endif
+  // runtime_on_forward: the runtime goes on each forward call (unless a run
+  // says without_runtime) instead of the constructor.
+  Value forward_runtime;
+  if (Core::truthy(Core::get(fixture, "runtime_on_forward", false)) && !Core::get(agent_options, "runtime").is_null()) {
+    forward_runtime = Core::get(agent_options, "runtime");
+    Core::map_delete(agent_options, Value("runtime"));
+  }
   std::map<std::string,std::shared_ptr<AxMCPScriptedTransport>> mcp_transports;
   std::map<std::string,std::vector<std::shared_ptr<AxMCPClient>>> context_clients;
   std::map<std::string,std::shared_ptr<AxExecutionContext>> contexts;
@@ -2218,6 +2254,7 @@ static void run_agent_forward(Value fixture) {
     }
     if (!Core::get(fixture, "set_state").is_null()) ag->set_state(Core::get(fixture, "set_state"));
     if (!Core::get(fixture, "restore_runtime_state").is_null()) ag->restore_runtime_state(Core::get(fixture, "restore_runtime_state"));
+    if (!Core::get(fixture, "apply_components").is_null()) ag->apply_optimized_components(parse_json(stringify(Core::get(fixture, "apply_components"))));
     Value output;
     Value forward_runs = Core::get(fixture, "forward_runs");
     if (!forward_runs.is_null()) {
@@ -2233,9 +2270,11 @@ static void run_agent_forward(Value fixture) {
               {"loaded_skill_docs", Core::get(restored, "loaded_skill_docs", Value::array())},
           }));
         }
-        Value forward_options = Core::get(run, "forward_options", Value::object());
+        if (!Core::get(run, "set_signature").is_null()) ag->set_signature(Core::get(run, "set_signature"));
+        Value forward_options = parse_json(stringify(Core::get(run, "forward_options", Value::object())));
         install_semantic_observer(forward_options, "onUsedSkills", "forward.used_skills", false);
         install_semantic_observer(forward_options, "onUsedMemories", "forward.used_memories", false);
+        if (!forward_runtime.is_null() && !Core::truthy(Core::get(run, "without_runtime", false))) Core::set(forward_options, "runtime", forward_runtime);
         Core::append(output, ag->forward(client, Core::get(run, "input", Value::object()), forward_options));
         Value run_exported = ag->export_runtime_state();
         if (Core::truthy(Core::get(run, "save_runtime_state", false))) {
@@ -2256,6 +2295,7 @@ static void run_agent_forward(Value fixture) {
       install_semantic_observer(forward_options, "onUsedSkills", "forward.used_skills", false);
       install_semantic_observer(forward_options, "onUsedMemories", "forward.used_memories", false);
       if (run_control_handle) Core::set(forward_options, "control", run_control_handle->value());
+      if (!forward_runtime.is_null()) Core::set(forward_options, "runtime", forward_runtime);
       if (streaming) {
         Value stop_after = Core::get(fixture, "stop_after_deltas");
         output = ag->streaming_forward(client, Core::get(fixture, "input", Value::object()), forward_options, [&](const AxGenDelta& delta) {
@@ -2832,7 +2872,9 @@ struct ClientFixture {
     Value descriptor = Core::provider_descriptor(provider);
     std::string provider_transport = display(Core::get(descriptor, "transport"));
     std::unique_ptr<OpenAICompatibleClient> client;
-    if (provider_transport == "gemini-generate-content") client = std::make_unique<GoogleGeminiClient>(provider, options(fixture), transport);
+    // client_class builds the generic client by its own public constructor.
+    if (display(Core::get(fixture, "client_class", "")) == "OpenAICompatibleClient") client = std::make_unique<OpenAICompatibleClient>(options(fixture), transport);
+    else if (provider_transport == "gemini-generate-content") client = std::make_unique<GoogleGeminiClient>(provider, options(fixture), transport);
     else if (provider_transport == "anthropic-messages") client = std::make_unique<AnthropicClient>(provider, options(fixture), transport);
     else if (provider_transport == "openai-responses") client = std::make_unique<OpenAIResponsesClient>(provider, options(fixture), transport);
     else client = std::make_unique<OpenAICompatibleClient>(provider,
@@ -2870,7 +2912,8 @@ struct ClientFixture {
     std::string default_embed_model = display(Core::get(descriptor, "defaultEmbedModel", ""));
     Core::set(out, "model", Core::get(fixture, "model", default_model));
     Core::set(out, "embed_model", Core::get(fixture, "embed_model", default_embed_model));
-    Core::set(out, "api_key", Core::get(fixture, "api_key", "test-key"));
+    // no_api_key: the client gets no key argument (the env fixtures).
+    if (!Core::truthy(Core::get(fixture, "no_api_key", false))) Core::set(out, "api_key", Core::get(fixture, "api_key", "test-key"));
     Core::set(out, "model_config", Core::get(fixture, "model_config", Value::object()));
     Core::set(out, "options", Core::get(fixture, "service_options", Core::get(fixture, "options", Value::object())));
     for (const std::string& key : {"base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version"}) {
@@ -2969,14 +3012,67 @@ static void assert_ai_error(const AxError& error, Value fixture, const ScriptedT
   assert_transport(fixture, transport);
 }
 
+struct SavedEnvVar {
+  std::string name;
+  bool present;
+  std::string value;
+};
+
+// Sets (or, for null, unsets) the fixture's environment variables.
+static std::vector<SavedEnvVar> apply_fixture_env(Value fixture) {
+  std::vector<SavedEnvVar> saved;
+  Value env = Core::get(fixture, "env", Value::object());
+  for (const auto& key_value : Core::iter(Core::map_keys(env))) {
+    std::string name = display(key_value);
+    const char* previous = std::getenv(name.c_str());
+    saved.push_back({name, previous != nullptr, previous == nullptr ? std::string() : std::string(previous)});
+    Value value = Core::get(env, name);
+    if (value.is_null()) unsetenv(name.c_str());
+    else setenv(name.c_str(), display(value).c_str(), 1);
+  }
+  return saved;
+}
+
+static void restore_fixture_env(const std::vector<SavedEnvVar>& saved) {
+  for (const auto& entry : saved) {
+    if (entry.present) setenv(entry.name.c_str(), entry.value.c_str(), 1);
+    else unsetenv(entry.name.c_str());
+  }
+}
+
+static void run_ai_chat_request(Value fixture);
+
+// A chat fixture can set environment variables, and pins the one-time
+// warnings the request logs with expected_warnings.
 static void run_ai_chat(Value fixture) {
-  ClientFixture cf(fixture);
+  std::vector<SavedEnvVar> saved = apply_fixture_env(fixture);
+  Value captured = Value::array();
+  Core::ai_capture_warnings([&captured](const std::string& message) { Core::append(captured, Value(message)); });
+  try {
+    run_ai_chat_request(fixture);
+  } catch (...) {
+    Core::ai_capture_warnings({});
+    restore_fixture_env(saved);
+    throw;
+  }
+  Core::ai_capture_warnings({});
+  restore_fixture_env(saved);
+  Value expected_warnings = Core::get(fixture, "expected_warnings");
+  if (!expected_warnings.is_null()) assert_equal(captured, expected_warnings, "ai chat warnings");
+}
+
+static void run_ai_chat_request(Value fixture) {
+  std::unique_ptr<ClientFixture> built;
   // Fixture "options" are the call options (service_options configure the client).
   Value call_options = Core::get(fixture, "options");
   Value result = expect_maybe_error([&] {
+    built = std::make_unique<ClientFixture>(fixture);
     Value request = Core::get(fixture, "request", Value::object());
-    return call_options.is_null() ? cf.client->chat(request) : cf.client->chat(request, call_options);
+    return call_options.is_null() ? built->client->chat(request) : built->client->chat(request, call_options);
   }, fixture);
+  // A client that fails to build has sent nothing.
+  if (!built) return;
+  ClientFixture& cf = *built;
   if (!Core::get(fixture, "expected_error_contains").is_null()) { assert_transport(fixture, cf.transport, *cf.credential_requests); return; }
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(result, expected, "ai chat output");

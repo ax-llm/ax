@@ -10,6 +10,7 @@ import {
   createBalancerRouteStats,
   sampleBalancerRouteHealth,
 } from '../../../src/ax/ai/balance_adaptive.js';
+import { resetDroppedSamplingWarnings } from '../../../src/ax/ai/base.js';
 import { axGetSupportedAIModels } from '../../../src/ax/ai/catalog.js';
 import { AxAICohereEmbedModel } from '../../../src/ax/ai/cohere/types.js';
 import {
@@ -30,7 +31,7 @@ import {
 import { AxAIOpenAIResponses } from '../../../src/ax/ai/openai/responses_api_base.js';
 import { axGetAIProfile } from '../../../src/ax/ai/provider_profiles.js';
 import { AxProviderRouter } from '../../../src/ax/ai/router.js';
-import { AxAI } from '../../../src/ax/ai/wrap.js';
+import { ai } from '../../../src/ax/ai/wrap.js';
 import {
   axAIGrokDefaultConfig,
   axAIGrokVoiceDefaultConfig,
@@ -3503,6 +3504,7 @@ writeFixture('openai-legacy-reasoning-none-control', {
 writeFixture('responses-simple-chat', {
   kind: 'ai_chat',
   provider: 'openai-responses',
+  model: responsesDefaultModel,
   request: {
     chat_prompt: [
       { role: 'system', content: 'Answer briefly.' },
@@ -3576,12 +3578,14 @@ writeFixture('responses-simple-chat', {
         },
       ],
       stream: false,
-      temperature: 0.2,
       max_output_tokens: 64,
       reasoning: { effort: 'low' },
       include: ['file_search_call.results'],
     },
   },
+  // The default model's info marks temperature notSupported, so the
+  // request's temperature never reaches the wire.
+  expected_transport_json_absent: ['temperature'],
 });
 
 writeFixture('responses-tool-call', {
@@ -3941,7 +3945,7 @@ async function tsSpeechResponse(
       ? new AxAIOpenAI({ apiKey: 'test-key', options: { fetch } })
       : provider === 'google-gemini'
         ? new AxAIGoogleGemini({ apiKey: 'test-key', options: { fetch } })
-        : AxAI.create({
+        : ai({
             name: provider,
             apiKey: 'test-key',
             options: { fetch },
@@ -4318,7 +4322,7 @@ writeFixture('responses-speak', {
     const client =
       provider === 'openai'
         ? new AxAIOpenAI({ apiKey: 'test-key', options: { fetch } })
-        : AxAI.create({
+        : ai({
             name: provider,
             apiKey: 'test-key',
             options: { fetch },
@@ -5010,6 +5014,50 @@ for (const { suffix, part, input, error } of [
             { type: 'endStream' },
           ],
         }),
+  });
+}
+
+// As in TS (responses_api.ts), an OpenAI Responses request sends the call's
+// promptCacheRetention; GPT-6 Astra refuses it, so TS strips it there
+// (responses_client.ts).
+for (const [name, model, sent] of [
+  ['openai-responses-prompt-cache-retention', 'gpt-5.4-mini', true],
+  ['openai-responses-astra-drops-prompt-cache-retention', 'gpt-6-astra', false],
+] as const) {
+  writeFixture(name, {
+    kind: 'ai_chat',
+    provider: 'openai-responses',
+    model,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'hi' }],
+      model_config: { stream: false },
+    },
+    options: { promptCacheRetention: '24h' },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          id: 'r1',
+          model,
+          output: [
+            {
+              type: 'message',
+              id: 'm1',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'ok' }],
+            },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        },
+      },
+    ],
+    ...(sent
+      ? {
+          expected_transport_request: {
+            json: { prompt_cache_retention: '24h' },
+          },
+        }
+      : { expected_transport_json_absent: ['prompt_cache_retention'] }),
   });
 }
 
@@ -13099,6 +13147,459 @@ writeFixture('openai-wire-json-numbers', {
   expected_transport_wire_json_contains: wireNumberNeedles,
 });
 
+// Sampling parameters on the wire. Each TS provider class starts from its own
+// default config: temperature 0 for the OpenAI Chat profiles, Anthropic and
+// Gemini (axBaseAIDefaultConfig), temperature 0.7 and topP 1 for
+// openai-responses (axAIOpenAIResponsesDefaultConfig), nothing for the other
+// Responses profiles. AxBaseAI merges the AI config, the model key's config and
+// the request's modelConfig over it (resolveChatModelConfig). Model info marks
+// the sampling parameters a model rejects (notSupported), and whether it takes
+// them once reasoning is off (supported.samplingWithoutReasoning,
+// reasoningOffByDefault): a default for such a parameter is never sent; an
+// explicit value is sent when the request's reasoning effort allows it, and
+// otherwise dropped with a one-time warning (applySamplingSupport). A profile
+// without model info falls back to OpenAI's for an exact o-series name
+// (samplingModelInfo). Each fixture records what the real TS client sent: the
+// sampling fields it wrote, the ones it left out, and its warnings.
+const samplingWireKeys: Record<string, string[]> = {
+  'openai-chat': [
+    'temperature',
+    'top_p',
+    'max_completion_tokens',
+    'n',
+    'presence_penalty',
+    'frequency_penalty',
+    'reasoning_effort',
+  ],
+  'openai-responses': [
+    'temperature',
+    'top_p',
+    'max_output_tokens',
+    'presence_penalty',
+    'frequency_penalty',
+    'reasoning.effort',
+  ],
+  'anthropic-messages': ['temperature', 'top_p', 'top_k', 'max_tokens'],
+  'gemini-generate-content': [
+    'generationConfig.temperature',
+    'generationConfig.topP',
+    'generationConfig.topK',
+    'generationConfig.maxOutputTokens',
+    'generationConfig.candidateCount',
+  ],
+};
+const samplingResponse = (transport: string, model: string) => {
+  switch (transport) {
+    case 'openai-responses':
+      return {
+        status: 200,
+        json: {
+          id: 'resp_sampling',
+          model,
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          output: [
+            {
+              id: 'msg_sampling',
+              type: 'message',
+              content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+            },
+          ],
+        },
+      };
+    case 'anthropic-messages':
+      return {
+        status: 200,
+        json: {
+          id: 'msg_sampling',
+          type: 'message',
+          role: 'assistant',
+          model,
+          content: [{ type: 'text', text: 'ok' }],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      };
+    case 'gemini-generate-content':
+      return {
+        status: 200,
+        json: {
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'ok' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          modelVersion: model,
+          responseId: 'gem_sampling',
+          usageMetadata: {
+            promptTokenCount: 1,
+            candidatesTokenCount: 1,
+            totalTokenCount: 2,
+          },
+        },
+      };
+    default:
+      return compatibleResponse('chatcmpl_sampling', model);
+  }
+};
+const samplingJsonPath = (value: unknown, dotted: string): unknown =>
+  dotted
+    .split('.')
+    .reduce<unknown>(
+      (current, key) =>
+        current && typeof current === 'object'
+          ? (current as Record<string, unknown>)[key]
+          : undefined,
+      value
+    );
+// Runs one chat on the real TS client and returns the body it sent and the
+// sampling warnings it logged.
+const samplingChat = async (
+  args: Record<string, unknown>,
+  response: { json: unknown },
+  modelConfig: Record<string, unknown>,
+  options?: Record<string, unknown>
+): Promise<{ body: unknown; url: string; warnings: string[] }> => {
+  let body: unknown;
+  let url = '';
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  resetDroppedSamplingWarnings();
+  console.warn = (message?: unknown) => {
+    if (String(message).startsWith('Ax dropped ')) {
+      warnings.push(String(message));
+    }
+  };
+  try {
+    await ai({
+      ...args,
+      options: {
+        fetch: async (input: unknown, init?: RequestInit) => {
+          if (body === undefined) {
+            body = JSON.parse(String(init?.body));
+            url = String(input);
+          }
+          return Response.json(response.json);
+        },
+      },
+    } as any).chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Hi' }],
+        modelConfig: { stream: false, ...modelConfig },
+      },
+      options as any
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
+  return { body, url, warnings };
+};
+const samplingModels: {
+  provider: string;
+  model: string;
+  base_url?: string;
+  // TS ai() arguments and the matching fixture keys (azure-openai).
+  args?: Record<string, unknown>;
+  fixtureArgs?: Record<string, Json>;
+  penalties?: boolean;
+  reasoning?: boolean;
+}[] = [
+  // GPT-5.6 and 5.5 reject sampling unless a request turns reasoning off;
+  // GPT-5.1 to 5.4 do not reason by default, so they take it unless a request
+  // turns reasoning on; gpt-5, gpt-5-mini, gpt-5-nano and the o-series never
+  // take it (probed 2026-09-27).
+  {
+    provider: 'openai',
+    model: 'gpt-5.6-luna',
+    penalties: true,
+    reasoning: true,
+  },
+  {
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    penalties: true,
+    reasoning: true,
+  },
+  { provider: 'openai', model: 'gpt-5-mini', penalties: true },
+  { provider: 'openai', model: 'gpt-4.1', penalties: true },
+  { provider: 'openai', model: 'o3', penalties: true },
+  {
+    provider: 'openai-responses',
+    model: 'gpt-5.6-luna',
+    penalties: true,
+    reasoning: true,
+  },
+  {
+    provider: 'openai-responses',
+    model: 'gpt-5.4-mini',
+    penalties: true,
+    reasoning: true,
+  },
+  { provider: 'openai-responses', model: 'gpt-4.1', penalties: true },
+  { provider: 'openai-responses', model: 'o3', penalties: true },
+  // A profile carries no model info of its own, so GPT-5.x gets every
+  // parameter, while an o-series name falls back to OpenAI's info.
+  {
+    provider: 'openai-compatible',
+    model: 'gpt-5.6-luna',
+    base_url: 'https://compatible.test/v1',
+  },
+  {
+    provider: 'openai-compatible',
+    model: 'o3',
+    base_url: 'https://compatible.test/v1',
+    penalties: true,
+  },
+  {
+    provider: 'azure-openai',
+    model: 'o3-mini',
+    args: {
+      resourceName: 'example',
+      deploymentName: 'o3-mini',
+      version: 'api-version=2024-10-21',
+    },
+    fixtureArgs: {
+      resource_name: 'example',
+      deployment_name: 'o3-mini',
+      api_version: 'api-version=2024-10-21',
+    },
+    penalties: true,
+  },
+  { provider: 'meta', model: profileDefaultModel('meta') },
+  { provider: 'deepseek-responses', model: deepseekResponsesDefaultModel },
+  { provider: 'anthropic', model: 'claude-sonnet-5' },
+  { provider: 'anthropic', model: anthropicSamplingModel },
+  { provider: 'google-gemini', model: 'gemini-3.6-flash' },
+  { provider: 'google-gemini', model: 'gemini-2.5-flash' },
+];
+const samplingCases: {
+  id: string;
+  aiConfig?: Record<string, Json>;
+  requestConfig?: Record<string, number>;
+  budget?: 'none' | 'low';
+  penalties?: boolean;
+  reasoning?: boolean;
+}[] = [
+  { id: 'defaults' },
+  {
+    id: 'ai-config',
+    aiConfig: { temperature: 0.7, topP: 0.9, maxTokens: 123 },
+  },
+  {
+    id: 'request-config',
+    requestConfig: { temperature: 0.5, topP: 0.8, maxTokens: 77 },
+  },
+  {
+    id: 'ai-and-request-config',
+    aiConfig: { temperature: 0.7, topP: 0.9, maxTokens: 123 },
+    requestConfig: { temperature: 0.5 },
+  },
+  {
+    id: 'request-penalties',
+    requestConfig: { presencePenalty: 0.1, frequencyPenalty: 0.2, n: 2 },
+    penalties: true,
+  },
+  // thinkingTokenBudget sets the request's reasoning effort; the ports carry
+  // it in the request's model_config.
+  {
+    id: 'reasoning-none',
+    requestConfig: { temperature: 0.5, topP: 0.8 },
+    budget: 'none',
+    reasoning: true,
+  },
+  {
+    id: 'reasoning-low',
+    requestConfig: { temperature: 0.5 },
+    budget: 'low',
+    reasoning: true,
+  },
+  {
+    id: 'configured-effort-none',
+    aiConfig: { temperature: 0.3, reasoningEffort: 'none' },
+    reasoning: true,
+  },
+];
+for (const row of samplingModels) {
+  const transport = axGetAIProfile(row.provider as any).transport as string;
+  const wireKeys = samplingWireKeys[transport]!;
+  for (const testCase of samplingCases) {
+    if (testCase.penalties && !row.penalties) continue;
+    if (testCase.reasoning && !row.reasoning) continue;
+    const response = samplingResponse(transport, row.model);
+    const { body, warnings } = await samplingChat(
+      {
+        name: row.provider,
+        apiKey: 'test-key',
+        ...(row.base_url ? { apiURL: row.base_url } : {}),
+        ...(row.args ?? {}),
+        config: { model: row.model, ...(testCase.aiConfig ?? {}) },
+      },
+      response,
+      testCase.requestConfig ?? {},
+      testCase.budget ? { thinkingTokenBudget: testCase.budget } : undefined
+    );
+    const sent: Record<string, Json> = {};
+    const absent: string[] = [];
+    for (const key of wireKeys) {
+      const value = samplingJsonPath(body, key);
+      if (value === undefined) {
+        absent.push(key);
+        continue;
+      }
+      const parts = key.split('.');
+      let target = sent;
+      for (const part of parts.slice(0, -1)) {
+        target[part] ??= {};
+        target = target[part] as Record<string, Json>;
+      }
+      target[parts[parts.length - 1]!] = value as Json;
+    }
+    const modelSlug = row.model.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    writeFixture(`sampling-${row.provider}-${modelSlug}-${testCase.id}`, {
+      kind: 'ai_chat',
+      provider: row.provider,
+      model: row.model,
+      ...(row.base_url ? { base_url: row.base_url } : {}),
+      ...(row.fixtureArgs ?? {}),
+      ...(testCase.aiConfig ? { model_config: testCase.aiConfig } : {}),
+      request: {
+        chat_prompt: [{ role: 'user', content: 'Hi' }],
+        model_config: {
+          stream: false,
+          ...(testCase.requestConfig ?? {}),
+          ...(testCase.budget ? { thinkingTokenBudget: testCase.budget } : {}),
+        },
+      },
+      transport_responses: [response as unknown as Json],
+      expected_transport_request: { json: sent },
+      ...(absent.length > 0 ? { expected_transport_json_absent: absent } : {}),
+      expected_warnings: warnings,
+    });
+  }
+}
+
+// A profile without a base URL of its own needs the caller's: TS
+// resolveProfileURL throws "<Name> requires apiURL" instead of sending the
+// provider's key to another host, and so does ai() in every port. The ports
+// that read OPENAI_BASE_URL take it for openai-compatible, so it is unset.
+for (const provider of ['openai-compatible', 'databricks', 'vertex-ai']) {
+  let message = '';
+  try {
+    ai({ name: provider, apiKey: 'test-key' } as any);
+  } catch (error) {
+    message = (error as Error).message;
+  }
+  if (!message.endsWith(' requires apiURL')) {
+    throw new Error(`TS ${provider} did not require apiURL: ${message}`);
+  }
+  writeFixture(`requires-api-url-${provider}`, {
+    kind: 'ai_chat',
+    provider,
+    model: 'gpt-5.4-mini',
+    env: { OPENAI_BASE_URL: null },
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Hi' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [],
+    expected_error_contains: message,
+    expected_transport_request_count: 0,
+  });
+}
+
+// Credentials from the environment stay with their own provider. TS reads no
+// environment, so these fixtures are port-only; where TS makes a request, it
+// supplies the expected URL (the provider's own). The ports read
+// OPENAI_API_KEY and OPENAI_BASE_URL only for openai, openai-responses and
+// openai-compatible, and ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL only for
+// anthropic: before, an OpenAI or Anthropic key from the environment went to
+// other providers' servers, and other providers' keys went to OPENAI_BASE_URL.
+const credentialEnv = {
+  OPENAI_API_KEY: 'openai-env-key',
+  OPENAI_APIKEY: null,
+  OPENAI_BASE_URL: 'https://openai-proxy.test/v1',
+  ANTHROPIC_API_KEY: 'anthropic-env-key',
+  ANTHROPIC_BASE_URL: 'https://anthropic-proxy.test/v1',
+} as const;
+for (const [provider, model, message] of [
+  [
+    'groq',
+    'llama-3.3-70b-versatile',
+    'groq requires api_key or credential_provider (OPENAI_API_KEY is only read for openai, openai-responses and openai-compatible)',
+  ],
+  [
+    'meta-messages',
+    profileDefaultModel('meta-messages'),
+    'meta-messages requires api_key or credential_provider (ANTHROPIC_API_KEY is only read for anthropic)',
+  ],
+] as const) {
+  writeFixture(`credential-env-key-not-sent-to-${provider}`, {
+    kind: 'ai_chat',
+    provider,
+    model,
+    no_api_key: true,
+    env: credentialEnv,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Hi' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [],
+    expected_error_contains: message,
+    expected_transport_request_count: 0,
+  });
+}
+// anthropic keeps its own ANTHROPIC_BASE_URL, so that one is unset there.
+for (const [provider, model, env] of [
+  ['groq', 'llama-3.3-70b-versatile', credentialEnv],
+  [
+    'anthropic',
+    anthropicSamplingModel,
+    { ...credentialEnv, ANTHROPIC_BASE_URL: null },
+  ],
+  ['meta-messages', profileDefaultModel('meta-messages'), credentialEnv],
+] as const) {
+  const transport = axGetAIProfile(provider).transport as string;
+  const response = samplingResponse(transport, model);
+  const { url } = await samplingChat(
+    { name: provider, apiKey: 'test-key', config: { model } },
+    response,
+    {}
+  );
+  if (url.includes('proxy.test')) {
+    throw new Error(`TS ${provider} used an env base URL: ${url}`);
+  }
+  writeFixture(`credential-env-base-url-not-used-by-${provider}`, {
+    kind: 'ai_chat',
+    provider,
+    model,
+    env,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Hi' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [response as unknown as Json],
+    expected_transport_request: { url },
+  });
+}
+{
+  const response = samplingResponse('openai-chat', 'gpt-5.4-mini');
+  writeFixture('credential-env-key-for-openai', {
+    kind: 'ai_chat',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    no_api_key: true,
+    env: { ...credentialEnv, OPENAI_BASE_URL: null },
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Hi' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [response as unknown as Json],
+    expected_transport_request: {
+      url: 'https://api.openai.com/v1/chat/completions',
+      headers: { Authorization: 'Bearer openai-env-key' },
+    },
+  });
+}
 // Provider errors never carry credentials. TypeScript's AxAIServiceError keeps
 // the URL and the request body, and never the request headers, which hold the
 // API key or the credential provider's tokens. includeRequestBodyInErrors

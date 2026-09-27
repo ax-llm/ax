@@ -269,6 +269,9 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"- The exact Vertex `google/gemma-4-26b-a4b-it-maas` rule prefers `json_object`, excludes native schema, defaults thinking to `max`, writes nested `enable_thinking`, and extracts/replays `reasoning_content`. Unknown Vertex models stay conservative.",
 			"- Use named factories for Azure OpenAI, Cohere, DeepSeek, DeepSeek Responses, Mistral, Reka, Grok, routers, hosted inference, and configurable runtimes. Profile-only branded client constructors were removed.",
 			"- Retained client classes are transport/runtime boundaries: OpenAI-compatible Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini GenerateContent. Build ordinary applications through the named factory.",
+			"- A profile without a base URL of its own (`openai-compatible`, `databricks`, `amazon-bedrock`, `vertex-ai`, ...) needs one from the caller: `ai(...)` fails with TypeScript's `<Name> requires apiURL` instead of sending the key to another host. Built directly without a base URL, the OpenAI-compatible client class talks to `https://api.openai.com/v1` with the conservative `openai-compatible` profile. For OpenAI itself use the `openai` factory, which applies OpenAI's model catalog.",
+			"- Environment credentials stay with their own provider: `OPENAI_API_KEY` and `OPENAI_BASE_URL` are read only for `openai`, `openai-responses` and `openai-compatible`; `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` only for `anthropic`; the Google key variables only for `google-gemini`. Any other provider needs an explicit API key or a credential provider.",
+			"- Sampling follows TypeScript. A client starts from its provider's defaults: temperature 0, or temperature 0.7 and top-p 1 for `openai-responses`, and none for the other Responses profiles. The client's model config, a model key's config and then the request's merge over them. The catalog marks the sampling parameters a model rejects (temperature, top-p and the presence/frequency penalties): a default for one is never sent; an explicit value is sent when the model accepts it for that request's reasoning effort (GPT-5.1-5.4 while reasoning is off, their default; GPT-5.5 and 5.6 with effort `none`) and otherwise dropped with a one-time warning naming the setting and the model. The o-series still get the token limit and `n`; a profile without model info uses OpenAI's for an exact o-series name.",
 			"- Provider descriptors and conformance fixtures are generated from the shared profile manifest. Do not add provider-name switches or cross-profile model normalization in a generated package.",
 			"",
 		) + "\n"
@@ -385,6 +388,14 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 	agentStreamingGuide := ""
 	if spec.ID == "agent" {
 		agentStreamingGuide = readmeLines(
+			"## Where The Runtime Goes",
+			"",
+			skillAgentRuntimeText(target),
+			"",
+			"- A run with a runtime runs the RLM stages, as TypeScript's agent always does with its default JavaScript runtime: the distiller and the executor write code in the runtime's language and run it in the runtime.",
+			"- A run without one runs the ports' runtime-less stages, which answer with a completion payload instead of code; TypeScript has no such mode.",
+			"- Each run picks its stages from its own runtime, so one agent can alternate. Both stage sets are kept, and each keeps the standing instruction, actor addenda and optimized components; `set_signature` rebuilds them.",
+			"",
 			"## Streaming An Agent Run",
 			"",
 			skillAgentStreamingText(target),
@@ -507,6 +518,23 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		"",
 		skillBulletList(guardrails),
 	)
+}
+
+func skillAgentRuntimeText(target string) string {
+	switch target {
+	case "python":
+		return "Give the agent a code runtime on the constructor (`runtime`: a runtime object, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`{\"runtime\": AxQuickJsCodeRuntime()}`). The constructor's runtime wins; without one, a run uses the forward call's."
+	case "go":
+		return "Give the agent a code runtime on the constructor (`\"runtime\"`: a `CodeRuntime`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`map[string]ax.Value{\"runtime\": axgoja.NewRuntime()}`). The constructor's runtime wins; without one, a run uses the forward call's."
+	case "java":
+		return "Give the agent a code runtime on the constructor (`\"runtime\"`: an `AxCodeRuntime`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call (`Map.of(\"runtime\", runtime)`). The constructor's runtime wins; without one, a run uses the forward call's."
+	case "cpp":
+		return "Give the agent a code runtime on the constructor (`\"runtime\"`: `axllm::Core::code_runtime_ref(runtime)`, or a `{\"language\": ...}` config with the runtime passed per call) or on a forward call's options (`{\"runtime\", axllm::Core::code_runtime_ref(runtime)}`). The constructor's runtime wins; without one, a run uses the forward call's."
+	case "rust":
+		return "Attach the code runtime to the agent with `with_runtime(Box::new(runtime))`; Rust takes no runtime on the forward call."
+	default:
+		return "Give the agent a code runtime on the constructor or on a forward call."
+	}
 }
 
 func skillAgentStreamingText(target string) string {
@@ -640,7 +668,7 @@ func skillCachingFunctionText(target string) string {
 	case "java":
 		return "An `AxCachingFunction` (`Map<String, Object> apply(String key, Map<String, Object> value) throws Exception`), passed as the `cachingFunction` (or `caching_function`) option of the `AxGen` constructor or of a forward call, caches outputs as TypeScript's `cachingFunction` does: `apply(key, null)` returns a stored output, or `null` for a miss, and `apply(key, output)` stores one. `AxGlobals.setCachingFunction(fn)` sets a process-wide function, and `null` clears it. It may be called from several threads at once, so keep it thread-safe." + shared
 	case "rust":
-		return "An `AxCachingFunction` (`Arc<dyn Fn(&str, Option<&Value>) -> AxResult<Option<Value>> + Send + Sync>`) caches outputs as TypeScript's `cachingFunction` does: `f(key, None)` returns `Ok(Some(output))` for a stored output or `Ok(None)` for a miss, and `f(key, Some(&output))` stores one. Set it on a program with `with_caching_function(f)`, for one call with `forward_with_caching_function(client, input, options, f)` or `streaming_forward_with_caching_function(client, input, options, f, on_delta)`, or process-wide with `set_caching_function(Some(f))`, where `None` clears it. A call's function covers that forward only, not programs its tools run. `owned_worker_factory()` workers keep the program's function." + shared
+		return "An `AxCachingFunction` (`Arc<dyn Fn(&str, Option<&Value>) -> AxResult<Option<Value>> + Send + Sync>`) caches outputs as TypeScript's `cachingFunction` does: `f(key, None)` returns `Ok(Some(output))` for a stored output or `Ok(None)` for a miss, and `f(key, Some(&output))` stores one. Set it on a program with `with_caching_function(f)`, for one call with `forward_with_caching_function(client, input, options, f)` or `streaming_forward_with_caching_function(client, input, options, f, on_delta)`, or process-wide with `set_caching_function(Some(f))`, where `None` clears it. A call's function covers that forward only, not programs its tools run. `owned_worker_factory()` workers keep the program's function." + shared + " `with_control(control)` gives a program a run control for every forward, as TypeScript's constructor `control` does; a call's control wins, and either one skips the cache."
 	case "cpp":
 		return "An `AxCachingFunction` (`std::function<std::optional<Value>(const std::string& key, const Value* value)>`) caches outputs as TypeScript's `cachingFunction` does: a read passes `value == nullptr` and gets the stored output back, or `std::nullopt` for a miss, and a store passes `&output` and its return is ignored. Set it on a program with `gen.set_caching_function(fn)`; for one call, make a handle with `auto cache = axllm::caching_function(fn);` and pass `{\"caching_function\", cache.value()}` in the `forward` or `streaming_forward` options, as a run control's `value()` is passed, keeping the handle alive for the call; or set it process-wide with `axllm::set_caching_function(fn)`. An empty function clears it." + shared
 	default:

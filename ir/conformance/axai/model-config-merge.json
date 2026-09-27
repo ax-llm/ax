@@ -1,6 +1,7 @@
 {
   "name": "model-config-merge",
   "kind": "ai_chat",
+  "model": "gpt-4.1-mini",
   "model_config": {
     "temperature": 0.7,
     "n": 2

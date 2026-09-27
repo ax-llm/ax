@@ -141,7 +141,7 @@ import {
 const axSessionOutputVersion = Symbol('ax.sessionOutputVersion');
 
 // Forward options the AxGen constructor sets as defaults for every call: a
-// value the call gives wins. modelConfig merges key by key.
+// value the call gives wins. modelConfig and customLabels merge key by key.
 const constructorDefaultOptionKeys = [
   'model',
   'sampleCount',
@@ -153,7 +153,48 @@ const constructorDefaultOptionKeys = [
   'selfTuning',
   'asyncMode',
   'resultPicker',
+  'control',
+  'stream',
+  'sessionId',
+  'abortSignal',
+  'timeout',
+  'fetch',
+  'webSocket',
+  'traceContext',
+  'executionPath',
+  'eventContext',
+  'speech',
+  'excludeContentFromTrace',
+  'serviceTier',
+  'verbose',
+  'beta',
+  'corsProxy',
+  'includeRequestBodyInErrors',
+  'promptCacheRetention',
 ] as const;
+
+// Forward options that belong to one run. A program that builds an AxGen to
+// run inside it passes them to each forward, so they must not sit in the
+// AxGen's constructor, where they would now be defaults for every call.
+const runScopedOptionKeys = [
+  'control',
+  'abortSignal',
+  'sessionId',
+  'stream',
+  'eventContext',
+  'traceContext',
+  'executionPath',
+] as const;
+
+/** Constructor options without the run-scoped forward options. */
+export function withoutRunScopedOptions<O extends object | undefined>(
+  options: O
+): O {
+  if (!options) return options;
+  const rest: Record<string, unknown> = { ...options };
+  for (const key of runScopedOptionKeys) delete rest[key];
+  return rest as O;
+}
 const STRUCTURED_OUTPUT_FUNCTION_NAME = '__axOutput';
 const LEGACY_STRUCTURED_OUTPUT_FUNCTION_NAME = '__finalResult';
 
@@ -745,12 +786,14 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         merged[key] = defaults[key];
       }
     }
-    if (defaults.modelConfig !== undefined) {
-      merged ??= { ...call };
-      merged.modelConfig = {
-        ...(defaults.modelConfig as object),
-        ...(call.modelConfig as object | undefined),
-      };
+    for (const key of ['modelConfig', 'customLabels'] as const) {
+      if (defaults[key] !== undefined) {
+        merged ??= { ...call };
+        merged[key] = {
+          ...(defaults[key] as object),
+          ...(call[key] as object | undefined),
+        };
+      }
     }
     return (merged ?? callOptions) as O;
   }
@@ -1338,6 +1381,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         contextCache,
         retry: options?.retry ?? this.options?.retry,
         customLabels: options?.customLabels,
+        serviceTier: options?.serviceTier,
+        verbose: options?.verbose,
+        beta: options?.beta,
+        corsProxy: options?.corsProxy,
+        includeRequestBodyInErrors: options?.includeRequestBodyInErrors,
+        promptCacheRetention: options?.promptCacheRetention,
+        excludeContentFromTrace: options?.excludeContentFromTrace,
         usageContext: axMergeUsageContexts(
           this.options?.usageContext,
           options?.usageContext
@@ -1763,7 +1813,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           fieldProcessors: this.fieldProcessors,
           streamingFieldProcessors: this.streamingFieldProcessors,
           thoughtFieldName: this.thoughtFieldName,
-          excludeContentFromTrace: this.excludeContentFromTrace,
+          excludeContentFromTrace:
+            options.excludeContentFromTrace ?? this.excludeContentFromTrace,
           signature: this.signature,
           parseJsonStringFields:
             this.signature.hasComplexFields() &&
@@ -1832,7 +1883,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           asserts: this.asserts,
           fieldProcessors: this.fieldProcessors,
           thoughtFieldName: this.thoughtFieldName,
-          excludeContentFromTrace: this.excludeContentFromTrace,
+          excludeContentFromTrace:
+            options.excludeContentFromTrace ?? this.excludeContentFromTrace,
           signature: this.signature,
           parseJsonStringFields:
             this.signature.hasComplexFields() &&
