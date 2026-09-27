@@ -642,7 +642,7 @@ func skillDateFieldsText(target string) string {
 }
 
 func skillFieldProcessorText(target string) string {
-	feedback := " As in TypeScript, the feedback message's content is one text part (`[{type: \"text\", text}]`), and a streaming field processor's feedback waits for the end of the step: it follows the full answer and comes before the final processors' feedback. A streamed delta never ends in half of a surrogate pair."
+	feedback := " As in TypeScript, the feedback message's content is one text part (`[{type: \"text\", text}]`), and a streaming field processor's feedback waits for the end of the step: it follows the full answer and comes before the final processors' feedback. A streamed delta never ends in half of a surrogate pair, and a pair a provider splits across stream events is joined back into one character."
 	switch target {
 	case "python":
 		return "`add_field_processor(field, fn, feedback=True)` follows TypeScript: `fn(value, {\"values\", \"done\"})` runs on the parsed field, and a non-empty result goes back to the model as a user message for another step, whose answer replaces the earlier one. `add_streaming_field_processor(field, fn)` does the same on each streamed chunk of a string or code field. Without `feedback=True`, `add_field_processor` still rewrites the field value and raises a `DeprecationWarning`: that default becomes the feedback behavior in the next major version. `add_field_transform(field, op)` is the permanent, port-only home of the rewrite (`uppercase`, `lowercase`, `trim`, `prefix:...`, `suffix:...`, or a callable); in `streaming_forward` a transformed field is held back and sent once, transformed." + feedback
