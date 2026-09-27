@@ -8339,10 +8339,23 @@ Value AxFlow::forward(AIClient& client, Value values, Value options, const AxRun
   if (Core::truthy(Core::get(lookup, "hit", false))) return Core::get(lookup, "value");
   options = Core::map_merge(Value::object(), options);
   Core::set(options, "_ax_flow_cache_lookup", lookup);
-  AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
-  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
-                         object({{"ax.program.id", Core::get(state_, "program_id", "root.flow")}, {"ax.program.type", "AxFlow"}}));
-  return Core::_flow_forward(state_, Core::client_ref(client), std::move(values), std::move(options));
+  // As TypeScript's AxFlow.forward does, a run control hears the flow's own
+  // lifecycle at its path; each node reports at <path>/<node>.
+  auto control = resolve_control(options);
+  std::string run_path = display(Core::get(options, "execution_path", Core::get(options, "executionPath", "root")));
+  if (control) control->emit(object({{"type", "started"}, {"path", run_path}}));
+  Value output;
+  try {
+    AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
+    RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
+                           object({{"ax.program.id", Core::get(state_, "program_id", "root.flow")}, {"ax.program.type", "AxFlow"}}));
+    output = Core::_flow_forward(state_, Core::client_ref(client), std::move(values), std::move(options));
+  } catch (const std::exception& error) {
+    if (control) control->emit(object({{"type", "failed"}, {"path", run_path}, {"error", std::string(error.what())}}));
+    throw;
+  }
+  if (control) control->emit(object({{"type", "completed"}, {"path", run_path}}));
+  return output;
 }
 
 AxFlow& AxFlow::set_rate_limiter(AxRateLimiter limiter) {

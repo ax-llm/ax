@@ -40120,15 +40120,15 @@ final class Core {
     Object base_options = Core.get(flow, "options", empty_map);
     Object runtime_base = Core.mapMerge(base_options, options);
     Object runtime_options = Core.mapMerge(runtime_base, step_options);
+    Object parent_path_snake = Core.get(runtime_base, "execution_path", "root");
+    Object parent_path = Core.get(runtime_base, "executionPath", parent_path_snake);
+    Object node_path = Core.stringFormat("{}/{}", parent_path, name);
+    Core.set(runtime_options, "execution_path", node_path);
+    Core.set(runtime_options, "executionPath", node_path);
     Object controller = Core.get(runtime_base, "control", null);
     Object controlled = Core.isNotNone(controller);
     if (Core.truthy(controlled)) {
-      Object parent_path_snake = Core.get(runtime_base, "execution_path", "root");
-      Object parent_path = Core.get(runtime_base, "executionPath", parent_path_snake);
-      Object node_path = Core.stringFormat("{}/{}", parent_path, name);
       Core.set(runtime_options, "control", controller);
-      Core.set(runtime_options, "execution_path", node_path);
-      Core.set(runtime_options, "executionPath", node_path);
     }
     Object trace_label_in = Core.get(options, "traceLabel", "");
     Object has_trace_label = Core.truthyValue(trace_label_in);

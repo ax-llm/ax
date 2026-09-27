@@ -84729,15 +84729,15 @@ func _flow_prepare_program_node(args ...Value) (Value, error) {
 	v_base_options = coreGet(v_flow, "options", v_empty_map)
 	v_runtime_base = _core_map_merge(v_base_options, v_options)
 	v_runtime_options = _core_map_merge(v_runtime_base, v_step_options)
+	v_parent_path_snake = coreGet(v_runtime_base, "execution_path", "root")
+	v_parent_path = coreGet(v_runtime_base, "executionPath", v_parent_path_snake)
+	v_node_path = _core_string_format("{}/{}", v_parent_path, v_name)
+	if err := coreSet(v_runtime_options, "execution_path", v_node_path); err != nil { return nil, err }
+	if err := coreSet(v_runtime_options, "executionPath", v_node_path); err != nil { return nil, err }
 	v_controller = coreGet(v_runtime_base, "control", nil)
 	v_controlled = _core_is_not_none(v_controller)
 	if coreTruthy(v_controlled) {
-		v_parent_path_snake = coreGet(v_runtime_base, "execution_path", "root")
-		v_parent_path = coreGet(v_runtime_base, "executionPath", v_parent_path_snake)
-		v_node_path = _core_string_format("{}/{}", v_parent_path, v_name)
 		if err := coreSet(v_runtime_options, "control", v_controller); err != nil { return nil, err }
-		if err := coreSet(v_runtime_options, "execution_path", v_node_path); err != nil { return nil, err }
-		if err := coreSet(v_runtime_options, "executionPath", v_node_path); err != nil { return nil, err }
 	} else {
 	// empty
 	}
@@ -99482,6 +99482,19 @@ func (f *AxFlow) forwardWithHooks(ctx context.Context, client AIClient, values m
 		}
 		options["_ax_flow_cache_lookup"] = lookup
 	}
+	// As TypeScript's AxFlow.forward does, a run control hears the flow's own
+	// lifecycle at its path; each node reports at <path>/<node>.
+	if control, _ := coreGet(options, "control", nil).(*AxRunControl); control != nil {
+		runPath := display(coreGet(options, "execution_path", coreGet(options, "executionPath", "root")))
+		control.emit(Object("type", "started", "path", runPath))
+		defer func() {
+			if err != nil {
+				control.emit(Object("type", "failed", "path", runPath, "error", err.Error()))
+			} else {
+				control.emit(Object("type", "completed", "path", runPath))
+			}
+		}()
+	}
 	attributes := Object("ax.program.id", display(coreGet(f.State, "program_id", "root.flow")), "ax.program.type", "AxFlow")
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, f.RuntimeHooks, "ax_gen_flow_forward", "ax_gen_flow", attributes)
 	defer func() { finish(err) }()
@@ -105945,11 +105958,20 @@ func runConformanceProgramContract(fixture map[string]Value) {
 	}
 }
 
+// conformanceNodeControl is the run control a flow fixture's execute step
+// with constructor_control gets on its AxGen's constructor.
+var conformanceNodeControl Value
+
 func runConformanceFlow(fixture map[string]Value) {
 	if expected := display(coreGet(fixture, "expected_error_contains", "")); strings.Contains(expected, "Unknown program ID") {
 		expectFixtureError(func() { conformanceValidateFlowDemos(fixture) }, fixture)
 		return
 	}
+	// expected_node_control_events pins that node control's lifecycle events.
+	nodeOptions := Object()
+	nodeEvents := conformanceAttachControl(Object(), nil, nodeOptions)
+	conformanceNodeControl = nodeOptions["control"]
+	defer func() { conformanceNodeControl = nil }()
 	flow := conformanceBuildFlow(fixture)
 	if expected := coreGet(fixture, "expected_plan", nil); expected != nil {
 		assertEqual(mustCore(_flow_plan(flow.State)), expected, "flow plan")
@@ -105962,6 +105984,10 @@ func runConformanceFlow(fixture map[string]Value) {
 	}
 	client := conformanceScriptSpeak(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, fixture)
 	forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
+	flowEvents := func() Value { return Array() }
+	if coreTruthy(coreGet(fixture, "control", false)) {
+		flowEvents = conformanceAttachControl(fixture, client, forwardOptions)
+	}
 	var output Value
 	if display(coreGet(fixture, "operation", "")) == "streaming" {
 		streamed := expectMaybeFixtureError(func() Value {
@@ -105994,6 +106020,12 @@ func runConformanceFlow(fixture map[string]Value) {
 	}
 	if expected := coreGet(fixture, "expected_streaming_output", nil); expected != nil {
 		assertEqual(output, expected, "flow streaming output")
+	}
+	if expected := coreGet(fixture, "expected_control_events", nil); expected != nil {
+		assertEqual(flowEvents(), expected, "flow run control events")
+	}
+	if expected := coreGet(fixture, "expected_node_control_events", nil); expected != nil {
+		assertEqual(nodeEvents(), expected, "node run control events")
 	}
 	if expected := coreGet(fixture, "expected_request_count", nil); expected != nil && len(client.Requests) != int(num(expected)) {
 		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d requests, got %d", int(num(expected)), len(client.Requests))})
@@ -107022,6 +107054,10 @@ func conformanceBuildFlowStep(spec map[string]Value, fixture map[string]Value) V
 		signature := display(coreGet(spec, "extended_signature", coreGet(spec, "extendedSignature", coreGet(spec, "signature", coreGet(fixture, "signature", "question:string -> answer:string")))))
 		if coreGet(options, "id", nil) == nil {
 			coreSet(options, "id", name)
+		}
+		if coreTruthy(coreGet(spec, "constructor_control", false)) && conformanceNodeControl != nil {
+			// The node's own run control, a constructor default.
+			coreSet(options, "control", conformanceNodeControl)
 		}
 		child = NewAx(signature, options)
 	}

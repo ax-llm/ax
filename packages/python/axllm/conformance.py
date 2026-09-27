@@ -1812,12 +1812,17 @@ def _flow_build_step_from_fixture(step, fixture):
             "steps": step.get("steps") or [],
             "returns": step.get("returns") or {},
             "signature": step.get("signature", fixture.get("signature", "question:string -> answer:string")),
+            "_node_control": fixture.get("_node_control"),
         })
     elif step.get("program") == "agent":
         program = agent(step.get("signature", fixture.get("signature", "question:string -> answer:string")), step.get("options") or {})
     else:
         signature = step.get("extended_signature") or step.get("extendedSignature") or step.get("signature", fixture.get("signature", "question:string -> answer:string"))
-        program = ax(signature, step.get("options") or {})
+        program_options = dict(step.get("options") or {})
+        if step.get("constructor_control"):
+            # The node's own run control, a constructor default.
+            program_options["control"] = fixture.get("_node_control")
+        program = ax(signature, program_options)
     return _flow_step(kind, name, program, step_options)
 
 
@@ -1844,6 +1849,12 @@ def _run_program_contract(fixture):
 
 
 def _run_flow(fixture):
+    # A step with constructor_control gets a node run control of its own;
+    # expected_node_control_events pins its lifecycle events.
+    node_options = {}
+    node_events = _attach_fixture_control({}, None, node_options)
+    fixture = {**fixture, "_node_control": node_options["control"]}
+    control_events = []
     try:
         fl = _build_flow(fixture)
         if "expected_plan" in fixture:
@@ -1854,6 +1865,8 @@ def _run_flow(fixture):
             return
         client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], speak_responses=fixture.get("speak_responses"))
         forward_options = copy.deepcopy(fixture.get("forward_options") or {})
+        if fixture.get("control"):
+            control_events = _attach_fixture_control(fixture, client, forward_options)
         if fixture.get("operation") == "streaming":
             output = list(fl.streaming_forward(client, fixture.get("input") or {}, forward_options))
         else:
@@ -1867,6 +1880,10 @@ def _run_flow(fixture):
         raise FixtureError("expected flow to fail")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "flow output")
+    if "expected_control_events" in fixture:
+        _assert_equal(control_events, fixture["expected_control_events"], "flow run control events")
+    if "expected_node_control_events" in fixture:
+        _assert_equal(node_events, fixture["expected_node_control_events"], "node run control events")
     if "expected_streaming_output" in fixture:
         _assert_equal(output, fixture["expected_streaming_output"], "flow streaming output")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:

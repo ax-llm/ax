@@ -9668,10 +9668,22 @@ impl AxFlow {
                     CoreValue::Null,
                 )));
             }
+            // As TypeScript's AxFlow.forward does, a run control hears the flow's
+            // own lifecycle at its path; each node reports at <path>/<node>.
+            let control = session::current_control();
+            let run_path = options
+                .get("execution_path")
+                .or_else(|| options.get("executionPath"))
+                .and_then(Value::as_str)
+                .unwrap_or("root")
+                .to_string();
+            if let Some(control) = &control {
+                control.emit(json!({"type": "started", "path": run_path}));
+            }
             let defaults = self.runtime_hooks.clone();
             let mut attributes = BTreeMap::new();
             attributes.insert("ax.program.kind".to_string(), json!("AxFlow"));
-            with_runtime_scope(
+            let run = with_runtime_scope(
                 None,
                 Some(&defaults),
                 "ax_gen_flow_forward",
@@ -9725,7 +9737,16 @@ impl AxFlow {
                     })?;
                     Ok(core_value_to_json(&result))
                 },
-            )
+            );
+            if let Some(control) = &control {
+                match &run {
+                    Ok(_) => control.emit(json!({"type": "completed", "path": run_path})),
+                    Err(error) => control.emit(
+                        json!({"type": "failed", "path": run_path, "error": error.to_string()}),
+                    ),
+                }
+            }
+            run
         })
     }
 
@@ -17146,11 +17167,40 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
 }
 
 fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
+    // A step with constructor_control gets a node run control of its own;
+    // expected_node_control_events pins its lifecycle events.
+    let node_control = run_control();
+    let node_events = Arc::new(Mutex::new(Vec::new()));
+    let recorded = node_events.clone();
+    node_control.on_event(move |event| {
+        if matches!(
+            event["type"].as_str(),
+            Some("started" | "completed" | "failed" | "aborted")
+        ) {
+            recorded
+                .lock()
+                .unwrap()
+                .push(json!({"path": event["path"], "type": event["type"]}));
+        }
+    });
+    CONFORMANCE_NODE_CONTROL.with(|slot| *slot.borrow_mut() = Some(node_control.clone()));
     let result = conformance_flow_result(fixture);
+    CONFORMANCE_NODE_CONTROL.with(|slot| *slot.borrow_mut() = None);
     if fixture.get("expected_error_contains").is_some() {
         return expect_validation_result(result.map(|_| ()), fixture);
     }
     let actual = result?;
+    if let Some(expected) = fixture.get("expected_control_events") {
+        expect_json_equal(
+            "flow run control events",
+            actual.get("control_events").unwrap_or(&json!([])),
+            expected,
+        )?;
+    }
+    if let Some(expected) = fixture.get("expected_node_control_events") {
+        let events = Value::Array(node_events.lock().unwrap().clone());
+        expect_json_equal("node run control events", &events, expected)?;
+    }
     if let Some(expected) = fixture.get("expected_plan") {
         expect_json_equal(
             "flow plan",
@@ -21451,6 +21501,12 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         .get("forward_options")
         .cloned()
         .unwrap_or_else(|| json!({}));
+    // control gives the flow's call a recorded run control.
+    let flow_control = if fixture_flag(fixture, "control") {
+        Some(attach_fixture_control(fixture, &mut client))
+    } else {
+        None
+    };
     let (output, streaming_output) = if operation == "streaming" {
         // The public AxFlow::streaming_forward over the fixture's flow state.
         let mut streaming_flow = AxFlow {
@@ -21468,6 +21524,19 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
             .map(|delta| json!({"version": delta.version, "index": delta.index, "delta": delta.delta}))
             .collect::<Vec<_>>();
         (output, Value::Array(envelopes))
+    } else if let Some((control, _)) = &flow_control {
+        // The public AxFlow::forward_with_options, which takes the control.
+        let mut controlled = AxFlow {
+            state: state.clone(),
+            execution_context: None,
+            runtime_hooks: AxRuntimeHooks::default(),
+        };
+        let output = controlled.forward_with_options(
+            &mut client,
+            input,
+            AxForwardOptions::from(forward_options.clone()).with_control(control.clone()),
+        )?;
+        (output, json!([]))
     } else {
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method == "owned_worker" {
@@ -21512,6 +21581,9 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         "plan": plan,
         "output": output,
         "streaming_output": streaming_output,
+        "control_events": flow_control
+            .map(|(_, events)| Value::Array(events.lock().unwrap().clone()))
+            .unwrap_or_else(|| json!([])),
     }))
 }
 
@@ -21681,11 +21753,21 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                     if options.get("id").is_none() {
                         options["id"] = json!(name);
                     }
-                    GenHost::new(AxGen::with_options_and_tools(
-                        signature,
-                        options.clone(),
-                        Vec::new(),
-                    )?)
+                    let mut gen =
+                        AxGen::with_options_and_tools(signature, options.clone(), Vec::new())?;
+                    if step
+                        .get("constructor_control")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                    {
+                        if let Some(control) =
+                            CONFORMANCE_NODE_CONTROL.with(|slot| slot.borrow().clone())
+                        {
+                            // The node's own run control, a constructor default.
+                            gen = gen.with_control(control);
+                        }
+                    }
+                    GenHost::new(gen)
                 }
             };
             _flow_step(&[
@@ -24241,6 +24323,12 @@ fn fixture_flag(fixture: &Value, key: &str) -> bool {
 // With control_steer ({during_request, text}) it records every event, and
 // the scripted client steers with the text while that chat request (1-based)
 // is in flight.
+thread_local! {
+    // The run control a flow fixture's execute step with constructor_control
+    // gets on its AxGen's constructor.
+    static CONFORMANCE_NODE_CONTROL: RefCell<Option<AxRunControl>> = RefCell::new(None);
+}
+
 fn attach_fixture_control(
     fixture: &Value,
     client: &mut FixtureClient,
@@ -33606,8 +33694,29 @@ impl CoreHost for FlowHost {
                 let values = core_arg(args, 1);
                 let options = core_arg(args, 2);
                 let state = self.flow.borrow().state.clone();
-                let result = _flow_forward(&[state, CoreValue::Null, values, options])?;
-                Ok(result)
+                // As TypeScript's AxFlow.forward does, the run control hears a
+                // nested flow's own lifecycle at its path.
+                let control = session::current_control();
+                let json_options = core_value_to_json(&options);
+                let run_path = json_options
+                    .get("execution_path")
+                    .or_else(|| json_options.get("executionPath"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("root")
+                    .to_string();
+                if let Some(control) = &control {
+                    control.emit(json!({"type": "started", "path": run_path}));
+                }
+                let result = _flow_forward(&[state, CoreValue::Null, values, options]);
+                if let Some(control) = &control {
+                    match &result {
+                        Ok(_) => control.emit(json!({"type": "completed", "path": run_path})),
+                        Err(error) => control.emit(
+                            json!({"type": "failed", "path": run_path, "error": error.to_string()}),
+                        ),
+                    }
+                }
+                result
             }
             "get_chat_log" => Ok(core_get(
                 &self.flow.borrow().state,
@@ -120153,6 +120262,31 @@ fn _flow_prepare_program_node(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     v_base_options = core_get(&v_flow, &CoreValue::from("options"), v_empty_map.clone());
     v_runtime_base = core_map_merge(&[v_base_options.clone(), v_options.clone()])?;
     v_runtime_options = core_map_merge(&[v_runtime_base.clone(), v_step_options.clone()])?;
+    v_parent_path_snake = core_get(
+        &v_runtime_base,
+        &CoreValue::from("execution_path"),
+        CoreValue::from("root"),
+    );
+    v_parent_path = core_get(
+        &v_runtime_base,
+        &CoreValue::from("executionPath"),
+        v_parent_path_snake.clone(),
+    );
+    v_node_path = core_string_format(&[
+        CoreValue::from("{}/{}"),
+        v_parent_path.clone(),
+        v_name.clone(),
+    ])?;
+    core_set(
+        &v_runtime_options,
+        CoreValue::from("execution_path"),
+        v_node_path.clone(),
+    )?;
+    core_set(
+        &v_runtime_options,
+        CoreValue::from("executionPath"),
+        v_node_path.clone(),
+    )?;
     v_controller = core_get(
         &v_runtime_base,
         &CoreValue::from("control"),
@@ -120160,35 +120294,10 @@ fn _flow_prepare_program_node(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     );
     v_controlled = core_is_not_none(&[v_controller.clone()])?;
     if core_truthy(&v_controlled) {
-        v_parent_path_snake = core_get(
-            &v_runtime_base,
-            &CoreValue::from("execution_path"),
-            CoreValue::from("root"),
-        );
-        v_parent_path = core_get(
-            &v_runtime_base,
-            &CoreValue::from("executionPath"),
-            v_parent_path_snake.clone(),
-        );
-        v_node_path = core_string_format(&[
-            CoreValue::from("{}/{}"),
-            v_parent_path.clone(),
-            v_name.clone(),
-        ])?;
         core_set(
             &v_runtime_options,
             CoreValue::from("control"),
             v_controller.clone(),
-        )?;
-        core_set(
-            &v_runtime_options,
-            CoreValue::from("execution_path"),
-            v_node_path.clone(),
-        )?;
-        core_set(
-            &v_runtime_options,
-            CoreValue::from("executionPath"),
-            v_node_path.clone(),
         )?;
     }
     v_trace_label_in = core_get(

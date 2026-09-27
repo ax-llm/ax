@@ -1,6 +1,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
 import type { AxAIService } from '../../../src/ax/ai/types.js';
+import { AxGen } from '../../../src/ax/dsp/generate.js';
+import { runControl } from '../../../src/ax/dsp/runControl.js';
 import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
 import type {
   AxChatLogEntry,
@@ -1627,6 +1630,128 @@ const writeParallelMergeFixtures = async () => {
   }
 };
 
+// A node's own run control (an AxGen constructor control) sees the node's
+// path: TS's executor always runs a node at <parent>/<node>, so the events
+// are at root/<node>, and at root/<outer>/<inner> inside a nested flow. A
+// flow control takes the node's events over. Each fixture's step flag
+// constructor_control gives that step's AxGen the recorded control.
+const writeNodeControlPathFixtures = async () => {
+  const lifecycle = ['started', 'completed', 'failed', 'aborted'];
+  type ControlEvent = { type: string; path: string };
+  const recorded = () => {
+    const control = runControl();
+    const events: ControlEvent[] = [];
+    control.onEvent(({ type, path }) => {
+      if (lifecycle.includes(type)) events.push({ type, path });
+    });
+    return { control, events };
+  };
+  const mockAI = () => {
+    let requests = 0;
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async () => {
+        requests++;
+        return { results: [{ index: 0, content: 'Answer: ok' }] } as never;
+      },
+    });
+    return { ai, requests: () => requests };
+  };
+  const signature = 'question:string -> answer:string';
+  const step = {
+    kind: 'execute',
+    name: 'first',
+    signature,
+    constructor_control: true,
+  };
+  for (const flowControl of [false, true]) {
+    const name = flowControl
+      ? 'node-constructor-control-under-flow-control'
+      : 'node-constructor-control-path';
+    const { ai, requests } = mockAI();
+    const node = recorded();
+    const wf = flow<{ question: string }, { answer: string }>()
+      .node('first', new AxGen(signature, { control: node.control }))
+      .execute('first', (state) => ({ question: state.question }))
+      .returns((state) => ({
+        answer: String((state as any).firstResult.answer),
+      }));
+    const run = recorded();
+    const output = await wf.forward(
+      ai,
+      { question: 'Status?' },
+      flowControl ? { control: run.control } : {}
+    );
+    writeFixture(flowDir, `${name}.json`, {
+      kind: 'flow',
+      name,
+      source: source(name, { output }),
+      input: { question: 'Status?' },
+      steps: [step],
+      returns: { answer: 'answer' },
+      responses: [{ content: 'Answer: ok' }],
+      ...(flowControl
+        ? { control: true, expected_control_events: run.events }
+        : {}),
+      expected_output: output,
+      expected_node_control_events: node.events,
+      expected_request_count: requests(),
+    });
+  }
+  // A nested flow's node runs at root/<outer>/<inner>. Under a flow control
+  // the control hears the outer flow, the nested flow and the node, each at
+  // its path.
+  for (const flowControl of [false, true]) {
+    const { ai, requests } = mockAI();
+    const node = recorded();
+    const inner = flow<{ question: string }, { answer: string }>()
+      .node('inner', new AxGen(signature, { control: node.control }))
+      .execute('inner', (state) => ({ question: state.question }))
+      .returns((state) => ({
+        answer: String((state as any).innerResult.answer),
+      }));
+    const outer = flow<{ question: string }, { answer: string }>()
+      .node('outer', inner)
+      .execute('outer', (state) => ({ question: state.question }))
+      .returns((state) => ({
+        answer: String((state as any).outerResult.answer),
+      }));
+    const run = recorded();
+    const output = await outer.forward(
+      ai,
+      { question: 'Status?' },
+      flowControl ? { control: run.control } : {}
+    );
+    const name = flowControl
+      ? 'node-constructor-control-nested-under-flow-control'
+      : 'node-constructor-control-nested-path';
+    writeFixture(flowDir, `${name}.json`, {
+      kind: 'flow',
+      name,
+      source: source(name, { output }),
+      input: { question: 'Status?' },
+      steps: [
+        {
+          kind: 'execute',
+          name: 'outer',
+          program: 'flow',
+          signature,
+          steps: [{ ...step, name: 'inner' }],
+          returns: { answer: 'answer' },
+        },
+      ],
+      returns: { answer: 'answer' },
+      responses: [{ content: 'Answer: ok' }],
+      ...(flowControl
+        ? { control: true, expected_control_events: run.events }
+        : {}),
+      expected_output: output,
+      expected_node_control_events: node.events,
+      expected_request_count: requests(),
+    });
+  }
+};
+
 writeProgramFixtures();
 writePlanFixtures();
 await runSimpleForward();
@@ -1637,5 +1762,6 @@ await writeMapAndCacheFixtures();
 await writeControlFlowRuntimeFixtures();
 writeDemoFixture();
 writeMermaidFixtures();
+await writeNodeControlPathFixtures();
 
 console.log('wrote TS-derived AxFlow AxIR conformance fixtures');

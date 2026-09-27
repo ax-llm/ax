@@ -41758,15 +41758,15 @@ Value Core::_flow_prepare_program_node(Value flow, Value step, Value client, Val
   Value base_options = Core::get(flow, Value("options"), empty_map);
   Value runtime_base = Core::map_merge(base_options, options);
   Value runtime_options = Core::map_merge(runtime_base, step_options);
+  Value parent_path_snake = Core::get(runtime_base, Value("execution_path"), Value("root"));
+  Value parent_path = Core::get(runtime_base, Value("executionPath"), parent_path_snake);
+  Value node_path = Core::string_format(Value("{}/{}"), parent_path, name);
+  Core::set(runtime_options, Value("execution_path"), node_path);
+  Core::set(runtime_options, Value("executionPath"), node_path);
   Value controller = Core::get(runtime_base, Value("control"), Value());
   Value controlled = Core::is_not_none(controller);
   if (Core::truthy(controlled)) {
-    Value parent_path_snake = Core::get(runtime_base, Value("execution_path"), Value("root"));
-    Value parent_path = Core::get(runtime_base, Value("executionPath"), parent_path_snake);
-    Value node_path = Core::string_format(Value("{}/{}"), parent_path, name);
     Core::set(runtime_options, Value("control"), controller);
-    Core::set(runtime_options, Value("execution_path"), node_path);
-    Core::set(runtime_options, Value("executionPath"), node_path);
   }
   Value trace_label_in = Core::get(options, Value("traceLabel"), Value(""));
   Value has_trace_label = Core::truthy_value(trace_label_in);
@@ -51162,10 +51162,23 @@ Value AxFlow::forward(AIClient& client, Value values, Value options, const AxRun
   if (Core::truthy(Core::get(lookup, "hit", false))) return Core::get(lookup, "value");
   options = Core::map_merge(Value::object(), options);
   Core::set(options, "_ax_flow_cache_lookup", lookup);
-  AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
-  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
-                         object({{"ax.program.id", Core::get(state_, "program_id", "root.flow")}, {"ax.program.type", "AxFlow"}}));
-  return Core::_flow_forward(state_, Core::client_ref(client), std::move(values), std::move(options));
+  // As TypeScript's AxFlow.forward does, a run control hears the flow's own
+  // lifecycle at its path; each node reports at <path>/<node>.
+  auto control = resolve_control(options);
+  std::string run_path = display(Core::get(options, "execution_path", Core::get(options, "executionPath", "root")));
+  if (control) control->emit(object({{"type", "started"}, {"path", run_path}}));
+  Value output;
+  try {
+    AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
+    RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
+                           object({{"ax.program.id", Core::get(state_, "program_id", "root.flow")}, {"ax.program.type", "AxFlow"}}));
+    output = Core::_flow_forward(state_, Core::client_ref(client), std::move(values), std::move(options));
+  } catch (const std::exception& error) {
+    if (control) control->emit(object({{"type", "failed"}, {"path", run_path}, {"error", std::string(error.what())}}));
+    throw;
+  }
+  if (control) control->emit(object({{"type", "completed"}, {"path", run_path}}));
+  return output;
 }
 
 AxFlow& AxFlow::set_rate_limiter(AxRateLimiter limiter) {
