@@ -15,7 +15,7 @@
   },
   "expected_request": {
     "response_format": {
-      "type": "json_schema"
+      "type": "json_object"
     }
   },
   "expected_request_count": 1,
@@ -23,13 +23,14 @@
   "features": {
     "functions": true,
     "requires_structured_output": true,
-    "structured_outputs": true
+    "structured_output_modes": ["json_object"],
+    "structured_outputs": false
   },
   "input": {
     "question": "Status?"
   },
   "kind": "forward",
-  "name": "forward-request-layout-requires-structured-output",
+  "name": "forward-request-layout-requires-structured-output-json-object",
   "responses": [
     {
       "results": [

@@ -15,6 +15,11 @@
       "name": "Ada"
     }
   },
+  "expected_request": {
+    "response_format": {
+      "type": "json_schema"
+    }
+  },
   "expected_request_count": 1,
   "expected_request_roles": [["system", "user"]],
   "features": {

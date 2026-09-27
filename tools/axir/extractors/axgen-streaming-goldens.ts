@@ -120,6 +120,8 @@ function scriptedAI(
   let calls = 0;
   // The chat prompt of each request, in call order.
   const prompts: Json[] = [];
+  // The response format type of each request (null without one).
+  const formats: (string | null)[] = [];
   const ai = new AxMockAIService({
     features: {
       functions: (features?.functions as boolean | undefined) ?? true,
@@ -134,6 +136,9 @@ function scriptedAI(
     chatResponse: async (req) => {
       calls++;
       prompts.push(clone(req.chatPrompt) as unknown as Json);
+      formats.push(
+        (req.responseFormat as { type?: string } | undefined)?.type ?? null
+      );
       onRequest?.(calls);
       const next = queue.shift();
       if (!next) throw new Error('scripted client exhausted');
@@ -176,7 +181,12 @@ function scriptedAI(
         : {}),
     });
   }
-  return { ai, calls: () => calls, prompts: () => prompts };
+  return {
+    ai,
+    calls: () => calls,
+    prompts: () => prompts,
+    formats: () => formats,
+  };
 }
 
 // Option keys the fixtures spell in snake_case, mapped to TS names.
@@ -344,7 +354,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const control =
     spec.control || spec.constructor_control ? runControl() : undefined;
   const steer = spec.control_steer;
-  const { ai, calls, prompts } = scriptedAI(
+  const { ai, calls, prompts, formats } = scriptedAI(
     spec.responses,
     spec.features,
     (request) => {
@@ -489,6 +499,12 @@ async function record(name: string, spec: Case): Promise<void> {
     fixture.expected_output = output;
   }
   if (spec.pin_request_layout) {
+    // A forward also pins the first request's response format, which tells
+    // the native rung (json_schema) from json_object.
+    const format = formats()[0];
+    if (kind === 'forward' && format) {
+      fixture.expected_request = { response_format: { type: format } };
+    }
     fixture.expected_chat_prompt = clone(prompts()[0] ?? []);
     fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
       prompt.map((message) => message.role as Json)
@@ -818,6 +834,39 @@ const cases: Record<string, Case> = {
     features: { ...nativeFeatures, requires_structured_output: true },
     pin_request_layout: true,
     responses: [{ results: [{ index: 0, content: '{"answer":"Ada"}' }] }],
+  },
+  // With structured output required, a simple signature's rung still
+  // follows the provider's modes, as for a complex signature.
+  'forward-request-layout-requires-structured-output-json-object': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: { ...jsonObjectFeatures, requires_structured_output: true },
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: '{"answer":"Ada"}' }] }],
+  },
+  'forward-request-layout-requires-structured-output-function': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: {
+      functions: true,
+      structured_outputs: false,
+      structured_output_modes: ['function'],
+      requires_structured_output: true,
+    },
+    pin_request_layout: true,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_1', '__axOutput', '{"answer":"Ada"}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+    ],
   },
   'streaming-forward-request-layout-native': {
     signature: 'question:string -> user:object{name:string}',

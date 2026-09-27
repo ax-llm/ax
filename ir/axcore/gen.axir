@@ -57,10 +57,11 @@ module @ax.gen version "0.1" {
       %selection = core.map
       %requires_schema_snake = core.get %features["requires_structured_output"] default false
       %requires_schema = core.get %features["requiresStructuredOutput"] default %requires_schema_snake
+      // A provider that requires structured output gets a rung for a simple
+      // signature too, which, as in TS, its modes choose as for a complex
+      // signature.
       core.if %requires_schema {
-        core.set %selection["rung"] = "native"
         core.set %selection["requires_schema"] = true
-        core.return %selection
       }
       // TS selects no rung for a simple signature (no object or object-array
       // output, not forced), with or without tools: its output uses the
@@ -69,7 +70,9 @@ module @ax.gen version "0.1" {
       // (gemini-3.8-flash re-called tools 100+ times).
       %complex = core.call @signature_has_complex_fields(%signature, %options)
       %simple = core.call intrinsic.not(%complex)
-      core.if %simple {
+      %not_required = core.call intrinsic.not(%requires_schema)
+      %no_rung = core.call intrinsic.and(%simple, %not_required)
+      core.if %no_rung {
         core.return %selection
       }
       %explicit_native = core.call intrinsic.eq(%mode, "native")
