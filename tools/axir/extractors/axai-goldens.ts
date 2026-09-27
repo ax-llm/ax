@@ -12922,8 +12922,9 @@ const samplingModels: {
   { provider: 'deepseek-responses', model: deepseekResponsesDefaultModel },
   // Anthropic (probed 2026-09-27): Sonnet 5 deprecated sampling (only
   // temperature 1); Opus 4.6 and Haiku 4.5 take every value with thinking off
-  // and, while thinking, temperature 1, top_p >= 0.95 and no top_k. Vertex was
-  // not probed and keeps the historical wire.
+  // and, while thinking, temperature 1, top_p >= 0.95 and no top_k, but never
+  // temperature and top_p together. Vertex was not probed and keeps the
+  // historical wire (the Haiku 4.5 Vertex row is the pair's negative).
   {
     provider: 'anthropic',
     model: 'claude-sonnet-5',
@@ -12947,6 +12948,16 @@ const samplingModels: {
     provider: 'anthropic',
     label: 'anthropic-vertex',
     model: 'claude-opus-4-6',
+    args: { apiKey: vertexTestKey, projectId: 'demo-project', region: 'us' },
+    fixtureArgs: {
+      service_options: { projectId: 'demo-project', region: 'us' },
+    },
+    thinking: true,
+  },
+  {
+    provider: 'anthropic',
+    label: 'anthropic-vertex',
+    model: 'claude-haiku-4-5@20251001',
     args: { apiKey: vertexTestKey, projectId: 'demo-project', region: 'us' },
     fixtureArgs: {
       service_options: { projectId: 'demo-project', region: 'us' },
@@ -13060,6 +13071,13 @@ const samplingCases: {
     id: 'sampling-thinking-accepted',
     requestConfig: { temperature: 1, topP: 0.95 },
     budget: 'low',
+    thinking: true,
+  },
+  // Anthropic: an explicit top_p alone, which goes in place of the default
+  // temperature where a model rejects the pair.
+  {
+    id: 'top-p-only',
+    requestConfig: { topP: 0.9 },
     thinking: true,
   },
   // Gemini: a temperature below 1, topK, both penalties and two candidates.

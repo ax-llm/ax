@@ -10989,8 +10989,9 @@ module @ax.provider version "0.1" {
   // sent when the Messages API accepts it (probed 2026-09-27) and otherwise
   // dropped with a one-time warning: models that deprecated sampling take only
   // temperature 1; the others take every value with thinking off, and while
-  // thinking only temperature 1, top_p of 0.95 or above, and no top_k. Vertex
-  // was not probed, so there explicit values keep the historical rule.
+  // thinking only temperature 1, top_p of 0.95 or above, and no top_k, and
+  // those that reject temperature with top_p get one of them. Vertex was not
+  // probed, so there explicit values keep the historical rule.
   op ax.provider.semantic @anthropic_sampling_impl {
     attr core_kind = "func"
     attr emit_module = "ai"
@@ -11103,6 +11104,41 @@ module @ax.provider version "0.1" {
               }
             }
             core.call @provider_warn_dropped_sampling_impl(%model, "topK", %top_k_reason)
+          }
+        }
+      }
+
+      // Models whose info sets notSupported.temperatureWithTopP answer 400 to
+      // temperature and top_p together (probed 2026-09-27). After the limits
+      // above, an explicit top_p goes alone in place of the default
+      // temperature, and loses to an explicit temperature with a warning.
+      core.if %probed {
+        %no_user_info = core.call intrinsic.none()
+        %pair_info = core.call @provider_find_model_info("anthropic", %model, %no_user_info)
+        %has_pair_info = core.call intrinsic.is_not_none(%pair_info)
+        core.if %has_pair_info {
+          %pair_not_supported_snake = core.get %pair_info["not_supported"] default %empty_map
+          %pair_not_supported_value = core.get %pair_info["notSupported"] default %pair_not_supported_snake
+          %pair_not_supported = core.call intrinsic.coalesce(%pair_not_supported_value, %empty_map)
+          %pair_flag_snake = core.get %pair_not_supported["temperature_with_top_p"] default false
+          %pair_flag = core.get %pair_not_supported["temperatureWithTopP"] default %pair_flag_snake
+          %pair_rejected = core.call intrinsic.truthy(%pair_flag)
+          core.if %pair_rejected {
+            %sent_temperature = core.get %payload["temperature"]
+            %sent_top_p = core.get %payload["top_p"]
+            %has_sent_temperature = core.call intrinsic.is_not_none(%sent_temperature)
+            %has_sent_top_p = core.call intrinsic.is_not_none(%sent_top_p)
+            %sends_both = core.call intrinsic.and(%has_sent_temperature, %has_sent_top_p)
+            core.if %sends_both {
+              %temperature_is_explicit = core.call intrinsic.contains(%explicit, "temperature")
+              core.if %temperature_is_explicit {
+                core.call intrinsic.map.delete(%payload, "top_p")
+                core.call @provider_warn_dropped_sampling_impl(%model, "topP", "the model accepts temperature or topP, not both")
+              } else {
+                // The provider's default temperature gives way to the caller's top_p.
+                core.call intrinsic.map.delete(%payload, "temperature")
+              }
+            }
           }
         }
       }
