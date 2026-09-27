@@ -313,6 +313,9 @@ type Case = {
   stop_functions?: string[];
   // Attach a run control and record its run lifecycle events.
   control?: boolean;
+  // Put that run control in the AxGen constructor's options instead of the
+  // forward call's.
+  constructor_control?: boolean;
   // The scripted client steers the run control while this request (1-based)
   // is in flight. The fixture then records every control event (queued and
   // applied too) and each request's message roles.
@@ -338,7 +341,8 @@ async function record(name: string, spec: Case): Promise<void> {
   const input = spec.input ?? { question: 'Status?' };
   const toolCalls: JsonMap[] = [];
   const processorCalls: JsonMap[] = [];
-  const control = spec.control ? runControl() : undefined;
+  const control =
+    spec.control || spec.constructor_control ? runControl() : undefined;
   const steer = spec.control_steer;
   const { ai, calls, prompts } = scriptedAI(
     spec.responses,
@@ -352,6 +356,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const gen = new AxGen(spec.signature, {
     ...tsOptions(spec.options),
     functions: tsTools(spec.tools ?? [], toolCalls),
+    ...(spec.constructor_control ? { control } : {}),
   });
   for (const assertion of spec.assertions ?? []) {
     gen.addAssert(tsAssert(assertion), assertion.message);
@@ -396,7 +401,7 @@ async function record(name: string, spec: Case): Promise<void> {
         controlEvents.push({ type, path });
       }
     });
-    forwardOptions.control = control;
+    if (!spec.constructor_control) forwardOptions.control = control;
   }
 
   const deltas: JsonMap[] = [];
@@ -446,12 +451,13 @@ async function record(name: string, spec: Case): Promise<void> {
     'result_picker_index',
     'stop_functions',
     'control',
+    'constructor_control',
     'control_steer',
     'stop_after_deltas',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
   }
-  if (spec.control) fixture.expected_control_events = controlEvents;
+  if (control) fixture.expected_control_events = controlEvents;
   if (steer) {
     fixture.expected_request_contains = [steer.text];
     fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
@@ -996,6 +1002,27 @@ const cases: Record<string, Case> = {
       },
       { results: [{ index: 0, content: 'Answer: done' }] },
     ],
+  },
+  // Run options given to the AxGen constructor apply to every forward, as in
+  // TS: a run control there reports the run's lifecycle, and an
+  // executionPath there names the run's control path.
+  'forward-constructor-control-events': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    constructor_control: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
+  },
+  'streaming-forward-constructor-control-events': {
+    signature: 'question:string -> answer:string',
+    constructor_control: true,
+    responses: [streamed(text('Answer: ok'), done())],
+  },
+  'forward-constructor-execution-path': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    options: { executionPath: 'root/constructor' },
+    control: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
   },
   'streaming-forward-refusal-retry': {
     signature: 'question:string -> answer:string',
