@@ -618,11 +618,106 @@ static void rewrapped_error_cause(){
   }
 }
 
+// Spans and metric instruments that log their names.
+struct TelemetryLog {
+  std::mutex mutex;
+  std::vector<std::string> names;
+  void add(const std::string& name) {
+    std::lock_guard<std::mutex> lock(mutex);
+    names.push_back(name);
+  }
+  int count(const std::string& prefix) {
+    std::lock_guard<std::mutex> lock(mutex);
+    return static_cast<int>(std::count_if(names.begin(), names.end(), [&](const std::string& name) { return name.rfind(prefix, 0) == 0; }));
+  }
+};
+class LoggedSpan final : public AxSpan {
+ public:
+  void set_attributes(Value) override {}
+  void add_event(std::string, Value) override {}
+  void record_exception(std::string) override {}
+  void set_status(std::string, std::string) override {}
+  void end() override {}
+};
+class LoggingTracer final : public AxTracer {
+ public:
+  explicit LoggingTracer(std::shared_ptr<TelemetryLog> log) : log_(std::move(log)) {}
+  std::shared_ptr<AxSpan> start_span(const AxSpanStart& start) override {
+    log_->add("span:" + start.name);
+    return std::make_shared<LoggedSpan>();
+  }
+
+ private:
+  std::shared_ptr<TelemetryLog> log_;
+};
+class LoggedInstrument final : public AxCounter, public AxHistogram, public AxGauge {
+ public:
+  LoggedInstrument(std::shared_ptr<TelemetryLog> log, std::string name) : log_(std::move(log)), name_(std::move(name)) {}
+  void add(double, Value) override { log_->add("metric:" + name_); }
+  void record(double, Value) override { log_->add("metric:" + name_); }
+
+ private:
+  std::shared_ptr<TelemetryLog> log_;
+  std::string name_;
+};
+class LoggingMeter final : public AxMeter {
+ public:
+  explicit LoggingMeter(std::shared_ptr<TelemetryLog> log) : log_(std::move(log)) {}
+  std::shared_ptr<AxCounter> create_counter(std::string name, AxMetricInstrumentOptions) override { return std::make_shared<LoggedInstrument>(log_, name); }
+  std::shared_ptr<AxHistogram> create_histogram(std::string name, AxMetricInstrumentOptions) override { return std::make_shared<LoggedInstrument>(log_, name); }
+  std::shared_ptr<AxGauge> create_gauge(std::string name, AxMetricInstrumentOptions) override { return std::make_shared<LoggedInstrument>(log_, name); }
+
+ private:
+  std::shared_ptr<TelemetryLog> log_;
+};
+class ParisModel final : public AxBaseAI {
+ public:
+  int calls = 0;
+  ParisModel() : AxBaseAI("scripted", "scripted-chat", "scripted-embed", Value::object(), Value::object()) {}
+  Value do_chat(Value, Value) override {
+    ++calls;
+    return Core::legacy_response_to_chat_response(object({{"results", array({object({{"index", 0}, {"content", "Answer: Paris"}})})}}));
+  }
+  Value do_embed(Value, Value) override { return Value::object(); }
+  Value transcribe(Value) override { return Value::object(); }
+  Value speak(Value) override { return Value::object(); }
+};
+
+// As TypeScript reads its cachingFunction before any telemetry, a forward or
+// streaming_forward cache hit records no ax_gen_forward span and no
+// ax_gen_generation_* metric, while a miss records both.
+static void cache_hit_telemetry(){
+  auto log=std::make_shared<TelemetryLog>();
+  ParisModel model;
+  std::map<std::string,Value> store;
+  auto gen=ax("question:string -> answer:string");
+  gen.set_tracer(std::make_shared<LoggingTracer>(log)).set_meter(std::make_shared<LoggingMeter>(log));
+  gen.set_caching_function([&store](const std::string& key,const Value* value)->std::optional<Value>{
+    if(value!=nullptr){store[key]=*value;return std::nullopt;}
+    auto hit=store.find(key);
+    if(hit==store.end())return std::nullopt;
+    return hit->second;
+  });
+  Value france=object({{"question","Capital of France?"}});
+  gen.forward(model,france);
+  int spans=log->count("span:ax_gen_forward"),metrics=log->count("metric:ax_gen_generation_");
+  if(model.calls!=1||spans!=1||metrics<2)throw std::runtime_error("A cache miss did not record its ax_gen_forward span and ax_gen_generation metrics");
+  Value hit=gen.forward(model,france);
+  std::vector<AxGenDelta> deltas;
+  Value streamed=gen.streaming_forward(model,france,Value::object(),[&deltas](const AxGenDelta& delta){deltas.push_back(delta);return true;});
+  if(model.calls!=1||display(Core::get(hit,"answer"))!="Paris"||display(Core::get(streamed,"answer"))!="Paris"||deltas.size()!=1||deltas[0].version!=0||deltas[0].index!=0||!equal(deltas[0].delta,hit))throw std::runtime_error("A cache hit was not answered from the cache");
+  if(log->count("span:ax_gen_forward")!=spans||log->count("metric:ax_gen_generation_")!=metrics)throw std::runtime_error("A cache hit recorded an ax_gen_forward span or an ax_gen_generation metric");
+  gen.streaming_forward(model,object({{"question","Capital of Italy?"}}),Value::object(),[](const AxGenDelta&){return true;});
+  if(model.calls!=2||log->count("span:ax_gen_forward")!=2*spans||log->count("metric:ax_gen_generation_")!=2*metrics)throw std::runtime_error("A streamed cache miss did not record its ax_gen_forward span and ax_gen_generation metrics");
+  std::cout<<"cpp cache hits record no ax_gen_forward span or ax_gen_generation metrics\n";
+}
+
 int main(int argc,char** argv){
   Value original=object({{"a",1}});Value copied=Core::map_merge(original,Value::object());
   Core::set(copied,"z",2);Core::set(original,"b",3);Core::set(original,"z",4);
   if(stringify(Value(Core::iter(original)))!="[\"a\",\"b\",\"z\"]"||stringify(Value(Core::iter(copied)))!="[\"a\",\"z\"]")throw std::runtime_error("Copied map insertion order leaked");
   rewrapped_error_cause();
+  cache_hit_telemetry();
   mcp_http_context_cancellation();
   owned_child_controls();
   owned_flow_failure();

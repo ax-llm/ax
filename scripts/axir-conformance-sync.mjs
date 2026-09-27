@@ -395,6 +395,12 @@ async function runSync({ repoRoot, write }) {
       'axgen-streaming-goldens.ts',
       'AxGen streaming'
     );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'axgen-cache-goldens.ts',
+      'AxGen cache'
+    );
     runConformanceExtractor(repoRoot, tempRoot, 'flow-goldens.ts', 'AxFlow');
     runConformanceExtractor(
       repoRoot,

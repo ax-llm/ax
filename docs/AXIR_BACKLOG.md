@@ -18,12 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-26-coerce-structured-values-and-cache-streamed-results-in-the-ports` [axgen] Coerce structured output values and cache streamed results in the ports
-  - Status: open
-  - Source commit: `533da1418d110bd3979f8bf6f01ba243edf57012`
-  - TS paths: `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.structuredTypes.test.ts`, `src/ax/dsp/generate.streamParity.test.ts`
-  - Impact: TypeScript now type-checks structured JSON output values: a numeric string becomes a number through Number() and a true or false string a boolean, as the text contract does, and any other type mismatch is a validation error that the model retries. The ports reject those strings. TypeScript streamingForward also stores the finished result through cachingFunction with or without a result picker, and the ports have no cachingFunction yet.
-  - Suggested AxIR work: Coerce numeric and boolean strings in the IR structured output validation and add TS-golden fixtures; Store the merged streamed result through cachingFunction when the ports add it
+No entries.
 
 ## Done
 
@@ -794,6 +789,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-25
   - Completed by: `7feebf199de9fdda7e93f2f2344f2156662eb553`
   - Verification: `intrinsic.axgen.run_assertions reports {status: pass|fail(message?)|error} in all five ports, and gen.axir @run_assertions raises a retryable error for a failure with a message while returning a message-less failure (Assertion failed without message) or a thrown error to its callers, which raise it outside the validation retries. assertion-false-without-message-error, assertion-contains-without-message-error, assertion-thrown-error-not-retried and assertion-false-without-message-structured-output pin 1 request; assertion-false-with-message-retried and assertion-return-modes pin 4, matching a TypeScript probe; mutation checks fail each rule. Python and Go conformance 950/950; npm run axir:check-packages, npm run axir:conformance:check and npm run test:axir pass.`
+- `axir-2026-09-26-coerce-structured-values-and-cache-streamed-results-in-the-ports` [axgen] Coerce structured output values and cache streamed results in the ports
+  - Status: done
+  - Source commit: `533da1418d110bd3979f8bf6f01ba243edf57012`
+  - TS paths: `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.structuredTypes.test.ts`, `src/ax/dsp/generate.streamParity.test.ts`
+  - Impact: TypeScript now type-checks structured JSON output values: a numeric string becomes a number through Number() and a true or false string a boolean, as the text contract does, and any other type mismatch is a validation error that the model retries. The ports reject those strings. TypeScript streamingForward also stores the finished result through cachingFunction with or without a result picker, and the ports have no cachingFunction yet.
+  - Suggested AxIR work: Coerce numeric and boolean strings in the IR structured output validation and add TS-golden fixtures; Store the merged streamed result through cachingFunction when the ports add it
+  - Completed at: 2026-09-27
+  - Completed by: `d04c70791d74e1206288f6a613618c952a22e262`
+  - Verification: `node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with the 13 axgen cache_sequence goldens; per-port host telemetry tests`
 - `axir-2026-09-26-fold-streamed-chunks-in-an-axgen-forward-with-stream-true-in-the` [axgen] Fold streamed chunks in an AxGen forward with stream true in the ports
   - Status: done
   - Source commit: `a14c26b0f960cd360472b778263b606cbdda09fd`

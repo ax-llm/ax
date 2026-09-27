@@ -897,6 +897,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/axllm/ax/AxFieldProcessorContext.java",
 				"dev/axllm/ax/AxFieldProcessorMode.java",
 				"dev/axllm/ax/AxStreamingAssertion.java",
+				"dev/axllm/ax/AxCachingFunction.java",
 				"examples/SignatureSchemaExample.java",
 				"examples/ModelCatalogExample.java",
 				"examples/AxGenScriptedClientToolExample.java",
