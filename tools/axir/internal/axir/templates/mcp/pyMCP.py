@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .signature import AxSignature, _js_json_dumps, _js_number_text
+from .signature import AxSignature, _js_json_dumps, _js_number_text, _js_format
 from .tool import Tool
 from .ai import AxCancellationToken, AxAIServiceAbortedError
 # AXIR_CORE_IMPORTS
@@ -80,7 +80,7 @@ def _core_len(value): return len(value or [])
 def _core_contains(container, item): return False if container is None else item in container
 def _core_truthy(value): return bool(value)
 def _core_none(): return None
-def _core_json_stringify(value): return _js_json_dumps(value, sort_keys=True)
+def _core_json_stringify(value): return _js_json_dumps(value)  # TS JSON.stringify: insertion order
 def _core_json_parse(value): return json.loads(value)
 def _core_math_abs(value): return abs(value)
 def _core_sorted_strings(values): return sorted(str(value) for value in (values or []))
@@ -122,10 +122,7 @@ def _core_validation_error(message): return AxMCPError(str(message))
 
 
 def _core_string_format(template, *args):
-    rendered = str(template)
-    for value in args:
-        rendered = rendered.replace("{}", _js_number_text(value) if isinstance(value, float) else str(value), 1)
-    return rendered
+    return _js_format(template, args)
 
 
 # AXIR_CORE_MCP_FUNCTIONS

@@ -79,6 +79,7 @@ const (
 	IntrinsicObjectCallMethod          CoreIntrinsic = "intrinsic.object.call_method"
 	IntrinsicProgramComponents         CoreIntrinsic = "intrinsic.program.components"
 	IntrinsicProgramApplyComponents    CoreIntrinsic = "intrinsic.program.apply_components"
+	IntrinsicProgramSignature          CoreIntrinsic = "intrinsic.program.signature"
 	IntrinsicAICompleteOnce            CoreIntrinsic = "intrinsic.ai.complete_once"
 	IntrinsicAIControlTakePending      CoreIntrinsic = "intrinsic.ai.control_take_pending"
 	IntrinsicAIControlPendingCount     CoreIntrinsic = "intrinsic.ai.control_pending_count"
@@ -186,6 +187,7 @@ const (
 	IntrinsicExceptionIsAborted        CoreIntrinsic = "intrinsic.exception.is_aborted"
 	IntrinsicExceptionIsInfrastructure CoreIntrinsic = "intrinsic.exception.is_infrastructure"
 	IntrinsicExceptionIsRefusal        CoreIntrinsic = "intrinsic.exception.is_refusal"
+	IntrinsicExceptionIsValidation     CoreIntrinsic = "intrinsic.exception.is_validation"
 	IntrinsicStringIndexOf             CoreIntrinsic = "intrinsic.string.index_of"
 	IntrinsicAIStreamOpen              CoreIntrinsic = "intrinsic.ai.stream_open"
 	IntrinsicAIStreamNext              CoreIntrinsic = "intrinsic.ai.stream_next"
@@ -243,6 +245,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicObjectCallMethod:          "_core_object_call_method",
 	IntrinsicProgramComponents:         "_core_program_components",
 	IntrinsicProgramApplyComponents:    "_core_program_apply_components",
+	IntrinsicProgramSignature:          "_core_program_signature",
 	IntrinsicAICompleteOnce:            "_core_ai_complete_once",
 	IntrinsicAIControlTakePending:      "_core_ai_control_take_pending",
 	IntrinsicAIControlPendingCount:     "_core_ai_control_pending_count",
@@ -350,6 +353,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicExceptionIsAborted:        "_core_exception_is_aborted",
 	IntrinsicExceptionIsInfrastructure: "_core_exception_is_infrastructure",
 	IntrinsicExceptionIsRefusal:        "_core_exception_is_refusal",
+	IntrinsicExceptionIsValidation:     "_core_exception_is_validation",
 	IntrinsicStringIndexOf:             "_core_string_index_of",
 	IntrinsicAIStreamOpen:              "_core_ai_stream_open",
 	IntrinsicAIStreamNext:              "_core_ai_stream_next",
@@ -406,6 +410,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.object.call_method":                    true,
 	"intrinsic.program.components":                    true,
 	"intrinsic.program.apply_components":              true,
+	"intrinsic.program.signature":                     true,
 	"intrinsic.ai.complete_once":                      true,
 	"intrinsic.ai.control_take_pending":               true,
 	"intrinsic.ai.control_pending_count":              true,
@@ -417,6 +422,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.exception.is_aborted":                  true,
 	"intrinsic.exception.is_infrastructure":           true,
 	"intrinsic.exception.is_refusal":                  true,
+	"intrinsic.exception.is_validation":               true,
 	"intrinsic.string.index_of":                       true,
 	"intrinsic.ai.stream_open":                        true,
 	"intrinsic.ai.stream_next":                        true,
@@ -826,6 +832,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.object.call_method":                  intrinsicInfo("intrinsic.object.call_method", 2, -1, true, "json"),
 	"intrinsic.program.components":                  intrinsicInfo("intrinsic.program.components", 1, 1, true, "list<json>"),
 	"intrinsic.program.apply_components":            intrinsicInfo("intrinsic.program.apply_components", 2, 2, true, "json"),
+	"intrinsic.program.signature":                   intrinsicInfo("intrinsic.program.signature", 1, 1, true, "json"),
 	"intrinsic.ai.complete_once":                    intrinsicInfo("intrinsic.ai.complete_once", 3, 3, true, "json"),
 	"intrinsic.ai.control_take_pending":             intrinsicInfo("intrinsic.ai.control_take_pending", 1, 1, true, "json"),
 	"intrinsic.ai.control_pending_count":            intrinsicInfo("intrinsic.ai.control_pending_count", 1, 1, true, "i64"),
@@ -838,6 +845,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.exception.is_aborted":                intrinsicInfo("intrinsic.exception.is_aborted", 1, 1, true, "bool"),
 	"intrinsic.exception.is_infrastructure":         intrinsicInfo("intrinsic.exception.is_infrastructure", 1, 1, true, "bool"),
 	"intrinsic.exception.is_refusal":                intrinsicInfo("intrinsic.exception.is_refusal", 1, 1, true, "bool"),
+	"intrinsic.exception.is_validation":             intrinsicInfo("intrinsic.exception.is_validation", 1, 1, true, "bool"),
 	"intrinsic.string.index_of":                     intrinsicInfo("intrinsic.string.index_of", 3, 3, false, "i64"),
 	"intrinsic.ai.stream_open":                      intrinsicInfo("intrinsic.ai.stream_open", 3, 3, true, "json"),
 	"intrinsic.ai.stream_next":                      intrinsicInfo("intrinsic.ai.stream_next", 1, 1, true, "json"),

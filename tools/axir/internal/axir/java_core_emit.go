@@ -333,6 +333,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicObjectCallMethod:          "Core.objectCallMethod",
 	IntrinsicProgramComponents:         "Core.programComponents",
 	IntrinsicProgramApplyComponents:    "Core.programApplyComponents",
+	IntrinsicProgramSignature:          "Core.programSignature",
 	IntrinsicAICompleteOnce:            "Core.aiCompleteOnce",
 	IntrinsicAIControlTakePending:      "Core.aiControlTakePending",
 	IntrinsicAIControlPendingCount:     "Core.aiControlPendingCount",
@@ -453,6 +454,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicExceptionIsAborted:        "Core.exceptionIsAborted",
 	IntrinsicExceptionIsInfrastructure: "Core.exceptionIsInfrastructure",
 	IntrinsicExceptionIsRefusal:        "Core.exceptionIsRefusal",
+	IntrinsicExceptionIsValidation:     "Core.exceptionIsValidation",
 }
 
 func javaAttrValue(op Operation, name string) string {

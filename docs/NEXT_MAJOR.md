@@ -18,5 +18,7 @@ release flow.
 - TypeScript's deprecated, ignored `responseFormatWithFunctions` is removed (#721).
 - An agent without runtime config builds TypeScript's JavaScript actor stages by default, and the runtime-less completion mode becomes opt-in (pending PR).
 - TypeScript `AxAIProfileAuthentication.type` drops `'api-key-query'`. No profile uses it and TypeScript never implemented query-key auth (such a profile fell through to a Bearer header), so it is deprecated until then (#747).
+- `functionCallValidation` / `function_call_validation` defaults to `'fail'` in the ports: a model function call without a name fails the forward at once, as in TypeScript. Today the default corrects it (the model gets a correction and another request) and warns once, and `'fail'` opts in now (#754).
+- A user content item that is not an object or has no type raises `AxAIServiceResponseError` in the ports, like the other chat-message checks. Today it raises `AxUnsupportedCapabilityError` with TypeScript's message (#754).
 - Per-call `timeout` is read in milliseconds, as in TypeScript. Today Python, Go, Java and C++ ignore it and Rust reads it in seconds, and each warns once when a call gives it without `timeoutMs`, which works now. Python's and Go's Typesafe native calls also read it in seconds today (#761).
 - The ports' agent stops passing a forward `timeout` / `timeout_ms` into the runtime's options. As in TypeScript, the runtime timeout is set on the runtime, and a forward `timeout` is the per-call AI timeout (#761).

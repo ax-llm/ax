@@ -144,10 +144,13 @@ module @ax.validate version "0.1" {
     body @entry(%value: string, %field: Field) {
       %typ = core.get %field["type"]
       %title = core.get %field["title"]
+      // As in TS (String.prototype.length), a string's length counts UTF-16
+      // code units: an emoji counts two.
+      %units = core.call intrinsic.string.utf16_units(%value)
+      %length = core.call intrinsic.len(%units)
       %min_length = core.get %typ["min_length"]
       %has_min = core.call intrinsic.is_not_none(%min_length)
       core.if %has_min {
-        %length = core.call intrinsic.len(%value)
         %too_short = core.call intrinsic.lt(%length, %min_length)
         core.if %too_short {
           %message = core.call intrinsic.string.format("Field '{}' failed validation: String must be at least {} characters long.", %title, %min_length)
@@ -158,7 +161,6 @@ module @ax.validate version "0.1" {
       %max_length = core.get %typ["max_length"]
       %has_max = core.call intrinsic.is_not_none(%max_length)
       core.if %has_max {
-        %length = core.call intrinsic.len(%value)
         %too_long = core.call intrinsic.gt(%length, %max_length)
         core.if %too_long {
           %message = core.call intrinsic.string.format("Field '{}' failed validation: String must be at most {} characters long.", %title, %max_length)

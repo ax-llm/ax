@@ -1,11 +1,19 @@
 {
-  "expected_transport_json_absent": ["temperature", "top_p", "top_k"],
+  "expected_transport_json_absent": [
+    "temperature",
+    "top_p",
+    "top_k",
+    "thinking.type"
+  ],
   "expected_transport_request": {
     "json": {
       "max_tokens": 77
     }
   },
-  "expected_warnings": [],
+  "expected_warnings": [
+    "Ax dropped temperature for claude-sonnet-5: the model accepts it only as 1.",
+    "Ax dropped topP for claude-sonnet-5: the model does not accept it."
+  ],
   "kind": "ai_chat",
   "model": "claude-sonnet-5",
   "name": "sampling-anthropic-claude-sonnet-5-request-config",

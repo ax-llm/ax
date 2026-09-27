@@ -417,6 +417,7 @@ struct Core {
   static Value exception_is_aborted(Value error);
   static Value exception_is_infrastructure(Value error);
   static Value exception_is_refusal(Value error);
+  static Value exception_is_validation(Value error);
   static AxError as_error(Value error);
   [[noreturn]] static void raise_error(Value error);
   static Value coerce_chat_request(Value request);
@@ -430,6 +431,7 @@ struct Core {
   static Value object_call_method(Value target, Value method_name, Value arg = Value(), Value options = Value());
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
+  static Value program_signature(Value program);
   static Value ai_complete_once(Value client, Value request, Value options);
   // The run control updates a run's request boundary holds for its path:
   // take_pending hands them to the forward, which applies them when a step
@@ -517,6 +519,9 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  // Conformance hook: forgets the deprecations already shown and sends new
+  // ones to sink (an empty sink prints them to stderr again).
+  static void axgen_capture_deprecations(std::function<void(const std::string&)> sink);
   static Value ai_warn_once(Value key, Value message);
   // Conformance hook: forgets the one-time warnings already shown and sends
   // new ones to sink (an empty sink prints them to stderr again).
@@ -1660,6 +1665,8 @@ class AxAgent : public AxProgram {
 
  private:
   friend class AxExecutionContext;
+  // Core::program_signature reads the agent's signature from its state.
+  friend struct Core;
   std::shared_ptr<detail::AgentExecutionContext> execution_context_;
   std::vector<std::shared_ptr<AxAgent>> child_agents_;
   Value state_;
