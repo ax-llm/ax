@@ -4561,6 +4561,26 @@ func realtimeEventIsDone(event Value) bool {
 	return false
 }
 
+// dialRealtimeWebSocket opens a realtime socket. A failed dial's error repeats
+// the URL, and a Gemini Live URL carries the API key in its query (?key=), so
+// the error leaves the query out.
+func dialRealtimeWebSocket(ctx context.Context, wsURL string, header http.Header) (*websocket.Conn, error) {
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: header})
+	if err != nil {
+		return nil, AxError{Category: "network", Message: redactURLQuery(err.Error(), wsURL)}
+	}
+	return conn, nil
+}
+
+// redactURLQuery masks rawURL's query wherever message repeats it, including a
+// URL that failed to parse (its error quotes the raw URL).
+func redactURLQuery(message, rawURL string) string {
+	if index := strings.Index(rawURL, "?"); index >= 0 && index < len(rawURL)-1 {
+		message = strings.ReplaceAll(message, rawURL[index:], "?***")
+	}
+	return message
+}
+
 func (c *OpenAICompatibleClient) realtimeWSTarget(model Value, opts map[string]Value) (string, map[string]Value) {
 	// Grammar-specific URL + auth construction lives in Core so the client stays
 	// provider-agnostic.
@@ -4610,9 +4630,9 @@ func (c *OpenAICompatibleClient) realtimeChat(ctx context.Context, request map[s
 			for _, key := range orderedKeys(headers) {
 				header.Set(key, display(coreGet(headers, key, "")))
 			}
-			conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: header})
+			conn, err := dialRealtimeWebSocket(ctx, wsURL, header)
 			if err != nil {
-				panic(AxError{Category: "network", Message: err.Error()})
+				panic(err)
 			}
 			conn.SetReadLimit(-1)
 			transport = &wsRealtimeTransport{conn: conn, ctx: ctx}
@@ -13473,7 +13493,7 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 	provider := display(coreGet(fixture, "provider", "openai"))
 	options := cloneMap(asMap(coreGet(fixture, "service_options", coreGet(fixture, "options", Object()))))
 	if coreGet(options, "api_key", nil) == nil && coreGet(options, "apiKey", nil) == nil {
-		coreSet(options, "api_key", "test-key")
+		coreSet(options, "api_key", coreGet(fixture, "api_key", "test-key"))
 	}
 	if model := coreGet(fixture, "model", nil); model != nil {
 		coreSet(options, "model", model)
@@ -13997,6 +14017,28 @@ func runConformanceAIError(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_status", nil); expected != nil && axErr.Status != int(num(expected)) {
 		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected status %d, got %d", int(num(expected)), axErr.Status)})
 	}
+	// Go AI errors keep no request (AxError has no request field), so there is
+	// no expected_error_request to compare; the text check below still fails if
+	// anything the error carries holds a secret or, where excluded, the body.
+	text := conformanceErrorText(err)
+	for _, needle := range asSlice(coreGet(fixture, "expected_error_excludes", Array())) {
+		if strings.Contains(text, display(needle)) {
+			panic(AxError{Category: "fixture", Message: "error unexpectedly carries " + display(needle) + ": " + text})
+		}
+	}
+}
+
+// conformanceErrorText is everything a logger, tracer or JSON dump could read
+// off an error and the errors it wraps.
+func conformanceErrorText(err error) string {
+	parts := []string{}
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		parts = append(parts, current.Error(), fmt.Sprintf("%#v", current))
+		if data, jsonErr := json.Marshal(current); jsonErr == nil {
+			parts = append(parts, string(data))
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func runConformanceProgramContract(fixture map[string]Value) {

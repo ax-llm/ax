@@ -525,15 +525,17 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   // may report it as CURLE_WRITE_ERROR (or another callback-abort code), but the
   // handler decision is authoritative once callback exceptions are excluded.
   if (context.cancelled || (cancelled && cancelled->load())) return;
+  // Provider errors never take the transport request: its headers hold the API
+  // key or credential tokens, and AxError has no request field to carry anyway.
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
-    if (rc == CURLE_OPERATION_TIMEDOUT) throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), request, false));
+    if (rc == CURLE_OPERATION_TIMEDOUT) throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), Value(), false));
     throw AxError("network", message, "AxAIServiceNetworkError", 0, "", true);
   }
   if (status >= 400) {
     Value body;
     try { body = Core::json_parse(error_body); } catch (...) { body = Value(error_body); }
-    throw Core::as_error(Core::openai_normalize_error(static_cast<double>(status), body, request));
+    throw Core::as_error(Core::openai_normalize_error(static_cast<double>(status), body, Value()));
   }
 #endif
 }
@@ -679,7 +681,7 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
     if (rc == CURLE_OPERATION_TIMEDOUT) {
-      throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), request, false));
+      throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), Value(), false));
     }
     throw AxError("network", message);
   }
@@ -46274,7 +46276,7 @@ Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value p
   // Signals the transport to return the raw body as base64 instead of JSON.
   if (binary_response) Core::set(call, "binary", Value(true));
   Core::set(call, "timeout", timeout_seconds_);
-  if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) throw Core::as_error(Core::ai_error_auth("api_key or credential_provider is required", Value(), Value(), Value(), call));
+  if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) throw Core::as_error(Core::ai_error_auth("api_key or credential_provider is required", Value(), Value(), Value(), Value()));
   return call;
 }
 
@@ -46303,11 +46305,13 @@ std::string OpenAICompatibleClient::operation_path(const std::string& operation,
   return path;
 }
 
-Value OpenAICompatibleClient::transport_result(Value result, Value request) {
+// The request is not passed on: its headers hold the API key or credential
+// tokens, and a thrown AxError has no request field.
+Value OpenAICompatibleClient::transport_result(Value result, Value) {
   if (result.is_object() && Core::get(result, "status").is_number()) {
     int status = static_cast<int>(num(Core::get(result, "status", 200)));
     Value body = Core::get(result, "json", Core::get(result, "body", Core::get(result, "data")));
-    if (status >= 400) throw Core::as_error(Core::openai_normalize_error(status, body, request));
+    if (status >= 400) throw Core::as_error(Core::openai_normalize_error(status, body, Value()));
     return body;
   }
   return result;

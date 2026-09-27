@@ -2332,6 +2332,25 @@
       "verification": "@speech_response_ts_keys_impl adds data, mimeType, sampleRate, channels and transcript beside the older keys in @provider_normalize_speak_response and @gemini_normalize_speak_response. axai/openai-speak-binary-body (TS keys from TypeScript's real OpenAI speak() on an mp3 body), responses-speak and the three Gemini TTS fixtures (TS keys from TypeScript's real Gemini speak()) fail on origin/main in all five ports and pass in all five with this change."
     },
     {
+      "id": "axir-2026-09-27-provider-errors-omit-credentials",
+      "status": "done",
+      "title": "Keep credentials out of port provider errors and honor includeRequestBodyInErrors",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "f3c069b14",
+      "tsPaths": ["src/ax/util/apicall.ts", "src/ax/util/apicall.test.ts"],
+      "portableSurface": "axai",
+      "impact": "Python and Java provider errors kept the whole transport call on error.request (Authorization, x-api-key and x-goog-api-key headers included) and no port read includeRequestBodyInErrors; Go and Rust realtime connect errors repeated the Gemini Live ?key= URL and Java kept it on the handshake response. Provider errors now keep only what TypeScript's AxAIServiceError keeps: the URL, plus the body unless includeRequestBodyInErrors is false.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "f3c069b14",
+      "verification": "Seven TS-derived axai fixtures (provider-error-*; new runner keys api_key, expected_error_excludes and expected_error_request in all five runners) fail on main in Python and Java (7/7 each: the error carried the fake key) and pass in all five ports; canary fixtures prove the key check bites in every runner. TS src/ax/util/apicall.test.ts pins that request headers never reach status, auth, retried or network errors. Go TestRealtimeDialErrorOmitsURLQuery and Rust realtime_connect_errors_mask_the_url_query pin the masked ?key= query. npm run axir:conformance:check and per-target verify --mode release."
+    },
+    {
       "id": "axir-2026-09-27-render-axgen-audio-output-fields-through-speak-in-the-ports",
       "status": "done",
       "title": "Render AxGen audio output fields through speak() in the ports",

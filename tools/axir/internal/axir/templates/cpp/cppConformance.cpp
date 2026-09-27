@@ -2870,7 +2870,7 @@ struct ClientFixture {
     std::string default_embed_model = display(Core::get(descriptor, "defaultEmbedModel", ""));
     Core::set(out, "model", Core::get(fixture, "model", default_model));
     Core::set(out, "embed_model", Core::get(fixture, "embed_model", default_embed_model));
-    Core::set(out, "api_key", "test-key");
+    Core::set(out, "api_key", Core::get(fixture, "api_key", "test-key"));
     Core::set(out, "model_config", Core::get(fixture, "model_config", Value::object()));
     Core::set(out, "options", Core::get(fixture, "service_options", Core::get(fixture, "options", Value::object())));
     for (const std::string& key : {"base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version"}) {
@@ -2957,6 +2957,14 @@ static void assert_ai_error(const AxError& error, Value fixture, const ScriptedT
   Value expected_status = Core::get(fixture, "expected_status");
   if (!expected_status.is_null() && error.status != static_cast<int>(std::stoul(display(expected_status)))) {
     throw AxError("fixture", "expected status " + display(expected_status) + ", got " + std::to_string(error.status));
+  }
+  // C++ AI errors keep no request (AxError has no request field), so there is
+  // no expected_error_request to compare. This is everything a logger or JSON
+  // dump could read off the error and its causes.
+  std::string text = std::string(error.what()) + "\n" + error.category + "\n" + error.type + "\n" + error.code + "\n" +
+                     stringify(error.response_body) + "\n" + stringify(Core::exception_value(error));
+  for (const auto& needle : Core::iter(Core::get(fixture, "expected_error_excludes", Value::array()))) {
+    if (text.find(display(needle)) != std::string::npos) throw AxError("fixture", "error unexpectedly carries " + display(needle) + ": " + text);
   }
   assert_transport(fixture, transport);
 }
@@ -3165,6 +3173,8 @@ static void run_ai_runtime_hooks(Value fixture) {
 
 static void run_ai_error(Value fixture) {
   ClientFixture cf(fixture);
+  // Fixture "options" are the call options when service_options configure the client.
+  Value call_options = Core::get(fixture, "service_options").is_null() ? Value() : Core::get(fixture, "options");
   try {
     std::string method = display(Core::get(fixture, "method", "chat"));
     if (method == "stream") {
@@ -3175,8 +3185,10 @@ static void run_ai_error(Value fixture) {
       cf.client->transcribe(Core::get(fixture, "request", Value::object()));
     } else if (method == "speak") {
       cf.client->speak(Core::get(fixture, "request", Value::object()));
-    } else {
+    } else if (call_options.is_null()) {
       cf.client->chat(Core::get(fixture, "request", Value::object()));
+    } else {
+      cf.client->chat(Core::get(fixture, "request", Value::object()), call_options);
     }
   } catch (const AxError& error) {
     assert_ai_error(error, fixture, cf.transport);
