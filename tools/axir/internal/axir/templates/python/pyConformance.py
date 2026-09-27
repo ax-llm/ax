@@ -2296,13 +2296,11 @@ def _run_agent_forward(fixture):
             playbook_options["onUpdate"] = lambda result, record_update=record_update: record_update({"status": result.get("status")})
             agent_options["playbook"] = playbook_options
     control_events = []
-    run_control_handle = None
+    control_options = {}
     if fixture.get("control"):
-        from .session import run_control
-        run_control_handle = run_control()
-        # The run lifecycle events, in order, with their paths.
-        run_control_handle.on_event(lambda event: control_events.append({"type": event.get("type"), "path": event.get("path")})
-            if event.get("type") in ("started", "completed", "failed", "aborted") else None)
+        # The run lifecycle events, in order, with their paths; with
+        # control_steer every event, and the steer lands during that request.
+        control_events = _attach_fixture_control(fixture, client, control_options)
     streaming = fixture.get("kind") == "agent_streaming_forward"
     stream_deltas = []
     def _semantic_observer(label, throws=False):
@@ -2409,8 +2407,7 @@ def _run_agent_forward(fixture):
                     forward_options["onUsedSkills"] = _semantic_observer("forward.used_skills")
                 if "onUsedMemories" in forward_options:
                     forward_options["onUsedMemories"] = _semantic_observer("forward.used_memories")
-            if run_control_handle is not None:
-                forward_options["control"] = run_control_handle
+            forward_options.update(control_options)
             if streaming:
                 stop_after = fixture.get("stop_after_deltas")
                 stream = ag.streaming_forward(client, fixture.get("input") or {}, forward_options)
@@ -2618,6 +2615,7 @@ def _assert_agent_run_projections(fixture, ag, client, deltas, control_events, o
         _assert_equal(deltas, fixture.get("expected_deltas") or [], "agent streaming deltas")
     if "expected_control_events" in fixture:
         _assert_equal(control_events, fixture["expected_control_events"], "agent run control events")
+    _assert_request_roles(fixture, client)
     if "expected_observer_calls" in fixture:
         _assert_equal(observer_calls, fixture["expected_observer_calls"], "agent observer calls")
     if "expected_transcript" in fixture:

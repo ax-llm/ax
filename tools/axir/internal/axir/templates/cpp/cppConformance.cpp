@@ -2049,19 +2049,18 @@ static void run_agent_forward(Value fixture) {
     else if (label == "citations") record_citations = true;
     else if (label == "playbook_update") record_playbook_update = true;
   }
+  // The run lifecycle events, in order, with their paths; with control_steer
+  // every event, and the steer lands during that request.
   std::optional<AxRunControl> run_control_handle;
-  Value control_events = Value::array();
-  std::mutex control_events_mutex;
+  auto fixture_control_events = std::make_shared<FixtureControlEvents>();
   if (Core::truthy(Core::get(fixture, "control", false))) {
-    run_control_handle.emplace();
-    run_control_handle->on_event([&](Value event) {
-      // The run lifecycle events, in order, with their paths.
-      std::string type = display(Core::get(event, "type"));
-      if (type != "started" && type != "completed" && type != "failed" && type != "aborted") return;
-      std::lock_guard<std::mutex> lock(control_events_mutex);
-      Core::append(control_events, object({{"type", type}, {"path", Core::get(event, "path")}}));
-    });
+    Value control_options = Value::object();
+    run_control_handle.emplace(attach_fixture_control(fixture, client, control_options, fixture_control_events));
   }
+  auto control_events = [&]() {
+    std::lock_guard<std::mutex> lock(fixture_control_events->mutex);
+    return fixture_control_events->events;
+  };
   bool streaming = display(Core::get(fixture, "kind")) == "agent_streaming_forward";
   Value stream_deltas = Value::array();
   std::unique_ptr<ScriptedCodeRuntime> runtime;
@@ -2205,10 +2204,12 @@ static void run_agent_forward(Value fixture) {
     if (expected.is_null()) throw;
     if (std::string(error.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + error.what());
     if (ag) assert_agent_trace(*ag, fixture);
-    assert_agent_run_projections(fixture, ag.get(), client.requests, stream_deltas, control_events, observer_calls, observer_marks);
+    assert_agent_run_projections(fixture, ag.get(), client.requests, stream_deltas, control_events(), observer_calls, observer_marks);
+    assert_request_roles(fixture, client);
     return;
   }
-  assert_agent_run_projections(fixture, ag.get(), client.requests, stream_deltas, control_events, observer_calls, observer_marks);
+  assert_agent_run_projections(fixture, ag.get(), client.requests, stream_deltas, control_events(), observer_calls, observer_marks);
+  assert_request_roles(fixture, client);
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
     throw AxError("fixture", "expected agent request count mismatch");

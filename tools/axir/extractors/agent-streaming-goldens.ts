@@ -90,10 +90,13 @@ function requestStage(system: string): string {
   return 'responder';
 }
 
+// onRequest runs with each request's 1-based number while it is in flight,
+// before the scripted answer, as the port runners' scripted clients do.
 function scriptedAI(
   responses: ResponseSpec[],
   features: JsonMap,
-  transcript: string[]
+  transcript: string[],
+  onRequest?: (request: number) => void
 ) {
   const queue = clone(responses);
   let calls = 0;
@@ -105,6 +108,7 @@ function scriptedAI(
     },
     chatResponse: async (req) => {
       calls++;
+      onRequest?.(calls);
       const first = req.chatPrompt[0];
       const system =
         first?.role === 'system' && typeof first.content === 'string'
@@ -212,8 +216,15 @@ type Case = {
     | 'citations'
     | 'playbook_update'
   )[];
-  // Attach a run control and record every event it hears.
+  // Attach a run control and record the run's lifecycle events (every event
+  // with control_steer).
   control?: boolean;
+  // Steer the run while this request (1-based) is in flight; the fixture
+  // then pins every control event. It leaves out expected_request_roles: the
+  // ports' actor stages send AxGen's JSON-shape instruction as a user message
+  // of its own where TS keeps it in the system prompt, so each actor request
+  // has one more user message; the steer lands where TS puts it.
+  control_steer?: { during_request: number; text: string };
   // The consumer stops the stream after this many deltas.
   stop_after_deltas?: number;
   // Pin the chat log's {name, stage} shape.
@@ -239,7 +250,18 @@ async function record(name: string, spec: Case): Promise<void> {
     structured_outputs: false,
   };
   const transcript: string[] = [];
-  const { ai, calls } = scriptedAI(spec.responses, features, transcript);
+  const control = spec.control ? runControl() : undefined;
+  const steer = spec.control_steer;
+  const { ai, calls } = scriptedAI(
+    spec.responses,
+    features,
+    transcript,
+    (request) => {
+      if (control && steer && request === steer.during_request) {
+        control.steer(steer.text);
+      }
+    }
+  );
 
   const observerCalls: JsonMap[] = [];
   const observe =
@@ -283,14 +305,13 @@ async function record(name: string, spec: Case): Promise<void> {
   const forwardOptions: Record<string, unknown> = clone(
     spec.forward_options ?? {}
   );
-  // The run lifecycle events, in order, with their paths.
+  // The run lifecycle events, in order, with their paths; with a steer,
+  // every event.
   const controlEvents: JsonMap[] = [];
-  if (spec.control) {
-    const control = runControl();
+  if (control) {
+    const lifecycle = ['started', 'completed', 'failed', 'aborted'];
     control.onEvent(({ type, path }) => {
-      if (['started', 'completed', 'failed', 'aborted'].includes(type)) {
-        controlEvents.push({ type, path });
-      }
+      if (steer || lifecycle.includes(type)) controlEvents.push({ type, path });
     });
     forwardOptions.control = control;
   }
@@ -343,6 +364,7 @@ async function record(name: string, spec: Case): Promise<void> {
     'forward_options',
     'observers',
     'control',
+    'control_steer',
     'stop_after_deltas',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = clone(spec[key]);
@@ -569,6 +591,16 @@ const cases: Record<string, Case> = {
     responses: [...baseActors(), answerStream()],
     runtime_script: baseRuntime(),
   },
+  // An untargeted steer queued while the distiller's request is in flight:
+  // the distiller takes another step, and the steer reaches every stage.
+  'agent-streaming-forward-control-steer-continues': {
+    options: { directResponse: 'off' },
+    control: true,
+    control_steer: { during_request: 1, text: 'Answer in French.' },
+    responses: [actor(DISTILL), actor(DISTILL), actor(EXECUTE), answerStream()],
+    runtime_script: baseRuntime(),
+    request_contains: ['Answer in French.'],
+  },
   'agent-streaming-forward-control-failed': {
     options: { directResponse: 'off', citations: {} },
     control: true,
@@ -663,6 +695,20 @@ const cases: Record<string, Case> = {
     control: true,
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
+  },
+  'agent-forward-control-steer-continues': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    control: true,
+    control_steer: { during_request: 1, text: 'Answer in French.' },
+    responses: [
+      actor(DISTILL),
+      actor(DISTILL),
+      actor(EXECUTE),
+      { content: 'Answer: Refunds take 30 days.' },
+    ],
+    runtime_script: baseRuntime(),
+    request_contains: ['Answer in French.'],
   },
   'agent-forward-control-failed': {
     kind: 'agent_forward',

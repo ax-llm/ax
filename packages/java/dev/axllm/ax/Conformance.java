@@ -2214,6 +2214,7 @@ public final class Conformance {
       assertEqual(deltas, fixture.getOrDefault("expected_deltas", List.of()), "agent streaming deltas");
     }
     if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "agent run control events");
+    assertRequestRoles(fixture, client);
     if (fixture.containsKey("expected_observer_calls")) assertEqual(new ArrayList<>(observerCalls), fixture.get("expected_observer_calls"), "agent observer calls");
     if (fixture.containsKey("expected_transcript")) {
       List<Object> transcript = new ArrayList<>();
@@ -2291,7 +2292,7 @@ public final class Conformance {
     boolean streaming = "agent_streaming_forward".equals(fixture.get("kind"));
     List<Object> streamDeltas = new ArrayList<>();
     Map<String, Object> controlOptions = new LinkedHashMap<>();
-    List<Object> controlEvents = attachFixtureControl(fixture, controlOptions);
+    List<Object> controlEvents = attachFixtureControl(fixture, client, controlOptions);
     java.util.concurrent.atomic.AtomicBoolean observerCalled = new java.util.concurrent.atomic.AtomicBoolean(false);
     if (Boolean.TRUE.equals(fixture.get("observer_throws"))) {
       Map<String, Object> citations = new LinkedHashMap<>(Core.asMap(agentOptions.getOrDefault("citations", Map.of())));

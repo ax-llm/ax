@@ -439,7 +439,7 @@
     },
     {
       "capability": "agent.streaming_forward",
-      "summary": "AxAgent streaming forward runs the distiller and the executor (or the direct-respond skip) as forward does, then streams the responder's {version, index, delta} deltas; citations accumulate per version and a hidden citation field leaves each delta; clarifications fail before any delta; used memories and skills are reported before the responder, and the context map and the playbook (run-end failure learning) update after the stream; a run control hears the run at root and each stage at root/<stage>, a failed responder ends both as failed, and an early stop ends both as aborted.",
+      "summary": "AxAgent streaming forward runs the distiller and the executor (or the direct-respond skip) as forward does, then streams the responder's {version, index, delta} deltas; citations accumulate per version and a hidden citation field leaves each delta; clarifications fail before any delta; used memories and skills are reported before the responder, and the context map and the playbook (run-end failure learning) update after the stream; a run control hears the run at root and each stage at root/<stage>, a failed responder ends both as failed, an early stop ends both as aborted, and a steer queued during a stage's request makes that stage take another step and reaches every later stage.",
       "ir_ops": [
         "@agent_streaming_forward",
         "@agent_streaming_forward_impl",
@@ -460,6 +460,7 @@
         "axagent/agent-streaming-forward-control.json",
         "axagent/agent-streaming-forward-control-early-stop.json",
         "axagent/agent-streaming-forward-control-failed.json",
+        "axagent/agent-streaming-forward-control-steer-continues.json",
         "axagent/agent-streaming-forward-context-map.json",
         "axagent/agent-streaming-forward-playbook.json"
       ],
@@ -470,7 +471,7 @@
     },
     {
       "capability": "agent.forward.run_order",
-      "summary": "As in TypeScript, forward reports used memories and skills before the responder, updates the context map and the playbook after it (context-map upkeep never fails the run), and a run control hears the run at root and each stage at root/<stage>, with a failed responder ending both as failed.",
+      "summary": "As in TypeScript, forward reports used memories and skills before the responder, updates the context map and the playbook after it (context-map upkeep never fails the run), and a run control hears the run at root and each stage at root/<stage>, with a failed responder ending both as failed; a steer queued during a stage's request makes that stage take another step and reaches every later stage.",
       "ir_ops": [
         "@agent_forward_impl",
         "@agent_run_actor_stages",
@@ -481,6 +482,7 @@
         "axagent/agent-forward-context-map.json",
         "axagent/agent-forward-control.json",
         "axagent/agent-forward-control-failed.json",
+        "axagent/agent-forward-control-steer-continues.json",
         "axagent/agent-forward-playbook.json"
       ],
       "gate": "G6 perturbation + cross-target coverage",

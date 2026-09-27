@@ -12797,21 +12797,14 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             }
         }
     }
-    let fixture_control = if fixture.get("control").and_then(Value::as_bool).unwrap_or(false) {
-        Some(run_control())
+    // The run lifecycle events, in order, with their paths; with
+    // control_steer every event, and the steer lands during that request.
+    let (fixture_control, control_events) = if fixture.get("control").and_then(Value::as_bool).unwrap_or(false) {
+        let (control, events) = attach_fixture_control(fixture, &mut client);
+        (Some(control), events)
     } else {
-        None
+        (None, Arc::new(Mutex::new(Vec::new())))
     };
-    let control_events = Arc::new(Mutex::new(Vec::new()));
-    if let Some(control) = &fixture_control {
-        let events = control_events.clone();
-        control.on_event(move |event| {
-            // The run lifecycle events, in order, with their paths.
-            if matches!(event["type"].as_str(), Some("started" | "completed" | "failed" | "aborted")) {
-                events.lock().unwrap().push(json!({"type": event["type"], "path": event["path"]}));
-            }
-        });
-    }
     let streaming = fixture.get("kind").and_then(Value::as_str) == Some("agent_streaming_forward");
     let stream_deltas = Rc::new(RefCell::new(Vec::<Value>::new()));
     let agent_options = core_value_from_json(&raw_agent_options);
@@ -13040,6 +13033,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         if let Some(expected) = fixture.get("expected_control_events") {
             expect_json_equal("agent run control events", &Value::Array(control_events.lock().unwrap().clone()), expected)?;
         }
+        expect_fixture_request_roles(fixture, client)?;
         if let Some(expected) = fixture.get("expected_observer_calls") {
             expect_json_equal("agent observer calls", &Value::Array(observer_calls.borrow().clone()), expected)?;
         }

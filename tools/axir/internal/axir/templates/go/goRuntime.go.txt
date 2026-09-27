@@ -15327,20 +15327,12 @@ func runConformanceAgentForward(fixture map[string]Value) {
 			options["playbook"] = playbook
 		}
 	}
-	var controlEventsMu sync.Mutex
-	controlEvents := Array()
-	var runControl *AxRunControl
+	// The run lifecycle events, in order, with their paths; with
+	// control_steer every event, and the steer lands during that request.
+	controlEvents := func() Value { return Array() }
+	controlOptions := map[string]Value{}
 	if coreTruthy(coreGet(fixture, "control", false)) {
-		runControl = RunControl()
-		runControl.OnEvent(func(event map[string]Value) {
-			// The run lifecycle events, in order, with their paths.
-			switch display(event["type"]) {
-			case "started", "completed", "failed", "aborted":
-				controlEventsMu.Lock()
-				controlEvents = append(controlEvents, Object("type", event["type"], "path", event["path"]))
-				controlEventsMu.Unlock()
-			}
-		})
+		controlEvents = conformanceAttachControl(fixture, client, controlOptions)
 	}
 	streaming := display(coreGet(fixture, "kind", "")) == "agent_streaming_forward"
 	streamDeltas := Array()
@@ -15452,8 +15444,8 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
 		installSemanticObserver(forwardOptions, "onUsedSkills", "forward.used_skills", false)
 		installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
-		if runControl != nil {
-			forwardOptions["control"] = runControl
+		for key, value := range controlOptions {
+			forwardOptions[key] = value
 		}
 		if streaming {
 			stopAfter := coreGet(fixture, "stop_after_deltas", nil)
@@ -15483,10 +15475,9 @@ func runConformanceAgentForward(fixture map[string]Value) {
 			assertEqual(streamDeltas, coreGet(fixture, "expected_deltas", Array()), "agent streaming deltas")
 		}
 		if expected := coreGet(fixture, "expected_control_events", nil); expected != nil {
-			controlEventsMu.Lock()
-			assertEqual(controlEvents, expected, "agent run control events")
-			controlEventsMu.Unlock()
+			assertEqual(controlEvents(), expected, "agent run control events")
 		}
+		conformanceAssertRequestRoles(fixture, client)
 		if expected := coreGet(fixture, "expected_observer_calls", nil); expected != nil {
 			assertEqual(observerCalls, expected, "agent observer calls")
 		}
