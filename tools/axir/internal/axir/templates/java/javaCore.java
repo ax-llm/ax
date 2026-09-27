@@ -897,6 +897,14 @@ final class Core {
     Object fromGen = cachingFunctionOption(get(gen, "options", null));
     return fromGen != null ? fromGen : AxGlobals.cachingFunction();
   }
+  // TS AxFlow's cachingFunction: the call's (cachingFunction or
+  // caching_function), else the process-wide one; the flow's constructor
+  // takes none. The flow passes its call options to its AxGen nodes, so they
+  // cache through the same function.
+  static Object flowCachingFunction(Object options) {
+    Object fromCall = cachingFunctionOption(options);
+    return fromCall != null ? fromCall : AxGlobals.cachingFunction();
+  }
   private static Object cachingFunctionOption(Object options) {
     if (!(options instanceof Map<?, ?> map)) return null;
     Object value = map.get("cachingFunction");
