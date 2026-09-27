@@ -19,11 +19,24 @@ import threading
 import time
 import uuid
 import urllib.error
+import warnings
 import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
 # AXIR_CORE_IMPORTS
 from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text
+import warnings
+
+_CORE_DEPRECATIONS_SHOWN: set[str] = set()
+
+
+def _core_axgen_deprecation(key, message):
+    # Deprecated port behavior warns once per process.
+    if key in _CORE_DEPRECATIONS_SHOWN:
+        return None
+    _CORE_DEPRECATIONS_SHOWN.add(key)
+    warnings.warn(str(message), DeprecationWarning, stacklevel=4)
+    return None
 
 def _core_validation_error(message):
     return ValueError(str(message))
@@ -557,27 +570,6 @@ class AxAIServiceAbortedError(AxAIServiceError):
         self.reason = reason
 
 
-def _include_request_body_in_errors(options: Any) -> bool:
-    # TypeScript's includeRequestBodyInErrors: on unless the call or client options set it false.
-    if isinstance(options, dict):
-        for key in ("includeRequestBodyInErrors", "include_request_body_in_errors"):
-            if options.get(key) is not None:
-                return bool(options[key])
-    return True
-
-
-def _error_request(call: Any, include_body: bool) -> dict[str, Any] | None:
-    # The request a provider error carries, as TypeScript's AxAIServiceError
-    # keeps it: the URL, plus the body unless includeRequestBodyInErrors is
-    # false. Never the headers, which hold the API key or credential tokens.
-    if not isinstance(call, dict):
-        return None
-    view = {"url": call["url"]} if "url" in call else {}
-    if include_body:
-        view.update({key: call[key] for key in ("json", "data") if key in call})
-    return view
-
-
 def _cancellation_token(options: dict[str, Any] | None) -> AxCancellationToken | None:
     if not isinstance(options, dict):
         return None
@@ -621,6 +613,13 @@ def ai(provider: str = "openai", **options):
         raise ValueError(f"unsupported AxAI provider: expected a provider name, got {type(provider).__name__}")
     canonical = resolved.get("id")
     descriptor = provider_descriptor(canonical)
+    # A profile without a base URL of its own needs the caller's (TS
+    # resolveProfileURL); the generic client also takes OPENAI_BASE_URL.
+    url_options = {**(options.get("options") or {}), **options}
+    env_base_url = os.environ.get("OPENAI_BASE_URL")
+    if canonical == "openai-compatible" and env_base_url and not any(url_options.get(key) for key in ("base_url", "baseUrl", "apiURL")):
+        url_options["base_url"] = env_base_url
+    provider_require_api_url(canonical, url_options)
     transport = descriptor.get("transport")
     if transport == "openai-responses":
         return OpenAIResponsesClient(_profile=canonical, **options)
@@ -1104,6 +1103,9 @@ class AxBaseAI(AIClient):
             errors["rate"] = errors["count"] / errors["total"] if errors["total"] else 0.0
 
 
+_OPENAI_ENV_PROFILES = frozenset({"openai", "openai-responses", "openai-compatible"})
+
+
 class ProviderOperationClient(AxBaseAI):
     def owned_worker_factory(self):
         transport_factory = None
@@ -1157,18 +1159,27 @@ class ProviderOperationClient(AxBaseAI):
             features=descriptor.get("features") or default_features(),
         )
         self.profile = profile
+        # Only the caller's settings: provider_build_chat_request adds the
+        # provider's sampling defaults (as its TS class starts from) under them,
+        # after dropping the explicit ones the model rejects.
+        self.model_config = copy.deepcopy(model_config or {})
         if profile == "typesafe":
-            self.model_config = copy.deepcopy(model_config or {})
             typesafe_require_number(self.options.get("trueThreshold", self.options.get("true_threshold", 0.5)), "trueThreshold", 0, 1)
         self.descriptor = descriptor
-        self.base_url = (base_url or (os.environ.get("OPENAI_BASE_URL") if profile != "typesafe" else None) or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
+        # OPENAI_BASE_URL and OPENAI_API_KEY belong to OpenAI's own profiles and
+        # the generic client; any other provider's key never goes to that host,
+        # and the OpenAI key never goes to another provider.
+        reads_openai_env = profile in _OPENAI_ENV_PROFILES
+        self.base_url = (base_url or (os.environ.get("OPENAI_BASE_URL") if reads_openai_env else None) or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
         self.base_url_override = base_url.rstrip("/") if base_url else None
-        self.api_key = api_key or (os.environ.get("TYPESAFE_APIKEY") or os.environ.get("TYPESAFE_API_KEY") if profile == "typesafe" else os.environ.get("OPENAI_API_KEY"))
+        if profile == "typesafe":
+            env_api_key = os.environ.get("TYPESAFE_APIKEY") or os.environ.get("TYPESAFE_API_KEY")
+        else:
+            env_api_key = os.environ.get("OPENAI_API_KEY") if reads_openai_env else None
+        self.api_key = api_key or env_api_key
         self.credential_provider = credential_provider or credentialProvider
         if self.descriptor.get("authRequired") and not self.api_key and not self.credential_provider:
-            raise AxAIServiceAuthenticationError(
-                f"{self.profile} requires api_key or credential_provider"
-            )
+            raise AxAIServiceAuthenticationError(provider_missing_api_key_message(self.profile))
         self.api_version = descriptor.get("apiVersion") or api_version
         self.timeout = timeout
         self.transport = transport
@@ -1222,7 +1233,7 @@ class ProviderOperationClient(AxBaseAI):
         raw = self._context_cache_chat(request, payload, model, endpoint, options)
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
-            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, cancellation=_cancellation_token(options), include_request_body_in_errors=_include_request_body_in_errors(options))
+            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, cancellation=_cancellation_token(options), error_options=options)
         return provider_normalize_chat_response(self.profile, raw, self.name, model, typesafe_response_context(payload, options) if self.profile == "typesafe" else payload)
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
@@ -1239,7 +1250,7 @@ class ProviderOperationClient(AxBaseAI):
         if explicit:
             cached_payload = copy.deepcopy(payload)
             cached_payload["cachedContent"] = explicit
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
 
         prompts = request.get("chat_prompt") or request.get("chatPrompt") or request.get("messages") or []
         non_system_seen = 0
@@ -1302,14 +1313,14 @@ class ProviderOperationClient(AxBaseAI):
         try:
             if plan.get("action") == "refresh":
                 ops = ai_gemini_cache_ops(cache_name, ttl_seconds, api_key, str(model), cache_body, options)
-                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation, error_options=options)
                 expires_at = expiry(refreshed)
                 if not expires_at:
                     raise AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", response_body=refreshed)
                 save({"cacheName": cache_name, "expiresAt": expires_at})
             if plan.get("action") in ("create", "refresh") and (plan.get("action") == "create" or not cache_name):
                 ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options)
                 cache_name = str((created or {}).get("name") or "")
                 expires_at = expiry(created)
                 if not cache_name or not expires_at:
@@ -1321,7 +1332,7 @@ class ProviderOperationClient(AxBaseAI):
             if plan.get("action") == "refresh":
                 try:
                     ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options)
                     cache_name = str((created or {}).get("name") or "")
                     expires_at = expiry(created)
                     if not cache_name or not expires_at:
@@ -1330,9 +1341,9 @@ class ProviderOperationClient(AxBaseAI):
                 except AxAIServiceAbortedError:
                     raise
                 except AxAIServiceError:
-                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
             else:
-                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
         if not cache_name:
             return None
         cached_payload = copy.deepcopy(payload)
@@ -1342,7 +1353,7 @@ class ProviderOperationClient(AxBaseAI):
         cached_payload.pop("toolConfig", None)
         cached_payload["cachedContent"] = cache_name
         try:
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
         except AxAIServiceError as error:
             if not ai_context_cache_rejection(error.status or 0, error.response_body):
                 raise
@@ -1353,7 +1364,7 @@ class ProviderOperationClient(AxBaseAI):
                     registry_call("set", namespace, cache_key, recovery.get("externalEntry"))
                 elif recovery.get("deleteInMemory"):
                     self._context_cache_entries.pop(cache_key, None)
-            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), cancellation=cancellation, error_options=options)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         request, options = self._resolve_model_key(_coerce_chat_request(request), options)
@@ -1397,7 +1408,7 @@ class ProviderOperationClient(AxBaseAI):
         # The client pops base_url out of its options; the embed route still honors an explicit one.
         route_options = {**options, "base_url": self.base_url_override} if self.base_url_override else options
         endpoint = provider_embed_url(self.profile, str(model or ""), route_options) or self._operation_path("embed", model)
-        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options), include_request_body_in_errors=_include_request_body_in_errors(options))
+        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", cancellation=_cancellation_token(options), error_options=options)
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
     def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1418,7 +1429,7 @@ class ProviderOperationClient(AxBaseAI):
             # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
             events = None
             try:
-                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(options))
+                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", cancellation=cancellation, error_options=options)
                 events = _iter_sse_json(raw)
                 first = next(events, sentinel)
             except AxAIServiceError as error:
@@ -1463,7 +1474,7 @@ class ProviderOperationClient(AxBaseAI):
         if query:
             endpoint += ("&" if "?" in endpoint else "?") + urllib.parse.urlencode(query)
         event_stream = self.profile == "meta" and (request.get("partialMode") is not None or request.get("partial_mode") is not None or request.get("emitAudioProgress") is True or request.get("emit_audio_progress") is True)
-        raw = self._request_json(endpoint, payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe", accept="text/event-stream" if event_stream else None, cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(self._merged_options(options)))
+        raw = self._request_json(endpoint, payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe", accept="text/event-stream" if event_stream else None, cancellation=cancellation, error_options=self._merged_options(options))
         if event_stream and isinstance(raw, (str, bytes, bytearray)):
             raw = {"events": list(_iter_sse_json(raw))}
         return provider_normalize_transcribe_response(self.profile, raw, request)
@@ -1475,8 +1486,13 @@ class ProviderOperationClient(AxBaseAI):
         model = request.get("model") or descriptor.get("defaultModel") or self.model
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
         binary_response = descriptor.get("response") == "binary"
-        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(self._merged_options(options)))
-        return provider_normalize_speak_response(self.profile, raw, request)
+        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation, error_options=self._merged_options(options))
+        # As TS's axFetchJsonSpeech: a JSON body arrives parsed, and a binary
+        # one as base64 with its Content-Type, which names its mime type.
+        content_type = None
+        if isinstance(raw, _BinaryBody):
+            raw, content_type = raw.data, raw.content_type
+        return provider_normalize_speak_response(self.profile, raw, request, content_type)
 
     def realtime(self, events: Iterable[dict[str, Any]], model: str | None = None):
         state: dict[str, Any] = {}
@@ -1636,10 +1652,6 @@ class ProviderOperationClient(AxBaseAI):
         path = provider_chat_operation_path(self.profile, str(model or self.model), operation, str(descriptor.get("path", "/" + operation)))
         if model is not None:
             path = path.replace("{model}", urllib.parse.quote(str(model), safe=""))
-        if self.descriptor.get("auth") == "api_key_query":
-            key_name = self.descriptor.get("apiKeyQuery") or "key"
-            separator = "&" if "?" in path else "?"
-            path += separator + urllib.parse.quote(str(key_name), safe="") + "=" + urllib.parse.quote(self.api_key or "", safe="")
         if self.api_version:
             separator = "&" if "?" in path else "?"
             path += separator + "api-version=" + urllib.parse.quote(str(self.api_version), safe="")
@@ -1688,7 +1700,7 @@ class ProviderOperationClient(AxBaseAI):
             for connection in connections: connection.close()
             raise
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None, include_request_body_in_errors: bool | None = None):
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None, error_options: dict[str, Any] | None = None):
         if cancellation is not None: cancellation.throw_if_cancelled()
         method = str(method or "POST").upper()
         request_base_url = (base_url or self.base_url).rstrip("/")
@@ -1717,15 +1729,16 @@ class ProviderOperationClient(AxBaseAI):
         }
         if method in ("GET", "HEAD"):
             call.pop(body_key, None)
-        if include_request_body_in_errors is None:
-            include_request_body_in_errors = _include_request_body_in_errors(self.options)
-        error_request = _error_request(call, include_request_body_in_errors)
+        # The request this call's provider errors keep (Core owns the view).
+        error_request = _ai_error_request(call, self.options if error_options is None else error_options)
         if self.transport:
             try:
                 cancellable_name = "stream_with_cancellation" if stream else "call_with_cancellation"
                 cancellable = getattr(self.transport, cancellable_name, None)
                 result = cancellable(call, cancellation) if callable(cancellable) else self.transport(call)
                 if cancellation is not None: cancellation.throw_if_cancelled()
+                if binary_response:
+                    return _binary_transport_result(result, error_request)
                 return _transport_result(result, error_request)
             except AxAIServiceAbortedError:
                 raise
@@ -1811,8 +1824,15 @@ class ProviderOperationClient(AxBaseAI):
                 with res:
                     if binary_response:
                         # Binary operations (e.g. OpenAI /audio/speech returns raw mp3)
-                        # must not be UTF-8 decoded; return the bytes as base64.
-                        value = base64.b64encode(res.read()).decode()
+                        # must not be UTF-8 decoded: the bytes go on as base64 with
+                        # their Content-Type. A JSON body (as TS reads one by its
+                        # Content-Type) goes on parsed.
+                        content_type = res.headers.get("content-type") or ""
+                        body_bytes = res.read()
+                        if "application/json" in content_type:
+                            value = json.loads(body_bytes.decode())
+                        else:
+                            value = _BinaryBody(base64.b64encode(body_bytes).decode(), content_type)
                     else:
                         response_text = res.read().decode()
                         try:
@@ -1952,7 +1972,7 @@ class AxAITypesafeClient:
         attempt = 0
         while True:
             try:
-                return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, include_request_body_in_errors=_include_request_body_in_errors(opts))
+                return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts)
             except AxAIServiceError as error:
                 if not _is_retryable_ai_error(error) or attempt >= int(retry["max_retries"]):
                     raise
@@ -2007,8 +2027,10 @@ class GoogleGeminiClient(ProviderOperationClient):
         if embed_model is None:
             embed_model = options.pop("embedModel", "gemini-embedding-2")
         is_vertex = bool((options.get("project_id") or options.get("projectId")) and options.get("region"))
-        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or (os.environ.get("GOOGLE_VERTEX_ACCESS_TOKEN") if is_vertex else None) or os.environ.get("GOOGLE_APIKEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("GOOGLE_GEMINI_BASE_URL")
+        # The Google env vars belong to the google-gemini profile only.
+        own_env = _profile == "google-gemini"
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or ((os.environ.get("GOOGLE_VERTEX_ACCESS_TOKEN") if is_vertex else None) or os.environ.get("GOOGLE_APIKEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY") if own_env else None)
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or (os.environ.get("GOOGLE_GEMINI_BASE_URL") if own_env else None)
         super().__init__(
             _profile,
             _profile,
@@ -2024,8 +2046,11 @@ class AnthropicClient(ProviderOperationClient):
     def __init__(self, _profile="anthropic", **options):
         descriptor = provider_descriptor(_profile)
         is_vertex = bool((options.get("project_id") or options.get("projectId")) and options.get("region"))
-        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or (os.environ.get("GOOGLE_VERTEX_ACCESS_TOKEN") if is_vertex else None) or os.environ.get("ANTHROPIC_API_KEY")
-        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("ANTHROPIC_BASE_URL")
+        # The Anthropic env vars belong to the anthropic profile only: an
+        # Anthropic key never goes to another anthropic-messages host.
+        own_env = _profile == "anthropic"
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or ((os.environ.get("GOOGLE_VERTEX_ACCESS_TOKEN") if is_vertex else os.environ.get("ANTHROPIC_API_KEY")) if own_env else None)
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or (os.environ.get("ANTHROPIC_BASE_URL") if own_env else None)
         super().__init__(
             _profile,
             _profile,
@@ -3276,6 +3301,12 @@ def _core_string_replace(value, old, new):
     return str(value).replace(str(old), str(new))
 
 
+def _core_url_encode_component(value):
+    # JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+    # - _ . ! ~ * ' ( ) becomes %XX.
+    return urllib.parse.quote("" if value is None else str(value), safe="!~*'()")
+
+
 def _core_string_str(value):
     # String(x): a float two is "2", not "2.0".
     return _js_number_text(value) if isinstance(value, float) else str(value)
@@ -3298,15 +3329,44 @@ def _core_ai_error_unsupported(message):
 
 
 def _core_ai_error_auth(message, status=None, code=None, response_body=None, request=None):
-    return AxAIServiceAuthenticationError(str(message), status=status, code=code, response_body=response_body, request=request)
+    return AxAIServiceAuthenticationError(str(message), status=status, code=code, response_body=response_body, request=_ai_error_request(request))
 
 
 def _core_ai_error_timeout(message, status=None, code=None, response_body=None, request=None, retryable=True):
-    return AxAIServiceTimeoutError(str(message), status=status, code=code, response_body=response_body, request=request, retryable=bool(retryable))
+    return AxAIServiceTimeoutError(str(message), status=status, code=code, response_body=response_body, request=_ai_error_request(request), retryable=bool(retryable))
 
 
 def _core_ai_error_status(message, status=None, code=None, response_body=None, request=None, retryable=False):
-    return AxAIServiceStatusError(str(message), status=status, code=code, response_body=response_body, request=request, retryable=bool(retryable))
+    return AxAIServiceStatusError(str(message), status=status, code=code, response_body=response_body, request=_ai_error_request(request), retryable=bool(retryable))
+
+
+_CORE_AI_WARNINGS_SHOWN: set[str] = set()
+_CORE_AI_WARNINGS_LOCK = threading.Lock()
+_core_ai_warning_sink: Callable[[str], None] | None = None
+
+
+def _core_ai_warn_once(key, message):
+    # TS console.warn, once per key per process: a setting Ax could not send,
+    # such as a sampling parameter the selected model rejects.
+    with _CORE_AI_WARNINGS_LOCK:
+        if key in _CORE_AI_WARNINGS_SHOWN:
+            return None
+        _CORE_AI_WARNINGS_SHOWN.add(key)
+        sink = _core_ai_warning_sink
+    if sink is not None:
+        sink(str(message))
+    else:
+        warnings.warn(str(message), UserWarning, stacklevel=2)
+    return None
+
+
+def _core_ai_capture_warnings(sink):
+    # Conformance hook: forgets the one-time warnings already shown and sends
+    # new ones to ``sink`` (None shows them as warnings again).
+    global _core_ai_warning_sink
+    with _CORE_AI_WARNINGS_LOCK:
+        _CORE_AI_WARNINGS_SHOWN.clear()
+        _core_ai_warning_sink = sink
 
 
 # AXIR_CORE_AI_FUNCTIONS
@@ -3379,6 +3439,36 @@ def _tools_to_functions(tools):
         fn = tool.get("function", tool)
         out.append({"name": fn.get("name"), "description": fn.get("description", ""), "parameters": fn.get("parameters")})
     return out
+
+
+class _BinaryBody:
+    """A binary response body as base64 text, with its Content-Type."""
+
+    __slots__ = ("data", "content_type")
+
+    def __init__(self, data: str, content_type: str):
+        self.data = data
+        self.content_type = content_type
+
+
+def _binary_transport_result(result: Any, request: dict[str, Any]):
+    # A transport's binary answer: `body` (base64 text or bytes) with its
+    # headers' Content-Type, or parsed `json`. A JSON Content-Type makes a text
+    # body JSON, as TS reads it.
+    headers = result.get("headers") if isinstance(result, dict) else None
+    content_type = ""
+    if isinstance(headers, dict):
+        for key, value in headers.items():
+            if str(key).lower() == "content-type":
+                content_type = str(value or "")
+    body = _transport_result(result, request)
+    if isinstance(body, (bytes, bytearray)):
+        body = base64.b64encode(bytes(body)).decode()
+    if isinstance(body, str):
+        if "application/json" in content_type:
+            return json.loads(body)
+        return _BinaryBody(body, content_type)
+    return body
 
 
 def _transport_result(result: Any, request: dict[str, Any]):

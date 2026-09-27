@@ -10,14 +10,15 @@
 import json
 import os
 
-from axllm import OpenAICompatibleClient, agent
+from axllm import agent, ai
 from axllm.runtime_quickjs import AxQuickJsCodeRuntime
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
     raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.")
 
-client = OpenAICompatibleClient(
+client = ai(
+    "openai",
     api_key=api_key,
     # gpt-5.4 (not -mini): the recall/discover loop needs reasoning to proactively
     # pull memories + runbooks instead of stopping to ask for clarification.

@@ -23,8 +23,8 @@ int main() {
     return 2;
   }
   const std::string model = std::getenv("AX_OPENAI_MODEL") == nullptr ? "gpt-5.4-mini" : std::getenv("AX_OPENAI_MODEL");
-  auto primary = std::make_shared<axllm::OpenAICompatibleClient>(axllm::object({{"api_key", raw_key}, {"model", model}}));
-  auto backup = std::make_shared<axllm::OpenAICompatibleClient>(axllm::object({{"api_key", raw_key}, {"model", model}}));
+  auto primary = axllm::ai("openai", axllm::object({{"api_key", raw_key}, {"model", model}}));
+  auto backup = axllm::ai("openai", axllm::object({{"api_key", raw_key}, {"model", model}}));
 
   auto store = std::make_shared<axllm::AxInMemoryBalancerStatsStore>();
   std::vector<std::string> route_keys{"openai-primary", "openai-backup"};

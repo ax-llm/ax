@@ -20,8 +20,8 @@ public final class RefineFlowExample {
     return apiKey;
   }
 
-  static OpenAICompatibleClient client() {
-    return new OpenAICompatibleClient(
+  static AxAIService client() {
+    return Ax.ai("openai",
         Map.of(
             "api_key", apiKey(),
             "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"),
@@ -57,6 +57,11 @@ public final class RefineFlowExample {
         program.forward(
             client(),
             Map.of("topicText", "Explain automatic flow parallelism to a backend engineer."));
+    for (String key : List.of("revisedText")) {
+      if (List.of("null", "\"\"", "[]").contains(Json.stringify(output.get(key)))) {
+        throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(output));
+      }
+    }
     System.out.println(Json.stringify(output));
   }
 }

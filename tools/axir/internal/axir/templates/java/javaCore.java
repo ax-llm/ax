@@ -137,6 +137,16 @@ final class Core {
     return units;
   }
   static Object stringCodepointLength(Object value) { String text = String.valueOf(value); return text.codePointCount(0, text.length()); }
+  // Streamed text appends chunk by chunk. Java strings hold UTF-16 units, so
+  // a surrogate pair a provider split across two chunks joins back into one
+  // character by plain concatenation.
+  static Object stringConcatStreamText(Object left, Object right) { return String.valueOf(left) + String.valueOf(right); }
+  // A streamed delta never ends in half of a surrogate pair: a trailing high
+  // surrogate waits for its low half, or for the end of the stream.
+  static Object stringDropTrailingHighSurrogate(Object value) {
+    String text = String.valueOf(value);
+    return !text.isEmpty() && Character.isHighSurrogate(text.charAt(text.length() - 1)) ? text.substring(0, text.length() - 1) : text;
+  }
   /**
    * The epoch milliseconds of a java.time or java.util.Date value, read as
    * TypeScript reads a Date: Instant, OffsetDateTime, ZonedDateTime and Date
@@ -713,9 +723,9 @@ final class Core {
   static Object aiErrorRefusal(Object message, Object responseBody) { return new AxAIRefusalError(String.valueOf(message), responseBody); }
   static Object aiErrorStream(Object message, Object responseBody, Object retryable) { return new AxAIServiceStreamTerminatedError(String.valueOf(message), responseBody, truthy(retryable)); }
   static Object aiErrorUnsupported(Object message) { return new AxUnsupportedCapabilityError(String.valueOf(message)); }
-  static Object aiErrorAuth(Object message, Object status, Object code, Object responseBody, Object request) { return new AxAIServiceAuthenticationError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request); }
-  static Object aiErrorTimeout(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceTimeoutError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request, truthy(retryable)); }
-  static Object aiErrorStatus(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceStatusError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, request, truthy(retryable)); }
+  static Object aiErrorAuth(Object message, Object status, Object code, Object responseBody, Object request) { return new AxAIServiceAuthenticationError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null)); }
+  static Object aiErrorTimeout(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceTimeoutError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null), truthy(retryable)); }
+  static Object aiErrorStatus(Object message, Object status, Object code, Object responseBody, Object request, Object retryable) { return new AxAIServiceStatusError(String.valueOf(message), status == null ? null : asInt(status), code == null ? null : String.valueOf(code), responseBody, _ai_error_request(request, null), truthy(retryable)); }
 
   static Object recordNew(Object name, Object values) {
     Map<String, Object> v = asMap(values);
@@ -818,6 +828,19 @@ final class Core {
     if (!text.endsWith(".")) text += ".";
     return text + " " + hint;
   }
+  // JavaScript's encodeURIComponent: every UTF-8 byte except A-Z a-z 0-9 and
+  // - _ . ! ~ * ' ( ) becomes %XX.
+  static Object urlEncodeComponent(Object value) {
+    String text = value == null ? "" : String.valueOf(value);
+    StringBuilder out = new StringBuilder();
+    for (byte raw : text.getBytes(java.nio.charset.StandardCharsets.UTF_8)) {
+      int c = raw & 0xff;
+      boolean alnum = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+      if (alnum || "-_.!~*'()".indexOf(c) >= 0) out.append((char) c);
+      else out.append('%').append("0123456789ABCDEF".charAt(c >> 4)).append("0123456789ABCDEF".charAt(c & 15));
+    }
+    return out.toString();
+  }
   static Object urlValid(Object value) { return value instanceof String s && Pattern.compile("^[a-zA-Z][a-zA-Z0-9+.-]*://").matcher(s).find(); }
   static Object validImage(Object value) { return value instanceof Map<?, ?> map && map.containsKey("mimeType") && map.containsKey("data"); }
   static Object validAudio(Object value) { return value instanceof String || (value instanceof Map<?, ?> map && (map.containsKey("data") || map.containsKey("id"))); }
@@ -825,7 +848,8 @@ final class Core {
   static Object validUrlShape(Object value) { return value instanceof String || (value instanceof Map<?, ?> map && map.containsKey("url")); }
 
   static Object objectCallMethod(Object target, Object methodName, Object... args) {
-    if (target instanceof PromptTemplate p && "render".equals(String.valueOf(methodName))) return p.render(asMap(args.length > 0 ? args[0] : null));
+    // AxGen renders with the selected structured-output rung's options.
+    if (target instanceof PromptTemplate p && "render".equals(String.valueOf(methodName))) return p.render(asMap(args.length > 0 ? args[0] : null), args.length > 1 ? asMap(args[1]) : null);
     if (target instanceof AxFlow.Mapper mapper && "call".equals(String.valueOf(methodName))) return mapper.apply(asMap(args.length > 0 ? args[0] : null));
     if (target instanceof AxGen.ResultPickerCallback picker && "call".equals(String.valueOf(methodName))) {
       Map<String, Object> payload = asMap(args.length > 0 ? args[0] : null);
@@ -960,6 +984,46 @@ final class Core {
     if (result == null || Boolean.TRUE.equals(result)) return assertionOutcome("pass", null, null);
     if (result instanceof String message) return assertionOutcome("fail", "message", message);
     return assertionOutcome("fail", null, null);
+  }
+  private static final Map<String, java.util.Optional<String>> ENV_OVERRIDES = new java.util.concurrent.ConcurrentHashMap<>();
+  // Environment lookups for provider credentials and base URLs. Java cannot
+  // change its own environment, so conformance fixtures set overrides here (a
+  // null value hides the variable).
+  static String env(String name) {
+    java.util.Optional<String> override = ENV_OVERRIDES.get(name);
+    if (override != null) return override.orElse(null);
+    return System.getenv(name);
+  }
+  static void setEnvOverrides(Map<String, Object> values) {
+    ENV_OVERRIDES.clear();
+    if (values == null) return;
+    for (Map.Entry<String, Object> entry : values.entrySet()) {
+      ENV_OVERRIDES.put(entry.getKey(), java.util.Optional.ofNullable(entry.getValue() == null ? null : String.valueOf(entry.getValue())));
+    }
+  }
+  private static final Set<String> AI_WARNINGS_SHOWN = java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private static volatile java.util.function.Consumer<String> aiWarningSink;
+  // TS console.warn, once per key per process: a setting Ax could not send,
+  // such as a sampling parameter the selected model rejects.
+  static Object aiWarnOnce(Object key, Object message) {
+    if (!AI_WARNINGS_SHOWN.add(String.valueOf(key))) return null;
+    java.util.function.Consumer<String> sink = aiWarningSink;
+    if (sink != null) {
+      sink.accept(String.valueOf(message));
+      return null;
+    }
+    try {
+      System.getLogger("dev.axllm.ax").log(System.Logger.Level.WARNING, String.valueOf(message));
+    } catch (RuntimeException ignored) {
+      // a failing logger must not fail the request
+    }
+    return null;
+  }
+  // Conformance hook: forgets the one-time warnings already shown and sends
+  // new ones to sink (null logs them again).
+  static void aiCaptureWarnings(java.util.function.Consumer<String> sink) {
+    AI_WARNINGS_SHOWN.clear();
+    aiWarningSink = sink;
   }
   private static final Set<String> AXGEN_DEPRECATIONS_SHOWN = java.util.concurrent.ConcurrentHashMap.newKeySet();
   // Deprecated port behavior warns once per key per process.
@@ -1823,7 +1887,10 @@ class PromptRuntime {
     "Return the complete output by calling " + BT + "{{ structuredOutputFunctionName }}" + BT + ".\n{{ else }}{{ if hasComplexFields }}\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\n{{ else }}\nReturn one " + BT + "field name: value" + BT + " pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\n{{ /if }}{{ /if }}Above rules override later instructions.\n\n</formatting_rules>\n{{ if hasExampleDemonstrations }}\n\n## Example Demonstrations\nThe following User/Assistant turns are examples only until --- END OF EXAMPLES ---, not context for the current task.\n{{ /if }}\n";
 
   static String structured(AxSignature sig, Map<String, Object> values, List<Object> functions, Map<String, Object> options) {
-    boolean complex = sig.hasComplexFields();
+    // As TypeScript's structuredOutput option: AxGen renders with it set when
+    // a structured-output rung is selected; without it the signature decides.
+    Object structuredOption = options.containsKey("structured_output") ? options.get("structured_output") : options.get("structuredOutput");
+    boolean complex = structuredOption == null ? sig.hasComplexFields() : Core.truthy(structuredOption);
     List<Field> outputFields = outputFields(sig);
     String task = taskDefinition(sig, options);
     List<Map<String, Object>> funcs = functionDescriptors(functions);
@@ -1838,7 +1905,7 @@ class PromptRuntime {
     vars.put("taskDefinitionText", task);
     vars.put("functionsList", funcs.isEmpty() ? "" : renderFunctions(funcs));
     vars.put("inputFieldsSection", inputSection(sig, values));
-    vars.put("outputFieldsSection", outputSection(sig));
+    vars.put("outputFieldsSection", outputSection(sig, complex));
     vars.put("structuredOutputFunctionName", options.getOrDefault("structured_output_function_name", ""));
     String source = options.get("custom_template") == null ? DEFAULT_DSPY_TEMPLATE : String.valueOf(options.get("custom_template"));
     String context = options.get("custom_template") == null ? "template:dsp/dspy.md" : "inline-template";
@@ -1847,31 +1914,27 @@ class PromptRuntime {
 
   static Object userContent(AxSignature sig, Map<String, Object> values) {
     List<Map<String, Object>> parts = new ArrayList<>();
-    boolean audioParts = false;
     for (Field field : inputFieldsForValues(sig, values)) {
       Object value = values.get(field.name);
       if (!provided(value)) {
         if (field.optional || field.internal) continue;
         throw new IllegalArgumentException("Value for input field '" + field.name + "' is required.");
       }
-      boolean audio = field.type != null && "audio".equals(field.type.name);
+      String kind = field.type == null ? "string" : field.type.name;
+      boolean audio = "audio".equals(kind);
       // As TS processValue: an audio object with a transcript (what an AxGen
       // audio output renders to) reaches the model as that text.
       if (audio && value instanceof Map<?, ?> audioMap && audioMap.get("transcript") instanceof String transcript) value = transcript;
-      if (audio && !(value instanceof String)) {
+      // As TS defaultRenderInField: image, file and url values, and audio that
+      // is not text, go out as media parts after a text part with the title.
+      if ("image".equals(kind) || "file".equals(kind) || "url".equals(kind) || (audio && !(value instanceof String))) {
         parts.add(new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": \n")));
         if (field.type.array) {
-          if (!(value instanceof List<?> items)) throw new IllegalArgumentException("Audio field value must be an array.");
-          for (Object item : items) parts.add(audioPart(item));
+          if (!(value instanceof List<?> items)) throw new IllegalArgumentException(mediaLabel(kind) + " field value must be an array.");
+          for (Object item : items) parts.add(mediaPart(kind, item));
         } else {
-          parts.add(audioPart(value));
+          parts.add(mediaPart(kind, value));
         }
-        audioParts = true;
-      } else if (field.type != null && List.of("image", "audio", "file", "url").contains(field.type.name) && value instanceof Map<?, ?> map) {
-        parts.add(new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": \n")));
-        Map<String, Object> media = new LinkedHashMap<>(Core.asMap(map));
-        media.putIfAbsent("type", field.type.name);
-        parts.add(media);
       } else {
         String dated = field.type == null ? null : Core.jsDatePromptText(field.type.name, value);
         String rendered = dated != null ? dated : value instanceof String ? String.valueOf(value) : Json.pretty(value);
@@ -1887,8 +1950,8 @@ class PromptRuntime {
       for (Map<String, Object> part : parts) text.add(String.valueOf(part.getOrDefault("text", "")));
       return String.join("\n", text);
     }
-    if (!audioParts) return parts;
-    // As TS: consecutive text parts join with a newline.
+    // As TS combineConsecutiveStrings: in a message with media, each run of
+    // text parts joins with a newline and is cached when any of them is.
     List<Map<String, Object>> combined = new ArrayList<>();
     for (Map<String, Object> part : parts) {
       Map<String, Object> previous = combined.isEmpty() ? null : combined.get(combined.size() - 1);
@@ -1902,17 +1965,123 @@ class PromptRuntime {
     return combined;
   }
 
+  static String mediaLabel(String kind) {
+    return switch (kind) {
+      case "image" -> "Image";
+      case "audio" -> "Audio";
+      case "file" -> "File";
+      default -> "URL";
+    };
+  }
+
+  // The snake_case aliases the provider mappings read, per media part type:
+  // they become the declared camelCase keys (a camelCase key wins), so inputs
+  // written with them keep working.
+  static Object mediaAliases(String kind, Object value) {
+    if (!(value instanceof Map<?, ?> map)) return value;
+    String[][] aliases = switch (kind) {
+      case "image" -> new String[][] {{"mime_type", "mimeType"}};
+      case "audio" -> new String[][] {{"audio", "data"}, {"mime_type", "mimeType"}, {"sample_rate", "sampleRate"}};
+      case "file" -> new String[][] {{"mime_type", "mimeType"}, {"file_uri", "fileUri"}, {"extracted_text", "extractedText"}};
+      default -> new String[][] {{"cached_content", "cachedContent"}};
+    };
+    Map<Object, Object> out = null;
+    for (String[] alias : aliases) {
+      if (map.containsKey(alias[0]) && !map.containsKey(alias[1])) {
+        if (out == null) out = new LinkedHashMap<>(map);
+        out.put(alias[1], map.get(alias[0]));
+      }
+    }
+    return out == null ? value : out;
+  }
+
+  static Map<String, Object> mediaPart(String kind, Object value) {
+    value = mediaAliases(kind, value);
+    return switch (kind) {
+      case "image" -> imagePart(value);
+      case "audio" -> audioPart(value);
+      case "file" -> filePart(value);
+      default -> urlPart(value);
+    };
+  }
+
+  // JavaScript's !value for a JSON value: objects and arrays are truthy.
+  static boolean jsFalsy(Object value) {
+    if (value == null || Boolean.FALSE.equals(value) || "".equals(value)) return true;
+    return value instanceof Number n && (n.doubleValue() == 0 || Double.isNaN(n.doubleValue()));
+  }
+
+  static Map<?, ?> mediaObject(Object value, String label, String requiredKey) {
+    if (jsFalsy(value)) throw new IllegalArgumentException(label + " field value is required.");
+    if (!(value instanceof Map<?, ?>) && !(value instanceof List<?>)) throw new IllegalArgumentException(label + " field value must be an object.");
+    if (!(value instanceof Map<?, ?> map) || !map.containsKey(requiredKey)) throw new IllegalArgumentException(label + " field must have " + requiredKey);
+    return map;
+  }
+
+  // TS defaultRenderInField: an image part carries the mime type, the data as
+  // `image`, and the details the provider reads (OpenAI's image detail).
+  static Map<String, Object> imagePart(Object value) {
+    Map<?, ?> map = mediaObject(value, "Image", "mimeType");
+    if (!map.containsKey("data")) throw new IllegalArgumentException("Image field must have data");
+    Map<String, Object> part = new LinkedHashMap<>();
+    part.put("type", "image");
+    part.put("mimeType", map.get("mimeType"));
+    part.put("image", map.get("data"));
+    return declaredKeys(part, map, "details", "cache", "optimize", "altText");
+  }
+
+  // The optional keys a media part type declares (TS AxChatRequest) that the
+  // value sets go on the part, so the provider or router that reads them gets
+  // them; other keys stay behind.
+  static Map<String, Object> declaredKeys(Map<String, Object> part, Map<?, ?> value, String... keys) {
+    for (String key : keys) if (value.containsKey(key)) part.put(key, value.get(key));
+    return part;
+  }
+
   // TS defaultRenderInField: an audio part carries only its format (wav when
   // it has none) and its data.
   static Map<String, Object> audioPart(Object value) {
-    if (!(value instanceof Map<?, ?> map)) throw new IllegalArgumentException("Audio field value must be an object.");
-    if (!map.containsKey("data")) throw new IllegalArgumentException("Audio field must have data");
+    Map<?, ?> map = mediaObject(value, "Audio", "data");
     Map<String, Object> part = new LinkedHashMap<>();
     part.put("type", "audio");
     Object format = map.get("format");
     part.put("format", format == null ? "wav" : format);
     part.put("data", map.get("data"));
-    return part;
+    return declaredKeys(part, map, "mimeType", "sampleRate", "channels", "cache", "transcription", "duration");
+  }
+
+  // TS defaultRenderInField: a file part carries the mime type and either its
+  // data or its fileUri.
+  static Map<String, Object> filePart(Object value) {
+    Map<?, ?> map = mediaObject(value, "File", "mimeType");
+    boolean hasData = map.containsKey("data");
+    boolean hasFileUri = map.containsKey("fileUri");
+    if (!hasData && !hasFileUri) throw new IllegalArgumentException("File field must have either data or fileUri");
+    if (hasData && hasFileUri) throw new IllegalArgumentException("File field cannot have both data and fileUri");
+    Map<String, Object> part = new LinkedHashMap<>();
+    part.put("type", "file");
+    part.put("mimeType", map.get("mimeType"));
+    if (hasFileUri) part.put("fileUri", map.get("fileUri"));
+    else part.put("data", map.get("data"));
+    return declaredKeys(part, map, "filename", "cache", "extractedText");
+  }
+
+  // TS defaultRenderInField: a url part carries the url, and the title and
+  // description when they are set; a plain string is the url.
+  static Map<String, Object> urlPart(Object value) {
+    if (jsFalsy(value)) throw new IllegalArgumentException("URL field value is required.");
+    Map<String, Object> part = new LinkedHashMap<>();
+    part.put("type", "url");
+    if (value instanceof String url) {
+      part.put("url", url);
+      return part;
+    }
+    if (!(value instanceof Map<?, ?>) && !(value instanceof List<?>)) throw new IllegalArgumentException("URL field value must be a string or object.");
+    if (!(value instanceof Map<?, ?> map) || !map.containsKey("url")) throw new IllegalArgumentException("URL field must have url property");
+    part.put("url", map.get("url"));
+    if (!jsFalsy(map.get("title"))) part.put("title", map.get("title"));
+    if (!jsFalsy(map.get("description"))) part.put("description", map.get("description"));
+    return declaredKeys(part, map, "cachedContent", "cache");
   }
 
   static List<Field> inputFieldsForValues(AxSignature sig, Map<String, Object> values) {
@@ -1927,7 +2096,9 @@ class PromptRuntime {
   static String descFields(List<Field> fields) { List<String> out = new ArrayList<>(); for (Field f : fields) out.add(BT + f.title + BT); return String.join(", ", out); }
   static String taskDefinition(AxSignature sig, Map<String, Object> options) { String instruction = String.valueOf(options.getOrDefault("instruction", "")).trim(); String description = sig.description == null ? "" : sig.description.trim(); List<String> parts = new ArrayList<>(); if (!instruction.isEmpty()) parts.add(formatFieldRefs(formatDescription(instruction), fieldMap(sig))); if (!description.isEmpty() && !description.equals(instruction)) parts.add(formatFieldRefs(formatDescription(description), fieldMap(sig))); return String.join("\n\n", parts); }
   static String inputSection(AxSignature sig, Map<String, Object> values) { return "**Input Fields**: The following fields will be provided to you:\n\n" + renderInputFields(inputFieldsForValues(sig, values), fieldMap(sig)); }
-  static String outputSection(AxSignature sig) { List<Field> fields = outputFields(sig); String out = "**Output Fields**: You must generate the following fields:\n\n" + renderOutputFields(fields, fieldMap(sig)); if (sig.hasComplexFields()) { Map<String, Object> shape = new LinkedHashMap<>(); for (Field field : fields) shape.put(field.name, outputTypePlaceholder(field.type)); out += "\n\n**Exact JSON shape**: " + BT + Json.stringify(shape) + BT; } return out; }
+  // structured: whether the prompt asks for structured output, which ends the
+  // section with the exact JSON shape.
+  static String outputSection(AxSignature sig, boolean structured) { List<Field> fields = outputFields(sig); String out = "**Output Fields**: You must generate the following fields:\n\n" + renderOutputFields(fields, fieldMap(sig)); if (structured) { Map<String, Object> shape = new LinkedHashMap<>(); for (Field field : fields) shape.put(field.name, outputTypePlaceholder(field.type)); out += "\n\n**Exact JSON shape**: " + BT + Json.stringify(shape) + BT; } return out; }
   static Object outputTypePlaceholder(FieldType type) { Object value; switch (type.name) { case "number" -> value = 0; case "boolean" -> value = true; case "object", "json" -> { Map<String, Object> object = new LinkedHashMap<>(); if (type.fields != null) for (Map.Entry<String, Object> entry : type.fields.entrySet()) { Field field = entry.getValue() instanceof Field nested ? nested : new Field(entry.getKey(), (FieldType) entry.getValue(), null, false, false, false); if (!field.internal) object.put(entry.getKey(), outputTypePlaceholder(field.type)); } value = object; } case "class" -> value = type.options == null || type.options.isEmpty() ? "<allowed value>" : type.options.get(0); case "code" -> value = "<complete source>"; case "date" -> value = "<YYYY-MM-DD>"; case "datetime" -> value = "<ISO 8601 datetime>"; case "dateRange" -> value = new LinkedHashMap<>(Map.of("start", "<YYYY-MM-DD>", "end", "<YYYY-MM-DD>")); case "datetimeRange" -> value = new LinkedHashMap<>(Map.of("start", "<ISO 8601 datetime>", "end", "<ISO 8601 datetime>")); case "url" -> value = "<url>"; default -> value = "<string>"; } return type.array ? List.of(value) : value; }
   static List<Field> outputFields(AxSignature sig) { List<Field> out = new ArrayList<>(); for (Field field : sig.outputs) if (!field.internal) out.add(field); return out; }
   static Map<String, String> fieldMap(AxSignature sig) { Map<String, String> out = new LinkedHashMap<>(); for (Field f : sig.inputs) out.put(f.name, f.title); for (Field f : sig.outputs) out.put(f.name, f.title); return out; }

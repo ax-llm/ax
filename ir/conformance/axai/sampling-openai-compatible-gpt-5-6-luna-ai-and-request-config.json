@@ -1,0 +1,64 @@
+{
+  "base_url": "https://compatible.test/v1",
+  "expected_transport_json_absent": [
+    "n",
+    "presence_penalty",
+    "frequency_penalty",
+    "reasoning_effort"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "max_completion_tokens": 123,
+      "temperature": 0.5,
+      "top_p": 0.9
+    }
+  },
+  "expected_warnings": [],
+  "kind": "ai_chat",
+  "model": "gpt-5.6-luna",
+  "model_config": {
+    "maxTokens": 123,
+    "temperature": 0.7,
+    "topP": 0.9
+  },
+  "name": "sampling-openai-compatible-gpt-5-6-luna-ai-and-request-config",
+  "provider": "openai-compatible",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "temperature": 0.5
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_sampling",
+        "model": "gpt-5.6-luna",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

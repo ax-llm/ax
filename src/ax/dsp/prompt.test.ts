@@ -1,3 +1,4 @@
+// cspell:ignore JVBE (the base64 of a PDF's %PDF- header)
 import { describe, expect, it } from 'vitest';
 
 import { countChatPromptContentChars } from '../ai/promptMetrics.js';
@@ -1562,7 +1563,173 @@ describe('AxPromptTemplate.render', () => {
         userContent({ data: 'SUQzBAA=', format: 'mp3', mimeType: 'audio/mpeg' })
       ).toEqual([
         { type: 'text', text: 'Speech: \n' },
-        { type: 'audio', format: 'mp3', data: 'SUQzBAA=' },
+        {
+          type: 'audio',
+          format: 'mp3',
+          data: 'SUQzBAA=',
+          mimeType: 'audio/mpeg',
+        },
+      ]);
+    });
+
+    // The audio part's declared keys go on the part; other keys do not.
+    it("carries the audio part's declared keys", () => {
+      expect(
+        userContent({
+          data: 'UklGRg==',
+          sampleRate: 24000,
+          channels: 1,
+          cache: true,
+          transcription: 'Hello there',
+          duration: 1.5,
+          filename: 'hello.wav',
+        })
+      ).toEqual([
+        { type: 'text', text: 'Speech: \n' },
+        {
+          type: 'audio',
+          format: 'wav',
+          data: 'UklGRg==',
+          sampleRate: 24000,
+          channels: 1,
+          cache: true,
+          transcription: 'Hello there',
+          duration: 1.5,
+        },
+      ]);
+    });
+  });
+
+  describe('image inputs', () => {
+    const userContent = (value: unknown) =>
+      new AxPromptTemplate(
+        AxSignature.from('question:string, photo:image -> answer:string')
+      ).render({ question: 'What is it?', photo: value as never }, {})[1]
+        ?.content;
+
+    // The provider reads an image part's details (OpenAI's detail), so an
+    // image input's details must reach it.
+    it("carries an image input's details into its part", () => {
+      expect(
+        userContent({ mimeType: 'image/png', data: 'aW1hZ2U=', details: 'low' })
+      ).toEqual([
+        { type: 'text', text: 'Question: What is it?\n\nPhoto: \n' },
+        {
+          type: 'image',
+          mimeType: 'image/png',
+          image: 'aW1hZ2U=',
+          details: 'low',
+        },
+      ]);
+    });
+
+    it('builds an image part from only the keys an image takes', () => {
+      expect(
+        userContent({ mimeType: 'image/png', data: 'aW1hZ2U=', caption: 'x' })
+      ).toEqual([
+        { type: 'text', text: 'Question: What is it?\n\nPhoto: \n' },
+        { type: 'image', mimeType: 'image/png', image: 'aW1hZ2U=' },
+      ]);
+    });
+
+    it("carries the image part's declared keys", () => {
+      expect(
+        userContent({
+          mimeType: 'image/png',
+          data: 'aW1hZ2U=',
+          cache: true,
+          optimize: 'size',
+          altText: 'A red square',
+        })
+      ).toEqual([
+        { type: 'text', text: 'Question: What is it?\n\nPhoto: \n' },
+        {
+          type: 'image',
+          mimeType: 'image/png',
+          image: 'aW1hZ2U=',
+          cache: true,
+          optimize: 'size',
+          altText: 'A red square',
+        },
+      ]);
+    });
+  });
+
+  describe('file inputs', () => {
+    const userContent = (value: unknown) =>
+      new AxPromptTemplate(
+        AxSignature.from('question:string, doc:file -> answer:string')
+      ).render({ question: 'Summarize it', doc: value as never }, {})[1]
+        ?.content;
+
+    // OpenAI rejects inline file data without a filename (HTTP 400), so a file
+    // input's filename must reach the provider.
+    it("carries a file input's filename into its part", () => {
+      expect(
+        userContent({
+          mimeType: 'application/pdf',
+          data: 'JVBERi0=',
+          filename: 'report.pdf',
+        })
+      ).toEqual([
+        { type: 'text', text: 'Question: Summarize it\n\nDoc: \n' },
+        {
+          type: 'file',
+          mimeType: 'application/pdf',
+          data: 'JVBERi0=',
+          filename: 'report.pdf',
+        },
+      ]);
+    });
+
+    it("carries the file part's declared keys", () => {
+      expect(
+        userContent({
+          mimeType: 'application/pdf',
+          fileUri: 'gs://bucket/report.pdf',
+          cache: true,
+          extractedText: 'Revenue grew',
+          pages: 3,
+        })
+      ).toEqual([
+        { type: 'text', text: 'Question: Summarize it\n\nDoc: \n' },
+        {
+          type: 'file',
+          mimeType: 'application/pdf',
+          fileUri: 'gs://bucket/report.pdf',
+          cache: true,
+          extractedText: 'Revenue grew',
+        },
+      ]);
+    });
+  });
+
+  describe('url inputs', () => {
+    const userContent = (value: unknown) =>
+      new AxPromptTemplate(
+        AxSignature.from('question:string, link:url -> answer:string')
+      ).render({ question: 'What is it?', link: value as never }, {})[1]
+        ?.content;
+
+    // The provider sends a url part's cachedContent in place of the page.
+    it("carries the url part's declared keys", () => {
+      expect(
+        userContent({
+          url: 'https://example.com/',
+          title: 'Example',
+          cachedContent: 'Example page text',
+          cache: true,
+          rank: 1,
+        })
+      ).toEqual([
+        { type: 'text', text: 'Question: What is it?\n\nLink: \n' },
+        {
+          type: 'url',
+          url: 'https://example.com/',
+          title: 'Example',
+          cachedContent: 'Example page text',
+          cache: true,
+        },
       ]);
     });
   });

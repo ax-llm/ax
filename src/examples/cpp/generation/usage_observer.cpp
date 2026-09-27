@@ -31,7 +31,7 @@ int main() {
   std::vector<axllm::AxUsageEvent> events;
   axllm::set_usage_observer(
       [&events](axllm::AxUsageEvent event) { events.push_back(std::move(event)); });
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", api_key},
       {"model", model},
       {"usageContext",
@@ -41,7 +41,7 @@ int main() {
            {"attributes", axllm::object({{"environment", "example"}})},
        })},
   }));
-  client.chat(
+  client->chat(
       axllm::object({
           {"chat_prompt",
            axllm::array({

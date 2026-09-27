@@ -82,8 +82,8 @@ class ResponsesChatSession final:public AxChatSession {
     last_was_update_=!input.empty()&&display(Core::get(input.back(),"type"))=="configuration_update";
     if(queue_->cancelled.load())throw AxError("runtime","Session closed");
     if(socket_){Core::map_delete(payload,"stream");Core::set(payload,"type","response.create");socket_->send(payload);return;}
-    Value call=parse_json(stringify(call_));Core::set(call,"json",std::move(payload));auto queue=queue_;auto transport=transport_;
-    std::thread([queue,transport,call]()mutable{
+    Value call=parse_json(stringify(call_));Core::set(call,"json",std::move(payload));auto queue=queue_;auto transport=transport_;auto error_options=options_;
+    std::thread([queue,transport,call,error_options]()mutable{
       try {
         bool completed=false;
         IncrementalSSEDecoder decoder([&](Value event){
@@ -93,7 +93,7 @@ class ResponsesChatSession final:public AxChatSession {
         });
         transport->stream_cancellable(call,[&](Value chunk){
           if(queue->cancelled.load())return false;
-          if(Core::get(chunk,"status").is_number()){int status=static_cast<int>(num(Core::get(chunk,"status")));Value body=Core::get(chunk,"json",Core::get(chunk,"body",Core::get(chunk,"data")));if(status>=400)throw Core::as_error(Core::openai_normalize_error(status,body,Value()));chunk=body;}
+          if(Core::get(chunk,"status").is_number()){int status=static_cast<int>(num(Core::get(chunk,"status")));Value body=Core::get(chunk,"json",Core::get(chunk,"body",Core::get(chunk,"data")));if(status>=400)throw Core::as_error(Core::openai_normalize_error(status,body,call,error_options));chunk=body;}
           if(chunk.is_array()){for(const auto& event:array_ref(chunk))if(!decoder.feed("data: "+stringify(event)+"\n\n"))return false;return true;}
           return decoder.feed(chunk.is_object()?"data: "+stringify(chunk)+"\n\n":display(chunk));
         },std::shared_ptr<std::atomic<bool>>(queue,&queue->cancelled));
@@ -146,6 +146,14 @@ std::shared_ptr<AxChatSession> OpenAICompatibleClient::open_chat_session(Value r
   std::string model=display(Core::coalesce(Core::get(request,"model"),model_));
   if((profile_!="openai"&&profile_!="openai-responses")||model.rfind("gpt-6-astra",0)!=0||(!owned_transport_&&!session_socket_factory_))return {};
   return std::make_shared<ResponsesChatSession>(*this,std::move(request),std::move(options));
+}
+// A steer is text: a message's string content, or the text of its text parts
+// (a field processor's feedback is [{type: text, text}]).
+static Value session_steer_text(const Value& content){
+  if(!content.is_array())return content;
+  std::string text;bool first=true;
+  for(const auto& part:array_ref(content))if(display(Core::get(part,"type"))=="text"){if(!first)text+="\n";text+=display(Core::get(part,"text",""));first=false;}
+  return Value(text);
 }
 class SessionRun final:public AIClient {
   Value gen_,options_,state_,last_;
@@ -265,7 +273,7 @@ class SessionRun final:public AIClient {
   Value chat_impl(Value request,Value options) {
     select_client(request);
     if(!session_){if(control_&&control_->is_aborted())throw AxError("runtime","Run aborted before opening a session");if(wants_native_session(request))session_=client_->open_chat_session(request,options);if(!session_)return client_->chat(boundary_request(std::move(request)),options);state_=Core::chat_session_create_state(Core::get(request,"model",""),path_,Core::get(options_,"maxSteps",Core::get(options_,"max_steps",10)));emit("started");}
-    else{const auto& messages=array_ref(Core::get(request,"chat_prompt",Value::array()));if(!messages.empty())session_->update(object({{"type","steer"},{"text",Core::get(messages.back(),"content","")}}));submit(Value::array());}
+    else{const auto& messages=array_ref(Core::get(request,"chat_prompt",Value::array()));if(!messages.empty())session_->update(object({{"type","steer"},{"text",session_steer_text(Core::get(messages.back(),"content",""))}}));submit(Value::array());}
     while(true){
       if(control_){if(control_->is_aborted())throw AxError("runtime","Run aborted; unresolved calls: "+stringify(Core::chat_session_unresolved(state_)));std::vector<Value> updates;{std::lock_guard<std::mutex> lock(control_->source()->mutex);for(;after_<control_->source()->updates.size();++after_){const auto& update=control_->source()->updates[after_];if(Core::truthy(Core::chat_session_target_matches(Core::get(update,"target"),path_)))updates.push_back(update);}}
         for(const auto& update:updates){Core::chat_session_queue_update(state_,update);if(session_->update(update)=="native")Core::chat_session_native_update(state_,Core::get(update,"id"));else applied_.push_back(display(Core::get(update,"id")));}}

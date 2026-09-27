@@ -63,6 +63,26 @@ function promptMessages(
   return new AxPromptTemplate(sig, options).render(input as any, {}) as Json;
 }
 
+// A port-side golden: the ports also take the snake_case aliases their
+// provider mappings read (mime_type, file_uri, extracted_text, sample_rate,
+// cached_content, and an audio part's `audio` data) and turn them into the
+// declared camelCase keys. TS takes only the camelCase keys, so the expected
+// messages are TS's render of the camelCase input.
+function aliasPrompt(
+  name: string,
+  signature: string,
+  portInput: Record<string, unknown>,
+  tsInput: Record<string, unknown>
+): void {
+  const sig = AxSignature.create(signature);
+  writeFixture(name, {
+    kind: 'prompt',
+    signature,
+    input: portInput as Json,
+    expected_messages: promptMessages(sig, goldenValue(tsInput)),
+  });
+}
+
 function stringPrompt(
   name: string,
   signature: string,
@@ -507,6 +527,166 @@ stringPrompt(
   'audio-input-array-as-audio-parts',
   'clips:audio[] -> summary:string',
   { clips: [{ data: 'SUQzBAA=', format: 'mp3' }, { data: 'UklGRg==' }] }
+);
+
+// Image, file and url inputs: TS joins every run of consecutive text parts in
+// a multimodal message with a newline, and builds each media part from only
+// the keys its type takes (an image's data goes out as `image`, and its
+// details, which the provider reads, stay on the part).
+stringPrompt(
+  'image-input-after-text-joins-text',
+  'question:string, photo:image -> answer:string',
+  {
+    question: 'What is it?',
+    photo: { mimeType: 'image/png', data: 'aW1hZ2U=' },
+  }
+);
+stringPrompt(
+  'image-input-between-text-fields',
+  'question:string, photo:image, note:string -> answer:string',
+  {
+    question: 'What is it?',
+    photo: { mimeType: 'image/png', data: 'aW1hZ2U=' },
+    note: 'Be brief',
+  }
+);
+stringPrompt(
+  'image-input-array-as-image-parts',
+  'question:string, photos:image[] -> answer:string',
+  {
+    question: 'Which is newer?',
+    photos: [
+      { mimeType: 'image/png', data: 'aW1hZ2U=' },
+      { mimeType: 'image/jpeg', data: 'anBlZw==' },
+    ],
+  }
+);
+// Each media part carries the optional keys its part type declares
+// (AxChatRequest) when the input sets them; other keys stay behind.
+stringPrompt(
+  'image-input-declared-keys-carried',
+  'photo:image -> answer:string',
+  {
+    photo: {
+      mimeType: 'image/png',
+      data: 'aW1hZ2U=',
+      details: 'low',
+      cache: true,
+      optimize: 'size',
+      altText: 'A red square',
+      caption: 'A square',
+    },
+  }
+);
+stringPrompt('file-input-declared-keys-carried', 'doc:file -> answer:string', {
+  doc: {
+    mimeType: 'application/pdf',
+    data: 'JVBERi0=',
+    filename: 'report.pdf',
+    cache: true,
+    extractedText: 'Revenue grew',
+    pages: 3,
+  },
+});
+stringPrompt('url-input-declared-keys-carried', 'link:url -> answer:string', {
+  link: {
+    url: 'https://example.com/',
+    title: 'Example',
+    description: 'A sample page',
+    cachedContent: 'Example page text',
+    cache: true,
+    rank: 1,
+  },
+});
+aliasPrompt(
+  'image-input-snake-case-aliases',
+  'photo:image -> answer:string',
+  { photo: { mime_type: 'image/png', data: 'aW1hZ2U=', details: 'low' } },
+  { photo: { mimeType: 'image/png', data: 'aW1hZ2U=', details: 'low' } }
+);
+aliasPrompt(
+  'file-input-snake-case-aliases',
+  'doc:file -> answer:string',
+  {
+    doc: {
+      mime_type: 'application/pdf',
+      file_uri: 'gs://bucket/report.pdf',
+      extracted_text: 'Revenue grew',
+    },
+  },
+  {
+    doc: {
+      mimeType: 'application/pdf',
+      fileUri: 'gs://bucket/report.pdf',
+      extractedText: 'Revenue grew',
+    },
+  }
+);
+aliasPrompt(
+  'url-input-snake-case-aliases',
+  'link:url -> answer:string',
+  {
+    link: { url: 'https://example.com/', cached_content: 'Example page text' },
+  },
+  { link: { url: 'https://example.com/', cachedContent: 'Example page text' } }
+);
+aliasPrompt(
+  'audio-input-snake-case-aliases',
+  'speech:audio -> summary:string',
+  { speech: { audio: 'UklGRg==', mime_type: 'audio/wav', sample_rate: 24000 } },
+  { speech: { data: 'UklGRg==', mimeType: 'audio/wav', sampleRate: 24000 } }
+);
+stringPrompt(
+  'audio-input-declared-keys-carried',
+  'speech:audio -> summary:string',
+  {
+    speech: {
+      data: 'UklGRg==',
+      format: 'wav',
+      mimeType: 'audio/wav',
+      sampleRate: 24000,
+      channels: 1,
+      cache: true,
+      transcription: 'Hello there',
+      duration: 1.5,
+      filename: 'hello.wav',
+    },
+  }
+);
+stringPrompt(
+  'file-input-after-text-joins-text',
+  'question:string, doc:file -> answer:string',
+  {
+    question: 'Summarize it',
+    doc: { mimeType: 'application/pdf', data: 'JVBERi0=' },
+  }
+);
+stringPrompt(
+  'file-input-file-uri',
+  'question:string, doc:file -> answer:string',
+  {
+    question: 'Summarize it',
+    doc: { mimeType: 'application/pdf', fileUri: 'gs://bucket/doc.pdf' },
+  }
+);
+stringPrompt('file-input-array-as-file-parts', 'docs:file[] -> answer:string', {
+  docs: [
+    { mimeType: 'application/pdf', data: 'JVBERi0=' },
+    { mimeType: 'text/plain', fileUri: 'gs://bucket/notes.txt' },
+  ],
+});
+stringPrompt(
+  'url-input-after-text-joins-text',
+  'question:string, link:url -> answer:string',
+  {
+    question: 'What is on the page?',
+    link: { url: 'https://example.com/', title: 'Example' },
+  }
+);
+stringPrompt(
+  'url-input-plain-string',
+  'question:string, link:url -> answer:string',
+  { question: 'What is on the page?', link: 'https://example.com/' }
 );
 
 // Numbers in prompt JSON render as JSON.stringify writes them (Number's

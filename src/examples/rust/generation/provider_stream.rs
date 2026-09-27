@@ -24,8 +24,7 @@ fn main() -> AxResult<()> {
     )?;
     let started = Instant::now();
     for event in client.stream_iter(json!({
-        "chat_prompt": [{"role": "user", "content": "Reply with exactly: streaming works"}],
-        "model_config": {"temperature": 1}
+        "chat_prompt": [{"role": "user", "content": "Reply with exactly: streaming works"}]
     }))? {
         let event = event?;
         if let Some(content) = event["results"][0]["content"]

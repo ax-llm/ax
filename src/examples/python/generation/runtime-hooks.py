@@ -9,16 +9,7 @@
 # ax-example:end
 import os
 
-from axllm import (
-    AxRuntimeHooks,
-    OpenAICompatibleClient,
-    agent,
-    ax,
-    flow,
-    set_meter,
-    set_rate_limiter,
-    set_tracer,
-)
+from axllm import AxRuntimeHooks, agent, ai, ax, flow, set_meter, set_rate_limiter, set_tracer
 from axllm.runtime_quickjs import AxQuickJsCodeRuntime
 
 
@@ -62,7 +53,8 @@ api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
     raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.")
 
-client = OpenAICompatibleClient(
+client = ai(
+    "openai",
     api_key=api_key,
     model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
     model_config={"temperature": 0},
@@ -84,8 +76,10 @@ try:
     ))
     workflow = flow({"id": "examples.runtimeHooks"}).execute(
         "outline", ax("topic:string -> outline:string")
-    ).execute("polish", ax("outline:string -> answer:string")).returns({"answer": "polish"})
-    print(workflow.forward(client, {"topic": "Ax runtime hooks"}, hooks=override_hooks))
+    ).execute("polish", ax("outline:string -> answer:string")).returns({"answer": "answer"})
+    result = workflow.forward(client, {"topic": "Ax runtime hooks"}, hooks=override_hooks)
+    assert result.get("answer"), result
+    print(result)
 finally:
     set_rate_limiter(None)
     set_tracer(None)

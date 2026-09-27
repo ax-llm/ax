@@ -22,8 +22,8 @@ public final class SequentialFlowExample {
     return apiKey;
   }
 
-  static OpenAICompatibleClient client() {
-    return new OpenAICompatibleClient(
+  static AxAIService client() {
+    return Ax.ai("openai",
         Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"), "model_config", Map.of("temperature", 0.0)));
   }
 
@@ -33,8 +33,13 @@ public final class SequentialFlowExample {
         Ax.flow(Map.of("id", "examples.sequentialFlow"))
             .execute("step", step)
             .map("note", state -> Map.of("note", "Mapped flow state after the provider-backed step."))
-            .returns(Map.of("step", "step", "note", "note"));
+            .returns(Map.of("summary", "summaryText", "note", "note"));
     Map<String, Object> output = program.forward(client(), Map.of("documentText", "Ax gives developers signatures, provider clients, agents, flows, tracing, and optimization."));
+    for (String key : List.of("summary", "note")) {
+      if (List.of("null", "\"\"", "[]").contains(Json.stringify(output.get(key)))) {
+        throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(output));
+      }
+    }
     System.out.println(Json.stringify(output));
   }
 }

@@ -12,7 +12,6 @@ use axllm::{
     agent_with_options, ax, flow, set_meter, set_rate_limiter, set_tracer, AxCounter,
     AxError, AxGauge, AxHistogram, AxMeter, AxMetricInstrumentOptions, AxRateLimitInfo,
     AxRateLimiter, AxResult, AxRuntimeHooks, AxSpan, AxSpanStart, AxTracer,
-    OpenAICompatibleClient,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -59,7 +58,7 @@ fn main() -> AxResult<()> {
     let api_key = env::var("OPENAI_API_KEY").or_else(|_| env::var("OPENAI_APIKEY"))
         .map_err(|_| AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example."))?;
     let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".into());
-    let mut client = OpenAICompatibleClient::new(api_key, model).with_model_config(json!({"temperature": 0}));
+    let mut client = axllm::ai("openai", json!({"api_key": api_key, "model": model, "model_config": {"temperature": 0}}))?;
     let tracer: Arc<dyn AxTracer> = Arc::new(LogTracer);
     let meter: Arc<dyn AxMeter> = Arc::new(LogMeter);
     let override_hooks = AxRuntimeHooks { rate_limiter: Some(limiter("forward")), tracer: Some(Arc::clone(&tracer)), meter: Some(Arc::clone(&meter)) };
@@ -77,8 +76,13 @@ fn main() -> AxResult<()> {
         let mut workflow = flow("examples.runtimeHooks")
             .execute("outline", ax("topic:string -> outline:string")?)
             .execute("polish", ax("outline:string -> answer:string")?)
-            .returns(json!({"answer": "polish"}));
-        println!("{}", workflow.forward_with_hooks(&mut client, json!({"topic": "Ax runtime hooks"}), Value::Null, override_hooks)?);
+            .returns(json!({"answer": "answer"}));
+        let output = workflow.forward_with_hooks(&mut client, json!({"topic": "Ax runtime hooks"}), Value::Null, override_hooks)?;
+        for key in ["answer"] {
+            let value = &output[key];
+            assert!(!value.is_null() && value != "" && *value != json!([]), "flow output field {key} is empty: {output}");
+        }
+        println!("{output}");
         Ok(())
     })();
     set_rate_limiter(None);

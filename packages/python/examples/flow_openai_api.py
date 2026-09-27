@@ -1,14 +1,15 @@
 import json
 import os
 
-from axllm import OpenAICompatibleClient, ax, flow
+from axllm import ai, ax, flow
 
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
     raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.")
 
-client = OpenAICompatibleClient(
+client = ai(
+    "openai",
     api_key=api_key,
     model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
     model_config={"temperature": 0},
@@ -22,4 +23,5 @@ program = (
 )
 output = program.forward(client, {"topic": "how Ax composes typed LLM programs"})
 
+assert all(output.get(key) for key in ("outline", "summary")), output
 print(json.dumps(output, indent=2, sort_keys=True))

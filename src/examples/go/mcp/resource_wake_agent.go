@@ -42,7 +42,7 @@ func main() {
 	client := ax.NewAxMCPClient(transport, map[string]ax.Value{"namespace": "inventory"})
 	source := ax.NewAxMCPEventSourceWithPolicy(client, "inventory", "tenant:demo", "authenticated", ax.AxMCPSubscribeAll())
 	agent := ax.NewAgent("uri:string -> summary:string", map[string]ax.Value{"runtime": ax.Object("language", "JavaScript")})
-	llm := ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": key, "model": "gpt-5.4-mini"})
+	llm := ax.NewAI("openai", map[string]ax.Value{"api_key": key, "model": "gpt-5.4-mini"})
 	done := make(chan struct{}, 1)
 	runtime, err := ax.NewAxEventRuntime([]ax.AxEventRoute{{ID: "resource-wake", Action: "wake", TargetID: "inventory-agent", RequireAuthenticated: true, Match: map[string]ax.Value{"types": ax.Array("mcp.resource.updated")}}}, nil)
 	if err != nil {

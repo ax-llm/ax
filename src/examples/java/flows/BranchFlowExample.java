@@ -21,8 +21,8 @@ public final class BranchFlowExample {
     return apiKey;
   }
 
-  static OpenAICompatibleClient client() {
-    return new OpenAICompatibleClient(
+  static AxAIService client() {
+    return Ax.ai("openai",
         Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"), "model_config", Map.of("temperature", 0.0)));
   }
 
@@ -45,6 +45,11 @@ public final class BranchFlowExample {
                     "writes", List.of("responderResult", "response")))
             .returns(Map.of("route", "route", "response", "response"));
     Map<String, Object> output = program.forward(client(), Map.of("request", "A customer says checkout is down for their enterprise account."));
+    for (String key : List.of("route", "response")) {
+      if (List.of("null", "\"\"", "[]").contains(Json.stringify(output.get(key)))) {
+        throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(output));
+      }
+    }
     System.out.println(Json.stringify(output));
   }
 }

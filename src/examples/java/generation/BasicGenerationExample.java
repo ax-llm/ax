@@ -22,9 +22,9 @@ public final class BasicGenerationExample {
     return apiKey;
   }
 
-  static OpenAICompatibleClient client() {
-    return new OpenAICompatibleClient(
-        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.6-luna"), "model_config", Map.of("temperature", 0.0)));
+  static AxAIService client() {
+    return Ax.ai("openai",
+        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.6-luna")));
   }
 
   public static void main(String[] args) throws Exception {

@@ -10,6 +10,7 @@ import {
   createBalancerRouteStats,
   sampleBalancerRouteHealth,
 } from '../../../src/ax/ai/balance_adaptive.js';
+import { resetDroppedSamplingWarnings } from '../../../src/ax/ai/base.js';
 import { axGetSupportedAIModels } from '../../../src/ax/ai/catalog.js';
 import { AxAICohereEmbedModel } from '../../../src/ax/ai/cohere/types.js';
 import {
@@ -30,6 +31,7 @@ import {
 import { AxAIOpenAIResponses } from '../../../src/ax/ai/openai/responses_api_base.js';
 import { axGetAIProfile } from '../../../src/ax/ai/provider_profiles.js';
 import { AxProviderRouter } from '../../../src/ax/ai/router.js';
+import { ai } from '../../../src/ax/ai/wrap.js';
 import {
   axAIGrokDefaultConfig,
   axAIGrokVoiceDefaultConfig,
@@ -42,6 +44,7 @@ import {
   AxAIServiceResponseError,
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
+  apiCall,
 } from '../../../src/ax/util/apicall.js';
 import {
   goldenValue,
@@ -3502,6 +3505,7 @@ writeFixture('openai-legacy-reasoning-none-control', {
 writeFixture('responses-simple-chat', {
   kind: 'ai_chat',
   provider: 'openai-responses',
+  model: responsesDefaultModel,
   request: {
     chat_prompt: [
       { role: 'system', content: 'Answer briefly.' },
@@ -3575,12 +3579,14 @@ writeFixture('responses-simple-chat', {
         },
       ],
       stream: false,
-      temperature: 0.2,
       max_output_tokens: 64,
       reasoning: { effort: 'low' },
       include: ['file_search_call.results'],
     },
   },
+  // The default model's info marks temperature notSupported, so the
+  // request's temperature never reaches the wire.
+  expected_transport_json_absent: ['temperature'],
 });
 
 writeFixture('responses-tool-call', {
@@ -3921,27 +3927,64 @@ writeFixture('responses-transcribe', {
 });
 
 // TypeScript's AxSpeechResponse for one speak response, from the provider's
-// real speak() against a fetch stub.
+// real speak() against a fetch stub. Mistral and Grok go through ai(), which
+// builds their provider profiles.
 async function tsSpeechResponse(
-  provider: 'openai' | 'google-gemini',
+  provider: 'openai' | 'google-gemini' | 'mistral' | 'grok',
   request: Record<string, unknown>,
   response: () => Response
-): Promise<{ output: Record<string, Json>; body: Json }> {
+): Promise<{ output: Record<string, Json>; body: Json; url: string }> {
   let body: Json = null;
-  const fetch = async (_url: unknown, init?: RequestInit) => {
+  let url = '';
+  const fetch = async (target: unknown, init?: RequestInit) => {
+    url = String(target);
     body = JSON.parse(String(init?.body ?? 'null')) as Json;
     return response();
   };
   const client =
     provider === 'openai'
       ? new AxAIOpenAI({ apiKey: 'test-key', options: { fetch } })
-      : new AxAIGoogleGemini({ apiKey: 'test-key', options: { fetch } });
+      : provider === 'google-gemini'
+        ? new AxAIGoogleGemini({ apiKey: 'test-key', options: { fetch } })
+        : ai({
+            name: provider,
+            apiKey: 'test-key',
+            options: { fetch },
+          } as never);
   const output = await client.speak(request as never);
   return {
     output: JSON.parse(JSON.stringify(output)) as Record<string, Json>,
     body,
+    url,
   };
 }
+
+// TypeScript's speak() error message for one response, or '' when it
+// resolves.
+async function tsSpeechError(
+  provider: 'openai' | 'google-gemini',
+  request: Record<string, unknown>,
+  response: () => Response
+): Promise<string> {
+  try {
+    await tsSpeechResponse(provider, request, response);
+    return '';
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+const jsonResponse = (json: unknown) => () =>
+  new Response(JSON.stringify(json), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+
+const binaryResponse = (bytes: Uint8Array, contentType: string) => () =>
+  new Response(bytes, {
+    status: 200,
+    headers: { 'content-type': contentType },
+  });
 
 // A port's speak() output: its older keys (audio, mime_type, sample_rate),
 // kept until the next major version, next to TypeScript's AxSpeechResponse
@@ -3972,8 +4015,11 @@ function portSpeechOutput(
 
 // The older JSON speak path: TS's axFetchJsonSpeech rejects a JSON body
 // without audio_data, data or audio.data ("Speech response JSON did not
-// include audio data"), but the ports still read its `audio`. They add TS's
-// keys from it: data, the mime type of the format, and the spoken text.
+// include audio data"), but the ports still read its `audio`, with a
+// deprecation warning, until the next major version. They add TS's keys from
+// it: data, the mime type of the format, and the spoken text. (TS's
+// openai-responses client has no speak(); the ports' speak goes through the
+// OpenAI speech builder, so the model defaults to gpt-4o-mini-tts.)
 writeFixture('responses-speak', {
   kind: 'ai_speak',
   provider: 'openai-responses',
@@ -3989,7 +4035,7 @@ writeFixture('responses-speak', {
   expected_transport_request: {
     url: 'https://api.openai.com/v1/audio/speech',
     json: {
-      model: 'tts-1',
+      model: 'gpt-4o-mini-tts',
       input: 'hello',
       voice: 'alloy',
       response_format: 'mp3',
@@ -3997,10 +4043,10 @@ writeFixture('responses-speak', {
   },
 });
 
-// OpenAI's /audio/speech answers with the audio bytes. A port's HTTP
-// transport hands binary speak bodies on as base64 without the Content-Type,
-// so the scripted body is that base64 text; TS reads the same bytes with
-// Content-Type audio/mpeg, and the mime type of mp3 is the same.
+// OpenAI's /audio/speech answers with the audio bytes. A port's transport
+// hands a binary speak body on as base64 text, here with no Content-Type, so
+// the mime type comes from the format; TS reads the same bytes with
+// Content-Type audio/mpeg, the mime type of mp3.
 {
   const bytes = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00]);
   const request = {
@@ -4034,6 +4080,447 @@ writeFixture('responses-speak', {
       json: ts.body,
     },
   });
+}
+
+// Speak requests and responses as TypeScript's real providers build and read
+// them: OpenAI's defaults (gpt-4o-mini-tts, a voice object's id, pcm sent as
+// pcm16, speed), Mistral's and Grok's profile dialects, the JSON bodies
+// axFetchJsonSpeech reads, and Gemini audio with no or snake_case mime data.
+// A port keeps its older keys (audio, format, and Gemini's mime_type,
+// sample_rate and channels) beside TypeScript's.
+{
+  const mp3 = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00]);
+  const wav = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
+  const pcm = new Uint8Array([0x00, 0x00, 0x00, 0x00]);
+  const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64');
+  const speakFixture = async (
+    name: string,
+    provider: 'openai' | 'google-gemini' | 'mistral' | 'grok',
+    request: Record<string, unknown>,
+    response: () => Response,
+    transport: Record<string, Json>,
+    older: (ts: Record<string, Json>) => Record<string, Json>
+  ) => {
+    const ts = await tsSpeechResponse(provider, request, response);
+    // The runners compare the request as a subset, so name the speech keys
+    // TS leaves out (such as Mistral's `voice`) that a port must leave out.
+    const tsKeys = Object.keys((ts.body ?? {}) as Record<string, Json>);
+    const absent = [
+      'model',
+      'voice',
+      'voice_id',
+      'speed',
+      'response_format',
+      'language',
+    ].filter((key) => !tsKeys.includes(key));
+    writeFixture(name, {
+      kind: 'ai_speak',
+      provider,
+      request: request as Json,
+      transport_responses: [{ status: 200, ...transport }],
+      expected_output: portSpeechOutput(older(ts.output), ts.output),
+      expected_transport_request: { url: ts.url, json: ts.body },
+      expected_transport_json_absent: absent,
+    });
+  };
+  const binaryOlder = (ts: Record<string, Json>) => ({
+    audio: ts.data,
+    format: ts.format,
+  });
+
+  await speakFixture(
+    'openai-speak-default-model',
+    'openai',
+    { text: 'Hello there' },
+    binaryResponse(mp3, 'audio/mpeg'),
+    { body: b64(mp3) },
+    binaryOlder
+  );
+  // The port never sees the Content-Type of a binary body, so the stub sends
+  // the type TS's axAudioMimeType gives pcm.
+  await speakFixture(
+    'openai-speak-voice-object-speed-pcm',
+    'openai',
+    { text: 'Hello there', voice: { id: 'verse' }, speed: 1.25, format: 'pcm' },
+    binaryResponse(pcm, 'audio/pcm'),
+    { body: b64(pcm) },
+    binaryOlder
+  );
+  await speakFixture(
+    'mistral-speak-default-model',
+    'mistral',
+    { text: 'Hello there' },
+    binaryResponse(mp3, 'audio/mpeg'),
+    { body: b64(mp3) },
+    binaryOlder
+  );
+  await speakFixture(
+    'mistral-speak-voice-id',
+    'mistral',
+    { text: 'Hello there', voice: 'Paul', format: 'wav' },
+    binaryResponse(wav, 'audio/wav'),
+    { body: b64(wav) },
+    binaryOlder
+  );
+  await speakFixture(
+    'grok-speak-speed',
+    'grok',
+    { text: 'Hello there', speed: 1.2 },
+    binaryResponse(mp3, 'audio/mpeg'),
+    { body: b64(mp3) },
+    binaryOlder
+  );
+  // A binary body's Content-Type is its mime type (here with a rate), as TS
+  // reads it; the ports' hosts hand it on beside the base64 body.
+  await speakFixture(
+    'openai-speak-binary-content-type',
+    'openai',
+    { text: 'Hello there', format: 'pcm' },
+    binaryResponse(pcm, 'audio/pcm;rate=24000'),
+    { body: b64(pcm), headers: { 'content-type': 'audio/pcm;rate=24000' } },
+    binaryOlder
+  );
+  await speakFixture(
+    'openai-speak-json-audio-data',
+    'openai',
+    { text: 'Hello there' },
+    jsonResponse({ audio_data: b64(mp3) }),
+    { json: { audio_data: b64(mp3) } },
+    binaryOlder
+  );
+  // A JSON Content-Type makes the body JSON, as TS reads it, even for an
+  // operation that answers with binary audio.
+  await speakFixture(
+    'openai-speak-json-content-type-body',
+    'openai',
+    { text: 'Hello there' },
+    jsonResponse({ audio_data: b64(mp3) }),
+    {
+      body: JSON.stringify({ audio_data: b64(mp3) }),
+      headers: { 'content-type': 'application/json' },
+    },
+    binaryOlder
+  );
+  await speakFixture(
+    'openai-speak-json-nested-audio-and-mime-type',
+    'openai',
+    { text: 'Hello there', format: 'wav' },
+    jsonResponse({ audio: { data: b64(wav) }, mimeType: 'audio/wav' }),
+    { json: { audio: { data: b64(wav) }, mimeType: 'audio/wav' } },
+    binaryOlder
+  );
+  // A JSON body with no audio TS reads is TS's error. (The ports' older
+  // `audio` key is a deprecated fallback until the next major version; see
+  // responses-speak.)
+  {
+    const request = { text: 'Hello there' };
+    const body = { status: 'ok' };
+    const message = await tsSpeechError('openai', request, jsonResponse(body));
+    if (!message) throw new Error('TS speak accepted a JSON body without data');
+    writeFixture('openai-speak-json-without-audio-data', {
+      kind: 'ai_error',
+      method: 'speak',
+      provider: 'openai',
+      request,
+      transport_responses: [{ status: 200, json: body }],
+      expected_error_contains: message,
+    });
+  }
+  const geminiOlder = (ts: Record<string, Json>) => ({
+    audio: ts.data,
+    format: ts.format,
+  });
+  await speakFixture(
+    'gemini-tts-no-mime-type',
+    'google-gemini',
+    { text: 'Hello from Ax.' },
+    jsonResponse({
+      candidates: [
+        {
+          content: {
+            role: 'model',
+            parts: [{ inlineData: { data: b64(pcm) } }],
+          },
+        },
+      ],
+    }),
+    {
+      json: {
+        candidates: [
+          {
+            content: {
+              role: 'model',
+              parts: [{ inlineData: { data: b64(pcm) } }],
+            },
+          },
+        ],
+      },
+    },
+    geminiOlder
+  );
+  await speakFixture(
+    'gemini-tts-snake-case-inline-data',
+    'google-gemini',
+    { text: 'Hello from Ax.' },
+    jsonResponse({
+      candidates: [
+        {
+          content: {
+            role: 'model',
+            parts: [
+              { inline_data: { data: b64(wav), mime_type: 'audio/wav' } },
+            ],
+          },
+        },
+      ],
+    }),
+    {
+      json: {
+        candidates: [
+          {
+            content: {
+              role: 'model',
+              parts: [
+                { inline_data: { data: b64(wav), mime_type: 'audio/wav' } },
+              ],
+            },
+          },
+        ],
+      },
+    },
+    (ts) => ({ ...geminiOlder(ts), mime_type: ts.mimeType })
+  );
+}
+
+// Chat wire bodies from TS's real OpenAI and Anthropic-profile chat against a
+// fetch stub.
+{
+  const openaiResponse: Record<string, Json> = {
+    id: 'chatcmpl_wire',
+    choices: [
+      {
+        index: 0,
+        finish_reason: 'stop',
+        message: { role: 'assistant', content: 'ok' },
+      },
+    ],
+  };
+  const wireFixture = async (
+    name: string,
+    provider: 'openai' | 'meta-messages',
+    chatPrompt: Json,
+    response: Record<string, Json>,
+    pick: (body: Record<string, Json>) => Record<string, Json>
+  ) => {
+    let body: Record<string, Json> = {};
+    const fetch = async (_url: unknown, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body ?? '{}')) as Record<string, Json>;
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    const client =
+      provider === 'openai'
+        ? new AxAIOpenAI({ apiKey: 'test-key', options: { fetch } })
+        : ai({
+            name: provider,
+            apiKey: 'test-key',
+            options: { fetch },
+          } as never);
+    await client.chat({ chatPrompt } as never, { stream: false });
+    writeFixture(name, {
+      kind: 'ai_chat',
+      provider,
+      request: { chat_prompt: chatPrompt, model_config: { stream: false } },
+      transport_responses: [{ status: 200, json: response }],
+      expected_transport_request: { json: pick(body) },
+    });
+  };
+  // A url part reaches the model as text: its cached content, or else its
+  // title, description and url, each that is set on its own line. (TS's
+  // Responses mapping writes the same text, but its user input item also
+  // carries `type: 'message'`, which the ports' Responses mapping leaves out.)
+  const urlPrompt: Json = [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Read these' },
+        {
+          type: 'url',
+          url: 'https://example.com/',
+          title: 'Example',
+          description: 'A sample page',
+        },
+        { type: 'url', url: 'https://example.org/' },
+      ],
+    },
+  ];
+  await wireFixture(
+    'openai-url-part-as-text',
+    'openai',
+    urlPrompt,
+    openaiResponse,
+    (body) => ({ messages: body.messages })
+  );
+  // A file part's filename reaches OpenAI: Chat Completions rejects inline
+  // file data without one (HTTP 400, "Missing required parameter:
+  // 'messages[0].content[1].file.file_id'").
+  await wireFixture(
+    'openai-file-part-filename',
+    'openai',
+    [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Summarize it' },
+          {
+            type: 'file',
+            mimeType: 'application/pdf',
+            data: 'JVBERi0=',
+            filename: 'report.pdf',
+          },
+        ],
+      },
+    ],
+    openaiResponse,
+    (body) => ({ messages: body.messages })
+  );
+  // Chat Completions input audio: a part without a format takes it from its
+  // mime type, and only data and format go out (OpenAI answers HTTP 400 to
+  // any other input_audio key).
+  await wireFixture(
+    'openai-audio-part-format-from-mime-type',
+    'openai',
+    [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'What is said?' },
+          {
+            type: 'audio',
+            data: 'UklGRg==',
+            mimeType: 'audio/wav',
+            sampleRate: 24000,
+            channels: 1,
+          },
+        ],
+      },
+    ],
+    openaiResponse,
+    (body) => ({ messages: body.messages })
+  );
+  // With neither a format nor a mime type, TS rejects the part with its
+  // message.
+  {
+    let message = '';
+    try {
+      await new AxAIOpenAI({
+        apiKey: 'test-key',
+        options: { fetch: async () => new Response('{}') },
+      }).chat(
+        {
+          chatPrompt: [
+            { role: 'user', content: [{ type: 'audio', data: 'UklGRg==' }] },
+          ],
+        } as never,
+        { stream: false }
+      );
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    if (!message.includes('unknown format')) {
+      throw new Error(`TS accepted audio of unknown format: ${message}`);
+    }
+    writeFixture('openai-audio-part-unknown-format', {
+      kind: 'ai_error',
+      method: 'chat',
+      provider: 'openai',
+      request: {
+        chat_prompt: [
+          { role: 'user', content: [{ type: 'audio', data: 'UklGRg==' }] },
+        ],
+        model_config: { stream: false },
+      },
+      transport_responses: [],
+      expected_error_contains: message,
+    });
+  }
+  // TS's Responses mapping sends an audio part's format as it is, so a part
+  // without one sends none. (No OpenAI Responses model takes audio input
+  // today: "Audio input is not available.")
+  {
+    let body: Record<string, Json> = {};
+    const fetch = async (_url: unknown, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body ?? '{}')) as Record<string, Json>;
+      return new Response(
+        JSON.stringify({
+          id: 'resp_audio',
+          output: [
+            {
+              id: 'msg_audio',
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'ok' }],
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    };
+    const chatPrompt = [
+      { role: 'user', content: [{ type: 'audio', data: 'UklGRg==' }] },
+    ];
+    await new AxAIOpenAIResponses({
+      apiKey: 'test-key',
+      options: { fetch },
+    }).chat({ chatPrompt } as never, { stream: false });
+    const input = body.input as { content: { input_audio?: Json }[] }[];
+    const inputAudio = input[0]?.content[0]?.input_audio;
+    if (JSON.stringify(inputAudio) !== JSON.stringify({ data: 'UklGRg==' })) {
+      throw new Error(`TS Responses audio part: ${JSON.stringify(inputAudio)}`);
+    }
+    writeFixture('responses-audio-part-without-format', {
+      kind: 'ai_chat',
+      provider: 'openai-responses',
+      request: { chat_prompt: chatPrompt, model_config: { stream: false } },
+      transport_responses: [
+        {
+          status: 200,
+          json: {
+            id: 'resp_audio',
+            output: [
+              {
+                id: 'msg_audio',
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'ok' }],
+              },
+            ],
+          },
+        },
+      ],
+      // The user input item's other keys differ (TS adds type: 'message'),
+      // so the wire bytes pin the audio part alone.
+      expected_transport_wire_json_contains: [
+        '"input_audio":{"data":"UklGRg=="}',
+      ],
+    });
+  }
+  await wireFixture(
+    'meta-messages-url-part-as-text',
+    'meta-messages',
+    urlPrompt,
+    {
+      id: 'meta-messages-url',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'ok' }],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    },
+    (body) => ({ messages: body.messages })
+  );
 }
 
 writeFixture('responses-realtime-event', {
@@ -12661,6 +13148,459 @@ writeFixture('openai-wire-json-numbers', {
   expected_transport_wire_json_contains: wireNumberNeedles,
 });
 
+// Sampling parameters on the wire. Each TS provider class starts from its own
+// default config: temperature 0 for the OpenAI Chat profiles, Anthropic and
+// Gemini (axBaseAIDefaultConfig), temperature 0.7 and topP 1 for
+// openai-responses (axAIOpenAIResponsesDefaultConfig), nothing for the other
+// Responses profiles. AxBaseAI merges the AI config, the model key's config and
+// the request's modelConfig over it (resolveChatModelConfig). Model info marks
+// the sampling parameters a model rejects (notSupported), and whether it takes
+// them once reasoning is off (supported.samplingWithoutReasoning,
+// reasoningOffByDefault): a default for such a parameter is never sent; an
+// explicit value is sent when the request's reasoning effort allows it, and
+// otherwise dropped with a one-time warning (applySamplingSupport). A profile
+// without model info falls back to OpenAI's for an exact o-series name
+// (samplingModelInfo). Each fixture records what the real TS client sent: the
+// sampling fields it wrote, the ones it left out, and its warnings.
+const samplingWireKeys: Record<string, string[]> = {
+  'openai-chat': [
+    'temperature',
+    'top_p',
+    'max_completion_tokens',
+    'n',
+    'presence_penalty',
+    'frequency_penalty',
+    'reasoning_effort',
+  ],
+  'openai-responses': [
+    'temperature',
+    'top_p',
+    'max_output_tokens',
+    'presence_penalty',
+    'frequency_penalty',
+    'reasoning.effort',
+  ],
+  'anthropic-messages': ['temperature', 'top_p', 'top_k', 'max_tokens'],
+  'gemini-generate-content': [
+    'generationConfig.temperature',
+    'generationConfig.topP',
+    'generationConfig.topK',
+    'generationConfig.maxOutputTokens',
+    'generationConfig.candidateCount',
+  ],
+};
+const samplingResponse = (transport: string, model: string) => {
+  switch (transport) {
+    case 'openai-responses':
+      return {
+        status: 200,
+        json: {
+          id: 'resp_sampling',
+          model,
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          output: [
+            {
+              id: 'msg_sampling',
+              type: 'message',
+              content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+            },
+          ],
+        },
+      };
+    case 'anthropic-messages':
+      return {
+        status: 200,
+        json: {
+          id: 'msg_sampling',
+          type: 'message',
+          role: 'assistant',
+          model,
+          content: [{ type: 'text', text: 'ok' }],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      };
+    case 'gemini-generate-content':
+      return {
+        status: 200,
+        json: {
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'ok' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          modelVersion: model,
+          responseId: 'gem_sampling',
+          usageMetadata: {
+            promptTokenCount: 1,
+            candidatesTokenCount: 1,
+            totalTokenCount: 2,
+          },
+        },
+      };
+    default:
+      return compatibleResponse('chatcmpl_sampling', model);
+  }
+};
+const samplingJsonPath = (value: unknown, dotted: string): unknown =>
+  dotted
+    .split('.')
+    .reduce<unknown>(
+      (current, key) =>
+        current && typeof current === 'object'
+          ? (current as Record<string, unknown>)[key]
+          : undefined,
+      value
+    );
+// Runs one chat on the real TS client and returns the body it sent and the
+// sampling warnings it logged.
+const samplingChat = async (
+  args: Record<string, unknown>,
+  response: { json: unknown },
+  modelConfig: Record<string, unknown>,
+  options?: Record<string, unknown>
+): Promise<{ body: unknown; url: string; warnings: string[] }> => {
+  let body: unknown;
+  let url = '';
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  resetDroppedSamplingWarnings();
+  console.warn = (message?: unknown) => {
+    if (String(message).startsWith('Ax dropped ')) {
+      warnings.push(String(message));
+    }
+  };
+  try {
+    await ai({
+      ...args,
+      options: {
+        fetch: async (input: unknown, init?: RequestInit) => {
+          if (body === undefined) {
+            body = JSON.parse(String(init?.body));
+            url = String(input);
+          }
+          return Response.json(response.json);
+        },
+      },
+    } as any).chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Hi' }],
+        modelConfig: { stream: false, ...modelConfig },
+      },
+      options as any
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
+  return { body, url, warnings };
+};
+const samplingModels: {
+  provider: string;
+  model: string;
+  base_url?: string;
+  // TS ai() arguments and the matching fixture keys (azure-openai).
+  args?: Record<string, unknown>;
+  fixtureArgs?: Record<string, Json>;
+  penalties?: boolean;
+  reasoning?: boolean;
+}[] = [
+  // GPT-5.6 and 5.5 reject sampling unless a request turns reasoning off;
+  // GPT-5.1 to 5.4 do not reason by default, so they take it unless a request
+  // turns reasoning on; gpt-5, gpt-5-mini, gpt-5-nano and the o-series never
+  // take it (probed 2026-09-27).
+  {
+    provider: 'openai',
+    model: 'gpt-5.6-luna',
+    penalties: true,
+    reasoning: true,
+  },
+  {
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    penalties: true,
+    reasoning: true,
+  },
+  { provider: 'openai', model: 'gpt-5-mini', penalties: true },
+  { provider: 'openai', model: 'gpt-4.1', penalties: true },
+  { provider: 'openai', model: 'o3', penalties: true },
+  {
+    provider: 'openai-responses',
+    model: 'gpt-5.6-luna',
+    penalties: true,
+    reasoning: true,
+  },
+  {
+    provider: 'openai-responses',
+    model: 'gpt-5.4-mini',
+    penalties: true,
+    reasoning: true,
+  },
+  { provider: 'openai-responses', model: 'gpt-4.1', penalties: true },
+  { provider: 'openai-responses', model: 'o3', penalties: true },
+  // A profile carries no model info of its own, so GPT-5.x gets every
+  // parameter, while an o-series name falls back to OpenAI's info.
+  {
+    provider: 'openai-compatible',
+    model: 'gpt-5.6-luna',
+    base_url: 'https://compatible.test/v1',
+  },
+  {
+    provider: 'openai-compatible',
+    model: 'o3',
+    base_url: 'https://compatible.test/v1',
+    penalties: true,
+  },
+  {
+    provider: 'azure-openai',
+    model: 'o3-mini',
+    args: {
+      resourceName: 'example',
+      deploymentName: 'o3-mini',
+      version: 'api-version=2024-10-21',
+    },
+    fixtureArgs: {
+      resource_name: 'example',
+      deployment_name: 'o3-mini',
+      api_version: 'api-version=2024-10-21',
+    },
+    penalties: true,
+  },
+  { provider: 'meta', model: profileDefaultModel('meta') },
+  { provider: 'deepseek-responses', model: deepseekResponsesDefaultModel },
+  { provider: 'anthropic', model: 'claude-sonnet-5' },
+  { provider: 'anthropic', model: anthropicSamplingModel },
+  { provider: 'google-gemini', model: 'gemini-3.6-flash' },
+  { provider: 'google-gemini', model: 'gemini-2.5-flash' },
+];
+const samplingCases: {
+  id: string;
+  aiConfig?: Record<string, Json>;
+  requestConfig?: Record<string, number>;
+  budget?: 'none' | 'low';
+  penalties?: boolean;
+  reasoning?: boolean;
+}[] = [
+  { id: 'defaults' },
+  {
+    id: 'ai-config',
+    aiConfig: { temperature: 0.7, topP: 0.9, maxTokens: 123 },
+  },
+  {
+    id: 'request-config',
+    requestConfig: { temperature: 0.5, topP: 0.8, maxTokens: 77 },
+  },
+  {
+    id: 'ai-and-request-config',
+    aiConfig: { temperature: 0.7, topP: 0.9, maxTokens: 123 },
+    requestConfig: { temperature: 0.5 },
+  },
+  {
+    id: 'request-penalties',
+    requestConfig: { presencePenalty: 0.1, frequencyPenalty: 0.2, n: 2 },
+    penalties: true,
+  },
+  // thinkingTokenBudget sets the request's reasoning effort; the ports carry
+  // it in the request's model_config.
+  {
+    id: 'reasoning-none',
+    requestConfig: { temperature: 0.5, topP: 0.8 },
+    budget: 'none',
+    reasoning: true,
+  },
+  {
+    id: 'reasoning-low',
+    requestConfig: { temperature: 0.5 },
+    budget: 'low',
+    reasoning: true,
+  },
+  {
+    id: 'configured-effort-none',
+    aiConfig: { temperature: 0.3, reasoningEffort: 'none' },
+    reasoning: true,
+  },
+];
+for (const row of samplingModels) {
+  const transport = axGetAIProfile(row.provider as any).transport as string;
+  const wireKeys = samplingWireKeys[transport]!;
+  for (const testCase of samplingCases) {
+    if (testCase.penalties && !row.penalties) continue;
+    if (testCase.reasoning && !row.reasoning) continue;
+    const response = samplingResponse(transport, row.model);
+    const { body, warnings } = await samplingChat(
+      {
+        name: row.provider,
+        apiKey: 'test-key',
+        ...(row.base_url ? { apiURL: row.base_url } : {}),
+        ...(row.args ?? {}),
+        config: { model: row.model, ...(testCase.aiConfig ?? {}) },
+      },
+      response,
+      testCase.requestConfig ?? {},
+      testCase.budget ? { thinkingTokenBudget: testCase.budget } : undefined
+    );
+    const sent: Record<string, Json> = {};
+    const absent: string[] = [];
+    for (const key of wireKeys) {
+      const value = samplingJsonPath(body, key);
+      if (value === undefined) {
+        absent.push(key);
+        continue;
+      }
+      const parts = key.split('.');
+      let target = sent;
+      for (const part of parts.slice(0, -1)) {
+        target[part] ??= {};
+        target = target[part] as Record<string, Json>;
+      }
+      target[parts[parts.length - 1]!] = value as Json;
+    }
+    const modelSlug = row.model.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    writeFixture(`sampling-${row.provider}-${modelSlug}-${testCase.id}`, {
+      kind: 'ai_chat',
+      provider: row.provider,
+      model: row.model,
+      ...(row.base_url ? { base_url: row.base_url } : {}),
+      ...(row.fixtureArgs ?? {}),
+      ...(testCase.aiConfig ? { model_config: testCase.aiConfig } : {}),
+      request: {
+        chat_prompt: [{ role: 'user', content: 'Hi' }],
+        model_config: {
+          stream: false,
+          ...(testCase.requestConfig ?? {}),
+          ...(testCase.budget ? { thinkingTokenBudget: testCase.budget } : {}),
+        },
+      },
+      transport_responses: [response as unknown as Json],
+      expected_transport_request: { json: sent },
+      ...(absent.length > 0 ? { expected_transport_json_absent: absent } : {}),
+      expected_warnings: warnings,
+    });
+  }
+}
+
+// A profile without a base URL of its own needs the caller's: TS
+// resolveProfileURL throws "<Name> requires apiURL" instead of sending the
+// provider's key to another host, and so does ai() in every port. The ports
+// that read OPENAI_BASE_URL take it for openai-compatible, so it is unset.
+for (const provider of ['openai-compatible', 'databricks', 'vertex-ai']) {
+  let message = '';
+  try {
+    ai({ name: provider, apiKey: 'test-key' } as any);
+  } catch (error) {
+    message = (error as Error).message;
+  }
+  if (!message.endsWith(' requires apiURL')) {
+    throw new Error(`TS ${provider} did not require apiURL: ${message}`);
+  }
+  writeFixture(`requires-api-url-${provider}`, {
+    kind: 'ai_chat',
+    provider,
+    model: 'gpt-5.4-mini',
+    env: { OPENAI_BASE_URL: null },
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Hi' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [],
+    expected_error_contains: message,
+    expected_transport_request_count: 0,
+  });
+}
+
+// Credentials from the environment stay with their own provider. TS reads no
+// environment, so these fixtures are port-only; where TS makes a request, it
+// supplies the expected URL (the provider's own). The ports read
+// OPENAI_API_KEY and OPENAI_BASE_URL only for openai, openai-responses and
+// openai-compatible, and ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL only for
+// anthropic: before, an OpenAI or Anthropic key from the environment went to
+// other providers' servers, and other providers' keys went to OPENAI_BASE_URL.
+const credentialEnv = {
+  OPENAI_API_KEY: 'openai-env-key',
+  OPENAI_APIKEY: null,
+  OPENAI_BASE_URL: 'https://openai-proxy.test/v1',
+  ANTHROPIC_API_KEY: 'anthropic-env-key',
+  ANTHROPIC_BASE_URL: 'https://anthropic-proxy.test/v1',
+} as const;
+for (const [provider, model, message] of [
+  [
+    'groq',
+    'llama-3.3-70b-versatile',
+    'groq requires api_key or credential_provider (OPENAI_API_KEY is only read for openai, openai-responses and openai-compatible)',
+  ],
+  [
+    'meta-messages',
+    profileDefaultModel('meta-messages'),
+    'meta-messages requires api_key or credential_provider (ANTHROPIC_API_KEY is only read for anthropic)',
+  ],
+] as const) {
+  writeFixture(`credential-env-key-not-sent-to-${provider}`, {
+    kind: 'ai_chat',
+    provider,
+    model,
+    no_api_key: true,
+    env: credentialEnv,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Hi' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [],
+    expected_error_contains: message,
+    expected_transport_request_count: 0,
+  });
+}
+// anthropic keeps its own ANTHROPIC_BASE_URL, so that one is unset there.
+for (const [provider, model, env] of [
+  ['groq', 'llama-3.3-70b-versatile', credentialEnv],
+  [
+    'anthropic',
+    anthropicSamplingModel,
+    { ...credentialEnv, ANTHROPIC_BASE_URL: null },
+  ],
+  ['meta-messages', profileDefaultModel('meta-messages'), credentialEnv],
+] as const) {
+  const transport = axGetAIProfile(provider).transport as string;
+  const response = samplingResponse(transport, model);
+  const { url } = await samplingChat(
+    { name: provider, apiKey: 'test-key', config: { model } },
+    response,
+    {}
+  );
+  if (url.includes('proxy.test')) {
+    throw new Error(`TS ${provider} used an env base URL: ${url}`);
+  }
+  writeFixture(`credential-env-base-url-not-used-by-${provider}`, {
+    kind: 'ai_chat',
+    provider,
+    model,
+    env,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Hi' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [response as unknown as Json],
+    expected_transport_request: { url },
+  });
+}
+{
+  const response = samplingResponse('openai-chat', 'gpt-5.4-mini');
+  writeFixture('credential-env-key-for-openai', {
+    kind: 'ai_chat',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    no_api_key: true,
+    env: { ...credentialEnv, OPENAI_BASE_URL: null },
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Hi' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [response as unknown as Json],
+    expected_transport_request: {
+      url: 'https://api.openai.com/v1/chat/completions',
+      headers: { Authorization: 'Bearer openai-env-key' },
+    },
+  });
+}
 // Provider errors never carry credentials. TypeScript's AxAIServiceError keeps
 // the URL and the request body, and never the request headers, which hold the
 // API key or the credential provider's tokens. includeRequestBodyInErrors
@@ -12897,3 +13837,175 @@ providerErrorFixture(
     transport_responses: [errorResponse(500), errorResponse(500)],
   }
 );
+
+// Core owns the request a provider error keeps (@ai_error_request), and the
+// normalizer and the request-carrying ai.error intrinsics build every error
+// from it, so no call site can hand a raw transport call (headers included) to
+// an error. "view" calls the op directly; "normalize" gives the normalizer the
+// raw call. The URL and body come from TypeScript's AxAIServiceError for the
+// same request (apiCall with a rejecting fetch); the snake_case flag, the
+// multipart `data` body, the body-less GET and a non-object call are the ports'
+// own request shapes, which TypeScript's apiCall has no counterpart for.
+const viewSecret = 'sk-view-secret-3e1f';
+const viewHeaders = {
+  Authorization: `Bearer ${viewSecret}`,
+  'x-api-key': viewSecret,
+  'x-goog-api-key': viewSecret,
+};
+const viewUrl = 'https://api.openai.com/v1/chat/completions';
+const viewBody = {
+  model: AxAIOpenAIModel.GPT54Mini,
+  messages: [{ role: 'user', content: errorBodyMarker }],
+};
+async function tsApiCallError(
+  status: number,
+  includeRequestBodyInErrors?: boolean
+) {
+  const error = await apiCall(
+    {
+      url: viewUrl,
+      headers: viewHeaders,
+      fetch: (async () =>
+        Response.json(errorResponse(status).json, {
+          status,
+        })) as typeof globalThis.fetch,
+      retry: { maxRetries: 0 },
+      ...(includeRequestBodyInErrors === undefined
+        ? {}
+        : { includeRequestBodyInErrors }),
+    },
+    viewBody
+  ).catch((e: unknown) => e);
+  if (!(error instanceof AxAIServiceError)) {
+    throw new Error('TS apiCall did not fail with an AxAIServiceError');
+  }
+  const printed = `${String(error)}\n${JSON.stringify(error)}`;
+  if (printed.includes(viewSecret)) {
+    throw new Error('the TS error carries a request header');
+  }
+  // The view is what TypeScript's error keeps where it can be read or logged:
+  // the URL, and the body when includeRequestBodyInErrors lets it show.
+  const view: Record<string, Json> = { url: error.url };
+  if (printed.includes(errorBodyMarker)) {
+    view.json = error.requestBody as Json;
+  }
+  return { error, view };
+}
+const viewCall = (extra: Record<string, Json> = {}) => ({
+  method: 'POST',
+  url: viewUrl,
+  headers: viewHeaders,
+  json: viewBody,
+  stream: false,
+  ...extra,
+});
+const tsDefaultView = (await tsApiCallError(400)).view;
+const tsNoBodyView = (await tsApiCallError(400, false)).view;
+if (!('json' in tsDefaultView) || 'json' in tsNoBodyView) {
+  throw new Error('TS error body does not follow includeRequestBodyInErrors');
+}
+writeFixture('provider-error-request-view', {
+  kind: 'ai_error_request',
+  operation: 'view',
+  cases: [
+    { call: viewCall(), expected: tsDefaultView },
+    {
+      call: viewCall(),
+      options: { includeRequestBodyInErrors: true },
+      expected: tsDefaultView,
+    },
+    {
+      call: viewCall(),
+      options: { includeRequestBodyInErrors: false },
+      expected: tsNoBodyView,
+    },
+    {
+      call: viewCall(),
+      options: { include_request_body_in_errors: false },
+      expected: tsNoBodyView,
+    },
+    {
+      call: viewCall(),
+      options: {
+        includeRequestBodyInErrors: true,
+        include_request_body_in_errors: false,
+      },
+      expected: tsDefaultView,
+    },
+    {
+      call: {
+        method: 'POST',
+        url: 'https://api.openai.com/v1/audio/transcriptions',
+        headers: viewHeaders,
+        data: { model: 'whisper-1', file: errorBodyMarker },
+      },
+      expected: {
+        url: 'https://api.openai.com/v1/audio/transcriptions',
+        data: { model: 'whisper-1', file: errorBodyMarker },
+      },
+    },
+    {
+      call: {
+        method: 'GET',
+        url: 'https://api.typesafe.ai/v1/models',
+        headers: viewHeaders,
+      },
+      expected: { url: 'https://api.typesafe.ai/v1/models' },
+    },
+    { call: { headers: viewHeaders }, expected: {} },
+    { call: null, expected: null },
+  ],
+});
+
+const normalizeCase = (
+  status: number,
+  tsResult: Awaited<ReturnType<typeof tsApiCallError>>,
+  options?: Record<string, Json>,
+  errorType?: string
+) => ({
+  status,
+  body: errorResponse(status).json,
+  call: viewCall(),
+  ...(options ? { options } : {}),
+  expected_error_type: errorType ?? tsResult.error.name,
+  expected_status: status,
+  expected_error_excludes:
+    'json' in tsResult.view ? [viewSecret] : [viewSecret, errorBodyMarker],
+  expected_error_request: tsResult.view,
+});
+writeFixture('provider-error-normalizer-drops-headers', {
+  kind: 'ai_error_request',
+  operation: 'normalize',
+  cases: [
+    normalizeCase(400, await tsApiCallError(400)),
+    normalizeCase(401, await tsApiCallError(401)),
+    normalizeCase(400, await tsApiCallError(400, false), {
+      includeRequestBodyInErrors: false,
+    }),
+    // The ports map 408 and 504 to AxAIServiceTimeoutError (TypeScript keeps a
+    // status error), which pins the timeout intrinsic with a raw call too.
+    normalizeCase(
+      504,
+      await tsApiCallError(504, false),
+      { includeRequestBodyInErrors: false },
+      'AxAIServiceTimeoutError'
+    ),
+  ],
+});
+
+// Gemini Live takes the API key in its WebSocket URL, and TypeScript encodes it
+// with encodeURIComponent (src/ax/ai/google-gemini/live_audio.ts).
+const liveKey = 'key with/special&chars=é';
+const liveDescriptor = JSON.parse(
+  readFileSync(
+    join(process.cwd(), 'ir/axcore/data/provider-descriptors.json'),
+    'utf8'
+  )
+)['google-gemini'].operations.realtime as { url: string };
+writeFixture('gemini-live-ws-url-encodes-key', {
+  kind: 'ai_realtime',
+  provider: 'google-gemini',
+  model: 'gemini-3.8-live',
+  api_key: liveKey,
+  expected_ws_url: `${liveDescriptor.url}?key=${encodeURIComponent(liveKey)}`,
+});

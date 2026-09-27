@@ -23,7 +23,7 @@ int main() {
     return 2;
   }
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
@@ -32,7 +32,11 @@ int main() {
   axllm::AxFlow program = axllm::flow(axllm::object({{"id", "examples.sequentialFlow"}}))
       .execute("step", step)
       .map("note", [](axllm::Value) { return axllm::object({{"note", "Mapped flow state after the provider-backed step."}}); })
-      .returns(axllm::object({{"step", "step"}, {"note", "note"}}));
-  axllm::Value output = program.forward(client, axllm::object({{"documentText", "Ax gives developers signatures, provider clients, agents, flows, tracing, and optimization."}}));
+      .returns(axllm::object({{"summary", "summaryText"}, {"note", "note"}}));
+  axllm::Value output = program.forward(*client, axllm::object({{"documentText", "Ax gives developers signatures, provider clients, agents, flows, tracing, and optimization."}}));
+  for (const char* key : {"summary", "note"}) {
+    std::string text = axllm::stringify(axllm::Core::get(output, key));
+    if (text == "null" || text == "\"\"" || text == "[]") throw std::runtime_error(std::string("flow output field ") + key + " is empty: " + axllm::stringify(output));
+  }
   std::cout << axllm::stringify(output) << "\n";
 }

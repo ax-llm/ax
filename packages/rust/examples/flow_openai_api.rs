@@ -1,4 +1,4 @@
-use axllm::{ax, flow, AxResult, OpenAICompatibleClient};
+use axllm::{ai, ax, flow, AxResult};
 use serde_json::json;
 use std::env;
 
@@ -11,8 +11,10 @@ fn main() -> AxResult<()> {
             )
         })?;
     let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
-    let mut client =
-        OpenAICompatibleClient::new(api_key, model).with_model_config(json!({"temperature": 0}));
+    let mut client = ai(
+        "openai",
+        json!({"api_key": api_key, "model": model, "model_config": {"temperature": 0}}),
+    )?;
     let outline = ax("topic:string -> outline:string")?;
     let mut program = flow("examples.openaiApiFlow")
         .execute("outline", outline)
@@ -21,6 +23,13 @@ fn main() -> AxResult<()> {
         &mut client,
         json!({"topic": "how Ax composes typed LLM programs"}),
     )?;
+    for key in ["outline"] {
+        let value = &output[key];
+        assert!(
+            !value.is_null() && value != "" && *value != json!([]),
+            "flow output field {key} is empty: {output}"
+        );
+    }
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }

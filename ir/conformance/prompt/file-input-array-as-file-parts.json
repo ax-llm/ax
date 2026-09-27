@@ -1,0 +1,43 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Docs`. Your task is to generate new fields: `Answer`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nDocs:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAnswer (wire key: `answer`): (This string field must be included)\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": [
+        {
+          "text": "Docs: \n",
+          "type": "text"
+        },
+        {
+          "data": "JVBERi0=",
+          "mimeType": "application/pdf",
+          "type": "file"
+        },
+        {
+          "fileUri": "gs://bucket/notes.txt",
+          "mimeType": "text/plain",
+          "type": "file"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "input": {
+    "docs": [
+      {
+        "mimeType": "application/pdf",
+        "data": "JVBERi0="
+      },
+      {
+        "mimeType": "text/plain",
+        "fileUri": "gs://bucket/notes.txt"
+      }
+    ]
+  },
+  "kind": "prompt",
+  "name": "file-input-array-as-file-parts",
+  "signature": "docs:file[] -> answer:string"
+}

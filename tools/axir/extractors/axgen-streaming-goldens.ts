@@ -119,7 +119,9 @@ function scriptedAI(
   const queue = clone(responses);
   let calls = 0;
   // The chat prompt of each request, in call order.
-  const prompts: Json[] = [];
+  const prompts: Json[][] = [];
+  // The response format type of each request (null without one).
+  const formats: (string | null)[] = [];
   const ai = new AxMockAIService({
     features: {
       functions: (features?.functions as boolean | undefined) ?? true,
@@ -133,7 +135,10 @@ function scriptedAI(
     },
     chatResponse: async (req) => {
       calls++;
-      prompts.push(clone(req.chatPrompt) as unknown as Json);
+      prompts.push(clone(req.chatPrompt) as unknown as Json[]);
+      formats.push(
+        (req.responseFormat as { type?: string } | undefined)?.type ?? null
+      );
       onRequest?.(calls);
       const next = queue.shift();
       if (!next) throw new Error('scripted client exhausted');
@@ -156,15 +161,32 @@ function scriptedAI(
       });
     },
   });
-  // The mock has no functionCot setting, so report the provider feature here.
-  if (features?.function_cot !== undefined) {
+  // The mock has no functionCot or requiresStructuredOutput setting, so
+  // report those provider features here.
+  if (
+    features?.function_cot !== undefined ||
+    features?.requires_structured_output !== undefined
+  ) {
     const baseFeatures = ai.getFeatures.bind(ai);
     ai.getFeatures = (model) => ({
       ...baseFeatures(model),
-      functionCot: features.function_cot as boolean,
+      ...(features.function_cot !== undefined
+        ? { functionCot: features.function_cot as boolean }
+        : {}),
+      ...(features.requires_structured_output !== undefined
+        ? {
+            requiresStructuredOutput:
+              features.requires_structured_output as boolean,
+          }
+        : {}),
     });
   }
-  return { ai, calls: () => calls, prompts: () => prompts };
+  return {
+    ai,
+    calls: () => calls,
+    prompts: () => prompts,
+    formats: () => formats,
+  };
 }
 
 // Option keys the fixtures spell in snake_case, mapped to TS names.
@@ -275,12 +297,8 @@ function tsProcessor(spec: ProcessorSpec, calls: JsonMap[]) {
     if (spec.throws !== undefined) throw new Error(spec.throws);
     if (spec.when_done && !done) return undefined;
     if (spec.times !== undefined && returned >= spec.times) return undefined;
-    const result = spec.echo
-      ? value
-      : spec.returns === null
-        ? undefined
-        : clone(spec.returns);
-    if (result !== undefined) returned++;
+    const result = spec.echo ? value : clone(spec.returns);
+    if (result !== undefined && result !== null) returned++;
     return result;
   };
 }
@@ -316,9 +334,17 @@ type Case = {
   error_contains?: string;
   // Pin TS's whole error message, not only its first line.
   full_error?: boolean;
+  // Pin this many messages at the end of the last request's prompt.
+  request_tail?: number;
+  // The chunks split a surrogate pair, which only runners whose strings can
+  // hold a lone surrogate (UTF-16 or code points) can represent.
+  requires_lone_surrogates?: boolean;
   // Pin the first request's user message: its content as a JSON string
   // literal, which every runner's JSON text of the chat prompt must contain.
   pin_user_prompt?: boolean;
+  // Pin the request layout: the first request's whole chat prompt, and each
+  // request's message roles.
+  pin_request_layout?: boolean;
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -329,7 +355,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const control =
     spec.control || spec.constructor_control ? runControl() : undefined;
   const steer = spec.control_steer;
-  const { ai, calls, prompts } = scriptedAI(
+  const { ai, calls, prompts, formats } = scriptedAI(
     spec.responses,
     spec.features,
     (request) => {
@@ -435,6 +461,7 @@ async function record(name: string, spec: Case): Promise<void> {
     'streaming_processors',
     'result_picker_index',
     'stop_functions',
+    'requires_lone_surrogates',
     'control',
     'constructor_control',
     'control_steer',
@@ -450,6 +477,11 @@ async function record(name: string, spec: Case): Promise<void> {
     );
   }
   if (spec.tools) fixture.expected_tool_calls = toolCalls;
+  if (spec.request_tail !== undefined) {
+    fixture.expected_last_request_tail = (prompts().at(-1) ?? []).slice(
+      -spec.request_tail
+    );
+  }
   if (spec.feedback_processors || spec.streaming_processors)
     fixture.expected_processor_calls = processorCalls;
   if (kind === 'streaming_forward') {
@@ -472,6 +504,18 @@ async function record(name: string, spec: Case): Promise<void> {
     }
   } else if (error === undefined) {
     fixture.expected_output = output;
+  }
+  if (spec.pin_request_layout) {
+    // A forward also pins the first request's response format, which tells
+    // the native rung (json_schema) from json_object.
+    const format = formats()[0];
+    if (kind === 'forward' && format) {
+      fixture.expected_request = { response_format: { type: format } };
+    }
+    fixture.expected_chat_prompt = clone(prompts()[0] ?? []);
+    fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
+      prompt.map((message) => message.role as Json)
+    );
   }
   if (spec.pin_user_prompt) {
     const first = (prompts()[0] ?? []) as { role?: string; content?: Json }[];
@@ -533,6 +577,11 @@ const finishTool: ToolSpec = {
   result: 'finished',
 };
 const nativeFeatures: JsonMap = { functions: true, structured_outputs: true };
+const jsonObjectFeatures: JsonMap = {
+  functions: true,
+  structured_outputs: false,
+  structured_output_modes: ['json_object'],
+};
 const longTitle =
   'Quarterly results for the northern region, including revenue, churn and hiring';
 const longBody =
@@ -728,6 +777,127 @@ const cases: Record<string, Case> = {
         }),
         chunk({
           function_calls: [call('output_1', '', '"Ada"}}')],
+          finish_reason: 'function_call',
+        })
+      ),
+    ],
+  },
+
+  // ----- request layout per rung -----
+  // TS puts the structured-output contract in the system prompt: the output
+  // section ends with the exact JSON shape, and the formatting rule names the
+  // rung (a JSON object, or a call to __axOutput). The request is the system
+  // prompt and the user message, with no instruction turn after them.
+  'forward-request-layout-text-contract': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: Ada' }] }],
+  },
+  'forward-request-layout-native': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+    ],
+  },
+  'forward-request-layout-json-object': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: jsonObjectFeatures,
+    pin_request_layout: true,
+    responses: [
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+    ],
+  },
+  'forward-request-layout-function': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    options: { structured_output_mode: 'function' },
+    features: { functions: true, structured_outputs: false },
+    pin_request_layout: true,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_1', '__axOutput', '{"user":{"name":"Ada"}}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+    ],
+  },
+  // A provider that requires structured output gets TS's structured prompt
+  // for a simple signature too: the exact JSON shape and the JSON rule.
+  'forward-request-layout-requires-structured-output': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: { ...nativeFeatures, requires_structured_output: true },
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: '{"answer":"Ada"}' }] }],
+  },
+  // With structured output required, a simple signature's rung still
+  // follows the provider's modes, as for a complex signature.
+  'forward-request-layout-requires-structured-output-json-object': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: { ...jsonObjectFeatures, requires_structured_output: true },
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: '{"answer":"Ada"}' }] }],
+  },
+  'forward-request-layout-requires-structured-output-function': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: {
+      functions: true,
+      structured_outputs: false,
+      structured_output_modes: ['function'],
+      requires_structured_output: true,
+    },
+    pin_request_layout: true,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_1', '__axOutput', '{"answer":"Ada"}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+    ],
+  },
+  'streaming-forward-request-layout-native': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [streamed(text('{"user":{"name":"Ada"}}'), done())],
+  },
+  'streaming-forward-request-layout-json-object': {
+    signature: 'question:string -> user:object{name:string}',
+    features: jsonObjectFeatures,
+    pin_request_layout: true,
+    responses: [streamed(text('{"user":{"name":"Ada"}}'), done())],
+  },
+  'streaming-forward-request-layout-function': {
+    signature: 'question:string -> user:object{name:string}',
+    options: { structured_output_mode: 'function' },
+    features: { functions: true, structured_outputs: false },
+    pin_request_layout: true,
+    responses: [
+      streamed(
+        chunk({
+          function_calls: [
+            call('output_1', '__axOutput', '{"user":{"name":"Ada"}}'),
+          ],
           finish_reason: 'function_call',
         })
       ),
@@ -1067,6 +1237,61 @@ const cases: Record<string, Case> = {
     responses: [
       streamed(text('Answer: dra'), done('ft')),
       streamed(text('Answer: final'), done()),
+    ],
+  },
+
+  // A provider can split a surrogate pair across stream events: no delta
+  // holds half of the character, and the answer joins it back.
+  'streaming-forward-split-surrogate-pair': {
+    signature: 'question:string -> answer:string',
+    requires_lone_surrogates: true,
+    responses: [streamed(text('Answer: hi \uD83D'), done('\uDE00 there'))],
+  },
+
+  // Feedback a streaming processor returns mid-stream waits for the end of
+  // the step: it follows the full answer and the run takes another step.
+  'streaming-forward-mid-stream-feedback-continues': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [
+      { field: 'answer', returns: 'Please avoid the word draft.', times: 1 },
+    ],
+    request_tail: 2,
+    responses: [
+      streamed(text('Answer: a draft'), done(' then more text')),
+      streamed(text('Answer: a final'), done(' answer')),
+    ],
+  },
+  // Mid-stream feedback comes before the feedback given on the final value.
+  'streaming-forward-mid-stream-and-final-feedback-order': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [
+      { field: 'answer', returns: 'Avoid drafts.', times: 1 },
+    ],
+    feedback_processors: [
+      { field: 'answer', returns: 'Keep it short.', times: 1 },
+    ],
+    request_tail: 3,
+    responses: [
+      streamed(text('Answer: a draft'), done(' then more')),
+      streamed(text('Answer: ok'), done()),
+    ],
+  },
+  // A processor that returns null gives no feedback.
+  'streaming-forward-processor-null-no-feedback': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [{ field: 'answer', returns: null }],
+    feedback_processors: [{ field: 'answer', returns: null }],
+    responses: [streamed(text('Answer: a draft'), done(' then more'))],
+  },
+  // Feedback on a finished answer is a user message with a text part.
+  'forward-feedback-request-shape': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    feedback_processors: [{ field: 'answer', returns: 'Check it.', times: 1 }],
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: first' }] },
+      { results: [{ index: 0, content: 'Answer: second' }] },
     ],
   },
 

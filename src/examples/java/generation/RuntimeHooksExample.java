@@ -45,7 +45,7 @@ public final class RuntimeHooksExample {
     String apiKey = System.getenv("OPENAI_API_KEY");
     if (apiKey == null || apiKey.isBlank()) apiKey = System.getenv("OPENAI_APIKEY");
     if (apiKey == null || apiKey.isBlank()) throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.");
-    OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
+    AxAIService client = Ax.ai("openai", Map.of(
         "api_key", apiKey,
         "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"),
         "model_config", Map.of("temperature", 0.0)));
@@ -65,8 +65,14 @@ public final class RuntimeHooksExample {
       AxFlow workflow = Ax.flow(Map.of("id", "examples.runtimeHooks"))
           .execute("outline", Ax.ax("topic:string -> outline:string"))
           .execute("polish", Ax.ax("outline:string -> answer:string"))
-          .returns(Map.of("answer", "polish"));
-      System.out.println(workflow.forward(client, Map.of("topic", "Ax runtime hooks"), Map.of(), overrideHooks));
+          .returns(Map.of("answer", "answer"));
+      Map<String, Object> result = workflow.forward(client, Map.of("topic", "Ax runtime hooks"), Map.of(), overrideHooks);
+      for (String key : List.of("answer")) {
+        if (List.of("null", "\"\"", "[]").contains(Json.stringify(result.get(key)))) {
+          throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(result));
+        }
+      }
+      System.out.println(Json.stringify(result));
     } finally {
       AxGlobals.setRateLimiter(null);
       AxGlobals.setTracer(null);

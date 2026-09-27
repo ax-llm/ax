@@ -9,8 +9,9 @@ public final class FlowOpenAIExample {
       throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.");
     }
     String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini");
-    OpenAICompatibleClient client =
-        new OpenAICompatibleClient(
+    AxAIService client =
+        Ax.ai(
+            "openai",
             Map.of("api_key", apiKey, "model", model, "model_config", Map.of("temperature", 0.0)));
 
     AxGen outline = Ax.ax("topic:string -> outline:string");
@@ -23,6 +24,11 @@ public final class FlowOpenAIExample {
             .returns(Map.of("outline", "outline", "summary", "summary"));
     Map<String, Object> output =
         program.forward(client, Map.of("topic", "how Ax composes typed LLM programs"));
+    for (String key : List.of("outline", "summary")) {
+      if (List.of("null", "\"\"", "[]").contains(Json.stringify(output.get(key)))) {
+        throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(output));
+      }
+    }
     System.out.println(Json.stringify(output));
   }
 }

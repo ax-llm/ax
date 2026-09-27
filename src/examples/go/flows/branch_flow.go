@@ -19,7 +19,7 @@ import (
 	ax "github.com/ax-llm/ax/packages/go"
 )
 
-func openAIClient() *ax.OpenAICompatibleClient {
+func openAIClient() ax.AIClient {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENAI_APIKEY")
@@ -31,7 +31,7 @@ func openAIClient() *ax.OpenAICompatibleClient {
 	if model == "" {
 		model = "gpt-5.4-mini"
 	}
-	return ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
+	return ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
 }
 
 func printJSON(value ax.Value) {
@@ -59,6 +59,12 @@ func main() {
 	output, err := program.Forward(ctx, client, map[string]ax.Value{"request": "A customer says checkout is down for their enterprise account."}, nil)
 	if err != nil {
 		panic(err)
+	}
+	for _, key := range []string{"route", "response"} {
+		switch fmt.Sprint(output.(map[string]ax.Value)[key]) {
+		case "", "<nil>", "[]":
+			panic(fmt.Sprintf("flow output field %s is empty: %v", key, output))
+		}
 	}
 	printJSON(output)
 }

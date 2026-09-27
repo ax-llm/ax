@@ -10,14 +10,15 @@
 import json
 import os
 
-from axllm import OpenAICompatibleClient, ax, flow
+from axllm import ai, ax, flow
 
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
     raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.")
 
-client = OpenAICompatibleClient(
+client = ai(
+    "openai",
     api_key=api_key,
     model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
     model_config={"temperature": 0},
@@ -27,7 +28,8 @@ program = (
     flow({"id": "examples.composedFlow"})
     .execute("step", step)
     .map("note", lambda state: {"note": "Mapped flow state after the provider-backed step."})
-    .returns({"outline": "step", "brief": "note"})
+    .returns({"outline": "outline", "brief": "note"})
 )
 output = program.forward(client, {"topic": "How Ax moves from typed generation to agents, flows, and optimization"})
+assert all(output.get(key) for key in ("outline", "brief")), output
 print(json.dumps(output, indent=2, sort_keys=True))

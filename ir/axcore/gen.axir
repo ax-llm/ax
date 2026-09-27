@@ -57,10 +57,11 @@ module @ax.gen version "0.1" {
       %selection = core.map
       %requires_schema_snake = core.get %features["requires_structured_output"] default false
       %requires_schema = core.get %features["requiresStructuredOutput"] default %requires_schema_snake
+      // A provider that requires structured output gets a rung for a simple
+      // signature too, which, as in TS, its modes choose as for a complex
+      // signature.
       core.if %requires_schema {
-        core.set %selection["rung"] = "native"
         core.set %selection["requires_schema"] = true
-        core.return %selection
       }
       // TS selects no rung for a simple signature (no object or object-array
       // output, not forced), with or without tools: its output uses the
@@ -69,7 +70,9 @@ module @ax.gen version "0.1" {
       // (gemini-3.8-flash re-called tools 100+ times).
       %complex = core.call @signature_has_complex_fields(%signature, %options)
       %simple = core.call intrinsic.not(%complex)
-      core.if %simple {
+      %not_required = core.call intrinsic.not(%requires_schema)
+      %no_rung = core.call intrinsic.and(%simple, %not_required)
+      core.if %no_rung {
         core.return %selection
       }
       %explicit_native = core.call intrinsic.eq(%mode, "native")
@@ -158,180 +161,6 @@ module @ax.gen version "0.1" {
       }
       core.set %selection["rung"] = "json_object"
       core.return %selection
-    }
-  }
-
-  op ax.gen.semantic @structured_output_scalar_placeholder {
-    attr core_kind = "func"
-    attr emit_module = "gen"
-    attr private = true
-    tag "exact-json-scalar-placeholder"
-    type signature = "(json) -> json"
-    body @entry(%typ: json) {
-      %type_name = core.get %typ["name"]
-      %is_string = core.call intrinsic.eq(%type_name, "string")
-      core.if %is_string {
-        core.return "<string>"
-      }
-      %is_code = core.call intrinsic.eq(%type_name, "code")
-      core.if %is_code {
-        core.return "<complete source>"
-      }
-      %is_number = core.call intrinsic.eq(%type_name, "number")
-      core.if %is_number {
-        core.return 0
-      }
-      %is_boolean = core.call intrinsic.eq(%type_name, "boolean")
-      core.if %is_boolean {
-        core.return true
-      }
-      %is_class = core.call intrinsic.eq(%type_name, "class")
-      core.if %is_class {
-        %options = core.get %typ["options"]
-        %class_placeholder = core.call intrinsic.list.get(%options, 0, "<allowed value>")
-        core.return %class_placeholder
-      }
-      %is_date = core.call intrinsic.eq(%type_name, "date")
-      core.if %is_date {
-        core.return "<YYYY-MM-DD>"
-      }
-      %is_datetime = core.call intrinsic.eq(%type_name, "datetime")
-      core.if %is_datetime {
-        core.return "<ISO 8601 datetime>"
-      }
-      %is_date_range = core.call intrinsic.eq(%type_name, "dateRange")
-      core.if %is_date_range {
-        %date_range = core.map
-        core.set %date_range["start"] = "<YYYY-MM-DD>"
-        core.set %date_range["end"] = "<YYYY-MM-DD>"
-        core.return %date_range
-      }
-      %is_datetime_range = core.call intrinsic.eq(%type_name, "datetimeRange")
-      core.if %is_datetime_range {
-        %datetime_range = core.map
-        core.set %datetime_range["start"] = "<ISO 8601 datetime>"
-        core.set %datetime_range["end"] = "<ISO 8601 datetime>"
-        core.return %datetime_range
-      }
-      %is_url = core.call intrinsic.eq(%type_name, "url")
-      core.if %is_url {
-        core.return "<url>"
-      }
-      %is_object = core.call intrinsic.eq(%type_name, "object")
-      core.if %is_object {
-        %object_placeholder = core.map
-        %nested_map = core.get %typ["fields"]
-        %nested_fields = core.call intrinsic.fields.from_map(%nested_map)
-        core.for %nested_field in %nested_fields {
-          %nested_internal_snake = core.get %nested_field["is_internal"] default false
-          %nested_internal = core.get %nested_field["isInternal"] default %nested_internal_snake
-          %nested_visible = core.call intrinsic.not(%nested_internal)
-          core.if %nested_visible {
-            %nested_name = core.get %nested_field["name"]
-            %nested_type = core.get %nested_field["type"] default %nested_field
-            %nested_placeholder = core.call @structured_output_type_placeholder(%nested_type)
-            core.set %object_placeholder[%nested_name] = %nested_placeholder
-          }
-        }
-        core.return %object_placeholder
-      }
-      %is_json = core.call intrinsic.eq(%type_name, "json")
-      core.if %is_json {
-        %json_placeholder = core.map
-        core.return %json_placeholder
-      }
-      core.return "<value>"
-    }
-  }
-
-  op ax.gen.semantic @structured_output_type_placeholder {
-    attr core_kind = "func"
-    attr emit_module = "gen"
-    attr private = true
-    tag "exact-json-type-placeholder"
-    type signature = "(json) -> json"
-    body @entry(%typ: json) {
-      %placeholder = core.call @structured_output_scalar_placeholder(%typ)
-      %is_array_snake = core.get %typ["is_array"] default false
-      %is_array = core.get %typ["isArray"] default %is_array_snake
-      core.if %is_array {
-        %array_placeholder = core.list
-        core.append %array_placeholder, %placeholder
-        core.return %array_placeholder
-      }
-      core.return %placeholder
-    }
-  }
-
-  op ax.gen.semantic @structured_output_shape {
-    attr core_kind = "func"
-    attr emit_module = "gen"
-    attr private = true
-    tag "exact-json-shape-instruction"
-    type signature = "(list<Field>) -> string"
-    body @entry(%output_fields: list<Field>) {
-      %shape = core.map
-      core.for %field in %output_fields {
-        %internal_snake = core.get %field["is_internal"] default false
-        %internal = core.get %field["isInternal"] default %internal_snake
-        %visible = core.call intrinsic.not(%internal)
-        core.if %visible {
-          %name = core.get %field["name"]
-          %typ = core.get %field["type"]
-          %placeholder = core.call @structured_output_type_placeholder(%typ)
-          core.set %shape[%name] = %placeholder
-        }
-      }
-      %shape_json = core.call intrinsic.json.stringify(%shape)
-      core.return %shape_json
-    }
-  }
-
-  op ax.gen.semantic @append_structured_output_instruction {
-    attr core_kind = "func"
-    attr emit_module = "gen"
-    attr private = true
-    tag "structured-output-rung-prompt-contract"
-    type signature = "(list<json>, list<Field>, json) -> void"
-    body @entry(%messages: list<json>, %output_fields: list<Field>, %selection: json) {
-      %selected_rung = core.get %selection["rung"]
-      %text_contract = core.call intrinsic.is_none(%selected_rung)
-      core.if %text_contract {
-        core.return
-      }
-      %requires_schema = core.get %selection["requires_schema"] default false
-      core.if %requires_schema {
-        core.for %message in %messages {
-          %role = core.get %message["role"]
-          %system = core.call intrinsic.eq(%role, "system")
-          core.if %system {
-            %text = core.get %message["content"]
-            %is_text = core.type_is %text type "string"
-            core.if %is_text {
-              %text = core.call intrinsic.string.replace(%text, "Return one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.", "Return one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.")
-              core.set %message["content"] = %text
-            }
-          }
-        }
-      }
-      %rung = core.get %selection["rung"]
-      %is_function = core.call intrinsic.eq(%rung, "function")
-      %content = core.let ""
-      core.if %is_function {
-        %content = core.let "Emit the complete structured output by calling `__axOutput` with exactly the declared wire keys."
-      } else {
-        %shape = core.call @structured_output_shape(%output_fields)
-        %parts = core.list
-        core.append %parts, "Return exactly one JSON object with this shape: `"
-        core.append %parts, %shape
-        core.append %parts, "`. Use only these exact wire keys, with no prose or Markdown fences."
-        %content = core.string_join %parts sep ""
-      }
-      %message = core.map
-      core.set %message["role"] = "user"
-      core.set %message["content"] = %content
-      core.append %messages, %message
-      core.return
     }
   }
 
@@ -805,7 +634,11 @@ module @ax.gen version "0.1" {
       %input_fields = core.get %signature["input_fields"]
       core.call @validate_fields(%input_fields, %values, "input")
       %prompt_template = core.get %gen["prompt_template"]
-      %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values)
+      // As in TS, the prompt is rendered for the selected rung: a structured
+      // rung puts the exact JSON shape and the rung's formatting rule in the
+      // system prompt, and no instruction turn follows the user message.
+      %render_options = core.call @structured_output_render_options_impl(%selection)
+      %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values, %render_options)
       %example_messages = core.call @render_examples(%gen)
       %demo_messages = core.call @render_demos(%gen)
       %system_message = core.call intrinsic.list.get(%messages, 0, %messages)
@@ -820,7 +653,6 @@ module @ax.gen version "0.1" {
       }
       core.append %ordered_messages, %user_message
       %output_fields = core.get %signature["output_fields"]
-      core.call @append_structured_output_instruction(%ordered_messages, %output_fields, %selection)
       %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
       %validation_feedback = core.get %runtime_options["validationFeedback"] default %validation_feedback_snake
@@ -1066,9 +898,7 @@ module @ax.gen version "0.1" {
             core.append %messages, %answer_message
             %feedback_messages = core.list
             core.for %feedback_text in %feedback {
-              %feedback_message = core.map
-              core.set %feedback_message["role"] = "user"
-              core.set %feedback_message["content"] = %feedback_text
+              %feedback_message = core.call @feedback_message_impl(%feedback_text)
               core.append %messages, %feedback_message
               core.append %feedback_messages, %feedback_message
             }
@@ -2043,7 +1873,11 @@ module @ax.gen version "0.1" {
       %input_fields = core.get %signature["input_fields"]
       core.call @validate_fields(%input_fields, %values, "input")
       %prompt_template = core.get %gen["prompt_template"]
-      %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values)
+      // As in TS, the prompt is rendered for the selected rung: a structured
+      // rung puts the exact JSON shape and the rung's formatting rule in the
+      // system prompt, and no instruction turn follows the user message.
+      %render_options = core.call @structured_output_render_options_impl(%selection)
+      %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values, %render_options)
       %example_messages = core.call @render_examples(%gen)
       %demo_messages = core.call @render_demos(%gen)
       %system_message = core.call intrinsic.list.get(%messages, 0, %messages)
@@ -2058,7 +1892,6 @@ module @ax.gen version "0.1" {
       }
       core.append %ordered_messages, %user_message
       %output_fields = core.get %signature["output_fields"]
-      core.call @append_structured_output_instruction(%ordered_messages, %output_fields, %selection)
       %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
       %validation_feedback = core.get %runtime_options["validationFeedback"] default %validation_feedback_snake
@@ -2545,9 +2378,7 @@ module @ax.gen version "0.1" {
               %feedback_texts = core.get %outcome["feedback"] default %empty_feedback_texts
               %feedback_messages = core.list
               core.for %feedback_text in %feedback_texts {
-                %feedback_message = core.map
-                core.set %feedback_message["role"] = "user"
-                core.set %feedback_message["content"] = %feedback_text
+                %feedback_message = core.call @feedback_message_impl(%feedback_text)
                 core.append %messages, %feedback_message
                 core.append %feedback_messages, %feedback_message
               }
@@ -2779,6 +2610,27 @@ module @ax.gen version "0.1" {
     }
   }
 
+  op ax.gen.semantic @feedback_message_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/fieldProcessor.ts"
+    type signature = "(json) -> json"
+    body @entry(%text: json) {
+      // addToMemory: a field processor's feedback is a user message with one
+      // text part.
+      %part = core.map
+      core.set %part["type"] = "text"
+      core.set %part["text"] = %text
+      %parts = core.list
+      core.append %parts, %part
+      %message = core.map
+      core.set %message["role"] = "user"
+      core.set %message["content"] = %parts
+      core.return %message
+    }
+  }
+
   op ax.gen.semantic @caching_function_option_impl {
     attr core_kind = "func"
     attr emit_module = "gen"
@@ -2978,6 +2830,38 @@ module @ax.gen version "0.1" {
         core.call intrinsic.axgen.memory_add_request(%gen, %steers)
       }
       core.return %messages
+    }
+  }
+
+  op ax.gen.semantic @structured_output_render_options_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "structured-output-rung-prompt-contract"
+    type signature = "(json) -> json"
+    body @entry(%selection: json) {
+      // TS renders an AxGen prompt with structuredOutput set when a rung is
+      // selected, and with __axOutput as its structured output function
+      // under the function rung only. The system prompt then ends its output
+      // section with the exact JSON shape, and its formatting rule asks for
+      // a JSON object or a call to __axOutput.
+      %render_options = core.map
+      %rung = core.get %selection["rung"]
+      %structured = core.call intrinsic.is_not_none(%rung)
+      core.set %render_options["structured_output"] = %structured
+      %extra_functions = core.list
+      %function_rung = core.call intrinsic.eq(%rung, "function")
+      core.if %function_rung {
+        core.set %render_options["structured_output_function_name"] = "__axOutput"
+        // TS adds __axOutput to the functions its prompt lists, after the
+        // program's own.
+        %output_function = core.map
+        core.set %output_function["name"] = "__axOutput"
+        core.set %output_function["description"] = "Emit the complete structured program output using the declared argument shape."
+        core.append %extra_functions, %output_function
+      }
+      core.set %render_options["extra_functions"] = %extra_functions
+      core.return %render_options
     }
   }
 }

@@ -20,8 +20,8 @@ public final class UsageObserverExample {
 
     List<AxUsageEvent> events = new ArrayList<>();
     AxGlobals.setUsageObserver(events::add);
-    OpenAICompatibleClient client =
-        new OpenAICompatibleClient(
+    AxAIService client =
+        Ax.ai("openai",
             Map.of(
                 "api_key", apiKey,
                 "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"),

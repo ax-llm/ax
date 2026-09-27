@@ -23,14 +23,13 @@ int main() {
     return 2;
   }
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.6-luna" : model},
-      {"model_config", axllm::object({{"temperature", 0}})},
   }));
   axllm::AxGen program = axllm::ax("question:string -> answer:string");
   axllm::Value output = program.forward(
-      client,
+      *client,
       axllm::object({{"question", "In one sentence, explain Ax as a language-agnostic LLM programming library."}}),
       axllm::object({{"promptCacheKey", "ax-openai-example"}, {"contextCache", axllm::object({})}}));
   std::cout << axllm::stringify(output) << "\n";

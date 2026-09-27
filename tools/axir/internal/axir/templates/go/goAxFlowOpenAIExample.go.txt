@@ -23,7 +23,7 @@ func main() {
 	if model == "" {
 		model = "gpt-5.4-mini"
 	}
-	client := ax.NewOpenAICompatibleClient(map[string]ax.Value{
+	client := ax.NewAI("openai", map[string]ax.Value{
 		"api_key":      apiKey,
 		"model":        model,
 		"model_config": ax.Object("temperature", 0),
@@ -37,6 +37,12 @@ func main() {
 	output, err := program.Forward(ctx, client, map[string]ax.Value{"topic": "how Ax composes typed LLM programs"}, nil)
 	if err != nil {
 		panic(err)
+	}
+	for _, key := range []string{"outline"} {
+		switch fmt.Sprint(output.(map[string]ax.Value)[key]) {
+		case "", "<nil>", "[]":
+			panic(fmt.Sprintf("flow output field %s is empty: %v", key, output))
+		}
 	}
 	data, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {

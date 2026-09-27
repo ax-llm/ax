@@ -25,8 +25,7 @@ int main() {
   const auto started = std::chrono::steady_clock::now();
   client->stream_each(
       axllm::object({{"chat_prompt", axllm::array({axllm::object({
-          {"role", "user"}, {"content", "Reply with exactly: streaming works"}})})},
-          {"model_config", axllm::object({{"temperature", 1}})}}),
+          {"role", "user"}, {"content", "Reply with exactly: streaming works"}})})}}),
       [&](const axllm::Value& event) {
         std::string content = axllm::display(axllm::Core::get(
             axllm::Core::get(axllm::Core::get(event, "results"), 0), "content", ""));

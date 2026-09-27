@@ -8,10 +8,9 @@ public final class AxGenOpenAIExample {
     if (apiKey == null || apiKey.isBlank()) {
       throw new IllegalStateException("Set OPENAI_API_KEY to run this provider API example.");
     }
-    OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
+    AxAIService client = Ax.ai("openai", Map.of(
       "api_key", apiKey,
-      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.6-luna"),
-      "model_config", Map.of("temperature", 0.0)
+      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.6-luna")
     ));
     AxGen program = Ax.ax("question:string -> answer:string");
     Map<String, Object> out = program.forward(client, Map.of(

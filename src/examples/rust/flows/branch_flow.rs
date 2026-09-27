@@ -18,7 +18,7 @@ fn openai_client() -> AxResult<OpenAICompatibleClient> {
             axllm::AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.")
         })?;
     let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
-    Ok(OpenAICompatibleClient::new(api_key, model).with_model_config(json!({"temperature": 0})))
+    axllm::ai("openai", json!({"api_key": api_key, "model": model, "model_config": {"temperature": 0}}))
 }
 
 fn main() -> AxResult<()> {
@@ -44,6 +44,10 @@ fn main() -> AxResult<()> {
         &mut client,
         json!({"request": "A customer says checkout is down for their enterprise account."}),
     )?;
+    for key in ["route", "response"] {
+        let value = &output[key];
+        assert!(!value.is_null() && value != "" && *value != json!([]), "flow output field {key} is empty: {output}");
+    }
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }

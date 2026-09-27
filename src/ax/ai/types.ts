@@ -108,10 +108,26 @@ export type AxModelInfo = {
     imageOutput?: boolean;
     /** Public Ax operations verified for this exact model. */
     operations?: readonly ('chat' | 'transcribe')[];
+    /**
+     * Reasoning can be turned off (reasoning effort `none`), and the model
+     * then accepts the sampling parameters listed in `notSupported`.
+     */
+    samplingWithoutReasoning?: boolean;
+    /** The model does not reason when a request sets no reasoning effort. */
+    reasoningOffByDefault?: boolean;
   };
+  /**
+   * Sampling parameters the model rejects. With
+   * `supported.samplingWithoutReasoning` it rejects them only while it
+   * reasons. Ax never sends a default value for them; it sends an explicit
+   * value when the model accepts it for that request and otherwise drops it
+   * with a one-time warning.
+   */
   notSupported?: {
     temperature?: boolean;
     topP?: boolean;
+    presencePenalty?: boolean;
+    frequencyPenalty?: boolean;
   };
   audio?: {
     input?: boolean;
@@ -1273,9 +1289,11 @@ export type AxAIServiceOptions = {
   /**
    * Whether to include the request body in `AxAIServiceError` messages.
    *
-   * When `false`, the request body is omitted from thrown errors. Useful when
-   * requests may contain sensitive data (API keys, PII) or large base64-encoded
-   * content that would bloat error logs.
+   * When `false`, the request body is omitted from thrown errors: their
+   * message, stack, `JSON.stringify`, object spread and `Object.keys` leave it
+   * out, though `error.requestBody` still returns it. Useful when requests may
+   * contain sensitive data (API keys, PII) or large base64-encoded content that
+   * would bloat error logs. Request headers are never kept on errors.
    *
    * @default true
    */
@@ -1420,6 +1438,23 @@ export interface AxAIServiceImpl<
   ): Promise<[AxAPI, TEmbedRequest]> | [AxAPI, TEmbedRequest];
 
   createEmbedResp?(resp: Readonly<TEmbedResponse>): AxEmbedResponse;
+
+  /**
+   * Optional: the reasoning effort a chat request for `model` will send, or
+   * `undefined` when it sends none. Lets the base layer tell whether the model
+   * reasons on that request, which decides whether it accepts sampling
+   * parameters (see `AxModelInfo.supported.samplingWithoutReasoning`).
+   */
+  resolveReasoningEffort?(
+    model: TModel,
+    config: Readonly<AxAIServiceOptions>
+  ): string | undefined;
+
+  /**
+   * Optional: model info for the sampling filter when the AI has none for
+   * `model` (the OpenAI o-series on profiles that carry no model info).
+   */
+  samplingModelInfo?(model: TModel): Readonly<AxModelInfo> | undefined;
 
   getModelConfig(): AxModelConfig;
 

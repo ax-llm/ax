@@ -38,7 +38,7 @@ func main() {
 	})
 	defer ax.SetUsageObserver(nil)
 
-	client := ax.NewOpenAICompatibleClient(map[string]ax.Value{
+	client := ax.NewAI("openai", map[string]ax.Value{
 		"api_key": apiKey,
 		"model":   model,
 		"usageContext": ax.Object(

@@ -20,13 +20,13 @@ import (
 )
 
 
-func openAIClient() *ax.OpenAICompatibleClient {
+func openAIClient() ax.AIClient {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" { apiKey = os.Getenv("OPENAI_APIKEY") }
 	if apiKey == "" { panic("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.") }
 	model := os.Getenv("AX_OPENAI_MODEL")
 	if model == "" { model = "gpt-5.4-mini" }
-	return ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
+	return ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
 }
 
 func printJSON(value ax.Value) {
@@ -42,8 +42,14 @@ func main() {
 	step := ax.NewAx("topic:string -> outline:string[]", nil)
 	program := ax.NewFlow(map[string]ax.Value{"id": "examples.composedFlow"}).
 		Execute("step", step, nil).
-		Returns(map[string]ax.Value{"step": "step"})
+		Returns(map[string]ax.Value{"outline": "outline"})
 	output, err := program.Forward(ctx, client, map[string]ax.Value{"topic": "How Ax moves from typed generation to agents, flows, and optimization"}, nil)
 	if err != nil { panic(err) }
+	for _, key := range []string{"outline"} {
+		switch fmt.Sprint(output.(map[string]ax.Value)[key]) {
+		case "", "<nil>", "[]":
+			panic(fmt.Sprintf("flow output field %s is empty: %v", key, output))
+		}
+	}
 	printJSON(output)
 }

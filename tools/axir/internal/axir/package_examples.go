@@ -641,17 +641,17 @@ print("python-axgen-ok")
 const pyAxGenOpenAIExample = `import json
 import os
 
-from axllm import OpenAICompatibleClient, ax
+from axllm import ai, ax
 
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
     raise SystemExit("Set OPENAI_API_KEY to run this provider API example.")
 
-client = OpenAICompatibleClient(
+client = ai(
+    "openai",
     api_key=api_key,
     model=os.getenv("AX_OPENAI_MODEL", "gpt-5.6-luna"),
-    model_config={"temperature": 0},
 )
 program = ax("question:string -> answer:string")
 out = program.forward(
@@ -1452,10 +1452,9 @@ public final class AxGenOpenAIExample {
     if (apiKey == null || apiKey.isBlank()) {
       throw new IllegalStateException("Set OPENAI_API_KEY to run this provider API example.");
     }
-    OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
+    AxAIService client = Ax.ai("openai", Map.of(
       "api_key", apiKey,
-      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.6-luna"),
-      "model_config", Map.of("temperature", 0.0)
+      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.6-luna")
     ));
     AxGen program = Ax.ax("question:string -> answer:string");
     Map<String, Object> out = program.forward(client, Map.of(
@@ -2109,13 +2108,12 @@ int main() {
     return 2;
   }
 
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
     {"api_key", key},
-    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-5.6-luna"},
-    {"model_config", axllm::object({{"temperature", 0}})}
+    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-5.6-luna"}
   }));
   auto program = axllm::ax("question:string -> answer:string");
-  axllm::Value out = program.forward(client, axllm::object({
+  axllm::Value out = program.forward(*client, axllm::object({
     {"question", "In one sentence, explain Ax as a language-agnostic LLM programming library."}
   }), axllm::object({
     {"promptCacheKey", "ax-openai-example"},
@@ -2474,14 +2472,15 @@ print("python-provider-stream-no-key", text)
 const pyAxFlowOpenAIExample = `import json
 import os
 
-from axllm import OpenAICompatibleClient, ax, flow
+from axllm import ai, ax, flow
 
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
     raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.")
 
-client = OpenAICompatibleClient(
+client = ai(
+    "openai",
     api_key=api_key,
     model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
     model_config={"temperature": 0},
@@ -2495,6 +2494,7 @@ program = (
 )
 output = program.forward(client, {"topic": "how Ax composes typed LLM programs"})
 
+assert all(output.get(key) for key in ("outline", "summary")), output
 print(json.dumps(output, indent=2, sort_keys=True))
 `
 
@@ -3276,8 +3276,9 @@ public final class FlowOpenAIExample {
       throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.");
     }
     String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini");
-    OpenAICompatibleClient client =
-        new OpenAICompatibleClient(
+    AxAIService client =
+        Ax.ai(
+            "openai",
             Map.of("api_key", apiKey, "model", model, "model_config", Map.of("temperature", 0.0)));
 
     AxGen outline = Ax.ax("topic:string -> outline:string");
@@ -3290,6 +3291,11 @@ public final class FlowOpenAIExample {
             .returns(Map.of("outline", "outline", "summary", "summary"));
     Map<String, Object> output =
         program.forward(client, Map.of("topic", "how Ax composes typed LLM programs"));
+    for (String key : List.of("outline", "summary")) {
+      if (List.of("null", "\"\"", "[]").contains(Json.stringify(output.get(key)))) {
+        throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(output));
+      }
+    }
     System.out.println(Json.stringify(output));
   }
 }
@@ -4923,7 +4929,7 @@ int main() {
   }
 
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
@@ -4937,8 +4943,12 @@ int main() {
            })
       .returns(axllm::object({{"outline", "outline"}, {"summary", "summary"}}));
   axllm::Value output = program.forward(
-      client,
+      *client,
       axllm::object({{"topic", "how Ax composes typed LLM programs"}}));
+  for (const char* key : {"outline", "summary"}) {
+    std::string text = axllm::stringify(axllm::Core::get(output, key));
+    if (text == "null" || text == "\"\"" || text == "[]") throw std::runtime_error(std::string("flow output field ") + key + " is empty: " + axllm::stringify(output));
+  }
   std::cout << axllm::stringify(output) << "\n";
 }
 `

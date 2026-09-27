@@ -80,11 +80,30 @@ export interface InputTypeMap {
   dateRange: { start: Date; end: Date };
   datetime: Date;
   datetimeRange: { start: Date; end: Date };
-  image: { mimeType: string; data: string };
+  image: {
+    mimeType: string;
+    data: string;
+    details?: 'high' | 'low' | 'auto';
+    cache?: boolean;
+    optimize?: 'quality' | 'size' | 'auto';
+    altText?: string;
+  };
   audio: AxAudioInput;
   file:
-    | { mimeType: string; data: string }
-    | { mimeType: string; fileUri: string };
+    | {
+        mimeType: string;
+        data: string;
+        filename?: string;
+        cache?: boolean;
+        extractedText?: string;
+      }
+    | {
+        mimeType: string;
+        fileUri: string;
+        filename?: string;
+        cache?: boolean;
+        extractedText?: string;
+      };
   url: string;
   code: string;
   // Note: 'object' is intentionally NOT here - it maps to 'any' like 'json'

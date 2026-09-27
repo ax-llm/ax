@@ -99,7 +99,7 @@ int main() {
     return 2;
   }
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
@@ -125,7 +125,7 @@ int main() {
       })
       .register_callable("grade", [&client, &verifier](axllm::Value p) -> axllm::Value {
         return verifier.forward(
-            client,
+            *client,
             axllm::object({
                 {"rubric", axllm::Core::get(p, "rubric", "")},
                 {"evidence", axllm::Core::get(p, "evidence", axllm::Value::array())},
@@ -197,7 +197,7 @@ int main() {
       }));
 
   axllm::Value result = self_improving.forward(
-      client,
+      *client,
       axllm::object({
           {"goal", "Find an ETL config plan that cleans the dirty dataset so every data-quality check passes."},
           {"rubric", "All five checks (no-nulls, no-duplicates, numeric-types, trimmed-strings, outliers-handled) must pass, i.e. score 1.0."},

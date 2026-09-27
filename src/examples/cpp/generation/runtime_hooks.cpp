@@ -59,7 +59,7 @@ int main() {
   if (key == nullptr || std::string(key).empty()) key = std::getenv("OPENAI_APIKEY");
   if (key == nullptr || std::string(key).empty()) { std::cerr << "Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.\n"; return 2; }
   const char* configured_model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", configured_model == nullptr || std::string(configured_model).empty() ? "gpt-5.4-mini" : configured_model},
       {"model_config", axllm::object({{"temperature", 0}})},
@@ -73,12 +73,12 @@ int main() {
   axllm::set_meter(meter);
   try {
     auto direct = axllm::ax("topic:string -> summary:string");
-    std::cout << axllm::stringify(direct.forward(client, axllm::object({{"topic", "portable Ax runtime hooks"}}))) << "\n";
+    std::cout << axllm::stringify(direct.forward(*client, axllm::object({{"topic", "portable Ax runtime hooks"}}))) << "\n";
 
     auto helper = axllm::agent("question:string -> answer:string");
     axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
     std::cout << axllm::stringify(helper.forward(
-        client,
+        *client,
         axllm::object({{"question", "What does a rate limiter wrap?"}}),
         axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 12}}),
         override_hooks)) << "\n";
@@ -88,8 +88,13 @@ int main() {
     auto workflow = axllm::flow(axllm::object({{"id", "examples.runtimeHooks"}}))
         .execute("outline", outline)
         .execute("polish", polish)
-        .returns(axllm::object({{"answer", "polish"}}));
-    std::cout << axllm::stringify(workflow.forward(client, axllm::object({{"topic", "Ax runtime hooks"}}), axllm::Value::object(), override_hooks)) << "\n";
+        .returns(axllm::object({{"answer", "answer"}}));
+    axllm::Value output = workflow.forward(*client, axllm::object({{"topic", "Ax runtime hooks"}}), axllm::Value::object(), override_hooks);
+    for (const char* key : {"answer"}) {
+      std::string text = axllm::stringify(axllm::Core::get(output, key));
+      if (text == "null" || text == "\"\"" || text == "[]") throw std::runtime_error(std::string("flow output field ") + key + " is empty: " + axllm::stringify(output));
+    }
+    std::cout << axllm::stringify(output) << "\n";
   } catch (...) {
     axllm::set_rate_limiter({}); axllm::set_tracer({}); axllm::set_meter({});
     throw;

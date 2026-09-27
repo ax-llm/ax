@@ -20,7 +20,7 @@ import (
 	ax "github.com/ax-llm/ax/packages/go"
 )
 
-func openAIClient() *ax.OpenAICompatibleClient {
+func openAIClient() ax.AIClient {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENAI_APIKEY")
@@ -32,7 +32,7 @@ func openAIClient() *ax.OpenAICompatibleClient {
 	if model == "" {
 		model = "gpt-5.6-luna"
 	}
-	return ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
+	return ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model})
 }
 
 func printJSON(value ax.Value) {

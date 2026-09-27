@@ -72,13 +72,9 @@ const allowedDialects = new Set([
   'xai-speech',
   'xai-transcription',
 ]);
-const allowedAuth = new Set([
-  'bearer',
-  'api-key-header',
-  'api-key-query',
-  'x-api-key',
-  'none',
-]);
+// 'api-key-query' is not allowed: it would put the API key in request URLs,
+// which end up in errors and logs. No port implements it.
+const allowedAuth = new Set(['bearer', 'api-key-header', 'x-api-key', 'none']);
 const ruleRank = { exact: 0, prefix: 1, contains: 2 };
 const allowedStructuredOutputModes = new Set([
   'native',
@@ -260,7 +256,12 @@ for (const [id, profile] of Object.entries(resolvedProfiles)) {
   if (!allowedTransports.has(profile.transport))
     throw new Error(`profile ${id} has invalid transport ${profile.transport}`);
   if (!allowedAuth.has(profile.auth?.type))
-    throw new Error(`profile ${id} has invalid auth type`);
+    throw new Error(
+      `profile ${id} has invalid auth type ${profile.auth?.type}` +
+        (profile.auth?.type === 'api-key-query'
+          ? ': query-key auth puts the API key in request URLs'
+          : '')
+    );
   if (profile.auth.type === 'none' && profile.auth.required)
     throw new Error(`profile ${id} cannot require no authentication`);
   if (profile.auth.type === 'api-key-header' && !profile.auth.header)
@@ -409,9 +410,7 @@ const descriptors = Object.fromEntries(
     const authType =
       profile.auth.type === 'api-key-header'
         ? 'api_key_header'
-        : profile.auth.type === 'api-key-query'
-          ? 'api_key_query'
-          : profile.auth.type;
+        : profile.auth.type;
     return [
       id,
       {
@@ -421,9 +420,6 @@ const descriptors = Object.fromEntries(
         auth: authType,
         authRequired: profile.auth.required,
         ...(profile.auth.header ? { apiKeyHeader: profile.auth.header } : {}),
-        ...(profile.auth.type === 'api-key-query'
-          ? { apiKeyQuery: profile.auth.query ?? 'key' }
-          : {}),
         ...(profile.endpoint?.apiVersionField
           ? {
               apiVersion:

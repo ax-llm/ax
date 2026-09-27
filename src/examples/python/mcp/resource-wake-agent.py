@@ -19,8 +19,8 @@ from axllm import (
     AxMCPClient,
     AxMCPEventSource,
     AxMCPStreamableHTTPTransport,
-    OpenAICompatibleClient,
     agent,
+    ai,
 )
 from axllm.runtime_quickjs import AxQuickJsCodeRuntime
 
@@ -49,7 +49,7 @@ source = AxMCPEventSource(
     trust="authenticated",
     resource_subscriptions="all",
 )
-llm = OpenAICompatibleClient(api_key=api_key, model="gpt-5.4-mini")
+llm = ai("openai", api_key=api_key, model="gpt-5.4-mini")
 program = agent("uri:string -> summary:string", {"runtime": {"language": "JavaScript"}})
 completed = threading.Event()
 
