@@ -398,13 +398,17 @@ Providers without the requested audio endpoint throw `AxMediaNotSupportedError`.
 Each provider starts from its own defaults: `temperature: 0` for OpenAI Chat,
 Anthropic and Gemini, and `temperature: 0.7` with `topP: 1` for
 `openai-responses`. Model info lists the sampling parameters a model rejects
-(`notSupported`: `temperature`, `topP`, `presencePenalty`, `frequencyPenalty`):
+(`notSupported`: `temperature`, `topP`, `topK`, `presencePenalty`,
+`frequencyPenalty`):
 
 - A provider default for such a parameter is never sent.
 - An explicit value is sent when the model accepts it for that request, and
   otherwise dropped with a one-time `console.warn` naming the setting and the
   model. Explicit values come from the AI's `config`, a model key's
   `modelConfig`, or the request's `modelConfig`.
+- Models whose info sets `supported.temperatureOne` still take an explicit
+  `temperature: 1`: every OpenAI model below, and the Anthropic models that
+  deprecated sampling.
 - GPT-5.1 to 5.4 take sampling while they don't reason, which is their
   default. GPT-5.5 and 5.6 take it only with reasoning effort `none`
   (`thinkingTokenBudget: 'none'`, or `reasoningEffort: 'none'` in the
@@ -412,6 +416,18 @@ Anthropic and Gemini, and `temperature: 0.7` with `topP: 1` for
   o-series still get `maxTokens` and `n`.
 - A profile without model info (`azure-openai`, `openai-compatible`, ...)
   uses OpenAI's info for an exact o-series model name.
+- Anthropic: Opus 4.7 and later, Opus 5, Fable 5 and Sonnet 5 deprecated
+  sampling, so they take only `temperature: 1` (no `topP` or `topK`). The
+  other Claude models take every value with thinking off; while thinking,
+  only `temperature: 1`, `topP` of 0.95 or above, and no `topK`. The default
+  `temperature: 0` is sent only without thinking, as before. Claude on Vertex
+  keeps that older rule for explicit values too, and warns about a drop.
+- Gemini: the server-managed Flash models ignore `temperature`, `topP` and
+  `topK`; the Gemini API rejects `presencePenalty` and `frequencyPenalty`.
+  Gemini 3 returns one candidate, so `n` above 1 is dropped (AxGen then gets
+  one sample), and Ax raises a temperature below 1 to 1, as Google recommends,
+  with a one-time warning for an explicit value. Vertex keeps its request
+  shape; `presencePenalty` is never sent to Gemini and is warned about.
 
 ```typescript
 const llm = ai({ name: 'openai', apiKey, config: { model: 'gpt-5.6-luna' } });

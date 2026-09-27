@@ -18,7 +18,9 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     fastCacheWriteTokenCostPer1M: 10.0,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -34,6 +36,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheWriteTokenCostPer1M: 5.0,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -52,7 +55,9 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheWriteTokenCostPer1M: 12.5,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -68,6 +73,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheWriteTokenCostPer1M: 12.5,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -89,7 +95,9 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     fastCacheWriteTokenCostPer1M: 12.5,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -104,6 +112,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheWriteTokenCostPer1M: 6.25,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -120,7 +129,9 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheWriteTokenCostPer1M: 12.5,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -135,6 +146,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheWriteTokenCostPer1M: 12.5,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -151,7 +163,9 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheWriteTokenCostPer1M: 2.5,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -166,6 +180,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheWriteTokenCostPer1M: 2.5,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -186,7 +201,9 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     fastCacheWriteTokenCostPer1M: 12.5,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -201,6 +218,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheWriteTokenCostPer1M: 6.25,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -221,7 +239,9 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     fastCacheWriteTokenCostPer1M: 37.5,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -236,6 +256,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheWriteTokenCostPer1M: 6.25,
     maxTokens: 128000,
     contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
     supported: {
       thinkingBudget: true,
       showThoughts: true,

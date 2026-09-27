@@ -5,7 +5,12 @@ import {
   AxAIServiceAuthenticationError,
   AxAIServiceStatusError,
 } from '../../util/apicall.js';
-import { type AxAIFeatures, AxBaseAI, axBaseAIDefaultConfig } from '../base.js';
+import {
+  type AxAIFeatures,
+  AxBaseAI,
+  axBaseAIDefaultConfig,
+  warnDroppedSampling,
+} from '../base.js';
 import type {
   AxAICredentialProvider,
   AxAIInputModelList,
@@ -134,6 +139,17 @@ const isAdaptiveThinkingModel = (model: string): boolean =>
   model.includes('claude-fable-5');
 
 /**
+ * Models that deprecated sampling: any temperature other than 1, and any
+ * top_p or top_k, is a 400 ("`temperature` is deprecated for this model").
+ * Probed on the Messages API 2026-09-27: Opus 4.7+, Opus 5, Fable 5, Sonnet 5.
+ */
+const deprecatesSampling = (model: string): boolean =>
+  isClaudeOpus47OrLater(model) ||
+  isClaude5(model) ||
+  model.includes('claude-opus-5') ||
+  model.includes('claude-fable-5');
+
+/**
  * Models whose thinking cannot be switched off: `thinking.type.disabled` is a
  * 400, so the lowest effort is the closest Ax can get to `'none'`.
  */
@@ -148,6 +164,93 @@ const isThinkingAlwaysOn = (model: string): boolean =>
  */
 const isThinkingOnByDefault = (model: string): boolean =>
   CLAUDE_OPUS_5.test(model) || CLAUDE_SONNET_5.test(model);
+
+/**
+ * The sampling fields to send. A default (the provider's temperature 0) keeps
+ * its historical rule: only without a thinking wire and never on
+ * adaptive-thinking models. An explicit value is sent when the Messages API
+ * accepts it (probed 2026-09-27) and otherwise dropped with a one-time warning:
+ * models that deprecated sampling take only temperature 1; the others take
+ * every value with thinking off, and while thinking only temperature 1, top_p
+ * of 0.95 or above, and no top_k. Vertex was not probed, so there explicit
+ * values keep the historical rule, and a dropped one is warned about.
+ */
+const anthropicSampling = ({
+  model,
+  probed,
+  thinkingWire,
+  explicit,
+  temperature,
+  topP,
+  topK,
+}: Readonly<{
+  model: string;
+  probed: boolean;
+  thinkingWire: AxAIAnthropicThinkingWire | undefined;
+  explicit: ReadonlySet<string>;
+  temperature: number | undefined;
+  topP: number | undefined;
+  topK: number | undefined;
+}>): { temperature?: number; top_p?: number; top_k?: number } => {
+  const adaptive = isAdaptiveThinkingModel(model);
+  const deprecated = deprecatesSampling(model);
+  const thinking = !!thinkingWire && thinkingWire.type !== 'disabled';
+  const historical = !thinkingWire && !adaptive;
+  const out: { temperature?: number; top_p?: number; top_k?: number } = {};
+  // Why a rejected explicit value was dropped.
+  const reason = (onlyWhileThinking: string): string =>
+    probed
+      ? deprecated
+        ? 'the model does not accept it'
+        : onlyWhileThinking
+      : adaptive
+        ? 'the model does not accept it'
+        : 'the model does not accept it while thinking';
+
+  if (temperature !== undefined) {
+    if (!explicit.has('temperature')) {
+      if (historical) out.temperature = temperature;
+    } else if (
+      probed ? temperature === 1 || (!deprecated && !thinking) : historical
+    ) {
+      out.temperature = temperature;
+    } else {
+      warnDroppedSampling(
+        model,
+        'temperature',
+        probed && deprecated
+          ? 'the model accepts it only as 1'
+          : reason('the model accepts it only as 1 while thinking')
+      );
+    }
+  }
+  if (topP !== undefined) {
+    const accepted = probed
+      ? !deprecated && (!thinking || topP >= 0.95)
+      : !adaptive && (!thinkingWire || topP >= 0.95);
+    if (accepted) {
+      out.top_p = topP;
+    } else if (explicit.has('topP')) {
+      warnDroppedSampling(
+        model,
+        'topP',
+        reason('the model accepts it only at 0.95 or above while thinking')
+      );
+    }
+  }
+  if (topK) {
+    if (probed ? !deprecated && !thinking : historical) {
+      out.top_k = topK;
+    } else if (explicit.has('topK')) {
+      warnDroppedSampling(
+        model,
+        'topK',
+        reason('the model accepts it only with thinking off')
+      );
+    }
+  }
+  return out;
+};
 
 /** Models that answer `tool_choice` of type `any` or `tool` with a 400. */
 const rejectsForcedToolChoice = (model: string): boolean =>
@@ -580,9 +683,11 @@ class AxAIAnthropicImpl
     const maxTokens = req.modelConfig?.maxTokens ?? this.config.maxTokens;
     const stopSequences =
       req.modelConfig?.stopSequences ?? this.config.stopSequences;
+    // modelConfig already carries the AI's own config; the base layer removed
+    // the values the model's info marks unsupported.
     const temperature = req.modelConfig?.temperature;
-    const topP = req.modelConfig?.topP; // do not fallback to config by default
-    const topK = req.modelConfig?.topK ?? this.config.topK;
+    const topP = req.modelConfig?.topP;
+    const topK = req.modelConfig?.topK;
     const n = req.modelConfig?.n ?? this.config.n;
     const directEffort = req.modelConfig?.effort ?? this.config.effort;
     const speed = req.modelConfig?.speed ?? this.config.speed;
@@ -594,11 +699,6 @@ class AxAIAnthropicImpl
 
     // Model detection helpers
     const isOpus45 = (m: string) => m.includes('claude-opus-4-5');
-    // Every adaptive-thinking model rejects sampling params, not just Opus 4.7+.
-    // Anthropic deprecated `temperature` on these models: any value other than
-    // the default is an unconditional 400 ("`temperature` is deprecated for this
-    // model."), regardless of whether effort or a thinking block is on the wire.
-    const samplingUnsupported = isAdaptiveThinkingModel(modelStr);
 
     // Handle thinking configuration
     let thinkingWire: AxAIAnthropicThinkingWire | undefined;
@@ -783,6 +883,16 @@ class AxAIAnthropicImpl
       }
     }
 
+    const sampling = anthropicSampling({
+      model: modelStr,
+      probed: !this.isVertex,
+      thinkingWire,
+      explicit: new Set(req.explicitSamplingKeys ?? []),
+      temperature,
+      topP,
+      topK,
+    });
+
     const reqValue: AxAIAnthropicChatRequest = {
       ...(this.isVertex
         ? { anthropic_version: 'vertex-2023-10-16' }
@@ -791,18 +901,7 @@ class AxAIAnthropicImpl
       ...(stopSequences && stopSequences.length > 0
         ? { stop_sequences: stopSequences }
         : {}),
-      // Only include sampling parameters on models that accept them.
-      ...(temperature !== undefined && !thinkingWire && !samplingUnsupported
-        ? { temperature }
-        : {}),
-      // Only include top_p when thinking is not enabled, or when it's >= 0.95
-      ...(topP !== undefined &&
-      !samplingUnsupported &&
-      (!thinkingWire || topP >= 0.95)
-        ? { top_p: topP }
-        : {}),
-      // Only include top_k when thinking is not enabled
-      ...(topK && !thinkingWire && !samplingUnsupported ? { top_k: topK } : {}),
+      ...sampling,
       ...toolsChoice,
       ...(tools ? { tools } : {}),
       ...(stream ? { stream: true } : {}),

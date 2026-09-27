@@ -115,6 +115,11 @@ export type AxModelInfo = {
     samplingWithoutReasoning?: boolean;
     /** The model does not reason when a request sets no reasoning effort. */
     reasoningOffByDefault?: boolean;
+    /**
+     * The model takes an explicit temperature of exactly 1, its default, where
+     * `notSupported.temperature` (or reasoning) rejects other values.
+     */
+    temperatureOne?: boolean;
   };
   /**
    * Sampling parameters the model rejects. With
@@ -126,6 +131,7 @@ export type AxModelInfo = {
   notSupported?: {
     temperature?: boolean;
     topP?: boolean;
+    topK?: boolean;
     presencePenalty?: boolean;
     frequencyPenalty?: boolean;
   };
@@ -808,7 +814,13 @@ export interface AxAIServiceMetrics {
 }
 
 export type AxInternalChatRequest<TModel> = Omit<AxChatRequest, 'model'> &
-  Required<Pick<AxChatRequest<TModel>, 'model'>>;
+  Required<Pick<AxChatRequest<TModel>, 'model'>> & {
+    /**
+     * The sampling keys in `modelConfig` the caller set (the AI's config, a
+     * model key's config or the request), as opposed to provider defaults.
+     */
+    explicitSamplingKeys?: readonly string[];
+  };
 
 export type AxInternalTranscriptionRequest<TModel> = Omit<
   AxTranscriptionRequest,

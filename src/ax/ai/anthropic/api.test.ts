@@ -859,7 +859,10 @@ describe('AxAIAnthropic thinking configuration', () => {
     expect(body.top_k).toBeUndefined();
   });
 
-  it('Opus 4.6 omits sampling params', async () => {
+  // Opus 4.6 is adaptive but did not deprecate sampling: with thinking off the
+  // live API takes every value (probed 2026-09-27), so explicit ones are sent.
+  // Its default temperature keeps the historical rule and is not sent.
+  it('Opus 4.6 sends explicit sampling params with thinking off', async () => {
     const ai = new AxAIAnthropic({
       apiKey: 'key',
       config: { model: AxAIAnthropicModel.Claude46Opus },
@@ -878,9 +881,15 @@ describe('AxAIAnthropic thinking configuration', () => {
 
     expect(fetch).toHaveBeenCalled();
     const body = capture.lastBody;
-    expect(body.temperature).toBeUndefined();
-    expect(body.top_p).toBeUndefined();
-    expect(body.top_k).toBeUndefined();
+    expect(body.temperature).toBe(0.2);
+    expect(body.top_p).toBe(0.9);
+    expect(body.top_k).toBe(40);
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+    expect(capture.lastBody.temperature).toBeUndefined();
   });
 
   // Non-adaptive models still accept sampling params — the guard must not
