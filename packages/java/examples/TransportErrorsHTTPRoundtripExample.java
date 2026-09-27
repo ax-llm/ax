@@ -14,25 +14,31 @@ import java.util.concurrent.atomic.AtomicInteger;
 // layer retries under the call's retry options; a timeout is
 // AxAIServiceTimeoutError ("Request timed out after <ms>ms", the client's
 // timeout in milliseconds), which the request layer never retries; and AxGen
-// retries both as infrastructure errors. Exits non-zero on any mismatch so
-// `axir verify` fails if it regresses.
+// retries both as infrastructure errors. Until the next major version, chat
+// and embed throw these typed errors when the client sets
+// typedTransportErrors, and otherwise the JDK's own exception, which AxGen
+// retries too; streams always throw the typed errors. Exits non-zero on any
+// mismatch so `axir verify` fails if it regresses.
 public final class TransportErrorsHTTPRoundtripExample {
   static final String DROP_EVENT = "data: {\"id\":\"chatcmpl_drop\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"},\"finish_reason\":null}]}\n\n";
   static final Map<String, Object> REQUEST = Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "hi")));
   static final Map<String, Object> FAST_RETRY = Map.of("maxRetries", 2, "initialDelayMs", 10, "maxDelayMs", 20);
+  static final Map<String, Object> TYPED = Map.of("typedTransportErrors", true);
 
   public static void main(String[] args) throws Exception {
     // A refused connection.
     int refused = closedPort();
-    expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(refused, Map.of()).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(refused, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
     expect("refused stream", "AxAIServiceNetworkError", "Network Error: ", () -> drain(client(refused, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
+    // Without typedTransportErrors, a chat throws the JDK's exception, as before.
+    expect("refused chat, default", "ConnectException", "", () -> client(refused, Map.of()).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
 
     // A server that closes each connection without a response. The stream's
     // request layer retries it under the call's retry options: the first
     // request and two retries.
     AtomicInteger closed = new AtomicInteger();
     int closing = serve("close", closed);
-    expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(closing, Map.of()).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(closing, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
     int before = closed.get();
     expect("closed stream", "AxAIServiceNetworkError", "Network Error: ", () -> drain(client(closing, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
     expectCount("closed stream", closed.get() - before, 3);
@@ -43,7 +49,7 @@ public final class TransportErrorsHTTPRoundtripExample {
     AtomicInteger held = new AtomicInteger();
     int silent = serve("hold", held);
     before = held.get();
-    expect("timed-out chat", "AxAIServiceTimeoutError", "Request timed out after 300ms", () -> client(silent, Map.of("timeout", 0.3)).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    expect("timed-out chat", "AxAIServiceTimeoutError", "Request timed out after 300ms", () -> client(silent, with(TYPED, Map.of("timeout", 0.3))).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
     expect("timed-out stream", "AxAIServiceTimeoutError", "Request timed out after 300ms", () -> drain(client(silent, Map.of("timeout", 0.3)), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
     expectCount("timed-out requests", held.get() - before, 2);
 
@@ -58,9 +64,9 @@ public final class TransportErrorsHTTPRoundtripExample {
 
     // The Typesafe client types the same failures, and does not retry a
     // timeout.
-    expect("Typesafe refused", "AxAIServiceNetworkError", "Network Error: ", () -> new AxAITypesafeClient(Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + closedPort(), "retry", FAST_RETRY)).listModels());
+    expect("Typesafe refused", "AxAIServiceNetworkError", "Network Error: ", () -> new AxAITypesafeClient(with(TYPED, Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + closedPort(), "retry", FAST_RETRY))).listModels());
     before = held.get();
-    expect("Typesafe timeout", "AxAIServiceTimeoutError", "Request timed out after 300ms", () -> new AxAITypesafeClient(Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + silent, "timeout", 0.3, "retry", FAST_RETRY)).listModels());
+    expect("Typesafe timeout", "AxAIServiceTimeoutError", "Request timed out after 300ms", () -> new AxAITypesafeClient(with(TYPED, Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + silent, "timeout", 0.3, "retry", FAST_RETRY))).listModels());
     expectCount("Typesafe timeout", held.get() - before, 1);
 
     // AxGen retries a network error and a timeout as infrastructure errors.
@@ -69,14 +75,25 @@ public final class TransportErrorsHTTPRoundtripExample {
     Map<String, Object> noRequestRetry = Map.of("retry", Map.of("maxRetries", 0));
     for (boolean stream : new boolean[] {false, true}) {
       before = closed.get();
-      expect("AxGen network (stream " + stream + ")", "AxAIServiceNetworkError", "Network Error: ", () -> Ax.ax("question:string -> answer:string").forward(client(closing, noRequestRetry), Map.of("question", "hi"), new LinkedHashMap<>(Map.of("maxRetries", 1, "stream", stream))));
+      expect("AxGen network (stream " + stream + ")", "AxAIServiceNetworkError", "Network Error: ", () -> Ax.ax("question:string -> answer:string").forward(client(closing, with(TYPED, noRequestRetry)), Map.of("question", "hi"), new LinkedHashMap<>(Map.of("maxRetries", 1, "stream", stream))));
       expectCount("AxGen network (stream " + stream + ")", closed.get() - before, 2);
       before = held.get();
       expect("AxGen timeout (stream " + stream + ")", "AxAIServiceTimeoutError", "Request timed out after 200ms", () -> Ax.ax("question:string -> answer:string").forward(client(silent, noRequestRetry), Map.of("question", "hi"), new LinkedHashMap<>(Map.of("maxRetries", 1, "stream", stream, "timeoutMs", 200))));
       expectCount("AxGen timeout (stream " + stream + ")", held.get() - before, 2);
     }
+    // Without typedTransportErrors, AxGen retries the JDK's exception as an
+    // infrastructure error too.
+    before = closed.get();
+    expect("AxGen network, default", "IOException", "", () -> Ax.ax("question:string -> answer:string").forward(client(closing, noRequestRetry), Map.of("question", "hi"), new LinkedHashMap<>(Map.of("maxRetries", 1))));
+    expectCount("AxGen network, default", closed.get() - before, 2);
     System.out.println("transport-errors-http-roundtrip-ok");
     System.exit(0);
+  }
+
+  static Map<String, Object> with(Map<String, Object> first, Map<String, Object> second) {
+    Map<String, Object> merged = new LinkedHashMap<>(first);
+    merged.putAll(second);
+    return merged;
   }
 
   static OpenAICompatibleClient client(int port, Map<String, Object> options) {
@@ -92,7 +109,7 @@ public final class TransportErrorsHTTPRoundtripExample {
     return null;
   }
 
-  // The error, or an error it wraps, must be of the named Ax error type with
+  // The error, or an error it wraps, must be of the named type with
   // a message that starts with prefix.
   static void expect(String label, String type, String prefix, Callable<Object> run) {
     try {

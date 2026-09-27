@@ -615,9 +615,9 @@ func skillCallTimeoutText(target string) string {
 
 func skillTransportErrorsText(target string) string {
 	return map[string]string{
-		"python": "The HTTP client's exception stays the error's `__cause__`.",
+		"python": "The HTTP client's exception stays the error's `__cause__`. Until the next major version, a connect that runs out of the client's timeout is also an `AxAIServiceNetworkError`, and a connection dropped mid-stream is also an `http.client.IncompleteRead`, as they were.",
 		"go":     "The HTTP client's error stays the error's cause (`errors.Unwrap`). Go has no client timeout of its own: a timeout of an `http.Client` you give `HTTPTransport` is that client's failure, so it raises `AxAIServiceNetworkError`, as a custom fetch's own timeout does in TypeScript. Set `timeoutMs` in the client's options for a client-wide `AxAIServiceTimeoutError`.",
-		"java":   "The JDK's exception stays the error's cause (`getCause()`).",
+		"java":   "Until the next major version, chat and embed throw the JDK's own exception for these failures (`ConnectException`, `IOException`, `HttpTimeoutException`), as they did, and warn once; set `typedTransportErrors: true` in the client's or the call's options for the typed errors, with the JDK exception as `getCause()`. Streams always throw the typed errors, and AxGen retries either kind as an infrastructure error. The JDK's `HttpClient` itself retries an idempotent GET whose connection closes before a response.",
 		"cpp":    "libcurl's message stays the error's `cause()`.",
 		"rust":   "`AxError` has no cause, so a network error's message carries reqwest's error and its causes.",
 	}[target]

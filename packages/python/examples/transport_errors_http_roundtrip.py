@@ -7,6 +7,7 @@ retries under the call's retry options; a timeout is AxAIServiceTimeoutError
 the request layer never retries; and AxGen retries both as infrastructure
 errors. Exits non-zero on any mismatch so `axir verify` fails if it regresses."""
 
+import http.client
 import socket
 import threading
 import time
@@ -138,7 +139,9 @@ def consume():
         delivered.append(event)
 
 
-expect("dropped stream", AxAIServiceNetworkError, "Network Error: ", consume)
+dropped_error = expect("dropped stream", AxAIServiceNetworkError, "Network Error: ", consume)
+# Until the next major version it is still the IncompleteRead it used to be.
+assert isinstance(dropped_error, http.client.IncompleteRead), f"dropped stream: {type(dropped_error).__mro__}"
 assert len(delivered) == 1 and dropped["connections"] == 1, f"dropped stream: {len(delivered)} events, {dropped['connections']} requests"
 
 # The Typesafe client types the same failures, and does not retry a timeout.

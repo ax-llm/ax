@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-java-ai/SKILL.md",
-      "digest": "sha256:d4e7f70f7348e3bc12ef1c4fe6d4353b87eb0f8254a9802fe21f6bf255a95873"
+      "digest": "sha256:ab20070d0f18c45be37164c6a0bc3e8027487b96423842a7a6cb29f9f486a206"
     },
     {
       "name": "ax-java-typesafe",

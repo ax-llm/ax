@@ -735,11 +735,15 @@ final class Core {
     return false;
   }
   // TS AxGen retries only 5xx status, network, timeout and stream-termination errors.
+  // The HTTP client's IOException (a failed connection, its timeout), which chat
+  // and embed throw until the next major version, is TS's network or timeout
+  // error.
   static Object exceptionIsInfrastructure(Object error) {
     Object current=error;
     while(current instanceof Throwable throwable){
       if(throwable instanceof AxAIServiceStatusError status)return status.status!=null&&status.status>=500&&status.status<600;
       if(throwable instanceof AxAIServiceNetworkError||throwable instanceof AxAIServiceTimeoutError||throwable instanceof AxAIServiceStreamTerminatedError)return true;
+      if(throwable instanceof java.io.IOException)return true;
       current=throwable.getCause();
     }
     return false;
