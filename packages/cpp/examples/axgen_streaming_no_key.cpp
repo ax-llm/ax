@@ -177,7 +177,7 @@ int main() {
   if (lifecycle != std::vector<std::string>{"started", "completed"}) return 13;
 
   // A handler that stops a controlled run early, by returning false or by
-  // throwing, ends the run as aborted, as control.abort() reports it.
+  // throwing, ends the run with an aborted event rather than failed.
   lifecycle.clear();
   auto stopped = axllm::run_control();
   listen(stopped);
