@@ -851,6 +851,9 @@ final class Core {
     // AxGen renders with the selected structured-output rung's options.
     if (target instanceof PromptTemplate p && "render".equals(String.valueOf(methodName))) return p.render(asMap(args.length > 0 ? args[0] : null), args.length > 1 ? asMap(args[1]) : null);
     if (target instanceof AxFlow.Mapper mapper && "call".equals(String.valueOf(methodName))) return mapper.apply(asMap(args.length > 0 ? args[0] : null));
+    if (target instanceof AxGen.FunctionResultFormatter formatter && "format_result".equals(String.valueOf(methodName))) {
+      return formatter.format(args.length > 0 ? args[0] : null);
+    }
     if (target instanceof AxGen.ResultPickerCallback picker && "call".equals(String.valueOf(methodName))) {
       Map<String, Object> payload = asMap(args.length > 0 ? args[0] : null);
       return picker.pick(asMapList(payload.get("results")));

@@ -949,7 +949,23 @@ static void run_forward(Value fixture) {
       return std::stoi(display(picker_index));
     });
   }
+  Value formatter_spec = Core::get(fixture, "function_result_formatter");
+  if (!formatter_spec.is_null()) {
+    // The program's formatter writes this text for every tool result.
+    std::string formatter_text = display(Core::get(formatter_spec, "text", ""));
+    gen.set_function_result_formatter([formatter_text](const Value&) { return formatter_text; });
+  }
   Value forward_options = Core::get(fixture, "forward_options", Value::object());
+  // The forward call's formatter writes this text for every tool result; the
+  // handle stays alive for the call.
+  std::optional<AxFunctionResultFormatterHandle> call_formatter;
+  Value call_formatter_spec = Core::get(fixture, "call_function_result_formatter");
+  if (!call_formatter_spec.is_null()) {
+    std::string call_formatter_text = display(Core::get(call_formatter_spec, "text", ""));
+    call_formatter.emplace([call_formatter_text](const Value&) { return call_formatter_text; });
+    forward_options = Core::map_merge(Value::object(), forward_options);
+    Core::set(forward_options, "functionResultFormatter", call_formatter->value());
+  }
   std::optional<AxRunControl> control;
   if (Core::truthy(Core::get(fixture, "control", false))) {
     forward_options = Core::map_merge(Value::object(), forward_options);

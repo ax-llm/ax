@@ -345,6 +345,9 @@ type Case = {
   // Pin the request layout: the first request's whole chat prompt, and each
   // request's message roles.
   pin_request_layout?: boolean;
+  // Pin the tool results the last request sent back, each as a JSON string
+  // literal, which every runner's JSON text of the request must contain.
+  pin_function_results?: boolean;
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -516,6 +519,16 @@ async function record(name: string, spec: Case): Promise<void> {
     fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
       prompt.map((message) => message.role as Json)
     );
+  }
+  if (spec.pin_function_results) {
+    const last = (prompts().at(-1) ?? []) as { role?: string; result?: Json }[];
+    const results = last
+      .filter((message) => message.role === 'function')
+      .map((message) => JSON.stringify(message.result));
+    if (results.length === 0) {
+      throw new Error(`${name}: no function results to pin`);
+    }
+    fixture.expected_request_contains = results;
   }
   if (spec.pin_user_prompt) {
     const first = (prompts()[0] ?? []) as { role?: string; content?: Json }[];
@@ -922,6 +935,33 @@ const cases: Record<string, Case> = {
         })
       ),
       streamed(thought('Answer.'), text('Answer: gre'), done('en')),
+    ],
+  },
+  // The streaming loop writes tool results as TS's default
+  // functionResultFormatter does: a string as it is, any other value as
+  // JSON.stringify(result, null, 2). The object's keys are in sorted order,
+  // which the fixture sync keeps.
+  'streaming-forward-tool-result-format': {
+    signature: 'question:string -> answer:string',
+    tools: [
+      {
+        ...lookupTool,
+        result: { checks: [2, 1], note: null, status: 'green' },
+      },
+      { ...finishTool, name: 'note', result: 'plain text' },
+    ],
+    pin_function_results: true,
+    responses: [
+      streamed(
+        chunk({
+          function_calls: [
+            call('call_1', 'lookup', '{"key":"a"}'),
+            call('call_2', 'note', '{"note":"n"}'),
+          ],
+          finish_reason: 'function_call',
+        })
+      ),
+      streamed(text('Answer: gre'), done('en')),
     ],
   },
   'streaming-forward-stop-function': {

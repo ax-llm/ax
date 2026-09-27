@@ -1047,7 +1047,17 @@ public final class Conformance {
         return Core.asInt(fixture.get("result_picker_index"));
       });
     }
+    if (fixture.containsKey("function_result_formatter")) {
+      // The program's formatter writes this text for every tool result.
+      String formatterText = String.valueOf(Core.asMap(fixture.get("function_result_formatter")).getOrDefault("text", ""));
+      gen.setFunctionResultFormatter(result -> formatterText);
+    }
     Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+    if (fixture.containsKey("call_function_result_formatter")) {
+      // The forward call's formatter writes this text for every tool result.
+      String callFormatterText = String.valueOf(Core.asMap(fixture.get("call_function_result_formatter")).getOrDefault("text", ""));
+      forwardOptions.put("functionResultFormatter", (AxGen.FunctionResultFormatter) result -> callFormatterText);
+    }
     List<Object> callEvents = attachFixtureControl(fixture, client, forwardOptions);
     List<Object> controlEvents = Core.truthy(fixture.get("control")) ? callEvents : constructorEvents;
     Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions), fixture, error -> assertErrorCause(error, fixture));

@@ -40352,7 +40352,7 @@ func _forward_impl(args ...Value) (Value, error) {
 				{
 					__flow, __err := func() (coreFlow, error) {
 						{ v, err := _execute_tool_call(v_functions, v_call); if err != nil { return coreFlow{}, err }; v_tool_result = v }
-						{ v, err := _tool_result_message_impl(v_call, v_tool_result); if err != nil { return coreFlow{}, err }; v_tool_message = v }
+						{ v, err := _tool_result_message_impl(v_call, v_tool_result, v_runtime_options); if err != nil { return coreFlow{}, err }; v_tool_message = v }
 						v_messages = coreAppend(v_messages, v_tool_message)
 						_core_axgen_memory_add_function_result(v_gen, v_call, v_tool_result, true)
 						_core_axgen_record_function_call(v_gen, v_call, v_tool_result, "ok")
@@ -49166,26 +49166,29 @@ func _tool_result_message_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_tool_result_message_impl")
 	var v_call Value
 	var v_result Value
+	var v_options Value
 	var v_id Value
 	var v_message Value
 	var v_name Value
-	var v_result_json Value
+	var v_result_text Value
 	if len(args) > 0 { v_call = args[0] }
 	_ = v_call
 	if len(args) > 1 { v_result = args[1] }
 	_ = v_result
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
 	_ = v_id
 	_ = v_message
 	_ = v_name
-	_ = v_result_json
+	_ = v_result_text
 	v_id = coreGet(v_call, "id", nil)
 	v_name = coreGet(v_call, "name", nil)
-	v_result_json = _core_json_stringify(v_result)
+	{ v, err := _function_result_text_impl(v_result, v_options); if err != nil { return nil, err }; v_result_text = v }
 	v_message = Object()
 	if err := coreSet(v_message, "role", "function"); err != nil { return nil, err }
 	if err := coreSet(v_message, "function_id", v_id); err != nil { return nil, err }
 	if err := coreSet(v_message, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_message, "result", v_result_json); err != nil { return nil, err }
+	if err := coreSet(v_message, "result", v_result_text); err != nil { return nil, err }
 	return v_message, nil
 }
 
@@ -52675,91 +52678,6 @@ func _stream_text_extract_values_impl(args ...Value) (Value, error) {
 	return v_values, nil
 }
 
-func _append_structured_output_retry_messages_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_append_structured_output_retry_messages_impl")
-	var v_messages Value
-	var v_response Value
-	var v_call Value
-	var v_error Value
-	var v_stage Value
-	var v_correction Value
-	var v_correction_text Value
-	var v_direct_name Value
-	var v_error_text Value
-	var v_fn Value
-	var v_has_period Value
-	var v_id Value
-	var v_is_assertion Value
-	var v_name Value
-	var v_notice Value
-	var v_output_calls Value
-	var v_period Value
-	var v_result_message Value
-	var v_with_call Value
-	if len(args) > 0 { v_messages = args[0] }
-	_ = v_messages
-	if len(args) > 1 { v_response = args[1] }
-	_ = v_response
-	if len(args) > 2 { v_call = args[2] }
-	_ = v_call
-	if len(args) > 3 { v_error = args[3] }
-	_ = v_error
-	if len(args) > 4 { v_stage = args[4] }
-	_ = v_stage
-	_ = v_correction
-	_ = v_correction_text
-	_ = v_direct_name
-	_ = v_error_text
-	_ = v_fn
-	_ = v_has_period
-	_ = v_id
-	_ = v_is_assertion
-	_ = v_name
-	_ = v_notice
-	_ = v_output_calls
-	_ = v_period
-	_ = v_result_message
-	_ = v_with_call
-	v_output_calls = MutableArray()
-	v_output_calls = coreAppend(v_output_calls, v_call)
-	{ v, err := _append_tool_call_messages_impl(v_messages, v_response, v_output_calls); if err != nil { return nil, err }; v_with_call = v }
-	v_id = coreGet(v_call, "id", nil)
-	v_direct_name = coreGet(v_call, "name", nil)
-	v_fn = coreGet(v_call, "function", nil)
-	v_name = coreGet(v_fn, "name", v_direct_name)
-	v_result_message = Object()
-	if err := coreSet(v_result_message, "role", "function"); err != nil { return nil, err }
-	if err := coreSet(v_result_message, "function_id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_result_message, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_result_message, "result", "done"); err != nil { return nil, err }
-	v_with_call = coreAppend(v_with_call, v_result_message)
-	v_notice = Object()
-	if err := coreSet(v_notice, "role", "user"); err != nil { return nil, err }
-	if err := coreSet(v_notice, "content", "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."); err != nil { return nil, err }
-	v_with_call = coreAppend(v_with_call, v_notice)
-	v_error_text = _core_exception_message(v_error)
-	v_error_text = coreStringTrim(v_error_text)
-	v_correction_text = _core_string_format("Invalid Field: {}", v_error_text)
-	v_is_assertion = _core_eq(v_stage, "assertion")
-	if coreTruthy(v_is_assertion) {
-		v_has_period = _core_string_ends_with(v_error_text, ".")
-		v_period = "."
-		if coreTruthy(v_has_period) {
-			v_period = ""
-		} else {
-		// empty
-		}
-		v_correction_text = _core_string_format("Follow these instructions: {}{}", v_error_text, v_period)
-	} else {
-	// empty
-	}
-	v_correction = Object()
-	if err := coreSet(v_correction, "role", "user"); err != nil { return nil, err }
-	if err := coreSet(v_correction, "content", v_correction_text); err != nil { return nil, err }
-	v_with_call = coreAppend(v_with_call, v_correction)
-	return v_with_call, nil
-}
-
 func _date_js_json_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_js_json_impl")
 	var v_value Value
@@ -52863,6 +52781,91 @@ func _date_js_json_impl(args ...Value) (Value, error) {
 	v_object_json = _core_add("{", v_members)
 	v_object_json = _core_add(v_object_json, "}")
 	return v_object_json, nil
+}
+
+func _append_structured_output_retry_messages_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_append_structured_output_retry_messages_impl")
+	var v_messages Value
+	var v_response Value
+	var v_call Value
+	var v_error Value
+	var v_stage Value
+	var v_correction Value
+	var v_correction_text Value
+	var v_direct_name Value
+	var v_error_text Value
+	var v_fn Value
+	var v_has_period Value
+	var v_id Value
+	var v_is_assertion Value
+	var v_name Value
+	var v_notice Value
+	var v_output_calls Value
+	var v_period Value
+	var v_result_message Value
+	var v_with_call Value
+	if len(args) > 0 { v_messages = args[0] }
+	_ = v_messages
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_call = args[2] }
+	_ = v_call
+	if len(args) > 3 { v_error = args[3] }
+	_ = v_error
+	if len(args) > 4 { v_stage = args[4] }
+	_ = v_stage
+	_ = v_correction
+	_ = v_correction_text
+	_ = v_direct_name
+	_ = v_error_text
+	_ = v_fn
+	_ = v_has_period
+	_ = v_id
+	_ = v_is_assertion
+	_ = v_name
+	_ = v_notice
+	_ = v_output_calls
+	_ = v_period
+	_ = v_result_message
+	_ = v_with_call
+	v_output_calls = MutableArray()
+	v_output_calls = coreAppend(v_output_calls, v_call)
+	{ v, err := _append_tool_call_messages_impl(v_messages, v_response, v_output_calls); if err != nil { return nil, err }; v_with_call = v }
+	v_id = coreGet(v_call, "id", nil)
+	v_direct_name = coreGet(v_call, "name", nil)
+	v_fn = coreGet(v_call, "function", nil)
+	v_name = coreGet(v_fn, "name", v_direct_name)
+	v_result_message = Object()
+	if err := coreSet(v_result_message, "role", "function"); err != nil { return nil, err }
+	if err := coreSet(v_result_message, "function_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_result_message, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_result_message, "result", "done"); err != nil { return nil, err }
+	v_with_call = coreAppend(v_with_call, v_result_message)
+	v_notice = Object()
+	if err := coreSet(v_notice, "role", "user"); err != nil { return nil, err }
+	if err := coreSet(v_notice, "content", "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."); err != nil { return nil, err }
+	v_with_call = coreAppend(v_with_call, v_notice)
+	v_error_text = _core_exception_message(v_error)
+	v_error_text = coreStringTrim(v_error_text)
+	v_correction_text = _core_string_format("Invalid Field: {}", v_error_text)
+	v_is_assertion = _core_eq(v_stage, "assertion")
+	if coreTruthy(v_is_assertion) {
+		v_has_period = _core_string_ends_with(v_error_text, ".")
+		v_period = "."
+		if coreTruthy(v_has_period) {
+			v_period = ""
+		} else {
+		// empty
+		}
+		v_correction_text = _core_string_format("Follow these instructions: {}{}", v_error_text, v_period)
+	} else {
+	// empty
+	}
+	v_correction = Object()
+	if err := coreSet(v_correction, "role", "user"); err != nil { return nil, err }
+	if err := coreSet(v_correction, "content", v_correction_text); err != nil { return nil, err }
+	v_with_call = coreAppend(v_with_call, v_correction)
+	return v_with_call, nil
 }
 
 func _stream_text_yield_delta_impl(args ...Value) (Value, error) {
@@ -54454,7 +54457,7 @@ func _streaming_forward_impl(args ...Value) (Value, error) {
 						{
 							__flow, __err := func() (coreFlow, error) {
 								{ v, err := _execute_tool_call(v_functions, v_call); if err != nil { return coreFlow{}, err }; v_tool_result = v }
-								{ v, err := _tool_result_message_impl(v_call, v_tool_result); if err != nil { return coreFlow{}, err }; v_tool_message = v }
+								{ v, err := _tool_result_message_impl(v_call, v_tool_result, v_runtime_options); if err != nil { return coreFlow{}, err }; v_tool_message = v }
 								v_messages = coreAppend(v_messages, v_tool_message)
 								_core_axgen_memory_add_function_result(v_gen, v_call, v_tool_result, true)
 								_core_axgen_record_function_call(v_gen, v_call, v_tool_result, "ok")
@@ -59103,6 +59106,65 @@ func _stream_json_strings_for_field_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_value, nil
+}
+
+func _function_result_text_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_function_result_text_impl")
+	var v_result Value
+	var v_options Value
+	var v_empty Value
+	var v_empty_map Value
+	var v_formatted Value
+	var v_formatter Value
+	var v_formatter_snake Value
+	var v_has_formatter Value
+	var v_is_text Value
+	var v_missing Value
+	var v_opts Value
+	var v_text Value
+	if len(args) > 0 { v_result = args[0] }
+	_ = v_result
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_empty
+	_ = v_empty_map
+	_ = v_formatted
+	_ = v_formatter
+	_ = v_formatter_snake
+	_ = v_has_formatter
+	_ = v_is_text
+	_ = v_missing
+	_ = v_opts
+	_ = v_text
+	v_empty_map = Object()
+	v_opts = _core_coalesce(v_options, v_empty_map)
+	v_formatter_snake = coreGet(v_opts, "function_result_formatter", nil)
+	v_formatter = coreGet(v_opts, "functionResultFormatter", v_formatter_snake)
+	v_has_formatter = _core_is_not_none(v_formatter)
+	v_text = ""
+	if coreTruthy(v_has_formatter) {
+		{ v, err := _core_object_call_method(v_formatter, "format_result", v_result); if err != nil { return nil, err }; v_formatted = v }
+		v_text = _core_string_str(v_formatted)
+	} else {
+		v_is_text = coreTypeIs(v_result, "string")
+		v_missing = _core_is_none(v_result)
+		if coreTruthy(v_is_text) {
+			v_text = v_result
+		} else {
+			if coreTruthy(v_missing) {
+				v_text = ""
+			} else {
+				v_text = _core_json_pretty(v_result)
+			}
+		}
+	}
+	v_empty = _core_eq(v_text, "")
+	if coreTruthy(v_empty) {
+		return "done", nil
+	} else {
+	// empty
+	}
+	return v_text, nil
 }
 
 func _stream_json_strings_for_fields_impl(args ...Value) (Value, error) {
@@ -95827,6 +95889,11 @@ type AxResultPickerSample struct {
 
 type AxResultPicker func([]AxResultPickerSample) (int, error)
 
+// AxFunctionResultFormatter writes a tool result for the model, as TS's
+// functionResultFormatter option does. Without one, a string goes as it is,
+// nil as "done", and any other value as pretty JSON.
+type AxFunctionResultFormatter func(result Value) string
+
 func NewAx(signature string, options map[string]Value) *AxGen {
 	if options == nil {
 		options = Object()
@@ -95866,6 +95933,13 @@ func (g *AxGen) SetSampleCount(sampleCount int) *AxGen {
 }
 func (g *AxGen) SetResultPicker(resultPicker AxResultPicker) *AxGen {
 	g.Options["resultPicker"] = resultPicker
+	return g
+}
+
+// SetFunctionResultFormatter sets the program's tool result formatter; a
+// forward call's "functionResultFormatter" option wins over it.
+func (g *AxGen) SetFunctionResultFormatter(formatter AxFunctionResultFormatter) *AxGen {
+	g.Options["functionResultFormatter"] = formatter
 	return g
 }
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
@@ -99655,6 +99729,14 @@ func objectCallMethod(target Value, method string, arg Value, rest ...Value) (Va
 		}
 		return render_prompt(coreGet(target, "signature", nil), arg, functions, options)
 	}
+	if method == "format_result" {
+		if formatter, ok := target.(AxFunctionResultFormatter); ok {
+			return formatter(arg), nil
+		}
+		if formatter, ok := target.(func(Value) string); ok {
+			return formatter(arg), nil
+		}
+	}
 	if method == "call" {
 		if fn, ok := target.(func(map[string]Value) Value); ok {
 			return fn(asMap(arg)), nil
@@ -102321,7 +102403,18 @@ func runConformanceForward(fixture map[string]Value) {
 			return int(num(pickerIndex)), nil
 		})
 	}
+	if spec := coreGet(fixture, "function_result_formatter", nil); spec != nil {
+		// The program's formatter writes this text for every tool result.
+		text := display(coreGet(spec, "text", ""))
+		gen.SetFunctionResultFormatter(func(Value) string { return text })
+	}
 	forwardOptions := asMap(coreGet(fixture, "forward_options", Object()))
+	if spec := coreGet(fixture, "call_function_result_formatter", nil); spec != nil {
+		// The forward call's formatter writes this text for every tool result.
+		text := display(coreGet(spec, "text", ""))
+		forwardOptions = cloneMap(forwardOptions)
+		forwardOptions["functionResultFormatter"] = AxFunctionResultFormatter(func(Value) string { return text })
+	}
 	if coreTruthy(coreGet(fixture, "control", false)) {
 		forwardOptions = cloneMap(forwardOptions)
 		controlEvents = conformanceAttachControl(fixture, client, forwardOptions)

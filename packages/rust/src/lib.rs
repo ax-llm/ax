@@ -223,6 +223,34 @@ fn bound_caching_function() -> Option<AxCachingFunction> {
     CACHING_FUNCTION_BINDINGS.with(|bindings| bindings.borrow().last().cloned().flatten())
 }
 
+// The call's function result formatter, bound as the call's caching function
+// is: the AxGen forward the *_with_function_result_formatter methods start
+// takes it and binds None for the rest of its run.
+thread_local! {
+    static FUNCTION_RESULT_FORMATTER_BINDINGS: RefCell<Vec<Option<AxFunctionResultFormatter>>> = const { RefCell::new(Vec::new()) };
+}
+
+fn with_function_result_formatter_binding<R>(
+    formatter: Option<AxFunctionResultFormatter>,
+    run: impl FnOnce() -> R,
+) -> R {
+    struct Binding;
+    impl Drop for Binding {
+        fn drop(&mut self) {
+            FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| {
+                bindings.borrow_mut().pop();
+            });
+        }
+    }
+    FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| bindings.borrow_mut().push(formatter));
+    let _binding = Binding;
+    run()
+}
+
+fn bound_function_result_formatter() -> Option<AxFunctionResultFormatter> {
+    FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| bindings.borrow().last().cloned().flatten())
+}
+
 #[derive(Clone, Default)]
 struct RuntimeHookFrame {
     hooks: AxRuntimeHooks,
@@ -5774,6 +5802,11 @@ pub struct AxResultPickerSample {
 
 pub type AxResultPicker = Arc<dyn Fn(&[AxResultPickerSample]) -> AxResult<usize> + Send + Sync>;
 
+/// Writes a tool result for the model, as TypeScript's
+/// `functionResultFormatter` option does. Without one, a string goes as it
+/// is, null as `"done"`, and any other value as pretty JSON.
+pub type AxFunctionResultFormatter = Arc<dyn Fn(&Value) -> String + Send + Sync>;
+
 /// One update of [`AxGen::streaming_forward`], as TypeScript's
 /// `streamingForward` yields it. `delta` is an object of output fields: merge
 /// it into the sample at `index` (strings and arrays append, other values
@@ -5874,6 +5907,7 @@ pub struct AxGen {
     pub traces: Vec<Value>,
     pub chat_log: Vec<Value>,
     pub result_picker: Option<AxResultPicker>,
+    pub function_result_formatter: Option<AxFunctionResultFormatter>,
     runtime_hooks: AxRuntimeHooks,
     streaming_assertions: Vec<AxGenStreamingAssertion>,
     feedback_processors: Vec<AxGenFieldProcessor>,
@@ -5911,6 +5945,7 @@ impl AxGen {
         let traces = self.traces.clone();
         let chat_log = self.chat_log.clone();
         let result_picker = self.result_picker.clone();
+        let function_result_formatter = self.function_result_formatter.clone();
         let runtime_hooks = self.runtime_hooks.clone();
         let streaming_assertions = self.streaming_assertions.clone();
         let feedback_processors = self.feedback_processors.clone();
@@ -5938,6 +5973,7 @@ impl AxGen {
             traces,
             chat_log,
             result_picker,
+            function_result_formatter,
             runtime_hooks,
             streaming_assertions,
             feedback_processors,
@@ -5975,6 +6011,7 @@ impl AxGen {
             traces: Vec::new(),
             chat_log: Vec::new(),
             result_picker: None,
+            function_result_formatter: None,
             runtime_hooks: AxRuntimeHooks::default(),
             streaming_assertions: Vec::new(),
             feedback_processors: Vec::new(),
@@ -6190,6 +6227,17 @@ impl AxGen {
         self
     }
 
+    /// Writes each tool result for the model, as TypeScript's
+    /// `functionResultFormatter` option does (see
+    /// [`AxFunctionResultFormatter`]).
+    pub fn with_function_result_formatter<F>(mut self, formatter: F) -> Self
+    where
+        F: Fn(&Value) -> String + Send + Sync + 'static,
+    {
+        self.function_result_formatter = Some(Arc::new(formatter));
+        self
+    }
+
     /// Caches this program's forwards, as TypeScript's `cachingFunction`
     /// option does (see [`AxCachingFunction`]). A forward reads the cache
     /// first, before it opens its span or records metrics. A stored output
@@ -6342,6 +6390,47 @@ impl AxGen {
         })
     }
 
+    /// [`forward_with_options`](Self::forward_with_options) with a tool result
+    /// formatter for this call, as TypeScript's `functionResultFormatter`
+    /// forward option (see [`AxFunctionResultFormatter`]). It comes before the
+    /// program's own
+    /// ([`with_function_result_formatter`](Self::with_function_result_formatter)).
+    /// The forwards this one starts, such as a tool that calls another
+    /// program, don't use it.
+    pub fn forward_with_function_result_formatter<C: AxAIClient, F>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: impl Into<AxForwardOptions>,
+        formatter: F,
+    ) -> AxResult<Value>
+    where
+        F: Fn(&Value) -> String + Send + Sync + 'static,
+    {
+        with_function_result_formatter_binding(Some(Arc::new(formatter)), || {
+            self.forward_with_options(client, input, options)
+        })
+    }
+
+    /// [`streaming_forward`](Self::streaming_forward) with a tool result
+    /// formatter for this call, as in
+    /// [`forward_with_function_result_formatter`](Self::forward_with_function_result_formatter).
+    pub fn streaming_forward_with_function_result_formatter<C: AxAIClient, F>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: impl Into<AxForwardOptions>,
+        formatter: F,
+        on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
+    ) -> AxResult<Value>
+    where
+        F: Fn(&Value) -> String + Send + Sync + 'static,
+    {
+        with_function_result_formatter_binding(Some(Arc::new(formatter)), || {
+            self.streaming_forward(client, input, options, on_delta)
+        })
+    }
+
     /// [`streaming_forward`](Self::streaming_forward) with the raw
     /// `{version, index, delta}` envelopes; `sink` stops the run the same way.
     #[doc(hidden)]
@@ -6373,122 +6462,132 @@ impl AxGen {
         options: AxForwardOptions,
         sink: Option<Rc<CoreDeltaSinkHost>>,
     ) -> AxResult<Value> {
-        // The call's caching function, which the forwards this run starts
-        // don't inherit.
+        // The call's caching function and function result formatter, which
+        // the forwards this run starts don't inherit.
         let caching_function = bound_caching_function();
-        with_caching_function_binding(None, || {
-            // The program's own control (with_control) runs a forward that has
-            // none from its call or from a controlled run around it.
-            session::with_program_control(options, self.control.clone(), |mut options| {
-                // As in TS, the cache is read before the run's span and metrics. A
-                // stored output comes back without them (to a sink as one delta),
-                // and a forward's read error ends it before them. The forward op
-                // gets the lookup as its _ax_cache_lookup option, so it only stores.
-                // A state that fails to build fails the run inside its span, as
-                // before.
-                let values = core_value_from_json(&input);
-                let prepared = core_gen_state(self).ok();
-                let lookup = match &prepared {
-                    Some(state) => {
-                        let lookup_options =
+        let call_formatter = bound_function_result_formatter();
+        with_function_result_formatter_binding(None, || {
+            with_caching_function_binding(None, || {
+                // The program's own control (with_control) runs a forward that has
+                // none from its call or from a controlled run around it.
+                session::with_program_control(options, self.control.clone(), |mut options| {
+                    // As in TS, the cache is read before the run's span and metrics. A
+                    // stored output comes back without them (to a sink as one delta),
+                    // and a forward's read error ends it before them. The forward op
+                    // gets the lookup as its _ax_cache_lookup option, so it only stores.
+                    // A state that fails to build fails the run inside its span, as
+                    // before.
+                    let values = core_value_from_json(&input);
+                    let prepared = core_gen_state(self).ok();
+                    let lookup = match &prepared {
+                        Some(state) => {
+                            let lookup_options =
+                                core_forward_options(&options, caching_function.as_ref())?;
+                            // A flow worker's relay control, with no caller's control
+                            // behind it, doesn't skip the cache: TS's parallel flow nodes
+                            // run without a control. A program's own control has taken
+                            // its place here, and skips it.
+                            if session::current_control()
+                                .is_some_and(|control| !control.has_caller())
+                            {
+                                core_map_delete(&[
+                                    lookup_options.clone(),
+                                    CoreValue::from("control"),
+                                ])?;
+                            }
+                            _cache_lookup_impl(&[
+                                state.clone(),
+                                values.clone(),
+                                lookup_options,
+                                CoreValue::Bool(sink.is_some()),
+                            ])?
+                        }
+                        None => CoreValue::Null,
+                    };
+                    if core_truthy(&core_get(&lookup, &CoreValue::from("hit"), CoreValue::Null)) {
+                        // A stored output's audio outputs are rendered, as TS does; the
+                        // renderer reaches the client only through speak().
+                        let stored = core_get(&lookup, &CoreValue::from("value"), CoreValue::Null);
+                        let render_options =
                             core_forward_options(&options, caching_function.as_ref())?;
-                        // A flow worker's relay control, with no caller's control
-                        // behind it, doesn't skip the cache: TS's parallel flow nodes
-                        // run without a control. A program's own control has taken
-                        // its place here, and skips it.
-                        if session::current_control().is_some_and(|control| !control.has_caller()) {
-                            core_map_delete(&[lookup_options.clone(), CoreValue::from("control")])?;
+                        let mut speak =
+                            |method: &str, request: Value, _options: Value| -> AxResult<Value> {
+                                if method == "speak" {
+                                    client.speak(request)
+                                } else {
+                                    Err(AxError::runtime(format!(
+                                        "a stored output made a {method} call"
+                                    )))
+                                }
+                            };
+                        let cached = with_core_client(&mut speak, || {
+                            _render_audio_outputs_impl(&[
+                                prepared.clone().unwrap_or(CoreValue::Null),
+                                CoreValue::Null,
+                                stored,
+                                render_options,
+                            ])
+                        })?;
+                        if let Some(sink) = &sink {
+                            let envelope = core_axgen_map_from(&[
+                                ("version", CoreValue::Num(0.0)),
+                                ("index", CoreValue::Num(0.0)),
+                                ("delta", cached.clone()),
+                            ])?;
+                            core_axgen_emit_delta(&[CoreValue::Host(sink.clone()), envelope])?;
                         }
-                        _cache_lookup_impl(&[
-                            state.clone(),
-                            values.clone(),
-                            lookup_options,
-                            CoreValue::Bool(sink.is_some()),
-                        ])?
+                        return Ok(core_value_to_json(&cached));
                     }
-                    None => CoreValue::Null,
-                };
-                if core_truthy(&core_get(&lookup, &CoreValue::from("hit"), CoreValue::Null)) {
-                    // A stored output's audio outputs are rendered, as TS does; the
-                    // renderer reaches the client only through speak().
-                    let stored = core_get(&lookup, &CoreValue::from("value"), CoreValue::Null);
-                    let render_options = core_forward_options(&options, caching_function.as_ref())?;
-                    let mut speak =
-                        |method: &str, request: Value, _options: Value| -> AxResult<Value> {
-                            if method == "speak" {
-                                client.speak(request)
+                    let defaults = self.runtime_hooks.clone();
+                    let mut attributes = BTreeMap::new();
+                    attributes.insert("ax.program.kind".to_string(), json!("AxGen"));
+                    if sink.is_some() {
+                        attributes.insert("ax.streaming".to_string(), json!(true));
+                    }
+                    with_runtime_scope(
+                        None,
+                        Some(&defaults),
+                        "ax_gen_forward",
+                        "gen",
+                        attributes,
+                        || {
+                            let state = match &prepared {
+                                Some(state) => state.clone(),
+                                None => core_gen_state(self)?,
+                            };
+                            // As in TS, the constructor's options are defaults for every forward
+                            // and the call's win: the run's path, asyncMode and maxSteps come
+                            // from both.
+                            let mut run_options = if self.options.is_object() {
+                                self.options.clone()
                             } else {
-                                Err(AxError::runtime(format!(
-                                    "a stored output made a {method} call"
-                                )))
+                                json!({})
+                            };
+                            merge_object(&mut run_options, &options);
+                            let mut session_run = session::SessionRun::new(
+                                state.clone(),
+                                self.tools.clone(),
+                                run_options,
+                            );
+                            let run_session = session::current_control().is_some()
+                                || self.tools.iter().any(|tool| tool.execution == "background");
+                            if run_session {
+                                if !options.is_object() {
+                                    options = json!({});
+                                }
+                                options["infraRetries"] = json!(0);
                             }
-                        };
-                    let cached = with_core_client(&mut speak, || {
-                        _render_audio_outputs_impl(&[
-                            prepared.clone().unwrap_or(CoreValue::Null),
-                            CoreValue::Null,
-                            stored,
-                            render_options,
-                        ])
-                    })?;
-                    if let Some(sink) = &sink {
-                        let envelope = core_axgen_map_from(&[
-                            ("version", CoreValue::Num(0.0)),
-                            ("index", CoreValue::Num(0.0)),
-                            ("delta", cached.clone()),
-                        ])?;
-                        core_axgen_emit_delta(&[CoreValue::Host(sink.clone()), envelope])?;
-                    }
-                    return Ok(core_value_to_json(&cached));
-                }
-                let defaults = self.runtime_hooks.clone();
-                let mut attributes = BTreeMap::new();
-                attributes.insert("ax.program.kind".to_string(), json!("AxGen"));
-                if sink.is_some() {
-                    attributes.insert("ax.streaming".to_string(), json!(true));
-                }
-                with_runtime_scope(
-                    None,
-                    Some(&defaults),
-                    "ax_gen_forward",
-                    "gen",
-                    attributes,
-                    || {
-                        let state = match &prepared {
-                            Some(state) => state.clone(),
-                            None => core_gen_state(self)?,
-                        };
-                        // As in TS, the constructor's options are defaults for every forward
-                        // and the call's win: the run's path, asyncMode and maxSteps come
-                        // from both.
-                        let mut run_options = if self.options.is_object() {
-                            self.options.clone()
-                        } else {
-                            json!({})
-                        };
-                        merge_object(&mut run_options, &options);
-                        let mut session_run = session::SessionRun::new(
-                            state.clone(),
-                            self.tools.clone(),
-                            run_options,
-                        );
-                        let run_session = session::current_control().is_some()
-                            || self.tools.iter().any(|tool| tool.execution == "background");
-                        if run_session {
-                            if !options.is_object() {
-                                options = json!({});
-                            }
-                            options["infraRetries"] = json!(0);
-                        }
-                        // The run's model, as the forward op reads it, whose features decide
-                        // whether a chat session applies the run's controls.
-                        let control_model = options
-                            .get("model")
-                            .or_else(|| self.options.get("model"))
-                            .and_then(Value::as_str)
-                            .map(str::to_string);
-                        let mut chat =
-                            |method: &str, request: Value, options: Value| -> AxResult<Value> {
+                            // The run's model, as the forward op reads it, whose features decide
+                            // whether a chat session applies the run's controls.
+                            let control_model = options
+                                .get("model")
+                                .or_else(|| self.options.get("model"))
+                                .and_then(Value::as_str)
+                                .map(str::to_string);
+                            let mut chat = |method: &str,
+                                            request: Value,
+                                            options: Value|
+                             -> AxResult<Value> {
                                 if method == "owned_worker" {
                                     return Ok(publish_owned_client_factory(
                                         client.owned_worker_factory(),
@@ -6544,41 +6643,52 @@ impl AxGen {
                                     session_run.chat(client, request, options)
                                 }
                             };
-                        let result = with_core_boundary_client(&mut chat, || {
-                            let options =
-                                core_forward_options(&options, caching_function.as_ref())?;
-                            if !lookup.is_null() {
-                                core_set(
-                                    &options,
-                                    CoreValue::from("_ax_cache_lookup"),
-                                    lookup.clone(),
-                                )?;
-                            }
-                            match &sink {
-                                Some(sink) => _streaming_forward_impl(&[
-                                    state.clone(),
-                                    CoreValue::Null,
-                                    values.clone(),
-                                    options,
-                                    CoreValue::Host(sink.clone()),
-                                ]),
-                                None => _forward_impl(&[
-                                    state.clone(),
-                                    CoreValue::Null,
-                                    values.clone(),
-                                    options,
-                                ]),
-                            }
-                        });
-                        drop(chat);
-                        let consumer_stopped = sink
-                            .as_ref()
-                            .is_some_and(|sink| sink.stopped.borrow().is_some());
-                        session_run.finish(result.as_ref().err(), consumer_stopped);
-                        core_gen_writeback(self, &state);
-                        Ok(core_value_to_json(&result?))
-                    },
-                )
+                            let result = with_core_boundary_client(&mut chat, || {
+                                let options =
+                                    core_forward_options(&options, caching_function.as_ref())?;
+                                if !lookup.is_null() {
+                                    core_set(
+                                        &options,
+                                        CoreValue::from("_ax_cache_lookup"),
+                                        lookup.clone(),
+                                    )?;
+                                }
+                                // The call's formatter comes before the program's.
+                                if let Some(formatter) = &call_formatter {
+                                    core_set(
+                                        &options,
+                                        CoreValue::from("functionResultFormatter"),
+                                        CoreValue::Host(Rc::new(FunctionResultFormatterHost {
+                                            formatter: formatter.clone(),
+                                        })),
+                                    )?;
+                                }
+                                match &sink {
+                                    Some(sink) => _streaming_forward_impl(&[
+                                        state.clone(),
+                                        CoreValue::Null,
+                                        values.clone(),
+                                        options,
+                                        CoreValue::Host(sink.clone()),
+                                    ]),
+                                    None => _forward_impl(&[
+                                        state.clone(),
+                                        CoreValue::Null,
+                                        values.clone(),
+                                        options,
+                                    ]),
+                                }
+                            });
+                            drop(chat);
+                            let consumer_stopped = sink
+                                .as_ref()
+                                .is_some_and(|sink| sink.stopped.borrow().is_some());
+                            session_run.finish(result.as_ref().err(), consumer_stopped);
+                            core_gen_writeback(self, &state);
+                            Ok(core_value_to_json(&result?))
+                        },
+                    )
+                })
             })
         })
     }
@@ -24589,6 +24699,15 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     {
         program = program.with_sample_count(sample_count as usize);
     }
+    if let Some(spec) = fixture.get("function_result_formatter") {
+        // The program's formatter writes this text for every tool result.
+        let text = spec
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        program = program.with_function_result_formatter(move |_| text.clone());
+    }
     if let Some(picker_index) = fixture.get("result_picker_index").and_then(Value::as_u64) {
         let expected_samples = fixture.get("expected_picker_samples").cloned();
         program = program.with_result_picker(move |samples| {
@@ -24640,7 +24759,20 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         } else {
             None
         };
-    let result = program.forward_with_options(&mut client, input, options);
+    // The forward call's formatter writes this text for every tool result.
+    let result = match fixture.get("call_function_result_formatter") {
+        Some(spec) => {
+            let text = spec
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            program.forward_with_function_result_formatter(&mut client, input, options, move |_| {
+                text.clone()
+            })
+        }
+        None => program.forward_with_options(&mut client, input, options),
+    };
     // expected_error_cause_contains is not checked: AxError gains its cause
     // (and source()) in the next major version.
     if fixture.get("expected_error_contains").is_some() {
@@ -30073,6 +30205,27 @@ pub(crate) trait CoreHost {
     }
 }
 
+struct FunctionResultFormatterHost {
+    formatter: AxFunctionResultFormatter,
+}
+
+impl CoreHost for FunctionResultFormatterHost {
+    fn host_type(&self) -> &'static str {
+        "AxFunctionResultFormatter"
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        if name != "format_result" {
+            return Err(AxError::runtime(format!(
+                "AxFunctionResultFormatter has no method '{name}'"
+            )));
+        }
+        Ok(CoreValue::from_string((self.formatter)(
+            &core_value_to_json(&core_arg(args, 0)),
+        )))
+    }
+}
+
 struct ResultPickerHost {
     picker: AxResultPicker,
 }
@@ -32183,6 +32336,15 @@ fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
             CoreValue::from("resultPicker"),
             CoreValue::Host(Rc::new(ResultPickerHost {
                 picker: result_picker.clone(),
+            })),
+        )?;
+    }
+    if let Some(formatter) = &gen.function_result_formatter {
+        core_set(
+            &options,
+            CoreValue::from("functionResultFormatter"),
+            CoreValue::Host(Rc::new(FunctionResultFormatterHost {
+                formatter: formatter.clone(),
             })),
         )?;
     }
@@ -73299,8 +73461,11 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 let mut v_call = v_call;
                 let __core_try: Result<CoreFlow, AxError> = (|| {
                     v_tool_result = _execute_tool_call(&[v_functions.clone(), v_call.clone()])?;
-                    v_tool_message =
-                        _tool_result_message_impl(&[v_call.clone(), v_tool_result.clone()])?;
+                    v_tool_message = _tool_result_message_impl(&[
+                        v_call.clone(),
+                        v_tool_result.clone(),
+                        v_runtime_options.clone(),
+                    ])?;
                     core_append(&v_messages, v_tool_message.clone())?;
                     core_axgen_memory_add_function_result(&[
                         v_gen.clone(),
@@ -81283,13 +81448,14 @@ fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_tool_result_message_impl");
     let mut v_call = core_arg(args, 0);
     let mut v_result = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
     let mut v_id = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     let mut v_name = CoreValue::Null;
-    let mut v_result_json = CoreValue::Null;
+    let mut v_result_text = CoreValue::Null;
     v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
     v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
-    v_result_json = core_json_stringify(&[v_result.clone()])?;
+    v_result_text = _function_result_text_impl(&[v_result.clone(), v_options.clone()])?;
     v_message = CoreValue::new_map();
     core_set(
         &v_message,
@@ -81298,7 +81464,7 @@ fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     )?;
     core_set(&v_message, CoreValue::from("function_id"), v_id.clone())?;
     core_set(&v_message, CoreValue::from("name"), v_name.clone())?;
-    core_set(&v_message, CoreValue::from("result"), v_result_json.clone())?;
+    core_set(&v_message, CoreValue::from("result"), v_result_text.clone())?;
     return Ok(v_message.clone());
 }
 
@@ -84244,6 +84410,86 @@ fn _stream_text_extract_values_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     unreachable_code,
     clippy::all
 )]
+fn _date_js_json_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_js_json_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_json = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_null = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_item_json = CoreValue::Null;
+    let mut v_items = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_key_json = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_list_json = CoreValue::Null;
+    let mut v_member = CoreValue::Null;
+    let mut v_members = CoreValue::Null;
+    let mut v_number = CoreValue::Null;
+    let mut v_object_json = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_quoted = CoreValue::Null;
+    v_is_null = core_is_none(&[v_value.clone()])?;
+    if core_truthy(&v_is_null) {
+        return Ok(CoreValue::from("null"));
+    }
+    v_is_boolean = core_type_is(&v_value, CoreValue::from("boolean"));
+    if core_truthy(&v_is_boolean) {
+        if core_truthy(&v_value) {
+            return Ok(CoreValue::from("true"));
+        }
+        return Ok(CoreValue::from("false"));
+    }
+    v_is_number = core_type_is(&v_value, CoreValue::from("number"));
+    if core_truthy(&v_is_number) {
+        v_number = core_string_str(&[v_value.clone()])?;
+        return Ok(v_number.clone());
+    }
+    v_is_text = core_type_is(&v_value, CoreValue::from("string"));
+    if core_truthy(&v_is_text) {
+        v_quoted = _date_js_json_string_impl(&[v_value.clone()])?;
+        return Ok(v_quoted.clone());
+    }
+    v_parts = CoreValue::new_list();
+    v_is_list = core_type_is(&v_value, CoreValue::from("list"));
+    if core_truthy(&v_is_list) {
+        for v_item in core_iter(&v_value)? {
+            let mut v_item = v_item;
+            v_item_json = _date_js_json_impl(&[v_item.clone()])?;
+            core_append(&v_parts, v_item_json.clone())?;
+        }
+        v_items = core_string_join(&CoreValue::from(","), &v_parts)?;
+        v_list_json = core_add(&[CoreValue::from("["), v_items.clone()])?;
+        v_list_json = core_add(&[v_list_json.clone(), CoreValue::from("]")])?;
+        return Ok(v_list_json.clone());
+    }
+    v_keys = core_map_keys(&[v_value.clone()])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_key_json = _date_js_json_string_impl(&[v_key.clone()])?;
+        v_entry = core_get(&v_value, &v_key.clone(), CoreValue::Null);
+        v_entry_json = _date_js_json_impl(&[v_entry.clone()])?;
+        v_member = core_add(&[v_key_json.clone(), CoreValue::from(":")])?;
+        v_member = core_add(&[v_member.clone(), v_entry_json.clone()])?;
+        core_append(&v_parts, v_member.clone())?;
+    }
+    v_members = core_string_join(&CoreValue::from(","), &v_parts)?;
+    v_object_json = core_add(&[CoreValue::from("{"), v_members.clone()])?;
+    v_object_json = core_add(&[v_object_json.clone(), CoreValue::from("}")])?;
+    return Ok(v_object_json.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _append_structured_output_retry_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_append_structured_output_retry_messages_impl");
     let mut v_messages = core_arg(args, 0);
@@ -84328,86 +84574,6 @@ fn _append_structured_output_retry_messages_impl(args: &[CoreValue]) -> Result<C
     )?;
     core_append(&v_with_call, v_correction.clone())?;
     return Ok(v_with_call.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _date_js_json_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_date_js_json_impl");
-    let mut v_value = core_arg(args, 0);
-    let mut v_entry = CoreValue::Null;
-    let mut v_entry_json = CoreValue::Null;
-    let mut v_is_boolean = CoreValue::Null;
-    let mut v_is_list = CoreValue::Null;
-    let mut v_is_null = CoreValue::Null;
-    let mut v_is_number = CoreValue::Null;
-    let mut v_is_text = CoreValue::Null;
-    let mut v_item = CoreValue::Null;
-    let mut v_item_json = CoreValue::Null;
-    let mut v_items = CoreValue::Null;
-    let mut v_key = CoreValue::Null;
-    let mut v_key_json = CoreValue::Null;
-    let mut v_keys = CoreValue::Null;
-    let mut v_list_json = CoreValue::Null;
-    let mut v_member = CoreValue::Null;
-    let mut v_members = CoreValue::Null;
-    let mut v_number = CoreValue::Null;
-    let mut v_object_json = CoreValue::Null;
-    let mut v_parts = CoreValue::Null;
-    let mut v_quoted = CoreValue::Null;
-    v_is_null = core_is_none(&[v_value.clone()])?;
-    if core_truthy(&v_is_null) {
-        return Ok(CoreValue::from("null"));
-    }
-    v_is_boolean = core_type_is(&v_value, CoreValue::from("boolean"));
-    if core_truthy(&v_is_boolean) {
-        if core_truthy(&v_value) {
-            return Ok(CoreValue::from("true"));
-        }
-        return Ok(CoreValue::from("false"));
-    }
-    v_is_number = core_type_is(&v_value, CoreValue::from("number"));
-    if core_truthy(&v_is_number) {
-        v_number = core_string_str(&[v_value.clone()])?;
-        return Ok(v_number.clone());
-    }
-    v_is_text = core_type_is(&v_value, CoreValue::from("string"));
-    if core_truthy(&v_is_text) {
-        v_quoted = _date_js_json_string_impl(&[v_value.clone()])?;
-        return Ok(v_quoted.clone());
-    }
-    v_parts = CoreValue::new_list();
-    v_is_list = core_type_is(&v_value, CoreValue::from("list"));
-    if core_truthy(&v_is_list) {
-        for v_item in core_iter(&v_value)? {
-            let mut v_item = v_item;
-            v_item_json = _date_js_json_impl(&[v_item.clone()])?;
-            core_append(&v_parts, v_item_json.clone())?;
-        }
-        v_items = core_string_join(&CoreValue::from(","), &v_parts)?;
-        v_list_json = core_add(&[CoreValue::from("["), v_items.clone()])?;
-        v_list_json = core_add(&[v_list_json.clone(), CoreValue::from("]")])?;
-        return Ok(v_list_json.clone());
-    }
-    v_keys = core_map_keys(&[v_value.clone()])?;
-    for v_key in core_iter(&v_keys)? {
-        let mut v_key = v_key;
-        v_key_json = _date_js_json_string_impl(&[v_key.clone()])?;
-        v_entry = core_get(&v_value, &v_key.clone(), CoreValue::Null);
-        v_entry_json = _date_js_json_impl(&[v_entry.clone()])?;
-        v_member = core_add(&[v_key_json.clone(), CoreValue::from(":")])?;
-        v_member = core_add(&[v_member.clone(), v_entry_json.clone()])?;
-        core_append(&v_parts, v_member.clone())?;
-    }
-    v_members = core_string_join(&CoreValue::from(","), &v_parts)?;
-    v_object_json = core_add(&[CoreValue::from("{"), v_members.clone()])?;
-    v_object_json = core_add(&[v_object_json.clone(), CoreValue::from("}")])?;
-    return Ok(v_object_json.clone());
 }
 
 #[allow(
@@ -86062,6 +86228,7 @@ fn _streaming_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                             v_tool_message = _tool_result_message_impl(&[
                                 v_call.clone(),
                                 v_tool_result.clone(),
+                                v_runtime_options.clone(),
                             ])?;
                             core_append(&v_messages, v_tool_message.clone())?;
                             core_axgen_memory_add_function_result(&[
@@ -90138,6 +90305,68 @@ fn _stream_json_strings_for_field_impl(args: &[CoreValue]) -> Result<CoreValue, 
         _stream_json_strings_for_fields_impl(&[v_nested.clone(), v_value.clone()])?;
     }
     return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _function_result_text_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_function_result_text_impl");
+    let mut v_result = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_formatted = CoreValue::Null;
+    let mut v_formatter = CoreValue::Null;
+    let mut v_formatter_snake = CoreValue::Null;
+    let mut v_has_formatter = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_opts = core_coalesce(&[v_options.clone(), v_empty_map.clone()])?;
+    v_formatter_snake = core_get(
+        &v_opts,
+        &CoreValue::from("function_result_formatter"),
+        CoreValue::Null,
+    );
+    v_formatter = core_get(
+        &v_opts,
+        &CoreValue::from("functionResultFormatter"),
+        v_formatter_snake.clone(),
+    );
+    v_has_formatter = core_is_not_none(&[v_formatter.clone()])?;
+    v_text = CoreValue::from("");
+    if core_truthy(&v_has_formatter) {
+        v_formatted = core_object_call_method(&[
+            v_formatter.clone(),
+            CoreValue::from("format_result"),
+            v_result.clone(),
+        ])?;
+        v_text = core_string_str(&[v_formatted.clone()])?;
+    } else {
+        v_is_text = core_type_is(&v_result, CoreValue::from("string"));
+        v_missing = core_is_none(&[v_result.clone()])?;
+        if core_truthy(&v_is_text) {
+            v_text = v_result.clone();
+        } else {
+            if core_truthy(&v_missing) {
+                v_text = CoreValue::from("");
+            } else {
+                v_text = core_json_pretty(&[v_result.clone()])?;
+            }
+        }
+    }
+    v_empty = core_eq(&[v_text.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty) {
+        return Ok(CoreValue::from("done"));
+    }
+    return Ok(v_text.clone());
 }
 
 #[allow(
@@ -126995,7 +127224,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (942 of 942 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (943 of 943 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

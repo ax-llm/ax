@@ -294,6 +294,14 @@ class AxGen:
         self.options["result_picker"] = result_picker
         return self
 
+    def set_function_result_formatter(self, formatter):
+        """Write each tool result for the model as TS's functionResultFormatter
+        option does: formatter(result) -> text. Without one, a string goes as it
+        is, None as "done", and any other value as pretty JSON. A forward
+        call's function_result_formatter option wins over this one."""
+        self.options["function_result_formatter"] = formatter
+        return self
+
     def add_assert(self, assertion, message=None):
         """Add an assertion: a declarative spec or a callable over the outputs.
 
@@ -854,6 +862,7 @@ def ax(
     *,
     sample_count: int | None = None,
     result_picker=None,
+    function_result_formatter=None,
     hooks: AxRuntimeHooks | None = None,
 ) -> AxGen:
     normalized = dict(options or {})
@@ -861,6 +870,8 @@ def ax(
         normalized["sample_count"] = int(sample_count)
     if result_picker is not None:
         normalized["result_picker"] = result_picker
+    if function_result_formatter is not None:
+        normalized["function_result_formatter"] = function_result_formatter
     return AxGen(signature, normalized, hooks=hooks)
 
 
@@ -1013,6 +1024,9 @@ def _core_map_values(values):
 
 
 def _core_object_call_method(target, method_name, *args):
+    if str(method_name) == "format_result" and callable(target):
+        # A function result formatter: formatter(result) -> text.
+        return target(args[0] if args else None)
     if str(method_name) == "call" and callable(target):
         payload = args[0] if args else None
         if isinstance(payload, dict) and payload.get("type") == "fields":
@@ -1037,6 +1051,11 @@ def _core_json_parse_strict(value):
 
 def _core_json_stringify(value):
     return _js_json_dumps(value, sort_keys=True)
+
+
+def _core_json_pretty(value):
+    # TS JSON.stringify(value, null, 2).
+    return _js_json_dumps(value, indent=2)
 
 
 def _core_fields_from_map(fields):
@@ -5160,7 +5179,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
             for call in calls:
                 try:
                     tool_result = _execute_tool_call(functions, call)
-                    tool_message = _tool_result_message_impl(call, tool_result)
+                    tool_message = _tool_result_message_impl(call, tool_result, runtime_options)
                     messages.append(tool_message)
                     _core_axgen_memory_add_function_result(gen, call, tool_result, True)
                     _core_axgen_record_function_call(gen, call, tool_result, "ok")
@@ -9582,16 +9601,16 @@ def _regex_push(stack: Any, top: Any, value: Any) -> Any:
     return t2
 
 
-def _tool_result_message_impl(call: Any, result: Any) -> Any:
+def _tool_result_message_impl(call: Any, result: Any, options: Any) -> Any:
     _core_coverage_mark("_tool_result_message_impl")
     id = _core_get(call, "id", None)
     name = _core_get(call, "name", None)
-    result_json = _core_json_stringify(result)
+    result_text = _function_result_text_impl(result, options)
     message = {}
     message["role"] = "function"
     message["function_id"] = id
     message["name"] = name
-    message["result"] = result_json
+    message["result"] = result_text
     return message
 
 
@@ -11252,46 +11271,6 @@ def _stream_text_extract_values_impl(content: str, fields: list[Any], strict_mod
     return values
 
 
-def _append_structured_output_retry_messages_impl(messages: list[Any], response: Any, call: Any, error: error, stage: str) -> list[Any]:
-    _core_coverage_mark("_append_structured_output_retry_messages_impl")
-    output_calls = []
-    output_calls.append(call)
-    with_call = _append_tool_call_messages_impl(messages, response, output_calls)
-    id = _core_get(call, "id", None)
-    direct_name = _core_get(call, "name", None)
-    fn = _core_get(call, "function", None)
-    name = _core_get(fn, "name", direct_name)
-    result_message = {}
-    result_message["role"] = "function"
-    result_message["function_id"] = id
-    result_message["name"] = name
-    result_message["result"] = "done"
-    with_call.append(result_message)
-    notice = {}
-    notice["role"] = "user"
-    notice["content"] = "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."
-    with_call.append(notice)
-    error_text = _core_exception_message(error)
-    error_text = str(error_text).strip()
-    correction_text = _core_string_format("Invalid Field: {}", error_text)
-    is_assertion = _core_eq(stage, "assertion")
-    if is_assertion:
-        has_period = _core_string_ends_with(error_text, ".")
-        period = "."
-        if has_period:
-            period = ""
-        else:
-            pass
-        correction_text = _core_string_format("Follow these instructions: {}{}", error_text, period)
-    else:
-        pass
-    correction = {}
-    correction["role"] = "user"
-    correction["content"] = correction_text
-    with_call.append(correction)
-    return with_call
-
-
 def _date_js_json_impl(value: Any) -> Any:
     _core_coverage_mark("_date_js_json_impl")
     is_null = _core_is_none(value)
@@ -11344,6 +11323,46 @@ def _date_js_json_impl(value: Any) -> Any:
     object_json = _core_add("{", members)
     object_json = _core_add(object_json, "}")
     return object_json
+
+
+def _append_structured_output_retry_messages_impl(messages: list[Any], response: Any, call: Any, error: error, stage: str) -> list[Any]:
+    _core_coverage_mark("_append_structured_output_retry_messages_impl")
+    output_calls = []
+    output_calls.append(call)
+    with_call = _append_tool_call_messages_impl(messages, response, output_calls)
+    id = _core_get(call, "id", None)
+    direct_name = _core_get(call, "name", None)
+    fn = _core_get(call, "function", None)
+    name = _core_get(fn, "name", direct_name)
+    result_message = {}
+    result_message["role"] = "function"
+    result_message["function_id"] = id
+    result_message["name"] = name
+    result_message["result"] = "done"
+    with_call.append(result_message)
+    notice = {}
+    notice["role"] = "user"
+    notice["content"] = "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."
+    with_call.append(notice)
+    error_text = _core_exception_message(error)
+    error_text = str(error_text).strip()
+    correction_text = _core_string_format("Invalid Field: {}", error_text)
+    is_assertion = _core_eq(stage, "assertion")
+    if is_assertion:
+        has_period = _core_string_ends_with(error_text, ".")
+        period = "."
+        if has_period:
+            period = ""
+        else:
+            pass
+        correction_text = _core_string_format("Follow these instructions: {}{}", error_text, period)
+    else:
+        pass
+    correction = {}
+    correction["role"] = "user"
+    correction["content"] = correction_text
+    with_call.append(correction)
+    return with_call
 
 
 def _stream_text_yield_delta_impl(content: str, field: Any, start: int, end: int, xstate: Any, held: list[Any], complete: bool) -> Any:
@@ -12086,7 +12105,7 @@ def _streaming_forward_impl(gen: AxGen, client: AIClient, values: Any, options: 
                     for call in tool_calls:
                         try:
                             tool_result = _execute_tool_call(functions, call)
-                            tool_message = _tool_result_message_impl(call, tool_result)
+                            tool_message = _tool_result_message_impl(call, tool_result, runtime_options)
                             messages.append(tool_message)
                             _core_axgen_memory_add_function_result(gen, call, tool_result, True)
                             _core_axgen_record_function_call(gen, call, tool_result, "ok")
@@ -14348,6 +14367,35 @@ def _stream_json_strings_for_field_impl(field: Any, value: Any) -> Any:
     else:
         pass
     return value
+
+
+def _function_result_text_impl(result: Any, options: Any) -> str:
+    _core_coverage_mark("_function_result_text_impl")
+    empty_map = {}
+    opts = _core_coalesce(options, empty_map)
+    formatter_snake = _core_get(opts, "function_result_formatter", None)
+    formatter = _core_get(opts, "functionResultFormatter", formatter_snake)
+    has_formatter = _core_is_not_none(formatter)
+    text = ""
+    if has_formatter:
+        formatted = _core_object_call_method(formatter, "format_result", result)
+        text = _core_string_str(formatted)
+    else:
+        is_text = _core_type_is(result, "string")
+        missing = _core_is_none(result)
+        if is_text:
+            text = result
+        else:
+            if missing:
+                text = ""
+            else:
+                text = _core_json_pretty(result)
+    empty = _core_eq(text, "")
+    if empty:
+        return "done"
+    else:
+        pass
+    return text
 
 
 def _stream_json_strings_for_fields_impl(fields_map: Any, values: Any) -> None:

@@ -1,0 +1,77 @@
+{
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_contains": [
+    "\"formatted by the caller\"",
+    "\"formatted by the caller\"",
+    "\"formatted by the caller\"",
+    "\"formatted by the caller\""
+  ],
+  "expected_request_count": 2,
+  "function_result_formatter": {
+    "text": "formatted by the caller"
+  },
+  "input": {
+    "query": "q"
+  },
+  "kind": "forward",
+  "name": "function-result-format-caller-formatter",
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "lookupObject",
+          "params": {}
+        },
+        {
+          "id": "call_2",
+          "name": "lookupText",
+          "params": {}
+        },
+        {
+          "id": "call_3",
+          "name": "lookupNone",
+          "params": {}
+        },
+        {
+          "id": "call_4",
+          "name": "lookupNumber",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "content": "Answer: done"
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "description": "Look up lookupObject",
+      "name": "lookupObject",
+      "result": {
+        "a": [2],
+        "b": 1,
+        "c": null
+      }
+    },
+    {
+      "description": "Look up lookupText",
+      "name": "lookupText",
+      "result": "plain text"
+    },
+    {
+      "description": "Look up lookupNone",
+      "name": "lookupNone",
+      "result": null
+    },
+    {
+      "description": "Look up lookupNumber",
+      "name": "lookupNumber",
+      "result": 42
+    }
+  ]
+}

@@ -275,6 +275,62 @@ static Value get_key(const Value& object, const std::string& key, Value fallback
   return fallback;
 }
 
+// Function result formatters the AxGen IR reaches through
+// {"__function_result_formatter_id"} markers, as caching functions are: the
+// registry holds each handle's state weakly, and a handle (the caller's or an
+// AxGen's) keeps it registered.
+struct AxFunctionResultFormatterHandle::State {
+  std::string id;
+  AxFunctionResultFormatter fn;
+};
+
+struct FunctionResultFormatterRegistry {
+  std::mutex mutex;
+  std::uint64_t next_id = 0;
+  std::map<std::string, std::weak_ptr<AxFunctionResultFormatterHandle::State>> handles;
+};
+
+static FunctionResultFormatterRegistry& function_result_formatter_registry() {
+  static FunctionResultFormatterRegistry registry;
+  return registry;
+}
+
+// Calls the formatter a marker names, outside the registry lock.
+static Value call_function_result_formatter(const Value& marker, const Value& result) {
+  std::string id = str(get_key(marker, "__function_result_formatter_id"));
+  if (id.empty()) {
+    throw AxError("validation", "The functionResultFormatter option must be an axllm::function_result_formatter() handle value");
+  }
+  std::shared_ptr<AxFunctionResultFormatterHandle::State> state;
+  {
+    auto& registry = function_result_formatter_registry();
+    std::lock_guard<std::mutex> lock(registry.mutex);
+    auto it = registry.handles.find(id);
+    if (it != registry.handles.end()) state = it->second.lock();
+  }
+  if (!state) throw AxError("validation", "Function result formatter handle has expired");
+  return Value(state->fn(result));
+}
+
+AxFunctionResultFormatterHandle::AxFunctionResultFormatterHandle(AxFunctionResultFormatter fn) : state_(std::make_shared<State>()) {
+  if (!fn) throw AxError("validation", "Function result formatter must be callable");
+  state_->fn = std::move(fn);
+  auto& registry = function_result_formatter_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  state_->id = "__function_result_formatter_" + std::to_string(++registry.next_id);
+  for (auto it = registry.handles.begin(); it != registry.handles.end();) {
+    if (it->second.expired()) it = registry.handles.erase(it);
+    else ++it;
+  }
+  registry.handles[state_->id] = state_;
+}
+
+Value AxFunctionResultFormatterHandle::value() const { return object({{"__function_result_formatter_id", state_->id}}); }
+
+AxFunctionResultFormatterHandle function_result_formatter(AxFunctionResultFormatter fn) {
+  return AxFunctionResultFormatterHandle(std::move(fn));
+}
+
 static bool has_key(const Value& object, const std::string& key) {
   const auto& obj = object_ref(object);
   if (obj.count(key) > 0) return true;
@@ -1978,6 +2034,7 @@ Value Core::object_call_method(Value target, Value method_name, Value arg, Value
     }
     return render_prompt(get_key(target, "signature"), arg, functions, render_options);
   }
+  if (str(method_name) == "format_result") return call_function_result_formatter(target, arg);
   if (str(method_name) == "call") {
     std::string picker_id = str(get_key(target, "__result_picker_id"));
     auto picker = result_picker_registry().find(picker_id);
@@ -5844,6 +5901,20 @@ AxGen& AxGen::set_sample_count(int sample_count) {
   Value options = Core::get(state_, "options", Value::object());
   Core::set(options, "sampleCount", sample_count);
   Core::set(state_, "options", options);
+  return *this;
+}
+
+// The program's tool result formatter, as TS's functionResultFormatter
+// option; options another AxGen shares are copied, not changed.
+AxGen& AxGen::set_function_result_formatter(AxFunctionResultFormatter formatter) {
+  std::optional<AxFunctionResultFormatterHandle> handle;
+  if (formatter) handle.emplace(std::move(formatter));
+  Value options(object_ref(Core::get(state_, "options", Value::object())));
+  Core::map_delete(options, "functionResultFormatter");
+  Core::map_delete(options, "function_result_formatter");
+  if (handle) Core::set(options, "functionResultFormatter", handle->value());
+  Core::set(state_, "options", options);
+  function_result_formatter_ = std::move(handle);
   return *this;
 }
 

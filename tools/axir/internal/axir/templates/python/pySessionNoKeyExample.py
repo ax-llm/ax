@@ -293,7 +293,8 @@ def ordinary_transport(request):
         finish='tool_calls'
     else:
         assert len(balanced_requests)==2 and balanced_calls==['done']
-        assert any(message.get('tool_call_id')=='balanced-call' and json.loads(message.get('content','null'))=='FALLBACK' for message in body['messages']),body
+        # A string tool result goes as it is, as TS's functionResultFormatter writes it.
+        assert any(message.get('tool_call_id')=='balanced-call' and message.get('content')=='FALLBACK' for message in body['messages']),body
         message={'role':'assistant','content':json.dumps({'answer':'FALLBACK'})}
         finish='stop'
     return {'status':200,'json':{'id':'balanced-'+str(len(balanced_requests)),'model':'gpt-5.6','choices':[{'index':0,'message':message,'finish_reason':finish}]}}

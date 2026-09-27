@@ -814,7 +814,7 @@ module @ax.gen version "0.1" {
           core.for %call in %calls {
             core.try {
               %tool_result = core.call @execute_tool_call(%functions, %call)
-              %tool_message = core.call @tool_result_message_impl(%call, %tool_result)
+              %tool_message = core.call @tool_result_message_impl(%call, %tool_result, %runtime_options)
               core.append %messages, %tool_message
               core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_result, true)
               core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_result, "ok")
@@ -1451,19 +1451,20 @@ module @ax.gen version "0.1" {
 
   op ax.gen.semantic @tool_result_message_impl {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "gen"
     attr private = true
     tag "tool-result-message-core-helper"
-    type signature = "(json, json) -> json"
-    body @entry(%call: json, %result: json) {
+    type signature = "(json, json, json) -> json throws"
+    body @entry(%call: json, %result: json, %options: json) {
       %id = core.get %call["id"]
       %name = core.get %call["name"]
-      %result_json = core.call intrinsic.json.stringify(%result)
+      %result_text = core.call @function_result_text_impl(%result, %options)
       %message = core.map
       core.set %message["role"] = "function"
       core.set %message["function_id"] = %id
       core.set %message["name"] = %name
-      core.set %message["result"] = %result_json
+      core.set %message["result"] = %result_text
       core.return %message
     }
   }
@@ -2342,7 +2343,7 @@ module @ax.gen version "0.1" {
               core.for %call in %tool_calls {
                 core.try {
                   %tool_result = core.call @execute_tool_call(%functions, %call)
-                  %tool_message = core.call @tool_result_message_impl(%call, %tool_result)
+                  %tool_message = core.call @tool_result_message_impl(%call, %tool_result, %runtime_options)
                   core.append %messages, %tool_message
                   core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_result, true)
                   core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_result, "ok")
@@ -2862,6 +2863,50 @@ module @ax.gen version "0.1" {
       }
       core.set %render_options["extra_functions"] = %extra_functions
       core.return %render_options
+    }
+  }
+
+  // TS functionResultFormatter: the run's formatter (the forward call's,
+  // else the program's) writes the result, as String(formatter(result));
+  // without one, a string result goes as it is, a missing one as "", and any
+  // other value as JSON.stringify(result, null, 2) (axGlobals' default). An
+  // empty text becomes "done", as processFunctions sends it.
+  op ax.gen.semantic @function_result_text_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/globals.ts"
+    tag "tool-result-message-core-helper"
+    type signature = "(json, json) -> string throws"
+    body @entry(%result: json, %options: json) {
+      %empty_map = core.map
+      %opts = core.call intrinsic.coalesce(%options, %empty_map)
+      %formatter_snake = core.get %opts["function_result_formatter"]
+      %formatter = core.get %opts["functionResultFormatter"] default %formatter_snake
+      %has_formatter = core.call intrinsic.is_not_none(%formatter)
+      %text = core.let ""
+      core.if %has_formatter {
+        %formatted = core.call intrinsic.object.call_method(%formatter, "format_result", %result)
+        %text = core.call intrinsic.string.str(%formatted)
+      } else {
+        %is_text = core.type_is %result type "string"
+        %missing = core.call intrinsic.is_none(%result)
+        core.if %is_text {
+          %text = core.let %result
+        } else {
+          core.if %missing {
+            %text = core.let ""
+          } else {
+            %text = core.call intrinsic.json.pretty(%result)
+          }
+        }
+      }
+      %empty = core.call intrinsic.eq(%text, "")
+      core.if %empty {
+        core.return "done"
+      }
+      core.return %text
     }
   }
 }

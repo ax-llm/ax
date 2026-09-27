@@ -377,6 +377,8 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			"`functionCall` / `function_call` sets the tool choice: `auto`, `none`, `required`, or `{ type: 'function', function: { name } }` to force one function. A forced call (`required` or named) applies to the first step only, as in TypeScript: later steps drop it together with the tools so the model can answer. Under the `function` structured-output rung the forced step withholds `__axOutput`, so the forcing reaches a user tool, and the next step forces `__axOutput`. A tool choice passed as `functionCallMode` is routed the same way.",
 			"",
+			skillFunctionResultFormatterText(target),
+			"",
 			"## Multi-Sampling",
 			"",
 			"- Set `sampleCount` / `sample_count` to request N provider candidates. Core parses and validates every candidate, preserving each provider result index.",
@@ -701,6 +703,26 @@ func skillAudioOutputText(target string) string {
 		option = "`render_audio` (or `renderAudio`)"
 	}
 	return option + ", a constructor or forward option (the forward's wins), renders `audio` output fields as TypeScript does: each audio output that holds text goes through the client's speak(), and the field becomes the speak() result, with the text as its `transcript` unless speak() gave one. The speak request is the forward options' `speech.speak` defaults, then `speech.fields.<field>`, then the text. It renders where TypeScript does: a forward's answer (streamed or not; with a result picker, only the picked sample), a cache hit, and a streaming forward's result when a result picker picks it, which then goes out as its one delta. Deltas that stream without a result picker stay text. The trace and the cache hold the rendered output, a rendered artifact passes through a cache hit untouched, and an error from speak() surfaces as it is, without a retry. Without the option an audio output keeps the model's text, as before, and the first such output logs a deprecation warning once per process; `false` keeps the text without the warning. Rendering becomes the default in the next major version."
+}
+
+func skillFunctionResultFormatterText(target string) string {
+	shared := "Each tool result goes back to the model as TypeScript's default `functionResultFormatter` writes it: a string as it is, a missing result as `done`, and any other value as `JSON.stringify(result, null, 2)`, pretty JSON in the value's own key order. "
+	var surface string
+	switch target {
+	case "python":
+		surface = "Your own formatter, a callable from the result to its text, goes in `ax(..., function_result_formatter=fn)`, `set_function_result_formatter(fn)`, or the constructor or forward option `function_result_formatter` (or `functionResultFormatter`)"
+	case "go":
+		surface = "Your own formatter, an `AxFunctionResultFormatter` (`func(result Value) string`), goes in `SetFunctionResultFormatter(fn)` or the `NewAx` or forward option `functionResultFormatter` (or `function_result_formatter`)"
+	case "java":
+		surface = "Your own formatter, an `AxGen.FunctionResultFormatter` (`String format(Object result)`), goes in `setFunctionResultFormatter(fn)` or the constructor or forward option `functionResultFormatter` (or `function_result_formatter`)"
+	case "cpp":
+		surface = "Your own formatter, an `AxFunctionResultFormatter` (`std::function<std::string(const Value& result)>`), goes in `gen.set_function_result_formatter(fn)`; for one call, make a handle with `auto formatter = axllm::function_result_formatter(fn);` and pass `{\"functionResultFormatter\", formatter.value()}` in the `forward` or `streaming_forward` options, keeping the handle alive for the call"
+	case "rust":
+		surface = "Your own formatter, a closure from `&Value` to `String` (`AxFunctionResultFormatter`), goes in `with_function_result_formatter(f)`; for one call, use `forward_with_function_result_formatter(client, input, options, f)` or `streaming_forward_with_function_result_formatter(client, input, options, f, on_delta)`, which the forwards that call starts don't inherit"
+	default:
+		return shared + "A custom formatter is not available in this language yet."
+	}
+	return shared + surface + ". It writes every tool result instead, as TypeScript's `functionResultFormatter` option does: the call's formatter comes before the program's, and an empty text goes as `done`."
 }
 
 func skillResultPickerSurface(target string) string {

@@ -275,6 +275,62 @@ static Value get_key(const Value& object, const std::string& key, Value fallback
   return fallback;
 }
 
+// Function result formatters the AxGen IR reaches through
+// {"__function_result_formatter_id"} markers, as caching functions are: the
+// registry holds each handle's state weakly, and a handle (the caller's or an
+// AxGen's) keeps it registered.
+struct AxFunctionResultFormatterHandle::State {
+  std::string id;
+  AxFunctionResultFormatter fn;
+};
+
+struct FunctionResultFormatterRegistry {
+  std::mutex mutex;
+  std::uint64_t next_id = 0;
+  std::map<std::string, std::weak_ptr<AxFunctionResultFormatterHandle::State>> handles;
+};
+
+static FunctionResultFormatterRegistry& function_result_formatter_registry() {
+  static FunctionResultFormatterRegistry registry;
+  return registry;
+}
+
+// Calls the formatter a marker names, outside the registry lock.
+static Value call_function_result_formatter(const Value& marker, const Value& result) {
+  std::string id = str(get_key(marker, "__function_result_formatter_id"));
+  if (id.empty()) {
+    throw AxError("validation", "The functionResultFormatter option must be an axllm::function_result_formatter() handle value");
+  }
+  std::shared_ptr<AxFunctionResultFormatterHandle::State> state;
+  {
+    auto& registry = function_result_formatter_registry();
+    std::lock_guard<std::mutex> lock(registry.mutex);
+    auto it = registry.handles.find(id);
+    if (it != registry.handles.end()) state = it->second.lock();
+  }
+  if (!state) throw AxError("validation", "Function result formatter handle has expired");
+  return Value(state->fn(result));
+}
+
+AxFunctionResultFormatterHandle::AxFunctionResultFormatterHandle(AxFunctionResultFormatter fn) : state_(std::make_shared<State>()) {
+  if (!fn) throw AxError("validation", "Function result formatter must be callable");
+  state_->fn = std::move(fn);
+  auto& registry = function_result_formatter_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  state_->id = "__function_result_formatter_" + std::to_string(++registry.next_id);
+  for (auto it = registry.handles.begin(); it != registry.handles.end();) {
+    if (it->second.expired()) it = registry.handles.erase(it);
+    else ++it;
+  }
+  registry.handles[state_->id] = state_;
+}
+
+Value AxFunctionResultFormatterHandle::value() const { return object({{"__function_result_formatter_id", state_->id}}); }
+
+AxFunctionResultFormatterHandle function_result_formatter(AxFunctionResultFormatter fn) {
+  return AxFunctionResultFormatterHandle(std::move(fn));
+}
+
 static bool has_key(const Value& object, const std::string& key) {
   const auto& obj = object_ref(object);
   if (obj.count(key) > 0) return true;
@@ -1978,6 +2034,7 @@ Value Core::object_call_method(Value target, Value method_name, Value arg, Value
     }
     return render_prompt(get_key(target, "signature"), arg, functions, render_options);
   }
+  if (str(method_name) == "format_result") return call_function_result_formatter(target, arg);
   if (str(method_name) == "call") {
     std::string picker_id = str(get_key(target, "__result_picker_id"));
     auto picker = result_picker_registry().find(picker_id);
@@ -21026,7 +21083,7 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
       for (auto call : Core::iter(calls)) {
         try {
           Value tool_result = Core::_execute_tool_call(functions, call);
-          Value tool_message = Core::_tool_result_message_impl(call, tool_result);
+          Value tool_message = Core::_tool_result_message_impl(call, tool_result, runtime_options);
           Core::append(messages, tool_message);
           Core::axgen_memory_add_function_result(gen, call, tool_result, Value(true));
           Core::axgen_record_function_call(gen, call, tool_result, Value("ok"));
@@ -25216,16 +25273,16 @@ Value Core::_regex_push(Value stack, Value top, Value value) {
   return t2;
 }
 
-Value Core::_tool_result_message_impl(Value call, Value result) {
+Value Core::_tool_result_message_impl(Value call, Value result, Value options) {
   axir_coverage_mark("_tool_result_message_impl");
   Value id = Core::get(call, Value("id"), Value());
   Value name = Core::get(call, Value("name"), Value());
-  Value result_json = Core::json_stringify(result);
+  Value result_text = Core::_function_result_text_impl(result, options);
   Value message = Value::object();
   Core::set(message, Value("role"), Value("function"));
   Core::set(message, Value("function_id"), id);
   Core::set(message, Value("name"), name);
-  Core::set(message, Value("result"), result_json);
+  Core::set(message, Value("result"), result_text);
   return message;
 }
 
@@ -26762,44 +26819,6 @@ Value Core::_stream_text_extract_values_impl(Value content, Value fields, Value 
   return values;
 }
 
-Value Core::_append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage) {
-  axir_coverage_mark("_append_structured_output_retry_messages_impl");
-  Value output_calls = Value::array();
-  Core::append(output_calls, call);
-  Value with_call = Core::_append_tool_call_messages_impl(messages, response, output_calls);
-  Value id = Core::get(call, Value("id"), Value());
-  Value direct_name = Core::get(call, Value("name"), Value());
-  Value fn = Core::get(call, Value("function"), Value());
-  Value name = Core::get(fn, Value("name"), direct_name);
-  Value result_message = Value::object();
-  Core::set(result_message, Value("role"), Value("function"));
-  Core::set(result_message, Value("function_id"), id);
-  Core::set(result_message, Value("name"), name);
-  Core::set(result_message, Value("result"), Value("done"));
-  Core::append(with_call, result_message);
-  Value notice = Value::object();
-  Core::set(notice, Value("role"), Value("user"));
-  Core::set(notice, Value("content"), Value("The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."));
-  Core::append(with_call, notice);
-  Value error_text = Core::exception_message(error);
-  error_text = Core::string_trim(error_text);
-  Value correction_text = Core::string_format(Value("Invalid Field: {}"), error_text);
-  Value is_assertion = Core::eq(stage, Value("assertion"));
-  if (Core::truthy(is_assertion)) {
-    Value has_period = Core::string_ends_with(error_text, Value("."));
-    Value period = Value(".");
-    if (Core::truthy(has_period)) {
-      period = Value("");
-    }
-    correction_text = Core::string_format(Value("Follow these instructions: {}{}"), error_text, period);
-  }
-  Value correction = Value::object();
-  Core::set(correction, Value("role"), Value("user"));
-  Core::set(correction, Value("content"), correction_text);
-  Core::append(with_call, correction);
-  return with_call;
-}
-
 Value Core::_date_js_json_impl(Value value) {
   axir_coverage_mark("_date_js_json_impl");
   Value is_null = Core::is_none(value);
@@ -26848,6 +26867,44 @@ Value Core::_date_js_json_impl(Value value) {
   Value object_json = Core::add(Value("{"), members);
   object_json = Core::add(object_json, Value("}"));
   return object_json;
+}
+
+Value Core::_append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage) {
+  axir_coverage_mark("_append_structured_output_retry_messages_impl");
+  Value output_calls = Value::array();
+  Core::append(output_calls, call);
+  Value with_call = Core::_append_tool_call_messages_impl(messages, response, output_calls);
+  Value id = Core::get(call, Value("id"), Value());
+  Value direct_name = Core::get(call, Value("name"), Value());
+  Value fn = Core::get(call, Value("function"), Value());
+  Value name = Core::get(fn, Value("name"), direct_name);
+  Value result_message = Value::object();
+  Core::set(result_message, Value("role"), Value("function"));
+  Core::set(result_message, Value("function_id"), id);
+  Core::set(result_message, Value("name"), name);
+  Core::set(result_message, Value("result"), Value("done"));
+  Core::append(with_call, result_message);
+  Value notice = Value::object();
+  Core::set(notice, Value("role"), Value("user"));
+  Core::set(notice, Value("content"), Value("The previous tool call failed. Fix arguments and try again, ensuring required fields match schema."));
+  Core::append(with_call, notice);
+  Value error_text = Core::exception_message(error);
+  error_text = Core::string_trim(error_text);
+  Value correction_text = Core::string_format(Value("Invalid Field: {}"), error_text);
+  Value is_assertion = Core::eq(stage, Value("assertion"));
+  if (Core::truthy(is_assertion)) {
+    Value has_period = Core::string_ends_with(error_text, Value("."));
+    Value period = Value(".");
+    if (Core::truthy(has_period)) {
+      period = Value("");
+    }
+    correction_text = Core::string_format(Value("Follow these instructions: {}{}"), error_text, period);
+  }
+  Value correction = Value::object();
+  Core::set(correction, Value("role"), Value("user"));
+  Core::set(correction, Value("content"), correction_text);
+  Core::append(with_call, correction);
+  return with_call;
 }
 
 Value Core::_stream_text_yield_delta_impl(Value content, Value field, Value start, Value end, Value xstate, Value held, Value complete) {
@@ -27558,7 +27615,7 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
           for (auto call : Core::iter(tool_calls)) {
             try {
               Value tool_result = Core::_execute_tool_call(functions, call);
-              Value tool_message = Core::_tool_result_message_impl(call, tool_result);
+              Value tool_message = Core::_tool_result_message_impl(call, tool_result, runtime_options);
               Core::append(messages, tool_message);
               Core::axgen_memory_add_function_result(gen, call, tool_result, Value(true));
               Core::axgen_record_function_call(gen, call, tool_result, Value("ok"));
@@ -29727,6 +29784,40 @@ Value Core::_stream_json_strings_for_field_impl(Value field, Value value) {
     Core::_stream_json_strings_for_fields_impl(nested, value);
   }
   return value;
+}
+
+Value Core::_function_result_text_impl(Value result, Value options) {
+  axir_coverage_mark("_function_result_text_impl");
+  Value empty_map = Value::object();
+  Value opts = Core::coalesce(options, empty_map);
+  Value formatter_snake = Core::get(opts, Value("function_result_formatter"), Value());
+  Value formatter = Core::get(opts, Value("functionResultFormatter"), formatter_snake);
+  Value has_formatter = Core::is_not_none(formatter);
+  Value text = Value("");
+  if (Core::truthy(has_formatter)) {
+    Value formatted = Core::object_call_method(formatter, Value("format_result"), result);
+    text = Core::string_str(formatted);
+  }
+  if (!Core::truthy(has_formatter)) {
+    Value is_text = Core::type_is(result, Value("string"));
+    Value missing = Core::is_none(result);
+    if (Core::truthy(is_text)) {
+      text = result;
+    }
+    if (!Core::truthy(is_text)) {
+      if (Core::truthy(missing)) {
+        text = Value("");
+      }
+      if (!Core::truthy(missing)) {
+        text = Core::json_pretty(result);
+      }
+    }
+  }
+  Value empty = Core::eq(text, Value(""));
+  if (Core::truthy(empty)) {
+    return Value("done");
+  }
+  return text;
 }
 
 Value Core::_stream_json_strings_for_fields_impl(Value fields_map, Value values) {
@@ -47946,6 +48037,20 @@ AxGen& AxGen::set_sample_count(int sample_count) {
   Value options = Core::get(state_, "options", Value::object());
   Core::set(options, "sampleCount", sample_count);
   Core::set(state_, "options", options);
+  return *this;
+}
+
+// The program's tool result formatter, as TS's functionResultFormatter
+// option; options another AxGen shares are copied, not changed.
+AxGen& AxGen::set_function_result_formatter(AxFunctionResultFormatter formatter) {
+  std::optional<AxFunctionResultFormatterHandle> handle;
+  if (formatter) handle.emplace(std::move(formatter));
+  Value options(object_ref(Core::get(state_, "options", Value::object())));
+  Core::map_delete(options, "functionResultFormatter");
+  Core::map_delete(options, "function_result_formatter");
+  if (handle) Core::set(options, "functionResultFormatter", handle->value());
+  Core::set(state_, "options", options);
+  function_result_formatter_ = std::move(handle);
   return *this;
 }
 

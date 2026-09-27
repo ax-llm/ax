@@ -1240,7 +1240,16 @@ def _run_forward(fixture):
                 _assert_equal(samples, fixture["expected_picker_samples"], "result picker samples")
             return fixture["result_picker_index"]
         gen.set_result_picker(pick_result)
+    if "function_result_formatter" in fixture:
+        # The program's formatter writes this text for every tool result.
+        formatter_text = str((fixture["function_result_formatter"] or {}).get("text", ""))
+        gen.set_function_result_formatter(lambda result: formatter_text)
     forward_options = fixture.get("forward_options")
+    if "call_function_result_formatter" in fixture:
+        # The forward call's formatter writes this text for every tool result.
+        call_formatter_text = str((fixture["call_function_result_formatter"] or {}).get("text", ""))
+        forward_options = dict(forward_options or {})
+        forward_options["function_result_formatter"] = lambda result: call_formatter_text
     if fixture.get("control"):
         forward_options = dict(forward_options or {})
         control_events = _attach_fixture_control(fixture, client, forward_options)

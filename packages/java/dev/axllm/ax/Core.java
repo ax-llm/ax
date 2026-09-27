@@ -851,6 +851,9 @@ final class Core {
     // AxGen renders with the selected structured-output rung's options.
     if (target instanceof PromptTemplate p && "render".equals(String.valueOf(methodName))) return p.render(asMap(args.length > 0 ? args[0] : null), args.length > 1 ? asMap(args[1]) : null);
     if (target instanceof AxFlow.Mapper mapper && "call".equals(String.valueOf(methodName))) return mapper.apply(asMap(args.length > 0 ? args[0] : null));
+    if (target instanceof AxGen.FunctionResultFormatter formatter && "format_result".equals(String.valueOf(methodName))) {
+      return formatter.format(args.length > 0 ? args[0] : null);
+    }
     if (target instanceof AxGen.ResultPickerCallback picker && "call".equals(String.valueOf(methodName))) {
       Map<String, Object> payload = asMap(args.length > 0 ? args[0] : null);
       return picker.pick(asMapList(payload.get("results")));
@@ -19468,7 +19471,7 @@ final class Core {
         for (Object call : Core.iter(calls)) {
           try {
             Object tool_result = Core._execute_tool_call(functions, call);
-            Object tool_message = Core._tool_result_message_impl(call, tool_result);
+            Object tool_message = Core._tool_result_message_impl(call, tool_result, runtime_options);
             Core.append(messages, tool_message);
             Core.axgenMemoryAddFunctionResult(gen, call, tool_result, Boolean.TRUE);
             Core.axgenRecordFunctionCall(gen, call, tool_result, "ok");
@@ -23649,16 +23652,16 @@ final class Core {
     return t2;
   }
 
-  static Object _tool_result_message_impl(Object call, Object result) {
+  static Object _tool_result_message_impl(Object call, Object result, Object options) {
     axirCoverageMark("_tool_result_message_impl");
     Object id = Core.get(call, "id", null);
     Object name = Core.get(call, "name", null);
-    Object result_json = Core.jsonStringify(result);
+    Object result_text = Core._function_result_text_impl(result, options);
     Object message = new java.util.LinkedHashMap<String, Object>();
     Core.set(message, "role", "function");
     Core.set(message, "function_id", id);
     Core.set(message, "name", name);
-    Core.set(message, "result", result_json);
+    Core.set(message, "result", result_text);
     return message;
   }
 
@@ -25192,44 +25195,6 @@ final class Core {
     return values;
   }
 
-  static Object _append_structured_output_retry_messages_impl(Object messages, Object response, Object call, Object error, Object stage) {
-    axirCoverageMark("_append_structured_output_retry_messages_impl");
-    Object output_calls = new java.util.ArrayList<Object>();
-    Core.append(output_calls, call);
-    Object with_call = Core._append_tool_call_messages_impl(messages, response, output_calls);
-    Object id = Core.get(call, "id", null);
-    Object direct_name = Core.get(call, "name", null);
-    Object fn = Core.get(call, "function", null);
-    Object name = Core.get(fn, "name", direct_name);
-    Object result_message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(result_message, "role", "function");
-    Core.set(result_message, "function_id", id);
-    Core.set(result_message, "name", name);
-    Core.set(result_message, "result", "done");
-    Core.append(with_call, result_message);
-    Object notice = new java.util.LinkedHashMap<String, Object>();
-    Core.set(notice, "role", "user");
-    Core.set(notice, "content", "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema.");
-    Core.append(with_call, notice);
-    Object error_text = Core.exceptionMessage(error);
-    error_text = Core.stringTrim(error_text);
-    Object correction_text = Core.stringFormat("Invalid Field: {}", error_text);
-    Object is_assertion = Core.eq(stage, "assertion");
-    if (Core.truthy(is_assertion)) {
-      Object has_period = Core.stringEndsWith(error_text, ".");
-      Object period = ".";
-      if (Core.truthy(has_period)) {
-        period = "";
-      }
-      correction_text = Core.stringFormat("Follow these instructions: {}{}", error_text, period);
-    }
-    Object correction = new java.util.LinkedHashMap<String, Object>();
-    Core.set(correction, "role", "user");
-    Core.set(correction, "content", correction_text);
-    Core.append(with_call, correction);
-    return with_call;
-  }
-
   static Object _date_js_json_impl(Object value) {
     axirCoverageMark("_date_js_json_impl");
     Object is_null = Core.isNone(value);
@@ -25278,6 +25243,44 @@ final class Core {
     Object object_json = Core.add("{", members);
     object_json = Core.add(object_json, "}");
     return object_json;
+  }
+
+  static Object _append_structured_output_retry_messages_impl(Object messages, Object response, Object call, Object error, Object stage) {
+    axirCoverageMark("_append_structured_output_retry_messages_impl");
+    Object output_calls = new java.util.ArrayList<Object>();
+    Core.append(output_calls, call);
+    Object with_call = Core._append_tool_call_messages_impl(messages, response, output_calls);
+    Object id = Core.get(call, "id", null);
+    Object direct_name = Core.get(call, "name", null);
+    Object fn = Core.get(call, "function", null);
+    Object name = Core.get(fn, "name", direct_name);
+    Object result_message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(result_message, "role", "function");
+    Core.set(result_message, "function_id", id);
+    Core.set(result_message, "name", name);
+    Core.set(result_message, "result", "done");
+    Core.append(with_call, result_message);
+    Object notice = new java.util.LinkedHashMap<String, Object>();
+    Core.set(notice, "role", "user");
+    Core.set(notice, "content", "The previous tool call failed. Fix arguments and try again, ensuring required fields match schema.");
+    Core.append(with_call, notice);
+    Object error_text = Core.exceptionMessage(error);
+    error_text = Core.stringTrim(error_text);
+    Object correction_text = Core.stringFormat("Invalid Field: {}", error_text);
+    Object is_assertion = Core.eq(stage, "assertion");
+    if (Core.truthy(is_assertion)) {
+      Object has_period = Core.stringEndsWith(error_text, ".");
+      Object period = ".";
+      if (Core.truthy(has_period)) {
+        period = "";
+      }
+      correction_text = Core.stringFormat("Follow these instructions: {}{}", error_text, period);
+    }
+    Object correction = new java.util.LinkedHashMap<String, Object>();
+    Core.set(correction, "role", "user");
+    Core.set(correction, "content", correction_text);
+    Core.append(with_call, correction);
+    return with_call;
   }
 
   static Object _stream_text_yield_delta_impl(Object content, Object field, Object start, Object end, Object xstate, Object held, Object complete) {
@@ -25986,7 +25989,7 @@ final class Core {
             for (Object call : Core.iter(tool_calls)) {
               try {
                 Object tool_result = Core._execute_tool_call(functions, call);
-                Object tool_message = Core._tool_result_message_impl(call, tool_result);
+                Object tool_message = Core._tool_result_message_impl(call, tool_result, runtime_options);
                 Core.append(messages, tool_message);
                 Core.axgenMemoryAddFunctionResult(gen, call, tool_result, Boolean.TRUE);
                 Core.axgenRecordFunctionCall(gen, call, tool_result, "ok");
@@ -28148,6 +28151,40 @@ final class Core {
       Core._stream_json_strings_for_fields_impl(nested, value);
     }
     return value;
+  }
+
+  static Object _function_result_text_impl(Object result, Object options) {
+    axirCoverageMark("_function_result_text_impl");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object opts = Core.coalesce(options, empty_map);
+    Object formatter_snake = Core.get(opts, "function_result_formatter", null);
+    Object formatter = Core.get(opts, "functionResultFormatter", formatter_snake);
+    Object has_formatter = Core.isNotNone(formatter);
+    Object text = "";
+    if (Core.truthy(has_formatter)) {
+      Object formatted = Core.objectCallMethod(formatter, "format_result", result);
+      text = Core.stringStr(formatted);
+    }
+    if (!Core.truthy(has_formatter)) {
+      Object is_text = Core.typeIs(result, "string");
+      Object missing = Core.isNone(result);
+      if (Core.truthy(is_text)) {
+        text = result;
+      }
+      if (!Core.truthy(is_text)) {
+        if (Core.truthy(missing)) {
+          text = "";
+        }
+        if (!Core.truthy(missing)) {
+          text = Core.jsonPretty(result);
+        }
+      }
+    }
+    Object empty = Core.eq(text, "");
+    if (Core.truthy(empty)) {
+      return "done";
+    }
+    return text;
   }
 
   static Object _stream_json_strings_for_fields_impl(Object fields_map, Object values) {

@@ -191,6 +191,28 @@ class AxCachingFunctionHandle {
 };
 AxCachingFunctionHandle caching_function(AxCachingFunction fn);
 
+// TypeScript's functionResultFormatter: writes a tool result for the model.
+// Without one, a string result goes as it is, a null one as "done", and any
+// other value as pretty JSON (JSON.stringify(result, null, 2)); an empty text
+// goes as "done".
+using AxFunctionResultFormatter = std::function<std::string(const Value& result)>;
+
+// A function result formatter for one forward or streaming_forward call,
+// passed as a caching function is: value() goes in the call options under
+// "functionResultFormatter", and it comes before the AxGen's own
+// (set_function_result_formatter). The formatter stays registered while a
+// copy of the handle lives; a value() used after that fails as expired.
+class AxFunctionResultFormatterHandle {
+ public:
+  struct State;
+  explicit AxFunctionResultFormatterHandle(AxFunctionResultFormatter fn);
+  Value value() const;
+
+ private:
+  std::shared_ptr<State> state_;
+};
+AxFunctionResultFormatterHandle function_result_formatter(AxFunctionResultFormatter fn);
+
 void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
 void set_tracer(std::shared_ptr<AxTracer> tracer);
@@ -1199,6 +1221,11 @@ class AxGen : public AxProgram {
   AxGen& set_demos(Value demos);
   AxGen& set_sample_count(int sample_count);
   AxGen& set_result_picker(std::function<int(const Value&)> result_picker);
+  // Writes each tool result for the model, as TypeScript's
+  // functionResultFormatter option (see AxFunctionResultFormatter). A call's
+  // "functionResultFormatter" option (a function_result_formatter() handle
+  // value) comes before it. An empty function clears it.
+  AxGen& set_function_result_formatter(AxFunctionResultFormatter formatter);
   // TypeScript's cachingFunction option. forward reads fn(key, nullptr) first,
   // before the run's span and metrics, and returns a stored output without a
   // request or telemetry (what the read throws propagates), then stores each
@@ -1268,6 +1295,8 @@ class AxGen : public AxProgram {
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   // Keeps the caching function the options name registered.
   std::optional<AxCachingFunctionHandle> caching_function_;
+  // Keeps the function result formatter the options name registered.
+  std::optional<AxFunctionResultFormatterHandle> function_result_formatter_;
   void refresh_prompt_template();
 };
 

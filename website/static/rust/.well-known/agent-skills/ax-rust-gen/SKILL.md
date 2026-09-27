@@ -95,6 +95,8 @@ A failed forward raises `Generate failed: <reason>`, as TypeScript's message rea
 
 `functionCall` / `function_call` sets the tool choice: `auto`, `none`, `required`, or `{ type: 'function', function: { name } }` to force one function. A forced call (`required` or named) applies to the first step only, as in TypeScript: later steps drop it together with the tools so the model can answer. Under the `function` structured-output rung the forced step withholds `__axOutput`, so the forcing reaches a user tool, and the next step forces `__axOutput`. A tool choice passed as `functionCallMode` is routed the same way.
 
+Each tool result goes back to the model as TypeScript's default `functionResultFormatter` writes it: a string as it is, a missing result as `done`, and any other value as `JSON.stringify(result, null, 2)`, pretty JSON in the value's own key order. Your own formatter, a closure from `&Value` to `String` (`AxFunctionResultFormatter`), goes in `with_function_result_formatter(f)`; for one call, use `forward_with_function_result_formatter(client, input, options, f)` or `streaming_forward_with_function_result_formatter(client, input, options, f, on_delta)`, which the forwards that call starts don't inherit. It writes every tool result instead, as TypeScript's `functionResultFormatter` option does: the call's formatter comes before the program's, and an empty text goes as `done`.
+
 ## Multi-Sampling
 
 - Set `sampleCount` / `sample_count` to request N provider candidates. Core parses and validates every candidate, preserving each provider result index.

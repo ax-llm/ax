@@ -191,6 +191,28 @@ class AxCachingFunctionHandle {
 };
 AxCachingFunctionHandle caching_function(AxCachingFunction fn);
 
+// TypeScript's functionResultFormatter: writes a tool result for the model.
+// Without one, a string result goes as it is, a null one as "done", and any
+// other value as pretty JSON (JSON.stringify(result, null, 2)); an empty text
+// goes as "done".
+using AxFunctionResultFormatter = std::function<std::string(const Value& result)>;
+
+// A function result formatter for one forward or streaming_forward call,
+// passed as a caching function is: value() goes in the call options under
+// "functionResultFormatter", and it comes before the AxGen's own
+// (set_function_result_formatter). The formatter stays registered while a
+// copy of the handle lives; a value() used after that fails as expired.
+class AxFunctionResultFormatterHandle {
+ public:
+  struct State;
+  explicit AxFunctionResultFormatterHandle(AxFunctionResultFormatter fn);
+  Value value() const;
+
+ private:
+  std::shared_ptr<State> state_;
+};
+AxFunctionResultFormatterHandle function_result_formatter(AxFunctionResultFormatter fn);
+
 void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
 void set_tracer(std::shared_ptr<AxTracer> tracer);
@@ -1018,7 +1040,7 @@ struct Core {
   static Value _completion_call_to_chat_impl(Value call);
   static Value _date_expect_unit_impl(Value units, Value at, Value end, Value expected);
   static Value _regex_push(Value stack, Value top, Value value);
-  static Value _tool_result_message_impl(Value call, Value result);
+  static Value _tool_result_message_impl(Value call, Value result, Value options);
   static Value _date_scan_date_impl(Value units, Value at);
   static Value _regex_task(Value n, Value next);
   static Value _regex_frame(Value todo, Value st);
@@ -1042,8 +1064,8 @@ struct Core {
   static Value _ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output);
   static Value _function_call_names_output_impl(Value choice);
   static Value _stream_text_extract_values_impl(Value content, Value fields, Value strict_mode);
-  static Value _append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage);
   static Value _date_js_json_impl(Value value);
+  static Value _append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage);
   static Value _stream_text_yield_delta_impl(Value content, Value field, Value start, Value end, Value xstate, Value held, Value complete);
   static Value _with_output_thought_impl(Value output, Value field, Value prefix, Value thought);
   static Value _date_js_json_string_impl(Value text);
@@ -1099,6 +1121,7 @@ struct Core {
   static Value _stream_json_string_value_impl(Value field, Value value);
   static Value _structured_output_render_options_impl(Value selection);
   static Value _stream_json_strings_for_field_impl(Value field, Value value);
+  static Value _function_result_text_impl(Value result, Value options);
   static Value _stream_json_strings_for_fields_impl(Value fields_map, Value values);
   static Value _stream_json_strings_impl(Value fields, Value values, Value partial);
   static Value _stream_state_impl(Value index);
@@ -2142,6 +2165,11 @@ class AxGen : public AxProgram {
   AxGen& set_demos(Value demos);
   AxGen& set_sample_count(int sample_count);
   AxGen& set_result_picker(std::function<int(const Value&)> result_picker);
+  // Writes each tool result for the model, as TypeScript's
+  // functionResultFormatter option (see AxFunctionResultFormatter). A call's
+  // "functionResultFormatter" option (a function_result_formatter() handle
+  // value) comes before it. An empty function clears it.
+  AxGen& set_function_result_formatter(AxFunctionResultFormatter formatter);
   // TypeScript's cachingFunction option. forward reads fn(key, nullptr) first,
   // before the run's span and metrics, and returns a stored output without a
   // request or telemetry (what the read throws propagates), then stores each
@@ -2211,6 +2239,8 @@ class AxGen : public AxProgram {
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   // Keeps the caching function the options name registered.
   std::optional<AxCachingFunctionHandle> caching_function_;
+  // Keeps the function result formatter the options name registered.
+  std::optional<AxFunctionResultFormatterHandle> function_result_formatter_;
   void refresh_prompt_template();
 };
 
