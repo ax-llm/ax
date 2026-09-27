@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-27-date-fields-parse-dates` [axgen] Parse date, datetime and range outputs as TypeScript does (opt-in parseDates) and fix time-zone abbreviations
+  - Status: open
+  - Source commit: `88a3c1127576f60076647fdc40524e24e21a14c9`
+  - TS paths: `src/ax/dsp/datetime.ts`, `src/ax/dsp/extract/fieldValue.ts`, `src/ax/dsp/prompt.ts`
+  - Impact: TypeScript parses date-typed text-contract outputs into Dates (time zones included) and retries unparseable ones with a correction; the ports kept the model's text and never retried. TypeScript also read ICU legacy IDs such as BST (Asia/Dhaka), AST, ART and NST as zones and PST/CST/CET as DST-aware zones; it now reads abbreviations at their literal offsets and rejects ambiguous ones. The ports implement both under the parseDates / parse_dates opt-in (default off until the next major), accept native date inputs (Python, Go, Java) and {start, end} range objects.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

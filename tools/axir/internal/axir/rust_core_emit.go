@@ -95,6 +95,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.axgen.call_processor":                  "core_axgen_call_processor",
 	"intrinsic.axgen.check_streaming_assertion":       "core_axgen_check_streaming_assertion",
 	"intrinsic.axgen.deprecation":                     "core_axgen_deprecation",
+	"intrinsic.date.zone_offset":                      "core_date_zone_offset",
 	"intrinsic.axgen.caching_function":                "core_axgen_caching_function",
 	"intrinsic.axgen.cache_read":                      "core_axgen_cache_read",
 	"intrinsic.axgen.cache_write":                     "core_axgen_cache_write",

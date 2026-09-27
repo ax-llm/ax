@@ -1396,6 +1396,11 @@ func coreTypeIs(value Value, typeName Value) Value {
 		return value == nil
 	case "json":
 		return true
+	case "date":
+		// A time.Time, which a date or datetime field takes where TypeScript
+		// takes a Date.
+		_, ok := jsDateMillis(value)
+		return ok
 	default:
 		return false
 	}
@@ -1431,6 +1436,117 @@ func _core_math_abs(value Value) Value             { return math.Abs(num(value))
 func _core_string_utf16_units(value Value) Value { units:=utf16.Encode([]rune(display(value)));out:=[]Value{};for _,unit:=range units{out=append(out,int(unit))};return out }
 
 func _core_string_codepoint_length(value Value) Value { return len([]rune(display(value))) }
+
+// jsDateMillis is the epoch milliseconds of a time.Time (or *time.Time), which
+// a date or datetime field takes where TypeScript takes a Date.
+func jsDateMillis(value Value) (int64, bool) {
+	switch v := value.(type) {
+	case time.Time:
+		return v.UnixMilli(), true
+	case *time.Time:
+		if v != nil {
+			return v.UnixMilli(), true
+		}
+	}
+	return 0, false
+}
+
+// jsISOString is Date.prototype.toISOString of epoch milliseconds.
+func jsISOString(millis int64) string {
+	t := time.UnixMilli(millis).UTC()
+	year := t.Year()
+	yearText := fmt.Sprintf("%04d", year)
+	if year < 0 {
+		yearText = fmt.Sprintf("-%06d", -year)
+	} else if year > 9999 {
+		yearText = fmt.Sprintf("+%06d", year)
+	}
+	return fmt.Sprintf("%s-%02d-%02dT%02d:%02d:%02d.%03dZ", yearText, int(t.Month()), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond()/1000000)
+}
+
+// jsDatePromptText is the prompt text TypeScript writes for a Date in a
+// date-typed field (processValue in src/ax/dsp/prompt.ts): a date field's UTC
+// day, a datetime without milliseconds, and for a range with two dates the
+// {start, end} JSON of those; a range object holding anything else is its
+// JSON with each date as toISOString. It reports false when TS would not see
+// a Date.
+func jsDatePromptText(typeName string, value Value) (string, bool) {
+	switch typeName {
+	case "date", "datetime":
+		millis, ok := jsDateMillis(value)
+		if !ok {
+			return "", false
+		}
+		iso := jsISOString(millis)
+		if typeName == "date" {
+			return iso[:strings.Index(iso, "T")], true
+		}
+		return iso[:len(iso)-5] + "Z", true
+	case "dateRange", "datetimeRange":
+		bounds, ok := value.(map[string]Value)
+		if !ok {
+			return "", false
+		}
+		start, hasStart := bounds["start"]
+		end, hasEnd := bounds["end"]
+		if !hasStart || !hasEnd {
+			return "", false
+		}
+		startMillis, startDate := jsDateMillis(start)
+		endMillis, endDate := jsDateMillis(end)
+		if startDate && endDate {
+			format := func(millis int64) string {
+				iso := jsISOString(millis)
+				if typeName == "dateRange" {
+					return iso[:10]
+				}
+				return iso[:len(iso)-5] + "Z"
+			}
+			return prettyJSONText(Object("start", format(startMillis), "end", format(endMillis))), true
+		}
+		dated := false
+		copied := Object()
+		for _, key := range orderedKeys(bounds) {
+			item := bounds[key]
+			if millis, ok := jsDateMillis(item); ok {
+				item = jsISOString(millis)
+				dated = true
+			}
+			coreSet(copied, key, item)
+		}
+		if dated {
+			return prettyJSONText(copied), true
+		}
+	}
+	return "", false
+}
+
+var dateZoneLocations sync.Map
+
+// _core_date_zone_offset is the UTC offset in seconds of the IANA zone name
+// at an instant (epoch milliseconds), from time.LoadLocation (the platform
+// tz database, $ZONEINFO, or an embedded time/tzdata). It errors for a zone
+// the database does not have; "" and "Local" are not zone names.
+func _core_date_zone_offset(name Value, epochMillis Value) (Value, error) {
+	zone := display(name)
+	var location *time.Location
+	if cached, ok := dateZoneLocations.Load(zone); ok {
+		location = cached.(*time.Location)
+	} else {
+		if zone == "" || zone == "Local" {
+			return nil, AxError{Category: "runtime", Message: "unknown time zone " + zone}
+		}
+		loaded, err := time.LoadLocation(zone)
+		if err != nil {
+			return nil, AxError{Category: "runtime", Message: "unknown time zone " + zone}
+		}
+		dateZoneLocations.Store(zone, loaded)
+		location = loaded
+	}
+	seconds := math.Floor(num(epochMillis) / 1000)
+	_, offset := time.Unix(int64(seconds), 0).In(location).Zone()
+	return float64(offset), nil
+}
 func _core_math_is_finite(value Value) Value { return !math.IsNaN(num(value)) && !math.IsInf(num(value), 0) }
 
 func _core_math_floor(value Value) Value { return math.Floor(num(value)) }
@@ -6432,11 +6548,15 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	var v_field Value
 	var v_value Value
 	var v_path Value
+	var v_date_types Value
 	var v_error Value
 	var v_field_name Value
 	var v_field_title Value
+	var v_has_bounds Value
+	var v_has_end Value
 	var v_has_nested Value
 	var v_has_options Value
+	var v_has_start Value
 	var v_invalid_audio Value
 	var v_invalid_file Value
 	var v_invalid_image Value
@@ -6448,15 +6568,19 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	var v_is_boolean_type Value
 	var v_is_class_string Value
 	var v_is_class_type Value
+	var v_is_date_type Value
 	var v_is_file Value
 	var v_is_image Value
 	var v_is_json Value
 	var v_is_json_type Value
 	var v_is_list Value
+	var v_is_native_date Value
 	var v_is_number Value
 	var v_is_number_type Value
 	var v_is_object Value
 	var v_is_object_type Value
+	var v_is_range_object Value
+	var v_is_range_type Value
 	var v_is_string Value
 	var v_is_string_type Value
 	var v_is_url Value
@@ -6464,6 +6588,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	var v_item_field Value
 	var v_known_class Value
 	var v_message Value
+	var v_native_date_value Value
 	var v_nested_fields Value
 	var v_nested_map Value
 	var v_not_boolean Value
@@ -6474,6 +6599,8 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	var v_not_object Value
 	var v_not_string Value
 	var v_options Value
+	var v_range_object Value
+	var v_range_types Value
 	var v_string_types Value
 	var v_typ Value
 	var v_type_name Value
@@ -6490,11 +6617,15 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	_ = v_value
 	if len(args) > 2 { v_path = args[2] }
 	_ = v_path
+	_ = v_date_types
 	_ = v_error
 	_ = v_field_name
 	_ = v_field_title
+	_ = v_has_bounds
+	_ = v_has_end
 	_ = v_has_nested
 	_ = v_has_options
+	_ = v_has_start
 	_ = v_invalid_audio
 	_ = v_invalid_file
 	_ = v_invalid_image
@@ -6506,15 +6637,19 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	_ = v_is_boolean_type
 	_ = v_is_class_string
 	_ = v_is_class_type
+	_ = v_is_date_type
 	_ = v_is_file
 	_ = v_is_image
 	_ = v_is_json
 	_ = v_is_json_type
 	_ = v_is_list
+	_ = v_is_native_date
 	_ = v_is_number
 	_ = v_is_number_type
 	_ = v_is_object
 	_ = v_is_object_type
+	_ = v_is_range_object
+	_ = v_is_range_type
 	_ = v_is_string
 	_ = v_is_string_type
 	_ = v_is_url
@@ -6522,6 +6657,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	_ = v_item_field
 	_ = v_known_class
 	_ = v_message
+	_ = v_native_date_value
 	_ = v_nested_fields
 	_ = v_nested_map
 	_ = v_not_boolean
@@ -6532,6 +6668,8 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	_ = v_not_object
 	_ = v_not_string
 	_ = v_options
+	_ = v_range_object
+	_ = v_range_types
 	_ = v_string_types
 	_ = v_typ
 	_ = v_type_name
@@ -6636,6 +6774,35 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		// empty
 		}
 		return nil, nil
+	} else {
+	// empty
+	}
+	v_date_types = MutableArray()
+	v_date_types = coreAppend(v_date_types, "date")
+	v_date_types = coreAppend(v_date_types, "datetime")
+	v_is_date_type = _core_contains(v_date_types, v_type_name)
+	v_is_native_date = coreTypeIs(v_value, "date")
+	v_native_date_value = _core_and(v_is_date_type, v_is_native_date)
+	if coreTruthy(v_native_date_value) {
+		return nil, nil
+	} else {
+	// empty
+	}
+	v_range_types = MutableArray()
+	v_range_types = coreAppend(v_range_types, "dateRange")
+	v_range_types = coreAppend(v_range_types, "datetimeRange")
+	v_is_range_type = _core_contains(v_range_types, v_type_name)
+	v_is_range_object = coreTypeIs(v_value, "object")
+	v_range_object = _core_and(v_is_range_type, v_is_range_object)
+	if coreTruthy(v_range_object) {
+		v_has_start = _core_map_contains(v_value, "start")
+		v_has_end = _core_map_contains(v_value, "end")
+		v_has_bounds = _core_and(v_has_start, v_has_end)
+		if coreTruthy(v_has_bounds) {
+			return nil, nil
+		} else {
+		// empty
+		}
 	} else {
 	// empty
 	}
@@ -31257,6 +31424,41 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	return nil, asError(v_error)
 }
 
+func _date_parse_dates_option_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_parse_dates_option_impl")
+	var v_base_options Value
+	var v_options Value
+	var v_call_options Value
+	var v_call_snake Value
+	var v_empty Value
+	var v_gen_options Value
+	var v_gen_parse Value
+	var v_gen_snake Value
+	var v_parse Value
+	var v_parse_dates Value
+	if len(args) > 0 { v_base_options = args[0] }
+	_ = v_base_options
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_call_options
+	_ = v_call_snake
+	_ = v_empty
+	_ = v_gen_options
+	_ = v_gen_parse
+	_ = v_gen_snake
+	_ = v_parse
+	_ = v_parse_dates
+	v_empty = Object()
+	v_call_options = _core_map_merge(v_empty, v_options)
+	v_gen_options = _core_map_merge(v_empty, v_base_options)
+	v_gen_snake = coreGet(v_gen_options, "parse_dates", false)
+	v_gen_parse = coreGet(v_gen_options, "parseDates", v_gen_snake)
+	v_call_snake = coreGet(v_call_options, "parse_dates", v_gen_parse)
+	v_parse = coreGet(v_call_options, "parseDates", v_call_snake)
+	v_parse_dates = _core_truthy(v_parse)
+	return v_parse_dates, nil
+}
+
 func _regex_take(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_take")
 	var v_s Value
@@ -31455,6 +31657,41 @@ func _chat_session_argument_equal(args ...Value) (Value, error) {
 	}
 	v_same = _core_eq(v_left, v_right)
 	return v_same, nil
+}
+
+func _date_is_date_type_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_is_date_type_impl")
+	var v_name Value
+	var v_is_date Value
+	var v_is_date_range Value
+	var v_is_datetime Value
+	var v_is_datetime_range Value
+	if len(args) > 0 { v_name = args[0] }
+	_ = v_name
+	_ = v_is_date
+	_ = v_is_date_range
+	_ = v_is_datetime
+	_ = v_is_datetime_range
+	v_is_date = _core_eq(v_name, "date")
+	if coreTruthy(v_is_date) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_is_datetime = _core_eq(v_name, "datetime")
+	if coreTruthy(v_is_datetime) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_is_date_range = _core_eq(v_name, "dateRange")
+	if coreTruthy(v_is_date_range) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_is_datetime_range = _core_eq(v_name, "datetimeRange")
+	return v_is_datetime_range, nil
 }
 
 func _regex_digit(args ...Value) (Value, error) {
@@ -31978,6 +32215,86 @@ func _regex_hexdigit(args ...Value) (Value, error) {
 	return v_t18, nil
 }
 
+func _date_parse_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_parse_fields_impl")
+	var v_fields Value
+	var v_base_options Value
+	var v_options Value
+	var v_cached Value
+	var v_dated Value
+	var v_description Value
+	var v_field Value
+	var v_field_copy Value
+	var v_internal Value
+	var v_name Value
+	var v_off Value
+	var v_optional Value
+	var v_out Value
+	var v_parse_dates Value
+	var v_plain Value
+	var v_title Value
+	var v_typ Value
+	var v_type_name Value
+	if len(args) > 0 { v_fields = args[0] }
+	_ = v_fields
+	if len(args) > 1 { v_base_options = args[1] }
+	_ = v_base_options
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_cached
+	_ = v_dated
+	_ = v_description
+	_ = v_field
+	_ = v_field_copy
+	_ = v_internal
+	_ = v_name
+	_ = v_off
+	_ = v_optional
+	_ = v_out
+	_ = v_parse_dates
+	_ = v_plain
+	_ = v_title
+	_ = v_typ
+	_ = v_type_name
+	{ v, err := _date_parse_dates_option_impl(v_base_options, v_options); if err != nil { return nil, err }; v_parse_dates = v }
+	v_off = _core_not(v_parse_dates)
+	if coreTruthy(v_off) {
+		return v_fields, nil
+	} else {
+	// empty
+	}
+	v_out = MutableArray()
+	for _, v_field = range coreIter(v_fields) {
+		v_typ = coreGet(v_field, "type", nil)
+		v_type_name = coreGet(v_typ, "name", "string")
+		{ v, err := _date_is_date_type_impl(v_type_name); if err != nil { return nil, err }; v_dated = v }
+		v_plain = _core_not(v_dated)
+		if coreTruthy(v_plain) {
+			v_out = coreAppend(v_out, v_field)
+			continue
+		} else {
+		// empty
+		}
+		v_field_copy = Object()
+		v_name = coreGet(v_field, "name", nil)
+		if err := coreSet(v_field_copy, "name", v_name); err != nil { return nil, err }
+		{ v, err := _stream_field_title_impl(v_field); if err != nil { return nil, err }; v_title = v }
+		if err := coreSet(v_field_copy, "title", v_title); err != nil { return nil, err }
+		v_description = coreGet(v_field, "description", nil)
+		if err := coreSet(v_field_copy, "description", v_description); err != nil { return nil, err }
+		if err := coreSet(v_field_copy, "type", v_typ); err != nil { return nil, err }
+		{ v, err := _stream_field_flag_impl(v_field, "is_optional", "isOptional"); if err != nil { return nil, err }; v_optional = v }
+		if err := coreSet(v_field_copy, "is_optional", v_optional); err != nil { return nil, err }
+		{ v, err := _stream_field_flag_impl(v_field, "is_internal", "isInternal"); if err != nil { return nil, err }; v_internal = v }
+		if err := coreSet(v_field_copy, "is_internal", v_internal); err != nil { return nil, err }
+		{ v, err := _stream_field_flag_impl(v_field, "is_cached", "isCached"); if err != nil { return nil, err }; v_cached = v }
+		if err := coreSet(v_field_copy, "is_cached", v_cached); err != nil { return nil, err }
+		if err := coreSet(v_field_copy, "parse_dates", true); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_field_copy)
+	}
+	return v_out, nil
+}
+
 func _regex_node(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_node")
 	var v_k Value
@@ -31988,6 +32305,157 @@ func _regex_node(args ...Value) (Value, error) {
 	v_t1 = Object()
 	if err := coreSet(v_t1, "k", v_k); err != nil { return nil, err }
 	return v_t1, nil
+}
+
+func _date_convert_field_value_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_convert_field_value_impl")
+	var v_field Value
+	var v_type_name Value
+	var v_value Value
+	var v_may_skip Value
+	var v_end_iso Value
+	var v_end_millis Value
+	var v_is_date Value
+	var v_is_date_range Value
+	var v_is_datetime Value
+	var v_iso Value
+	var v_kind Value
+	var v_millis Value
+	var v_out Value
+	var v_range_detail Value
+	var v_range_error Value
+	var v_range_invalid Value
+	var v_range_is_text Value
+	var v_range_message Value
+	var v_range_millis Value
+	var v_range_text Value
+	var v_range_value Value
+	var v_single Value
+	var v_single_detail Value
+	var v_single_error Value
+	var v_single_invalid Value
+	var v_single_message Value
+	var v_start_iso Value
+	var v_start_millis Value
+	var v_text Value
+	var v_title Value
+	if len(args) > 0 { v_field = args[0] }
+	_ = v_field
+	if len(args) > 1 { v_type_name = args[1] }
+	_ = v_type_name
+	if len(args) > 2 { v_value = args[2] }
+	_ = v_value
+	if len(args) > 3 { v_may_skip = args[3] }
+	_ = v_may_skip
+	_ = v_end_iso
+	_ = v_end_millis
+	_ = v_is_date
+	_ = v_is_date_range
+	_ = v_is_datetime
+	_ = v_iso
+	_ = v_kind
+	_ = v_millis
+	_ = v_out
+	_ = v_range_detail
+	_ = v_range_error
+	_ = v_range_invalid
+	_ = v_range_is_text
+	_ = v_range_message
+	_ = v_range_millis
+	_ = v_range_text
+	_ = v_range_value
+	_ = v_single
+	_ = v_single_detail
+	_ = v_single_error
+	_ = v_single_invalid
+	_ = v_single_message
+	_ = v_start_iso
+	_ = v_start_millis
+	_ = v_text
+	_ = v_title
+	v_out = Object()
+	if err := coreSet(v_out, "has", true); err != nil { return nil, err }
+	{ v, err := _stream_field_title_impl(v_field); if err != nil { return nil, err }; v_title = v }
+	v_is_date = _core_eq(v_type_name, "date")
+	v_is_datetime = _core_eq(v_type_name, "datetime")
+	v_is_date_range = _core_eq(v_type_name, "dateRange")
+	v_single = _core_or(v_is_date, v_is_datetime)
+	if coreTruthy(v_single) {
+		{ v, err := _stream_js_string_impl(v_value); if err != nil { return nil, err }; v_text = v }
+		v_millis = 0
+		{
+			__flow, __err := func() (coreFlow, error) {
+				if coreTruthy(v_is_date) {
+					{ v, err := _date_parse_date_impl(v_text); if err != nil { return coreFlow{}, err }; v_millis = v }
+				} else {
+					{ v, err := _date_parse_datetime_impl(v_text); if err != nil { return coreFlow{}, err }; v_millis = v }
+				}
+				return coreFlow{}, nil
+			}()
+			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+			if __err != nil {
+				v_single_error = errorValue(__err)
+				if coreTruthy(v_may_skip) {
+					if err := coreSet(v_out, "has", false); err != nil { return nil, err }
+					return v_out, nil
+				} else {
+				// empty
+				}
+				v_single_detail = _core_exception_message(v_single_error)
+				{ v, err := _date_error_message_impl(v_type_name, v_title, v_single_detail, v_text); if err != nil { return nil, err }; v_single_message = v }
+				v_single_invalid = _core_runtime_error(v_single_message)
+				return nil, asError(v_single_invalid)
+			}
+		}
+		{ v, err := _date_iso_impl(v_millis); if err != nil { return nil, err }; v_iso = v }
+		if err := coreSet(v_out, "value", v_iso); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_kind = "datetime"
+	if coreTruthy(v_is_date_range) {
+		v_kind = "date"
+	} else {
+	// empty
+	}
+	v_range_millis = Object()
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _date_parse_range_impl(v_value, v_kind); if err != nil { return coreFlow{}, err }; v_range_millis = v }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_range_error = errorValue(__err)
+			if coreTruthy(v_may_skip) {
+				if err := coreSet(v_out, "has", false); err != nil { return nil, err }
+				return v_out, nil
+			} else {
+			// empty
+			}
+			v_range_detail = _core_exception_message(v_range_error)
+			v_range_text = ""
+			v_range_is_text = coreTypeIs(v_value, "string")
+			if coreTruthy(v_range_is_text) {
+				v_range_text = v_value
+			} else {
+				{ v, err := _date_js_json_impl(v_value); if err != nil { return nil, err }; v_range_text = v }
+			}
+			{ v, err := _date_error_message_impl(v_type_name, v_title, v_range_detail, v_range_text); if err != nil { return nil, err }; v_range_message = v }
+			v_range_invalid = _core_runtime_error(v_range_message)
+			return nil, asError(v_range_invalid)
+		}
+	}
+	v_start_millis = coreGet(v_range_millis, "start", nil)
+	v_end_millis = coreGet(v_range_millis, "end", nil)
+	v_range_value = Object()
+	{ v, err := _date_iso_impl(v_start_millis); if err != nil { return nil, err }; v_start_iso = v }
+	if err := coreSet(v_range_value, "start", v_start_iso); err != nil { return nil, err }
+	{ v, err := _date_iso_impl(v_end_millis); if err != nil { return nil, err }; v_end_iso = v }
+	if err := coreSet(v_range_value, "end", v_end_iso); err != nil { return nil, err }
+	if err := coreSet(v_out, "value", v_range_value); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func _regex_literal(args ...Value) (Value, error) {
@@ -33389,6 +33857,69 @@ func _validate_optimized_artifact(args ...Value) (Value, error) {
 	return v_artifact, nil
 }
 
+func _date_error_message_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_error_message_impl")
+	var v_type_name Value
+	var v_title Value
+	var v_detail Value
+	var v_provided Value
+	var v_advice Value
+	var v_is_date Value
+	var v_is_date_range Value
+	var v_is_datetime Value
+	var v_lead Value
+	var v_message Value
+	var v_pieces Value
+	if len(args) > 0 { v_type_name = args[0] }
+	_ = v_type_name
+	if len(args) > 1 { v_title = args[1] }
+	_ = v_title
+	if len(args) > 2 { v_detail = args[2] }
+	_ = v_detail
+	if len(args) > 3 { v_provided = args[3] }
+	_ = v_provided
+	_ = v_advice
+	_ = v_is_date
+	_ = v_is_date_range
+	_ = v_is_datetime
+	_ = v_lead
+	_ = v_message
+	_ = v_pieces
+	v_lead = "Invalid date/time range for '"
+	v_advice = ". Prefer JSON like {\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00Z\"} or an ISO interval like 2024-05-09T14:30:00Z/2024-05-09T15:30:00Z. You provided: "
+	v_is_date = _core_eq(v_type_name, "date")
+	if coreTruthy(v_is_date) {
+		v_lead = "Invalid date for '"
+		v_advice = ". Use the exact format YYYY-MM-DD (e.g., 2024-05-09). You provided: "
+	} else {
+	// empty
+	}
+	v_is_datetime = _core_eq(v_type_name, "datetime")
+	if coreTruthy(v_is_datetime) {
+		v_lead = "Invalid date/time for '"
+		v_advice = ". Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like \"2024-05-09 14:30 America/New_York\" are also accepted. You provided: "
+	} else {
+	// empty
+	}
+	v_is_date_range = _core_eq(v_type_name, "dateRange")
+	if coreTruthy(v_is_date_range) {
+		v_lead = "Invalid date range for '"
+		v_advice = ". Prefer JSON like {\"start\":\"2024-05-09\",\"end\":\"2024-05-12\"} or an interval like 2024-05-09/2024-05-12. You provided: "
+	} else {
+	// empty
+	}
+	v_pieces = MutableArray()
+	v_pieces = coreAppend(v_pieces, v_lead)
+	v_pieces = coreAppend(v_pieces, v_title)
+	v_pieces = coreAppend(v_pieces, "': ")
+	v_pieces = coreAppend(v_pieces, v_detail)
+	v_pieces = coreAppend(v_pieces, v_advice)
+	v_pieces = coreAppend(v_pieces, v_provided)
+	v_pieces = coreAppend(v_pieces, ".")
+	v_message = _core_string_join("", v_pieces)
+	return v_message, nil
+}
+
 func _stream_trim_end_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_trim_end_impl")
 	var v_text Value
@@ -33418,6 +33949,84 @@ func _stream_trim_end_impl(args ...Value) (Value, error) {
 	v_end = _core_add(v_lead, v_trimmed_length)
 	v_out = _core_string_slice(v_text, 0, v_end)
 	return v_out, nil
+}
+
+func _date_parse_date_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_parse_date_impl")
+	var v_text Value
+	var v_bounds Value
+	var v_count Value
+	var v_different Value
+	var v_end Value
+	var v_format_error Value
+	var v_length Value
+	var v_length_error Value
+	var v_millis Value
+	var v_negative_start Value
+	var v_no_parts Value
+	var v_parts Value
+	var v_round Value
+	var v_same Value
+	var v_shape_error Value
+	var v_start Value
+	var v_units Value
+	var v_value_error Value
+	var v_wrong_length Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_bounds
+	_ = v_count
+	_ = v_different
+	_ = v_end
+	_ = v_format_error
+	_ = v_length
+	_ = v_length_error
+	_ = v_millis
+	_ = v_negative_start
+	_ = v_no_parts
+	_ = v_parts
+	_ = v_round
+	_ = v_same
+	_ = v_shape_error
+	_ = v_start
+	_ = v_units
+	_ = v_value_error
+	_ = v_wrong_length
+	v_format_error = "Invalid date format. Please provide the date in \"YYYY-MM-DD\" format."
+	v_units = _core_string_utf16_units(v_text)
+	v_count = _core_len(v_units)
+	{ v, err := _date_trim_bounds_impl(v_units, 0, v_count); if err != nil { return nil, err }; v_bounds = v }
+	v_start = coreGet(v_bounds, "start", nil)
+	v_end = coreGet(v_bounds, "end", nil)
+	v_length = _core_add(v_end, 0)
+	v_negative_start = _core_mul(v_start, -1)
+	v_length = _core_add(v_length, v_negative_start)
+	v_wrong_length = _core_ne(v_length, 10)
+	if coreTruthy(v_wrong_length) {
+		v_length_error = _core_runtime_error(v_format_error)
+		return nil, asError(v_length_error)
+	} else {
+	// empty
+	}
+	{ v, err := _date_scan_date_impl(v_units, v_start); if err != nil { return nil, err }; v_parts = v }
+	v_no_parts = _core_is_none(v_parts)
+	if coreTruthy(v_no_parts) {
+		v_shape_error = _core_runtime_error(v_format_error)
+		return nil, asError(v_shape_error)
+	} else {
+	// empty
+	}
+	{ v, err := _date_utc_ms_impl(v_parts); if err != nil { return nil, err }; v_millis = v }
+	{ v, err := _date_parts_of_ms_impl(v_millis); if err != nil { return nil, err }; v_round = v }
+	{ v, err := _date_same_day_impl(v_round, v_parts); if err != nil { return nil, err }; v_same = v }
+	v_different = _core_not(v_same)
+	if coreTruthy(v_different) {
+		v_value_error = _core_runtime_error(v_format_error)
+		return nil, asError(v_value_error)
+	} else {
+	// empty
+	}
+	return v_millis, nil
 }
 
 func _stream_trim_start_impl(args ...Value) (Value, error) {
@@ -34303,6 +34912,43 @@ func _deserialize_optimized_artifact(args ...Value) (Value, error) {
 	return v_validated, nil
 }
 
+func _date_parse_datetime_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_parse_datetime_impl")
+	var v_text Value
+	var v_bounds Value
+	var v_count Value
+	var v_end Value
+	var v_matched Value
+	var v_named Value
+	var v_offset_millis Value
+	var v_start Value
+	var v_units Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_bounds
+	_ = v_count
+	_ = v_end
+	_ = v_matched
+	_ = v_named
+	_ = v_offset_millis
+	_ = v_start
+	_ = v_units
+	v_units = _core_string_utf16_units(v_text)
+	v_count = _core_len(v_units)
+	{ v, err := _date_trim_bounds_impl(v_units, 0, v_count); if err != nil { return nil, err }; v_bounds = v }
+	v_start = coreGet(v_bounds, "start", nil)
+	v_end = coreGet(v_bounds, "end", nil)
+	{ v, err := _date_parse_offset_datetime_impl(v_units, v_start, v_end); if err != nil { return nil, err }; v_offset_millis = v }
+	v_matched = _core_is_not_none(v_offset_millis)
+	if coreTruthy(v_matched) {
+		return v_offset_millis, nil
+	} else {
+	// empty
+	}
+	{ v, err := _date_parse_named_datetime_impl(v_text, v_units, v_start, v_end); if err != nil { return nil, err }; v_named = v }
+	return v_named, nil
+}
+
 func _stream_field_labels_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_field_labels_impl")
 	var v_field Value
@@ -34474,6 +35120,77 @@ func _append_structured_output_instruction(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _date_parse_offset_datetime_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_parse_offset_datetime_impl")
+	var v_units Value
+	var v_start Value
+	var v_end Value
+	var v_cursor Value
+	var v_format_error Value
+	var v_local Value
+	var v_millis Value
+	var v_no_offset Value
+	var v_no_prefix Value
+	var v_none Value
+	var v_offset Value
+	var v_parts Value
+	var v_prefix Value
+	var v_shift Value
+	var v_zone_bad Value
+	var v_zone_ok Value
+	var v_zone_start Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_start = args[1] }
+	_ = v_start
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	_ = v_cursor
+	_ = v_format_error
+	_ = v_local
+	_ = v_millis
+	_ = v_no_offset
+	_ = v_no_prefix
+	_ = v_none
+	_ = v_offset
+	_ = v_parts
+	_ = v_prefix
+	_ = v_shift
+	_ = v_zone_bad
+	_ = v_zone_ok
+	_ = v_zone_start
+	v_none = _core_none()
+	{ v, err := _date_scan_datetime_impl(v_units, v_start, v_end); if err != nil { return nil, err }; v_prefix = v }
+	v_no_prefix = _core_is_none(v_prefix)
+	if coreTruthy(v_no_prefix) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_cursor = coreGet(v_prefix, "end", nil)
+	{ v, err := _date_skip_space_impl(v_units, v_cursor, v_end); if err != nil { return nil, err }; v_zone_start = v }
+	{ v, err := _date_offset_zone_matches_impl(v_units, v_zone_start, v_end); if err != nil { return nil, err }; v_zone_ok = v }
+	v_zone_bad = _core_not(v_zone_ok)
+	if coreTruthy(v_zone_bad) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	{ v, err := _date_offset_minutes_impl(v_units, v_zone_start, v_end); if err != nil { return nil, err }; v_offset = v }
+	v_no_offset = _core_is_none(v_offset)
+	if coreTruthy(v_no_offset) {
+		{ v, err := _date_datetime_format_error_impl(); if err != nil { return nil, err }; v_format_error = v }
+		return nil, asError(v_format_error)
+	} else {
+	// empty
+	}
+	{ v, err := _date_datetime_parts_impl(v_prefix); if err != nil { return nil, err }; v_parts = v }
+	{ v, err := _date_utc_ms_impl(v_parts); if err != nil { return nil, err }; v_local = v }
+	v_shift = _core_mul(v_offset, -60000)
+	v_millis = _core_add(v_local, v_shift)
+	return v_millis, nil
+}
+
 func _stream_matches_content_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_matches_content_impl")
 	var v_content Value
@@ -34624,6 +35341,142 @@ func _assert_no_reserved_output_functions(args ...Value) (Value, error) {
 		}
 	}
 	return nil, nil
+}
+
+func _date_parse_named_datetime_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_parse_named_datetime_impl")
+	var v_text Value
+	var v_units Value
+	var v_start Value
+	var v_end Value
+	var v_abbreviation Value
+	var v_abbreviation_millis Value
+	var v_abbreviation_shift Value
+	var v_cursor Value
+	var v_empty_zone Value
+	var v_format_error Value
+	var v_has_abbreviation Value
+	var v_has_offset Value
+	var v_local Value
+	var v_millis Value
+	var v_mode Value
+	var v_no_prefix Value
+	var v_no_space Value
+	var v_offset Value
+	var v_offset_millis Value
+	var v_parts Value
+	var v_prefix Value
+	var v_resolved Value
+	var v_scan Value
+	var v_scan_done Value
+	var v_shift Value
+	var v_terminator Value
+	var v_unit Value
+	var v_zone Value
+	var v_zone_from Value
+	var v_zone_start Value
+	var v_zone_to Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	if len(args) > 1 { v_units = args[1] }
+	_ = v_units
+	if len(args) > 2 { v_start = args[2] }
+	_ = v_start
+	if len(args) > 3 { v_end = args[3] }
+	_ = v_end
+	_ = v_abbreviation
+	_ = v_abbreviation_millis
+	_ = v_abbreviation_shift
+	_ = v_cursor
+	_ = v_empty_zone
+	_ = v_format_error
+	_ = v_has_abbreviation
+	_ = v_has_offset
+	_ = v_local
+	_ = v_millis
+	_ = v_mode
+	_ = v_no_prefix
+	_ = v_no_space
+	_ = v_offset
+	_ = v_offset_millis
+	_ = v_parts
+	_ = v_prefix
+	_ = v_resolved
+	_ = v_scan
+	_ = v_scan_done
+	_ = v_shift
+	_ = v_terminator
+	_ = v_unit
+	_ = v_zone
+	_ = v_zone_from
+	_ = v_zone_start
+	_ = v_zone_to
+	{ v, err := _date_datetime_format_error_impl(); if err != nil { return nil, err }; v_format_error = v }
+	{ v, err := _date_scan_datetime_impl(v_units, v_start, v_end); if err != nil { return nil, err }; v_prefix = v }
+	v_no_prefix = _core_is_none(v_prefix)
+	if coreTruthy(v_no_prefix) {
+		return nil, asError(v_format_error)
+	} else {
+	// empty
+	}
+	v_cursor = coreGet(v_prefix, "end", nil)
+	{ v, err := _date_skip_space_impl(v_units, v_cursor, v_end); if err != nil { return nil, err }; v_zone_start = v }
+	v_no_space = _core_eq(v_zone_start, v_cursor)
+	if coreTruthy(v_no_space) {
+		return nil, asError(v_format_error)
+	} else {
+	// empty
+	}
+	v_empty_zone = _core_gte(v_zone_start, v_end)
+	if coreTruthy(v_empty_zone) {
+		return nil, asError(v_format_error)
+	} else {
+	// empty
+	}
+	v_scan = v_zone_start
+	for {
+		v_scan_done = _core_gte(v_scan, v_end)
+		if coreTruthy(v_scan_done) {
+			break
+		} else {
+		// empty
+		}
+		v_unit = coreGet(v_units, v_scan, 0)
+		{ v, err := _date_is_line_terminator_impl(v_unit); if err != nil { return nil, err }; v_terminator = v }
+		if coreTruthy(v_terminator) {
+			return nil, asError(v_format_error)
+		} else {
+		// empty
+		}
+		v_scan = _core_add(v_scan, 1)
+	}
+	{ v, err := _date_string_mode_impl(); if err != nil { return nil, err }; v_mode = v }
+	{ v, err := _date_native_offset_impl(v_units, v_zone_start, v_mode); if err != nil { return nil, err }; v_zone_from = v }
+	{ v, err := _date_native_offset_impl(v_units, v_end, v_mode); if err != nil { return nil, err }; v_zone_to = v }
+	v_zone = _core_string_slice(v_text, v_zone_from, v_zone_to)
+	{ v, err := _date_offset_minutes_impl(v_units, v_zone_start, v_end); if err != nil { return nil, err }; v_offset = v }
+	{ v, err := _date_datetime_parts_impl(v_prefix); if err != nil { return nil, err }; v_parts = v }
+	{ v, err := _date_utc_ms_impl(v_parts); if err != nil { return nil, err }; v_local = v }
+	v_has_offset = _core_is_not_none(v_offset)
+	if coreTruthy(v_has_offset) {
+		v_shift = _core_mul(v_offset, -60000)
+		v_offset_millis = _core_add(v_local, v_shift)
+		return v_offset_millis, nil
+	} else {
+	// empty
+	}
+	{ v, err := _date_abbreviation_offset_impl(v_units, v_zone_start, v_end, v_zone); if err != nil { return nil, err }; v_abbreviation = v }
+	v_has_abbreviation = _core_is_not_none(v_abbreviation)
+	if coreTruthy(v_has_abbreviation) {
+		v_abbreviation_shift = _core_mul(v_abbreviation, -60000)
+		v_abbreviation_millis = _core_add(v_local, v_abbreviation_shift)
+		return v_abbreviation_millis, nil
+	} else {
+	// empty
+	}
+	{ v, err := _date_zone_resolve_impl(v_units, v_zone_start, v_end, v_zone, v_local); if err != nil { return nil, err }; v_resolved = v }
+	{ v, err := _date_named_timestamp_impl(v_parts, v_resolved); if err != nil { return nil, err }; v_millis = v }
+	return v_millis, nil
 }
 
 func _stream_extract_block_impl(args ...Value) (Value, error) {
@@ -35077,6 +35930,14 @@ func _apply_model_config_option_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _date_datetime_format_error_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_datetime_format_error_impl")
+	var v_error Value
+	_ = v_error
+	v_error = _core_runtime_error("Invalid date and time format. Use ISO 8601 like \"YYYY-MM-DDTHH:mm:ssZ\" or \"YYYY-MM-DDTHH:mm:ss+05:30\". Legacy \"YYYY-MM-DD HH:mm Timezone\" values are also accepted.")
+	return v_error, nil
+}
+
 func _adjust_optimization_score_for_actions(args ...Value) (Value, error) {
 	axirCoverageMark("_adjust_optimization_score_for_actions")
 	var v_score Value
@@ -35182,6 +36043,94 @@ func _adjust_optimization_score_for_actions(args ...Value) (Value, error) {
 		}
 	}
 	return v_adjusted, nil
+}
+
+func _date_values_error_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_values_error_impl")
+	var v_error Value
+	_ = v_error
+	v_error = _core_runtime_error("Invalid date and time values. Please ensure all components are correct.")
+	return v_error, nil
+}
+
+func _date_datetime_parts_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_datetime_parts_impl")
+	var v_prefix Value
+	var v_bad_clock Value
+	var v_bad_hour Value
+	var v_bad_minute Value
+	var v_bad_second Value
+	var v_calendar_error Value
+	var v_clock_error Value
+	var v_day Value
+	var v_different Value
+	var v_hour Value
+	var v_millis Value
+	var v_millisecond Value
+	var v_minute Value
+	var v_month Value
+	var v_parts Value
+	var v_round Value
+	var v_same Value
+	var v_second Value
+	var v_year Value
+	if len(args) > 0 { v_prefix = args[0] }
+	_ = v_prefix
+	_ = v_bad_clock
+	_ = v_bad_hour
+	_ = v_bad_minute
+	_ = v_bad_second
+	_ = v_calendar_error
+	_ = v_clock_error
+	_ = v_day
+	_ = v_different
+	_ = v_hour
+	_ = v_millis
+	_ = v_millisecond
+	_ = v_minute
+	_ = v_month
+	_ = v_parts
+	_ = v_round
+	_ = v_same
+	_ = v_second
+	_ = v_year
+	v_parts = Object()
+	v_year = coreGet(v_prefix, "year", nil)
+	if err := coreSet(v_parts, "year", v_year); err != nil { return nil, err }
+	v_month = coreGet(v_prefix, "month", nil)
+	if err := coreSet(v_parts, "month", v_month); err != nil { return nil, err }
+	v_day = coreGet(v_prefix, "day", nil)
+	if err := coreSet(v_parts, "day", v_day); err != nil { return nil, err }
+	v_hour = coreGet(v_prefix, "hour", nil)
+	if err := coreSet(v_parts, "hour", v_hour); err != nil { return nil, err }
+	v_minute = coreGet(v_prefix, "minute", nil)
+	if err := coreSet(v_parts, "minute", v_minute); err != nil { return nil, err }
+	v_second = coreGet(v_prefix, "second", nil)
+	if err := coreSet(v_parts, "second", v_second); err != nil { return nil, err }
+	v_millisecond = coreGet(v_prefix, "millisecond", nil)
+	if err := coreSet(v_parts, "millisecond", v_millisecond); err != nil { return nil, err }
+	v_bad_hour = _core_gt(v_hour, 23)
+	v_bad_minute = _core_gt(v_minute, 59)
+	v_bad_second = _core_gt(v_second, 59)
+	v_bad_clock = _core_or(v_bad_hour, v_bad_minute)
+	v_bad_clock = _core_or(v_bad_clock, v_bad_second)
+	if coreTruthy(v_bad_clock) {
+		{ v, err := _date_values_error_impl(); if err != nil { return nil, err }; v_clock_error = v }
+		return nil, asError(v_clock_error)
+	} else {
+	// empty
+	}
+	{ v, err := _date_utc_ms_impl(v_parts); if err != nil { return nil, err }; v_millis = v }
+	{ v, err := _date_parts_of_ms_impl(v_millis); if err != nil { return nil, err }; v_round = v }
+	{ v, err := _date_same_parts_impl(v_round, v_parts); if err != nil { return nil, err }; v_same = v }
+	v_different = _core_not(v_same)
+	if coreTruthy(v_different) {
+		{ v, err := _date_values_error_impl(); if err != nil { return nil, err }; v_calendar_error = v }
+		return nil, asError(v_calendar_error)
+	} else {
+	// empty
+	}
+	return v_parts, nil
 }
 
 func _build_gen_chat_request(args ...Value) (Value, error) {
@@ -35753,6 +36702,120 @@ func chat_session_observe_output(args ...Value) (Value, error) {
 	return v_output, nil
 }
 
+func _date_abbreviation_offset_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_abbreviation_offset_impl")
+	var v_units Value
+	var v_start Value
+	var v_end Value
+	var v_zone Value
+	var v_abbreviation Value
+	var v_abbreviations Value
+	var v_cursor Value
+	var v_done Value
+	var v_empty_offsets Value
+	var v_empty_rejected Value
+	var v_error Value
+	var v_is_rejected Value
+	var v_key Value
+	var v_letter Value
+	var v_lowered Value
+	var v_message Value
+	var v_message_pieces Value
+	var v_minutes Value
+	var v_none Value
+	var v_not_letter Value
+	var v_offsets Value
+	var v_rejected Value
+	var v_rejected_abbreviation Value
+	var v_rejected_lowered Value
+	var v_same Value
+	var v_tables Value
+	var v_unit Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_start = args[1] }
+	_ = v_start
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	if len(args) > 3 { v_zone = args[3] }
+	_ = v_zone
+	_ = v_abbreviation
+	_ = v_abbreviations
+	_ = v_cursor
+	_ = v_done
+	_ = v_empty_offsets
+	_ = v_empty_rejected
+	_ = v_error
+	_ = v_is_rejected
+	_ = v_key
+	_ = v_letter
+	_ = v_lowered
+	_ = v_message
+	_ = v_message_pieces
+	_ = v_minutes
+	_ = v_none
+	_ = v_not_letter
+	_ = v_offsets
+	_ = v_rejected
+	_ = v_rejected_abbreviation
+	_ = v_rejected_lowered
+	_ = v_same
+	_ = v_tables
+	_ = v_unit
+	v_none = _core_none()
+	v_cursor = v_start
+	for {
+		v_done = _core_gte(v_cursor, v_end)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_unit = coreGet(v_units, v_cursor, 0)
+		{ v, err := _date_ascii_letter_impl(v_unit); if err != nil { return nil, err }; v_letter = v }
+		v_not_letter = _core_not(v_letter)
+		if coreTruthy(v_not_letter) {
+			return v_none, nil
+		} else {
+		// empty
+		}
+		v_cursor = _core_add(v_cursor, 1)
+	}
+	v_key = _core_string_lower(v_zone)
+	{ v, err := _core_json_parse("{\n  \"generator\": \"tools/axir/extractors/date-goldens.ts\",\n  \"source\": \"src/ax/dsp/datetime.ts\",\n  \"offsets_minutes\": {\n    \"ACDT\": 630,\n    \"ACST\": 570,\n    \"ADT\": -180,\n    \"AEDT\": 660,\n    \"AEST\": 600,\n    \"AKDT\": -480,\n    \"AKST\": -540,\n    \"ART\": -180,\n    \"AWST\": 480,\n    \"BRT\": -180,\n    \"CAT\": 120,\n    \"CDT\": -300,\n    \"CEST\": 120,\n    \"CET\": 60,\n    \"EAT\": 180,\n    \"EDT\": -240,\n    \"EEST\": 180,\n    \"EET\": 120,\n    \"EST\": -300,\n    \"HDT\": -540,\n    \"HKT\": 480,\n    \"HST\": -600,\n    \"JST\": 540,\n    \"KST\": 540,\n    \"MDT\": -360,\n    \"MSK\": 180,\n    \"MST\": -420,\n    \"NDT\": -150,\n    \"NPT\": 345,\n    \"NZDT\": 780,\n    \"NZST\": 720,\n    \"PDT\": -420,\n    \"PKT\": 300,\n    \"PST\": -480,\n    \"SAST\": 120,\n    \"SGT\": 480,\n    \"WAT\": 60,\n    \"WEST\": 60,\n    \"WET\": 0,\n    \"WIB\": 420\n  },\n  \"rejected\": [\n    \"ACT\",\n    \"AET\",\n    \"AGT\",\n    \"AST\",\n    \"BET\",\n    \"BST\",\n    \"CNT\",\n    \"CST\",\n    \"CTT\",\n    \"ECT\",\n    \"GST\",\n    \"IET\",\n    \"IST\",\n    \"MIT\",\n    \"NET\",\n    \"NST\",\n    \"PLT\",\n    \"PNT\",\n    \"PRT\",\n    \"SST\",\n    \"VST\"\n  ]\n}\n"); if err != nil { return nil, err }; v_tables = v }
+	v_empty_offsets = Object()
+	v_offsets = coreGet(v_tables, "offsets_minutes", v_empty_offsets)
+	v_abbreviations = _core_map_keys(v_offsets)
+	for _, v_abbreviation = range coreIter(v_abbreviations) {
+		v_lowered = _core_string_lower(v_abbreviation)
+		v_same = _core_eq(v_lowered, v_key)
+		if coreTruthy(v_same) {
+			v_minutes = coreGet(v_offsets, v_abbreviation, nil)
+			return v_minutes, nil
+		} else {
+		// empty
+		}
+	}
+	v_empty_rejected = MutableArray()
+	v_rejected = coreGet(v_tables, "rejected", v_empty_rejected)
+	for _, v_rejected_abbreviation = range coreIter(v_rejected) {
+		v_rejected_lowered = _core_string_lower(v_rejected_abbreviation)
+		v_is_rejected = _core_eq(v_rejected_lowered, v_key)
+		if coreTruthy(v_is_rejected) {
+			v_message_pieces = MutableArray()
+			v_message_pieces = coreAppend(v_message_pieces, "Ambiguous or unsupported time zone abbreviation \"")
+			v_message_pieces = coreAppend(v_message_pieces, v_zone)
+			v_message_pieces = coreAppend(v_message_pieces, "\". Please provide an IANA time zone name or a UTC offset. For example, \"Europe/London\" or \"+01:00\".")
+			v_message = _core_string_join("", v_message_pieces)
+			v_error = _core_runtime_error(v_message)
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+	}
+	return v_none, nil
+}
+
 func _stream_markdown_list_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_markdown_list_impl")
 	var v_input Value
@@ -35969,6 +37032,150 @@ func chat_session_apply_boundary_updates(args ...Value) (Value, error) {
 	if err := coreSet(v_result, "level", v_current_level); err != nil { return nil, err }
 	if err := coreSet(v_result, "applied", v_applied); err != nil { return nil, err }
 	return v_result, nil
+}
+
+func _date_zone_resolve_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_zone_resolve_impl")
+	var v_units Value
+	var v_start Value
+	var v_end Value
+	var v_zone Value
+	var v_probe Value
+	var v_candidate Value
+	var v_cursor Value
+	var v_done Value
+	var v_empty_group Value
+	var v_empty_keys Value
+	var v_empty_zones Value
+	var v_fixed Value
+	var v_fixed_seconds Value
+	var v_group Value
+	var v_group_index Value
+	var v_is_fixed Value
+	var v_key Value
+	var v_keys Value
+	var v_missing_error Value
+	var v_non_ascii Value
+	var v_non_ascii_error Value
+	var v_resolved Value
+	var v_table Value
+	var v_unit Value
+	var v_unknown Value
+	var v_unknown_error Value
+	var v_unrecognized Value
+	var v_unrecognized_pieces Value
+	var v_works Value
+	var v_zone_error Value
+	var v_zones Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_start = args[1] }
+	_ = v_start
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	if len(args) > 3 { v_zone = args[3] }
+	_ = v_zone
+	if len(args) > 4 { v_probe = args[4] }
+	_ = v_probe
+	_ = v_candidate
+	_ = v_cursor
+	_ = v_done
+	_ = v_empty_group
+	_ = v_empty_keys
+	_ = v_empty_zones
+	_ = v_fixed
+	_ = v_fixed_seconds
+	_ = v_group
+	_ = v_group_index
+	_ = v_is_fixed
+	_ = v_key
+	_ = v_keys
+	_ = v_missing_error
+	_ = v_non_ascii
+	_ = v_non_ascii_error
+	_ = v_resolved
+	_ = v_table
+	_ = v_unit
+	_ = v_unknown
+	_ = v_unknown_error
+	_ = v_unrecognized
+	_ = v_unrecognized_pieces
+	_ = v_works
+	_ = v_zone_error
+	_ = v_zones
+	v_resolved = Object()
+	{ v, err := _date_offset_zone_minutes_impl(v_units, v_start, v_end); if err != nil { return nil, err }; v_fixed = v }
+	v_is_fixed = _core_is_not_none(v_fixed)
+	if coreTruthy(v_is_fixed) {
+		if err := coreSet(v_resolved, "kind", "fixed"); err != nil { return nil, err }
+		v_fixed_seconds = _core_mul(v_fixed, 60)
+		if err := coreSet(v_resolved, "offset_seconds", v_fixed_seconds); err != nil { return nil, err }
+		return v_resolved, nil
+	} else {
+	// empty
+	}
+	v_unrecognized_pieces = MutableArray()
+	v_unrecognized_pieces = coreAppend(v_unrecognized_pieces, "Unrecognized time zone ")
+	v_unrecognized_pieces = coreAppend(v_unrecognized_pieces, v_zone)
+	v_unrecognized_pieces = coreAppend(v_unrecognized_pieces, ". Please provide a valid time zone name, abbreviation, or offset. For example, \"America/New_York\", \"EST\", or \"+05:30\".")
+	v_unrecognized = _core_string_join("", v_unrecognized_pieces)
+	v_cursor = v_start
+	for {
+		v_done = _core_gte(v_cursor, v_end)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_unit = coreGet(v_units, v_cursor, 0)
+		v_non_ascii = _core_gt(v_unit, 127)
+		if coreTruthy(v_non_ascii) {
+			v_non_ascii_error = _core_runtime_error(v_unrecognized)
+			return nil, asError(v_non_ascii_error)
+		} else {
+		// empty
+		}
+		v_cursor = _core_add(v_cursor, 1)
+	}
+	v_key = _core_string_lower(v_zone)
+	{ v, err := _core_json_parse("{\"generator\":\"tools/axir/extractors/date-goldens.ts\",\"source\":{\"node\":\"v26.7.0\",\"icu\":\"78.3\",\"tz\":\"2026a\",\"tzdata_candidates\":\"2026b-rearguard\"},\"keys\":{\"africa/abidjan\":0,\"africa/accra\":1,\"africa/addis_ababa\":2,\"africa/algiers\":3,\"africa/asmera\":4,\"africa/asmara\":4,\"africa/bamako\":5,\"africa/timbuktu\":5,\"africa/bangui\":6,\"africa/banjul\":7,\"africa/bissau\":8,\"africa/blantyre\":9,\"africa/brazzaville\":10,\"africa/bujumbura\":11,\"africa/cairo\":12,\"egypt\":12,\"africa/casablanca\":13,\"africa/ceuta\":14,\"africa/conakry\":15,\"africa/dakar\":16,\"africa/dar_es_salaam\":17,\"africa/djibouti\":18,\"africa/douala\":19,\"africa/el_aaiun\":20,\"africa/freetown\":21,\"africa/gaborone\":22,\"africa/harare\":23,\"africa/johannesburg\":24,\"africa/juba\":25,\"africa/kampala\":26,\"africa/khartoum\":27,\"africa/kigali\":28,\"africa/kinshasa\":29,\"africa/lagos\":30,\"africa/libreville\":31,\"africa/lome\":32,\"africa/luanda\":33,\"africa/lubumbashi\":34,\"africa/lusaka\":35,\"africa/malabo\":36,\"africa/maputo\":37,\"africa/maseru\":38,\"africa/mbabane\":39,\"africa/mogadishu\":40,\"africa/monrovia\":41,\"africa/nairobi\":42,\"africa/ndjamena\":43,\"africa/niamey\":44,\"africa/nouakchott\":45,\"africa/ouagadougou\":46,\"africa/porto-novo\":47,\"africa/sao_tome\":48,\"africa/tripoli\":49,\"libya\":49,\"africa/tunis\":50,\"africa/windhoek\":51,\"america/adak\":52,\"america/atka\":52,\"us/aleutian\":52,\"america/anchorage\":53,\"us/alaska\":53,\"america/anguilla\":54,\"america/antigua\":55,\"america/araguaina\":56,\"america/argentina/la_rioja\":57,\"america/argentina/rio_gallegos\":58,\"america/argentina/salta\":59,\"america/argentina/san_juan\":60,\"america/argentina/san_luis\":61,\"america/argentina/tucuman\":62,\"america/argentina/ushuaia\":63,\"america/aruba\":64,\"america/asuncion\":65,\"america/bahia\":66,\"america/bahia_banderas\":67,\"america/barbados\":68,\"america/belem\":69,\"america/belize\":70,\"america/blanc-sablon\":71,\"america/boa_vista\":72,\"america/bogota\":73,\"america/boise\":74,\"america/buenos_aires\":75,\"america/argentina/buenos_aires\":75,\"america/cambridge_bay\":76,\"america/campo_grande\":77,\"america/cancun\":78,\"america/caracas\":79,\"america/catamarca\":80,\"america/argentina/catamarca\":80,\"america/argentina/comodrivadavia\":80,\"america/cayenne\":81,\"america/cayman\":82,\"america/chicago\":83,\"cst6cdt\":83,\"us/central\":83,\"america/chihuahua\":84,\"america/ciudad_juarez\":85,\"america/coral_harbour\":86,\"america/atikokan\":86,\"america/cordoba\":87,\"america/argentina/cordoba\":87,\"america/rosario\":87,\"america/costa_rica\":88,\"america/coyhaique\":89,\"america/creston\":90,\"america/cuiaba\":91,\"america/curacao\":92,\"america/danmarkshavn\":93,\"america/dawson\":94,\"america/dawson_creek\":95,\"america/denver\":96,\"america/shiprock\":96,\"mst7mdt\":96,\"navajo\":96,\"us/mountain\":96,\"america/detroit\":97,\"us/michigan\":97,\"america/dominica\":98,\"america/edmonton\":99,\"america/yellowknife\":99,\"canada/mountain\":99,\"america/eirunepe\":100,\"america/el_salvador\":101,\"america/fort_nelson\":102,\"america/fortaleza\":103,\"america/glace_bay\":104,\"america/godthab\":105,\"america/nuuk\":105,\"america/goose_bay\":106,\"america/grand_turk\":107,\"america/grenada\":108,\"america/guadeloupe\":109,\"america/guatemala\":110,\"america/guayaquil\":111,\"america/guyana\":112,\"america/halifax\":113,\"canada/atlantic\":113,\"america/havana\":114,\"cuba\":114,\"america/hermosillo\":115,\"america/indiana/knox\":116,\"america/knox_in\":116,\"us/indiana-starke\":116,\"america/indiana/marengo\":117,\"america/indiana/petersburg\":118,\"america/indiana/tell_city\":119,\"america/indiana/vevay\":120,\"america/indiana/vincennes\":121,\"america/indiana/winamac\":122,\"america/indianapolis\":123,\"america/fort_wayne\":123,\"america/indiana/indianapolis\":123,\"us/east-indiana\":123,\"america/inuvik\":124,\"america/iqaluit\":125,\"america/pangnirtung\":125,\"america/jamaica\":126,\"jamaica\":126,\"america/jujuy\":127,\"america/argentina/jujuy\":127,\"america/juneau\":128,\"america/kentucky/monticello\":129,\"america/kralendijk\":130,\"america/la_paz\":131,\"america/lima\":132,\"america/los_angeles\":133,\"pst8pdt\":133,\"us/pacific\":133,\"us/pacific-new\":133,\"america/louisville\":134,\"america/kentucky/louisville\":134,\"america/lower_princes\":135,\"america/maceio\":136,\"america/managua\":137,\"america/manaus\":138,\"brazil/west\":138,\"america/marigot\":139,\"america/martinique\":140,\"america/matamoros\":141,\"america/mazatlan\":142,\"mexico/bajasur\":142,\"america/mendoza\":143,\"america/argentina/mendoza\":143,\"america/menominee\":144,\"america/merida\":145,\"america/metlakatla\":146,\"america/mexico_city\":147,\"mexico/general\":147,\"america/miquelon\":148,\"america/moncton\":149,\"america/monterrey\":150,\"america/montevideo\":151,\"america/montserrat\":152,\"america/nassau\":153,\"america/new_york\":154,\"est5edt\":154,\"us/eastern\":154,\"america/nome\":155,\"america/noronha\":156,\"brazil/denoronha\":156,\"america/north_dakota/beulah\":157,\"america/north_dakota/center\":158,\"america/north_dakota/new_salem\":159,\"america/ojinaga\":160,\"america/panama\":161,\"america/paramaribo\":162,\"america/phoenix\":163,\"us/arizona\":163,\"america/port-au-prince\":164,\"america/port_of_spain\":165,\"america/porto_velho\":166,\"america/puerto_rico\":167,\"america/punta_arenas\":168,\"america/rankin_inlet\":169,\"america/recife\":170,\"america/regina\":171,\"canada/east-saskatchewan\":171,\"canada/saskatchewan\":171,\"america/resolute\":172,\"america/rio_branco\":173,\"america/porto_acre\":173,\"brazil/acre\":173,\"america/santarem\":174,\"america/santiago\":175,\"chile/continental\":175,\"america/santo_domingo\":176,\"america/sao_paulo\":177,\"brazil/east\":177,\"america/scoresbysund\":178,\"america/sitka\":179,\"america/st_barthelemy\":180,\"america/st_johns\":181,\"canada/newfoundland\":181,\"america/st_kitts\":182,\"america/st_lucia\":183,\"america/st_thomas\":184,\"america/virgin\":184,\"america/st_vincent\":185,\"america/swift_current\":186,\"america/tegucigalpa\":187,\"america/thule\":188,\"america/tijuana\":189,\"america/ensenada\":189,\"america/santa_isabel\":189,\"mexico/bajanorte\":189,\"america/toronto\":190,\"america/montreal\":190,\"america/nipigon\":190,\"america/thunder_bay\":190,\"canada/eastern\":190,\"america/tortola\":191,\"america/vancouver\":192,\"canada/pacific\":192,\"america/whitehorse\":193,\"canada/yukon\":193,\"america/winnipeg\":194,\"america/rainy_river\":194,\"canada/central\":194,\"america/yakutat\":195,\"antarctica/casey\":196,\"antarctica/davis\":197,\"antarctica/dumontdurville\":198,\"antarctica/macquarie\":199,\"antarctica/mawson\":200,\"antarctica/mcmurdo\":201,\"antarctica/south_pole\":201,\"antarctica/palmer\":202,\"antarctica/rothera\":203,\"antarctica/syowa\":204,\"antarctica/troll\":205,\"antarctica/vostok\":206,\"arctic/longyearbyen\":207,\"atlantic/jan_mayen\":207,\"asia/aden\":208,\"asia/almaty\":209,\"asia/amman\":210,\"asia/anadyr\":211,\"asia/aqtau\":212,\"asia/aqtobe\":213,\"asia/ashgabat\":214,\"asia/ashkhabad\":214,\"asia/atyrau\":215,\"asia/baghdad\":216,\"asia/bahrain\":217,\"asia/baku\":218,\"asia/bangkok\":219,\"asia/barnaul\":220,\"asia/beirut\":221,\"asia/bishkek\":222,\"asia/brunei\":223,\"asia/calcutta\":224,\"asia/kolkata\":224,\"asia/chita\":225,\"asia/colombo\":226,\"asia/damascus\":227,\"asia/dhaka\":228,\"asia/dacca\":228,\"asia/dili\":229,\"asia/dubai\":230,\"asia/dushanbe\":231,\"asia/famagusta\":232,\"asia/gaza\":233,\"asia/hebron\":234,\"asia/hong_kong\":235,\"hongkong\":235,\"asia/hovd\":236,\"asia/irkutsk\":237,\"asia/jakarta\":238,\"asia/jayapura\":239,\"asia/jerusalem\":240,\"asia/tel_aviv\":240,\"israel\":240,\"asia/kabul\":241,\"asia/kamchatka\":242,\"asia/karachi\":243,\"asia/katmandu\":244,\"asia/kathmandu\":244,\"asia/khandyga\":245,\"asia/krasnoyarsk\":246,\"asia/kuala_lumpur\":247,\"asia/kuching\":248,\"asia/kuwait\":249,\"asia/macau\":250,\"asia/macao\":250,\"asia/magadan\":251,\"asia/makassar\":252,\"asia/ujung_pandang\":252,\"asia/manila\":253,\"asia/muscat\":254,\"asia/nicosia\":255,\"europe/nicosia\":255,\"asia/novokuznetsk\":256,\"asia/novosibirsk\":257,\"asia/omsk\":258,\"asia/oral\":259,\"asia/phnom_penh\":260,\"asia/pontianak\":261,\"asia/pyongyang\":262,\"asia/qatar\":263,\"asia/qostanay\":264,\"asia/qyzylorda\":265,\"asia/rangoon\":266,\"asia/yangon\":266,\"asia/riyadh\":267,\"asia/saigon\":268,\"asia/ho_chi_minh\":268,\"asia/sakhalin\":269,\"asia/samarkand\":270,\"asia/seoul\":271,\"rok\":271,\"asia/shanghai\":272,\"asia/chongqing\":272,\"asia/chungking\":272,\"asia/harbin\":272,\"prc\":272,\"asia/singapore\":273,\"singapore\":273,\"asia/srednekolymsk\":274,\"asia/taipei\":275,\"roc\":275,\"asia/tashkent\":276,\"asia/tbilisi\":277,\"asia/tehran\":278,\"iran\":278,\"asia/thimphu\":279,\"asia/thimbu\":279,\"asia/tokyo\":280,\"japan\":280,\"asia/tomsk\":281,\"asia/ulaanbaatar\":282,\"asia/choibalsan\":282,\"asia/ulan_bator\":282,\"asia/urumqi\":283,\"asia/kashgar\":283,\"asia/ust-nera\":284,\"asia/vientiane\":285,\"asia/vladivostok\":286,\"asia/yakutsk\":287,\"asia/yekaterinburg\":288,\"asia/yerevan\":289,\"atlantic/azores\":290,\"atlantic/bermuda\":291,\"atlantic/canary\":292,\"atlantic/cape_verde\":293,\"atlantic/faeroe\":294,\"atlantic/faroe\":294,\"atlantic/madeira\":295,\"atlantic/reykjavik\":296,\"iceland\":296,\"atlantic/south_georgia\":297,\"atlantic/st_helena\":298,\"atlantic/stanley\":299,\"australia/adelaide\":300,\"australia/south\":300,\"australia/brisbane\":301,\"australia/queensland\":301,\"australia/broken_hill\":302,\"australia/yancowinna\":302,\"australia/darwin\":303,\"australia/north\":303,\"australia/eucla\":304,\"australia/hobart\":305,\"australia/currie\":305,\"australia/tasmania\":305,\"australia/lindeman\":306,\"australia/lord_howe\":307,\"australia/lhi\":307,\"australia/melbourne\":308,\"australia/victoria\":308,\"australia/perth\":309,\"australia/west\":309,\"australia/sydney\":310,\"australia/act\":310,\"australia/canberra\":310,\"australia/nsw\":310,\"etc/gmt+1\":311,\"etc/gmt+10\":312,\"etc/gmt+11\":313,\"etc/gmt+12\":314,\"etc/gmt+2\":315,\"etc/gmt+3\":316,\"etc/gmt+4\":317,\"etc/gmt+5\":318,\"etc/gmt+6\":319,\"etc/gmt+7\":320,\"etc/gmt+8\":321,\"etc/gmt+9\":322,\"etc/gmt-1\":323,\"etc/gmt-10\":324,\"etc/gmt-11\":325,\"etc/gmt-12\":326,\"etc/gmt-13\":327,\"etc/gmt-14\":328,\"etc/gmt-2\":329,\"etc/gmt-3\":330,\"etc/gmt-4\":331,\"etc/gmt-5\":332,\"etc/gmt-6\":333,\"etc/gmt-7\":334,\"etc/gmt-8\":335,\"etc/gmt-9\":336,\"europe/amsterdam\":337,\"europe/andorra\":338,\"europe/astrakhan\":339,\"europe/athens\":340,\"europe/belgrade\":341,\"europe/berlin\":342,\"europe/bratislava\":343,\"europe/brussels\":344,\"met\":344,\"europe/bucharest\":345,\"europe/budapest\":346,\"europe/busingen\":347,\"europe/chisinau\":348,\"europe/tiraspol\":348,\"europe/copenhagen\":349,\"europe/dublin\":350,\"eire\":350,\"europe/gibraltar\":351,\"europe/guernsey\":352,\"europe/helsinki\":353,\"europe/isle_of_man\":354,\"europe/istanbul\":355,\"asia/istanbul\":355,\"turkey\":355,\"europe/jersey\":356,\"europe/kaliningrad\":357,\"europe/kiev\":358,\"europe/kyiv\":358,\"europe/uzhgorod\":358,\"europe/zaporozhye\":358,\"europe/kirov\":359,\"europe/lisbon\":360,\"portugal\":360,\"europe/ljubljana\":361,\"europe/london\":362,\"europe/belfast\":362,\"gb\":362,\"gb-eire\":362,\"europe/luxembourg\":363,\"europe/madrid\":364,\"europe/malta\":365,\"europe/mariehamn\":366,\"europe/minsk\":367,\"europe/monaco\":368,\"europe/moscow\":369,\"w-su\":369,\"europe/oslo\":370,\"europe/paris\":371,\"europe/podgorica\":372,\"europe/prague\":373,\"europe/riga\":374,\"europe/rome\":375,\"europe/samara\":376,\"europe/san_marino\":377,\"europe/sarajevo\":378,\"europe/saratov\":379,\"europe/simferopol\":380,\"europe/skopje\":381,\"europe/sofia\":382,\"europe/stockholm\":383,\"europe/tallinn\":384,\"europe/tirane\":385,\"europe/ulyanovsk\":386,\"europe/vaduz\":387,\"europe/vatican\":388,\"europe/vienna\":389,\"europe/vilnius\":390,\"europe/volgograd\":391,\"europe/warsaw\":392,\"poland\":392,\"europe/zagreb\":393,\"europe/zurich\":394,\"indian/antananarivo\":395,\"indian/chagos\":396,\"indian/christmas\":397,\"indian/cocos\":398,\"indian/comoro\":399,\"indian/kerguelen\":400,\"indian/mahe\":401,\"indian/maldives\":402,\"indian/mauritius\":403,\"indian/mayotte\":404,\"indian/reunion\":405,\"pacific/apia\":406,\"pacific/auckland\":407,\"nz\":407,\"pacific/bougainville\":408,\"pacific/chatham\":409,\"nz-chat\":409,\"pacific/easter\":410,\"chile/easterisland\":410,\"pacific/efate\":411,\"pacific/enderbury\":412,\"pacific/kanton\":412,\"pacific/fakaofo\":413,\"pacific/fiji\":414,\"pacific/funafuti\":415,\"pacific/galapagos\":416,\"pacific/gambier\":417,\"pacific/guadalcanal\":418,\"pacific/guam\":419,\"pacific/honolulu\":420,\"pacific/johnston\":420,\"us/hawaii\":420,\"pacific/kiritimati\":421,\"pacific/kosrae\":422,\"pacific/kwajalein\":423,\"kwajalein\":423,\"pacific/majuro\":424,\"pacific/marquesas\":425,\"pacific/midway\":426,\"pacific/nauru\":427,\"pacific/niue\":428,\"pacific/norfolk\":429,\"pacific/noumea\":430,\"pacific/pago_pago\":431,\"pacific/samoa\":431,\"us/samoa\":431,\"pacific/palau\":432,\"pacific/pitcairn\":433,\"pacific/ponape\":434,\"pacific/pohnpei\":434,\"pacific/port_moresby\":435,\"pacific/rarotonga\":436,\"pacific/saipan\":437,\"pacific/tahiti\":438,\"pacific/tarawa\":439,\"pacific/tongatapu\":440,\"pacific/truk\":441,\"pacific/chuuk\":441,\"pacific/yap\":441,\"pacific/wake\":442,\"pacific/wallis\":443,\"systemv/ast4\":444,\"systemv/ast4adt\":445,\"systemv/cst6\":446,\"systemv/cst6cdt\":447,\"systemv/est5\":448,\"systemv/est5edt\":449,\"systemv/hst10\":450,\"systemv/mst7\":451,\"systemv/mst7mdt\":452,\"systemv/pst8\":453,\"systemv/pst8pdt\":454,\"systemv/yst9\":455,\"systemv/yst9ydt\":456,\"utc\":457,\"etc/gmt\":457,\"etc/gmt+0\":457,\"etc/gmt-0\":457,\"etc/gmt0\":457,\"etc/greenwich\":457,\"etc/uct\":457,\"etc/utc\":457,\"etc/universal\":457,\"etc/zulu\":457,\"gmt\":457,\"gmt+0\":457,\"gmt-0\":457,\"gmt0\":457,\"greenwich\":457,\"uct\":457,\"universal\":457,\"zulu\":457},\"zones\":[[\"Africa/Abidjan\"],[\"Africa/Accra\"],[\"Africa/Addis_Ababa\"],[\"Africa/Algiers\"],[\"Africa/Asmera\",\"Africa/Asmara\"],[\"Africa/Bamako\",\"Africa/Timbuktu\"],[\"Africa/Bangui\"],[\"Africa/Banjul\"],[\"Africa/Bissau\"],[\"Africa/Blantyre\"],[\"Africa/Brazzaville\"],[\"Africa/Bujumbura\"],[\"Africa/Cairo\",\"Egypt\"],[\"Africa/Casablanca\"],[\"Africa/Ceuta\"],[\"Africa/Conakry\"],[\"Africa/Dakar\"],[\"Africa/Dar_es_Salaam\"],[\"Africa/Djibouti\"],[\"Africa/Douala\"],[\"Africa/El_Aaiun\"],[\"Africa/Freetown\"],[\"Africa/Gaborone\"],[\"Africa/Harare\"],[\"Africa/Johannesburg\"],[\"Africa/Juba\"],[\"Africa/Kampala\"],[\"Africa/Khartoum\"],[\"Africa/Kigali\"],[\"Africa/Kinshasa\"],[\"Africa/Lagos\"],[\"Africa/Libreville\"],[\"Africa/Lome\"],[\"Africa/Luanda\"],[\"Africa/Lubumbashi\"],[\"Africa/Lusaka\"],[\"Africa/Malabo\"],[\"Africa/Maputo\"],[\"Africa/Maseru\"],[\"Africa/Mbabane\"],[\"Africa/Mogadishu\"],[\"Africa/Monrovia\"],[\"Africa/Nairobi\"],[\"Africa/Ndjamena\"],[\"Africa/Niamey\"],[\"Africa/Nouakchott\"],[\"Africa/Ouagadougou\"],[\"Africa/Porto-Novo\"],[\"Africa/Sao_Tome\"],[\"Africa/Tripoli\",\"Libya\"],[\"Africa/Tunis\"],[\"Africa/Windhoek\"],[\"America/Adak\",\"America/Atka\",\"US/Aleutian\"],[\"America/Anchorage\",\"US/Alaska\"],[\"America/Anguilla\"],[\"America/Antigua\"],[\"America/Araguaina\"],[\"America/Argentina/La_Rioja\"],[\"America/Argentina/Rio_Gallegos\"],[\"America/Argentina/Salta\"],[\"America/Argentina/San_Juan\"],[\"America/Argentina/San_Luis\"],[\"America/Argentina/Tucuman\"],[\"America/Argentina/Ushuaia\"],[\"America/Aruba\"],[\"America/Asuncion\"],[\"America/Bahia\"],[\"America/Bahia_Banderas\"],[\"America/Barbados\"],[\"America/Belem\"],[\"America/Belize\"],[\"America/Blanc-Sablon\"],[\"America/Boa_Vista\"],[\"America/Bogota\"],[\"America/Boise\"],[\"America/Buenos_Aires\",\"America/Argentina/Buenos_Aires\"],[\"America/Cambridge_Bay\"],[\"America/Campo_Grande\"],[\"America/Cancun\"],[\"America/Caracas\"],[\"America/Catamarca\",\"America/Argentina/Catamarca\",\"America/Argentina/ComodRivadavia\"],[\"America/Cayenne\"],[\"America/Cayman\"],[\"America/Chicago\",\"CST6CDT\",\"US/Central\"],[\"America/Chihuahua\"],[\"America/Ciudad_Juarez\"],[\"America/Coral_Harbour\",\"America/Atikokan\"],[\"America/Cordoba\",\"America/Argentina/Cordoba\",\"America/Rosario\"],[\"America/Costa_Rica\"],[\"America/Coyhaique\"],[\"America/Creston\"],[\"America/Cuiaba\"],[\"America/Curacao\"],[\"America/Danmarkshavn\"],[\"America/Dawson\"],[\"America/Dawson_Creek\"],[\"America/Denver\",\"America/Shiprock\",\"MST7MDT\",\"Navajo\",\"US/Mountain\"],[\"America/Detroit\",\"US/Michigan\"],[\"America/Dominica\"],[\"America/Edmonton\",\"America/Yellowknife\",\"Canada/Mountain\"],[\"America/Eirunepe\"],[\"America/El_Salvador\"],[\"America/Fort_Nelson\"],[\"America/Fortaleza\"],[\"America/Glace_Bay\"],[\"America/Godthab\",\"America/Nuuk\"],[\"America/Goose_Bay\"],[\"America/Grand_Turk\"],[\"America/Grenada\"],[\"America/Guadeloupe\"],[\"America/Guatemala\"],[\"America/Guayaquil\"],[\"America/Guyana\"],[\"America/Halifax\",\"Canada/Atlantic\"],[\"America/Havana\",\"Cuba\"],[\"America/Hermosillo\"],[\"America/Indiana/Knox\",\"America/Knox_IN\",\"US/Indiana-Starke\"],[\"America/Indiana/Marengo\"],[\"America/Indiana/Petersburg\"],[\"America/Indiana/Tell_City\"],[\"America/Indiana/Vevay\"],[\"America/Indiana/Vincennes\"],[\"America/Indiana/Winamac\"],[\"America/Indianapolis\",\"America/Fort_Wayne\",\"America/Indiana/Indianapolis\",\"US/East-Indiana\"],[\"America/Inuvik\"],[\"America/Iqaluit\",\"America/Pangnirtung\"],[\"America/Jamaica\",\"Jamaica\"],[\"America/Jujuy\",\"America/Argentina/Jujuy\"],[\"America/Juneau\"],[\"America/Kentucky/Monticello\"],[\"America/Kralendijk\"],[\"America/La_Paz\"],[\"America/Lima\"],[\"America/Los_Angeles\",\"PST8PDT\",\"US/Pacific\",\"US/Pacific-New\"],[\"America/Louisville\",\"America/Kentucky/Louisville\"],[\"America/Lower_Princes\"],[\"America/Maceio\"],[\"America/Managua\"],[\"America/Manaus\",\"Brazil/West\"],[\"America/Marigot\"],[\"America/Martinique\"],[\"America/Matamoros\"],[\"America/Mazatlan\",\"Mexico/BajaSur\"],[\"America/Mendoza\",\"America/Argentina/Mendoza\"],[\"America/Menominee\"],[\"America/Merida\"],[\"America/Metlakatla\"],[\"America/Mexico_City\",\"Mexico/General\"],[\"America/Miquelon\"],[\"America/Moncton\"],[\"America/Monterrey\"],[\"America/Montevideo\"],[\"America/Montserrat\"],[\"America/Nassau\"],[\"America/New_York\",\"EST5EDT\",\"US/Eastern\"],[\"America/Nome\"],[\"America/Noronha\",\"Brazil/DeNoronha\"],[\"America/North_Dakota/Beulah\"],[\"America/North_Dakota/Center\"],[\"America/North_Dakota/New_Salem\"],[\"America/Ojinaga\"],[\"America/Panama\"],[\"America/Paramaribo\"],[\"America/Phoenix\",\"US/Arizona\"],[\"America/Port-au-Prince\"],[\"America/Port_of_Spain\"],[\"America/Porto_Velho\"],[\"America/Puerto_Rico\"],[\"America/Punta_Arenas\"],[\"America/Rankin_Inlet\"],[\"America/Recife\"],[\"America/Regina\",\"Canada/East-Saskatchewan\",\"Canada/Saskatchewan\"],[\"America/Resolute\"],[\"America/Rio_Branco\",\"America/Porto_Acre\",\"Brazil/Acre\"],[\"America/Santarem\"],[\"America/Santiago\",\"Chile/Continental\"],[\"America/Santo_Domingo\"],[\"America/Sao_Paulo\",\"Brazil/East\"],[\"America/Scoresbysund\"],[\"America/Sitka\"],[\"America/St_Barthelemy\"],[\"America/St_Johns\",\"Canada/Newfoundland\"],[\"America/St_Kitts\"],[\"America/St_Lucia\"],[\"America/St_Thomas\",\"America/Virgin\"],[\"America/St_Vincent\"],[\"America/Swift_Current\"],[\"America/Tegucigalpa\"],[\"America/Thule\"],[\"America/Tijuana\",\"America/Ensenada\",\"America/Santa_Isabel\",\"Mexico/BajaNorte\"],[\"America/Toronto\",\"America/Montreal\",\"America/Nipigon\",\"America/Thunder_Bay\",\"Canada/Eastern\"],[\"America/Tortola\"],[\"America/Vancouver\",\"Canada/Pacific\"],[\"America/Whitehorse\",\"Canada/Yukon\"],[\"America/Winnipeg\",\"America/Rainy_River\",\"Canada/Central\"],[\"America/Yakutat\"],[\"Antarctica/Casey\"],[\"Antarctica/Davis\"],[\"Antarctica/DumontDUrville\"],[\"Antarctica/Macquarie\"],[\"Antarctica/Mawson\"],[\"Antarctica/McMurdo\",\"Antarctica/South_Pole\"],[\"Antarctica/Palmer\"],[\"Antarctica/Rothera\"],[\"Antarctica/Syowa\"],[\"Antarctica/Troll\"],[\"Antarctica/Vostok\"],[\"Arctic/Longyearbyen\",\"Atlantic/Jan_Mayen\"],[\"Asia/Aden\"],[\"Asia/Almaty\"],[\"Asia/Amman\"],[\"Asia/Anadyr\"],[\"Asia/Aqtau\"],[\"Asia/Aqtobe\"],[\"Asia/Ashgabat\",\"Asia/Ashkhabad\"],[\"Asia/Atyrau\"],[\"Asia/Baghdad\"],[\"Asia/Bahrain\"],[\"Asia/Baku\"],[\"Asia/Bangkok\"],[\"Asia/Barnaul\"],[\"Asia/Beirut\"],[\"Asia/Bishkek\"],[\"Asia/Brunei\"],[\"Asia/Calcutta\",\"Asia/Kolkata\"],[\"Asia/Chita\"],[\"Asia/Colombo\"],[\"Asia/Damascus\"],[\"Asia/Dhaka\",\"Asia/Dacca\"],[\"Asia/Dili\"],[\"Asia/Dubai\"],[\"Asia/Dushanbe\"],[\"Asia/Famagusta\"],[\"Asia/Gaza\"],[\"Asia/Hebron\"],[\"Asia/Hong_Kong\",\"Hongkong\"],[\"Asia/Hovd\"],[\"Asia/Irkutsk\"],[\"Asia/Jakarta\"],[\"Asia/Jayapura\"],[\"Asia/Jerusalem\",\"Asia/Tel_Aviv\",\"Israel\"],[\"Asia/Kabul\"],[\"Asia/Kamchatka\"],[\"Asia/Karachi\"],[\"Asia/Katmandu\",\"Asia/Kathmandu\"],[\"Asia/Khandyga\"],[\"Asia/Krasnoyarsk\"],[\"Asia/Kuala_Lumpur\"],[\"Asia/Kuching\"],[\"Asia/Kuwait\"],[\"Asia/Macau\",\"Asia/Macao\"],[\"Asia/Magadan\"],[\"Asia/Makassar\",\"Asia/Ujung_Pandang\"],[\"Asia/Manila\"],[\"Asia/Muscat\"],[\"Asia/Nicosia\",\"Europe/Nicosia\"],[\"Asia/Novokuznetsk\"],[\"Asia/Novosibirsk\"],[\"Asia/Omsk\"],[\"Asia/Oral\"],[\"Asia/Phnom_Penh\"],[\"Asia/Pontianak\"],[\"Asia/Pyongyang\"],[\"Asia/Qatar\"],[\"Asia/Qostanay\"],[\"Asia/Qyzylorda\"],[\"Asia/Rangoon\",\"Asia/Yangon\"],[\"Asia/Riyadh\"],[\"Asia/Saigon\",\"Asia/Ho_Chi_Minh\"],[\"Asia/Sakhalin\"],[\"Asia/Samarkand\"],[\"Asia/Seoul\",\"ROK\"],[\"Asia/Shanghai\",\"Asia/Chongqing\",\"Asia/Chungking\",\"Asia/Harbin\",\"PRC\"],[\"Asia/Singapore\",\"Singapore\"],[\"Asia/Srednekolymsk\"],[\"Asia/Taipei\",\"ROC\"],[\"Asia/Tashkent\"],[\"Asia/Tbilisi\"],[\"Asia/Tehran\",\"Iran\"],[\"Asia/Thimphu\",\"Asia/Thimbu\"],[\"Asia/Tokyo\",\"Japan\"],[\"Asia/Tomsk\"],[\"Asia/Ulaanbaatar\",\"Asia/Choibalsan\",\"Asia/Ulan_Bator\"],[\"Asia/Urumqi\",\"Asia/Kashgar\"],[\"Asia/Ust-Nera\"],[\"Asia/Vientiane\"],[\"Asia/Vladivostok\"],[\"Asia/Yakutsk\"],[\"Asia/Yekaterinburg\"],[\"Asia/Yerevan\"],[\"Atlantic/Azores\"],[\"Atlantic/Bermuda\"],[\"Atlantic/Canary\"],[\"Atlantic/Cape_Verde\"],[\"Atlantic/Faeroe\",\"Atlantic/Faroe\"],[\"Atlantic/Madeira\"],[\"Atlantic/Reykjavik\",\"Iceland\"],[\"Atlantic/South_Georgia\"],[\"Atlantic/St_Helena\"],[\"Atlantic/Stanley\"],[\"Australia/Adelaide\",\"Australia/South\"],[\"Australia/Brisbane\",\"Australia/Queensland\"],[\"Australia/Broken_Hill\",\"Australia/Yancowinna\"],[\"Australia/Darwin\",\"Australia/North\"],[\"Australia/Eucla\"],[\"Australia/Hobart\",\"Australia/Currie\",\"Australia/Tasmania\"],[\"Australia/Lindeman\"],[\"Australia/Lord_Howe\",\"Australia/LHI\"],[\"Australia/Melbourne\",\"Australia/Victoria\"],[\"Australia/Perth\",\"Australia/West\"],[\"Australia/Sydney\",\"Australia/ACT\",\"Australia/Canberra\",\"Australia/NSW\"],[\"Etc/GMT+1\"],[\"Etc/GMT+10\"],[\"Etc/GMT+11\"],[\"Etc/GMT+12\"],[\"Etc/GMT+2\"],[\"Etc/GMT+3\"],[\"Etc/GMT+4\"],[\"Etc/GMT+5\"],[\"Etc/GMT+6\"],[\"Etc/GMT+7\"],[\"Etc/GMT+8\"],[\"Etc/GMT+9\"],[\"Etc/GMT-1\"],[\"Etc/GMT-10\"],[\"Etc/GMT-11\"],[\"Etc/GMT-12\"],[\"Etc/GMT-13\"],[\"Etc/GMT-14\"],[\"Etc/GMT-2\"],[\"Etc/GMT-3\"],[\"Etc/GMT-4\"],[\"Etc/GMT-5\"],[\"Etc/GMT-6\"],[\"Etc/GMT-7\"],[\"Etc/GMT-8\"],[\"Etc/GMT-9\"],[\"Europe/Amsterdam\"],[\"Europe/Andorra\"],[\"Europe/Astrakhan\"],[\"Europe/Athens\"],[\"Europe/Belgrade\"],[\"Europe/Berlin\"],[\"Europe/Bratislava\"],[\"Europe/Brussels\",\"MET\"],[\"Europe/Bucharest\"],[\"Europe/Budapest\"],[\"Europe/Busingen\"],[\"Europe/Chisinau\",\"Europe/Tiraspol\"],[\"Europe/Copenhagen\"],[\"Europe/Dublin\",\"Eire\"],[\"Europe/Gibraltar\"],[\"Europe/Guernsey\"],[\"Europe/Helsinki\"],[\"Europe/Isle_of_Man\"],[\"Europe/Istanbul\",\"Asia/Istanbul\",\"Turkey\"],[\"Europe/Jersey\"],[\"Europe/Kaliningrad\"],[\"Europe/Kiev\",\"Europe/Kyiv\",\"Europe/Uzhgorod\",\"Europe/Zaporozhye\"],[\"Europe/Kirov\"],[\"Europe/Lisbon\",\"Portugal\"],[\"Europe/Ljubljana\"],[\"Europe/London\",\"Europe/Belfast\",\"GB\",\"GB-Eire\"],[\"Europe/Luxembourg\"],[\"Europe/Madrid\"],[\"Europe/Malta\"],[\"Europe/Mariehamn\"],[\"Europe/Minsk\"],[\"Europe/Monaco\"],[\"Europe/Moscow\",\"W-SU\"],[\"Europe/Oslo\"],[\"Europe/Paris\"],[\"Europe/Podgorica\"],[\"Europe/Prague\"],[\"Europe/Riga\"],[\"Europe/Rome\"],[\"Europe/Samara\"],[\"Europe/San_Marino\"],[\"Europe/Sarajevo\"],[\"Europe/Saratov\"],[\"Europe/Simferopol\"],[\"Europe/Skopje\"],[\"Europe/Sofia\"],[\"Europe/Stockholm\"],[\"Europe/Tallinn\"],[\"Europe/Tirane\"],[\"Europe/Ulyanovsk\"],[\"Europe/Vaduz\"],[\"Europe/Vatican\"],[\"Europe/Vienna\"],[\"Europe/Vilnius\"],[\"Europe/Volgograd\"],[\"Europe/Warsaw\",\"Poland\"],[\"Europe/Zagreb\"],[\"Europe/Zurich\"],[\"Indian/Antananarivo\"],[\"Indian/Chagos\"],[\"Indian/Christmas\"],[\"Indian/Cocos\"],[\"Indian/Comoro\"],[\"Indian/Kerguelen\"],[\"Indian/Mahe\"],[\"Indian/Maldives\"],[\"Indian/Mauritius\"],[\"Indian/Mayotte\"],[\"Indian/Reunion\"],[\"Pacific/Apia\"],[\"Pacific/Auckland\",\"NZ\"],[\"Pacific/Bougainville\"],[\"Pacific/Chatham\",\"NZ-CHAT\"],[\"Pacific/Easter\",\"Chile/EasterIsland\"],[\"Pacific/Efate\"],[\"Pacific/Enderbury\",\"Pacific/Kanton\"],[\"Pacific/Fakaofo\"],[\"Pacific/Fiji\"],[\"Pacific/Funafuti\"],[\"Pacific/Galapagos\"],[\"Pacific/Gambier\"],[\"Pacific/Guadalcanal\"],[\"Pacific/Guam\"],[\"Pacific/Honolulu\",\"Pacific/Johnston\",\"US/Hawaii\"],[\"Pacific/Kiritimati\"],[\"Pacific/Kosrae\"],[\"Pacific/Kwajalein\",\"Kwajalein\"],[\"Pacific/Majuro\"],[\"Pacific/Marquesas\"],[\"Pacific/Midway\"],[\"Pacific/Nauru\"],[\"Pacific/Niue\"],[\"Pacific/Norfolk\"],[\"Pacific/Noumea\"],[\"Pacific/Pago_Pago\",\"Pacific/Samoa\",\"US/Samoa\"],[\"Pacific/Palau\"],[\"Pacific/Pitcairn\"],[\"Pacific/Ponape\",\"Pacific/Pohnpei\"],[\"Pacific/Port_Moresby\"],[\"Pacific/Rarotonga\"],[\"Pacific/Saipan\"],[\"Pacific/Tahiti\"],[\"Pacific/Tarawa\"],[\"Pacific/Tongatapu\"],[\"Pacific/Truk\",\"Pacific/Chuuk\",\"Pacific/Yap\"],[\"Pacific/Wake\"],[\"Pacific/Wallis\"],[\"SystemV/AST4\"],[\"SystemV/AST4ADT\"],[\"SystemV/CST6\"],[\"SystemV/CST6CDT\"],[\"SystemV/EST5\"],[\"SystemV/EST5EDT\"],[\"SystemV/HST10\"],[\"SystemV/MST7\"],[\"SystemV/MST7MDT\"],[\"SystemV/PST8\"],[\"SystemV/PST8PDT\"],[\"SystemV/YST9\"],[\"SystemV/YST9YDT\"],[\"UTC\",\"Etc/GMT\",\"Etc/GMT+0\",\"Etc/GMT-0\",\"Etc/GMT0\",\"Etc/Greenwich\",\"Etc/UCT\",\"Etc/UTC\",\"Etc/Universal\",\"Etc/Zulu\",\"GMT\",\"GMT+0\",\"GMT-0\",\"GMT0\",\"Greenwich\",\"UCT\",\"Universal\",\"Zulu\"]]}\n"); if err != nil { return nil, err }; v_table = v }
+	v_empty_keys = Object()
+	v_keys = coreGet(v_table, "keys", v_empty_keys)
+	v_group_index = coreGet(v_keys, v_key, nil)
+	v_unknown = _core_is_none(v_group_index)
+	if coreTruthy(v_unknown) {
+		v_unknown_error = _core_runtime_error(v_unrecognized)
+		return nil, asError(v_unknown_error)
+	} else {
+	// empty
+	}
+	v_empty_zones = MutableArray()
+	v_zones = coreGet(v_table, "zones", v_empty_zones)
+	v_empty_group = MutableArray()
+	v_group = coreGet(v_zones, v_group_index, v_empty_group)
+	for _, v_candidate = range coreIter(v_group) {
+		v_works = true
+		{
+			__flow, __err := func() (coreFlow, error) {
+				if _, err := _core_date_zone_offset(v_candidate, v_probe); err != nil { return coreFlow{}, err }
+				return coreFlow{}, nil
+			}()
+			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+			if __err != nil {
+				v_zone_error = errorValue(__err)
+				v_works = false
+			}
+		}
+		if coreTruthy(v_works) {
+			if err := coreSet(v_resolved, "kind", "named"); err != nil { return nil, err }
+			if err := coreSet(v_resolved, "name", v_candidate); err != nil { return nil, err }
+			return v_resolved, nil
+		} else {
+		// empty
+		}
+	}
+	v_missing_error = _core_runtime_error(v_unrecognized)
+	return nil, asError(v_missing_error)
 }
 
 func _build_optimization_eval_row(args ...Value) (Value, error) {
@@ -36426,6 +37633,155 @@ func _regex_class_atom(args ...Value) (Value, error) {
 	}
 	{ v, err := _regex_literal(v_c); if err != nil { return nil, err }; v_t4 = v }
 	return v_t4, nil
+}
+
+func _date_offset_zone_minutes_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_offset_zone_minutes_impl")
+	var v_units Value
+	var v_start Value
+	var v_end Value
+	var v_bad_hours Value
+	var v_bad_minutes Value
+	var v_colon Value
+	var v_colon_at Value
+	var v_colon_minutes_at Value
+	var v_colon_unit Value
+	var v_compact Value
+	var v_compact_at Value
+	var v_has_sign Value
+	var v_hour_at Value
+	var v_hours Value
+	var v_hours_range Value
+	var v_invalid Value
+	var v_is_colon Value
+	var v_known_length Value
+	var v_length Value
+	var v_math_minus Value
+	var v_minus Value
+	var v_minutes Value
+	var v_minutes_range Value
+	var v_negative Value
+	var v_no_sign Value
+	var v_none Value
+	var v_plus Value
+	var v_short_form Value
+	var v_sign Value
+	var v_sign_unit Value
+	var v_total Value
+	var v_unknown_length Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_start = args[1] }
+	_ = v_start
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	_ = v_bad_hours
+	_ = v_bad_minutes
+	_ = v_colon
+	_ = v_colon_at
+	_ = v_colon_minutes_at
+	_ = v_colon_unit
+	_ = v_compact
+	_ = v_compact_at
+	_ = v_has_sign
+	_ = v_hour_at
+	_ = v_hours
+	_ = v_hours_range
+	_ = v_invalid
+	_ = v_is_colon
+	_ = v_known_length
+	_ = v_length
+	_ = v_math_minus
+	_ = v_minus
+	_ = v_minutes
+	_ = v_minutes_range
+	_ = v_negative
+	_ = v_no_sign
+	_ = v_none
+	_ = v_plus
+	_ = v_short_form
+	_ = v_sign
+	_ = v_sign_unit
+	_ = v_total
+	_ = v_unknown_length
+	v_none = _core_none()
+	v_length = _core_mul(v_start, -1)
+	v_length = _core_add(v_length, v_end)
+	v_sign_unit = coreGet(v_units, v_start, 0)
+	v_sign = 0
+	v_plus = _core_eq(v_sign_unit, 43)
+	if coreTruthy(v_plus) {
+		v_sign = 1
+	} else {
+	// empty
+	}
+	v_minus = _core_eq(v_sign_unit, 45)
+	v_math_minus = _core_eq(v_sign_unit, 8722)
+	v_negative = _core_or(v_minus, v_math_minus)
+	if coreTruthy(v_negative) {
+		v_sign = -1
+	} else {
+	// empty
+	}
+	v_no_sign = _core_eq(v_sign, 0)
+	if coreTruthy(v_no_sign) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_hour_at = _core_add(v_start, 1)
+	{ v, err := _date_digits_impl(v_units, v_hour_at, 2, v_end); if err != nil { return nil, err }; v_hours = v }
+	v_bad_hours = _core_lt(v_hours, 0)
+	if coreTruthy(v_bad_hours) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_minutes = 0
+	v_short_form = _core_eq(v_length, 3)
+	v_compact = _core_eq(v_length, 5)
+	v_colon = _core_eq(v_length, 6)
+	if coreTruthy(v_compact) {
+		v_compact_at = _core_add(v_start, 3)
+		{ v, err := _date_digits_impl(v_units, v_compact_at, 2, v_end); if err != nil { return nil, err }; v_minutes = v }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_colon) {
+		v_colon_at = _core_add(v_start, 3)
+		v_colon_unit = coreGet(v_units, v_colon_at, 0)
+		v_is_colon = _core_eq(v_colon_unit, 58)
+		if coreTruthy(v_is_colon) {
+			v_colon_minutes_at = _core_add(v_start, 4)
+			{ v, err := _date_digits_impl(v_units, v_colon_minutes_at, 2, v_end); if err != nil { return nil, err }; v_minutes = v }
+		} else {
+			v_minutes = -1
+		}
+	} else {
+	// empty
+	}
+	v_known_length = _core_or(v_short_form, v_compact)
+	v_known_length = _core_or(v_known_length, v_colon)
+	v_unknown_length = _core_not(v_known_length)
+	if coreTruthy(v_unknown_length) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_bad_minutes = _core_lt(v_minutes, 0)
+	v_hours_range = _core_gt(v_hours, 23)
+	v_minutes_range = _core_gt(v_minutes, 59)
+	v_invalid = _core_or(v_bad_minutes, v_hours_range)
+	v_invalid = _core_or(v_invalid, v_minutes_range)
+	if coreTruthy(v_invalid) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_total = _core_mul(v_hours, 60)
+	v_total = _core_add(v_total, v_minutes)
+	v_has_sign = _core_mul(v_total, v_sign)
+	return v_has_sign, nil
 }
 
 func chat_session_register_call(args ...Value) (Value, error) {
@@ -37267,6 +38623,37 @@ func chat_session_normalize_call(args ...Value) (Value, error) {
 	return v_call, nil
 }
 
+func _date_zone_offset_seconds_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_zone_offset_seconds_impl")
+	var v_zone Value
+	var v_millis Value
+	var v_fixed Value
+	var v_fixed_seconds Value
+	var v_kind Value
+	var v_name Value
+	var v_seconds Value
+	if len(args) > 0 { v_zone = args[0] }
+	_ = v_zone
+	if len(args) > 1 { v_millis = args[1] }
+	_ = v_millis
+	_ = v_fixed
+	_ = v_fixed_seconds
+	_ = v_kind
+	_ = v_name
+	_ = v_seconds
+	v_kind = coreGet(v_zone, "kind", nil)
+	v_fixed = _core_eq(v_kind, "fixed")
+	if coreTruthy(v_fixed) {
+		v_fixed_seconds = coreGet(v_zone, "offset_seconds", nil)
+		return v_fixed_seconds, nil
+	} else {
+	// empty
+	}
+	v_name = coreGet(v_zone, "name", nil)
+	{ v, err := _core_date_zone_offset(v_name, v_millis); if err != nil { return nil, err }; v_seconds = v }
+	return v_seconds, nil
+}
+
 func _prepare_optimizer_run(args ...Value) (Value, error) {
 	axirCoverageMark("_prepare_optimizer_run")
 	var v_program_kind Value
@@ -37378,6 +38765,46 @@ func chat_session_defer_final_call(args ...Value) (Value, error) {
 	// empty
 	}
 	return false, nil
+}
+
+func _date_parts_in_zone_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_parts_in_zone_impl")
+	var v_zone Value
+	var v_millis Value
+	var v_before_era Value
+	var v_era_year Value
+	var v_local Value
+	var v_negated Value
+	var v_parts Value
+	var v_seconds Value
+	var v_shift Value
+	var v_year Value
+	if len(args) > 0 { v_zone = args[0] }
+	_ = v_zone
+	if len(args) > 1 { v_millis = args[1] }
+	_ = v_millis
+	_ = v_before_era
+	_ = v_era_year
+	_ = v_local
+	_ = v_negated
+	_ = v_parts
+	_ = v_seconds
+	_ = v_shift
+	_ = v_year
+	{ v, err := _date_zone_offset_seconds_impl(v_zone, v_millis); if err != nil { return nil, err }; v_seconds = v }
+	v_shift = _core_mul(v_seconds, 1000)
+	v_local = _core_add(v_millis, v_shift)
+	{ v, err := _date_parts_of_ms_impl(v_local); if err != nil { return nil, err }; v_parts = v }
+	v_year = coreGet(v_parts, "year", nil)
+	v_before_era = _core_lte(v_year, 0)
+	if coreTruthy(v_before_era) {
+		v_negated = _core_mul(v_year, -1)
+		v_era_year = _core_add(v_negated, 1)
+		if err := coreSet(v_parts, "year", v_era_year); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_parts, nil
 }
 
 func _select_sample_index(args ...Value) (Value, error) {
@@ -38035,6 +39462,29 @@ func _normalize_optimizer_engine_response(args ...Value) (Value, error) {
 	return v_validated, nil
 }
 
+func _date_zone_offset_millis_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_zone_offset_millis_impl")
+	var v_zone Value
+	var v_millis Value
+	var v_local Value
+	var v_negated Value
+	var v_offset Value
+	var v_parts Value
+	if len(args) > 0 { v_zone = args[0] }
+	_ = v_zone
+	if len(args) > 1 { v_millis = args[1] }
+	_ = v_millis
+	_ = v_local
+	_ = v_negated
+	_ = v_offset
+	_ = v_parts
+	{ v, err := _date_parts_in_zone_impl(v_zone, v_millis); if err != nil { return nil, err }; v_parts = v }
+	{ v, err := _date_utc_ms_impl(v_parts); if err != nil { return nil, err }; v_local = v }
+	v_negated = _core_mul(v_millis, -1)
+	v_offset = _core_add(v_local, v_negated)
+	return v_offset, nil
+}
+
 func _forward_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_forward_impl")
 	var v_gen Value
@@ -38384,6 +39834,7 @@ func _forward_impl(args ...Value) (Value, error) {
 	v_ordered_messages = coreAppend(v_ordered_messages, v_user_message)
 	v_output_fields = coreGet(v_signature, "output_fields", nil)
 	if _, err := _append_structured_output_instruction(v_ordered_messages, v_output_fields, v_selection); err != nil { return nil, err }
+	{ v, err := _date_parse_fields_impl(v_output_fields, v_base_options, v_options); if err != nil { return nil, err }; v_output_fields = v }
 	v_validation_feedback_snake = coreGet(v_runtime_options, "validation_feedback", "")
 	v_validation_feedback = coreGet(v_runtime_options, "validationFeedback", v_validation_feedback_snake)
 	v_has_validation_feedback = _core_truthy(v_validation_feedback)
@@ -38662,6 +40113,60 @@ func _forward_impl(args ...Value) (Value, error) {
 	}
 }
 
+func _date_named_timestamp_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_named_timestamp_impl")
+	var v_parts Value
+	var v_zone Value
+	var v_actual Value
+	var v_adjusted Value
+	var v_adjusted_negated Value
+	var v_different Value
+	var v_error Value
+	var v_moved Value
+	var v_negated Value
+	var v_offset Value
+	var v_same Value
+	var v_timestamp Value
+	var v_utc Value
+	if len(args) > 0 { v_parts = args[0] }
+	_ = v_parts
+	if len(args) > 1 { v_zone = args[1] }
+	_ = v_zone
+	_ = v_actual
+	_ = v_adjusted
+	_ = v_adjusted_negated
+	_ = v_different
+	_ = v_error
+	_ = v_moved
+	_ = v_negated
+	_ = v_offset
+	_ = v_same
+	_ = v_timestamp
+	_ = v_utc
+	{ v, err := _date_utc_ms_impl(v_parts); if err != nil { return nil, err }; v_utc = v }
+	{ v, err := _date_zone_offset_millis_impl(v_zone, v_utc); if err != nil { return nil, err }; v_offset = v }
+	v_negated = _core_mul(v_offset, -1)
+	v_timestamp = _core_add(v_utc, v_negated)
+	{ v, err := _date_zone_offset_millis_impl(v_zone, v_timestamp); if err != nil { return nil, err }; v_adjusted = v }
+	v_moved = _core_ne(v_adjusted, v_offset)
+	if coreTruthy(v_moved) {
+		v_adjusted_negated = _core_mul(v_adjusted, -1)
+		v_timestamp = _core_add(v_utc, v_adjusted_negated)
+	} else {
+	// empty
+	}
+	{ v, err := _date_parts_in_zone_impl(v_zone, v_timestamp); if err != nil { return nil, err }; v_actual = v }
+	{ v, err := _date_same_parts_impl(v_actual, v_parts); if err != nil { return nil, err }; v_same = v }
+	v_different = _core_not(v_same)
+	if coreTruthy(v_different) {
+		{ v, err := _date_values_error_impl(); if err != nil { return nil, err }; v_error = v }
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	return v_timestamp, nil
+}
+
 func _stream_field_flag_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_field_flag_impl")
 	var v_target Value
@@ -38889,6 +40394,80 @@ func _stream_field_type_label_impl(args ...Value) (Value, error) {
 	return v_base, nil
 }
 
+func _date_parse_range_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_parse_range_impl")
+	var v_value Value
+	var v_kind Value
+	var v_date_millis Value
+	var v_datetime_millis Value
+	var v_end Value
+	var v_endpoint Value
+	var v_endpoints Value
+	var v_is_date Value
+	var v_is_text Value
+	var v_key Value
+	var v_names Value
+	var v_not_text Value
+	var v_order_error Value
+	var v_range_millis Value
+	var v_reversed Value
+	var v_shape_error Value
+	var v_start Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	if len(args) > 1 { v_kind = args[1] }
+	_ = v_kind
+	_ = v_date_millis
+	_ = v_datetime_millis
+	_ = v_end
+	_ = v_endpoint
+	_ = v_endpoints
+	_ = v_is_date
+	_ = v_is_text
+	_ = v_key
+	_ = v_names
+	_ = v_not_text
+	_ = v_order_error
+	_ = v_range_millis
+	_ = v_reversed
+	_ = v_shape_error
+	_ = v_start
+	{ v, err := _date_range_endpoints_impl(v_value); if err != nil { return nil, err }; v_endpoints = v }
+	v_range_millis = Object()
+	v_names = MutableArray()
+	v_names = coreAppend(v_names, "start")
+	v_names = coreAppend(v_names, "end")
+	for _, v_key = range coreIter(v_names) {
+		v_endpoint = coreGet(v_endpoints, v_key, nil)
+		v_is_text = coreTypeIs(v_endpoint, "string")
+		v_not_text = _core_not(v_is_text)
+		if coreTruthy(v_not_text) {
+			{ v, err := _date_range_format_error_impl(); if err != nil { return nil, err }; v_shape_error = v }
+			return nil, asError(v_shape_error)
+		} else {
+		// empty
+		}
+		v_is_date = _core_eq(v_kind, "date")
+		if coreTruthy(v_is_date) {
+			{ v, err := _date_parse_date_impl(v_endpoint); if err != nil { return nil, err }; v_date_millis = v }
+			if err := coreSet(v_range_millis, v_key, v_date_millis); err != nil { return nil, err }
+		} else {
+			{ v, err := _date_parse_datetime_impl(v_endpoint); if err != nil { return nil, err }; v_datetime_millis = v }
+			if err := coreSet(v_range_millis, v_key, v_datetime_millis); err != nil { return nil, err }
+		}
+	}
+	v_start = coreGet(v_range_millis, "start", nil)
+	v_end = coreGet(v_range_millis, "end", nil)
+	v_reversed = _core_lt(v_end, v_start)
+	if coreTruthy(v_reversed) {
+		v_order_error = _core_runtime_error("Invalid range. End must be greater than or equal to start.")
+		return nil, asError(v_order_error)
+	} else {
+	// empty
+	}
+	return v_range_millis, nil
+}
+
 func _build_optimizer_evidence_batch(args ...Value) (Value, error) {
 	axirCoverageMark("_build_optimizer_evidence_batch")
 	var v_eval_result Value
@@ -39056,6 +40635,14 @@ func chat_session_has_queued_updates(args ...Value) (Value, error) {
 	return false, nil
 }
 
+func _date_range_format_error_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_range_format_error_impl")
+	var v_error Value
+	_ = v_error
+	v_error = _core_runtime_error("Invalid range format. Provide a JSON object with \"start\" and \"end\", a two-item array, or an interval using start/end.")
+	return v_error, nil
+}
+
 func chat_session_native_update(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_native_update")
 	var v_state Value
@@ -39124,6 +40711,106 @@ func _stream_field_title_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_name, nil
+}
+
+func _date_range_endpoints_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_range_endpoints_impl")
+	var v_value Value
+	var v_complete Value
+	var v_count Value
+	var v_end Value
+	var v_endpoints Value
+	var v_error Value
+	var v_first Value
+	var v_from_text Value
+	var v_has_end Value
+	var v_has_start Value
+	var v_is_list Value
+	var v_is_object Value
+	var v_is_text Value
+	var v_list_error Value
+	var v_no_end Value
+	var v_no_start Value
+	var v_pair Value
+	var v_second Value
+	var v_start Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_complete
+	_ = v_count
+	_ = v_end
+	_ = v_endpoints
+	_ = v_error
+	_ = v_first
+	_ = v_from_text
+	_ = v_has_end
+	_ = v_has_start
+	_ = v_is_list
+	_ = v_is_object
+	_ = v_is_text
+	_ = v_list_error
+	_ = v_no_end
+	_ = v_no_start
+	_ = v_pair
+	_ = v_second
+	_ = v_start
+	v_is_text = coreTypeIs(v_value, "string")
+	if coreTruthy(v_is_text) {
+		{ v, err := _date_range_string_impl(v_value); if err != nil { return nil, err }; v_from_text = v }
+		return v_from_text, nil
+	} else {
+	// empty
+	}
+	v_endpoints = Object()
+	v_is_list = coreTypeIs(v_value, "list")
+	if coreTruthy(v_is_list) {
+		v_count = _core_len(v_value)
+		v_pair = _core_eq(v_count, 2)
+		if coreTruthy(v_pair) {
+			v_first = _core_list_get(v_value, 0)
+			if err := coreSet(v_endpoints, "start", v_first); err != nil { return nil, err }
+			v_second = _core_list_get(v_value, 1)
+			if err := coreSet(v_endpoints, "end", v_second); err != nil { return nil, err }
+			return v_endpoints, nil
+		} else {
+		// empty
+		}
+		{ v, err := _date_range_format_error_impl(); if err != nil { return nil, err }; v_list_error = v }
+		return nil, asError(v_list_error)
+	} else {
+	// empty
+	}
+	v_is_object = coreTypeIs(v_value, "object")
+	if coreTruthy(v_is_object) {
+		v_start = coreGet(v_value, "start", nil)
+		v_no_start = _core_is_none(v_start)
+		if coreTruthy(v_no_start) {
+			v_start = coreGet(v_value, "from", nil)
+		} else {
+		// empty
+		}
+		v_end = coreGet(v_value, "end", nil)
+		v_no_end = _core_is_none(v_end)
+		if coreTruthy(v_no_end) {
+			v_end = coreGet(v_value, "to", nil)
+		} else {
+		// empty
+		}
+		v_has_start = _core_is_not_none(v_start)
+		v_has_end = _core_is_not_none(v_end)
+		v_complete = _core_and(v_has_start, v_has_end)
+		if coreTruthy(v_complete) {
+			if err := coreSet(v_endpoints, "start", v_start); err != nil { return nil, err }
+			if err := coreSet(v_endpoints, "end", v_end); err != nil { return nil, err }
+			return v_endpoints, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	{ v, err := _date_range_format_error_impl(); if err != nil { return nil, err }; v_error = v }
+	return nil, asError(v_error)
 }
 
 func _stream_required_missing_error_impl(args ...Value) (Value, error) {
@@ -39750,6 +41437,98 @@ func _stream_validate_constraints_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _date_range_string_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_range_string_impl")
+	var v_value Value
+	var v_endpoints Value
+	var v_error Value
+	var v_from_json Value
+	var v_is_json Value
+	var v_json_error Value
+	var v_json_format_error Value
+	var v_no_split Value
+	var v_one_slash Value
+	var v_opens_list Value
+	var v_opens_object Value
+	var v_parsed Value
+	var v_slash_count Value
+	var v_slash_end Value
+	var v_slash_end_trimmed Value
+	var v_slash_parts Value
+	var v_slash_start Value
+	var v_slash_start_trimmed Value
+	var v_split Value
+	var v_text Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_endpoints
+	_ = v_error
+	_ = v_from_json
+	_ = v_is_json
+	_ = v_json_error
+	_ = v_json_format_error
+	_ = v_no_split
+	_ = v_one_slash
+	_ = v_opens_list
+	_ = v_opens_object
+	_ = v_parsed
+	_ = v_slash_count
+	_ = v_slash_end
+	_ = v_slash_end_trimmed
+	_ = v_slash_parts
+	_ = v_slash_start
+	_ = v_slash_start_trimmed
+	_ = v_split
+	_ = v_text
+	{ v, err := _date_strip_code_fence_impl(v_value); if err != nil { return nil, err }; v_text = v }
+	v_opens_object = _core_string_starts_with(v_text, "{")
+	v_opens_list = _core_string_starts_with(v_text, "[")
+	v_is_json = _core_or(v_opens_object, v_opens_list)
+	if coreTruthy(v_is_json) {
+		v_from_json = Object()
+		{
+			__flow, __err := func() (coreFlow, error) {
+				{ v, err := _core_json_parse_strict(v_text); if err != nil { return coreFlow{}, err }; v_parsed = v }
+				{ v, err := _date_range_endpoints_impl(v_parsed); if err != nil { return coreFlow{}, err }; v_from_json = v }
+				return coreFlow{}, nil
+			}()
+			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+			if __err != nil {
+				v_json_error = errorValue(__err)
+				{ v, err := _date_range_format_error_impl(); if err != nil { return nil, err }; v_json_format_error = v }
+				return nil, asError(v_json_format_error)
+			}
+		}
+		return v_from_json, nil
+	} else {
+	// empty
+	}
+	v_endpoints = Object()
+	v_slash_parts = _core_string_split(v_text, "/")
+	v_slash_count = _core_len(v_slash_parts)
+	v_one_slash = _core_eq(v_slash_count, 2)
+	if coreTruthy(v_one_slash) {
+		v_slash_start = _core_list_get(v_slash_parts, 0)
+		{ v, err := _date_js_trim_impl(v_slash_start); if err != nil { return nil, err }; v_slash_start_trimmed = v }
+		if err := coreSet(v_endpoints, "start", v_slash_start_trimmed); err != nil { return nil, err }
+		v_slash_end = _core_list_get(v_slash_parts, 1)
+		{ v, err := _date_js_trim_impl(v_slash_end); if err != nil { return nil, err }; v_slash_end_trimmed = v }
+		if err := coreSet(v_endpoints, "end", v_slash_end_trimmed); err != nil { return nil, err }
+		return v_endpoints, nil
+	} else {
+	// empty
+	}
+	{ v, err := _date_delimiter_split_impl(v_text); if err != nil { return nil, err }; v_split = v }
+	v_no_split = _core_is_none(v_split)
+	if coreTruthy(v_no_split) {
+		{ v, err := _date_range_format_error_impl(); if err != nil { return nil, err }; v_error = v }
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	return v_split, nil
+}
+
 func _regex_quantifier(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_quantifier")
 	var v_s Value
@@ -40207,6 +41986,169 @@ func _ace_recompute_playbook_stats(args ...Value) (Value, error) {
 	return v_playbook, nil
 }
 
+func _date_delimiter_split_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_delimiter_split_impl")
+	var v_text Value
+	var v_after_keyword Value
+	var v_before Value
+	var v_count Value
+	var v_cursor Value
+	var v_finished Value
+	var v_first_terminator Value
+	var v_index Value
+	var v_keyword_at Value
+	var v_keyword_length Value
+	var v_last_terminator Value
+	var v_mode Value
+	var v_no_gap Value
+	var v_no_keyword Value
+	var v_none Value
+	var v_not_space Value
+	var v_past_terminator Value
+	var v_rest_at Value
+	var v_rest_bad Value
+	var v_rest_empty Value
+	var v_rest_from Value
+	var v_rest_terminator Value
+	var v_rest_text Value
+	var v_rest_trimmed Value
+	var v_run_start Value
+	var v_scanned Value
+	var v_space Value
+	var v_split Value
+	var v_start_text Value
+	var v_start_to Value
+	var v_start_trimmed Value
+	var v_terminator Value
+	var v_unit Value
+	var v_units Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_after_keyword
+	_ = v_before
+	_ = v_count
+	_ = v_cursor
+	_ = v_finished
+	_ = v_first_terminator
+	_ = v_index
+	_ = v_keyword_at
+	_ = v_keyword_length
+	_ = v_last_terminator
+	_ = v_mode
+	_ = v_no_gap
+	_ = v_no_keyword
+	_ = v_none
+	_ = v_not_space
+	_ = v_past_terminator
+	_ = v_rest_at
+	_ = v_rest_bad
+	_ = v_rest_empty
+	_ = v_rest_from
+	_ = v_rest_terminator
+	_ = v_rest_text
+	_ = v_rest_trimmed
+	_ = v_run_start
+	_ = v_scanned
+	_ = v_space
+	_ = v_split
+	_ = v_start_text
+	_ = v_start_to
+	_ = v_start_trimmed
+	_ = v_terminator
+	_ = v_unit
+	_ = v_units
+	v_none = _core_none()
+	v_units = _core_string_utf16_units(v_text)
+	v_count = _core_len(v_units)
+	v_first_terminator = v_count
+	v_last_terminator = -1
+	v_index = 0
+	for {
+		v_scanned = _core_gte(v_index, v_count)
+		if coreTruthy(v_scanned) {
+			break
+		} else {
+		// empty
+		}
+		v_unit = coreGet(v_units, v_index, 0)
+		{ v, err := _date_is_line_terminator_impl(v_unit); if err != nil { return nil, err }; v_terminator = v }
+		if coreTruthy(v_terminator) {
+			v_last_terminator = v_index
+			v_before = _core_lt(v_index, v_first_terminator)
+			if coreTruthy(v_before) {
+				v_first_terminator = v_index
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_index = _core_add(v_index, 1)
+	}
+	v_cursor = 1
+	for {
+		v_finished = _core_gte(v_cursor, v_count)
+		if coreTruthy(v_finished) {
+			break
+		} else {
+		// empty
+		}
+		v_past_terminator = _core_gt(v_cursor, v_first_terminator)
+		if coreTruthy(v_past_terminator) {
+			break
+		} else {
+		// empty
+		}
+		v_unit = coreGet(v_units, v_cursor, 0)
+		{ v, err := _date_space_impl(v_unit); if err != nil { return nil, err }; v_space = v }
+		v_not_space = _core_not(v_space)
+		if coreTruthy(v_not_space) {
+			v_cursor = _core_add(v_cursor, 1)
+			continue
+		} else {
+		// empty
+		}
+		v_run_start = v_cursor
+		{ v, err := _date_skip_space_impl(v_units, v_cursor, v_count); if err != nil { return nil, err }; v_keyword_at = v }
+		{ v, err := _date_range_keyword_impl(v_units, v_keyword_at, v_count); if err != nil { return nil, err }; v_keyword_length = v }
+		v_cursor = v_keyword_at
+		v_no_keyword = _core_eq(v_keyword_length, 0)
+		if coreTruthy(v_no_keyword) {
+			continue
+		} else {
+		// empty
+		}
+		v_after_keyword = _core_add(v_keyword_at, v_keyword_length)
+		{ v, err := _date_skip_space_impl(v_units, v_after_keyword, v_count); if err != nil { return nil, err }; v_rest_at = v }
+		v_no_gap = _core_eq(v_rest_at, v_after_keyword)
+		if coreTruthy(v_no_gap) {
+			continue
+		} else {
+		// empty
+		}
+		v_rest_empty = _core_gte(v_rest_at, v_count)
+		v_rest_terminator = _core_gte(v_last_terminator, v_rest_at)
+		v_rest_bad = _core_or(v_rest_empty, v_rest_terminator)
+		if coreTruthy(v_rest_bad) {
+			continue
+		} else {
+		// empty
+		}
+		{ v, err := _date_string_mode_impl(); if err != nil { return nil, err }; v_mode = v }
+		{ v, err := _date_native_offset_impl(v_units, v_run_start, v_mode); if err != nil { return nil, err }; v_start_to = v }
+		{ v, err := _date_native_offset_impl(v_units, v_rest_at, v_mode); if err != nil { return nil, err }; v_rest_from = v }
+		v_start_text = _core_string_slice(v_text, 0, v_start_to)
+		v_rest_text = _core_string_slice(v_text, v_rest_from)
+		v_split = Object()
+		{ v, err := _date_js_trim_impl(v_start_text); if err != nil { return nil, err }; v_start_trimmed = v }
+		if err := coreSet(v_split, "start", v_start_trimmed); err != nil { return nil, err }
+		{ v, err := _date_js_trim_impl(v_rest_text); if err != nil { return nil, err }; v_rest_trimmed = v }
+		if err := coreSet(v_split, "end", v_rest_trimmed); err != nil { return nil, err }
+		return v_split, nil
+	}
+	return v_none, nil
+}
+
 func _ace_empty_playbook(args ...Value) (Value, error) {
 	axirCoverageMark("_ace_empty_playbook")
 	var v_description Value
@@ -40503,6 +42445,8 @@ func _stream_convert_value_impl(args ...Value) (Value, error) {
 	var v_class_message Value
 	var v_class_name Value
 	var v_code_text Value
+	var v_date_out Value
+	var v_dated Value
 	var v_has_options Value
 	var v_is_boolean Value
 	var v_is_class Value
@@ -40523,6 +42467,8 @@ func _stream_convert_value_impl(args ...Value) (Value, error) {
 	var v_optional Value
 	var v_options Value
 	var v_out Value
+	var v_parse Value
+	var v_parse_dates Value
 	var v_text Value
 	var v_typ Value
 	var v_unknown Value
@@ -40540,6 +42486,8 @@ func _stream_convert_value_impl(args ...Value) (Value, error) {
 	_ = v_class_message
 	_ = v_class_name
 	_ = v_code_text
+	_ = v_date_out
+	_ = v_dated
 	_ = v_has_options
 	_ = v_is_boolean
 	_ = v_is_class
@@ -40560,6 +42508,8 @@ func _stream_convert_value_impl(args ...Value) (Value, error) {
 	_ = v_optional
 	_ = v_options
 	_ = v_out
+	_ = v_parse
+	_ = v_parse_dates
 	_ = v_text
 	_ = v_typ
 	_ = v_unknown
@@ -40674,7 +42624,121 @@ func _stream_convert_value_impl(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	v_parse_dates = coreGet(v_field, "parse_dates", false)
+	{ v, err := _date_is_date_type_impl(v_name); if err != nil { return nil, err }; v_dated = v }
+	v_parse = _core_and(v_parse_dates, v_dated)
+	if coreTruthy(v_parse) {
+		{ v, err := _date_convert_field_value_impl(v_field, v_name, v_value, v_may_skip); if err != nil { return nil, err }; v_date_out = v }
+		return v_date_out, nil
+	} else {
+	// empty
+	}
 	return v_out, nil
+}
+
+func _date_range_keyword_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_range_keyword_impl")
+	var v_units Value
+	var v_at Value
+	var v_end Value
+	var v_after_dash Value
+	var v_after_word Value
+	var v_dash_followed Value
+	var v_dash_inside Value
+	var v_dash_next Value
+	var v_dash_space Value
+	var v_em_dash Value
+	var v_en_dash Value
+	var v_hyphen Value
+	var v_is_dash Value
+	var v_length Value
+	var v_letters Value
+	var v_matched Value
+	var v_unit Value
+	var v_word Value
+	var v_word_inside Value
+	var v_word_next Value
+	var v_word_space Value
+	var v_word_units Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_at = args[1] }
+	_ = v_at
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	_ = v_after_dash
+	_ = v_after_word
+	_ = v_dash_followed
+	_ = v_dash_inside
+	_ = v_dash_next
+	_ = v_dash_space
+	_ = v_em_dash
+	_ = v_en_dash
+	_ = v_hyphen
+	_ = v_is_dash
+	_ = v_length
+	_ = v_letters
+	_ = v_matched
+	_ = v_unit
+	_ = v_word
+	_ = v_word_inside
+	_ = v_word_next
+	_ = v_word_space
+	_ = v_word_units
+	v_unit = coreGet(v_units, v_at, 0)
+	v_hyphen = _core_eq(v_unit, 45)
+	v_en_dash = _core_eq(v_unit, 8211)
+	v_em_dash = _core_eq(v_unit, 8212)
+	v_is_dash = _core_or(v_hyphen, v_en_dash)
+	v_is_dash = _core_or(v_is_dash, v_em_dash)
+	v_dash_inside = _core_lt(v_at, v_end)
+	v_is_dash = _core_and(v_is_dash, v_dash_inside)
+	if coreTruthy(v_is_dash) {
+		v_after_dash = _core_add(v_at, 1)
+		v_dash_space = false
+		v_dash_followed = _core_lt(v_after_dash, v_end)
+		if coreTruthy(v_dash_followed) {
+			v_dash_next = coreGet(v_units, v_after_dash, 0)
+			{ v, err := _date_space_impl(v_dash_next); if err != nil { return nil, err }; v_dash_space = v }
+		} else {
+		// empty
+		}
+		if coreTruthy(v_dash_space) {
+			return 1, nil
+		} else {
+		// empty
+		}
+		return 0, nil
+	} else {
+	// empty
+	}
+	v_letters = MutableArray()
+	v_letters = coreAppend(v_letters, "to")
+	v_letters = coreAppend(v_letters, "through")
+	v_letters = coreAppend(v_letters, "until")
+	for _, v_word = range coreIter(v_letters) {
+		v_word_units = _core_string_utf16_units(v_word)
+		v_length = _core_len(v_word_units)
+		{ v, err := _date_ascii_matches_impl(v_units, v_at, v_end, v_word_units); if err != nil { return nil, err }; v_matched = v }
+		if coreTruthy(v_matched) {
+			v_after_word = _core_add(v_at, v_length)
+			v_word_inside = _core_lt(v_after_word, v_end)
+			if coreTruthy(v_word_inside) {
+				v_word_next = coreGet(v_units, v_after_word, 0)
+				{ v, err := _date_space_impl(v_word_next); if err != nil { return nil, err }; v_word_space = v }
+				if coreTruthy(v_word_space) {
+					return v_length, nil
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return 0, nil
 }
 
 func _ace_update_bullet_feedback(args ...Value) (Value, error) {
@@ -40910,6 +42974,80 @@ func _set_examples(args ...Value) (Value, error) {
 	_ = v_examples
 	if err := coreSet(v_gen, "examples", v_examples); err != nil { return nil, err }
 	return v_gen, nil
+}
+
+func _date_strip_code_fence_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_strip_code_fence_impl")
+	var v_value Value
+	var v_closes Value
+	var v_count Value
+	var v_fenced Value
+	var v_inner Value
+	var v_inner_end Value
+	var v_inner_start Value
+	var v_json_units Value
+	var v_mode Value
+	var v_not_fenced Value
+	var v_opens Value
+	var v_slice_from Value
+	var v_slice_to Value
+	var v_stripped Value
+	var v_tagged Value
+	var v_text Value
+	var v_too_short Value
+	var v_units Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_closes
+	_ = v_count
+	_ = v_fenced
+	_ = v_inner
+	_ = v_inner_end
+	_ = v_inner_start
+	_ = v_json_units
+	_ = v_mode
+	_ = v_not_fenced
+	_ = v_opens
+	_ = v_slice_from
+	_ = v_slice_to
+	_ = v_stripped
+	_ = v_tagged
+	_ = v_text
+	_ = v_too_short
+	_ = v_units
+	{ v, err := _date_js_trim_impl(v_value); if err != nil { return nil, err }; v_text = v }
+	v_units = _core_string_utf16_units(v_text)
+	v_count = _core_len(v_units)
+	v_too_short = _core_lt(v_count, 6)
+	if coreTruthy(v_too_short) {
+		return v_text, nil
+	} else {
+	// empty
+	}
+	v_opens = _core_string_starts_with(v_text, "```")
+	v_closes = _core_string_ends_with(v_text, "```")
+	v_fenced = _core_and(v_opens, v_closes)
+	v_not_fenced = _core_not(v_fenced)
+	if coreTruthy(v_not_fenced) {
+		return v_text, nil
+	} else {
+	// empty
+	}
+	v_inner_start = 3
+	v_inner_end = _core_add(v_count, -3)
+	v_json_units = _core_string_utf16_units("json")
+	{ v, err := _date_ascii_matches_impl(v_units, 3, v_inner_end, v_json_units); if err != nil { return nil, err }; v_tagged = v }
+	if coreTruthy(v_tagged) {
+		v_inner_start = 7
+	} else {
+	// empty
+	}
+	{ v, err := _date_string_mode_impl(); if err != nil { return nil, err }; v_mode = v }
+	{ v, err := _date_native_offset_impl(v_units, v_inner_start, v_mode); if err != nil { return nil, err }; v_slice_from = v }
+	{ v, err := _date_native_offset_impl(v_units, v_inner_end, v_mode); if err != nil { return nil, err }; v_slice_to = v }
+	v_inner = _core_string_slice(v_text, v_slice_from, v_slice_to)
+	{ v, err := _date_js_trim_impl(v_inner); if err != nil { return nil, err }; v_stripped = v }
+	return v_stripped, nil
 }
 
 func chat_session_queue_update(args ...Value) (Value, error) {
@@ -41618,6 +43756,33 @@ func chat_session_record_unresolved(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _date_string_mode_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_string_mode_impl")
+	var v_accented Value
+	var v_astral Value
+	var v_pair Value
+	var v_wide Value
+	_ = v_accented
+	_ = v_astral
+	_ = v_pair
+	_ = v_wide
+	v_accented = _core_len("é")
+	v_wide = _core_gt(v_accented, 1)
+	if coreTruthy(v_wide) {
+		return "utf8", nil
+	} else {
+	// empty
+	}
+	v_astral = _core_len("😀")
+	v_pair = _core_gt(v_astral, 1)
+	if coreTruthy(v_pair) {
+		return "utf16", nil
+	} else {
+	// empty
+	}
+	return "codepoint", nil
+}
+
 func _apply_field_processors(args ...Value) (Value, error) {
 	axirCoverageMark("_apply_field_processors")
 	var v_gen Value
@@ -41630,62 +43795,6 @@ func _apply_field_processors(args ...Value) (Value, error) {
 	_ = v_processed
 	v_processed = _core_axgen_apply_field_processors(v_gen, v_output)
 	return v_processed, nil
-}
-
-func _run_assertions(args ...Value) (Value, error) {
-	axirCoverageMark("_run_assertions")
-	var v_gen Value
-	var v_output Value
-	var v_assertion_error Value
-	var v_failed Value
-	var v_has_message Value
-	var v_message Value
-	var v_message_less Value
-	var v_passed Value
-	var v_result Value
-	var v_status Value
-	var v_threw Value
-	var v_thrown Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_output = args[1] }
-	_ = v_output
-	_ = v_assertion_error
-	_ = v_failed
-	_ = v_has_message
-	_ = v_message
-	_ = v_message_less
-	_ = v_passed
-	_ = v_result
-	_ = v_status
-	_ = v_threw
-	_ = v_thrown
-	{ v, err := _core_axgen_run_assertions(v_gen, v_output); if err != nil { return nil, err }; v_result = v }
-	v_status = coreGet(v_result, "status", "pass")
-	v_threw = _core_eq(v_status, "error")
-	if coreTruthy(v_threw) {
-		v_thrown = coreGet(v_result, "error", nil)
-		return v_thrown, nil
-	} else {
-	// empty
-	}
-	v_failed = _core_eq(v_status, "fail")
-	if coreTruthy(v_failed) {
-		v_message = coreGet(v_result, "message", nil)
-		v_has_message = _core_is_not_none(v_message)
-		if coreTruthy(v_has_message) {
-			v_assertion_error = _core_runtime_error(v_message)
-			return nil, asError(v_assertion_error)
-		} else {
-		// empty
-		}
-		v_message_less = _core_runtime_error("Assertion failed without message")
-		return v_message_less, nil
-	} else {
-	// empty
-	}
-	v_passed = _core_none()
-	return v_passed, nil
 }
 
 func _ace_prune_section_for_addition(args ...Value) (Value, error) {
@@ -41851,6 +43960,62 @@ func _ace_prune_section_for_addition(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _run_assertions(args ...Value) (Value, error) {
+	axirCoverageMark("_run_assertions")
+	var v_gen Value
+	var v_output Value
+	var v_assertion_error Value
+	var v_failed Value
+	var v_has_message Value
+	var v_message Value
+	var v_message_less Value
+	var v_passed Value
+	var v_result Value
+	var v_status Value
+	var v_threw Value
+	var v_thrown Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_output = args[1] }
+	_ = v_output
+	_ = v_assertion_error
+	_ = v_failed
+	_ = v_has_message
+	_ = v_message
+	_ = v_message_less
+	_ = v_passed
+	_ = v_result
+	_ = v_status
+	_ = v_threw
+	_ = v_thrown
+	{ v, err := _core_axgen_run_assertions(v_gen, v_output); if err != nil { return nil, err }; v_result = v }
+	v_status = coreGet(v_result, "status", "pass")
+	v_threw = _core_eq(v_status, "error")
+	if coreTruthy(v_threw) {
+		v_thrown = coreGet(v_result, "error", nil)
+		return v_thrown, nil
+	} else {
+	// empty
+	}
+	v_failed = _core_eq(v_status, "fail")
+	if coreTruthy(v_failed) {
+		v_message = coreGet(v_result, "message", nil)
+		v_has_message = _core_is_not_none(v_message)
+		if coreTruthy(v_has_message) {
+			v_assertion_error = _core_runtime_error(v_message)
+			return nil, asError(v_assertion_error)
+		} else {
+		// empty
+		}
+		v_message_less = _core_runtime_error("Assertion failed without message")
+		return v_message_less, nil
+	} else {
+	// empty
+	}
+	v_passed = _core_none()
+	return v_passed, nil
+}
+
 func chat_session_close_state(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_close_state")
 	var v_state Value
@@ -41861,6 +44026,114 @@ func chat_session_close_state(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "terminal", true); err != nil { return nil, err }
 	{ v, err := chat_session_unresolved(v_state); if err != nil { return nil, err }; v_unresolved = v }
 	return v_unresolved, nil
+}
+
+func _date_native_offset_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_native_offset_impl")
+	var v_units Value
+	var v_index Value
+	var v_mode Value
+	var v_cursor Value
+	var v_done Value
+	var v_following Value
+	var v_high Value
+	var v_high_end Value
+	var v_is_high Value
+	var v_is_low Value
+	var v_is_pair Value
+	var v_low Value
+	var v_low_end Value
+	var v_next_at Value
+	var v_offset Value
+	var v_step Value
+	var v_three Value
+	var v_two Value
+	var v_unit Value
+	var v_utf16 Value
+	var v_utf8 Value
+	var v_width Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_index = args[1] }
+	_ = v_index
+	if len(args) > 2 { v_mode = args[2] }
+	_ = v_mode
+	_ = v_cursor
+	_ = v_done
+	_ = v_following
+	_ = v_high
+	_ = v_high_end
+	_ = v_is_high
+	_ = v_is_low
+	_ = v_is_pair
+	_ = v_low
+	_ = v_low_end
+	_ = v_next_at
+	_ = v_offset
+	_ = v_step
+	_ = v_three
+	_ = v_two
+	_ = v_unit
+	_ = v_utf16
+	_ = v_utf8
+	_ = v_width
+	v_utf16 = _core_eq(v_mode, "utf16")
+	if coreTruthy(v_utf16) {
+		return v_index, nil
+	} else {
+	// empty
+	}
+	v_utf8 = _core_eq(v_mode, "utf8")
+	v_offset = 0
+	v_cursor = 0
+	for {
+		v_done = _core_gte(v_cursor, v_index)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_unit = coreGet(v_units, v_cursor, 0)
+		v_width = 1
+		v_high = _core_gte(v_unit, 55296)
+		v_high_end = _core_lte(v_unit, 56319)
+		v_is_high = _core_and(v_high, v_high_end)
+		v_next_at = _core_add(v_cursor, 1)
+		v_following = coreGet(v_units, v_next_at, 0)
+		v_low = _core_gte(v_following, 56320)
+		v_low_end = _core_lte(v_following, 57343)
+		v_is_low = _core_and(v_low, v_low_end)
+		v_is_pair = _core_and(v_is_high, v_is_low)
+		v_step = 1
+		if coreTruthy(v_is_pair) {
+			v_step = 2
+			if coreTruthy(v_utf8) {
+				v_width = 4
+			} else {
+			// empty
+			}
+		} else {
+			if coreTruthy(v_utf8) {
+				v_two = _core_gte(v_unit, 128)
+				if coreTruthy(v_two) {
+					v_width = 2
+				} else {
+				// empty
+				}
+				v_three = _core_gte(v_unit, 2048)
+				if coreTruthy(v_three) {
+					v_width = 3
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+		v_offset = _core_add(v_offset, v_width)
+		v_cursor = _core_add(v_cursor, v_step)
+	}
+	return v_offset, nil
 }
 
 func chat_session_transition(args ...Value) (Value, error) {
@@ -42288,6 +44561,41 @@ func _should_continue_steps(args ...Value) (Value, error) {
 	return v_should_continue, nil
 }
 
+func _date_js_trim_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_js_trim_impl")
+	var v_text Value
+	var v_bounds Value
+	var v_count Value
+	var v_end Value
+	var v_mode Value
+	var v_slice_from Value
+	var v_slice_to Value
+	var v_start Value
+	var v_trimmed Value
+	var v_units Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_bounds
+	_ = v_count
+	_ = v_end
+	_ = v_mode
+	_ = v_slice_from
+	_ = v_slice_to
+	_ = v_start
+	_ = v_trimmed
+	_ = v_units
+	v_units = _core_string_utf16_units(v_text)
+	v_count = _core_len(v_units)
+	{ v, err := _date_trim_bounds_impl(v_units, 0, v_count); if err != nil { return nil, err }; v_bounds = v }
+	v_start = coreGet(v_bounds, "start", nil)
+	v_end = coreGet(v_bounds, "end", nil)
+	{ v, err := _date_string_mode_impl(); if err != nil { return nil, err }; v_mode = v }
+	{ v, err := _date_native_offset_impl(v_units, v_start, v_mode); if err != nil { return nil, err }; v_slice_from = v }
+	{ v, err := _date_native_offset_impl(v_units, v_end, v_mode); if err != nil { return nil, err }; v_slice_to = v }
+	v_trimmed = _core_string_slice(v_text, v_slice_from, v_slice_to)
+	return v_trimmed, nil
+}
+
 func _parse_output_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_parse_output_impl")
 	var v_content Value
@@ -42657,6 +44965,59 @@ func _ace_apply_curator_operations(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _date_trim_bounds_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_trim_bounds_impl")
+	var v_units Value
+	var v_start Value
+	var v_end Value
+	var v_before Value
+	var v_bounds Value
+	var v_empty Value
+	var v_first Value
+	var v_kept Value
+	var v_last Value
+	var v_space Value
+	var v_unit Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_start = args[1] }
+	_ = v_start
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	_ = v_before
+	_ = v_bounds
+	_ = v_empty
+	_ = v_first
+	_ = v_kept
+	_ = v_last
+	_ = v_space
+	_ = v_unit
+	{ v, err := _date_skip_space_impl(v_units, v_start, v_end); if err != nil { return nil, err }; v_first = v }
+	v_last = v_end
+	for {
+		v_empty = _core_lte(v_last, v_first)
+		if coreTruthy(v_empty) {
+			break
+		} else {
+		// empty
+		}
+		v_before = _core_add(v_last, -1)
+		v_unit = coreGet(v_units, v_before, 0)
+		{ v, err := _date_space_impl(v_unit); if err != nil { return nil, err }; v_space = v }
+		v_kept = _core_not(v_space)
+		if coreTruthy(v_kept) {
+			break
+		} else {
+		// empty
+		}
+		v_last = v_before
+	}
+	v_bounds = Object()
+	if err := coreSet(v_bounds, "start", v_first); err != nil { return nil, err }
+	if err := coreSet(v_bounds, "end", v_last); err != nil { return nil, err }
+	return v_bounds, nil
+}
+
 func _is_flexible_json_field(args ...Value) (Value, error) {
 	axirCoverageMark("_is_flexible_json_field")
 	var v_typ Value
@@ -42962,6 +45323,48 @@ func _regex_member(args ...Value) (Value, error) {
 	return false, nil
 }
 
+func _date_skip_space_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_skip_space_impl")
+	var v_units Value
+	var v_start Value
+	var v_end Value
+	var v_cursor Value
+	var v_done Value
+	var v_not_space Value
+	var v_space Value
+	var v_unit Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_start = args[1] }
+	_ = v_start
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	_ = v_cursor
+	_ = v_done
+	_ = v_not_space
+	_ = v_space
+	_ = v_unit
+	v_cursor = v_start
+	for {
+		v_done = _core_gte(v_cursor, v_end)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_unit = coreGet(v_units, v_cursor, 0)
+		{ v, err := _date_space_impl(v_unit); if err != nil { return nil, err }; v_space = v }
+		v_not_space = _core_not(v_space)
+		if coreTruthy(v_not_space) {
+			break
+		} else {
+		// empty
+		}
+		v_cursor = _core_add(v_cursor, 1)
+	}
+	return v_cursor, nil
+}
+
 func _parse_json_string_value(args ...Value) (Value, error) {
 	axirCoverageMark("_parse_json_string_value")
 	var v_value Value
@@ -43113,6 +45516,75 @@ func _parse_json_string_for_field(args ...Value) (Value, error) {
 	return v_value, nil
 }
 
+func _date_space_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_space_impl")
+	var v_unit Value
+	var v_blank Value
+	var v_byte_order Value
+	var v_control Value
+	var v_en_high Value
+	var v_en_low Value
+	var v_ideographic Value
+	var v_line_separator Value
+	var v_math_space Value
+	var v_narrow Value
+	var v_no_break Value
+	var v_ogham Value
+	var v_paragraph_separator Value
+	var v_space Value
+	var v_tab_high Value
+	var v_tab_low Value
+	var v_typographic Value
+	if len(args) > 0 { v_unit = args[0] }
+	_ = v_unit
+	_ = v_blank
+	_ = v_byte_order
+	_ = v_control
+	_ = v_en_high
+	_ = v_en_low
+	_ = v_ideographic
+	_ = v_line_separator
+	_ = v_math_space
+	_ = v_narrow
+	_ = v_no_break
+	_ = v_ogham
+	_ = v_paragraph_separator
+	_ = v_space
+	_ = v_tab_high
+	_ = v_tab_low
+	_ = v_typographic
+	v_tab_low = _core_gte(v_unit, 9)
+	v_tab_high = _core_lte(v_unit, 13)
+	v_control = _core_and(v_tab_low, v_tab_high)
+	if coreTruthy(v_control) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_space = _core_eq(v_unit, 32)
+	v_no_break = _core_eq(v_unit, 160)
+	v_ogham = _core_eq(v_unit, 5760)
+	v_en_low = _core_gte(v_unit, 8192)
+	v_en_high = _core_lte(v_unit, 8202)
+	v_typographic = _core_and(v_en_low, v_en_high)
+	v_line_separator = _core_eq(v_unit, 8232)
+	v_paragraph_separator = _core_eq(v_unit, 8233)
+	v_narrow = _core_eq(v_unit, 8239)
+	v_math_space = _core_eq(v_unit, 8287)
+	v_ideographic = _core_eq(v_unit, 12288)
+	v_byte_order = _core_eq(v_unit, 65279)
+	v_blank = _core_or(v_space, v_no_break)
+	v_blank = _core_or(v_blank, v_ogham)
+	v_blank = _core_or(v_blank, v_typographic)
+	v_blank = _core_or(v_blank, v_line_separator)
+	v_blank = _core_or(v_blank, v_paragraph_separator)
+	v_blank = _core_or(v_blank, v_narrow)
+	v_blank = _core_or(v_blank, v_math_space)
+	v_blank = _core_or(v_blank, v_ideographic)
+	v_blank = _core_or(v_blank, v_byte_order)
+	return v_blank, nil
+}
+
 func _stream_text_state_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_text_state_impl")
 	var v_extracted Value
@@ -43138,6 +45610,31 @@ func _stream_text_state_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_xstate, "streamed_index", v_streamed); err != nil { return nil, err }
 	if err := coreSet(v_xstate, "s", -1); err != nil { return nil, err }
 	return v_xstate, nil
+}
+
+func _date_is_line_terminator_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_is_line_terminator_impl")
+	var v_unit Value
+	var v_carriage_return Value
+	var v_line_feed Value
+	var v_line_separator Value
+	var v_paragraph_separator Value
+	var v_terminator Value
+	if len(args) > 0 { v_unit = args[0] }
+	_ = v_unit
+	_ = v_carriage_return
+	_ = v_line_feed
+	_ = v_line_separator
+	_ = v_paragraph_separator
+	_ = v_terminator
+	v_line_feed = _core_eq(v_unit, 10)
+	v_carriage_return = _core_eq(v_unit, 13)
+	v_line_separator = _core_eq(v_unit, 8232)
+	v_paragraph_separator = _core_eq(v_unit, 8233)
+	v_terminator = _core_or(v_line_feed, v_carriage_return)
+	v_terminator = _core_or(v_terminator, v_line_separator)
+	v_terminator = _core_or(v_terminator, v_paragraph_separator)
+	return v_terminator, nil
 }
 
 func _stream_text_note_field_impl(args ...Value) (Value, error) {
@@ -43195,6 +45692,35 @@ func _stream_text_note_field_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return nil, nil
+}
+
+func _date_ascii_letter_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_ascii_letter_impl")
+	var v_unit Value
+	var v_letter Value
+	var v_lower Value
+	var v_lower_high Value
+	var v_lower_low Value
+	var v_upper Value
+	var v_upper_high Value
+	var v_upper_low Value
+	if len(args) > 0 { v_unit = args[0] }
+	_ = v_unit
+	_ = v_letter
+	_ = v_lower
+	_ = v_lower_high
+	_ = v_lower_low
+	_ = v_upper
+	_ = v_upper_high
+	_ = v_upper_low
+	v_upper_low = _core_gte(v_unit, 65)
+	v_upper_high = _core_lte(v_unit, 90)
+	v_upper = _core_and(v_upper_low, v_upper_high)
+	v_lower_low = _core_gte(v_unit, 97)
+	v_lower_high = _core_lte(v_unit, 122)
+	v_lower = _core_and(v_lower_low, v_lower_high)
+	v_letter = _core_or(v_upper, v_lower)
+	return v_letter, nil
 }
 
 func _parse_json_string_fields(args ...Value) (Value, error) {
@@ -43534,6 +46060,85 @@ func _stream_text_extract_impl(args ...Value) (Value, error) {
 		if _, err := _stream_text_note_field_impl(v_xstate, v_chosen_field, true); err != nil { return nil, err }
 	}
 	return false, nil
+}
+
+func _date_ascii_matches_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_ascii_matches_impl")
+	var v_units Value
+	var v_at Value
+	var v_end Value
+	var v_word Value
+	var v_different Value
+	var v_done Value
+	var v_expected Value
+	var v_index Value
+	var v_last Value
+	var v_length Value
+	var v_past Value
+	var v_position Value
+	var v_same Value
+	var v_unit Value
+	var v_upper Value
+	var v_upper_high Value
+	var v_upper_low Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_at = args[1] }
+	_ = v_at
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	if len(args) > 3 { v_word = args[3] }
+	_ = v_word
+	_ = v_different
+	_ = v_done
+	_ = v_expected
+	_ = v_index
+	_ = v_last
+	_ = v_length
+	_ = v_past
+	_ = v_position
+	_ = v_same
+	_ = v_unit
+	_ = v_upper
+	_ = v_upper_high
+	_ = v_upper_low
+	v_length = _core_len(v_word)
+	v_last = _core_add(v_at, v_length)
+	v_past = _core_gt(v_last, v_end)
+	if coreTruthy(v_past) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_index = 0
+	for {
+		v_done = _core_gte(v_index, v_length)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_position = _core_add(v_at, v_index)
+		v_unit = coreGet(v_units, v_position, 0)
+		v_upper_low = _core_gte(v_unit, 65)
+		v_upper_high = _core_lte(v_unit, 90)
+		v_upper = _core_and(v_upper_low, v_upper_high)
+		if coreTruthy(v_upper) {
+			v_unit = _core_add(v_unit, 32)
+		} else {
+		// empty
+		}
+		v_expected = coreGet(v_word, v_index, 0)
+		v_same = _core_eq(v_unit, v_expected)
+		v_different = _core_not(v_same)
+		if coreTruthy(v_different) {
+			return false, nil
+		} else {
+		// empty
+		}
+		v_index = _core_add(v_index, 1)
+	}
+	return true, nil
 }
 
 func _parse_json_string_for_fields(args ...Value) (Value, error) {
@@ -44034,6 +46639,109 @@ func _ace_is_noop_acknowledgment(args ...Value) (Value, error) {
 	return v_is_noop, nil
 }
 
+func _date_digits_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_digits_impl")
+	var v_units Value
+	var v_at Value
+	var v_count Value
+	var v_end Value
+	var v_digit Value
+	var v_digit_value Value
+	var v_done Value
+	var v_high Value
+	var v_index Value
+	var v_last Value
+	var v_low Value
+	var v_not_digit Value
+	var v_past Value
+	var v_scaled Value
+	var v_unit Value
+	var v_value Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_at = args[1] }
+	_ = v_at
+	if len(args) > 2 { v_count = args[2] }
+	_ = v_count
+	if len(args) > 3 { v_end = args[3] }
+	_ = v_end
+	_ = v_digit
+	_ = v_digit_value
+	_ = v_done
+	_ = v_high
+	_ = v_index
+	_ = v_last
+	_ = v_low
+	_ = v_not_digit
+	_ = v_past
+	_ = v_scaled
+	_ = v_unit
+	_ = v_value
+	v_last = _core_add(v_at, v_count)
+	v_past = _core_gt(v_last, v_end)
+	if coreTruthy(v_past) {
+		return -1, nil
+	} else {
+	// empty
+	}
+	v_value = 0
+	v_index = v_at
+	for {
+		v_done = _core_gte(v_index, v_last)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_unit = coreGet(v_units, v_index, 0)
+		v_low = _core_gte(v_unit, 48)
+		v_high = _core_lte(v_unit, 57)
+		v_digit = _core_and(v_low, v_high)
+		v_not_digit = _core_not(v_digit)
+		if coreTruthy(v_not_digit) {
+			return -1, nil
+		} else {
+		// empty
+		}
+		v_scaled = _core_mul(v_value, 10)
+		v_digit_value = _core_add(v_unit, -48)
+		v_value = _core_add(v_scaled, v_digit_value)
+		v_index = _core_add(v_index, 1)
+	}
+	return v_value, nil
+}
+
+func _date_expect_unit_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_expect_unit_impl")
+	var v_units Value
+	var v_at Value
+	var v_end Value
+	var v_expected Value
+	var v_inside Value
+	var v_same Value
+	var v_unit Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_at = args[1] }
+	_ = v_at
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	if len(args) > 3 { v_expected = args[3] }
+	_ = v_expected
+	_ = v_inside
+	_ = v_same
+	_ = v_unit
+	v_inside = _core_lt(v_at, v_end)
+	if coreTruthy(v_inside) {
+		v_unit = coreGet(v_units, v_at, 0)
+		v_same = _core_eq(v_unit, v_expected)
+		return v_same, nil
+	} else {
+	// empty
+	}
+	return false, nil
+}
+
 func _regex_push(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_push")
 	var v_stack Value
@@ -44087,6 +46795,79 @@ func _tool_spec_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_spec, nil
+}
+
+func _date_scan_date_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_scan_date_impl")
+	var v_units Value
+	var v_at Value
+	var v_bad Value
+	var v_dash Value
+	var v_dash_at Value
+	var v_day Value
+	var v_day_at Value
+	var v_day_ok Value
+	var v_limit Value
+	var v_month Value
+	var v_month_at Value
+	var v_month_ok Value
+	var v_none Value
+	var v_ok Value
+	var v_parts Value
+	var v_second_dash Value
+	var v_second_dash_at Value
+	var v_year Value
+	var v_year_ok Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_at = args[1] }
+	_ = v_at
+	_ = v_bad
+	_ = v_dash
+	_ = v_dash_at
+	_ = v_day
+	_ = v_day_at
+	_ = v_day_ok
+	_ = v_limit
+	_ = v_month
+	_ = v_month_at
+	_ = v_month_ok
+	_ = v_none
+	_ = v_ok
+	_ = v_parts
+	_ = v_second_dash
+	_ = v_second_dash_at
+	_ = v_year
+	_ = v_year_ok
+	v_none = _core_none()
+	v_limit = _core_add(v_at, 10)
+	{ v, err := _date_digits_impl(v_units, v_at, 4, v_limit); if err != nil { return nil, err }; v_year = v }
+	v_dash_at = _core_add(v_at, 4)
+	{ v, err := _date_expect_unit_impl(v_units, v_dash_at, v_limit, 45); if err != nil { return nil, err }; v_dash = v }
+	v_month_at = _core_add(v_at, 5)
+	{ v, err := _date_digits_impl(v_units, v_month_at, 2, v_limit); if err != nil { return nil, err }; v_month = v }
+	v_second_dash_at = _core_add(v_at, 7)
+	{ v, err := _date_expect_unit_impl(v_units, v_second_dash_at, v_limit, 45); if err != nil { return nil, err }; v_second_dash = v }
+	v_day_at = _core_add(v_at, 8)
+	{ v, err := _date_digits_impl(v_units, v_day_at, 2, v_limit); if err != nil { return nil, err }; v_day = v }
+	v_ok = _core_and(v_dash, v_second_dash)
+	v_year_ok = _core_gte(v_year, 0)
+	v_month_ok = _core_gte(v_month, 0)
+	v_day_ok = _core_gte(v_day, 0)
+	v_ok = _core_and(v_ok, v_year_ok)
+	v_ok = _core_and(v_ok, v_month_ok)
+	v_ok = _core_and(v_ok, v_day_ok)
+	v_bad = _core_not(v_ok)
+	if coreTruthy(v_bad) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_parts = Object()
+	if err := coreSet(v_parts, "year", v_year); err != nil { return nil, err }
+	if err := coreSet(v_parts, "month", v_month); err != nil { return nil, err }
+	if err := coreSet(v_parts, "day", v_day); err != nil { return nil, err }
+	return v_parts, nil
 }
 
 func _regex_task(args ...Value) (Value, error) {
@@ -45281,6 +48062,218 @@ func _regex_search(args ...Value) (Value, error) {
 	return v_t225, nil
 }
 
+func _date_scan_datetime_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_scan_datetime_impl")
+	var v_units Value
+	var v_start Value
+	var v_end Value
+	var v_clock_ok Value
+	var v_colon Value
+	var v_colon_at Value
+	var v_counted Value
+	var v_cursor Value
+	var v_date_end Value
+	var v_digit Value
+	var v_digit_at Value
+	var v_digits Value
+	var v_dot Value
+	var v_enough Value
+	var v_fraction_at Value
+	var v_fraction_end Value
+	var v_has_fraction Value
+	var v_has_second Value
+	var v_hour Value
+	var v_hour_at Value
+	var v_hour_ok Value
+	var v_inside Value
+	var v_lower_t Value
+	var v_millisecond Value
+	var v_minute Value
+	var v_minute_at Value
+	var v_minute_ok Value
+	var v_no_clock Value
+	var v_no_date Value
+	var v_none Value
+	var v_not_digit Value
+	var v_not_separated Value
+	var v_pad Value
+	var v_padded Value
+	var v_parts Value
+	var v_scaled Value
+	var v_second Value
+	var v_second_at Value
+	var v_second_colon Value
+	var v_separated Value
+	var v_separator Value
+	var v_space Value
+	var v_too_short Value
+	var v_upper_t Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_start = args[1] }
+	_ = v_start
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	_ = v_clock_ok
+	_ = v_colon
+	_ = v_colon_at
+	_ = v_counted
+	_ = v_cursor
+	_ = v_date_end
+	_ = v_digit
+	_ = v_digit_at
+	_ = v_digits
+	_ = v_dot
+	_ = v_enough
+	_ = v_fraction_at
+	_ = v_fraction_end
+	_ = v_has_fraction
+	_ = v_has_second
+	_ = v_hour
+	_ = v_hour_at
+	_ = v_hour_ok
+	_ = v_inside
+	_ = v_lower_t
+	_ = v_millisecond
+	_ = v_minute
+	_ = v_minute_at
+	_ = v_minute_ok
+	_ = v_no_clock
+	_ = v_no_date
+	_ = v_none
+	_ = v_not_digit
+	_ = v_not_separated
+	_ = v_pad
+	_ = v_padded
+	_ = v_parts
+	_ = v_scaled
+	_ = v_second
+	_ = v_second_at
+	_ = v_second_colon
+	_ = v_separated
+	_ = v_separator
+	_ = v_space
+	_ = v_too_short
+	_ = v_upper_t
+	v_none = _core_none()
+	v_date_end = _core_add(v_start, 10)
+	v_too_short = _core_gt(v_date_end, v_end)
+	if coreTruthy(v_too_short) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	{ v, err := _date_scan_date_impl(v_units, v_start); if err != nil { return nil, err }; v_parts = v }
+	v_no_date = _core_is_none(v_parts)
+	if coreTruthy(v_no_date) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_separator = coreGet(v_units, v_date_end, 0)
+	v_upper_t = _core_eq(v_separator, 84)
+	v_lower_t = _core_eq(v_separator, 116)
+	v_space = _core_eq(v_separator, 32)
+	v_separated = _core_or(v_upper_t, v_lower_t)
+	v_separated = _core_or(v_separated, v_space)
+	v_inside = _core_lt(v_date_end, v_end)
+	v_separated = _core_and(v_separated, v_inside)
+	v_not_separated = _core_not(v_separated)
+	if coreTruthy(v_not_separated) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_hour_at = _core_add(v_start, 11)
+	{ v, err := _date_digits_impl(v_units, v_hour_at, 2, v_end); if err != nil { return nil, err }; v_hour = v }
+	v_colon_at = _core_add(v_start, 13)
+	{ v, err := _date_expect_unit_impl(v_units, v_colon_at, v_end, 58); if err != nil { return nil, err }; v_colon = v }
+	v_minute_at = _core_add(v_start, 14)
+	{ v, err := _date_digits_impl(v_units, v_minute_at, 2, v_end); if err != nil { return nil, err }; v_minute = v }
+	v_hour_ok = _core_gte(v_hour, 0)
+	v_minute_ok = _core_gte(v_minute, 0)
+	v_clock_ok = _core_and(v_hour_ok, v_colon)
+	v_clock_ok = _core_and(v_clock_ok, v_minute_ok)
+	v_no_clock = _core_not(v_clock_ok)
+	if coreTruthy(v_no_clock) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	if err := coreSet(v_parts, "hour", v_hour); err != nil { return nil, err }
+	if err := coreSet(v_parts, "minute", v_minute); err != nil { return nil, err }
+	if err := coreSet(v_parts, "second", 0); err != nil { return nil, err }
+	if err := coreSet(v_parts, "millisecond", 0); err != nil { return nil, err }
+	v_cursor = _core_add(v_start, 16)
+	{ v, err := _date_expect_unit_impl(v_units, v_cursor, v_end, 58); if err != nil { return nil, err }; v_second_colon = v }
+	if coreTruthy(v_second_colon) {
+		v_second_at = _core_add(v_cursor, 1)
+		{ v, err := _date_digits_impl(v_units, v_second_at, 2, v_end); if err != nil { return nil, err }; v_second = v }
+		v_has_second = _core_gte(v_second, 0)
+		if coreTruthy(v_has_second) {
+			if err := coreSet(v_parts, "second", v_second); err != nil { return nil, err }
+			v_cursor = _core_add(v_cursor, 3)
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	{ v, err := _date_expect_unit_impl(v_units, v_cursor, v_end, 46); if err != nil { return nil, err }; v_dot = v }
+	if coreTruthy(v_dot) {
+		v_fraction_at = _core_add(v_cursor, 1)
+		v_digits = 0
+		v_millisecond = 0
+		for {
+			v_enough = _core_gte(v_digits, 9)
+			if coreTruthy(v_enough) {
+				break
+			} else {
+			// empty
+			}
+			v_digit_at = _core_add(v_fraction_at, v_digits)
+			{ v, err := _date_digits_impl(v_units, v_digit_at, 1, v_end); if err != nil { return nil, err }; v_digit = v }
+			v_not_digit = _core_lt(v_digit, 0)
+			if coreTruthy(v_not_digit) {
+				break
+			} else {
+			// empty
+			}
+			v_counted = _core_lt(v_digits, 3)
+			if coreTruthy(v_counted) {
+				v_scaled = _core_mul(v_millisecond, 10)
+				v_millisecond = _core_add(v_scaled, v_digit)
+			} else {
+			// empty
+			}
+			v_digits = _core_add(v_digits, 1)
+		}
+		v_has_fraction = _core_gt(v_digits, 0)
+		if coreTruthy(v_has_fraction) {
+			v_pad = v_digits
+			for {
+				v_padded = _core_gte(v_pad, 3)
+				if coreTruthy(v_padded) {
+					break
+				} else {
+				// empty
+				}
+				v_millisecond = _core_mul(v_millisecond, 10)
+				v_pad = _core_add(v_pad, 1)
+			}
+			if err := coreSet(v_parts, "millisecond", v_millisecond); err != nil { return nil, err }
+			v_fraction_end = _core_add(v_fraction_at, v_digits)
+			v_cursor = v_fraction_end
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	if err := coreSet(v_parts, "end", v_cursor); err != nil { return nil, err }
+	return v_parts, nil
+}
+
 func _stream_text_required_check_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_text_required_check_impl")
 	var v_values Value
@@ -46120,6 +49113,138 @@ func _tool_error_message_impl(args ...Value) (Value, error) {
 	return v_message, nil
 }
 
+func _date_offset_zone_matches_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_offset_zone_matches_impl")
+	var v_units Value
+	var v_start Value
+	var v_end Value
+	var v_at_end Value
+	var v_colon Value
+	var v_cursor Value
+	var v_done Value
+	var v_gmt Value
+	var v_gmt_units Value
+	var v_has_minutes Value
+	var v_has_sign Value
+	var v_hour_at Value
+	var v_hours Value
+	var v_is_z Value
+	var v_matches Value
+	var v_minus Value
+	var v_minute_at Value
+	var v_minutes Value
+	var v_minutes_end Value
+	var v_named Value
+	var v_no_hours Value
+	var v_no_sign Value
+	var v_one Value
+	var v_plus Value
+	var v_rest Value
+	var v_sign Value
+	var v_sign_inside Value
+	var v_single Value
+	var v_utc Value
+	var v_utc_units Value
+	var v_z_units Value
+	var v_zulu Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_start = args[1] }
+	_ = v_start
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	_ = v_at_end
+	_ = v_colon
+	_ = v_cursor
+	_ = v_done
+	_ = v_gmt
+	_ = v_gmt_units
+	_ = v_has_minutes
+	_ = v_has_sign
+	_ = v_hour_at
+	_ = v_hours
+	_ = v_is_z
+	_ = v_matches
+	_ = v_minus
+	_ = v_minute_at
+	_ = v_minutes
+	_ = v_minutes_end
+	_ = v_named
+	_ = v_no_hours
+	_ = v_no_sign
+	_ = v_one
+	_ = v_plus
+	_ = v_rest
+	_ = v_sign
+	_ = v_sign_inside
+	_ = v_single
+	_ = v_utc
+	_ = v_utc_units
+	_ = v_z_units
+	_ = v_zulu
+	v_z_units = _core_string_utf16_units("z")
+	v_one = _core_add(v_start, 1)
+	v_single = _core_eq(v_one, v_end)
+	{ v, err := _date_ascii_matches_impl(v_units, v_start, v_end, v_z_units); if err != nil { return nil, err }; v_is_z = v }
+	v_zulu = _core_and(v_single, v_is_z)
+	if coreTruthy(v_zulu) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_cursor = v_start
+	v_utc_units = _core_string_utf16_units("utc")
+	v_gmt_units = _core_string_utf16_units("gmt")
+	{ v, err := _date_ascii_matches_impl(v_units, v_start, v_end, v_utc_units); if err != nil { return nil, err }; v_utc = v }
+	{ v, err := _date_ascii_matches_impl(v_units, v_start, v_end, v_gmt_units); if err != nil { return nil, err }; v_gmt = v }
+	v_named = _core_or(v_utc, v_gmt)
+	if coreTruthy(v_named) {
+		v_cursor = _core_add(v_start, 3)
+	} else {
+	// empty
+	}
+	v_sign = coreGet(v_units, v_cursor, 0)
+	v_plus = _core_eq(v_sign, 43)
+	v_minus = _core_eq(v_sign, 45)
+	v_has_sign = _core_or(v_plus, v_minus)
+	v_sign_inside = _core_lt(v_cursor, v_end)
+	v_has_sign = _core_and(v_has_sign, v_sign_inside)
+	v_no_sign = _core_not(v_has_sign)
+	if coreTruthy(v_no_sign) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_hour_at = _core_add(v_cursor, 1)
+	{ v, err := _date_digits_impl(v_units, v_hour_at, 2, v_end); if err != nil { return nil, err }; v_hours = v }
+	v_no_hours = _core_lt(v_hours, 0)
+	if coreTruthy(v_no_hours) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_rest = _core_add(v_cursor, 3)
+	v_done = _core_eq(v_rest, v_end)
+	if coreTruthy(v_done) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_minute_at = v_rest
+	{ v, err := _date_expect_unit_impl(v_units, v_rest, v_end, 58); if err != nil { return nil, err }; v_colon = v }
+	if coreTruthy(v_colon) {
+		v_minute_at = _core_add(v_rest, 1)
+	} else {
+	// empty
+	}
+	{ v, err := _date_digits_impl(v_units, v_minute_at, 2, v_end); if err != nil { return nil, err }; v_minutes = v }
+	v_has_minutes = _core_gte(v_minutes, 0)
+	v_minutes_end = _core_add(v_minute_at, 2)
+	v_at_end = _core_eq(v_minutes_end, v_end)
+	v_matches = _core_and(v_has_minutes, v_at_end)
+	return v_matches, nil
+}
+
 func _append_validation_retry_messages_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_append_validation_retry_messages_impl")
 	var v_messages Value
@@ -46199,6 +49324,184 @@ func _parse_text_field_value_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_text, nil
+}
+
+func _date_offset_minutes_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_offset_minutes_impl")
+	var v_units Value
+	var v_start Value
+	var v_end Value
+	var v_at_end Value
+	var v_bad Value
+	var v_colon Value
+	var v_cursor Value
+	var v_gmt Value
+	var v_gmt_units Value
+	var v_has_sign Value
+	var v_hour_at Value
+	var v_hours Value
+	var v_hours_range Value
+	var v_is_z Value
+	var v_length Value
+	var v_minus Value
+	var v_minute_at Value
+	var v_minutes Value
+	var v_minutes_end Value
+	var v_minutes_ok Value
+	var v_minutes_range Value
+	var v_more Value
+	var v_named Value
+	var v_named_only Value
+	var v_no_hours Value
+	var v_no_sign Value
+	var v_none Value
+	var v_ok Value
+	var v_one Value
+	var v_out_of_range Value
+	var v_plus Value
+	var v_rest Value
+	var v_sign_inside Value
+	var v_sign_unit Value
+	var v_three Value
+	var v_total Value
+	var v_utc Value
+	var v_utc_units Value
+	var v_z_units Value
+	var v_zulu Value
+	if len(args) > 0 { v_units = args[0] }
+	_ = v_units
+	if len(args) > 1 { v_start = args[1] }
+	_ = v_start
+	if len(args) > 2 { v_end = args[2] }
+	_ = v_end
+	_ = v_at_end
+	_ = v_bad
+	_ = v_colon
+	_ = v_cursor
+	_ = v_gmt
+	_ = v_gmt_units
+	_ = v_has_sign
+	_ = v_hour_at
+	_ = v_hours
+	_ = v_hours_range
+	_ = v_is_z
+	_ = v_length
+	_ = v_minus
+	_ = v_minute_at
+	_ = v_minutes
+	_ = v_minutes_end
+	_ = v_minutes_ok
+	_ = v_minutes_range
+	_ = v_more
+	_ = v_named
+	_ = v_named_only
+	_ = v_no_hours
+	_ = v_no_sign
+	_ = v_none
+	_ = v_ok
+	_ = v_one
+	_ = v_out_of_range
+	_ = v_plus
+	_ = v_rest
+	_ = v_sign_inside
+	_ = v_sign_unit
+	_ = v_three
+	_ = v_total
+	_ = v_utc
+	_ = v_utc_units
+	_ = v_z_units
+	_ = v_zulu
+	v_none = _core_none()
+	v_length = _core_mul(v_start, -1)
+	v_length = _core_add(v_length, v_end)
+	v_utc_units = _core_string_utf16_units("utc")
+	v_gmt_units = _core_string_utf16_units("gmt")
+	v_z_units = _core_string_utf16_units("z")
+	{ v, err := _date_ascii_matches_impl(v_units, v_start, v_end, v_utc_units); if err != nil { return nil, err }; v_utc = v }
+	{ v, err := _date_ascii_matches_impl(v_units, v_start, v_end, v_gmt_units); if err != nil { return nil, err }; v_gmt = v }
+	v_named = _core_or(v_utc, v_gmt)
+	v_three = _core_eq(v_length, 3)
+	v_named_only = _core_and(v_named, v_three)
+	if coreTruthy(v_named_only) {
+		return 0, nil
+	} else {
+	// empty
+	}
+	v_one = _core_eq(v_length, 1)
+	{ v, err := _date_ascii_matches_impl(v_units, v_start, v_end, v_z_units); if err != nil { return nil, err }; v_is_z = v }
+	v_zulu = _core_and(v_one, v_is_z)
+	if coreTruthy(v_zulu) {
+		return 0, nil
+	} else {
+	// empty
+	}
+	v_cursor = v_start
+	if coreTruthy(v_named) {
+		v_cursor = _core_add(v_start, 3)
+	} else {
+	// empty
+	}
+	v_sign_unit = coreGet(v_units, v_cursor, 0)
+	v_sign_inside = _core_lt(v_cursor, v_end)
+	v_plus = _core_eq(v_sign_unit, 43)
+	v_minus = _core_eq(v_sign_unit, 45)
+	v_has_sign = _core_or(v_plus, v_minus)
+	v_has_sign = _core_and(v_has_sign, v_sign_inside)
+	v_no_sign = _core_not(v_has_sign)
+	if coreTruthy(v_no_sign) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_hour_at = _core_add(v_cursor, 1)
+	{ v, err := _date_digits_impl(v_units, v_hour_at, 2, v_end); if err != nil { return nil, err }; v_hours = v }
+	v_no_hours = _core_lt(v_hours, 0)
+	if coreTruthy(v_no_hours) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_minutes = 0
+	v_rest = _core_add(v_cursor, 3)
+	v_more = _core_lt(v_rest, v_end)
+	if coreTruthy(v_more) {
+		v_minute_at = v_rest
+		{ v, err := _date_expect_unit_impl(v_units, v_rest, v_end, 58); if err != nil { return nil, err }; v_colon = v }
+		if coreTruthy(v_colon) {
+			v_minute_at = _core_add(v_rest, 1)
+		} else {
+		// empty
+		}
+		{ v, err := _date_digits_impl(v_units, v_minute_at, 2, v_end); if err != nil { return nil, err }; v_minutes = v }
+		v_minutes_end = _core_add(v_minute_at, 2)
+		v_at_end = _core_eq(v_minutes_end, v_end)
+		v_minutes_ok = _core_gte(v_minutes, 0)
+		v_ok = _core_and(v_at_end, v_minutes_ok)
+		v_bad = _core_not(v_ok)
+		if coreTruthy(v_bad) {
+			return v_none, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_hours_range = _core_gt(v_hours, 23)
+	v_minutes_range = _core_gt(v_minutes, 59)
+	v_out_of_range = _core_or(v_hours_range, v_minutes_range)
+	if coreTruthy(v_out_of_range) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_total = _core_mul(v_hours, 60)
+	v_total = _core_add(v_total, v_minutes)
+	if coreTruthy(v_minus) {
+		v_total = _core_mul(v_total, -1)
+	} else {
+	// empty
+	}
+	return v_total, nil
 }
 
 func _stream_text_final_impl(args ...Value) (Value, error) {
@@ -46961,6 +50264,111 @@ func _stream_text_extract_values_impl(args ...Value) (Value, error) {
 	return v_values, nil
 }
 
+func _date_js_json_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_js_json_impl")
+	var v_value Value
+	var v_entry Value
+	var v_entry_json Value
+	var v_is_boolean Value
+	var v_is_list Value
+	var v_is_null Value
+	var v_is_number Value
+	var v_is_text Value
+	var v_item Value
+	var v_item_json Value
+	var v_items Value
+	var v_key Value
+	var v_key_json Value
+	var v_keys Value
+	var v_list_json Value
+	var v_member Value
+	var v_members Value
+	var v_number Value
+	var v_object_json Value
+	var v_parts Value
+	var v_quoted Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_entry
+	_ = v_entry_json
+	_ = v_is_boolean
+	_ = v_is_list
+	_ = v_is_null
+	_ = v_is_number
+	_ = v_is_text
+	_ = v_item
+	_ = v_item_json
+	_ = v_items
+	_ = v_key
+	_ = v_key_json
+	_ = v_keys
+	_ = v_list_json
+	_ = v_member
+	_ = v_members
+	_ = v_number
+	_ = v_object_json
+	_ = v_parts
+	_ = v_quoted
+	v_is_null = _core_is_none(v_value)
+	if coreTruthy(v_is_null) {
+		return "null", nil
+	} else {
+	// empty
+	}
+	v_is_boolean = coreTypeIs(v_value, "boolean")
+	if coreTruthy(v_is_boolean) {
+		if coreTruthy(v_value) {
+			return "true", nil
+		} else {
+		// empty
+		}
+		return "false", nil
+	} else {
+	// empty
+	}
+	v_is_number = coreTypeIs(v_value, "number")
+	if coreTruthy(v_is_number) {
+		v_number = _core_string_str(v_value)
+		return v_number, nil
+	} else {
+	// empty
+	}
+	v_is_text = coreTypeIs(v_value, "string")
+	if coreTruthy(v_is_text) {
+		{ v, err := _date_js_json_string_impl(v_value); if err != nil { return nil, err }; v_quoted = v }
+		return v_quoted, nil
+	} else {
+	// empty
+	}
+	v_parts = MutableArray()
+	v_is_list = coreTypeIs(v_value, "list")
+	if coreTruthy(v_is_list) {
+		for _, v_item = range coreIter(v_value) {
+			{ v, err := _date_js_json_impl(v_item); if err != nil { return nil, err }; v_item_json = v }
+			v_parts = coreAppend(v_parts, v_item_json)
+		}
+		v_items = _core_string_join(",", v_parts)
+		v_list_json = _core_add("[", v_items)
+		v_list_json = _core_add(v_list_json, "]")
+		return v_list_json, nil
+	} else {
+	// empty
+	}
+	v_keys = _core_map_keys(v_value)
+	for _, v_key = range coreIter(v_keys) {
+		{ v, err := _date_js_json_string_impl(v_key); if err != nil { return nil, err }; v_key_json = v }
+		v_entry = coreGet(v_value, v_key, nil)
+		{ v, err := _date_js_json_impl(v_entry); if err != nil { return nil, err }; v_entry_json = v }
+		v_member = _core_add(v_key_json, ":")
+		v_member = _core_add(v_member, v_entry_json)
+		v_parts = coreAppend(v_parts, v_member)
+	}
+	v_members = _core_string_join(",", v_parts)
+	v_object_json = _core_add("{", v_members)
+	v_object_json = _core_add(v_object_json, "}")
+	return v_object_json, nil
+}
+
 func _parse_output_fields_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_parse_output_fields_impl")
 	var v_content Value
@@ -46985,6 +50393,78 @@ func _parse_output_fields_impl(args ...Value) (Value, error) {
 	}
 	{ v, err := _parse_text_output_fields_impl(v_text, v_fields, true); if err != nil { return nil, err }; v_output = v }
 	return v_output, nil
+}
+
+func _signature_has_complex_fields(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_has_complex_fields")
+	var v_signature Value
+	var v_options Value
+	var v_field Value
+	var v_field_type Value
+	var v_forced Value
+	var v_has_nested_fields Value
+	var v_is_array Value
+	var v_is_array_snake Value
+	var v_is_object Value
+	var v_nested_fields Value
+	var v_object_array Value
+	var v_option_forced Value
+	var v_option_forced_snake Value
+	var v_output_fields Value
+	var v_signature_forced Value
+	var v_signature_forced_snake Value
+	var v_type_name Value
+	if len(args) > 0 { v_signature = args[0] }
+	_ = v_signature
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_field
+	_ = v_field_type
+	_ = v_forced
+	_ = v_has_nested_fields
+	_ = v_is_array
+	_ = v_is_array_snake
+	_ = v_is_object
+	_ = v_nested_fields
+	_ = v_object_array
+	_ = v_option_forced
+	_ = v_option_forced_snake
+	_ = v_output_fields
+	_ = v_signature_forced
+	_ = v_signature_forced_snake
+	_ = v_type_name
+	v_option_forced_snake = coreGet(v_options, "force_structured", false)
+	v_option_forced = coreGet(v_options, "forceStructured", v_option_forced_snake)
+	v_signature_forced_snake = coreGet(v_signature, "force_structured", false)
+	v_signature_forced = coreGet(v_signature, "forceStructured", v_signature_forced_snake)
+	v_forced = _core_or(v_option_forced, v_signature_forced)
+	if coreTruthy(v_forced) {
+		return true, nil
+	} else {
+	// empty
+	}
+	v_output_fields = coreGet(v_signature, "output_fields", nil)
+	for _, v_field = range coreIter(v_output_fields) {
+		v_field_type = coreGet(v_field, "type", nil)
+		v_type_name = coreGet(v_field_type, "name", nil)
+		v_is_object = _core_eq(v_type_name, "object")
+		if coreTruthy(v_is_object) {
+			return true, nil
+		} else {
+		// empty
+		}
+		v_is_array_snake = coreGet(v_field_type, "is_array", false)
+		v_is_array = coreGet(v_field_type, "isArray", v_is_array_snake)
+		v_nested_fields = coreGet(v_field_type, "fields", nil)
+		v_has_nested_fields = _core_truthy(v_nested_fields)
+		v_object_array = _core_and(v_is_array, v_has_nested_fields)
+		if coreTruthy(v_object_array) {
+			return true, nil
+		} else {
+		// empty
+		}
+	}
+	return false, nil
 }
 
 func _stream_text_yield_delta_impl(args ...Value) (Value, error) {
@@ -47167,78 +50647,6 @@ func _stream_text_yield_delta_impl(args ...Value) (Value, error) {
 	return v_none, nil
 }
 
-func _signature_has_complex_fields(args ...Value) (Value, error) {
-	axirCoverageMark("_signature_has_complex_fields")
-	var v_signature Value
-	var v_options Value
-	var v_field Value
-	var v_field_type Value
-	var v_forced Value
-	var v_has_nested_fields Value
-	var v_is_array Value
-	var v_is_array_snake Value
-	var v_is_object Value
-	var v_nested_fields Value
-	var v_object_array Value
-	var v_option_forced Value
-	var v_option_forced_snake Value
-	var v_output_fields Value
-	var v_signature_forced Value
-	var v_signature_forced_snake Value
-	var v_type_name Value
-	if len(args) > 0 { v_signature = args[0] }
-	_ = v_signature
-	if len(args) > 1 { v_options = args[1] }
-	_ = v_options
-	_ = v_field
-	_ = v_field_type
-	_ = v_forced
-	_ = v_has_nested_fields
-	_ = v_is_array
-	_ = v_is_array_snake
-	_ = v_is_object
-	_ = v_nested_fields
-	_ = v_object_array
-	_ = v_option_forced
-	_ = v_option_forced_snake
-	_ = v_output_fields
-	_ = v_signature_forced
-	_ = v_signature_forced_snake
-	_ = v_type_name
-	v_option_forced_snake = coreGet(v_options, "force_structured", false)
-	v_option_forced = coreGet(v_options, "forceStructured", v_option_forced_snake)
-	v_signature_forced_snake = coreGet(v_signature, "force_structured", false)
-	v_signature_forced = coreGet(v_signature, "forceStructured", v_signature_forced_snake)
-	v_forced = _core_or(v_option_forced, v_signature_forced)
-	if coreTruthy(v_forced) {
-		return true, nil
-	} else {
-	// empty
-	}
-	v_output_fields = coreGet(v_signature, "output_fields", nil)
-	for _, v_field = range coreIter(v_output_fields) {
-		v_field_type = coreGet(v_field, "type", nil)
-		v_type_name = coreGet(v_field_type, "name", nil)
-		v_is_object = _core_eq(v_type_name, "object")
-		if coreTruthy(v_is_object) {
-			return true, nil
-		} else {
-		// empty
-		}
-		v_is_array_snake = coreGet(v_field_type, "is_array", false)
-		v_is_array = coreGet(v_field_type, "isArray", v_is_array_snake)
-		v_nested_fields = coreGet(v_field_type, "fields", nil)
-		v_has_nested_fields = _core_truthy(v_nested_fields)
-		v_object_array = _core_and(v_is_array, v_has_nested_fields)
-		if coreTruthy(v_object_array) {
-			return true, nil
-		} else {
-		// empty
-		}
-	}
-	return false, nil
-}
-
 func _caller_function_call_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_caller_function_call_impl")
 	var v_options Value
@@ -47288,6 +50696,264 @@ func _caller_function_call_impl(args ...Value) (Value, error) {
 	}
 	v_none = _core_none()
 	return v_none, nil
+}
+
+func _date_js_json_string_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_js_json_string_impl")
+	var v_text Value
+	var v_backslash Value
+	var v_backspace Value
+	var v_carriage_return Value
+	var v_control Value
+	var v_copied Value
+	var v_count Value
+	var v_done Value
+	var v_escape Value
+	var v_escaped Value
+	var v_following Value
+	var v_following_at Value
+	var v_form_feed Value
+	var v_hex Value
+	var v_high_char Value
+	var v_high_digit Value
+	var v_high_end Value
+	var v_high_high Value
+	var v_high_low Value
+	var v_index Value
+	var v_is_high Value
+	var v_is_pair Value
+	var v_kept Value
+	var v_line_feed Value
+	var v_lone Value
+	var v_lone_text Value
+	var v_low_char Value
+	var v_low_digit Value
+	var v_low_digit_base Value
+	var v_low_end Value
+	var v_low_high Value
+	var v_low_low Value
+	var v_mode Value
+	var v_next_inside Value
+	var v_next_low Value
+	var v_not_pair Value
+	var v_offset Value
+	var v_out Value
+	var v_quote Value
+	var v_rest Value
+	var v_step Value
+	var v_surrogate Value
+	var v_surrogate_high Value
+	var v_surrogate_low Value
+	var v_tab Value
+	var v_three_bytes Value
+	var v_two_bytes Value
+	var v_unit Value
+	var v_units Value
+	var v_utf16_pair Value
+	var v_utf8 Value
+	var v_width Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_backslash
+	_ = v_backspace
+	_ = v_carriage_return
+	_ = v_control
+	_ = v_copied
+	_ = v_count
+	_ = v_done
+	_ = v_escape
+	_ = v_escaped
+	_ = v_following
+	_ = v_following_at
+	_ = v_form_feed
+	_ = v_hex
+	_ = v_high_char
+	_ = v_high_digit
+	_ = v_high_end
+	_ = v_high_high
+	_ = v_high_low
+	_ = v_index
+	_ = v_is_high
+	_ = v_is_pair
+	_ = v_kept
+	_ = v_line_feed
+	_ = v_lone
+	_ = v_lone_text
+	_ = v_low_char
+	_ = v_low_digit
+	_ = v_low_digit_base
+	_ = v_low_end
+	_ = v_low_high
+	_ = v_low_low
+	_ = v_mode
+	_ = v_next_inside
+	_ = v_next_low
+	_ = v_not_pair
+	_ = v_offset
+	_ = v_out
+	_ = v_quote
+	_ = v_rest
+	_ = v_step
+	_ = v_surrogate
+	_ = v_surrogate_high
+	_ = v_surrogate_low
+	_ = v_tab
+	_ = v_three_bytes
+	_ = v_two_bytes
+	_ = v_unit
+	_ = v_units
+	_ = v_utf16_pair
+	_ = v_utf8
+	_ = v_width
+	v_hex = "0123456789abcdef"
+	v_units = _core_string_utf16_units(v_text)
+	v_count = _core_len(v_units)
+	{ v, err := _date_string_mode_impl(); if err != nil { return nil, err }; v_mode = v }
+	v_utf8 = _core_eq(v_mode, "utf8")
+	v_out = "\""
+	v_copied = 0
+	v_offset = 0
+	v_index = 0
+	for {
+		v_done = _core_gte(v_index, v_count)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_unit = coreGet(v_units, v_index, 0)
+		v_following_at = _core_add(v_index, 1)
+		v_following = coreGet(v_units, v_following_at, 0)
+		v_high_low = _core_gte(v_unit, 55296)
+		v_high_high = _core_lte(v_unit, 56319)
+		v_is_high = _core_and(v_high_low, v_high_high)
+		v_low_low = _core_gte(v_following, 56320)
+		v_low_high = _core_lte(v_following, 57343)
+		v_next_low = _core_and(v_low_low, v_low_high)
+		v_next_inside = _core_lt(v_following_at, v_count)
+		v_next_low = _core_and(v_next_low, v_next_inside)
+		v_is_pair = _core_and(v_is_high, v_next_low)
+		v_width = 1
+		v_step = 1
+		if coreTruthy(v_is_pair) {
+			v_step = 2
+			if coreTruthy(v_utf8) {
+				v_width = 4
+			} else {
+			// empty
+			}
+			v_utf16_pair = _core_eq(v_mode, "utf16")
+			if coreTruthy(v_utf16_pair) {
+				v_width = 2
+			} else {
+			// empty
+			}
+		} else {
+			if coreTruthy(v_utf8) {
+				v_two_bytes = _core_gte(v_unit, 128)
+				if coreTruthy(v_two_bytes) {
+					v_width = 2
+				} else {
+				// empty
+				}
+				v_three_bytes = _core_gte(v_unit, 2048)
+				if coreTruthy(v_three_bytes) {
+					v_width = 3
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+		v_escape = ""
+		v_quote = _core_eq(v_unit, 34)
+		if coreTruthy(v_quote) {
+			v_escape = "\\\""
+		} else {
+		// empty
+		}
+		v_backslash = _core_eq(v_unit, 92)
+		if coreTruthy(v_backslash) {
+			v_escape = "\\\\"
+		} else {
+		// empty
+		}
+		v_control = _core_lt(v_unit, 32)
+		if coreTruthy(v_control) {
+			{ v, err := _date_floor_div_impl(v_unit, 16); if err != nil { return nil, err }; v_high_digit = v }
+			v_low_digit_base = _core_mul(v_high_digit, -16)
+			v_low_digit = _core_add(v_unit, v_low_digit_base)
+			v_high_end = _core_add(v_high_digit, 1)
+			v_high_char = _core_string_slice(v_hex, v_high_digit, v_high_end)
+			v_low_end = _core_add(v_low_digit, 1)
+			v_low_char = _core_string_slice(v_hex, v_low_digit, v_low_end)
+			v_escape = _core_string_format("\\u00{}{}", v_high_char, v_low_char)
+			v_backspace = _core_eq(v_unit, 8)
+			if coreTruthy(v_backspace) {
+				v_escape = "\\b"
+			} else {
+			// empty
+			}
+			v_tab = _core_eq(v_unit, 9)
+			if coreTruthy(v_tab) {
+				v_escape = "\\t"
+			} else {
+			// empty
+			}
+			v_line_feed = _core_eq(v_unit, 10)
+			if coreTruthy(v_line_feed) {
+				v_escape = "\\n"
+			} else {
+			// empty
+			}
+			v_form_feed = _core_eq(v_unit, 12)
+			if coreTruthy(v_form_feed) {
+				v_escape = "\\f"
+			} else {
+			// empty
+			}
+			v_carriage_return = _core_eq(v_unit, 13)
+			if coreTruthy(v_carriage_return) {
+				v_escape = "\\r"
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_surrogate_low = _core_gte(v_unit, 55296)
+		v_surrogate_high = _core_lte(v_unit, 57343)
+		v_surrogate = _core_and(v_surrogate_low, v_surrogate_high)
+		v_not_pair = _core_not(v_is_pair)
+		v_lone = _core_and(v_surrogate, v_not_pair)
+		if coreTruthy(v_lone) {
+			{ v, err := _date_js_hex4_impl(v_unit); if err != nil { return nil, err }; v_lone_text = v }
+			v_escape = _core_string_format("\\u{}", v_lone_text)
+			if coreTruthy(v_utf8) {
+				v_width = 3
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_escaped = _core_ne(v_escape, "")
+		if coreTruthy(v_escaped) {
+			v_kept = _core_string_slice(v_text, v_copied, v_offset)
+			v_out = _core_add(v_out, v_kept)
+			v_out = _core_add(v_out, v_escape)
+			v_offset = _core_add(v_offset, v_width)
+			v_copied = v_offset
+		} else {
+			v_offset = _core_add(v_offset, v_width)
+		}
+		v_index = _core_add(v_index, v_step)
+	}
+	v_rest = _core_string_slice(v_text, v_copied, v_offset)
+	v_out = _core_add(v_out, v_rest)
+	v_out = _core_add(v_out, "\"")
+	return v_out, nil
 }
 
 func _function_call_forces_tool_impl(args ...Value) (Value, error) {
@@ -47373,6 +51039,43 @@ func _ace_normalize_reflection_bullet_tags(args ...Value) (Value, error) {
 		}
 	}
 	return v_normalized, nil
+}
+
+func _function_call_names_output_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_function_call_names_output_impl")
+	var v_choice Value
+	var v_canonical Value
+	var v_empty_function Value
+	var v_function Value
+	var v_is_named Value
+	var v_legacy Value
+	var v_name Value
+	var v_not_named Value
+	var v_reserved Value
+	if len(args) > 0 { v_choice = args[0] }
+	_ = v_choice
+	_ = v_canonical
+	_ = v_empty_function
+	_ = v_function
+	_ = v_is_named
+	_ = v_legacy
+	_ = v_name
+	_ = v_not_named
+	_ = v_reserved
+	v_is_named = coreTypeIs(v_choice, "object")
+	v_not_named = _core_not(v_is_named)
+	if coreTruthy(v_not_named) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_empty_function = Object()
+	v_function = coreGet(v_choice, "function", v_empty_function)
+	v_name = coreGet(v_function, "name", "")
+	v_canonical = _core_eq(v_name, "__axOutput")
+	v_legacy = _core_eq(v_name, "__finalResult")
+	v_reserved = _core_or(v_canonical, v_legacy)
+	return v_reserved, nil
 }
 
 func _stream_text_values_impl(args ...Value) (Value, error) {
@@ -47679,43 +51382,6 @@ func _stream_text_values_impl(args ...Value) (Value, error) {
 	return v_deltas, nil
 }
 
-func _function_call_names_output_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_function_call_names_output_impl")
-	var v_choice Value
-	var v_canonical Value
-	var v_empty_function Value
-	var v_function Value
-	var v_is_named Value
-	var v_legacy Value
-	var v_name Value
-	var v_not_named Value
-	var v_reserved Value
-	if len(args) > 0 { v_choice = args[0] }
-	_ = v_choice
-	_ = v_canonical
-	_ = v_empty_function
-	_ = v_function
-	_ = v_is_named
-	_ = v_legacy
-	_ = v_name
-	_ = v_not_named
-	_ = v_reserved
-	v_is_named = coreTypeIs(v_choice, "object")
-	v_not_named = _core_not(v_is_named)
-	if coreTruthy(v_not_named) {
-		return false, nil
-	} else {
-	// empty
-	}
-	v_empty_function = Object()
-	v_function = coreGet(v_choice, "function", v_empty_function)
-	v_name = coreGet(v_function, "name", "")
-	v_canonical = _core_eq(v_name, "__axOutput")
-	v_legacy = _core_eq(v_name, "__finalResult")
-	v_reserved = _core_or(v_canonical, v_legacy)
-	return v_reserved, nil
-}
-
 func _append_structured_output_retry_messages_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_append_structured_output_retry_messages_impl")
 	var v_messages Value
@@ -47964,6 +51630,69 @@ func _with_output_thought_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_output, nil
+}
+
+func _date_js_hex4_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_js_hex4_impl")
+	var v_unit Value
+	var v_base Value
+	var v_d0 Value
+	var v_d1 Value
+	var v_d2 Value
+	var v_d3 Value
+	var v_digit Value
+	var v_digit_char Value
+	var v_digit_end Value
+	var v_digits Value
+	var v_done Value
+	var v_hex Value
+	var v_position Value
+	var v_quotient Value
+	var v_rest Value
+	var v_text Value
+	if len(args) > 0 { v_unit = args[0] }
+	_ = v_unit
+	_ = v_base
+	_ = v_d0
+	_ = v_d1
+	_ = v_d2
+	_ = v_d3
+	_ = v_digit
+	_ = v_digit_char
+	_ = v_digit_end
+	_ = v_digits
+	_ = v_done
+	_ = v_hex
+	_ = v_position
+	_ = v_quotient
+	_ = v_rest
+	_ = v_text
+	v_hex = "0123456789abcdef"
+	v_digits = MutableArray()
+	v_rest = v_unit
+	v_position = 0
+	for {
+		v_done = _core_gte(v_position, 4)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		{ v, err := _date_floor_div_impl(v_rest, 16); if err != nil { return nil, err }; v_quotient = v }
+		v_base = _core_mul(v_quotient, -16)
+		v_digit = _core_add(v_rest, v_base)
+		v_digit_end = _core_add(v_digit, 1)
+		v_digit_char = _core_string_slice(v_hex, v_digit, v_digit_end)
+		v_digits = coreAppend(v_digits, v_digit_char)
+		v_rest = v_quotient
+		v_position = _core_add(v_position, 1)
+	}
+	v_d0 = _core_list_get(v_digits, 3)
+	v_d1 = _core_list_get(v_digits, 2)
+	v_d2 = _core_list_get(v_digits, 1)
+	v_d3 = _core_list_get(v_digits, 0)
+	v_text = _core_string_format("{}{}{}{}", v_d0, v_d1, v_d2, v_d3)
+	return v_text, nil
 }
 
 func _streaming_forward_impl(args ...Value) (Value, error) {
@@ -48546,6 +52275,7 @@ func _streaming_forward_impl(args ...Value) (Value, error) {
 	v_ordered_messages = coreAppend(v_ordered_messages, v_user_message)
 	v_output_fields = coreGet(v_signature, "output_fields", nil)
 	if _, err := _append_structured_output_instruction(v_ordered_messages, v_output_fields, v_selection); err != nil { return nil, err }
+	{ v, err := _date_parse_fields_impl(v_output_fields, v_base_options, v_options); if err != nil { return nil, err }; v_output_fields = v }
 	v_validation_feedback_snake = coreGet(v_runtime_options, "validation_feedback", "")
 	v_validation_feedback = coreGet(v_runtime_options, "validationFeedback", v_validation_feedback_snake)
 	v_has_validation_feedback = _core_truthy(v_validation_feedback)
@@ -49123,6 +52853,48 @@ func _streaming_forward_impl(args ...Value) (Value, error) {
 	}
 }
 
+func _date_floor_div_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_floor_div_impl")
+	var v_dividend Value
+	var v_divisor Value
+	var v_following Value
+	var v_next_product Value
+	var v_over Value
+	var v_product Value
+	var v_quotient Value
+	var v_ratio Value
+	var v_under Value
+	if len(args) > 0 { v_dividend = args[0] }
+	_ = v_dividend
+	if len(args) > 1 { v_divisor = args[1] }
+	_ = v_divisor
+	_ = v_following
+	_ = v_next_product
+	_ = v_over
+	_ = v_product
+	_ = v_quotient
+	_ = v_ratio
+	_ = v_under
+	v_ratio = _core_div(v_dividend, v_divisor)
+	v_quotient = _core_math_floor(v_ratio)
+	v_product = _core_mul(v_quotient, v_divisor)
+	v_over = _core_gt(v_product, v_dividend)
+	if coreTruthy(v_over) {
+		v_quotient = _core_add(v_quotient, -1)
+	} else {
+	// empty
+	}
+	v_following = _core_add(v_quotient, 1)
+	v_next_product = _core_mul(v_following, v_divisor)
+	v_under = _core_lte(v_next_product, v_dividend)
+	if coreTruthy(v_under) {
+		v_quotient = v_following
+	} else {
+	// empty
+	}
+	return v_quotient, nil
+}
+
 func _regex_test(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_test")
 	var v_pattern Value
@@ -49255,6 +53027,77 @@ func _regex_test(args ...Value) (Value, error) {
 		v_i = v_t25
 	}
 	return false, nil
+}
+
+func _date_days_from_civil_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_days_from_civil_impl")
+	var v_year Value
+	var v_month Value
+	var v_day Value
+	var v_days Value
+	var v_doe Value
+	var v_doy Value
+	var v_early Value
+	var v_era Value
+	var v_era_years Value
+	var v_leap100 Value
+	var v_leap100_negated Value
+	var v_leap4 Value
+	var v_month_days Value
+	var v_month_index Value
+	var v_shifted Value
+	var v_year_of_era Value
+	var v_yoe Value
+	if len(args) > 0 { v_year = args[0] }
+	_ = v_year
+	if len(args) > 1 { v_month = args[1] }
+	_ = v_month
+	if len(args) > 2 { v_day = args[2] }
+	_ = v_day
+	_ = v_days
+	_ = v_doe
+	_ = v_doy
+	_ = v_early
+	_ = v_era
+	_ = v_era_years
+	_ = v_leap100
+	_ = v_leap100_negated
+	_ = v_leap4
+	_ = v_month_days
+	_ = v_month_index
+	_ = v_shifted
+	_ = v_year_of_era
+	_ = v_yoe
+	v_year_of_era = v_year
+	v_early = _core_lte(v_month, 2)
+	if coreTruthy(v_early) {
+		v_year_of_era = _core_add(v_year, -1)
+	} else {
+	// empty
+	}
+	{ v, err := _date_floor_div_impl(v_year_of_era, 400); if err != nil { return nil, err }; v_era = v }
+	v_era_years = _core_mul(v_era, -400)
+	v_yoe = _core_add(v_year_of_era, v_era_years)
+	v_shifted = _core_add(v_month, 9)
+	{ v, err := _date_floor_div_impl(v_shifted, 12); if err != nil { return nil, err }; v_month_index = v }
+	v_month_index = _core_mul(v_month_index, -12)
+	v_month_index = _core_add(v_shifted, v_month_index)
+	v_month_days = _core_mul(v_month_index, 153)
+	v_month_days = _core_add(v_month_days, 2)
+	{ v, err := _date_floor_div_impl(v_month_days, 5); if err != nil { return nil, err }; v_month_days = v }
+	v_doy = _core_add(v_month_days, v_day)
+	v_doy = _core_add(v_doy, -1)
+	v_doe = _core_mul(v_yoe, 365)
+	{ v, err := _date_floor_div_impl(v_yoe, 4); if err != nil { return nil, err }; v_leap4 = v }
+	{ v, err := _date_floor_div_impl(v_yoe, 100); if err != nil { return nil, err }; v_leap100 = v }
+	v_doe = _core_add(v_doe, v_leap4)
+	v_leap100_negated = _core_mul(v_leap100, -1)
+	v_doe = _core_add(v_doe, v_leap100_negated)
+	v_doe = _core_add(v_doe, v_doy)
+	v_days = _core_mul(v_era, 146097)
+	v_days = _core_add(v_days, v_doe)
+	v_days = _core_add(v_days, -719468)
+	return v_days, nil
 }
 
 func _stream_json_context_impl(args ...Value) (Value, error) {
@@ -49423,6 +53266,115 @@ func _stream_json_context_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_marker, "in_array", v_in_array); err != nil { return nil, err }
 	if err := coreSet(v_marker, "in_object", v_in_object); err != nil { return nil, err }
 	return v_marker, nil
+}
+
+func _date_civil_from_days_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_civil_from_days_impl")
+	var v_days Value
+	var v_a Value
+	var v_a_negated Value
+	var v_b Value
+	var v_c Value
+	var v_c_negated Value
+	var v_civil Value
+	var v_day Value
+	var v_doe Value
+	var v_doy Value
+	var v_early Value
+	var v_era Value
+	var v_era_days Value
+	var v_era_years Value
+	var v_late Value
+	var v_leap100 Value
+	var v_leap100_negated Value
+	var v_leap4 Value
+	var v_month Value
+	var v_month_days Value
+	var v_month_days_negated Value
+	var v_mp Value
+	var v_shifted Value
+	var v_year Value
+	var v_year_days Value
+	var v_year_days_negated Value
+	var v_yoe Value
+	if len(args) > 0 { v_days = args[0] }
+	_ = v_days
+	_ = v_a
+	_ = v_a_negated
+	_ = v_b
+	_ = v_c
+	_ = v_c_negated
+	_ = v_civil
+	_ = v_day
+	_ = v_doe
+	_ = v_doy
+	_ = v_early
+	_ = v_era
+	_ = v_era_days
+	_ = v_era_years
+	_ = v_late
+	_ = v_leap100
+	_ = v_leap100_negated
+	_ = v_leap4
+	_ = v_month
+	_ = v_month_days
+	_ = v_month_days_negated
+	_ = v_mp
+	_ = v_shifted
+	_ = v_year
+	_ = v_year_days
+	_ = v_year_days_negated
+	_ = v_yoe
+	v_shifted = _core_add(v_days, 719468)
+	{ v, err := _date_floor_div_impl(v_shifted, 146097); if err != nil { return nil, err }; v_era = v }
+	v_era_days = _core_mul(v_era, -146097)
+	v_doe = _core_add(v_shifted, v_era_days)
+	{ v, err := _date_floor_div_impl(v_doe, 1460); if err != nil { return nil, err }; v_a = v }
+	{ v, err := _date_floor_div_impl(v_doe, 36524); if err != nil { return nil, err }; v_b = v }
+	{ v, err := _date_floor_div_impl(v_doe, 146096); if err != nil { return nil, err }; v_c = v }
+	v_a_negated = _core_mul(v_a, -1)
+	v_yoe = _core_add(v_doe, v_a_negated)
+	v_yoe = _core_add(v_yoe, v_b)
+	v_c_negated = _core_mul(v_c, -1)
+	v_yoe = _core_add(v_yoe, v_c_negated)
+	{ v, err := _date_floor_div_impl(v_yoe, 365); if err != nil { return nil, err }; v_yoe = v }
+	v_era_years = _core_mul(v_era, 400)
+	v_year = _core_add(v_yoe, v_era_years)
+	v_year_days = _core_mul(v_yoe, 365)
+	{ v, err := _date_floor_div_impl(v_yoe, 4); if err != nil { return nil, err }; v_leap4 = v }
+	{ v, err := _date_floor_div_impl(v_yoe, 100); if err != nil { return nil, err }; v_leap100 = v }
+	v_year_days = _core_add(v_year_days, v_leap4)
+	v_leap100_negated = _core_mul(v_leap100, -1)
+	v_year_days = _core_add(v_year_days, v_leap100_negated)
+	v_year_days_negated = _core_mul(v_year_days, -1)
+	v_doy = _core_add(v_doe, v_year_days_negated)
+	v_mp = _core_mul(v_doy, 5)
+	v_mp = _core_add(v_mp, 2)
+	{ v, err := _date_floor_div_impl(v_mp, 153); if err != nil { return nil, err }; v_mp = v }
+	v_month_days = _core_mul(v_mp, 153)
+	v_month_days = _core_add(v_month_days, 2)
+	{ v, err := _date_floor_div_impl(v_month_days, 5); if err != nil { return nil, err }; v_month_days = v }
+	v_month_days_negated = _core_mul(v_month_days, -1)
+	v_day = _core_add(v_doy, v_month_days_negated)
+	v_day = _core_add(v_day, 1)
+	v_month = _core_add(v_mp, 3)
+	v_late = _core_gte(v_mp, 10)
+	if coreTruthy(v_late) {
+		v_month = _core_add(v_mp, -9)
+	} else {
+	// empty
+	}
+	v_early = _core_lte(v_month, 2)
+	if coreTruthy(v_early) {
+		v_year = _core_add(v_year, 1)
+	} else {
+	// empty
+	}
+	v_civil = Object()
+	if err := coreSet(v_civil, "year", v_year); err != nil { return nil, err }
+	if err := coreSet(v_civil, "month", v_month); err != nil { return nil, err }
+	if err := coreSet(v_civil, "day", v_day); err != nil { return nil, err }
+	return v_civil, nil
 }
 
 func _regex_identifier(args ...Value) (Value, error) {
@@ -49762,6 +53714,140 @@ func _stream_json_strip_dangling_key_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return -1, nil
+}
+
+func _date_make_day_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_make_day_impl")
+	var v_year Value
+	var v_month_index Value
+	var v_date Value
+	var v_carry Value
+	var v_carry_months Value
+	var v_day Value
+	var v_first Value
+	var v_month Value
+	var v_whole_year Value
+	if len(args) > 0 { v_year = args[0] }
+	_ = v_year
+	if len(args) > 1 { v_month_index = args[1] }
+	_ = v_month_index
+	if len(args) > 2 { v_date = args[2] }
+	_ = v_date
+	_ = v_carry
+	_ = v_carry_months
+	_ = v_day
+	_ = v_first
+	_ = v_month
+	_ = v_whole_year
+	{ v, err := _date_floor_div_impl(v_month_index, 12); if err != nil { return nil, err }; v_carry = v }
+	v_whole_year = _core_add(v_year, v_carry)
+	v_carry_months = _core_mul(v_carry, -12)
+	v_month = _core_add(v_month_index, v_carry_months)
+	v_month = _core_add(v_month, 1)
+	{ v, err := _date_days_from_civil_impl(v_whole_year, v_month, 1); if err != nil { return nil, err }; v_first = v }
+	v_day = _core_add(v_first, v_date)
+	v_day = _core_add(v_day, -1)
+	return v_day, nil
+}
+
+func _date_utc_ms_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_utc_ms_impl")
+	var v_parts Value
+	var v_civil Value
+	var v_civil_day Value
+	var v_civil_month Value
+	var v_civil_month_index Value
+	var v_day Value
+	var v_day_ms Value
+	var v_day_number Value
+	var v_hour Value
+	var v_millis Value
+	var v_millisecond Value
+	var v_minute Value
+	var v_minute_ms Value
+	var v_month Value
+	var v_month_index Value
+	var v_result Value
+	var v_second Value
+	var v_second_ms Value
+	var v_set_day Value
+	var v_set_ms Value
+	var v_time_ms Value
+	var v_two_digit Value
+	var v_two_digit_high Value
+	var v_two_digit_low Value
+	var v_utc_year Value
+	var v_whole_days Value
+	var v_whole_ms Value
+	var v_within Value
+	var v_year Value
+	if len(args) > 0 { v_parts = args[0] }
+	_ = v_parts
+	_ = v_civil
+	_ = v_civil_day
+	_ = v_civil_month
+	_ = v_civil_month_index
+	_ = v_day
+	_ = v_day_ms
+	_ = v_day_number
+	_ = v_hour
+	_ = v_millis
+	_ = v_millisecond
+	_ = v_minute
+	_ = v_minute_ms
+	_ = v_month
+	_ = v_month_index
+	_ = v_result
+	_ = v_second
+	_ = v_second_ms
+	_ = v_set_day
+	_ = v_set_ms
+	_ = v_time_ms
+	_ = v_two_digit
+	_ = v_two_digit_high
+	_ = v_two_digit_low
+	_ = v_utc_year
+	_ = v_whole_days
+	_ = v_whole_ms
+	_ = v_within
+	_ = v_year
+	v_year = coreGet(v_parts, "year", nil)
+	v_month = coreGet(v_parts, "month", nil)
+	v_day = coreGet(v_parts, "day", nil)
+	v_hour = coreGet(v_parts, "hour", 0)
+	v_minute = coreGet(v_parts, "minute", 0)
+	v_second = coreGet(v_parts, "second", 0)
+	v_millisecond = coreGet(v_parts, "millisecond", 0)
+	v_utc_year = v_year
+	v_two_digit_low = _core_gte(v_year, 0)
+	v_two_digit_high = _core_lte(v_year, 99)
+	v_two_digit = _core_and(v_two_digit_low, v_two_digit_high)
+	if coreTruthy(v_two_digit) {
+		v_utc_year = _core_add(v_year, 1900)
+	} else {
+	// empty
+	}
+	v_month_index = _core_add(v_month, -1)
+	{ v, err := _date_make_day_impl(v_utc_year, v_month_index, v_day); if err != nil { return nil, err }; v_day_number = v }
+	v_time_ms = _core_mul(v_hour, 3600000)
+	v_minute_ms = _core_mul(v_minute, 60000)
+	v_time_ms = _core_add(v_time_ms, v_minute_ms)
+	v_second_ms = _core_mul(v_second, 1000)
+	v_time_ms = _core_add(v_time_ms, v_second_ms)
+	v_time_ms = _core_add(v_time_ms, v_millisecond)
+	v_day_ms = _core_mul(v_day_number, 86400000)
+	v_millis = _core_add(v_day_ms, v_time_ms)
+	{ v, err := _date_floor_div_impl(v_millis, 86400000); if err != nil { return nil, err }; v_whole_days = v }
+	v_whole_ms = _core_mul(v_whole_days, -86400000)
+	v_within = _core_add(v_millis, v_whole_ms)
+	{ v, err := _date_civil_from_days_impl(v_whole_days); if err != nil { return nil, err }; v_civil = v }
+	v_civil_month = coreGet(v_civil, "month", nil)
+	v_civil_month_index = _core_add(v_civil_month, -1)
+	v_civil_day = coreGet(v_civil, "day", nil)
+	{ v, err := _date_make_day_impl(v_year, v_civil_month_index, v_civil_day); if err != nil { return nil, err }; v_set_day = v }
+	v_set_ms = _core_mul(v_set_day, 86400000)
+	v_result = _core_add(v_set_ms, v_within)
+	return v_result, nil
 }
 
 func _regex_read_name(args ...Value) (Value, error) {
@@ -50188,6 +54274,53 @@ func _regex_read_name(args ...Value) (Value, error) {
 	return v_name, nil
 }
 
+func _date_parts_of_ms_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_parts_of_ms_impl")
+	var v_millis Value
+	var v_day_ms Value
+	var v_days Value
+	var v_hour Value
+	var v_hour_ms Value
+	var v_millisecond Value
+	var v_minute Value
+	var v_minute_ms Value
+	var v_parts Value
+	var v_second Value
+	var v_second_ms Value
+	var v_within Value
+	if len(args) > 0 { v_millis = args[0] }
+	_ = v_millis
+	_ = v_day_ms
+	_ = v_days
+	_ = v_hour
+	_ = v_hour_ms
+	_ = v_millisecond
+	_ = v_minute
+	_ = v_minute_ms
+	_ = v_parts
+	_ = v_second
+	_ = v_second_ms
+	_ = v_within
+	{ v, err := _date_floor_div_impl(v_millis, 86400000); if err != nil { return nil, err }; v_days = v }
+	v_day_ms = _core_mul(v_days, -86400000)
+	v_within = _core_add(v_millis, v_day_ms)
+	{ v, err := _date_civil_from_days_impl(v_days); if err != nil { return nil, err }; v_parts = v }
+	{ v, err := _date_floor_div_impl(v_within, 3600000); if err != nil { return nil, err }; v_hour = v }
+	v_hour_ms = _core_mul(v_hour, -3600000)
+	v_within = _core_add(v_within, v_hour_ms)
+	{ v, err := _date_floor_div_impl(v_within, 60000); if err != nil { return nil, err }; v_minute = v }
+	v_minute_ms = _core_mul(v_minute, -60000)
+	v_within = _core_add(v_within, v_minute_ms)
+	{ v, err := _date_floor_div_impl(v_within, 1000); if err != nil { return nil, err }; v_second = v }
+	v_second_ms = _core_mul(v_second, -1000)
+	v_millisecond = _core_add(v_within, v_second_ms)
+	if err := coreSet(v_parts, "hour", v_hour); err != nil { return nil, err }
+	if err := coreSet(v_parts, "minute", v_minute); err != nil { return nil, err }
+	if err := coreSet(v_parts, "second", v_second); err != nil { return nil, err }
+	if err := coreSet(v_parts, "millisecond", v_millisecond); err != nil { return nil, err }
+	return v_parts, nil
+}
+
 func _stream_json_complete_literal_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_json_complete_literal_impl")
 	var v_text Value
@@ -50278,6 +54411,86 @@ func _stream_json_complete_literal_impl(args ...Value) (Value, error) {
 		v_size = _core_add(v_size, -1)
 	}
 	return v_text, nil
+}
+
+func _date_same_day_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_same_day_impl")
+	var v_left Value
+	var v_right Value
+	var v_different Value
+	var v_key Value
+	var v_keys Value
+	var v_left_value Value
+	var v_right_value Value
+	var v_same Value
+	if len(args) > 0 { v_left = args[0] }
+	_ = v_left
+	if len(args) > 1 { v_right = args[1] }
+	_ = v_right
+	_ = v_different
+	_ = v_key
+	_ = v_keys
+	_ = v_left_value
+	_ = v_right_value
+	_ = v_same
+	v_keys = MutableArray()
+	v_keys = coreAppend(v_keys, "year")
+	v_keys = coreAppend(v_keys, "month")
+	v_keys = coreAppend(v_keys, "day")
+	for _, v_key = range coreIter(v_keys) {
+		v_left_value = coreGet(v_left, v_key, 0)
+		v_right_value = coreGet(v_right, v_key, 0)
+		v_same = _core_eq(v_left_value, v_right_value)
+		v_different = _core_not(v_same)
+		if coreTruthy(v_different) {
+			return false, nil
+		} else {
+		// empty
+		}
+	}
+	return true, nil
+}
+
+func _date_same_parts_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_same_parts_impl")
+	var v_left Value
+	var v_right Value
+	var v_different Value
+	var v_key Value
+	var v_keys Value
+	var v_left_value Value
+	var v_right_value Value
+	var v_same Value
+	if len(args) > 0 { v_left = args[0] }
+	_ = v_left
+	if len(args) > 1 { v_right = args[1] }
+	_ = v_right
+	_ = v_different
+	_ = v_key
+	_ = v_keys
+	_ = v_left_value
+	_ = v_right_value
+	_ = v_same
+	v_keys = MutableArray()
+	v_keys = coreAppend(v_keys, "year")
+	v_keys = coreAppend(v_keys, "month")
+	v_keys = coreAppend(v_keys, "day")
+	v_keys = coreAppend(v_keys, "hour")
+	v_keys = coreAppend(v_keys, "minute")
+	v_keys = coreAppend(v_keys, "second")
+	v_keys = coreAppend(v_keys, "millisecond")
+	for _, v_key = range coreIter(v_keys) {
+		v_left_value = coreGet(v_left, v_key, 0)
+		v_right_value = coreGet(v_right, v_key, 0)
+		v_same = _core_eq(v_left_value, v_right_value)
+		v_different = _core_not(v_same)
+		if coreTruthy(v_different) {
+			return false, nil
+		} else {
+		// empty
+		}
+	}
+	return true, nil
 }
 
 func _stream_json_repair_impl(args ...Value) (Value, error) {
@@ -50622,6 +54835,139 @@ func _stream_json_repair_impl(args ...Value) (Value, error) {
 	v_closing = _core_string_join("", v_reversed)
 	v_repaired = _core_add(v_result, v_closing)
 	return v_repaired, nil
+}
+
+func _date_pad_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_pad_impl")
+	var v_value Value
+	var v_width Value
+	var v_length Value
+	var v_text Value
+	var v_wide Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	if len(args) > 1 { v_width = args[1] }
+	_ = v_width
+	_ = v_length
+	_ = v_text
+	_ = v_wide
+	v_text = _core_string_str(v_value)
+	for {
+		v_length = _core_len(v_text)
+		v_wide = _core_gte(v_length, v_width)
+		if coreTruthy(v_wide) {
+			break
+		} else {
+		// empty
+		}
+		v_text = _core_add("0", v_text)
+	}
+	return v_text, nil
+}
+
+func _date_iso_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_iso_impl")
+	var v_millis Value
+	var v_day Value
+	var v_day_text Value
+	var v_four_digits Value
+	var v_hour Value
+	var v_hour_text Value
+	var v_iso Value
+	var v_magnitude Value
+	var v_millisecond Value
+	var v_millisecond_text Value
+	var v_minute Value
+	var v_minute_text Value
+	var v_month Value
+	var v_month_text Value
+	var v_negative Value
+	var v_parts Value
+	var v_pieces Value
+	var v_second Value
+	var v_second_text Value
+	var v_sign Value
+	var v_six Value
+	var v_year Value
+	var v_year_high Value
+	var v_year_low Value
+	var v_year_text Value
+	if len(args) > 0 { v_millis = args[0] }
+	_ = v_millis
+	_ = v_day
+	_ = v_day_text
+	_ = v_four_digits
+	_ = v_hour
+	_ = v_hour_text
+	_ = v_iso
+	_ = v_magnitude
+	_ = v_millisecond
+	_ = v_millisecond_text
+	_ = v_minute
+	_ = v_minute_text
+	_ = v_month
+	_ = v_month_text
+	_ = v_negative
+	_ = v_parts
+	_ = v_pieces
+	_ = v_second
+	_ = v_second_text
+	_ = v_sign
+	_ = v_six
+	_ = v_year
+	_ = v_year_high
+	_ = v_year_low
+	_ = v_year_text
+	{ v, err := _date_parts_of_ms_impl(v_millis); if err != nil { return nil, err }; v_parts = v }
+	v_year = coreGet(v_parts, "year", nil)
+	v_year_text = ""
+	v_year_low = _core_gte(v_year, 0)
+	v_year_high = _core_lte(v_year, 9999)
+	v_four_digits = _core_and(v_year_low, v_year_high)
+	if coreTruthy(v_four_digits) {
+		{ v, err := _date_pad_impl(v_year, 4); if err != nil { return nil, err }; v_year_text = v }
+	} else {
+		v_negative = _core_lt(v_year, 0)
+		v_magnitude = v_year
+		v_sign = "+"
+		if coreTruthy(v_negative) {
+			v_magnitude = _core_mul(v_year, -1)
+			v_sign = "-"
+		} else {
+		// empty
+		}
+		{ v, err := _date_pad_impl(v_magnitude, 6); if err != nil { return nil, err }; v_six = v }
+		v_year_text = _core_add(v_sign, v_six)
+	}
+	v_month = coreGet(v_parts, "month", nil)
+	{ v, err := _date_pad_impl(v_month, 2); if err != nil { return nil, err }; v_month_text = v }
+	v_day = coreGet(v_parts, "day", nil)
+	{ v, err := _date_pad_impl(v_day, 2); if err != nil { return nil, err }; v_day_text = v }
+	v_hour = coreGet(v_parts, "hour", nil)
+	{ v, err := _date_pad_impl(v_hour, 2); if err != nil { return nil, err }; v_hour_text = v }
+	v_minute = coreGet(v_parts, "minute", nil)
+	{ v, err := _date_pad_impl(v_minute, 2); if err != nil { return nil, err }; v_minute_text = v }
+	v_second = coreGet(v_parts, "second", nil)
+	{ v, err := _date_pad_impl(v_second, 2); if err != nil { return nil, err }; v_second_text = v }
+	v_millisecond = coreGet(v_parts, "millisecond", nil)
+	{ v, err := _date_pad_impl(v_millisecond, 3); if err != nil { return nil, err }; v_millisecond_text = v }
+	v_pieces = MutableArray()
+	v_pieces = coreAppend(v_pieces, v_year_text)
+	v_pieces = coreAppend(v_pieces, "-")
+	v_pieces = coreAppend(v_pieces, v_month_text)
+	v_pieces = coreAppend(v_pieces, "-")
+	v_pieces = coreAppend(v_pieces, v_day_text)
+	v_pieces = coreAppend(v_pieces, "T")
+	v_pieces = coreAppend(v_pieces, v_hour_text)
+	v_pieces = coreAppend(v_pieces, ":")
+	v_pieces = coreAppend(v_pieces, v_minute_text)
+	v_pieces = coreAppend(v_pieces, ":")
+	v_pieces = coreAppend(v_pieces, v_second_text)
+	v_pieces = coreAppend(v_pieces, ".")
+	v_pieces = coreAppend(v_pieces, v_millisecond_text)
+	v_pieces = coreAppend(v_pieces, "Z")
+	v_iso = _core_string_join("", v_pieces)
+	return v_iso, nil
 }
 
 func _regex_validate_names(args ...Value) (Value, error) {
@@ -52122,56 +56468,6 @@ func _cache_store_streamed_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func _stream_json_string_value_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_stream_json_string_value_impl")
-	var v_field Value
-	var v_value Value
-	var v_detail Value
-	var v_invalid Value
-	var v_is_string Value
-	var v_message Value
-	var v_not_string Value
-	var v_parse_error Value
-	var v_parsed Value
-	var v_title Value
-	if len(args) > 0 { v_field = args[0] }
-	_ = v_field
-	if len(args) > 1 { v_value = args[1] }
-	_ = v_value
-	_ = v_detail
-	_ = v_invalid
-	_ = v_is_string
-	_ = v_message
-	_ = v_not_string
-	_ = v_parse_error
-	_ = v_parsed
-	_ = v_title
-	v_is_string = coreTypeIs(v_value, "string")
-	v_not_string = _core_not(v_is_string)
-	if coreTruthy(v_not_string) {
-		return v_value, nil
-	} else {
-	// empty
-	}
-	v_parsed = _core_none()
-	{
-		__flow, __err := func() (coreFlow, error) {
-			{ v, err := _core_json_parse_strict(v_value); if err != nil { return coreFlow{}, err }; v_parsed = v }
-			return coreFlow{}, nil
-		}()
-		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-		if __err != nil {
-			v_parse_error = errorValue(__err)
-			{ v, err := _stream_field_title_impl(v_field); if err != nil { return nil, err }; v_title = v }
-			v_detail = _core_exception_message(v_parse_error)
-			v_message = _core_string_format("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", v_detail, v_title)
-			v_invalid = _core_validation_error(v_message)
-			return nil, asError(v_invalid)
-		}
-	}
-	return v_parsed, nil
-}
-
 func _cache_lookup_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_cache_lookup_impl")
 	var v_gen Value
@@ -52236,6 +56532,56 @@ func _cache_lookup_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_lookup, nil
+}
+
+func _stream_json_string_value_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_json_string_value_impl")
+	var v_field Value
+	var v_value Value
+	var v_detail Value
+	var v_invalid Value
+	var v_is_string Value
+	var v_message Value
+	var v_not_string Value
+	var v_parse_error Value
+	var v_parsed Value
+	var v_title Value
+	if len(args) > 0 { v_field = args[0] }
+	_ = v_field
+	if len(args) > 1 { v_value = args[1] }
+	_ = v_value
+	_ = v_detail
+	_ = v_invalid
+	_ = v_is_string
+	_ = v_message
+	_ = v_not_string
+	_ = v_parse_error
+	_ = v_parsed
+	_ = v_title
+	v_is_string = coreTypeIs(v_value, "string")
+	v_not_string = _core_not(v_is_string)
+	if coreTruthy(v_not_string) {
+		return v_value, nil
+	} else {
+	// empty
+	}
+	v_parsed = _core_none()
+	{
+		__flow, __err := func() (coreFlow, error) {
+			{ v, err := _core_json_parse_strict(v_value); if err != nil { return coreFlow{}, err }; v_parsed = v }
+			return coreFlow{}, nil
+		}()
+		if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+		if __err != nil {
+			v_parse_error = errorValue(__err)
+			{ v, err := _stream_field_title_impl(v_field); if err != nil { return nil, err }; v_title = v }
+			v_detail = _core_exception_message(v_parse_error)
+			v_message = _core_string_format("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text.", v_detail, v_title)
+			v_invalid = _core_validation_error(v_message)
+			return nil, asError(v_invalid)
+		}
+	}
+	return v_parsed, nil
 }
 
 func _stream_json_strings_for_field_impl(args ...Value) (Value, error) {
@@ -90184,9 +94530,26 @@ func _core_axgen_render_examples_impl(turns Value, label string, gen Value) Valu
 func axgenFormatValues(gen Value, values Value) string {
 	lines := []string{}
 	for _, key := range orderedKeys(asMap(values)) {
-		lines = append(lines, title(key)+": "+display(coreGet(values, key, nil)))
+		value := coreGet(values, key, nil)
+		text := display(value)
+		// A time.Time in a date-typed field reads as TS renders a Date.
+		if dated, ok := jsDatePromptText(axgenFieldTypeName(gen, key), value); ok {
+			text = dated
+		}
+		lines = append(lines, title(key)+": "+text)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// axgenFieldTypeName is the type name of the signature field called name.
+func axgenFieldTypeName(gen Value, name string) string {
+	sig := signatureFromValue(coreGet(gen, "signature", nil))
+	for _, field := range append(append([]Field{}, sig.Inputs...), sig.Outputs...) {
+		if field.Name == name {
+			return field.Type.Name
+		}
+	}
+	return ""
 }
 func _core_axgen_apply_field_processors(gen Value, output Value) Value {
 	result := cloneMap(asMap(output))
@@ -91390,6 +95753,10 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformancePrompt(fixture)
 	case "number_format":
 		runConformanceNumberFormat(fixture)
+	case "date_field_value":
+		runConformanceDateFieldValue(fixture)
+	case "date_input":
+		runConformanceDateInput(fixture)
 	case "template":
 		assertEqual(mustCore(render_template_content(coreGet(fixture, "template", ""), coreGet(fixture, "vars", Object()), coreGet(fixture, "context", "fixture-template"))), coreGet(fixture, "expected_output", ""), "template output")
 	case "template_error":
@@ -93703,6 +98070,91 @@ func runConformanceNumberFormat(fixture map[string]Value) {
 		check("ordered JSON", orderedStringify(list), "["+text+"]")
 		check("json.pretty", display(_core_json_pretty(list)), "[\n  "+text+"\n]")
 	}
+}
+
+// runConformanceDateFieldValue runs TS's validateAndParseFieldValue cases on
+// date-typed fields with parse_dates on: each case's {has, value}, or its
+// exact error message.
+func runConformanceDateFieldValue(fixture map[string]Value) {
+	parseDates := coreTruthy(coreGet(fixture, "parse_dates", false))
+	for index, item := range coreIter(coreGet(fixture, "cases", Array())) {
+		field := cloneMap(asMap(coreGet(item, "field", Object())))
+		field["parse_dates"] = parseDates
+		text := display(coreGet(item, "text", ""))
+		label := fmt.Sprintf("case %d %q", index, truncateRunes(text, 80))
+		parsed, err := _stream_field_value_impl(field, text)
+		expectedError, wantsError := asMap(item)["expected_error"]
+		if err != nil {
+			if !wantsError {
+				panic(AxError{Category: "fixture", Message: label + ": unexpected error " + err.Error()})
+			}
+			assertEqual(err.Error(), expectedError, label+" error")
+			continue
+		}
+		if wantsError {
+			panic(AxError{Category: "fixture", Message: label + ": expected error " + display(expectedError) + ", got " + stableStringify(parsed)})
+		}
+		actual := Object("has", coreTruthy(coreGet(parsed, "has", false)))
+		if coreTruthy(actual["has"]) {
+			actual["value"] = coreGet(parsed, "value", nil)
+		}
+		assertEqual(actual, coreGet(item, "expected", nil), label)
+	}
+}
+
+// conformanceNativeDates turns fixture date markers into time.Time values:
+// {"$date": iso} is its instant, {"$date_only": "YYYY-MM-DD"} midnight UTC.
+func conformanceNativeDates(value Value) Value {
+	switch v := value.(type) {
+	case []Value:
+		out := make([]Value, len(v))
+		for index, item := range v {
+			out[index] = conformanceNativeDates(item)
+		}
+		return out
+	case map[string]Value:
+		if iso, ok := v["$date"].(string); ok {
+			parsed, err := time.Parse(time.RFC3339Nano, iso)
+			if err != nil {
+				panic(AxError{Category: "fixture", Message: "bad $date " + iso})
+			}
+			return parsed
+		}
+		if day, ok := v["$date_only"].(string); ok {
+			parsed, err := time.Parse("2006-01-02", day)
+			if err != nil {
+				panic(AxError{Category: "fixture", Message: "bad $date_only " + day})
+			}
+			return parsed
+		}
+		out := Object()
+		for _, key := range orderedKeys(v) {
+			coreSet(out, key, conformanceNativeDates(v[key]))
+		}
+		return out
+	}
+	return value
+}
+
+// runConformanceDateInput checks that native date inputs and range objects
+// pass input validation and render in the user prompt as TS renders Dates.
+func runConformanceDateInput(fixture map[string]Value) {
+	sig := conformanceBuildSignature(fixture)
+	for index, item := range coreIter(coreGet(fixture, "cases", Array())) {
+		values := conformanceNativeDates(coreGet(item, "values", Object()))
+		label := fmt.Sprintf("case %d", index)
+		mustCore(validate_fields(sig.Inputs, values, "input"))
+		messages := asSlice(mustCore(render_prompt(sig, values, Array(), Object())))
+		assertEqual(coreGet(messages[len(messages)-1], "content", nil), coreGet(item, "expected_user_content", nil), label)
+	}
+}
+
+func truncateRunes(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return text
 }
 
 func runConformanceFlowMermaid(fixture map[string]Value) {
@@ -96205,7 +100657,12 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 			}
 			panic(AxError{Category: "runtime", Message: "Value for input field '" + field.Name + "' is required."})
 		}
-		text := field.Title + ": " + goPromptValueText(value) + "\n"
+		valueText := goPromptValueText(value)
+		// A time.Time in a date-typed field reads as TS renders a Date.
+		if dated, ok := jsDatePromptText(field.Type.Name, value); ok {
+			valueText = dated
+		}
+		text := field.Title + ": " + valueText + "\n"
 		part := Object("type", "text", "text", text)
 		if field.IsCached {
 			coreSet(part, "cache", true)

@@ -300,6 +300,18 @@
       },
       {
         "suite": "axgen",
+        "kind": "date_field_value",
+        "runner": "rust:axgen",
+        "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "date_input",
+        "runner": "rust:axgen",
+        "category": "semantic"
+      },
+      {
+        "suite": "axgen",
         "kind": "stream",
         "runner": "rust:axgen",
         "category": "semantic"

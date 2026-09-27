@@ -10171,6 +10171,8 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "strip_internal" => run_strip_internal_fixture(&fixture)?,
         "prompt" => run_prompt_fixture(&fixture)?,
         "number_format" => run_number_format_fixture(&fixture)?,
+        "date_field_value" => run_date_field_value_fixture(&fixture)?,
+        "date_input" => run_date_input_fixture(&fixture)?,
         "template" => run_template_fixture(&fixture)?,
         "template_error" => run_template_error_fixture(&fixture)?,
         "template_validate" => run_template_validate_fixture(&fixture)?,
@@ -17207,6 +17209,79 @@ fn run_number_format_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+// TS validateAndParseFieldValue on date-typed fields with parse_dates on:
+// each case's {has, value}, or its exact error message.
+fn run_date_field_value_fixture(fixture: &Value) -> AxResult<()> {
+    let parse_dates = fixture.get("parse_dates").and_then(Value::as_bool).unwrap_or(false);
+    for (index, case) in fixture.get("cases").and_then(Value::as_array).into_iter().flatten().enumerate() {
+        let mut field = case.get("field").cloned().unwrap_or_else(|| json!({}));
+        if let Some(map) = field.as_object_mut() {
+            map.insert("parse_dates".to_string(), Value::Bool(parse_dates));
+        }
+        let text = case.get("text").and_then(Value::as_str).unwrap_or_default();
+        let shown: String = text.chars().take(80).collect();
+        let label = format!("case {index} {shown:?}");
+        let parsed = _stream_field_value_impl(&[core_value_from_json(&field), CoreValue::from(text)]);
+        match (parsed, case.get("expected_error")) {
+            (Err(error), Some(expected)) => {
+                expect_json_equal(&format!("{label} error"), &Value::String(error.message.clone()), expected)?;
+            }
+            (Err(error), None) => {
+                return Err(AxError::new("fixture", format!("{label}: unexpected error {}", error.message)));
+            }
+            (Ok(parsed), Some(expected)) => {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("{label}: expected error {expected}, got {}", core_value_to_json(&parsed)),
+                ));
+            }
+            (Ok(parsed), None) => {
+                let parsed = core_value_to_json(&parsed);
+                let has = parsed.get("has").and_then(Value::as_bool).unwrap_or(false);
+                let mut actual = json!({ "has": has });
+                if has {
+                    actual["value"] = parsed.get("value").cloned().unwrap_or(Value::Null);
+                }
+                expect_json_equal(&label, &actual, case.get("expected").unwrap_or(&Value::Null))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// Date inputs: range objects and strings pass input validation and render in
+// the user prompt as TS renders them. serde_json::Value has no date type, so
+// the native: true cases (Python, Go and Java date values) do not apply here.
+fn run_date_input_fixture(fixture: &Value) -> AxResult<()> {
+    let sig = build_fixture_signature(fixture)?;
+    for (index, case) in fixture.get("cases").and_then(Value::as_array).into_iter().flatten().enumerate() {
+        if case.get("native").and_then(Value::as_bool).unwrap_or(false) {
+            continue;
+        }
+        let values = case.get("values").cloned().unwrap_or_else(|| json!({}));
+        validate_fields_native(&sig.inputs, &values)?;
+        let messages = render_prompt(&[
+            core_signature_value(&sig)?,
+            core_value_from_json(&values),
+            core_value_from_json(&json!([])),
+            CoreValue::new_map(),
+        ])?;
+        let messages = core_value_to_json(&messages);
+        let content = messages
+            .as_array()
+            .and_then(|list| list.last())
+            .and_then(|message| message.get("content"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        expect_json_equal(
+            &format!("case {index}"),
+            &content,
+            case.get("expected_user_content").unwrap_or(&Value::Null),
+        )?;
+    }
+    Ok(())
+}
+
 fn expect_json_equal(label: &str, actual: &Value, expected: &Value) -> AxResult<()> {
     if actual != expected {
         return Err(AxError::new(
@@ -17735,6 +17810,8 @@ fn core_type_is(value: &CoreValue, type_name: CoreValue) -> CoreValue {
         "boolean" => matches!(value, CoreValue::Bool(_)),
         "null" => value.is_null(),
         "json" => !matches!(value, CoreValue::Error(_)),
+        // No native date type: date and datetime fields take strings here.
+        "date" => false,
         _ => false,
     };
     CoreValue::Bool(matched)
@@ -17823,6 +17900,388 @@ fn core_string_utf16_units(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 
 fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Num(core_arg(args, 0).text().chars().count() as f64))
+}
+
+// ----- intrinsic.date.zone_offset: the platform tz database -----
+// A std-only reader for TZif files (RFC 8536): $TZDIR, then the usual
+// zoneinfo directories. Past the last transition the POSIX TZ footer rule
+// decides; before the first, the zone's first local time type.
+
+#[derive(Clone, Debug)]
+struct DateTzRuleDate {
+    kind: u8, // b'J' (1-365, no Feb 29), b'n' (0-365), b'M' (month.week.day)
+    day: i64,
+    week: i64,
+    month: i64,
+    time: i64,
+}
+
+#[derive(Clone, Debug)]
+struct DateTzRule {
+    std_offset: i64,
+    dst: Option<(i64, DateTzRuleDate, DateTzRuleDate)>,
+}
+
+#[derive(Debug)]
+struct DateTzZone {
+    transitions: Vec<i64>,
+    transition_types: Vec<usize>,
+    offsets: Vec<i64>,
+    footer: Option<DateTzRule>,
+}
+
+fn date_days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+fn date_is_leap(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+// The UTC second of a rule date's local time in `year`, for a zone at
+// `offset` seconds east of UTC.
+fn date_rule_instant(year: i64, rule: &DateTzRuleDate, offset: i64) -> i64 {
+    let first = date_days_from_civil(year, 1, 1);
+    let day = match rule.kind {
+        b'J' => {
+            let mut day = rule.day - 1;
+            if date_is_leap(year) && rule.day >= 60 {
+                day += 1;
+            }
+            first + day
+        }
+        b'n' => first + rule.day,
+        _ => {
+            let month_first = date_days_from_civil(year, rule.month, 1);
+            // 1970-01-01 was a Thursday (4).
+            let weekday = (month_first + 4).rem_euclid(7);
+            let mut day = month_first + (rule.day - weekday).rem_euclid(7) + (rule.week - 1) * 7;
+            let next_month = if rule.month == 12 {
+                date_days_from_civil(year + 1, 1, 1)
+            } else {
+                date_days_from_civil(year, rule.month + 1, 1)
+            };
+            while day >= next_month {
+                day -= 7;
+            }
+            day
+        }
+    };
+    day * 86400 + rule.time - offset
+}
+
+impl DateTzRule {
+    fn offset_at(&self, seconds: i64) -> i64 {
+        let Some((dst_offset, start, end)) = &self.dst else {
+            return self.std_offset;
+        };
+        let year = (seconds + self.std_offset).div_euclid(86400);
+        let year = {
+            // The civil year of the day count.
+            let z = year + 719468;
+            let era = z.div_euclid(146097);
+            let doe = z - era * 146097;
+            let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+            let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+            let mp = (5 * doy + 2) / 153;
+            let month = if mp < 10 { mp + 3 } else { mp - 9 };
+            yoe + era * 400 + if month <= 2 { 1 } else { 0 }
+        };
+        // The latest DST start or end at or before the instant, over the
+        // neighbouring years, decides. Of two at the same instant the later
+        // one in the sequence wins: a permanent-DST footer such as
+        // "XXX-2<+01>-1,0/0,J365/23" ends one year where the next begins.
+        let mut latest: Option<(i64, bool)> = None;
+        for y in [year - 1, year, year + 1] {
+            let begins = date_rule_instant(y, start, self.std_offset);
+            let ends = date_rule_instant(y, end, *dst_offset);
+            for (at, dst) in [(begins, true), (ends, false)] {
+                if at <= seconds && latest.map_or(true, |(best, _)| at >= best) {
+                    latest = Some((at, dst));
+                }
+            }
+        }
+        match latest {
+            Some((_, true)) => *dst_offset,
+            _ => self.std_offset,
+        }
+    }
+}
+
+// [+-]hh[:mm[:ss]] as seconds.
+fn date_tz_parse_seconds(text: &[u8], at: &mut usize) -> Option<i64> {
+    let mut sign = 1;
+    if *at < text.len() && (text[*at] == b'+' || text[*at] == b'-') {
+        if text[*at] == b'-' {
+            sign = -1;
+        }
+        *at += 1;
+    }
+    let mut parts = [0i64; 3];
+    for (index, part) in parts.iter_mut().enumerate() {
+        if index > 0 {
+            if *at < text.len() && text[*at] == b':' {
+                *at += 1;
+            } else {
+                break;
+            }
+        }
+        let start = *at;
+        while *at < text.len() && text[*at].is_ascii_digit() {
+            *part = *part * 10 + i64::from(text[*at] - b'0');
+            *at += 1;
+        }
+        if *at == start {
+            return None;
+        }
+    }
+    Some(sign * (parts[0] * 3600 + parts[1] * 60 + parts[2]))
+}
+
+fn date_tz_parse_name(text: &[u8], at: &mut usize) -> bool {
+    if *at < text.len() && text[*at] == b'<' {
+        while *at < text.len() && text[*at] != b'>' {
+            *at += 1;
+        }
+        if *at >= text.len() {
+            return false;
+        }
+        *at += 1;
+        return true;
+    }
+    let start = *at;
+    while *at < text.len() && text[*at].is_ascii_alphabetic() {
+        *at += 1;
+    }
+    *at > start
+}
+
+fn date_tz_parse_rule_date(text: &[u8], at: &mut usize) -> Option<DateTzRuleDate> {
+    let read_number = |at: &mut usize| -> Option<i64> {
+        let start = *at;
+        let mut value = 0i64;
+        while *at < text.len() && text[*at].is_ascii_digit() {
+            value = value * 10 + i64::from(text[*at] - b'0');
+            *at += 1;
+        }
+        if *at == start { None } else { Some(value) }
+    };
+    let mut date = DateTzRuleDate { kind: b'n', day: 0, week: 0, month: 0, time: 7200 };
+    match text.get(*at) {
+        Some(b'J') => {
+            *at += 1;
+            date.kind = b'J';
+            date.day = read_number(at)?;
+        }
+        Some(b'M') => {
+            *at += 1;
+            date.kind = b'M';
+            date.month = read_number(at)?;
+            if text.get(*at) != Some(&b'.') {
+                return None;
+            }
+            *at += 1;
+            date.week = read_number(at)?;
+            if text.get(*at) != Some(&b'.') {
+                return None;
+            }
+            *at += 1;
+            date.day = read_number(at)?;
+            if !(1..=12).contains(&date.month) || !(1..=5).contains(&date.week) || date.day > 6 {
+                return None;
+            }
+        }
+        _ => date.day = read_number(at)?,
+    }
+    if text.get(*at) == Some(&b'/') {
+        *at += 1;
+        date.time = date_tz_parse_seconds(text, at)?;
+    }
+    Some(date)
+}
+
+// A POSIX TZ string such as "EST5EDT,M3.2.0,M11.1.0" or "<+0530>-5:30".
+fn date_tz_parse_rule(text: &str) -> Option<DateTzRule> {
+    let text = text.as_bytes();
+    let mut at = 0;
+    if !date_tz_parse_name(text, &mut at) {
+        return None;
+    }
+    let std_offset = -date_tz_parse_seconds(text, &mut at)?;
+    if at >= text.len() {
+        return Some(DateTzRule { std_offset, dst: None });
+    }
+    if !date_tz_parse_name(text, &mut at) {
+        return None;
+    }
+    let mut dst_offset = std_offset + 3600;
+    if at < text.len() && text[at] != b',' {
+        dst_offset = -date_tz_parse_seconds(text, &mut at)?;
+    }
+    let (start, end) = if at >= text.len() {
+        // POSIX leaves the rule to the implementation; this is the US one.
+        (
+            DateTzRuleDate { kind: b'M', day: 0, week: 2, month: 3, time: 7200 },
+            DateTzRuleDate { kind: b'M', day: 0, week: 1, month: 11, time: 7200 },
+        )
+    } else {
+        if text[at] != b',' {
+            return None;
+        }
+        at += 1;
+        let start = date_tz_parse_rule_date(text, &mut at)?;
+        if text.get(at) != Some(&b',') {
+            return None;
+        }
+        at += 1;
+        let end = date_tz_parse_rule_date(text, &mut at)?;
+        if at != text.len() {
+            return None;
+        }
+        (start, end)
+    };
+    Some(DateTzRule { std_offset, dst: Some((dst_offset, start, end)) })
+}
+
+fn date_tzif_u32(data: &[u8], at: usize) -> Option<u32> {
+    let bytes = data.get(at..at + 4)?;
+    Some(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+fn date_parse_tzif(data: &[u8]) -> Option<DateTzZone> {
+    if data.get(0..4)? != b"TZif" {
+        return None;
+    }
+    let version = *data.get(4)?;
+    let counts = |at: usize| -> Option<[usize; 6]> {
+        let mut out = [0usize; 6];
+        for (index, count) in out.iter_mut().enumerate() {
+            *count = date_tzif_u32(data, at + 20 + index * 4)? as usize;
+        }
+        Some(out)
+    };
+    let [isut, isstd, leap, time, typ, chars] = counts(0)?;
+    let v1_size = time * 5 + typ * 6 + chars + leap * 8 + isstd + isut;
+    let (mut at, time_size, counts) = if version >= b'2' {
+        let second = 44 + v1_size;
+        if data.get(second..second + 4)? != b"TZif" {
+            return None;
+        }
+        (second + 44, 8, counts(second)?)
+    } else {
+        (44, 4, [isut, isstd, leap, time, typ, chars])
+    };
+    let [isut, isstd, leap, time, typ, chars] = counts;
+    let mut transitions = Vec::with_capacity(time);
+    for index in 0..time {
+        let offset = at + index * time_size;
+        let value = if time_size == 8 {
+            let bytes = data.get(offset..offset + 8)?;
+            i64::from_be_bytes(bytes.try_into().ok()?)
+        } else {
+            i64::from(date_tzif_u32(data, offset)? as i32)
+        };
+        transitions.push(value);
+    }
+    at += time * time_size;
+    let mut transition_types = Vec::with_capacity(time);
+    for index in 0..time {
+        transition_types.push(*data.get(at + index)? as usize);
+    }
+    at += time;
+    let mut offsets = Vec::with_capacity(typ);
+    for index in 0..typ {
+        offsets.push(i64::from(date_tzif_u32(data, at + index * 6)? as i32));
+    }
+    at += typ * 6 + chars + leap * (time_size + 4) + isstd + isut;
+    if offsets.is_empty() || transition_types.iter().any(|&index| index >= offsets.len()) {
+        return None;
+    }
+    let mut footer = None;
+    if version >= b'2' && data.get(at) == Some(&b'\n') {
+        let rest = &data[at + 1..];
+        if let Some(end) = rest.iter().position(|&byte| byte == b'\n') {
+            let text = std::str::from_utf8(&rest[..end]).ok()?;
+            if !text.is_empty() {
+                footer = date_tz_parse_rule(text);
+            }
+        }
+    }
+    Some(DateTzZone { transitions, transition_types, offsets, footer })
+}
+
+impl DateTzZone {
+    fn offset_at(&self, seconds: i64) -> i64 {
+        if self.transitions.is_empty() {
+            return match &self.footer {
+                Some(rule) => rule.offset_at(seconds),
+                None => self.offsets[0],
+            };
+        }
+        if seconds < self.transitions[0] {
+            return self.offsets[0];
+        }
+        let index = self.transitions.partition_point(|&at| at <= seconds) - 1;
+        if index + 1 == self.transitions.len() {
+            if let Some(rule) = &self.footer {
+                return rule.offset_at(seconds);
+            }
+        }
+        self.offsets[self.transition_types[index]]
+    }
+}
+
+fn date_zone_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(dir) = std::env::var_os("TZDIR") {
+        if !dir.is_empty() {
+            dirs.push(std::path::PathBuf::from(dir));
+        }
+    }
+    for dir in ["/usr/share/zoneinfo", "/usr/lib/zoneinfo", "/usr/share/lib/zoneinfo", "/etc/zoneinfo"] {
+        dirs.push(std::path::PathBuf::from(dir));
+    }
+    dirs
+}
+
+fn date_zone_load(name: &str) -> Option<Arc<DateTzZone>> {
+    static ZONES: OnceLock<Mutex<std::collections::HashMap<String, Option<Arc<DateTzZone>>>>> = OnceLock::new();
+    let zones = ZONES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    if let Some(found) = zones.lock().ok()?.get(name) {
+        return found.clone();
+    }
+    let safe = !name.is_empty()
+        && !name.starts_with('/')
+        && !name.contains('\\')
+        && !name.contains('\0')
+        && name.split('/').all(|part| !part.is_empty() && part != "." && part != "..");
+    let mut loaded = None;
+    if safe {
+        for dir in date_zone_dirs() {
+            if let Ok(data) = std::fs::read(dir.join(name)) {
+                if let Some(zone) = date_parse_tzif(&data) {
+                    loaded = Some(Arc::new(zone));
+                    break;
+                }
+            }
+        }
+    }
+    zones.lock().ok()?.insert(name.to_string(), loaded.clone());
+    loaded
+}
+
+fn core_date_zone_offset(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let name = core_arg(args, 0).text();
+    let millis = core_number_arg(args, 1)?;
+    let zone = date_zone_load(&name).ok_or_else(|| AxError::runtime(format!("unknown time zone {name}")))?;
+    let seconds = (millis / 1000.0).floor() as i64;
+    Ok(CoreValue::Num(zone.offset_at(seconds) as f64))
 }
 fn core_math_is_finite(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Bool(core_number_arg(args, 0)?.is_finite()))
