@@ -18,12 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event` [axgen] Keep a surrogate pair that a provider splits across stream events in Go and Rust
-  - Status: open
-  - Source commit: `af38cd35839a83461ac28242a01a10fd9ff1632c`
-  - TS paths: `src/ax/dsp/extract/delta.ts`
-  - Impact: TypeScript joins an escaped surrogate pair split across stream events into one character (a trailing high surrogate waits for its low half). Go's encoding/json decodes each lone surrogate escape to U+FFFD, so the character is lost (two U+FFFD). Rust's serde_json rejects a lone surrogate escape, which failed the whole stream; since 2e its SSE parsers read each lone half as U+FFFD (the same loss as Go), and its WebSocket frame parsers (realtime and native chat sessions) still fail on one. Python and Java hold lone surrogates natively, and C++ keeps them as WTF-8 and joins them (2e). Go and Rust need surrogate-preserving JSON decoding of stream events (for example a pre-pass that turns escaped UTF-16 surrogates into WTF-8) plus 2e's join intrinsics, and then run streaming-forward-split-surrogate-pair instead of skipping it.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -956,6 +951,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `fcb1c34d80cea7dec27380f48d4228a9f361a857`
   - Verification: `@agent_eval_marks and @build_agent_run_prediction build every port's evaluated prediction (final, askClarification and the ports' error prediction) from the run's own share of the logs, with TS-shaped functionCalls, toolErrors, failure signals and turn count; @agent_playbook_action_log_text renders the distiller's steps when the executor did not run. TS goldens axoptimize/eval-prediction-function-calls and -clarification-function-calls (TS's forwardPipelineForEvaluation through a scripted tool runtime; new runner keys runtime_script for optimize eval and expected_prediction_fields for exact fields, in all five runners) and axagent/agent-playbook-evolve-miner-function-calls (two tasks) and -miner-direct-respond (TS's mineWeakness over TS's evaluated predictions) fail on main in all five ports and pass in all five; 10 negative copies fail in all five (50 of 50). The Rust runner's eval operation now runs the agent. Full suites 1229/1229 in python, go, java, cpp and rust.`
+- `axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event` [axgen] Keep a surrogate pair that a provider splits across stream events in Go and Rust
+  - Status: done
+  - Source commit: `af38cd35839a83461ac28242a01a10fd9ff1632c`
+  - TS paths: `src/ax/dsp/extract/delta.ts`
+  - Impact: TypeScript joins an escaped surrogate pair split across stream events into one character (a trailing high surrogate waits for its low half). Go's encoding/json decodes each lone surrogate escape to U+FFFD, so the character is lost (two U+FFFD). Rust's serde_json rejects a lone surrogate escape, which failed the whole stream; since 2e its SSE parsers read each lone half as U+FFFD (the same loss as Go), and its WebSocket frame parsers (realtime and native chat sessions) still fail on one. Python and Java hold lone surrogates natively, and C++ keeps them as WTF-8 and joins them (2e). Go and Rust need surrogate-preserving JSON decoding of stream events (for example a pre-pass that turns escaped UTF-16 surrogates into WTF-8) plus 2e's join intrinsics, and then run streaming-forward-split-surrogate-pair instead of skipping it.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `2535eae3a`
+  - Verification: `Go and Rust run streaming-forward-split-surrogate-pair (their runners declare lone-surrogate support; tools/axir string_model_test.go expects all five to). On main, Go read each half as U+FFFD (deltas 'hi \ufffd' and '\ufffd there'; the new Go tests fail with 'hi \ufffd\ufffd there' over HTTP SSE) and Rust could not load the golden (serde_json: unexpected end of hex escape) while its SSE parsers pinned 'hi \ufffd\ufffd there'. Go keeps a lone surrogate escape as WTF-8 in parseJSON and the streaming SSE reader; Rust reads it as a private-use mark in stream events, parse_json and both WebSocket readers; both join split pairs in the stream-text intrinsics and write a leftover half as JS does. Go TestLoneSurrogateEscapesKeepTheirHalves and TestStreamedSplitSurrogatePairJoins, Rust a_split_surrogate_pair_joins_into_one_character (streamed and buffered SSE). verify --mode release passes for go and rust (1390 fixtures each).`
 - `axir-2026-09-27-match-typescript-ace-prompts-required-inputs-titles-and-agent-seed` [axgen] Match TypeScript's ACE teacher prompts, required-input errors, field titles and agent playbook seed in the ports
   - Status: done
   - Source commit: `a88d66ffa9e2ff01cfab4530a32b889d588e67e7`
