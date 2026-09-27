@@ -4116,10 +4116,11 @@ static void run(Value fixture) {
   }
 }
 
-// C++ strings are UTF-8, which can't hold half of a surrogate pair, so fixtures
-// that split a pair across stream events (requires_lone_surrogates) are
-// skipped here.
-static constexpr bool kSupportsLoneSurrogates = false;
+// C++ strings are UTF-8, but parse_json keeps a lone surrogate escape as its
+// 3-byte WTF-8 form, and streamed text joins a pair split across stream events
+// (Core::string_concat_stream_text), so requires_lone_surrogates fixtures run
+// here. A runner without that support would skip them.
+static constexpr bool kSupportsLoneSurrogates = true;
 
 int main(int argc, char** argv) {
   if (argc < 2) {
