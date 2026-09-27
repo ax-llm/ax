@@ -1897,6 +1897,12 @@ def _run_optimize(fixture):
             return ax(sig, options)
         if fixture.get("program") == "flow":
             return _build_flow(fixture)
+        # An agent's runtime_script runs its actor code, as in the agent fixtures.
+        if fixture.get("runtime_script") is not None:
+            options["runtime"] = ScriptedCodeRuntime(
+                copy.deepcopy(fixture.get("runtime_script") or []),
+                language=fixture.get("runtime_language", "JavaScript"),
+            )
         return agent(sig, options)
 
     program = build_program()
@@ -2079,6 +2085,9 @@ def _run_optimize(fixture):
             prediction = program.evaluate_optimization_task(client, fixture.get("task") or {"input": fixture.get("input") or {}}, fixture.get("eval_options") or {})
             if "expected_prediction_subset" in fixture:
                 _assert_subset(prediction, fixture["expected_prediction_subset"], "eval prediction")
+            # Fields that must match exactly: a list compares in full.
+            for key, value in (fixture.get("expected_prediction_fields") or {}).items():
+                _assert_equal(prediction.get(key), value, f"eval prediction {key}")
             return
     except Exception as exc:
         expected = fixture.get("expected_error_contains")

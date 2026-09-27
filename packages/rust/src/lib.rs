@@ -8723,29 +8723,27 @@ impl AxAgent {
             .get("forward_options")
             .cloned()
             .unwrap_or_else(|| json!({}));
-        match self.forward_with_options(client, input, forward_options) {
-            Ok(output) => {
-                let trace = self.export_trace()?;
-                Ok(core_value_to_json(&_build_agent_eval_prediction(&[
-                    core_value_from_json(&output),
-                    core_value_from_json(&Value::Array(self.get_action_log())),
-                    core_value_from_json(&self.get_usage()),
-                    core_value_from_json(&trace),
-                ])?))
-            }
+        // As TS evaluates each task from a fresh state, the prediction carries
+        // only this run's share of the agent's logs.
+        let marks = _agent_eval_marks(&[self.state.clone()])?;
+        let completion = match self.forward_with_options(client, input, forward_options) {
+            Ok(output) => json!({"type": "final", "output": output}),
             Err(error) => match core_agent_clarification_detail(&error) {
-                Some(detail) => Ok(json!({
-                    "completionType": "askClarification",
+                Some(detail) => json!({
+                    "type": "askClarification",
                     "clarification": detail.get("clarification").cloned().unwrap_or(Value::Null),
-                    "actionLog": Value::Array(self.get_action_log()),
-                    "functionCalls": self.state_json("function_call_traces"),
-                    "toolErrors": [],
-                    "turnCount": 0,
-                    "usage": self.get_usage(),
-                })),
-                None => Err(error),
+                }),
+                None => return Err(error),
             },
-        }
+        };
+        let trace = self.export_trace()?;
+        Ok(core_value_to_json(&_build_agent_run_prediction(&[
+            self.state.clone(),
+            marks,
+            core_value_from_json(&completion),
+            core_value_from_json(&self.get_usage()),
+            core_value_from_json(&trace),
+        ])?))
     }
 
     pub fn execute_actor_step(
@@ -21890,9 +21888,22 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
             }
         }
         "eval" => {
-            let prediction = conformance_optimization_prediction(fixture);
+            let prediction = conformance_agent_eval_prediction(fixture)?;
             if let Some(expected) = fixture.get("expected_prediction_subset") {
                 expect_json_subset("eval prediction", &prediction, expected)?;
+            }
+            // Fields that must match exactly: a list compares in full.
+            if let Some(fields) = fixture
+                .get("expected_prediction_fields")
+                .and_then(Value::as_object)
+            {
+                for (key, value) in fields {
+                    expect_json_equal(
+                        &format!("eval prediction {key}"),
+                        prediction.get(key).unwrap_or(&Value::Null),
+                        value,
+                    )?;
+                }
             }
         }
         _ => {
@@ -22617,11 +22628,53 @@ fn conformance_evaluation_result(fixture: &Value) -> Value {
     result
 }
 
-fn conformance_optimization_prediction(fixture: &Value) -> Value {
+// The optimize eval operation runs the agent's evaluate_optimization_task on
+// the fixture's scripted client, with its runtime_script as the agent's
+// runtime when given, as the other runners do.
+fn conformance_agent_eval_prediction(fixture: &Value) -> AxResult<Value> {
+    let signature = fixture
+        .get("signature")
+        .and_then(Value::as_str)
+        .unwrap_or("question:string -> answer:string");
+    let mut program = agent_with_options(
+        signature,
+        fixture.get("options").cloned().unwrap_or_else(|| json!({})),
+    )?;
+    if let Some(script) = fixture.get("runtime_script").and_then(Value::as_array) {
+        let language = fixture
+            .get("runtime_language")
+            .and_then(Value::as_str)
+            .unwrap_or("JavaScript")
+            .to_string();
+        program = program.with_runtime(Box::new(ScriptedCodeRuntime::new(
+            script.clone(),
+            language,
+            String::new(),
+        )))?;
+    }
+    let responses = fixture
+        .get("responses")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut client = FixtureClient::scripted(
+        responses,
+        fixture
+            .get("features")
+            .cloned()
+            .unwrap_or_else(router_default_features),
+    );
     let task = fixture.get("task").cloned().unwrap_or_else(
         || json!({"input": fixture.get("input").cloned().unwrap_or_else(|| json!({}))}),
     );
-    conformance_optimization_prediction_for_task(fixture, &task)
+    program.evaluate_optimization_task(
+        &mut client,
+        task,
+        fixture
+            .get("eval_options")
+            .cloned()
+            .unwrap_or_else(|| json!({})),
+    )
 }
 
 fn conformance_optimization_prediction_for_task(fixture: &Value, task: &Value) -> Value {
@@ -97589,6 +97642,293 @@ fn _resolve_agent_executor_model_policy(args: &[CoreValue]) -> Result<CoreValue,
     unreachable_code,
     clippy::all
 )]
+fn _agent_eval_marks(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_eval_marks");
+    let mut v_state = core_arg(args, 0);
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_log = CoreValue::Null;
+    let mut v_log_count = CoreValue::Null;
+    let mut v_marks = CoreValue::Null;
+    let mut v_trace_count = CoreValue::Null;
+    let mut v_traces = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_traces = core_get(
+        &v_state,
+        &CoreValue::from("function_call_traces"),
+        v_empty_list.clone(),
+    );
+    v_log_count = core_len(&[v_log.clone()])?;
+    v_trace_count = core_len(&[v_traces.clone()])?;
+    v_marks = CoreValue::new_map();
+    core_set(&v_marks, CoreValue::from("action_log"), v_log_count.clone())?;
+    core_set(
+        &v_marks,
+        CoreValue::from("function_call_traces"),
+        v_trace_count.clone(),
+    )?;
+    return Ok(v_marks.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_eval_function_calls(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_eval_function_calls");
+    let mut v_traces = core_arg(args, 0);
+    let mut v_arguments = CoreValue::Null;
+    let mut v_call = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_derive_name = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_error_text = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_has_value = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_name_missing = CoreValue::Null;
+    let mut v_name_part = CoreValue::Null;
+    let mut v_name_parts = CoreValue::Null;
+    let mut v_name_qualified = CoreValue::Null;
+    let mut v_qualified = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_result_is_map = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_calls = CoreValue::new_list();
+    v_empty_map = CoreValue::new_map();
+    for v_trace in core_iter(&v_traces)? {
+        let mut v_trace = v_trace;
+        v_qualified = core_get(
+            &v_trace,
+            &CoreValue::from("qualified_name"),
+            CoreValue::from(""),
+        );
+        v_name = core_get(&v_trace, &CoreValue::from("name"), CoreValue::from(""));
+        v_name_missing = core_eq(&[v_name.clone(), CoreValue::from("")])?;
+        v_name_qualified = core_eq(&[v_name.clone(), v_qualified.clone()])?;
+        v_derive_name = core_or(&[v_name_missing.clone(), v_name_qualified.clone()])?;
+        if core_truthy(&v_derive_name) {
+            v_name_parts = core_string_split(&[v_qualified.clone(), CoreValue::from(".")])?;
+            for v_name_part in core_iter(&v_name_parts)? {
+                let mut v_name_part = v_name_part;
+                v_name = v_name_part.clone();
+            }
+        }
+        v_arguments = core_get(&v_trace, &CoreValue::from("arguments"), CoreValue::Null);
+        v_result = core_get(&v_trace, &CoreValue::from("result"), v_empty_map.clone());
+        v_result_is_map = core_type_is(&v_result, CoreValue::from("object"));
+        if core_truthy(&v_result_is_map) {
+        } else {
+            v_result = v_empty_map.clone();
+        }
+        v_status = core_get(&v_trace, &CoreValue::from("status"), CoreValue::from("ok"));
+        v_call = CoreValue::new_map();
+        core_set(
+            &v_call,
+            CoreValue::from("qualifiedName"),
+            v_qualified.clone(),
+        )?;
+        core_set(&v_call, CoreValue::from("name"), v_name.clone())?;
+        core_set(&v_call, CoreValue::from("arguments"), v_arguments.clone())?;
+        v_failed = core_eq(&[v_status.clone(), CoreValue::from("error")])?;
+        if core_truthy(&v_failed) {
+            v_error = core_get(
+                &v_result,
+                &CoreValue::from("error"),
+                CoreValue::from("unknown error"),
+            );
+            v_error_text = core_string_str(&[v_error.clone()])?;
+            core_set(&v_call, CoreValue::from("error"), v_error_text.clone())?;
+        } else {
+            v_value = core_get(&v_result, &CoreValue::from("value"), CoreValue::Null);
+            v_has_value = core_is_not_none(&[v_value.clone()])?;
+            if core_truthy(&v_has_value) {
+                core_set(&v_call, CoreValue::from("result"), v_value.clone())?;
+            }
+        }
+        core_append(&v_calls, v_call.clone())?;
+    }
+    return Ok(v_calls.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_eval_run(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_eval_run");
+    let mut v_state = core_arg(args, 0);
+    let mut v_marks = core_arg(args, 1);
+    let mut v_call = CoreValue::Null;
+    let mut v_call_error = CoreValue::Null;
+    let mut v_call_name = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_distiller_turns = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_in_run = CoreValue::Null;
+    let mut v_executor_ran = CoreValue::Null;
+    let mut v_executor_turns = CoreValue::Null;
+    let mut v_has_error = CoreValue::Null;
+    let mut v_is_distiller = CoreValue::Null;
+    let mut v_is_executor = CoreValue::Null;
+    let mut v_is_step = CoreValue::Null;
+    let mut v_log = CoreValue::Null;
+    let mut v_log_index = CoreValue::Null;
+    let mut v_log_start = CoreValue::Null;
+    let mut v_next_distiller_turns = CoreValue::Null;
+    let mut v_next_executor_turns = CoreValue::Null;
+    let mut v_next_log_index = CoreValue::Null;
+    let mut v_next_trace_index = CoreValue::Null;
+    let mut v_run = CoreValue::Null;
+    let mut v_run_log = CoreValue::Null;
+    let mut v_run_state = CoreValue::Null;
+    let mut v_run_traces = CoreValue::Null;
+    let mut v_signals = CoreValue::Null;
+    let mut v_stage = CoreValue::Null;
+    let mut v_tool_error = CoreValue::Null;
+    let mut v_tool_errors = CoreValue::Null;
+    let mut v_trace = CoreValue::Null;
+    let mut v_trace_in_run = CoreValue::Null;
+    let mut v_trace_index = CoreValue::Null;
+    let mut v_trace_start = CoreValue::Null;
+    let mut v_traces = CoreValue::Null;
+    let mut v_turn_count = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_traces = core_get(
+        &v_state,
+        &CoreValue::from("function_call_traces"),
+        v_empty_list.clone(),
+    );
+    v_log_start = core_get(
+        &v_marks,
+        &CoreValue::from("action_log"),
+        CoreValue::Num(0f64),
+    );
+    v_trace_start = core_get(
+        &v_marks,
+        &CoreValue::from("function_call_traces"),
+        CoreValue::Num(0f64),
+    );
+    v_run_log = CoreValue::new_list();
+    v_log_index = CoreValue::Num(0f64);
+    for v_entry in core_iter(&v_log)? {
+        let mut v_entry = v_entry;
+        v_entry_in_run = core_gte(&[v_log_index.clone(), v_log_start.clone()])?;
+        if core_truthy(&v_entry_in_run) {
+            core_append(&v_run_log, v_entry.clone())?;
+        }
+        v_next_log_index = core_add(&[v_log_index.clone(), CoreValue::Num(1f64)])?;
+        v_log_index = v_next_log_index.clone();
+    }
+    v_run_traces = CoreValue::new_list();
+    v_trace_index = CoreValue::Num(0f64);
+    for v_trace in core_iter(&v_traces)? {
+        let mut v_trace = v_trace;
+        v_trace_in_run = core_gte(&[v_trace_index.clone(), v_trace_start.clone()])?;
+        if core_truthy(&v_trace_in_run) {
+            core_append(&v_run_traces, v_trace.clone())?;
+        }
+        v_next_trace_index = core_add(&[v_trace_index.clone(), CoreValue::Num(1f64)])?;
+        v_trace_index = v_next_trace_index.clone();
+    }
+    v_calls = _agent_eval_function_calls(&[v_run_traces.clone()])?;
+    v_tool_errors = CoreValue::new_list();
+    for v_call in core_iter(&v_calls)? {
+        let mut v_call = v_call;
+        v_call_error = core_get(&v_call, &CoreValue::from("error"), CoreValue::Null);
+        v_has_error = core_truthy_value(&[v_call_error.clone()])?;
+        if core_truthy(&v_has_error) {
+            v_call_name = core_get(
+                &v_call,
+                &CoreValue::from("qualifiedName"),
+                CoreValue::from(""),
+            );
+            v_tool_error = core_string_format(&[
+                CoreValue::from("{}: {}"),
+                v_call_name.clone(),
+                v_call_error.clone(),
+            ])?;
+            core_append(&v_tool_errors, v_tool_error.clone())?;
+        }
+    }
+    v_executor_ran = CoreValue::Bool(false);
+    v_executor_turns = CoreValue::Num(0f64);
+    v_distiller_turns = CoreValue::Num(0f64);
+    for v_entry in core_iter(&v_run_log)? {
+        let mut v_entry = v_entry;
+        v_stage = core_get(&v_entry, &CoreValue::from("stage"), CoreValue::from(""));
+        v_is_executor = core_eq(&[v_stage.clone(), CoreValue::from("executor")])?;
+        if core_truthy(&v_is_executor) {
+            v_executor_ran = CoreValue::Bool(true);
+        }
+        v_type = core_get(&v_entry, &CoreValue::from("type"), CoreValue::from(""));
+        v_is_step = core_eq(&[v_type.clone(), CoreValue::from("runtime_step")])?;
+        if core_truthy(&v_is_step) {
+            if core_truthy(&v_is_executor) {
+                v_next_executor_turns =
+                    core_add(&[v_executor_turns.clone(), CoreValue::Num(1f64)])?;
+                v_executor_turns = v_next_executor_turns.clone();
+            }
+            v_is_distiller = core_eq(&[v_stage.clone(), CoreValue::from("distiller")])?;
+            if core_truthy(&v_is_distiller) {
+                v_next_distiller_turns =
+                    core_add(&[v_distiller_turns.clone(), CoreValue::Num(1f64)])?;
+                v_distiller_turns = v_next_distiller_turns.clone();
+            }
+        }
+    }
+    v_turn_count = v_distiller_turns.clone();
+    if core_truthy(&v_executor_ran) {
+        v_turn_count = v_executor_turns.clone();
+    }
+    v_run_state = CoreValue::new_map();
+    core_set(
+        &v_run_state,
+        CoreValue::from("action_log"),
+        v_run_log.clone(),
+    )?;
+    core_set(
+        &v_run_state,
+        CoreValue::from("function_call_traces"),
+        v_run_traces.clone(),
+    )?;
+    v_signals = _agent_build_failure_signals(&[v_run_state.clone()])?;
+    v_run = CoreValue::new_map();
+    core_set(&v_run, CoreValue::from("actionLog"), v_run_log.clone())?;
+    core_set(&v_run, CoreValue::from("functionCalls"), v_calls.clone())?;
+    core_set(&v_run, CoreValue::from("toolErrors"), v_tool_errors.clone())?;
+    core_set(&v_run, CoreValue::from("turnCount"), v_turn_count.clone())?;
+    core_set(&v_run, CoreValue::from("failureSignals"), v_signals.clone())?;
+    return Ok(v_run.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _select_agent_executor_model(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_select_agent_executor_model");
     let mut v_policy = core_arg(args, 0);
@@ -97748,6 +98088,92 @@ fn _agent_action_log_char_count(args: &[CoreValue]) -> Result<CoreValue, AxError
         v_total = core_add(&[v_total.clone(), v_entry_len.clone()])?;
     }
     return Ok(v_total.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _build_agent_run_prediction(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_agent_run_prediction");
+    let mut v_state = core_arg(args, 0);
+    let mut v_marks = core_arg(args, 1);
+    let mut v_completion = core_arg(args, 2);
+    let mut v_usage = core_arg(args, 3);
+    let mut v_trace = core_arg(args, 4);
+    let mut v_calls = CoreValue::Null;
+    let mut v_clarification = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_error_tool_errors = CoreValue::Null;
+    let mut v_is_clarification = CoreValue::Null;
+    let mut v_is_error = CoreValue::Null;
+    let mut v_is_final = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_run = CoreValue::Null;
+    let mut v_run_log = CoreValue::Null;
+    let mut v_signals = CoreValue::Null;
+    let mut v_tool_errors = CoreValue::Null;
+    let mut v_turn_count = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    v_run = _agent_eval_run(&[v_state.clone(), v_marks.clone()])?;
+    v_type = core_get(
+        &v_completion,
+        &CoreValue::from("type"),
+        CoreValue::from("final"),
+    );
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("completionType"), v_type.clone())?;
+    v_is_final = core_eq(&[v_type.clone(), CoreValue::from("final")])?;
+    if core_truthy(&v_is_final) {
+        v_output = core_get(&v_completion, &CoreValue::from("output"), CoreValue::Null);
+        core_set(&v_out, CoreValue::from("output"), v_output.clone())?;
+        core_set(&v_out, CoreValue::from("finalOutput"), v_output.clone())?;
+    }
+    v_is_clarification = core_eq(&[v_type.clone(), CoreValue::from("askClarification")])?;
+    if core_truthy(&v_is_clarification) {
+        v_clarification = core_get(
+            &v_completion,
+            &CoreValue::from("clarification"),
+            CoreValue::Null,
+        );
+        core_set(
+            &v_out,
+            CoreValue::from("clarification"),
+            v_clarification.clone(),
+        )?;
+    }
+    v_tool_errors = core_get(&v_run, &CoreValue::from("toolErrors"), CoreValue::Null);
+    v_is_error = core_eq(&[v_type.clone(), CoreValue::from("error")])?;
+    if core_truthy(&v_is_error) {
+        v_message = core_get(
+            &v_completion,
+            &CoreValue::from("message"),
+            CoreValue::from(""),
+        );
+        v_error = CoreValue::new_map();
+        core_set(&v_error, CoreValue::from("message"), v_message.clone())?;
+        core_set(&v_out, CoreValue::from("error"), v_error.clone())?;
+        v_error_tool_errors = CoreValue::new_list();
+        core_append(&v_error_tool_errors, v_message.clone())?;
+        v_tool_errors = v_error_tool_errors.clone();
+    }
+    v_run_log = core_get(&v_run, &CoreValue::from("actionLog"), CoreValue::Null);
+    core_set(&v_out, CoreValue::from("actionLog"), v_run_log.clone())?;
+    core_set(&v_out, CoreValue::from("usage"), v_usage.clone())?;
+    core_set(&v_out, CoreValue::from("trace"), v_trace.clone())?;
+    v_signals = core_get(&v_run, &CoreValue::from("failureSignals"), CoreValue::Null);
+    core_set(&v_out, CoreValue::from("failureSignals"), v_signals.clone())?;
+    v_calls = core_get(&v_run, &CoreValue::from("functionCalls"), CoreValue::Null);
+    core_set(&v_out, CoreValue::from("functionCalls"), v_calls.clone())?;
+    core_set(&v_out, CoreValue::from("toolErrors"), v_tool_errors.clone())?;
+    v_turn_count = core_get(&v_run, &CoreValue::from("turnCount"), CoreValue::Null);
+    core_set(&v_out, CoreValue::from("turnCount"), v_turn_count.clone())?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -110170,18 +110596,21 @@ fn _agent_playbook_action_log_text(args: &[CoreValue]) -> Result<CoreValue, AxEr
     let mut v_entry = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_error_text = CoreValue::Null;
+    let mut v_executor_ran = CoreValue::Null;
     let mut v_is_error = CoreValue::Null;
-    let mut v_is_executor = CoreValue::Null;
+    let mut v_is_kept_stage = CoreValue::Null;
     let mut v_is_list = CoreValue::Null;
     let mut v_is_step = CoreValue::Null;
     let mut v_is_text = CoreValue::Null;
     let mut v_keep = CoreValue::Null;
+    let mut v_kept_stage = CoreValue::Null;
     let mut v_not_list = CoreValue::Null;
     let mut v_output = CoreValue::Null;
     let mut v_output_empty = CoreValue::Null;
     let mut v_part = CoreValue::Null;
     let mut v_parts = CoreValue::Null;
     let mut v_probe = CoreValue::Null;
+    let mut v_probe_executor = CoreValue::Null;
     let mut v_probe_has_stage = CoreValue::Null;
     let mut v_probe_stage = CoreValue::Null;
     let mut v_stage = CoreValue::Null;
@@ -110201,6 +110630,7 @@ fn _agent_playbook_action_log_text(args: &[CoreValue]) -> Result<CoreValue, AxEr
         return Ok(CoreValue::from(""));
     }
     v_tagged = CoreValue::Bool(false);
+    v_executor_ran = CoreValue::Bool(false);
     for v_probe in core_iter(&v_action_log)? {
         let mut v_probe = v_probe;
         v_probe_stage = core_get(&v_probe, &CoreValue::from("stage"), CoreValue::Null);
@@ -110208,6 +110638,14 @@ fn _agent_playbook_action_log_text(args: &[CoreValue]) -> Result<CoreValue, AxEr
         if core_truthy(&v_probe_has_stage) {
             v_tagged = CoreValue::Bool(true);
         }
+        v_probe_executor = core_eq(&[v_probe_stage.clone(), CoreValue::from("executor")])?;
+        if core_truthy(&v_probe_executor) {
+            v_executor_ran = CoreValue::Bool(true);
+        }
+    }
+    v_kept_stage = CoreValue::from("distiller");
+    if core_truthy(&v_executor_ran) {
+        v_kept_stage = CoreValue::from("executor");
     }
     v_parts = CoreValue::new_list();
     for v_entry in core_iter(&v_action_log)? {
@@ -110220,9 +110658,9 @@ fn _agent_playbook_action_log_text(args: &[CoreValue]) -> Result<CoreValue, AxEr
                 &CoreValue::from("stage"),
                 CoreValue::from("executor"),
             );
-            v_is_executor = core_eq(&[v_stage.clone(), CoreValue::from("executor")])?;
+            v_is_kept_stage = core_eq(&[v_stage.clone(), v_kept_stage.clone()])?;
             v_untagged = core_not(&[v_tagged.clone()])?;
-            v_keep = core_or(&[v_is_executor.clone(), v_untagged.clone()])?;
+            v_keep = core_or(&[v_is_kept_stage.clone(), v_untagged.clone()])?;
             if core_truthy(&v_keep) {
                 v_code = core_get(&v_entry, &CoreValue::from("code"), CoreValue::from(""));
                 v_output = core_get(&v_entry, &CoreValue::from("output"), CoreValue::from(""));
@@ -125784,7 +126222,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (933 of 933 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (937 of 937 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

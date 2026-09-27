@@ -1742,6 +1742,13 @@ public final class Conformance {
     Map<String, Object> options = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
     ToolBuild toolBuild = buildTools(Core.asList(fixture.getOrDefault("tools", List.of())));
     if (!toolBuild.tools.isEmpty()) options.put("functions", toolBuild.tools);
+    // An agent's runtime_script runs its actor code, as in the agent fixtures.
+    if ("agent".equals(programKind) && fixture.containsKey("runtime_script")) {
+      options.put("runtime", new ScriptedCodeRuntime(
+          Core.asList(fixture.get("runtime_script")),
+          String.valueOf(fixture.getOrDefault("runtime_language", "JavaScript")),
+          ""));
+    }
     Object program = "axgen".equals(programKind)
       ? new AxGen(AxSignature.create(signature), options)
       : "flow".equals(programKind)
@@ -1969,6 +1976,9 @@ public final class Conformance {
         ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
         Map<String, Object> prediction = ((AxAgent) program).evaluateOptimizationTask(client, Core.asMap(fixture.getOrDefault("task", Map.of("input", fixture.getOrDefault("input", Map.of())))), Core.asMap(fixture.getOrDefault("eval_options", Map.of())));
         if (fixture.containsKey("expected_prediction_subset")) assertSubset(prediction, fixture.get("expected_prediction_subset"), "eval prediction");
+        // Fields that must match exactly: a list compares in full.
+        for (Map.Entry<String, Object> field : Core.asMap(fixture.getOrDefault("expected_prediction_fields", Map.of())).entrySet())
+          assertEqual(prediction.get(field.getKey()), field.getValue(), "eval prediction " + field.getKey());
         return;
       }
     } catch (RuntimeException e) {

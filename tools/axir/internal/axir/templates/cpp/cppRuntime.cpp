@@ -8553,16 +8553,21 @@ AxAgent& AxAgent::apply_optimization(Value artifact) {
 Value AxAgent::evaluate_optimization_task(AIClient& client, Value task, Value options) {
   Value input = Core::get(task, "input", task);
   Value forward_options = Core::get(options, "forward_options", Value::object());
+  // As TS evaluates each task from a fresh state, the prediction carries only
+  // this run's share of the agent's logs.
+  Value marks = Core::_agent_eval_marks(state_);
+  Value completion;
   try {
     Value output = forward(client, input, forward_options);
-    return Core::_build_agent_eval_prediction(output, get_action_log(), get_usage(), export_trace());
+    completion = object({{"type", Value("final")}, {"output", output}});
   } catch (const AxError& e) {
     if (e.category == "AxAgentClarificationError") {
-      return object({{"completionType", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}, {"actionLog", get_action_log()}, {"functionCalls", Core::get(state_, "function_call_traces", Value::array())}, {"toolErrors", Value::array()}, {"turnCount", Value(0)}, {"usage", get_usage()}, {"trace", export_trace()}});
+      completion = object({{"type", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}});
+    } else {
+      completion = object({{"type", Value("error")}, {"message", Value(std::string(e.what()))}});
     }
-    Value err = object({{"message", Value(std::string(e.what()))}});
-    return object({{"completionType", Value("error")}, {"error", err}, {"actionLog", get_action_log()}, {"functionCalls", Core::get(state_, "function_call_traces", Value::array())}, {"toolErrors", array({Value(std::string(e.what()))})}, {"turnCount", Value(0)}, {"usage", get_usage()}, {"trace", export_trace()}});
   }
+  return Core::_build_agent_run_prediction(state_, marks, completion, get_usage(), export_trace());
 }
 Value AxAgent::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
   Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
