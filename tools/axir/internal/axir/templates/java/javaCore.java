@@ -1480,12 +1480,14 @@ final class Core {
     if (get(gen, "memory", null) instanceof AxMemory mem) mem.addResponse(response);
     return null;
   }
-  static Object axgenMemoryAddFunctionResult(Object gen, Object call, Object result, Object ok) {
+  // `result` keeps the raw value; `result_text` is the text the model got.
+  static Object axgenMemoryAddFunctionResult(Object gen, Object call, Object result, Object ok, Object resultText) {
     if (get(gen, "memory", null) instanceof AxMemory mem) {
       Map<String, Object> item = new LinkedHashMap<>();
       item.put("call", call);
       item.put("result", result);
       item.put("ok", truthy(ok));
+      if (resultText != null) item.put("result_text", resultText);
       mem.addFunctionResults(item);
     }
     return null;

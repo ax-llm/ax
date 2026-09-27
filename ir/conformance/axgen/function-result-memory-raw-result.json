@@ -1,0 +1,85 @@
+{
+  "description": "Port-only: a memory item's result keeps the tool's raw value until the next major, and result_text holds the text the model got (TS keeps that text in result).",
+  "expected_memory_function_raw_results": [
+    {
+      "a": [2],
+      "b": 1,
+      "c": null
+    },
+    "plain text",
+    null,
+    42
+  ],
+  "expected_memory_function_results": [
+    "{\n  \"a\": [\n    2\n  ],\n  \"b\": 1,\n  \"c\": null\n}",
+    "plain text",
+    "done",
+    "42"
+  ],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "query": "q"
+  },
+  "kind": "forward",
+  "name": "function-result-memory-raw-result",
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "lookupObject",
+          "params": {}
+        },
+        {
+          "id": "call_2",
+          "name": "lookupText",
+          "params": {}
+        },
+        {
+          "id": "call_3",
+          "name": "lookupNone",
+          "params": {}
+        },
+        {
+          "id": "call_4",
+          "name": "lookupNumber",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "content": "Answer: done"
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "description": "Look up lookupObject",
+      "name": "lookupObject",
+      "result": {
+        "a": [2],
+        "b": 1,
+        "c": null
+      }
+    },
+    {
+      "description": "Look up lookupText",
+      "name": "lookupText",
+      "result": "plain text"
+    },
+    {
+      "description": "Look up lookupNone",
+      "name": "lookupNone",
+      "result": null
+    },
+    {
+      "description": "Look up lookupNumber",
+      "name": "lookupNumber",
+      "result": 42
+    }
+  ]
+}

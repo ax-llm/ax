@@ -1179,14 +1179,16 @@ public final class Conformance {
 	    }
 	    if (fixture.containsKey("expected_memory_history_count") && gen.getMemory().history().size() != Core.asInt(fixture.get("expected_memory_history_count"))) throw new FixtureError("expected memory history count mismatch");
 	    if (fixture.containsKey("expected_memory_history_subset")) assertListSubset(gen.getMemory().history(), fixture.get("expected_memory_history_subset"), "memory history");
-	    if (fixture.containsKey("expected_memory_function_results")) {
-	      // The texts the memory keeps for the tool results, in order.
-	      List<Object> memoryTexts = new ArrayList<>();
+	    // The memory's tool results, in order: result_text is the text the
+	    // model got, result the raw value.
+	    for (String[] check : new String[][] {{"expected_memory_function_results", "result_text"}, {"expected_memory_function_raw_results", "result"}}) {
+	      if (!fixture.containsKey(check[0])) continue;
+	      List<Object> memoryValues = new ArrayList<>();
 	      for (Map<String, Object> item : gen.getMemory().history()) {
 	        if (!"function".equals(item.get("role"))) continue;
-	        for (Object entry : Core.asList(item.get("results"))) memoryTexts.add(Core.asMap(entry).get("result"));
+	        for (Object entry : Core.asList(item.get("results"))) memoryValues.add(Core.asMap(entry).get(check[1]));
 	      }
-	      assertEqual(memoryTexts, fixture.get("expected_memory_function_results"), "memory function results");
+	      assertEqual(memoryValues, fixture.get(check[0]), check[0]);
 	    }
 	    if (fixture.containsKey("expected_chat_log_subset")) assertListSubset(gen.getChatLog(), fixture.get("expected_chat_log_subset"), "chat log");
 	    if (fixture.containsKey("expected_function_traces_subset")) assertListSubset(gen.getFunctionCallTraces(), fixture.get("expected_function_traces_subset"), "function call traces");

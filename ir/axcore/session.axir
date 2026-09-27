@@ -456,7 +456,7 @@ module @ax.session version "0.1" {
         core.if %ok {
           %status = core.let "ok"
         }
-        core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %result, %ok)
+        core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %result, %ok, %text)
         core.call intrinsic.axgen.record_function_call(%gen, %call, %result, %status)
       }
       core.return %changed

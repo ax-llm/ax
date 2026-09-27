@@ -3362,10 +3362,13 @@ Value Core::axgen_memory_add_response(Value gen, Value request, Value response) 
   set(gen, "memory", memory);
   return Value();
 }
-Value Core::axgen_memory_add_function_result(Value gen, Value call, Value result, Value ok) {
+// `result` keeps the raw value; `result_text` is the text the model got.
+Value Core::axgen_memory_add_function_result(Value gen, Value call, Value result, Value ok, Value result_text) {
   Value memory = get(gen, "memory", Value::object());
   Value items = get_key(memory, "items", Value::array());
-  append(items, Value(Object{{"role", "function"}, {"results", Value(Array{Value(Object{{"call", call}, {"result", result}, {"ok", Value(truthy(ok))}})})}, {"tags", Value::array()}}));
+  Object entry{{"call", call}, {"result", result}, {"ok", Value(truthy(ok))}};
+  if (!result_text.is_null()) entry["result_text"] = result_text;
+  append(items, Value(Object{{"role", "function"}, {"results", Value(Array{Value(std::move(entry))})}, {"tags", Value::array()}}));
   set(memory, "items", items);
   set(gen, "memory", memory);
   return Value();
@@ -20523,7 +20526,7 @@ Value Core::chat_session_record_result(Value gen, Value state, Value call, Value
     if (Core::truthy(ok)) {
       status = Value("ok");
     }
-    Core::axgen_memory_add_function_result(gen, call, result, ok);
+    Core::axgen_memory_add_function_result(gen, call, result, ok, text);
     Core::axgen_record_function_call(gen, call, result, status);
   }
   return changed;
@@ -30239,7 +30242,7 @@ Value Core::_run_tool_calls_impl(Value gen, Value functions, Value messages, Val
       Value tool_error_message = Core::_tool_error_message_impl(call, tool_error);
       Core::append(messages, tool_error_message);
       Value tool_error_text = Core::get(tool_error_message, Value("result"), Value(""));
-      Core::axgen_memory_add_function_result(gen, call, tool_error_text, Value(false));
+      Core::axgen_memory_add_function_result(gen, call, tool_error_message, Value(false), tool_error_text);
       Core::axgen_record_function_call(gen, call, tool_error_message, Value("error"));
     }
     if (Core::truthy(tool_ok)) {
@@ -30256,7 +30259,7 @@ Value Core::_run_tool_calls_impl(Value gen, Value functions, Value messages, Val
       }
       Value tool_message = Core::_tool_result_message_impl(call, tool_text);
       Core::append(messages, tool_message);
-      Core::axgen_memory_add_function_result(gen, call, tool_text, Value(true));
+      Core::axgen_memory_add_function_result(gen, call, tool_result, Value(true), tool_text);
       Core::axgen_record_function_call(gen, call, tool_result, Value("ok"));
     }
   }

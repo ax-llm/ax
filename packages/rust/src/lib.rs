@@ -25117,21 +25117,27 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
             expected,
         )?;
     }
-    if let Some(expected) = fixture.get("expected_memory_function_results") {
-        // The texts the memory keeps for the tool results, in order.
-        let texts: Vec<Value> = program
-            .memory
-            .iter()
-            .filter(|item| item.get("role").and_then(Value::as_str) == Some("function"))
-            .flat_map(|item| {
-                item.get("results")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
-            })
-            .map(|entry| entry.get("result").cloned().unwrap_or(Value::Null))
-            .collect();
-        expect_json_equal("memory function results", &Value::Array(texts), expected)?;
+    // The memory's tool results, in order: result_text is the text the model
+    // got, result the raw value.
+    for (memory_key, entry_key) in [
+        ("expected_memory_function_results", "result_text"),
+        ("expected_memory_function_raw_results", "result"),
+    ] {
+        if let Some(expected) = fixture.get(memory_key) {
+            let values: Vec<Value> = program
+                .memory
+                .iter()
+                .filter(|item| item.get("role").and_then(Value::as_str) == Some("function"))
+                .flat_map(|item| {
+                    item.get("results")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .map(|entry| entry.get(entry_key).cloned().unwrap_or(Value::Null))
+                .collect();
+            expect_json_equal(memory_key, &Value::Array(values), expected)?;
+        }
     }
     if let Some(expected) = fixture
         .get("expected_chat_log_subset")
@@ -32502,11 +32508,13 @@ fn core_axgen_memory_add_response(args: &[CoreValue]) -> Result<CoreValue, AxErr
 }
 
 #[allow(dead_code)]
+// `result` keeps the raw value; `result_text` is the text the model got.
 fn core_axgen_memory_add_function_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let gen = core_arg(args, 0);
     let call = core_arg(args, 1);
     let result = core_arg(args, 2);
     let ok = core_arg(args, 3);
+    let result_text = core_arg(args, 4);
     let memory = core_get(&gen, &CoreValue::from("memory"), CoreValue::Null);
     if let CoreValue::Host(host) = &memory {
         let payload = core_axgen_map_from(&[
@@ -32514,6 +32522,9 @@ fn core_axgen_memory_add_function_result(args: &[CoreValue]) -> Result<CoreValue
             ("result", result),
             ("ok", CoreValue::Bool(core_truthy(&ok))),
         ])?;
+        if !result_text.is_null() {
+            core_set(&payload, CoreValue::from("result_text"), result_text)?;
+        }
         host.call_method("add_function_results", &[payload])?;
     }
     Ok(CoreValue::Null)
@@ -72346,6 +72357,7 @@ fn chat_session_record_result(args: &[CoreValue]) -> Result<CoreValue, AxError> 
             v_call.clone(),
             v_result.clone(),
             v_ok.clone(),
+            v_text.clone(),
         ])?;
         core_axgen_record_function_call(&[
             v_gen.clone(),
@@ -91319,8 +91331,9 @@ fn _run_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 core_axgen_memory_add_function_result(&[
                     v_gen.clone(),
                     v_call.clone(),
-                    v_tool_error_text.clone(),
+                    v_tool_error_message.clone(),
                     CoreValue::Bool(false),
+                    v_tool_error_text.clone(),
                 ])?;
                 core_axgen_record_function_call(&[
                     v_gen.clone(),
@@ -91362,8 +91375,9 @@ fn _run_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             core_axgen_memory_add_function_result(&[
                 v_gen.clone(),
                 v_call.clone(),
-                v_tool_text.clone(),
+                v_tool_result.clone(),
                 CoreValue::Bool(true),
+                v_tool_text.clone(),
             ])?;
             core_axgen_record_function_call(&[
                 v_gen.clone(),

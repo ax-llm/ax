@@ -1480,12 +1480,14 @@ final class Core {
     if (get(gen, "memory", null) instanceof AxMemory mem) mem.addResponse(response);
     return null;
   }
-  static Object axgenMemoryAddFunctionResult(Object gen, Object call, Object result, Object ok) {
+  // `result` keeps the raw value; `result_text` is the text the model got.
+  static Object axgenMemoryAddFunctionResult(Object gen, Object call, Object result, Object ok, Object resultText) {
     if (get(gen, "memory", null) instanceof AxMemory mem) {
       Map<String, Object> item = new LinkedHashMap<>();
       item.put("call", call);
       item.put("result", result);
       item.put("ok", truthy(ok));
+      if (resultText != null) item.put("result_text", resultText);
       mem.addFunctionResults(item);
     }
     return null;
@@ -18887,7 +18889,7 @@ final class Core {
       if (Core.truthy(ok)) {
         status = "ok";
       }
-      Core.axgenMemoryAddFunctionResult(gen, call, result, ok);
+      Core.axgenMemoryAddFunctionResult(gen, call, result, ok, text);
       Core.axgenRecordFunctionCall(gen, call, result, status);
     }
     return changed;
@@ -28580,7 +28582,7 @@ final class Core {
         Object tool_error_message = Core._tool_error_message_impl(call, tool_error);
         Core.append(messages, tool_error_message);
         Object tool_error_text = Core.get(tool_error_message, "result", "");
-        Core.axgenMemoryAddFunctionResult(gen, call, tool_error_text, Boolean.FALSE);
+        Core.axgenMemoryAddFunctionResult(gen, call, tool_error_message, Boolean.FALSE, tool_error_text);
         Core.axgenRecordFunctionCall(gen, call, tool_error_message, "error");
       }
       if (Core.truthy(tool_ok)) {
@@ -28596,7 +28598,7 @@ final class Core {
         }
         Object tool_message = Core._tool_result_message_impl(call, tool_text);
         Core.append(messages, tool_message);
-        Core.axgenMemoryAddFunctionResult(gen, call, tool_text, Boolean.TRUE);
+        Core.axgenMemoryAddFunctionResult(gen, call, tool_result, Boolean.TRUE, tool_text);
         Core.axgenRecordFunctionCall(gen, call, tool_result, "ok");
       }
     }

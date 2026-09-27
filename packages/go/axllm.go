@@ -38951,7 +38951,7 @@ func chat_session_record_result(args ...Value) (Value, error) {
 		} else {
 		// empty
 		}
-		_core_axgen_memory_add_function_result(v_gen, v_call, v_result, v_ok)
+		_core_axgen_memory_add_function_result(v_gen, v_call, v_result, v_ok, v_text)
 		_core_axgen_record_function_call(v_gen, v_call, v_result, v_status)
 	} else {
 	// empty
@@ -60056,7 +60056,7 @@ func _run_tool_calls_impl(args ...Value) (Value, error) {
 				{ v, err := _tool_error_message_impl(v_call, v_tool_error); if err != nil { return nil, err }; v_tool_error_message = v }
 				v_messages = coreAppend(v_messages, v_tool_error_message)
 				v_tool_error_text = coreGet(v_tool_error_message, "result", "")
-				_core_axgen_memory_add_function_result(v_gen, v_call, v_tool_error_text, false)
+				_core_axgen_memory_add_function_result(v_gen, v_call, v_tool_error_message, false, v_tool_error_text)
 				_core_axgen_record_function_call(v_gen, v_call, v_tool_error_message, "error")
 			}
 		}
@@ -60079,7 +60079,7 @@ func _run_tool_calls_impl(args ...Value) (Value, error) {
 			}
 			{ v, err := _tool_result_message_impl(v_call, v_tool_text); if err != nil { return nil, err }; v_tool_message = v }
 			v_messages = coreAppend(v_messages, v_tool_message)
-			_core_axgen_memory_add_function_result(v_gen, v_call, v_tool_text, true)
+			_core_axgen_memory_add_function_result(v_gen, v_call, v_tool_result, true, v_tool_text)
 			_core_axgen_record_function_call(v_gen, v_call, v_tool_result, "ok")
 		} else {
 		// empty
@@ -103377,19 +103377,27 @@ func runConformanceForward(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_memory_history_subset", nil); expected != nil {
 			assertListSubset(gen.Memory, expected, "memory history")
 		}
-		if expected := coreGet(fixture, "expected_memory_function_results", nil); expected != nil {
-			// The texts the memory keeps for the tool results, in order; a Go
-			// memory item's results are [call, result, ok].
-			texts := []Value{}
+		// The memory's tool results, in order; a Go memory item's results are
+		// [call, result, ok, result_text]: result_text is the text the model
+		// got, result the raw value.
+		for _, check := range []struct {
+			key   string
+			index int
+		}{{"expected_memory_function_results", 3}, {"expected_memory_function_raw_results", 1}} {
+			expected := coreGet(fixture, check.key, nil)
+			if expected == nil {
+				continue
+			}
+			values := []Value{}
 			for _, item := range asSlice(gen.Memory) {
 				if coreGet(item, "role", nil) != "function" {
 					continue
 				}
-				if results := asSlice(coreGet(item, "results", nil)); len(results) > 1 {
-					texts = append(texts, results[1])
+				if results := asSlice(coreGet(item, "results", nil)); len(results) > check.index {
+					values = append(values, results[check.index])
 				}
 			}
-			assertEqual(texts, expected, "memory function results")
+			assertEqual(values, expected, check.key)
 		}
 		if expected := coreGet(fixture, "expected_chat_log_subset", nil); expected != nil {
 			assertListSubset(gen.ChatLog, expected, "chat log")

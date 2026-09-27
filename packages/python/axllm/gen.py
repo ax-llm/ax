@@ -1648,10 +1648,14 @@ def _core_axgen_memory_add_response(gen, request, response):
     return None
 
 
-def _core_axgen_memory_add_function_result(gen, call, result, ok):
+def _core_axgen_memory_add_function_result(gen, call, result, ok, result_text=None):
+    # `result` keeps the raw value; `result_text` is the text the model got.
     memory = _core_get(gen, "memory")
     if memory is not None and hasattr(memory, "add_function_results"):
-        memory.add_function_results({"call": call, "result": result, "ok": bool(ok)})
+        entry = {"call": call, "result": result, "ok": bool(ok)}
+        if result_text is not None:
+            entry["result_text"] = result_text
+        memory.add_function_results(entry)
     return None
 
 
@@ -4471,7 +4475,7 @@ def chat_session_record_result(gen: Any, state: Any, call: Any, result: Any, ok:
             status = "ok"
         else:
             pass
-        _core_axgen_memory_add_function_result(gen, call, result, ok)
+        _core_axgen_memory_add_function_result(gen, call, result, ok, text)
         _core_axgen_record_function_call(gen, call, result, status)
     else:
         pass
@@ -14700,7 +14704,7 @@ def _run_tool_calls_impl(gen: AxGen, functions: list[Any], messages: list[Any], 
             tool_error_message = _tool_error_message_impl(call, tool_error)
             messages.append(tool_error_message)
             tool_error_text = _core_get(tool_error_message, "result", "")
-            _core_axgen_memory_add_function_result(gen, call, tool_error_text, False)
+            _core_axgen_memory_add_function_result(gen, call, tool_error_message, False, tool_error_text)
             _core_axgen_record_function_call(gen, call, tool_error_message, "error")
         if tool_ok:
             tool_text = ""
@@ -14714,7 +14718,7 @@ def _run_tool_calls_impl(gen: AxGen, functions: list[Any], messages: list[Any], 
                 raise format_failure
             tool_message = _tool_result_message_impl(call, tool_text)
             messages.append(tool_message)
-            _core_axgen_memory_add_function_result(gen, call, tool_text, True)
+            _core_axgen_memory_add_function_result(gen, call, tool_result, True, tool_text)
             _core_axgen_record_function_call(gen, call, tool_result, "ok")
         else:
             pass

@@ -1997,7 +1997,20 @@ for (const [
     ...base,
     expected_output: output as Json,
     expected_request_contains: sent.map((text) => JSON.stringify(text)),
-    // As in TS, the memory keeps the texts the model got.
+    // The ports' memory keeps the text the model got in result_text, as
+    // TS's memory keeps it in result.
     expected_memory_function_results: memory,
   });
+  if (name === 'function-result-format-default') {
+    writeFixture('function-result-memory-raw-result', {
+      description:
+        "Port-only: a memory item's result keeps the tool's raw value until the next major, and result_text holds the text the model got (TS keeps that text in result).",
+      ...base,
+      expected_output: output as Json,
+      expected_memory_function_raw_results: formatterResults.map(
+        ([, result]) => result
+      ),
+      expected_memory_function_results: memory,
+    });
+  }
 }
