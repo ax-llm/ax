@@ -11804,6 +11804,14 @@ fn conformance_flow_mapper_call(spec: &Value, state: &Value) -> Value {
             out.insert(to.to_string(), json!(val.as_str().unwrap_or("").to_uppercase()));
             Value::Object(out)
         }
+        // As the other runners do: the value at "from", stored under "to".
+        "copy" => {
+            let from = map.get("from").and_then(Value::as_str).unwrap_or("");
+            let to = map.get("to").and_then(Value::as_str).unwrap_or("");
+            let mut out = Map::new();
+            out.insert(to.to_string(), conformance_flow_state_value(state, from, Value::Null));
+            Value::Object(out)
+        }
         _ => map.get("values").cloned().unwrap_or_else(|| json!({})),
     }
 }

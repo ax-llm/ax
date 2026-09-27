@@ -41427,7 +41427,7 @@ Value Core::_flow_execute_steps(Value flow, Value client, Value state, Value opt
           Value index = Core::get(plan_step, Value("stepIndex"), Value(0));
           Value step = Core::list_get(steps, index, Value());
           Value result_state = Core::_flow_execute_step(flow, step, plan_step, client, group_start, options);
-          current = Core::_flow_merge_parallel_results(current, result_state);
+          current = Core::_flow_merge_group_step(current, step, group_start, result_state);
         }
       }
       if (!Core::truthy(fallback)) {
@@ -41441,6 +41441,7 @@ Value Core::_flow_execute_steps(Value flow, Value client, Value state, Value opt
           Core::raise_error(error);
         }
         Value failures = Value::array();
+        Value report_position = Value(0);
         for (auto report : Core::iter(reports)) {
           Value worker_traces = Core::get(report, Value("traces"), empty_list);
           Value traces = Core::get(flow, Value("traces"), empty_list);
@@ -41463,8 +41464,12 @@ Value Core::_flow_execute_steps(Value flow, Value client, Value state, Value opt
           }
           if (!Core::truthy(failed)) {
             Value result_state = Core::get(report, Value("state"), Value());
-            current = Core::_flow_merge_parallel_results(current, result_state);
+            Value report_plan_step = Core::list_get(group_steps, report_position, Value());
+            Value report_step_index = Core::get(report_plan_step, Value("stepIndex"), Value(0));
+            Value report_step = Core::list_get(steps, report_step_index, Value());
+            current = Core::_flow_merge_group_step(current, report_step, group_start, result_state);
           }
+          report_position = Core::add(report_position, Value(1));
         }
         Value failure_count = Core::len(failures);
         Value failed = Core::gt(failure_count, Value(0));
@@ -42929,6 +42934,110 @@ Value Core::_flow_to_mermaid(Value flow, Value options) {
   }
   Value rendered = Core::_flow_mermaid_render_flow(flow, options);
   return rendered;
+}
+
+Value Core::_flow_group_step_changes(Value step, Value group_start, Value result_state) {
+  axir_coverage_mark("_flow_group_step_changes");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value changes = Value::array();
+  Value missing_step = Core::is_none(step);
+  if (Core::truthy(missing_step)) {
+    return changes;
+  }
+  Value kind = Core::get(step, Value("kind"), Value("execute"));
+  Value name = Core::get(step, Value("name"), Value(""));
+  Value step_options = Core::get(step, Value("options"), empty_map);
+  Value guard = Core::get(step_options, Value("guard"), Value());
+  Value has_guard = Core::is_not_none(guard);
+  if (Core::truthy(has_guard)) {
+    Value guard_matches = Core::_flow_evaluate_data_predicate(guard, group_start, Value(false));
+    Value guard_skipped = Core::not_(guard_matches);
+    if (Core::truthy(guard_skipped)) {
+      return changes;
+    }
+  }
+  Value result_key = Core::string_format(Value("{}Result"), name);
+  Value is_derive = Core::eq(kind, Value("derive"));
+  if (Core::truthy(is_derive)) {
+    Value writes = Core::get(step, Value("writes"), empty_list);
+    Value output_field = Core::list_get(writes, Value(0), name);
+    Core::append(changes, output_field);
+    return changes;
+  }
+  Value is_map = Core::eq(kind, Value("map"));
+  Value is_branch = Core::eq(kind, Value("branch"));
+  Value is_while = Core::eq(kind, Value("while"));
+  Value is_feedback = Core::eq(kind, Value("feedback"));
+  Value is_parallel = Core::eq(kind, Value("parallel"));
+  Value is_parallel_merge = Core::eq(kind, Value("parallelMerge"));
+  Value is_loop = Core::or_(is_while, is_feedback);
+  Value is_control = Core::or_(is_branch, is_loop);
+  Value is_explicit_parallel = Core::or_(is_parallel, is_parallel_merge);
+  Value compares_values = Core::or_(is_control, is_explicit_parallel);
+  Value not_program = Core::or_(is_map, compares_values);
+  Value is_program = Core::not_(not_program);
+  if (Core::truthy(is_program)) {
+    Core::append(changes, result_key);
+    Value result = Core::get(result_state, result_key, Value());
+    Value result_is_map = Core::type_is(result, Value("object"));
+    if (Core::truthy(result_is_map)) {
+      Value result_fields = Core::map_keys(result);
+      for (auto result_field : Core::iter(result_fields)) {
+        Value field_listed = Core::contains(changes, result_field);
+        if (Core::truthy(field_listed)) {
+          // empty
+        }
+        if (!Core::truthy(field_listed)) {
+          Core::append(changes, result_field);
+        }
+      }
+    }
+    return changes;
+  }
+  if (Core::truthy(is_map)) {
+    Core::append(changes, result_key);
+  }
+  Value state_keys = Core::map_keys(result_state);
+  for (auto state_key : Core::iter(state_keys)) {
+    Value key_listed = Core::contains(changes, state_key);
+    if (Core::truthy(key_listed)) {
+      // empty
+    }
+    if (!Core::truthy(key_listed)) {
+      Value in_start = Core::map_contains(group_start, state_key);
+      if (Core::truthy(in_start)) {
+        Value before = Core::get(group_start, state_key, Value());
+        Value after = Core::get(result_state, state_key, Value());
+        Value unchanged = Core::eq(before, after);
+        if (Core::truthy(unchanged)) {
+          // empty
+        }
+        if (!Core::truthy(unchanged)) {
+          Core::append(changes, state_key);
+        }
+      }
+      if (!Core::truthy(in_start)) {
+        Core::append(changes, state_key);
+      }
+    }
+  }
+  return changes;
+}
+
+Value Core::_flow_merge_group_step(Value current, Value step, Value group_start, Value result_state) {
+  axir_coverage_mark("_flow_merge_group_step");
+  Value empty_map = Value::object();
+  Value out = Core::map_merge(current, empty_map);
+  Value changes = Core::_flow_group_step_changes(step, group_start, result_state);
+  for (auto change : Core::iter(changes)) {
+    Value present = Core::map_contains(result_state, change);
+    if (Core::truthy(present)) {
+      Value value = Core::get(result_state, change, Value());
+      Core::set(out, change, value);
+    }
+  }
+  return out;
 }
 
 Value Core::_flow_step_program_io(Value kind, Value name, Value program, Value options) {

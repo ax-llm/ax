@@ -1413,6 +1413,8 @@ struct Core {
   static Value _flow_mermaid_render_flow(Value flow, Value options);
   static Value _flow_from_mermaid(Value text, Value bindings);
   static Value _flow_to_mermaid(Value flow, Value options);
+  static Value _flow_group_step_changes(Value step, Value group_start, Value result_state);
+  static Value _flow_merge_group_step(Value current, Value step, Value group_start, Value result_state);
   static Value _flow_step_program_io(Value kind, Value name, Value program, Value options);
   static Value ucp_negotiate_profile(Value profile, Value supportedVersions, Value requestedServices);
   static Value ucp_normalize_outcome(Value operation, Value response);

@@ -749,6 +749,27 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES. Scripted package examples prove create-use-rejection-invalidate-one-uncached-retry, PATCH-refresh failure followed by recreate, and refresh-plus-recreate failure followed by uncached fallback. The Python example also exposes the documented non-CI live create/PATCH/expiry exercise."
+    },
+    {
+      "capability": "flow.parallel.merge_step_changes",
+      "summary": "A parallel group merges each step's changes, in step order, into the state so far (TS: the keys whose value is no longer the group's starting one). Every step in a group runs from the group's starting state, so merging whole returned states let a later step undo an earlier one's update. In the ports a program node's changes are {name}Result and every field it spreads (so a later step that writes a field's starting value back still wins), a derive step's its output field, a map step's {name}Result and the keys whose value it changed, any other step's the keys whose value differs from the start, and a step its guard skipped changes nothing. The result ends as running the steps one after another.",
+      "ir_ops": [
+        "@flow_execute_steps",
+        "@flow_merge_group_step",
+        "@flow_group_step_changes"
+      ],
+      "fixtures": [
+        "axflow/parallel-group-keeps-earlier-step-update.json",
+        "axflow/parallel-group-loop-keeps-each-iteration.json",
+        "axflow/parallel-group-loop-keeps-derive-update.json",
+        "axflow/parallel-group-keeps-spread-field-update.json",
+        "axflow/parallel-group-write-write-later-wins.json",
+        "axflow/parallel-group-write-write-later-keeps-start-value.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. TS goldens: an earlier step's update to a key the input already held survives a later step in the group; each iteration of a while loop whose body is a parallel group keeps its updates, for program nodes and a derive step. Port-only fixtures: a spread field update survives, a field two steps spread ends with the later step's value, and it does so even when the later step writes the group's starting value back."
     }
   ]
 }

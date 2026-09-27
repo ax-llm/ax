@@ -1591,7 +1591,7 @@ def _flow_execute_steps(flow: Any, client: Any, state: Any, options: Any) -> Any
                     index = _core_get(plan_step, "stepIndex", 0)
                     step = _core_list_get(steps, index, None)
                     result_state = _flow_execute_step(flow, step, plan_step, client, group_start, options)
-                    current = _flow_merge_parallel_results(current, result_state)
+                    current = _flow_merge_group_step(current, step, group_start, result_state)
             else:
                 report_count = _core_len(reports)
                 complete_reports = _core_eq(report_count, group_count)
@@ -1601,6 +1601,7 @@ def _flow_execute_steps(flow: Any, client: Any, state: Any, options: Any) -> Any
                     error = _core_runtime_error("Flow dispatcher omitted node outcomes")
                     raise error
                 failures = []
+                report_position = 0
                 for report in reports:
                     worker_traces = _core_get(report, "traces", empty_list)
                     traces = _core_get(flow, "traces", empty_list)
@@ -1620,7 +1621,11 @@ def _flow_execute_steps(flow: Any, client: Any, state: Any, options: Any) -> Any
                         failures.append(failure)
                     else:
                         result_state = _core_get(report, "state", None)
-                        current = _flow_merge_parallel_results(current, result_state)
+                        report_plan_step = _core_list_get(group_steps, report_position, None)
+                        report_step_index = _core_get(report_plan_step, "stepIndex", 0)
+                        report_step = _core_list_get(steps, report_step_index, None)
+                        current = _flow_merge_group_step(current, report_step, group_start, result_state)
+                    report_position = _core_add(report_position, 1)
                 failure_count = _core_len(failures)
                 failed = _core_gt(failure_count, 0)
                 if failed:
@@ -3072,6 +3077,107 @@ def _flow_to_mermaid(flow: Any, options: Any) -> str:
         pass
     rendered = _flow_mermaid_render_flow(flow, options)
     return rendered
+
+
+def _flow_group_step_changes(step: Any, group_start: Any, result_state: Any) -> list[Any]:
+    _core_coverage_mark("_flow_group_step_changes")
+    empty_map = {}
+    empty_list = []
+    changes = []
+    missing_step = _core_is_none(step)
+    if missing_step:
+        return changes
+    else:
+        pass
+    kind = _core_get(step, "kind", "execute")
+    name = _core_get(step, "name", "")
+    step_options = _core_get(step, "options", empty_map)
+    guard = _core_get(step_options, "guard", None)
+    has_guard = _core_is_not_none(guard)
+    if has_guard:
+        guard_matches = _flow_evaluate_data_predicate(guard, group_start, False)
+        guard_skipped = _core_not(guard_matches)
+        if guard_skipped:
+            return changes
+        else:
+            pass
+    else:
+        pass
+    result_key = _core_string_format("{}Result", name)
+    is_derive = _core_eq(kind, "derive")
+    if is_derive:
+        writes = _core_get(step, "writes", empty_list)
+        output_field = _core_list_get(writes, 0, name)
+        changes.append(output_field)
+        return changes
+    else:
+        pass
+    is_map = _core_eq(kind, "map")
+    is_branch = _core_eq(kind, "branch")
+    is_while = _core_eq(kind, "while")
+    is_feedback = _core_eq(kind, "feedback")
+    is_parallel = _core_eq(kind, "parallel")
+    is_parallel_merge = _core_eq(kind, "parallelMerge")
+    is_loop = _core_or(is_while, is_feedback)
+    is_control = _core_or(is_branch, is_loop)
+    is_explicit_parallel = _core_or(is_parallel, is_parallel_merge)
+    compares_values = _core_or(is_control, is_explicit_parallel)
+    not_program = _core_or(is_map, compares_values)
+    is_program = _core_not(not_program)
+    if is_program:
+        changes.append(result_key)
+        result = _core_get(result_state, result_key, None)
+        result_is_map = _core_type_is(result, "object")
+        if result_is_map:
+            result_fields = _core_map_keys(result)
+            for result_field in result_fields:
+                field_listed = _core_contains(changes, result_field)
+                if field_listed:
+                    pass
+                else:
+                    changes.append(result_field)
+        else:
+            pass
+        return changes
+    else:
+        pass
+    if is_map:
+        changes.append(result_key)
+    else:
+        pass
+    state_keys = _core_map_keys(result_state)
+    for state_key in state_keys:
+        key_listed = _core_contains(changes, state_key)
+        if key_listed:
+            pass
+        else:
+            in_start = _core_map_contains(group_start, state_key)
+            if in_start:
+                before = _core_get(group_start, state_key, None)
+                after = _core_get(result_state, state_key, None)
+                unchanged = _core_eq(before, after)
+                if unchanged:
+                    pass
+                else:
+                    changes.append(state_key)
+            else:
+                changes.append(state_key)
+    return changes
+
+
+def _flow_merge_group_step(current: Any, step: Any, group_start: Any, result_state: Any) -> Any:
+    _core_coverage_mark("_flow_merge_group_step")
+    empty_map = {}
+    out = _core_map_merge(current, empty_map)
+    changes = _flow_group_step_changes(step, group_start, result_state)
+    for change in changes:
+        present = _core_map_contains(result_state, change)
+        if present:
+            value = _core_get(result_state, change, None)
+            out[change] = value
+        else:
+            pass
+    return out
 
 
 def _flow_step_program_io(kind: str, name: str, program: Any, options: Any) -> Any:
