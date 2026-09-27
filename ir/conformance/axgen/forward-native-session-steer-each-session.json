@@ -51,7 +51,6 @@
   "expected_output": {
     "answer": "Paris"
   },
-  "expected_request_contains": ["Be brief."],
   "expected_request_count": 2,
   "expected_request_roles": [
     ["system", "user"],

@@ -571,7 +571,9 @@ async function record(name: string, spec: Case): Promise<void> {
   }
   if (control) fixture.expected_control_events = controlEvents;
   if (steer) {
-    fixture.expected_request_contains = [steer.text];
+    // A native session takes the steer itself (the session log pins it);
+    // otherwise it goes into the next request.
+    if (!spec.native_session) fixture.expected_request_contains = [steer.text];
     fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
       prompt.map((message) => message.role as Json)
     );
