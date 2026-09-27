@@ -5317,6 +5317,10 @@ pub trait AxExecutableProgram: AxProgram {
     fn get_chat_log(&self) -> Vec<Value> { Vec::new() }
     fn get_traces(&self) -> Vec<Value> { Vec::new() }
     fn get_usage(&self) -> Value { Value::Null }
+    /// The program's signature text, when it has one. A flow step added with
+    /// this program and no reads or writes reads its input fields and writes
+    /// its output fields; without a signature the step is a barrier.
+    fn signature_text(&self) -> Option<String> { None }
 }
 
 // This adapter is borrowed only within forward; no borrowed client crosses a thread boundary.
@@ -5358,6 +5362,7 @@ impl AxExecutableProgram for AxGen {
     fn get_chat_log(&self)->Vec<Value>{self.chat_log.clone()}
     fn get_traces(&self)->Vec<Value>{self.traces.clone()}
     fn get_usage(&self)->Value{json!(self.chat_log.iter().filter_map(|entry|entry.get("usage")).collect::<Vec<_>>())}
+    fn signature_text(&self)->Option<String>{Some(self.signature.to_string())}
 }
 
 impl AxExecutableProgram for AxFlow {
@@ -11459,6 +11464,15 @@ fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_request_count") {
         expect_json_equal("flow request count", &json!(actual["requests"].as_array().map_or(0,Vec::len)), expected)?;
     }
+    if let Some(expected) = fixture.get("expected_request_contains").and_then(Value::as_array) {
+        let text = serde_json::to_string(&actual["requests"]).unwrap_or_default();
+        for item in expected {
+            let needle = item.as_str().map(ToString::to_string).unwrap_or_else(|| item.to_string());
+            if !text.contains(&needle) {
+                return Err(AxError::new("fixture", format!("flow request missing {needle}: {text}")));
+            }
+        }
+    }
     if let Some(expected) = fixture.get("expected_speak_requests") {
         expect_json_equal("speak requests", actual.get("speak_requests").unwrap_or(&json!([])), expected)?;
     }
@@ -11499,7 +11513,11 @@ fn run_flow_mermaid_fixture(fixture: &Value) -> AxResult<()> {
         for step in fixture.get("builder_steps").and_then(Value::as_array).into_iter().flatten() {
             let name = step.get("name").and_then(Value::as_str).unwrap_or("");
             let signature = step.get("signature").and_then(Value::as_str).unwrap_or("");
-            let options = json!({"reads": step.get("reads").cloned().unwrap_or_else(|| json!([]))});
+            // A builder step without "reads" declares none.
+            let options = match step.get("reads") {
+                Some(reads) => json!({"reads": reads}),
+                None => json!({}),
+            };
             built = built.execute_with_options(name, ax(signature)?, &options);
         }
         return expect_json_equal(
@@ -23910,6 +23928,7 @@ impl CoreHost for ExecutableProgramHost {
             "get_chat_log"=>Ok(core_value_from_json(&json!(self.program.borrow().get_chat_log()))),
             "get_traces"=>Ok(core_value_from_json(&json!(self.program.borrow().get_traces()))),
             "get_usage"=>Ok(core_value_from_json(&self.program.borrow().get_usage())),
+            "signature_text"=>Ok(self.program.borrow().signature_text().map(|text|CoreValue::from(text.as_str())).unwrap_or(CoreValue::Null)),
             other=>Err(AxError::runtime(format!("Executable program has no method '{other}'"))),
         }
     }
@@ -23966,6 +23985,7 @@ impl CoreHost for GenHost {
                 Ok(core_value_from_json(&output))
             }
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(self.gen.borrow().chat_log.clone()))),
+            "signature_text" => Ok(CoreValue::from(self.gen.borrow().signature.to_string().as_str())),
             "get_traces" => Ok(core_value_from_json(&Value::Array(self.gen.borrow().traces.clone()))),
             "get_optimizable_components" => Ok(core_value_from_json(&Value::Array(
                 self.gen.borrow().get_optimizable_components(),
@@ -24085,6 +24105,10 @@ impl CoreHost for AgentHost {
                 Ok(core_value_from_json(&output))
             }
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(self.agent.borrow().get_chat_log()))),
+            "signature_text" => {
+                let signature = core_get(&self.agent.borrow().state, &CoreValue::from("signature"), CoreValue::Null);
+                signature_to_string(&[signature])
+            }
             "get_usage" => {
                 let usage = self.agent.borrow().get_usage();
                 Ok(core_value_from_json(&usage))
@@ -24221,6 +24245,15 @@ fn core_program_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     match core_host_try(&core_arg(args, 0), "get_optimizable_components", &[]) {
         Some(result) => result,
         None => Ok(CoreValue::new_list()),
+    }
+}
+
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+fn core_program_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_host_try(&core_arg(args, 0), "signature_text", &[]) {
+        Some(result) => result,
+        None => Ok(CoreValue::Null),
     }
 }
 

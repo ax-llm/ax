@@ -330,6 +330,31 @@
       "state": "VERIFIED IN ALL FIVE LANGUAGES. plan-barriers asserts the computed parallel groups/maxParallelism; the execution fixtures assert both independent results are produced and merged into the final state."
     },
     {
+      "capability": "flow.parallel.undeclared_program_steps",
+      "summary": "Port-only (TS reads dependencies from a step's mapping function; the ports' execute(name, program) has none): a step added with a program and no reads or writes plans from the program's signature (intrinsic.program.signature, AxGen and AxAgent). It reads the input fields and writes {name}Result plus the output fields, listed as outputs. Output fields order later readers only (read-after-write), since a group runs from one snapshot and merges its results in step order; {name}Result keeps TS's full rule. A program without a signature (a nested flow, a custom program) is a barrier, as TS treats an unknown dependency. toString still draws edges from declared reads only.",
+      "ir_ops": [
+        "@flow_step",
+        "@flow_step_program_io",
+        "@flow_plan_entry",
+        "@flow_plan_can_share_group",
+        "@flow_mermaid_render_flow"
+      ],
+      "fixtures": [
+        "axflow/plan-undeclared-steps-read-after-write.json",
+        "axflow/forward-undeclared-steps-in-order.json",
+        "axflow/plan-undeclared-same-program-parallel.json",
+        "axflow/plan-undeclared-spread-output-read-after-write.json",
+        "axflow/plan-undeclared-output-earlier-reader-shares-group.json",
+        "axflow/plan-undeclared-nested-flow-barrier.json",
+        "axflow/plan-undeclared-agent-step.json",
+        "axflow/mermaid-render-undeclared-steps.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. The plan fixtures assert each undeclared step's reads, writes and outputs and the groups they form: the runtime-hooks flow splits outline from polish, the astra_parallel flow keeps one program's two steps in one group, fan-in and a declared reader split on spread outputs, an earlier reader or another writer of a spread output shares the group, a nested flow is a barrier, and an agent plans from its signature. forward-undeclared-steps-in-order runs the runtime-hooks flow and asserts polish's request carries outline's output. mermaid-render-undeclared-steps pins toString's output."
+    },
+    {
       "capability": "flow.derive",
       "summary": "AxFlow derive applies a per-item transform over an array input field (or once over a scalar) and writes the mapped result to the output field \u2014 NOT a single model call over the whole state. @flow_execute_step iterates the input list and calls the transform per item via intrinsic.object.call_method.",
       "ir_ops": ["@flow_execute_step"],

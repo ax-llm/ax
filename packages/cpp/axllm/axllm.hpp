@@ -415,6 +415,7 @@ struct Core {
   static Value object_call_method(Value target, Value method_name, Value arg = Value());
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
+  static Value program_signature(Value program);
   static Value ai_complete_once(Value client, Value request, Value options);
   // The run control updates a run's request boundary holds for its path:
   // take_pending hands them to the forward, which applies them when a step
@@ -1365,6 +1366,7 @@ struct Core {
   static Value _flow_mermaid_render_flow(Value flow, Value options);
   static Value _flow_from_mermaid(Value text, Value bindings);
   static Value _flow_to_mermaid(Value flow, Value options);
+  static Value _flow_step_program_io(Value kind, Value name, Value program, Value options);
   static Value ucp_negotiate_profile(Value profile, Value supportedVersions, Value requestedServices);
   static Value ucp_normalize_outcome(Value operation, Value response);
   static Value event_runtime_descriptor(Value routes, Value options);
@@ -2546,6 +2548,8 @@ class AxAgent : public AxProgram {
 
  private:
   friend class AxExecutionContext;
+  // Core::program_signature reads the agent's signature from its state.
+  friend struct Core;
   std::shared_ptr<detail::AgentExecutionContext> execution_context_;
   std::vector<std::shared_ptr<AxAgent>> child_agents_;
   Value state_;

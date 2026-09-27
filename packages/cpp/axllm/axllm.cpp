@@ -1935,6 +1935,14 @@ Value Core::program_apply_components(Value program, Value component_map) {
   if (stage_ptr) stage_ptr->apply_optimized_components(std::move(component_map));
   return Value::object();
 }
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+Value Core::program_signature(Value program) {
+  auto* stage_ptr = registered_stage(str(get_key(program, "__agent_stage_id")));
+  if (auto* gen = dynamic_cast<AxGen*>(stage_ptr)) return Core::signature_to_string(Core::get(gen->value(), "signature"));
+  if (auto* agent = dynamic_cast<AxAgent*>(stage_ptr)) return Core::signature_to_string(Core::get(agent->state_, "signature"));
+  return Value();
+}
 Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
   AIClient* registered = registered_client(id);
@@ -39385,6 +39393,20 @@ Value Core::_flow_step(Value kind, Value name, Value program, Value options) {
   if (Core::truthy(may_parallel)) {
     default_barrier = Value(false);
   }
+  Value io = Core::_flow_step_program_io(kind, trimmed, program, opts);
+  Value infers_io = Core::get(io, Value("infer"), Value(false));
+  if (Core::truthy(infers_io)) {
+    Value io_has_signature = Core::get(io, Value("hasSignature"), Value(false));
+    if (Core::truthy(io_has_signature)) {
+      reads = Core::get(io, Value("reads"), Value());
+      writes = Core::get(io, Value("writes"), Value());
+      Value io_outputs = Core::get(io, Value("outputs"), Value());
+      Core::set(step, Value("outputs"), io_outputs);
+    }
+    if (!Core::truthy(io_has_signature)) {
+      default_barrier = Value(true);
+    }
+  }
   Value barrier_from_snake = Core::get(opts, Value("is_barrier"), default_barrier);
   Value barrier_from_camel = Core::get(opts, Value("isBarrier"), barrier_from_snake);
   Value barrier = Core::get(opts, Value("barrier"), barrier_from_camel);
@@ -39473,6 +39495,11 @@ Value Core::_flow_plan_entry(Value step, Value step_index) {
   Core::set(entry, Value("kind"), kind);
   Core::set(entry, Value("reads"), reads);
   Core::set(entry, Value("writes"), writes);
+  Value has_outputs = Core::map_contains(step, Value("outputs"));
+  if (Core::truthy(has_outputs)) {
+    Value outputs = Core::get(step, Value("outputs"), Value());
+    Core::set(entry, Value("outputs"), outputs);
+  }
   Core::set(entry, Value("barrier"), barrier);
   Core::set(entry, Value("stepIndex"), step_index);
   return entry;
@@ -39484,6 +39511,7 @@ Value Core::_flow_plan_can_share_group(Value group, Value candidate) {
   Value candidate_barrier = Core::get(candidate, Value("barrier"), Value(true));
   Value candidate_writes = Core::get(candidate, Value("writes"), empty_list);
   Value candidate_reads = Core::get(candidate, Value("reads"), empty_list);
+  Value candidate_outputs = Core::get(candidate, Value("outputs"), empty_list);
   Value write_count = Core::len(candidate_writes);
   Value no_writes = Core::eq(write_count, Value(0));
   Value can_share = Value(true);
@@ -39500,6 +39528,7 @@ Value Core::_flow_plan_can_share_group(Value group, Value candidate) {
     }
     Value existing_writes = Core::get(existing, Value("writes"), empty_list);
     Value existing_reads = Core::get(existing, Value("reads"), empty_list);
+    Value existing_outputs = Core::get(existing, Value("outputs"), empty_list);
     for (auto read : Core::iter(candidate_reads)) {
       Value read_conflict = Core::contains(existing_writes, read);
       if (Core::truthy(read_conflict)) {
@@ -39508,13 +39537,21 @@ Value Core::_flow_plan_can_share_group(Value group, Value candidate) {
     }
     for (auto existing_read : Core::iter(existing_reads)) {
       Value reverse_read_conflict = Core::contains(candidate_writes, existing_read);
-      if (Core::truthy(reverse_read_conflict)) {
+      Value reverse_read_output = Core::contains(candidate_outputs, existing_read);
+      Value reverse_read_ordered = Core::not_(reverse_read_output);
+      Value reverse_read_blocks = Core::and_(reverse_read_conflict, reverse_read_ordered);
+      if (Core::truthy(reverse_read_blocks)) {
         can_share = Value(false);
       }
     }
     for (auto write : Core::iter(candidate_writes)) {
       Value write_conflict = Core::contains(existing_writes, write);
-      if (Core::truthy(write_conflict)) {
+      Value candidate_write_output = Core::contains(candidate_outputs, write);
+      Value existing_write_output = Core::contains(existing_outputs, write);
+      Value write_output = Core::or_(candidate_write_output, existing_write_output);
+      Value write_ordered = Core::not_(write_output);
+      Value write_blocks = Core::and_(write_conflict, write_ordered);
+      if (Core::truthy(write_blocks)) {
         can_share = Value(false);
       }
     }
@@ -41661,6 +41698,10 @@ Value Core::_flow_mermaid_render_flow(Value flow, Value options) {
         Value step_options = Core::get(step, Value("options"), empty_map);
         Value empty_reads = Value::array();
         Value step_reads = Core::get(step, Value("reads"), empty_reads);
+        Value inferred_reads = Core::map_contains(step, Value("outputs"));
+        if (Core::truthy(inferred_reads)) {
+          step_reads = empty_reads;
+        }
         Value reads = Core::get(step_options, Value("reads"), step_reads);
         for (auto read : Core::iter(reads)) {
           Value is_result = Core::string_ends_with(read, Value("Result"));
@@ -41703,6 +41744,58 @@ Value Core::_flow_to_mermaid(Value flow, Value options) {
   }
   Value rendered = Core::_flow_mermaid_render_flow(flow, options);
   return rendered;
+}
+
+Value Core::_flow_step_program_io(Value kind, Value name, Value program, Value options) {
+  axir_coverage_mark("_flow_step_program_io");
+  Value io = Value::object();
+  Core::set(io, Value("infer"), Value(false));
+  Value is_execute = Core::eq(kind, Value("execute"));
+  Value not_execute = Core::not_(is_execute);
+  if (Core::truthy(not_execute)) {
+    return io;
+  }
+  Value declares_reads = Core::map_contains(options, Value("reads"));
+  Value declares_writes = Core::map_contains(options, Value("writes"));
+  Value declares = Core::or_(declares_reads, declares_writes);
+  if (Core::truthy(declares)) {
+    return io;
+  }
+  Core::set(io, Value("infer"), Value(true));
+  Value signature_text = Core::program_signature(program);
+  Value has_signature = Core::truthy_value(signature_text);
+  Core::set(io, Value("hasSignature"), has_signature);
+  Value no_signature = Core::not_(has_signature);
+  if (Core::truthy(no_signature)) {
+    return io;
+  }
+  Value signature = Core::parse_signature(signature_text);
+  Value reads = Value::array();
+  Value input_fields = Core::get(signature, Value("input_fields"), Value());
+  for (auto input_field : Core::iter(input_fields)) {
+    Value input_name = Core::get(input_field, Value("name"), Value(""));
+    Core::append(reads, input_name);
+  }
+  Value writes = Value::array();
+  Value result_key = Core::string_format(Value("{}Result"), name);
+  Core::append(writes, result_key);
+  Value outputs = Value::array();
+  Value output_fields = Core::get(signature, Value("output_fields"), Value());
+  for (auto output_field : Core::iter(output_fields)) {
+    Value output_name = Core::get(output_field, Value("name"), Value(""));
+    Value is_result_key = Core::eq(output_name, result_key);
+    if (Core::truthy(is_result_key)) {
+      // empty
+    }
+    if (!Core::truthy(is_result_key)) {
+      Core::append(outputs, output_name);
+      Core::append(writes, output_name);
+    }
+  }
+  Core::set(io, Value("reads"), reads);
+  Core::set(io, Value("writes"), writes);
+  Core::set(io, Value("outputs"), outputs);
+  return io;
 }
 
 Value Core::ucp_negotiate_profile(Value profile, Value supportedVersions, Value requestedServices) {

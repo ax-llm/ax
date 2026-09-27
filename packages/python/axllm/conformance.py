@@ -1736,7 +1736,8 @@ def _run_flow_mermaid(fixture):
     if operation == "builder_render":
         fl = flow()
         for step in fixture.get("builder_steps") or []:
-            options = {"reads": step.get("reads") or []}
+            # A builder step without "reads" declares none.
+            options = {"reads": step["reads"]} if "reads" in step else {}
             fl.execute(step["name"], ax(step["signature"]), options)
         _assert_equal(str(fl), fixture["expected_rendered"], "flow mermaid builder render")
         return

@@ -48,7 +48,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-python-flow/SKILL.md",
-      "digest": "sha256:9f3486dcf633e0a30bbeb08d4370983899018eae620f14701364f4fe7271677a"
+      "digest": "sha256:894b59eb7cbb5d8b8b9d5d1ea433954dfcf2c00b3e2cec43226b82af60abf64c"
     },
     {
       "name": "ax-python-agent",

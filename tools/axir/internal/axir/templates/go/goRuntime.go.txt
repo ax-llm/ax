@@ -1709,6 +1709,19 @@ func _core_program_apply_components(program Value, componentMap Value) Value {
 	}
 	return Object()
 }
+
+// _core_program_signature is an AxGen's or AxAgent's signature text. Any other
+// program (a nested flow, a custom program) has none, and its undeclared step
+// is a barrier.
+func _core_program_signature(program Value) Value {
+	switch p := program.(type) {
+	case *AxGen:
+		return p.Signature.String()
+	case *AxAgent:
+		return p.Signature.String()
+	}
+	return nil
+}
 func _core_ai_complete_once(client Value, request Value, options Value) (Value, error) {
 	if c, ok := client.(AIClient); ok {
 		// As in TS, a streamed forward folds the stream's chunks into one response.
@@ -14285,7 +14298,12 @@ func runConformanceFlowMermaid(fixture map[string]Value) {
 		built := NewFlow(Object())
 		for _, raw := range asSlice(coreGet(fixture, "builder_steps", Array())) {
 			step := asMap(raw)
-			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), Object("reads", coreGet(step, "reads", Array())))
+			// A builder step without "reads" declares none.
+			options := Object()
+			if reads, ok := step["reads"]; ok {
+				options["reads"] = reads
+			}
+			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), options)
 		}
 		assertEqual(built.String(), coreGet(fixture, "expected_rendered", ""), "flow mermaid builder render")
 		return
