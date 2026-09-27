@@ -6,7 +6,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-python-llm/SKILL.md",
-      "digest": "sha256:4bb30282c06b20cf4c4820a96a62616991abc08769946148f0560b4b026cd87f"
+      "digest": "sha256:0e87315a4b4bfc94a5d21680f2ffcacf9d2fe49bc0127e41ea7431c03d2a5a61"
     },
     {
       "name": "ax-python-ai",
@@ -20,7 +20,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-python-typesafe/SKILL.md",
-      "digest": "sha256:4475ef56afe93a7d81686ffb0d219e30b5925ac96dbc29d3f6ac8e8c95b928ac"
+      "digest": "sha256:0d30deda93d23e1344de1d9eae46bc85f828bba6c540d2d6aa7e5151a318411d"
     },
     {
       "name": "ax-python-audio",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-python-gen/SKILL.md",
-      "digest": "sha256:3c273e42cf4b4d35174636b21821de5f9b78de5e136880b9e3b5b0cfac68f1ea"
+      "digest": "sha256:87edfd51dc5bd7f4881c3552a01da00a38296421cd88fe19f8bbd1f07bba68e7"
     },
     {
       "name": "ax-python-flow",
@@ -104,7 +104,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-python-refine/SKILL.md",
-      "digest": "sha256:eb095e2bef3e25ac32a677f99e389816008e26b3fe134f9e48f219fd0c88aae4"
+      "digest": "sha256:983f7cef6bca2057fb59f8b109214cc4d7d6add02e8880740df7f2c99e76b875"
     },
     {
       "name": "ax-python-playbook",

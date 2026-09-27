@@ -502,7 +502,7 @@ assert "answer" in schema["properties"], schema
 print("python-signature-schema-ok")
 `
 
-const pyAxGenScriptedClientToolExample = `from axllm import ax, f, fn
+const pyAxGenScriptedClientToolExample = `from axllm import ax, f, fn, run_control, set_caching_function
 
 
 class ScriptedClient:
@@ -535,6 +535,84 @@ qa.add_field_transform("answer", "trim")
 out = qa.forward(ScriptedClient(), {"query": "ax docs"})
 assert out == {"answer": "Found Ax docs"}, out
 assert qa.get_traces()[-1]["output"] == out
+
+# A caching function reads with fn(key), which returns a stored output or
+# None, and stores with fn(key, output). As in TypeScript, a hit sends no
+# request and records no span or metric, and a streamed hit is one delta.
+class Span:
+    def __init__(self, name, ended):
+        self.name, self.ended = name, ended
+    def set_attributes(self, attributes): pass
+    def add_event(self, name, attributes=None): pass
+    def record_exception(self, error): pass
+    def set_status(self, status, description=None): pass
+    def end(self): self.ended.append(self.name)
+
+
+class Tracer:
+    def __init__(self):
+        self.spans = []
+    def start_span(self, name, *, kind="internal", attributes=None, parent=None):
+        return Span(name, self.spans)
+
+
+class Meter:
+    def __init__(self):
+        self.recorded = []
+    def instrument(self, name, **options):
+        recorded = self.recorded
+        class Instrument:
+            def add(self, value, attributes=None): recorded.append(name)
+            def record(self, value, attributes=None): recorded.append(name)
+        return Instrument()
+    create_counter = create_histogram = create_gauge = instrument
+
+
+class CountingClient:
+    def __init__(self):
+        self.calls = 0
+    def complete(self, request):
+        self.calls += 1
+        return {"content": "Answer: Paris"}
+
+
+def memory_cache(store):
+    def cache(key, output=None):
+        if output is None:
+            return store.get(key)
+        store[key] = output
+    return cache
+
+
+store, tracer, meter, client = {}, Tracer(), Meter(), CountingClient()
+cached = ax("question:string -> answer:string", {"caching_function": memory_cache(store)})
+cached.set_tracer(tracer).set_meter(meter)
+france = {"question": "Capital of France?"}
+assert cached.forward(client, france) == {"answer": "Paris"}
+assert client.calls == 1 and len(store) == 1, store
+assert "ax_gen_forward" in tracer.spans and "ax_gen_generation_requests_total" in meter.recorded
+spans, metrics = len(tracer.spans), len(meter.recorded)
+assert cached.forward(client, france) == {"answer": "Paris"}
+deltas = list(cached.streaming_forward(client, france, {"deltas": True}))
+assert deltas == [{"version": 0, "index": 0, "delta": {"answer": "Paris"}}], deltas
+assert client.calls == 1, "a cache hit sent a request"
+assert tracer.spans[spans:] == [] and meter.recorded[metrics:] == [], (tracer.spans[spans:], meter.recorded[metrics:])
+# The forward call's function comes before the constructor's, and
+# set_caching_function covers programs that set none; a control skips it.
+call_store = {}
+cached.forward(client, france, {"cachingFunction": memory_cache(call_store)})
+assert client.calls == 2 and len(call_store) == 1
+global_store = {}
+set_caching_function(memory_cache(global_store))
+try:
+    plain = ax("question:string -> answer:string")
+    plain.forward(client, france)
+    plain.forward(client, france)
+    assert client.calls == 3 and len(global_store) == 1
+    plain.forward(client, france, {"control": run_control()})
+    assert client.calls == 4
+finally:
+    set_caching_function(None)
 print("python-axgen-ok")
 `
 
@@ -1000,6 +1078,7 @@ public final class AxGenScriptedClientToolExample {
 
 const javaAxGenStreamingNoKeyExample = `import dev.axllm.ax.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.*;
 
 public final class AxGenStreamingNoKeyExample {
@@ -1055,6 +1134,47 @@ public final class AxGenStreamingNoKeyExample {
 
   static void check(boolean condition, String message) {
     if (!condition) throw new RuntimeException(message);
+  }
+
+  // An in-memory cachingFunction: apply(key, null) reads the stored output
+  // (null for a miss) and apply(key, output) stores one.
+  static AxCachingFunction memoryCache(Map<String, Map<String, Object>> store) {
+    return (key, value) -> {
+      if (value == null) return store.get(key);
+      store.put(key, value);
+      return null;
+    };
+  }
+
+  // A tracer and meter that record span and metric names.
+  static final class Telemetry implements AxTracer, AxMeter {
+    final List<String> names = Collections.synchronizedList(new ArrayList<>());
+
+    public AxSpan startSpan(AxSpanStart start) {
+      names.add(start.name());
+      return new AxSpan() {
+        public void setAttributes(Map<String, Object> attributes) {}
+        public void addEvent(String name, Map<String, Object> attributes) {}
+        public void recordException(Throwable error) {}
+        public void setStatus(String status, String description) {}
+        public void end() {}
+      };
+    }
+
+    public AxCounter createCounter(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> names.add(name); }
+    public AxHistogram createHistogram(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> names.add(name); }
+    public AxGauge createGauge(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> names.add(name); }
+
+    // The AxGen run telemetry recorded since the last call: ax_gen_forward
+    // spans and ax_gen_generation_* metrics.
+    List<String> takeRun() {
+      synchronized (names) {
+        List<String> run = new ArrayList<>();
+        for (String name : names) if (name.equals("ax_gen_forward") || name.startsWith("ax_gen_generation_")) run.add(name);
+        names.clear();
+        return run;
+      }
+    }
   }
 
   public static void main(String[] args) throws Exception {
@@ -1168,6 +1288,71 @@ public final class AxGenStreamingNoKeyExample {
     }
     check(Map.of("answer", "Paris").equals(providerMerged), "provider stream output: " + providerMerged);
     check(sentModels.equals(List.of("gpt-5.4-mini")), "streamed request models: " + sentModels);
+
+    // 6. A cachingFunction from the constructor, the forward call or
+    //    AxGlobals: a hit sends no request, and streamingForward yields it as
+    //    one delta. As in TypeScript, the cache is read before the run
+    //    starts, so a hit records no ax_gen_forward span and no
+    //    ax_gen_generation_* metric.
+    AtomicInteger completions = new AtomicInteger();
+    AiClient counting = request -> {
+      completions.incrementAndGet();
+      return Map.of("content", "Answer: Paris");
+    };
+    Map<String, Object> france = Map.of("question", "Capital of France?");
+    Map<String, Map<String, Object>> store = new ConcurrentHashMap<>();
+    Telemetry telemetry = new Telemetry();
+    AxGen cachedGen = new AxGen(Ax.s("question:string -> answer:string"), Map.of("cachingFunction", memoryCache(store)))
+        .setTracer(telemetry)
+        .setMeter(telemetry);
+    Map<String, Object> stored = cachedGen.forward(counting, france);
+    List<String> missRun = telemetry.takeRun();
+    check(missRun.contains("ax_gen_forward") && missRun.contains("ax_gen_generation_requests_total"), "a cache miss run: " + missRun);
+    Map<String, Object> hit = cachedGen.forward(counting, france);
+    Map<String, Object> streamedHit = cachedGen.forward(counting, france, Map.of("stream", true));
+    check(Map.of("answer", "Paris").equals(stored) && stored.equals(hit) && stored.equals(streamedHit), "cached outputs: " + stored + ", " + hit + ", " + streamedHit);
+    check(completions.get() == 1 && store.size() == 1, "a cache hit sent a request: " + completions.get());
+    List<String> hitRun = telemetry.takeRun();
+    check(hitRun.isEmpty(), "forward cache hits recorded run telemetry: " + hitRun);
+    List<AxGenDelta> cachedDeltas = new ArrayList<>();
+    try (AxGenDeltaStream stream = cachedGen.streamingForward(counting, france, Map.of())) {
+      for (AxGenDelta delta : stream) cachedDeltas.add(delta);
+    }
+    check(cachedDeltas.equals(List.of(new AxGenDelta(0, 0, Map.of("answer", "Paris")))), "cached deltas: " + cachedDeltas);
+    check(completions.get() == 1, "a streamed cache hit sent a request");
+    List<String> streamedHitRun = telemetry.takeRun();
+    check(streamedHitRun.isEmpty(), "a streamed cache hit recorded run telemetry: " + streamedHitRun);
+    // A streamed miss runs, and records its run telemetry.
+    Map<String, Object> spain = Map.of("question", "Capital of Spain?");
+    try (AxGenDeltaStream stream = cachedGen.streamingForward(counting, spain, Map.of())) {
+      for (AxGenDelta delta : stream) check(delta.version() == 0, "streamed miss delta: " + delta);
+    }
+    List<String> streamedMissRun = telemetry.takeRun();
+    check(completions.get() == 2 && store.size() == 2, "a streamed cache miss: " + completions.get());
+    check(streamedMissRun.contains("ax_gen_forward") && streamedMissRun.contains("ax_gen_generation_requests_total"), "a streamed cache miss run: " + streamedMissRun);
+    // The forward call's function comes before the constructor's; the
+    // caching_function key works too.
+    Map<String, Map<String, Object>> callStore = new ConcurrentHashMap<>();
+    cachedGen.forward(counting, france, Map.of("cachingFunction", memoryCache(callStore)));
+    cachedGen.forward(counting, Map.of("question", "Capital of Italy?"), Map.of("caching_function", memoryCache(callStore)));
+    check(completions.get() == 4 && callStore.size() == 2 && store.size() == 2, "per-call cache: " + callStore.keySet());
+    // A run control skips the cache.
+    cachedGen.forward(counting, france, Map.of("control", new AxRunControl()));
+    check(completions.get() == 5, "a controlled run read the cache");
+    // The process-wide function applies when neither the call nor the
+    // constructor sets one; null clears it.
+    Map<String, Map<String, Object>> globalStore = new ConcurrentHashMap<>();
+    AxGlobals.setCachingFunction(memoryCache(globalStore));
+    try {
+      AxGen globalGen = Ax.ax("question:string -> answer:string");
+      globalGen.forward(counting, france);
+      globalGen.forward(counting, france);
+      check(completions.get() == 6 && globalStore.size() == 1, "global cache: " + completions.get());
+    } finally {
+      AxGlobals.setCachingFunction(null);
+    }
+    Ax.ax("question:string -> answer:string").forward(counting, france);
+    check(completions.get() == 7, "a cleared global cache still answered");
 
     System.out.println("java-axgen-streaming-ok " + merged);
   }
@@ -1509,6 +1694,8 @@ int main() {
 const cppAxGenStreamingNoKeyExample = `#include "axllm/axllm.hpp"
 #include <cctype>
 #include <iostream>
+#include <map>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -1556,6 +1743,9 @@ int main() {
       "Title: calm sea\nStory: The sea rests under a quiet moon.",
       "Title: still water\nStory: The pond holds the sky.",
       "Title: still water\nStory: The reeds stay quiet.",
+      "Title: paper boat\nStory: The boat sails the gutter.",
+      "Title: paper boat\nStory: The boat carries a letter.",
+      "Title: paper boat\nStory: Rain folds the boat flat.",
   });
   axllm::OpenAICompatibleClient client(axllm::object({{"api_key", "test-key"}, {"model", "gpt-5.4-mini"}}), &transport);
   auto story = axllm::ax("topic:string -> title:string, story:string");
@@ -1702,6 +1892,60 @@ int main() {
   } catch (const Interrupted&) {
   }
   if (lifecycle != std::vector<std::string>{"started", "aborted"} || transport.requests.size() != 8) return 16;
+
+  // A caching function, as TypeScript's cachingFunction: fn(key, nullptr)
+  // returns a stored output (std::nullopt is a miss) and fn(key, &output)
+  // stores one. A stored output comes back without a request, and
+  // streaming_forward sends it as one delta.
+  std::map<std::string, axllm::Value> shelf;
+  int shelf_reads = 0;
+  axllm::AxCachingFunction shelf_cache = [&](const std::string& key, const axllm::Value* output) -> std::optional<axllm::Value> {
+    if (output != nullptr) {
+      shelf[key] = *output;
+      return std::nullopt;
+    }
+    ++shelf_reads;
+    auto stored = shelf.find(key);
+    if (stored == shelf.end()) return std::nullopt;
+    return stored->second;
+  };
+  auto boat = axllm::ax("topic:string -> title:string, story:string");
+  boat.set_caching_function(shelf_cache);
+  const axllm::Value paper_boat = axllm::object({{"topic", "a paper boat"}});
+  axllm::Value fresh = boat.streaming_forward(client, paper_boat, axllm::Value::object(), [](const axllm::AxGenDelta&) { return true; });
+  if (transport.requests.size() != 9 || shelf.size() != 1) return 17;
+  std::vector<axllm::AxGenDelta> replayed;
+  axllm::Value replay = boat.streaming_forward(client, paper_boat, axllm::Value::object(), [&](const axllm::AxGenDelta& delta) {
+    replayed.push_back(delta);
+    return true;
+  });
+  if (replayed.size() != 1 || !axllm::equal(replayed[0].delta, fresh) || !axllm::equal(replay, fresh)) return 18;
+  if (!axllm::equal(boat.forward(client, paper_boat), fresh) || transport.requests.size() != 9 || shelf_reads != 3) return 19;
+
+  // A call's own caching function comes first. It is passed as a run control
+  // is: a handle's value() in the call options.
+  std::map<std::string, axllm::Value> drawer;
+  auto drawer_cache = axllm::caching_function([&](const std::string& key, const axllm::Value* output) -> std::optional<axllm::Value> {
+    if (output != nullptr) {
+      drawer[key] = *output;
+      return std::nullopt;
+    }
+    auto stored = drawer.find(key);
+    if (stored == drawer.end()) return std::nullopt;
+    return stored->second;
+  });
+  axllm::Value drawn = boat.forward(client, paper_boat, axllm::object({{"caching_function", drawer_cache.value()}, {"stream", true}}));
+  if (transport.requests.size() != 10 || drawer.size() != 1 || shelf_reads != 3 || axllm::equal(drawn, fresh)) return 20;
+
+  // The process-wide caching function applies when neither the call nor the
+  // AxGen sets one, and an empty function clears it.
+  auto plain = axllm::ax("topic:string -> title:string, story:string");
+  axllm::set_caching_function(shelf_cache);
+  axllm::Value shelved = plain.forward(client, paper_boat, axllm::object({{"stream", true}}));
+  axllm::set_caching_function({});
+  if (!axllm::equal(shelved, fresh) || transport.requests.size() != 10 || shelf_reads != 4) return 21;
+  plain.forward(client, paper_boat, axllm::object({{"stream", true}}));
+  if (transport.requests.size() != 11 || shelf_reads != 4) return 22;
   std::cout << "cpp-axgen-streaming-ok " << title << ": " << text << "\n";
 }
 `

@@ -6,7 +6,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-cpp-llm/SKILL.md",
-      "digest": "sha256:e405d296350f2c25189727d4e402c83651e01661240d81de17d7e279e879e9b5"
+      "digest": "sha256:514687c03a56815f7a39b0855c13f6a3bbed814a97087f7f0aaa452aeb6fc89d"
     },
     {
       "name": "ax-cpp-ai",
@@ -20,7 +20,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-cpp-typesafe/SKILL.md",
-      "digest": "sha256:c5dd69b05be1f38aa09b291a54afe69b28dac036f5da94aa18bc721bbc5990c2"
+      "digest": "sha256:5c74c718c96638385d985b70be35f6a253b545632f72963f0ebd037a85a877c1"
     },
     {
       "name": "ax-cpp-audio",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-cpp-gen/SKILL.md",
-      "digest": "sha256:0e6c1762c80339f7a60b5ebf1a73a1d439b690a18336fb1c702fef1558169f53"
+      "digest": "sha256:e05f1589af2c28d60a11b8a6fd9843a9db1ee84bb71905c6324f3811bdc85d31"
     },
     {
       "name": "ax-cpp-flow",
@@ -104,7 +104,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-cpp-refine/SKILL.md",
-      "digest": "sha256:3d7bae6b73e325e0d185d07b85f6e7f357933450bc5b4bf56784ec67b9681608"
+      "digest": "sha256:5c4cc20f34364ef84daf80c2d788da2f3da30d5be53405b414de6fde03bdeb3a"
     },
     {
       "name": "ax-cpp-playbook",

@@ -1,0 +1,82 @@
+{
+  "cache_write_error": "cache full",
+  "calls": [
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "forward"
+    },
+    {
+      "input": {
+        "question": "Capital of Italy?"
+      },
+      "kind": "streaming_forward"
+    }
+  ],
+  "expected_cache_gets": 2,
+  "expected_cache_sets": [],
+  "expected_deltas": [
+    null,
+    [
+      {
+        "delta": {
+          "answer": "Ro"
+        },
+        "index": 0,
+        "version": 0
+      },
+      {
+        "delta": {
+          "answer": "me"
+        },
+        "index": 0,
+        "version": 0
+      }
+    ]
+  ],
+  "expected_outputs": [
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "Rome"
+    }
+  ],
+  "expected_request_count": 2,
+  "expected_requests": [1, 1],
+  "kind": "cache_sequence",
+  "name": "cache-write-error-ignored",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: Paris",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Ro",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "me",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

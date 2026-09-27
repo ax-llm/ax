@@ -77,6 +77,8 @@ Text-contract answers are parsed as TypeScript's `extractValues` parses them: `L
 
 `add_field_processor(field, fn, feedback=True)` follows TypeScript: `fn(value, {"values", "done"})` runs on the parsed field, and a non-empty result goes back to the model as a user message for another step, whose answer replaces the earlier one. `add_streaming_field_processor(field, fn)` does the same on each streamed chunk of a string or code field. Without `feedback=True`, `add_field_processor` still rewrites the field value and raises a `DeprecationWarning`: that default becomes the feedback behavior in the next major version. `add_field_transform(field, op)` is the permanent, port-only home of the rewrite (`uppercase`, `lowercase`, `trim`, `prefix:...`, `suffix:...`, or a callable); in `streaming_forward` a transformed field is held back and sent once, transformed.
 
+`caching_function` (or `cachingFunction`), a constructor or forward option, caches outputs as TypeScript's `cachingFunction` does: `fn(key)` returns a stored output, or `None` for a miss, and `fn(key, output)` stores one. `set_caching_function(fn)` sets a process-wide function, and `None` clears it. The call's function comes first, then the program's, then the process-wide one, and a run with a `control` skips the cache. As in TypeScript, a forward reads the cache before it opens the run's span or records metrics, so a hit sends no request and records neither; an error from the read propagates. A streaming forward yields a hit as one delta (version 0, index 0) and ignores an error from the read. Both store the finished output (the picked sample's, with a result picker) and ignore an error from the store. Keys are lowercase hex SHA-256 digests of the signature and the input values, media included; they differ from other languages' keys, so don't share one store across languages.
+
 Prompts and provider request bodies write numbers as TypeScript's `JSON.stringify` does: shortest round-trip digits, `2` for a float two, exponent form below 1e-6 and from 1e21 up (`1e-7`, `1e+21`), and `null` for NaN and the infinities. Python ints keep their exact digits past 2^53, where TypeScript's doubles round them.
 
 `maxSteps` / `max_steps` (default 25) caps the tool loop. Each model turn that calls tools is one step, and validation retries stay inside their step. Reaching the cap raises `Generate failed: Max steps reached: N`. A call to a stop function (`stopFunctions` / `stop_functions`) runs the tool and ends the forward, as in TypeScript: the output is empty apart from the earlier steps' thought, and the tool's result is not the output.
@@ -98,7 +100,7 @@ A failed forward raises `Generate failed: <reason>`, as TypeScript's message rea
 
 ## Relevant API Surface
 
-- AxGen: `ax`, `AxGen`, `run_control`, `AxRunControl`
+- AxGen: `ax`, `AxGen`, `run_control`, `AxRunControl`, `Callable[[str, dict | None], dict | None]`, `set_caching_function`
 - Tools: `fn`, `Tool`
 - MCP: `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPWebSocketTransport`, `AxMCPStdioTransport`
 

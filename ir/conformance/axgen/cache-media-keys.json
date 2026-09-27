@@ -1,0 +1,78 @@
+{
+  "calls": [
+    {
+      "input": {
+        "photo": {
+          "data": "Y2F0",
+          "mimeType": "image/png"
+        },
+        "question": "What is it?"
+      },
+      "kind": "forward"
+    },
+    {
+      "input": {
+        "photo": {
+          "data": "ZG9n",
+          "mimeType": "image/png"
+        },
+        "question": "What is it?"
+      },
+      "kind": "forward"
+    },
+    {
+      "input": {
+        "photo": {
+          "data": "Y2F0",
+          "mimeType": "image/png"
+        },
+        "question": "What is it?"
+      },
+      "kind": "forward"
+    }
+  ],
+  "expected_cache_gets": 3,
+  "expected_cache_sets": [
+    {
+      "answer": "a cat"
+    },
+    {
+      "answer": "a dog"
+    }
+  ],
+  "expected_deltas": [null, null, null],
+  "expected_outputs": [
+    {
+      "answer": "a cat"
+    },
+    {
+      "answer": "a dog"
+    },
+    {
+      "answer": "a cat"
+    }
+  ],
+  "expected_request_count": 2,
+  "expected_requests": [1, 1, 0],
+  "kind": "cache_sequence",
+  "name": "cache-media-keys",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: a cat",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: a dog",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "photo:image, question:string -> answer:string"
+}

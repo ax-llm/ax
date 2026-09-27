@@ -880,6 +880,54 @@ final class Core {
     }
     return null;
   }
+  // The lowercase hex SHA-256 of the text's UTF-8 bytes (AxGen cache keys).
+  static Object cryptoSha256Hex(Object text) {
+    try {
+      byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(String.valueOf(text).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      return java.util.HexFormat.of().formatHex(digest);
+    } catch (java.security.NoSuchAlgorithmException error) {
+      throw new IllegalStateException("SHA-256 is unavailable", error);
+    }
+  }
+  // The forward call's cachingFunction, else the AxGen constructor's, else the
+  // process-wide one (AxGlobals.setCachingFunction); null when none is set.
+  static Object axgenCachingFunction(Object gen, Object options) {
+    Object fromCall = cachingFunctionOption(options);
+    if (fromCall != null) return fromCall;
+    Object fromGen = cachingFunctionOption(get(gen, "options", null));
+    return fromGen != null ? fromGen : AxGlobals.cachingFunction();
+  }
+  private static Object cachingFunctionOption(Object options) {
+    if (!(options instanceof Map<?, ?> map)) return null;
+    Object value = map.get("cachingFunction");
+    return value != null ? value : map.get("caching_function");
+  }
+  // fn.apply(key, null) returns a copy of the stored output, or null for a
+  // miss. Its exceptions propagate: forward rethrows them, streaming_forward
+  // ignores them.
+  static Object axgenCacheRead(Object fn, Object key) {
+    Map<String, Object> cached = applyCachingFunction(fn, key, null);
+    return cached == null ? null : ownedCopy(cached);
+  }
+  // fn.apply(key, output) stores a copy of the output; the IR ignores its errors.
+  static Object axgenCacheWrite(Object fn, Object key, Object value) {
+    if (value == null) return null;
+    applyCachingFunction(fn, key, asMap(ownedCopy(value)));
+    return null;
+  }
+  private static Map<String, Object> applyCachingFunction(Object fn, Object key, Map<String, Object> value) {
+    if (!(fn instanceof AxCachingFunction cachingFunction)) {
+      throw new IllegalArgumentException("cachingFunction must be an AxCachingFunction, got " + (fn == null ? "null" : fn.getClass().getName()));
+    }
+    try {
+      return cachingFunction.apply(String.valueOf(key), value);
+    } catch (RuntimeException error) {
+      throw error;
+    } catch (Exception error) {
+      if (error instanceof InterruptedException) Thread.currentThread().interrupt();
+      throw new RuntimeException(error.getMessage(), error);
+    }
+  }
   static Object aiClientFeatures(Object client, Object model) {
     if (client instanceof SessionRun session) return aiClientFeatures(session.client, model);
     if (client instanceof ChatRunFeatures features) return features.getFeatures(model == null ? null : String.valueOf(model));

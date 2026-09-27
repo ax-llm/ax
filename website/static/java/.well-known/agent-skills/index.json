@@ -6,7 +6,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-java-llm/SKILL.md",
-      "digest": "sha256:fc9819d7cc587f5460b35c0714138ee6da18891f830a5ff8e14e542b4edb9104"
+      "digest": "sha256:91114320f927968a6891ae5c4a8ba4117a82b1d62177ef9ea777f041a5ef51a4"
     },
     {
       "name": "ax-java-ai",
@@ -20,7 +20,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-java-typesafe/SKILL.md",
-      "digest": "sha256:ab176d4fbbdbb73581491cba64f486093e9d029287f54b946b9aa25652b3f885"
+      "digest": "sha256:ec952d02c2c13d564bc3c17217560819595a2550193cce5d137c04ba8da7b020"
     },
     {
       "name": "ax-java-audio",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-java-gen/SKILL.md",
-      "digest": "sha256:224d57d8a09e41e540edc12ebdfc33b631ecefa4bcbcc731da900f29fadcb943"
+      "digest": "sha256:1f02b5e99d52872b952d27bc3b4e12b350cd27fc37f89415e88313fb4f2170c9"
     },
     {
       "name": "ax-java-flow",
@@ -104,7 +104,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-java-refine/SKILL.md",
-      "digest": "sha256:4f7abcc254cd8d41dfa48c22d384a874676b375f3c0883fd195e53a56feb3792"
+      "digest": "sha256:04817bfa4b4f8647bdc6b888639cda3b1e7da2e75177faa74afd39eff7cd19da"
     },
     {
       "name": "ax-java-playbook",

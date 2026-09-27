@@ -53,7 +53,7 @@ Runnable signature, native criteria/scoring, and two-program hybrid examples are
 ## Relevant API Surface
 
 - Signatures: `axllm::s`, `axllm::FieldType`, `axllm::AxSignature`
-- AxGen: `axllm::ax`, `axllm::AxGen`, `axllm::run_control`, `axllm::AxRunControl`
+- AxGen: `axllm::ax`, `axllm::AxGen`, `axllm::run_control`, `axllm::AxRunControl`, `axllm::AxCachingFunction`, `axllm::set_caching_function`
 - AxAI: `axllm::ai`, `axllm::typesafe`, `axllm::AxAITypesafeClient`, `axllm::AxCancellationToken`, `axllm::AxAIServiceAbortedError`, `axllm::get_supported_ai_models`, `axllm::AxCredentialRequest`, `axllm::AxCredentialProvider`, `axllm::AIClient::owned_worker_factory`, `axllm::AxChatSession`, `axllm::AxStreamHandler`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxUsageContext`, `axllm::AxUsageEvent`, `axllm::AxUsageObserver`, `axllm::set_usage_observer`, `axllm::AxRuntimeHooks`, `axllm::AxRateLimitInfo`, `axllm::AxRateLimiter`, `axllm::AxTracer`, `axllm::AxMeter`, `axllm::AxGlobals`, `axllm::set_rate_limiter`, `axllm::set_tracer`, `axllm::set_meter`, `axllm::AxBalancer`, `axllm::AxBalancerAdaptiveStrategy`, `axllm::AxBalancerStatsStore`, `axllm::AxInMemoryBalancerStatsStore`, `axllm::create_balancer_route_stats`, `axllm::update_balancer_route_stats`, `axllm::sample_balancer_route_health`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
 
 ## Guardrails
