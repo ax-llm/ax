@@ -435,6 +435,7 @@ struct Core {
   static Value agent_skill_search(Value state, Value searches);
   static Value agent_observer_notify(Value state, Value forward_options, Value kind, Value payload);
   static Value agent_transcribe(Value client, Value request, Value options);
+  static Value axgen_speak(Value client, Value request, Value options);
   static Value agent_callable_invoke(Value state, Value request, Value options);
   static Value stream_event_content_parts(Value event);
   static Value openai_normalize_chat_response(Value raw);
@@ -506,6 +507,9 @@ class AIClient {
     (void)options;
     return Value::object();
   }
+  // Synthesizes speech for intrinsic.axgen.speak (the AxGen audio output
+  // renderer). AxAIService clients speak; a client without speech throws.
+  virtual Value speak(Value request, Value options);
 };
 
 class AxAIService : public AIClient {

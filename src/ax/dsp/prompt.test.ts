@@ -1534,4 +1534,36 @@ describe('AxPromptTemplate.render', () => {
       expect(systemMessage.content).not.toContain('`User Id`entity');
     });
   });
+
+  describe('audio inputs', () => {
+    const userContent = (value: unknown) =>
+      new AxPromptTemplate(
+        AxSignature.from('speech:audio -> summary:string')
+      ).render({ speech: value as never }, {})[1]?.content;
+
+    it('sends an audio object with a transcript as its transcript text', () => {
+      // What an AxGen audio output renders to, fed to the next program.
+      expect(
+        userContent({
+          data: 'SUQzBAA=',
+          format: 'mp3',
+          mimeType: 'audio/mpeg',
+          transcript: 'Hello there',
+        })
+      ).toBe('Speech: Hello there\n');
+    });
+
+    it('sends a plain string as text', () => {
+      expect(userContent('Hello there')).toBe('Speech: Hello there\n');
+    });
+
+    it('sends an audio object without a transcript as an audio part', () => {
+      expect(
+        userContent({ data: 'SUQzBAA=', format: 'mp3', mimeType: 'audio/mpeg' })
+      ).toEqual([
+        { type: 'text', text: 'Speech: \n' },
+        { type: 'audio', format: 'mp3', data: 'SUQzBAA=' },
+      ]);
+    });
+  });
 });

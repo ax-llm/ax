@@ -95,6 +95,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.axgen.call_processor":                  "core_axgen_call_processor",
 	"intrinsic.axgen.check_streaming_assertion":       "core_axgen_check_streaming_assertion",
 	"intrinsic.axgen.deprecation":                     "core_axgen_deprecation",
+	"intrinsic.axgen.speak":                           "core_axgen_speak",
 	"intrinsic.string.str":                            "core_string_str",
 	"intrinsic.string.join":                           "core_string_join_intrinsic",
 	"intrinsic.ai.error.auth":                         "core_ai_error_auth",

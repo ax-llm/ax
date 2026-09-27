@@ -5643,7 +5643,8 @@ module @ax.provider version "0.1" {
       %out = core.map
       core.set %out["audio"] = %data
       core.set %out["format"] = %format
-      core.return %out
+      %speech = core.call @speech_response_ts_keys_impl(%out, %raw, %request)
+      core.return %speech
     }
   }
 
@@ -6993,7 +6994,100 @@ module @ax.provider version "0.1" {
         %mime_params = core.call @audio_mime_params_impl(%mime_type)
         %out = core.call intrinsic.map.merge(%out, %mime_params)
       }
+      %speech = core.call @speech_response_ts_keys_impl(%out, %raw, %request)
+      core.return %speech
+    }
+  }
+
+  op ax.provider.semantic @speech_response_ts_keys_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/audio/api.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%out: json, %raw: json, %request: json) {
+      // Adds TypeScript's AxSpeechResponse keys, as axFetchJsonSpeech returns
+      // them, next to the port's older keys: data beside audio, mimeType
+      // beside mime_type, sampleRate beside sample_rate, and transcript, the
+      // text that was spoken. The older keys stay until the next major
+      // version.
+      %data = core.get %out["audio"]
+      core.set %out["data"] = %data
+      %format = core.get %out["format"]
+      %mime_type = core.get %out["mime_type"] default ""
+      %has_mime = core.call intrinsic.truthy(%mime_type)
+      %raw_is_object = core.type_is %raw type "object"
+      %read_raw_mime = core.call intrinsic.not(%has_mime)
+      %read_raw_mime = core.call intrinsic.and(%read_raw_mime, %raw_is_object)
+      core.if %read_raw_mime {
+        // A JSON body may name its mime type.
+        %raw_mime_snake = core.get %raw["mime_type"]
+        %snake_is_text = core.type_is %raw_mime_snake type "string"
+        core.if %snake_is_text {
+          %mime_type = core.let %raw_mime_snake
+        }
+        %raw_mime_camel = core.get %raw["mimeType"]
+        %camel_is_text = core.type_is %raw_mime_camel type "string"
+        core.if %camel_is_text {
+          %mime_type = core.let %raw_mime_camel
+        }
+        %has_mime = core.call intrinsic.truthy(%mime_type)
+      }
+      core.if %has_mime {
+      } else {
+        // A binary body reaches the ports without its Content-Type, so the
+        // format decides, as it does in TS when a response names no type.
+        %mime_type = core.call @audio_mime_type_impl(%format)
+      }
+      core.set %out["mimeType"] = %mime_type
+      %params = core.call @audio_mime_params_impl(%mime_type)
+      %sample_rate = core.get %params["sample_rate"]
+      %has_sample_rate = core.call intrinsic.is_not_none(%sample_rate)
+      core.if %has_sample_rate {
+        core.set %out["sampleRate"] = %sample_rate
+      }
+      %channels = core.get %params["channels"]
+      %has_channels = core.call intrinsic.is_not_none(%channels)
+      core.if %has_channels {
+        core.set %out["channels"] = %channels
+      }
+      %request_input = core.get %request["input"]
+      %text = core.get %request["text"] default %request_input
+      %has_text = core.call intrinsic.is_not_none(%text)
+      core.if %has_text {
+        core.set %out["transcript"] = %text
+      }
       core.return %out
+    }
+  }
+
+  op ax.provider.semantic @audio_mime_type_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/audio/util.ts"
+    type signature = "(json) -> string"
+    body @entry(%format: json) {
+      // axAudioMimeType(format): the mime type TS gives a speech format.
+      %table = core.map
+      core.set %table["wav"] = "audio/wav"
+      core.set %table["mp3"] = "audio/mpeg"
+      core.set %table["flac"] = "audio/flac"
+      core.set %table["opus"] = "audio/opus"
+      core.set %table["aac"] = "audio/aac"
+      core.set %table["pcm"] = "audio/pcm"
+      core.set %table["pcm16"] = "audio/pcm"
+      core.set %table["raw"] = "audio/pcm"
+      core.set %table["mulaw"] = "audio/basic"
+      core.set %table["ulaw"] = "audio/basic"
+      core.set %table["alaw"] = "audio/alaw"
+      core.set %table["ogg"] = "audio/ogg"
+      %is_text = core.type_is %format type "string"
+      core.if %is_text {
+        %mime = core.get %table[%format] default "audio/mpeg"
+        core.return %mime
+      }
+      core.return "audio/mpeg"
     }
   }
 

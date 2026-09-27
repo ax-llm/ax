@@ -98,11 +98,15 @@ class FixtureError(AssertionError):
 
 
 class ConformanceScriptedAI(AxBaseAI):
-    def __init__(self, responses=None, stream_events=None, transcribe_responses=None, features=None, name="scripted", model="scripted-chat", options=None):
+    def __init__(self, responses=None, stream_events=None, transcribe_responses=None, features=None, name="scripted", model="scripted-chat", options=None, speak_responses=None):
         super().__init__(name=name, model=model, embed_model="scripted-embed", features=features, options=copy.deepcopy(options or {}))
         self.responses = list(responses or [])
         self.stream_events = list(stream_events or [])
         self.transcribe_responses = list(transcribe_responses or [])
+        # A fixture's speak_responses script speak(); its requests are kept
+        # apart from the chat requests.
+        self.speak_responses = None if speak_responses is None else list(speak_responses)
+        self.speak_requests = []
         self.requests = []
         self.chat_options = []
         self.chat_calls = 0
@@ -152,8 +156,20 @@ class ConformanceScriptedAI(AxBaseAI):
         return {"text": "fixture transcript"}
 
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        self.requests.append(copy.deepcopy(request))
-        return {"audio": "fixture-audio", "format": (request or {}).get("format", "pcm")}
+        self.speak_requests.append(copy.deepcopy(request))
+        if self.speak_responses is None:
+            return {"audio": "fixture-audio", "format": (request or {}).get("format", "pcm")}
+        if not self.speak_responses:
+            raise RuntimeError("scripted speak exhausted")
+        raw = self.speak_responses.pop(0)
+        if isinstance(raw, dict) and "error" in raw:
+            raise _fixture_ai_service_error(raw.get("error") or {})
+        return copy.deepcopy(raw)
+
+
+def _assert_speak_requests(fixture, client):
+    if "expected_speak_requests" in fixture:
+        _assert_equal(client.speak_requests, fixture["expected_speak_requests"], "speak requests")
 
 
 def _scripted_client_kwargs(spec):
@@ -1136,7 +1152,7 @@ def _run_forward(fixture):
                 _assert_equal(samples, fixture["expected_picker_samples"], "result picker samples")
             return fixture["result_picker_index"]
         gen.set_result_picker(pick_result)
-    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), **_scripted_client_kwargs(fixture.get("client")))
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), speak_responses=fixture.get("speak_responses"), **_scripted_client_kwargs(fixture.get("client")))
     try:
         output = gen.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
     except Exception as exc:
@@ -1147,10 +1163,12 @@ def _run_forward(fixture):
                 raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
             if "expected_tool_calls" in fixture:
                 _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
+            _assert_speak_requests(fixture, client)
             return
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected forward to fail")
+    _assert_speak_requests(fixture, client)
     if "expected_processor_calls" in fixture:
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
     if "expected_output" in fixture:
@@ -1283,7 +1301,7 @@ def _run_streaming_forward(fixture):
         gen.set_result_picker(lambda samples: fixture["result_picker_index"])
     if "stop_functions" in fixture:
         gen.set_stop_functions(fixture.get("stop_functions") or [])
-    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"))
+    client = ConformanceScriptedAI(fixture.get("responses") or [], [], [], fixture.get("features"), speak_responses=fixture.get("speak_responses"))
     run_options = dict(fixture.get("forward_options") or {})
     control_events = []
     if fixture.get("control"):
@@ -1325,6 +1343,7 @@ def _run_streaming_forward(fixture):
         _assert_equal(control_events, fixture["expected_control_events"], "run control events")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+    _assert_speak_requests(fixture, client)
     if "expected_tool_calls" in fixture:
         _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
     if "expected_processor_calls" in fixture:
@@ -1415,7 +1434,7 @@ def _run_flow(fixture):
             _assert_list_subset(fl.get_plan(), fixture["expected_plan_subset"], "flow plan")
         if fixture.get("operation") == "plan":
             return
-        client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
+        client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], speak_responses=fixture.get("speak_responses"))
         forward_options = copy.deepcopy(fixture.get("forward_options") or {})
         if "cache_seed_value" in fixture:
             cache_store = forward_options.setdefault("cache_store", {})
@@ -1437,6 +1456,7 @@ def _run_flow(fixture):
         _assert_equal(output, fixture["expected_streaming_output"], "flow streaming output")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+    _assert_speak_requests(fixture, client)
     if "expected_request_contains" in fixture:
         request_text = json.dumps(client.requests, sort_keys=True)
         for item in fixture.get("expected_request_contains") or []:

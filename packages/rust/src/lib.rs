@@ -25946,6 +25946,37 @@ fn core_prompt_combine_consecutive_text(
     Ok(out)
 }
 
+// TS defaultRenderInField: an audio part carries only its format (wav when it
+// has none) and its data.
+#[allow(dead_code)]
+fn core_prompt_audio_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    let has_data = match value {
+        CoreValue::Map(map) => map.borrow().contains("data"),
+        _ => return Err(AxError::runtime("Audio field value must be an object.")),
+    };
+    if !has_data {
+        return Err(AxError::runtime("Audio field must have data"));
+    }
+    let format = core_get(value, &CoreValue::from("format"), CoreValue::Null);
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("audio"))?;
+    core_set(
+        &part,
+        CoreValue::from("format"),
+        if format.is_null() {
+            CoreValue::from("wav")
+        } else {
+            format
+        },
+    )?;
+    core_set(
+        &part,
+        CoreValue::from("data"),
+        core_get(value, &CoreValue::from("data"), CoreValue::Null),
+    )?;
+    Ok(part)
+}
+
 #[allow(dead_code)]
 fn core_prompt_default_render_in_field(
     field: &CoreValue,
@@ -25958,6 +25989,34 @@ fn core_prompt_default_render_in_field(
         "string".to_string()
     };
     let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
+    if typ == "audio" && !matches!(value, CoreValue::Str(_)) {
+        // A string (a plain one, or an audio object's transcript) renders as
+        // text below, like any text field.
+        let parts = CoreValue::new_list();
+        let text_part = CoreValue::new_map();
+        core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
+        core_set(
+            &text_part,
+            CoreValue::from("text"),
+            CoreValue::from_string(format!("{title}: ")),
+        )?;
+        core_append(&parts, text_part)?;
+        if core_truthy(&core_get(
+            &field_type,
+            &CoreValue::from("is_array"),
+            CoreValue::Null,
+        )) {
+            if !matches!(value, CoreValue::List(_)) {
+                return Err(AxError::runtime("Audio field value must be an array."));
+            }
+            for item in core_iter(value)? {
+                core_append(&parts, core_prompt_audio_part(&item)?)?;
+            }
+        } else {
+            core_append(&parts, core_prompt_audio_part(value)?)?;
+        }
+        return Ok(parts);
+    }
     if matches!(typ.as_str(), "image" | "audio" | "file" | "url") {
         if matches!(value, CoreValue::List(_)) {
             let parts = CoreValue::new_list();
@@ -26393,6 +26452,17 @@ fn core_prompt_process_value(field: &CoreValue, value: &CoreValue) -> Result<Cor
     let field_type = core_get(field, &CoreValue::from("type"), CoreValue::Null);
     if core_truthy(&field_type) {
         let name = core_get(&field_type, &CoreValue::from("name"), CoreValue::Null);
+        if name.as_str() == Some("audio") {
+            // As TS processValue: an audio object with a transcript (what an
+            // AxGen audio output renders to) reaches the model as that text.
+            let transcript = core_get(value, &CoreValue::from("transcript"), CoreValue::Null);
+            if matches!(value, CoreValue::Map(_)) && matches!(transcript, CoreValue::Str(_)) {
+                return Ok(transcript);
+            }
+            if matches!(value, CoreValue::Map(_) | CoreValue::List(_)) {
+                return Ok(value.clone());
+            }
+        }
         if matches!(
             name.as_str(),
             Some("image") | Some("audio") | Some("file") | Some("url")
@@ -51346,6 +51416,7 @@ fn provider_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_operations = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_provider_id = CoreValue::Null;
+    let mut v_speech = CoreValue::Null;
     v_provider_id = provider_normalize_profile(&[v_profile.clone()])?;
     v_descriptor = provider_descriptor(&[v_provider_id.clone()])?;
     v_operations = core_get(
@@ -51376,7 +51447,8 @@ fn provider_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, Ax
     v_out = CoreValue::new_map();
     core_set(&v_out, CoreValue::from("audio"), v_data.clone())?;
     core_set(&v_out, CoreValue::from("format"), v_format.clone())?;
-    return Ok(v_out.clone());
+    v_speech = _speech_response_ts_keys_impl(&[v_out.clone(), v_raw.clone(), v_request.clone()])?;
+    return Ok(v_speech.clone());
 }
 
 #[allow(
@@ -54131,6 +54203,7 @@ fn _gemini_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_part = CoreValue::Null;
     let mut v_part_mime = CoreValue::Null;
     let mut v_parts = CoreValue::Null;
+    let mut v_speech = CoreValue::Null;
     v_audio = core_get(&v_raw, &CoreValue::from("audio"), CoreValue::Null);
     v_format = core_get(
         &v_request,
@@ -54194,7 +54267,170 @@ fn _gemini_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxE
         v_mime_params = _audio_mime_params_impl(&[v_mime_type.clone()])?;
         v_out = core_map_merge(&[v_out.clone(), v_mime_params.clone()])?;
     }
+    v_speech = _speech_response_ts_keys_impl(&[v_out.clone(), v_raw.clone(), v_request.clone()])?;
+    return Ok(v_speech.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _speech_response_ts_keys_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_speech_response_ts_keys_impl");
+    let mut v_out = core_arg(args, 0);
+    let mut v_raw = core_arg(args, 1);
+    let mut v_request = core_arg(args, 2);
+    let mut v_camel_is_text = CoreValue::Null;
+    let mut v_channels = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_format = CoreValue::Null;
+    let mut v_has_channels = CoreValue::Null;
+    let mut v_has_mime = CoreValue::Null;
+    let mut v_has_sample_rate = CoreValue::Null;
+    let mut v_has_text = CoreValue::Null;
+    let mut v_mime_type = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_raw_is_object = CoreValue::Null;
+    let mut v_raw_mime_camel = CoreValue::Null;
+    let mut v_raw_mime_snake = CoreValue::Null;
+    let mut v_read_raw_mime = CoreValue::Null;
+    let mut v_request_input = CoreValue::Null;
+    let mut v_sample_rate = CoreValue::Null;
+    let mut v_snake_is_text = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_data = core_get(&v_out, &CoreValue::from("audio"), CoreValue::Null);
+    core_set(&v_out, CoreValue::from("data"), v_data.clone())?;
+    v_format = core_get(&v_out, &CoreValue::from("format"), CoreValue::Null);
+    v_mime_type = core_get(&v_out, &CoreValue::from("mime_type"), CoreValue::from(""));
+    v_has_mime = core_truthy_value(&[v_mime_type.clone()])?;
+    v_raw_is_object = core_type_is(&v_raw, CoreValue::from("object"));
+    v_read_raw_mime = core_not(&[v_has_mime.clone()])?;
+    v_read_raw_mime = core_and(&[v_read_raw_mime.clone(), v_raw_is_object.clone()])?;
+    if core_truthy(&v_read_raw_mime) {
+        v_raw_mime_snake = core_get(&v_raw, &CoreValue::from("mime_type"), CoreValue::Null);
+        v_snake_is_text = core_type_is(&v_raw_mime_snake, CoreValue::from("string"));
+        if core_truthy(&v_snake_is_text) {
+            v_mime_type = v_raw_mime_snake.clone();
+        }
+        v_raw_mime_camel = core_get(&v_raw, &CoreValue::from("mimeType"), CoreValue::Null);
+        v_camel_is_text = core_type_is(&v_raw_mime_camel, CoreValue::from("string"));
+        if core_truthy(&v_camel_is_text) {
+            v_mime_type = v_raw_mime_camel.clone();
+        }
+        v_has_mime = core_truthy_value(&[v_mime_type.clone()])?;
+    }
+    if core_truthy(&v_has_mime) {
+    } else {
+        v_mime_type = _audio_mime_type_impl(&[v_format.clone()])?;
+    }
+    core_set(&v_out, CoreValue::from("mimeType"), v_mime_type.clone())?;
+    v_params = _audio_mime_params_impl(&[v_mime_type.clone()])?;
+    v_sample_rate = core_get(&v_params, &CoreValue::from("sample_rate"), CoreValue::Null);
+    v_has_sample_rate = core_is_not_none(&[v_sample_rate.clone()])?;
+    if core_truthy(&v_has_sample_rate) {
+        core_set(&v_out, CoreValue::from("sampleRate"), v_sample_rate.clone())?;
+    }
+    v_channels = core_get(&v_params, &CoreValue::from("channels"), CoreValue::Null);
+    v_has_channels = core_is_not_none(&[v_channels.clone()])?;
+    if core_truthy(&v_has_channels) {
+        core_set(&v_out, CoreValue::from("channels"), v_channels.clone())?;
+    }
+    v_request_input = core_get(&v_request, &CoreValue::from("input"), CoreValue::Null);
+    v_text = core_get(
+        &v_request,
+        &CoreValue::from("text"),
+        v_request_input.clone(),
+    );
+    v_has_text = core_is_not_none(&[v_text.clone()])?;
+    if core_truthy(&v_has_text) {
+        core_set(&v_out, CoreValue::from("transcript"), v_text.clone())?;
+    }
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _audio_mime_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_audio_mime_type_impl");
+    let mut v_format = core_arg(args, 0);
+    let mut v_is_text = CoreValue::Null;
+    let mut v_mime = CoreValue::Null;
+    let mut v_table = CoreValue::Null;
+    v_table = CoreValue::new_map();
+    core_set(
+        &v_table,
+        CoreValue::from("wav"),
+        CoreValue::from("audio/wav"),
+    )?;
+    core_set(
+        &v_table,
+        CoreValue::from("mp3"),
+        CoreValue::from("audio/mpeg"),
+    )?;
+    core_set(
+        &v_table,
+        CoreValue::from("flac"),
+        CoreValue::from("audio/flac"),
+    )?;
+    core_set(
+        &v_table,
+        CoreValue::from("opus"),
+        CoreValue::from("audio/opus"),
+    )?;
+    core_set(
+        &v_table,
+        CoreValue::from("aac"),
+        CoreValue::from("audio/aac"),
+    )?;
+    core_set(
+        &v_table,
+        CoreValue::from("pcm"),
+        CoreValue::from("audio/pcm"),
+    )?;
+    core_set(
+        &v_table,
+        CoreValue::from("pcm16"),
+        CoreValue::from("audio/pcm"),
+    )?;
+    core_set(
+        &v_table,
+        CoreValue::from("raw"),
+        CoreValue::from("audio/pcm"),
+    )?;
+    core_set(
+        &v_table,
+        CoreValue::from("mulaw"),
+        CoreValue::from("audio/basic"),
+    )?;
+    core_set(
+        &v_table,
+        CoreValue::from("ulaw"),
+        CoreValue::from("audio/basic"),
+    )?;
+    core_set(
+        &v_table,
+        CoreValue::from("alaw"),
+        CoreValue::from("audio/alaw"),
+    )?;
+    core_set(
+        &v_table,
+        CoreValue::from("ogg"),
+        CoreValue::from("audio/ogg"),
+    )?;
+    v_is_text = core_type_is(&v_format, CoreValue::from("string"));
+    if core_truthy(&v_is_text) {
+        v_mime = core_get(&v_table, &v_format.clone(), CoreValue::from("audio/mpeg"));
+        return Ok(v_mime.clone());
+    }
+    return Ok(CoreValue::from("audio/mpeg"));
 }
 
 #[allow(
@@ -115076,7 +115312,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (826 of 826 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (828 of 828 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

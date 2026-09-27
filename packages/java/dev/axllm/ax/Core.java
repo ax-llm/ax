@@ -10457,7 +10457,8 @@ final class Core {
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "audio", data);
     Core.set(out, "format", format);
-    return out;
+    Object speech = Core._speech_response_ts_keys_impl(out, raw, request);
+    return speech;
   }
 
   static Object provider_normalize_realtime_event(Object profile, Object event, Object state, Object ai_name, Object model) {
@@ -11678,7 +11679,81 @@ final class Core {
       Object mime_params = Core._audio_mime_params_impl(mime_type);
       out = Core.mapMerge(out, mime_params);
     }
+    Object speech = Core._speech_response_ts_keys_impl(out, raw, request);
+    return speech;
+  }
+
+  static Object _speech_response_ts_keys_impl(Object out, Object raw, Object request) {
+    axirCoverageMark("_speech_response_ts_keys_impl");
+    Object data = Core.get(out, "audio", null);
+    Core.set(out, "data", data);
+    Object format = Core.get(out, "format", null);
+    Object mime_type = Core.get(out, "mime_type", "");
+    Object has_mime = Core.truthyValue(mime_type);
+    Object raw_is_object = Core.typeIs(raw, "object");
+    Object read_raw_mime = Core.not(has_mime);
+    read_raw_mime = Core.and(read_raw_mime, raw_is_object);
+    if (Core.truthy(read_raw_mime)) {
+      Object raw_mime_snake = Core.get(raw, "mime_type", null);
+      Object snake_is_text = Core.typeIs(raw_mime_snake, "string");
+      if (Core.truthy(snake_is_text)) {
+        mime_type = raw_mime_snake;
+      }
+      Object raw_mime_camel = Core.get(raw, "mimeType", null);
+      Object camel_is_text = Core.typeIs(raw_mime_camel, "string");
+      if (Core.truthy(camel_is_text)) {
+        mime_type = raw_mime_camel;
+      }
+      has_mime = Core.truthyValue(mime_type);
+    }
+    if (Core.truthy(has_mime)) {
+      // empty
+    }
+    if (!Core.truthy(has_mime)) {
+      mime_type = Core._audio_mime_type_impl(format);
+    }
+    Core.set(out, "mimeType", mime_type);
+    Object params = Core._audio_mime_params_impl(mime_type);
+    Object sample_rate = Core.get(params, "sample_rate", null);
+    Object has_sample_rate = Core.isNotNone(sample_rate);
+    if (Core.truthy(has_sample_rate)) {
+      Core.set(out, "sampleRate", sample_rate);
+    }
+    Object channels = Core.get(params, "channels", null);
+    Object has_channels = Core.isNotNone(channels);
+    if (Core.truthy(has_channels)) {
+      Core.set(out, "channels", channels);
+    }
+    Object request_input = Core.get(request, "input", null);
+    Object text = Core.get(request, "text", request_input);
+    Object has_text = Core.isNotNone(text);
+    if (Core.truthy(has_text)) {
+      Core.set(out, "transcript", text);
+    }
     return out;
+  }
+
+  static Object _audio_mime_type_impl(Object format) {
+    axirCoverageMark("_audio_mime_type_impl");
+    Object table = new java.util.LinkedHashMap<String, Object>();
+    Core.set(table, "wav", "audio/wav");
+    Core.set(table, "mp3", "audio/mpeg");
+    Core.set(table, "flac", "audio/flac");
+    Core.set(table, "opus", "audio/opus");
+    Core.set(table, "aac", "audio/aac");
+    Core.set(table, "pcm", "audio/pcm");
+    Core.set(table, "pcm16", "audio/pcm");
+    Core.set(table, "raw", "audio/pcm");
+    Core.set(table, "mulaw", "audio/basic");
+    Core.set(table, "ulaw", "audio/basic");
+    Core.set(table, "alaw", "audio/alaw");
+    Core.set(table, "ogg", "audio/ogg");
+    Object is_text = Core.typeIs(format, "string");
+    if (Core.truthy(is_text)) {
+      Object mime = Core.get(table, format, "audio/mpeg");
+      return mime;
+    }
+    return "audio/mpeg";
   }
 
   static Object _audio_mime_params_impl(Object mime_type) {
@@ -39618,13 +39693,27 @@ class PromptRuntime {
 
   static Object userContent(AxSignature sig, Map<String, Object> values) {
     List<Map<String, Object>> parts = new ArrayList<>();
+    boolean audioParts = false;
     for (Field field : inputFieldsForValues(sig, values)) {
       Object value = values.get(field.name);
       if (!provided(value)) {
         if (field.optional || field.internal) continue;
         throw new IllegalArgumentException("Value for input field '" + field.name + "' is required.");
       }
-      if (field.type != null && List.of("image", "audio", "file", "url").contains(field.type.name) && value instanceof Map<?, ?> map) {
+      boolean audio = field.type != null && "audio".equals(field.type.name);
+      // As TS processValue: an audio object with a transcript (what an AxGen
+      // audio output renders to) reaches the model as that text.
+      if (audio && value instanceof Map<?, ?> audioMap && audioMap.get("transcript") instanceof String transcript) value = transcript;
+      if (audio && !(value instanceof String)) {
+        parts.add(new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": \n")));
+        if (field.type.array) {
+          if (!(value instanceof List<?> items)) throw new IllegalArgumentException("Audio field value must be an array.");
+          for (Object item : items) parts.add(audioPart(item));
+        } else {
+          parts.add(audioPart(value));
+        }
+        audioParts = true;
+      } else if (field.type != null && List.of("image", "audio", "file", "url").contains(field.type.name) && value instanceof Map<?, ?> map) {
         parts.add(new LinkedHashMap<>(Map.of("type", "text", "text", field.title + ": \n")));
         Map<String, Object> media = new LinkedHashMap<>(Core.asMap(map));
         media.putIfAbsent("type", field.type.name);
@@ -39643,7 +39732,32 @@ class PromptRuntime {
       for (Map<String, Object> part : parts) text.add(String.valueOf(part.getOrDefault("text", "")));
       return String.join("\n", text);
     }
-    return parts;
+    if (!audioParts) return parts;
+    // As TS: consecutive text parts join with a newline.
+    List<Map<String, Object>> combined = new ArrayList<>();
+    for (Map<String, Object> part : parts) {
+      Map<String, Object> previous = combined.isEmpty() ? null : combined.get(combined.size() - 1);
+      if ("text".equals(part.get("type")) && previous != null && "text".equals(previous.get("type"))) {
+        previous.put("text", previous.getOrDefault("text", "") + "\n" + part.getOrDefault("text", ""));
+        if (Boolean.TRUE.equals(part.get("cache"))) previous.put("cache", true);
+      } else {
+        combined.add(part);
+      }
+    }
+    return combined;
+  }
+
+  // TS defaultRenderInField: an audio part carries only its format (wav when
+  // it has none) and its data.
+  static Map<String, Object> audioPart(Object value) {
+    if (!(value instanceof Map<?, ?> map)) throw new IllegalArgumentException("Audio field value must be an object.");
+    if (!map.containsKey("data")) throw new IllegalArgumentException("Audio field must have data");
+    Map<String, Object> part = new LinkedHashMap<>();
+    part.put("type", "audio");
+    Object format = map.get("format");
+    part.put("format", format == null ? "wav" : format);
+    part.put("data", map.get("data"));
+    return part;
   }
 
   static List<Field> inputFieldsForValues(AxSignature sig, Map<String, Object> values) {

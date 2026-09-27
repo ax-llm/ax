@@ -1,0 +1,79 @@
+module @ax.audio_output version "0.1" {
+  dialect @ax.gen version "0.1"
+
+  op ax.gen.semantic @render_audio_outputs_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/audioArtifacts.ts"
+    type signature = "(AxGen, AIClient, json, json) -> json throws"
+    body @entry(%gen: AxGen, %client: AIClient, %values: json, %options: json) {
+      // TS renderAudioOutputArtifacts, which the ports run with the
+      // renderAudio option: each audio output field that is not an array and
+      // holds text goes through the client's speak(). The request is the
+      // speech.speak defaults, then the field's speech.fields entry, then the
+      // text, and the field becomes speak()'s response with the text as its
+      // transcript unless speak() gave one. TS skips null, a rendered
+      // artifact (an object with a string data or id) and every other value
+      // that is not text, so only text is spoken. The forward call's options
+      // win over the AxGen constructor's.
+      %base_options = core.get %gen["options"]
+      %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
+      %render_snake = core.get %runtime_options["render_audio"]
+      %render = core.get %runtime_options["renderAudio"] default %render_snake
+      %render_unset = core.call intrinsic.is_none(%render)
+      %render_on = core.call intrinsic.truthy(%render)
+      %no_speech = core.map
+      %speech = core.get %runtime_options["speech"] default %no_speech
+      %no_speak_defaults = core.map
+      %speak_defaults = core.get %speech["speak"] default %no_speak_defaults
+      %no_field_speech = core.map
+      %field_speech = core.get %speech["fields"] default %no_field_speech
+      %signature = core.get %gen["signature"]
+      %output_fields = core.get %signature["output_fields"]
+      %out_base = core.map
+      %out = core.call intrinsic.map.merge(%out_base, %values)
+      core.for %field in %output_fields {
+        %no_type = core.map
+        %typ = core.get %field["type"] default %no_type
+        %type_name = core.get %typ["name"] default ""
+        %is_audio = core.call intrinsic.eq(%type_name, "audio")
+        %is_array = core.get %typ["is_array"] default false
+        %single = core.call intrinsic.not(%is_array)
+        %audio_field = core.call intrinsic.and(%is_audio, %single)
+        core.if %audio_field {
+          %name = core.get %field["name"] default ""
+          %value = core.get %out[%name]
+          %is_text = core.type_is %value type "string"
+          core.if %is_text {
+            // Without the option the text stays, as the ports have always
+            // returned it; TS's rendering becomes the default at the next
+            // major version.
+            core.if %render_unset {
+              core.call intrinsic.axgen.deprecation("axgen-audio-output-text", "AxGen audio output fields return the model's text; TypeScript Ax turns them into audio with the AI client's speak(). Pass renderAudio: true to render them now, or renderAudio: false to keep the text. Rendering becomes the default in the next major version.")
+            }
+            core.if %render_on {
+              %request_base = core.map
+              %request = core.call intrinsic.map.merge(%request_base, %speak_defaults)
+              %no_field_defaults = core.map
+              %field_defaults = core.get %field_speech[%name] default %no_field_defaults
+              %request = core.call intrinsic.map.merge(%request, %field_defaults)
+              core.set %request["text"] = %value
+              %audio = core.call intrinsic.axgen.speak(%client, %request, %runtime_options)
+              %artifact_base = core.map
+              %artifact = core.call intrinsic.map.merge(%artifact_base, %audio)
+              %transcript = core.get %artifact["transcript"]
+              %no_transcript = core.call intrinsic.is_none(%transcript)
+              core.if %no_transcript {
+                core.set %artifact["transcript"] = %value
+              }
+              core.set %out[%name] = %artifact
+            }
+          }
+        }
+      }
+      core.return %out
+    }
+  }
+}

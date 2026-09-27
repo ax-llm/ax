@@ -87,6 +87,8 @@ final class SessionRun implements AiClient,AutoCloseable {
     return AxChatStream.fromIterable(List.of(Core.completionToChatResponse(complete(request))));
   }
   @Override public Iterable<Map<String,Object>> stream(Map<String,Object> request) { return AxChatStream.lazy(()->openStream(request,options,null)); }
+  // The audio output renderer's speech goes to the wrapped client.
+  @Override public Map<String,Object> speak(Map<String,Object> request,Map<String,Object> callOptions) throws Exception { return client.speak(request,callOptions); }
   public Map<String,Object> complete(Map<String,Object> request) throws Exception {
     select(request);
     if(provider==null) return Core.asMap(Core.aiCompleteOnce(client,boundary(request),options));

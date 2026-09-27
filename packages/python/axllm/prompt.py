@@ -528,6 +528,13 @@ def _core_prompt_structured(signature, values, functions, options) -> str:
 def _core_prompt_process_value(field, value):
     if isinstance(value, str):
         return value
+    if field.type and field.type.name == "audio":
+        # As TS processValue: an audio object with a transcript (what an
+        # AxGen audio output renders to) reaches the model as that text.
+        if isinstance(value, dict) and isinstance(value.get("transcript"), str):
+            return value["transcript"]
+        if isinstance(value, (dict, list)):
+            return value
     if field.type and field.type.name in ("image", "audio", "file", "url") and isinstance(value, dict):
         return value
     # JSON.stringify(value, null, 2): non-ASCII text stays UTF-8 and numbers
@@ -535,8 +542,30 @@ def _core_prompt_process_value(field, value):
     return _js_json_dumps(value, indent=2)
 
 
+def _core_prompt_audio_part(value):
+    # TS defaultRenderInField: an audio part carries only its format (wav when
+    # it has none) and its data.
+    if not isinstance(value, dict):
+        raise ValueError("Audio field value must be an object.")
+    if "data" not in value:
+        raise ValueError("Audio field must have data")
+    audio_format = value.get("format")
+    return {"type": "audio", "format": "wav" if audio_format is None else audio_format, "data": value["data"]}
+
+
 def _core_prompt_default_render_in_field(field, value):
     typ = field.type.name if field.type else "string"
+    if typ == "audio" and not isinstance(value, str):
+        # A string (a plain one, or an audio object's transcript) renders as
+        # text below, like any text field.
+        parts = [{"type": "text", "text": f"{field.title}: "}]
+        if field.type.is_array:
+            if not isinstance(value, list):
+                raise ValueError("Audio field value must be an array.")
+            parts.extend(_core_prompt_audio_part(item) for item in value)
+        else:
+            parts.append(_core_prompt_audio_part(value))
+        return parts
     if typ in ("image", "audio", "file", "url"):
         if isinstance(value, list):
             parts = [{"type": "text", "text": f"{field.title}: "}]

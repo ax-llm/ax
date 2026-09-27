@@ -394,6 +394,35 @@ validateValueErrorCase(
   'mimeType'
 );
 
+// An AxGen audio output rendered by a port and fed to the next program's audio
+// input: the ports' speak() result carries `data` beside its older `audio`
+// key, so the artifact passes TS's audio rule; the older speak() shape,
+// {audio, format} plus the transcript, has no `data` and does not.
+const audioInputField = f()
+  .input('speech', f.audio())
+  .output('summary', f.string())
+  .build()
+  .getInputFields()[0]!;
+validateValueCase(
+  'value-audio-rendered-artifact-valid',
+  { type: 'audio' },
+  audioInputField,
+  {
+    audio: 'SUQzBAA=',
+    format: 'mp3',
+    data: 'SUQzBAA=',
+    mimeType: 'audio/mpeg',
+    transcript: 'Hello there',
+  }
+);
+validateValueErrorCase(
+  'value-audio-older-speak-shape-invalid',
+  { type: 'audio' },
+  audioInputField,
+  { audio: 'SUQzBAA=', format: 'mp3', transcript: 'Hello there' },
+  "Validation failed: Expected 'speech' to be type 'string or object ({ data: string; format?: string })'"
+);
+
 const urlValidationSpec = {
   inputs: { query: { type: 'string' } },
   outputs: {

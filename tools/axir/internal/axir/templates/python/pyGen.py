@@ -1122,6 +1122,15 @@ def _core_axgen_emit_delta(sink, envelope):
     return None
 
 
+def _core_axgen_speak(client, request, options):
+    # Backs intrinsic.axgen.speak: the AxGen audio output renderer calls the
+    # client's speak(), as TS calls ai.speak().
+    speak = getattr(client, "speak", None)
+    if not callable(speak):
+        raise RuntimeError("Audio speech not supported by this AI client")
+    return speak(request, options or {})
+
+
 def _core_axgen_call_processor(spec, value, context):
     # TS field processors take (value, {values, sessionId, done}); a
     # one-argument callable gets the value alone.

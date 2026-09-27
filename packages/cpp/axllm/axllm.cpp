@@ -2304,14 +2304,40 @@ Value Core::prompt_structured(Value signature, Value values, Value functions, Va
   if (!get_key(options, "custom_template").is_null()) { source = str(get_key(options, "custom_template")); context = "inline-template"; }
   return string_trim(render_template_content(source, Value(vars), context));
 }
+// TS's audio part: only the format (wav when there is none) and the data.
+static Value prompt_audio_part(const Value& value) {
+  if (!value.is_object()) throw AxError("runtime", "Audio field value must be an object.");
+  if (object_ref(value).count("data") == 0) throw AxError("runtime", "Audio field must have data");
+  Value format = get_key(value, "format");
+  return Value(Object{{"type", "audio"}, {"format", format.is_null() ? Value("wav") : format}, {"data", get_key(value, "data")}});
+}
 Value Core::prompt_user_content(Value signature, Value values) {
   Array parts;
+  bool audio_parts = false;
   for (const auto& field : prompt_inputs_for_values(signature, values)) {
     std::string name = str(get_key(field, "name"));
     Value value = get_key(values, name);
     if (!prompt_provided(value)) {
       if (truthy(get_key(field, "isOptional")) || truthy(get_key(field, "isInternal"))) continue;
       throw AxError("runtime", "Value for input field '" + name + "' is required.");
+    }
+    Value type = get_key(field, "type");
+    if (str(get_key(type, "name")) == "audio") {
+      // As TS: an audio object with a transcript (what an AxGen audio output
+      // renders to), like a plain string, reaches the model as text; other
+      // audio goes as audio parts.
+      if (value.is_object() && get_key(value, "transcript").is_string()) value = get_key(value, "transcript");
+      if (!value.is_string()) {
+        parts.emplace_back(Value(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": \n"}}));
+        if (truthy(get_key(type, "isArray"))) {
+          if (!value.is_array()) throw AxError("runtime", "Audio field value must be an array.");
+          for (const auto& item : array_ref(value)) parts.emplace_back(prompt_audio_part(item));
+        } else {
+          parts.emplace_back(prompt_audio_part(value));
+        }
+        audio_parts = true;
+        continue;
+      }
     }
     std::string rendered = value.is_string() ? str(value) : pretty_stringify(value);
     Value part(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": " + rendered + "\n"}});
@@ -2320,7 +2346,21 @@ Value Core::prompt_user_content(Value signature, Value values) {
   }
   bool all_text = true;
   for (const auto& part : parts) if (str(get_key(part, "type")) != "text" || truthy(get_key(part, "cache"))) all_text = false;
-  if (!all_text) return Value(parts);
+  if (!all_text && !audio_parts) return Value(parts);
+  if (!all_text) {
+    // As TS: consecutive text parts join with a newline.
+    Array combined;
+    for (const auto& part : parts) {
+      if (str(get_key(part, "type")) == "text" && !combined.empty() && str(get_key(combined.back(), "type")) == "text") {
+        Value& previous = combined.back();
+        Core::set(previous, "text", str(get_key(previous, "text")) + "\n" + str(get_key(part, "text")));
+        if (truthy(get_key(part, "cache"))) Core::set(previous, "cache", true);
+        continue;
+      }
+      combined.push_back(part);
+    }
+    return Value(combined);
+  }
   std::string out;
   for (size_t i = 0; i < parts.size(); ++i) {
     if (i) out += "\n";
@@ -11619,7 +11659,8 @@ Value Core::provider_normalize_speak_response(Value profile, Value raw, Value re
   Value out = Value::object();
   Core::set(out, Value("audio"), data);
   Core::set(out, Value("format"), format);
-  return out;
+  Value speech = Core::_speech_response_ts_keys_impl(out, raw, request);
+  return speech;
 }
 
 Value Core::provider_normalize_realtime_event(Value profile, Value event, Value state, Value ai_name, Value model) {
@@ -12841,7 +12882,81 @@ Value Core::_gemini_normalize_speak_response(Value raw, Value request) {
     Value mime_params = Core::_audio_mime_params_impl(mime_type);
     out = Core::map_merge(out, mime_params);
   }
+  Value speech = Core::_speech_response_ts_keys_impl(out, raw, request);
+  return speech;
+}
+
+Value Core::_speech_response_ts_keys_impl(Value out, Value raw, Value request) {
+  axir_coverage_mark("_speech_response_ts_keys_impl");
+  Value data = Core::get(out, Value("audio"), Value());
+  Core::set(out, Value("data"), data);
+  Value format = Core::get(out, Value("format"), Value());
+  Value mime_type = Core::get(out, Value("mime_type"), Value(""));
+  Value has_mime = Core::truthy_value(mime_type);
+  Value raw_is_object = Core::type_is(raw, Value("object"));
+  Value read_raw_mime = Core::not_(has_mime);
+  read_raw_mime = Core::and_(read_raw_mime, raw_is_object);
+  if (Core::truthy(read_raw_mime)) {
+    Value raw_mime_snake = Core::get(raw, Value("mime_type"), Value());
+    Value snake_is_text = Core::type_is(raw_mime_snake, Value("string"));
+    if (Core::truthy(snake_is_text)) {
+      mime_type = raw_mime_snake;
+    }
+    Value raw_mime_camel = Core::get(raw, Value("mimeType"), Value());
+    Value camel_is_text = Core::type_is(raw_mime_camel, Value("string"));
+    if (Core::truthy(camel_is_text)) {
+      mime_type = raw_mime_camel;
+    }
+    has_mime = Core::truthy_value(mime_type);
+  }
+  if (Core::truthy(has_mime)) {
+    // empty
+  }
+  if (!Core::truthy(has_mime)) {
+    mime_type = Core::_audio_mime_type_impl(format);
+  }
+  Core::set(out, Value("mimeType"), mime_type);
+  Value params = Core::_audio_mime_params_impl(mime_type);
+  Value sample_rate = Core::get(params, Value("sample_rate"), Value());
+  Value has_sample_rate = Core::is_not_none(sample_rate);
+  if (Core::truthy(has_sample_rate)) {
+    Core::set(out, Value("sampleRate"), sample_rate);
+  }
+  Value channels = Core::get(params, Value("channels"), Value());
+  Value has_channels = Core::is_not_none(channels);
+  if (Core::truthy(has_channels)) {
+    Core::set(out, Value("channels"), channels);
+  }
+  Value request_input = Core::get(request, Value("input"), Value());
+  Value text = Core::get(request, Value("text"), request_input);
+  Value has_text = Core::is_not_none(text);
+  if (Core::truthy(has_text)) {
+    Core::set(out, Value("transcript"), text);
+  }
   return out;
+}
+
+Value Core::_audio_mime_type_impl(Value format) {
+  axir_coverage_mark("_audio_mime_type_impl");
+  Value table = Value::object();
+  Core::set(table, Value("wav"), Value("audio/wav"));
+  Core::set(table, Value("mp3"), Value("audio/mpeg"));
+  Core::set(table, Value("flac"), Value("audio/flac"));
+  Core::set(table, Value("opus"), Value("audio/opus"));
+  Core::set(table, Value("aac"), Value("audio/aac"));
+  Core::set(table, Value("pcm"), Value("audio/pcm"));
+  Core::set(table, Value("pcm16"), Value("audio/pcm"));
+  Core::set(table, Value("raw"), Value("audio/pcm"));
+  Core::set(table, Value("mulaw"), Value("audio/basic"));
+  Core::set(table, Value("ulaw"), Value("audio/basic"));
+  Core::set(table, Value("alaw"), Value("audio/alaw"));
+  Core::set(table, Value("ogg"), Value("audio/ogg"));
+  Value is_text = Core::type_is(format, Value("string"));
+  if (Core::truthy(is_text)) {
+    Value mime = Core::get(table, format, Value("audio/mpeg"));
+    return mime;
+  }
+  return Value("audio/mpeg");
 }
 
 Value Core::_audio_mime_params_impl(Value mime_type) {

@@ -21668,6 +21668,7 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	var v_operations Value
 	var v_out Value
 	var v_provider_id Value
+	var v_speech Value
 	if len(args) > 0 { v_profile = args[0] }
 	_ = v_profile
 	if len(args) > 1 { v_raw = args[1] }
@@ -21684,6 +21685,7 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	_ = v_operations
 	_ = v_out
 	_ = v_provider_id
+	_ = v_speech
 	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
 	{ v, err := provider_descriptor(v_provider_id); if err != nil { return nil, err }; v_descriptor = v }
 	v_operations = coreGet(v_descriptor, "operations", nil)
@@ -21701,7 +21703,8 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	v_out = Object()
 	if err := coreSet(v_out, "audio", v_data); err != nil { return nil, err }
 	if err := coreSet(v_out, "format", v_format); err != nil { return nil, err }
-	return v_out, nil
+	{ v, err := _speech_response_ts_keys_impl(v_out, v_raw, v_request); if err != nil { return nil, err }; v_speech = v }
+	return v_speech, nil
 }
 
 func provider_normalize_realtime_event(args ...Value) (Value, error) {
@@ -24073,6 +24076,7 @@ func _gemini_normalize_speak_response(args ...Value) (Value, error) {
 	var v_part Value
 	var v_part_mime Value
 	var v_parts Value
+	var v_speech Value
 	if len(args) > 0 { v_raw = args[0] }
 	_ = v_raw
 	if len(args) > 1 { v_request = args[1] }
@@ -24101,6 +24105,7 @@ func _gemini_normalize_speak_response(args ...Value) (Value, error) {
 	_ = v_part
 	_ = v_part_mime
 	_ = v_parts
+	_ = v_speech
 	v_audio = coreGet(v_raw, "audio", nil)
 	v_format = coreGet(v_request, "format", "wav")
 	v_mime_type = ""
@@ -24161,7 +24166,148 @@ func _gemini_normalize_speak_response(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	{ v, err := _speech_response_ts_keys_impl(v_out, v_raw, v_request); if err != nil { return nil, err }; v_speech = v }
+	return v_speech, nil
+}
+
+func _speech_response_ts_keys_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_speech_response_ts_keys_impl")
+	var v_out Value
+	var v_raw Value
+	var v_request Value
+	var v_camel_is_text Value
+	var v_channels Value
+	var v_data Value
+	var v_format Value
+	var v_has_channels Value
+	var v_has_mime Value
+	var v_has_sample_rate Value
+	var v_has_text Value
+	var v_mime_type Value
+	var v_params Value
+	var v_raw_is_object Value
+	var v_raw_mime_camel Value
+	var v_raw_mime_snake Value
+	var v_read_raw_mime Value
+	var v_request_input Value
+	var v_sample_rate Value
+	var v_snake_is_text Value
+	var v_text Value
+	if len(args) > 0 { v_out = args[0] }
+	_ = v_out
+	if len(args) > 1 { v_raw = args[1] }
+	_ = v_raw
+	if len(args) > 2 { v_request = args[2] }
+	_ = v_request
+	_ = v_camel_is_text
+	_ = v_channels
+	_ = v_data
+	_ = v_format
+	_ = v_has_channels
+	_ = v_has_mime
+	_ = v_has_sample_rate
+	_ = v_has_text
+	_ = v_mime_type
+	_ = v_params
+	_ = v_raw_is_object
+	_ = v_raw_mime_camel
+	_ = v_raw_mime_snake
+	_ = v_read_raw_mime
+	_ = v_request_input
+	_ = v_sample_rate
+	_ = v_snake_is_text
+	_ = v_text
+	v_data = coreGet(v_out, "audio", nil)
+	if err := coreSet(v_out, "data", v_data); err != nil { return nil, err }
+	v_format = coreGet(v_out, "format", nil)
+	v_mime_type = coreGet(v_out, "mime_type", "")
+	v_has_mime = _core_truthy(v_mime_type)
+	v_raw_is_object = coreTypeIs(v_raw, "object")
+	v_read_raw_mime = _core_not(v_has_mime)
+	v_read_raw_mime = _core_and(v_read_raw_mime, v_raw_is_object)
+	if coreTruthy(v_read_raw_mime) {
+		v_raw_mime_snake = coreGet(v_raw, "mime_type", nil)
+		v_snake_is_text = coreTypeIs(v_raw_mime_snake, "string")
+		if coreTruthy(v_snake_is_text) {
+			v_mime_type = v_raw_mime_snake
+		} else {
+		// empty
+		}
+		v_raw_mime_camel = coreGet(v_raw, "mimeType", nil)
+		v_camel_is_text = coreTypeIs(v_raw_mime_camel, "string")
+		if coreTruthy(v_camel_is_text) {
+			v_mime_type = v_raw_mime_camel
+		} else {
+		// empty
+		}
+		v_has_mime = _core_truthy(v_mime_type)
+	} else {
+	// empty
+	}
+	if coreTruthy(v_has_mime) {
+	// empty
+	} else {
+		{ v, err := _audio_mime_type_impl(v_format); if err != nil { return nil, err }; v_mime_type = v }
+	}
+	if err := coreSet(v_out, "mimeType", v_mime_type); err != nil { return nil, err }
+	{ v, err := _audio_mime_params_impl(v_mime_type); if err != nil { return nil, err }; v_params = v }
+	v_sample_rate = coreGet(v_params, "sample_rate", nil)
+	v_has_sample_rate = _core_is_not_none(v_sample_rate)
+	if coreTruthy(v_has_sample_rate) {
+		if err := coreSet(v_out, "sampleRate", v_sample_rate); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_channels = coreGet(v_params, "channels", nil)
+	v_has_channels = _core_is_not_none(v_channels)
+	if coreTruthy(v_has_channels) {
+		if err := coreSet(v_out, "channels", v_channels); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_request_input = coreGet(v_request, "input", nil)
+	v_text = coreGet(v_request, "text", v_request_input)
+	v_has_text = _core_is_not_none(v_text)
+	if coreTruthy(v_has_text) {
+		if err := coreSet(v_out, "transcript", v_text); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	return v_out, nil
+}
+
+func _audio_mime_type_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_audio_mime_type_impl")
+	var v_format Value
+	var v_is_text Value
+	var v_mime Value
+	var v_table Value
+	if len(args) > 0 { v_format = args[0] }
+	_ = v_format
+	_ = v_is_text
+	_ = v_mime
+	_ = v_table
+	v_table = Object()
+	if err := coreSet(v_table, "wav", "audio/wav"); err != nil { return nil, err }
+	if err := coreSet(v_table, "mp3", "audio/mpeg"); err != nil { return nil, err }
+	if err := coreSet(v_table, "flac", "audio/flac"); err != nil { return nil, err }
+	if err := coreSet(v_table, "opus", "audio/opus"); err != nil { return nil, err }
+	if err := coreSet(v_table, "aac", "audio/aac"); err != nil { return nil, err }
+	if err := coreSet(v_table, "pcm", "audio/pcm"); err != nil { return nil, err }
+	if err := coreSet(v_table, "pcm16", "audio/pcm"); err != nil { return nil, err }
+	if err := coreSet(v_table, "raw", "audio/pcm"); err != nil { return nil, err }
+	if err := coreSet(v_table, "mulaw", "audio/basic"); err != nil { return nil, err }
+	if err := coreSet(v_table, "ulaw", "audio/basic"); err != nil { return nil, err }
+	if err := coreSet(v_table, "alaw", "audio/alaw"); err != nil { return nil, err }
+	if err := coreSet(v_table, "ogg", "audio/ogg"); err != nil { return nil, err }
+	v_is_text = coreTypeIs(v_format, "string")
+	if coreTruthy(v_is_text) {
+		v_mime = coreGet(v_table, v_format, "audio/mpeg")
+		return v_mime, nil
+	} else {
+	// empty
+	}
+	return "audio/mpeg", nil
 }
 
 func _audio_mime_params_impl(args ...Value) (Value, error) {
@@ -95570,6 +95716,7 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 	fields := goPromptInputFields(sig, values)
 	parts := []Value{}
 	allText := true
+	audioParts := false
 	for _, field := range fields {
 		value := coreGet(values, field.Name, nil)
 		// As TS renders an input field (src/ax/dsp/prompt.ts): a required input
@@ -95580,6 +95727,33 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 			}
 			panic(AxError{Category: "runtime", Message: "Value for input field '" + field.Name + "' is required."})
 		}
+		if field.Type.Name == "audio" {
+			// As TS: an audio object with a transcript (what an AxGen audio
+			// output renders to), like a plain string, reaches the model as
+			// text; other audio goes as audio parts.
+			if audio, ok := value.(map[string]Value); ok {
+				if transcript, ok := audio["transcript"].(string); ok {
+					value = transcript
+				}
+			}
+			if _, isText := value.(string); !isText {
+				parts = append(parts, Object("type", "text", "text", field.Title+": \n"))
+				if field.Type.IsArray {
+					items, ok := value.([]Value)
+					if !ok {
+						panic(AxError{Category: "runtime", Message: "Audio field value must be an array."})
+					}
+					for _, item := range items {
+						parts = append(parts, goPromptAudioPart(item))
+					}
+				} else {
+					parts = append(parts, goPromptAudioPart(value))
+				}
+				allText = false
+				audioParts = true
+				continue
+			}
+		}
 		text := field.Title + ": " + goPromptValueText(value) + "\n"
 		part := Object("type", "text", "text", text)
 		if field.IsCached {
@@ -95587,7 +95761,7 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 			allText = false
 		}
 		parts = append(parts, part)
-		if field.Type.Name == "image" || field.Type.Name == "audio" || field.Type.Name == "file" || field.Type.Name == "url" {
+		if field.Type.Name == "image" || field.Type.Name == "file" || field.Type.Name == "url" {
 			allText = false
 		}
 	}
@@ -95598,7 +95772,41 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 		}
 		return strings.Join(lines, "\n")
 	}
-	return parts
+	if !audioParts {
+		return parts
+	}
+	// As TS: consecutive text parts join with a newline.
+	combined := []Value{}
+	for _, part := range parts {
+		if display(coreGet(part, "type", "")) == "text" && len(combined) > 0 && display(coreGet(combined[len(combined)-1], "type", "")) == "text" {
+			previous := combined[len(combined)-1]
+			coreSet(previous, "text", display(coreGet(previous, "text", ""))+"\n"+display(coreGet(part, "text", "")))
+			if coreTruthy(coreGet(part, "cache", false)) {
+				coreSet(previous, "cache", true)
+			}
+			continue
+		}
+		combined = append(combined, part)
+	}
+	return combined
+}
+
+// goPromptAudioPart is TS's audio part: only the format (wav when there is
+// none) and the data.
+func goPromptAudioPart(value Value) Value {
+	audio, ok := value.(map[string]Value)
+	if !ok {
+		panic(AxError{Category: "runtime", Message: "Audio field value must be an object."})
+	}
+	data, hasData := audio["data"]
+	if !hasData {
+		panic(AxError{Category: "runtime", Message: "Audio field must have data"})
+	}
+	format := audio["format"]
+	if format == nil {
+		format = "wav"
+	}
+	return Object("type", "audio", "format", format, "data", data)
 }
 func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value, options map[string]Value) string {
 	complex := goPromptHasComplexFields(sig)

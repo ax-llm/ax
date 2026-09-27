@@ -371,6 +371,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicAxGenCallProcessor:        "Core.axgenCallProcessor",
 	IntrinsicAxGenCheckStreamAssert:    "Core.axgenCheckStreamingAssertion",
 	IntrinsicAxGenDeprecation:          "Core.axgenDeprecation",
+	IntrinsicAxGenSpeak:                "Core.axgenSpeak",
 	IntrinsicStringSplitTrim:           "Core.stringSplitTrimNonEmpty",
 	IntrinsicStringFindQuoted:          "Core.stringFindOutsideQuotes",
 	IntrinsicStringSplitQuoted:         "Core.stringSplitOutsideQuotes",

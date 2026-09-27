@@ -410,6 +410,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicAxGenCallProcessor:        "Core::axgen_call_processor",
 	IntrinsicAxGenCheckStreamAssert:    "Core::axgen_check_streaming_assertion",
 	IntrinsicAxGenDeprecation:          "Core::axgen_deprecation",
+	IntrinsicAxGenSpeak:                "Core::axgen_speak",
 	IntrinsicStringSplitTrim:           "Core::string_split_trim_nonempty",
 	IntrinsicStringFindQuoted:          "Core::string_find_outside_quotes",
 	IntrinsicStringSplitQuoted:         "Core::string_split_outside_quotes",

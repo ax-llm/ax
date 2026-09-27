@@ -690,6 +690,8 @@ struct Core {
   static Value _gemini_build_speak_request(Value request);
   static Value _gemini_normalize_transcribe_response(Value raw);
   static Value _gemini_normalize_speak_response(Value raw, Value request);
+  static Value _speech_response_ts_keys_impl(Value out, Value raw, Value request);
+  static Value _audio_mime_type_impl(Value format);
   static Value _audio_mime_params_impl(Value mime_type);
   static Value _meta_asr_realtime_normalize_event(Value event, Value state, Value ai_name, Value model);
   static Value provider_finalize_realtime_response(Value profile, Value state, Value fallback);

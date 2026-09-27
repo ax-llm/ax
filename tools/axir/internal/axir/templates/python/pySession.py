@@ -8,7 +8,7 @@ import threading
 from typing import Any, Callable, Iterator, Protocol
 
 from .ai import _emit_usage_event, _iter_sse_json
-from .gen import _StreamingConsumerStopped, _core_ai_client_features, _core_ai_complete_once, _core_ai_stream_open
+from .gen import _StreamingConsumerStopped, _core_ai_client_features, _core_ai_complete_once, _core_ai_stream_open, _core_axgen_speak
 
 
 class AxChatSession(Protocol):
@@ -100,6 +100,10 @@ class _BoundaryClient:
 
     def get_features(self, model=None):
         return _core_ai_client_features(self.client, model)
+
+    def speak(self, request, options=None):
+        # The audio output renderer's speech goes to the wrapped client.
+        return _core_axgen_speak(self.client, request, options)
 
     def _apply(self, request):
         from .gen import chat_session_apply_boundary_updates
@@ -343,6 +347,10 @@ class _SessionClient:
 
     def get_features(self, model=None):
         return self.client.get_features(model)
+
+    def speak(self, request, options=None):
+        # The audio output renderer's speech goes to the wrapped client.
+        return _core_axgen_speak(self.client, request, options)
 
     def _emit(self, kind, **fields):
         if self.control:

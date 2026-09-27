@@ -457,6 +457,46 @@ stringPrompt('json-input-pretty-json', 'plan:json -> answer:string', {
   },
 });
 
+// Audio inputs: a plain string, and an audio object with a transcript (what an
+// AxGen audio output renders to), reach the model as text; audio without a
+// transcript is an audio part with only its format (wav when it has none) and
+// its data.
+stringPrompt(
+  'audio-input-transcript-as-text',
+  'speech:audio -> summary:string',
+  {
+    speech: {
+      data: 'SUQzBAA=',
+      format: 'mp3',
+      mimeType: 'audio/mpeg',
+      transcript: 'Hello there',
+    },
+  }
+);
+stringPrompt(
+  'audio-input-plain-string-as-text',
+  'speech:audio -> summary:string',
+  { speech: 'Hello there' }
+);
+stringPrompt(
+  'audio-input-object-as-audio-part',
+  'question:string, speech:audio -> summary:string',
+  {
+    question: 'What is said?',
+    speech: { data: 'SUQzBAA=', format: 'mp3', mimeType: 'audio/mpeg' },
+  }
+);
+stringPrompt(
+  'audio-input-format-defaults-to-wav',
+  'speech:audio -> summary:string',
+  { speech: { data: 'UklGRg==' } }
+);
+stringPrompt(
+  'audio-input-array-as-audio-parts',
+  'clips:audio[] -> summary:string',
+  { clips: [{ data: 'SUQzBAA=', format: 'mp3' }, { data: 'UklGRg==' }] }
+);
+
 // Numbers in prompt JSON render as JSON.stringify writes them (Number's
 // toString): shortest round-trip digits, integral values without ".0",
 // exponent form only below 1e-6 and from 1e21 up (1e-7, 1e+21), and -0 as 0.
