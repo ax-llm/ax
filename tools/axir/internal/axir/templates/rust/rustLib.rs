@@ -1824,6 +1824,54 @@ pub trait AxTransport: Send {
 struct CancellableProviderIterator{inner:Box<dyn Iterator<Item=AxResult<Value>>>,token:AxCancellationToken}
 impl Iterator for CancellableProviderIterator{type Item=AxResult<Value>;fn next(&mut self)->Option<Self::Item>{if let Err(error)=self.token.throw_if_cancelled(){return Some(Err(error))}let value=self.inner.next();if self.token.is_cancelled(){return Some(Err(self.token.throw_if_cancelled().unwrap_err()))}value}}
 
+// JSON text with each \u escape of a lone surrogate replaced by the escape of
+// U+FFFD; a high surrogate escape followed by a low one stays a pair.
+fn replace_lone_surrogate_escapes(text: &str) -> String {
+    let surrogate = |escape: &str| -> Option<u32> {
+        let unit = u32::from_str_radix(escape.strip_prefix("\\u")?.get(..4)?, 16).ok()?;
+        (0xD800..=0xDFFF).contains(&unit).then_some(unit)
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('\\') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        match surrogate(rest) {
+            Some(high) if high <= 0xDBFF && surrogate(&rest[6..]).is_some_and(|low| low >= 0xDC00) => {
+                out.push_str(&rest[..12]);
+                rest = &rest[12..];
+            }
+            Some(_) => {
+                out.push_str("\\ufffd");
+                rest = &rest[6..];
+            }
+            None => {
+                // Any other escape is copied whole, so an escaped backslash
+                // can't start a \u escape.
+                let end = rest[1..].chars().next().map_or(1, |next| 1 + next.len_utf8());
+                out.push_str(&rest[..end]);
+                rest = &rest[end..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+// Parses one stream event's JSON. A provider can split a surrogate pair
+// across two events, leaving a lone surrogate escape in each, which JS's
+// JSON.parse accepts and serde_json refuses. A Rust string can't hold half a
+// pair, so each lone half reads as U+FFFD instead of failing the stream.
+fn parse_stream_event_json(payload: &str) -> AxResult<Value> {
+    serde_json::from_str(payload).or_else(|error| {
+        let replaced = replace_lone_surrogate_escapes(payload);
+        if replaced == payload {
+            return Err(AxError::from(error));
+        }
+        serde_json::from_str(&replaced).map_err(AxError::from)
+    })
+}
+
 struct SseJsonStream {
     reader: BufReader<Box<dyn Read>>,
     line: Vec<u8>,
@@ -1843,7 +1891,7 @@ impl SseJsonStream {
         let payload = self.data_lines.join("\n");
         self.data_lines.clear();
         if payload.trim() == "[DONE]" { self.done = true; return Ok(None); }
-        serde_json::from_str(&payload).map(Some).map_err(AxError::from)
+        parse_stream_event_json(&payload).map(Some)
     }
 
     fn process_line(&mut self) -> AxResult<Option<Value>> {
@@ -4086,7 +4134,7 @@ pub(crate) fn parse_sse_events(body: &str) -> AxResult<Vec<Value>> {
     fn flush(buffer: &mut String, events: &mut Vec<Value>) -> AxResult<()> {
         let payload = buffer.trim();
         if !payload.is_empty() && payload != "[DONE]" {
-            events.push(serde_json::from_str::<Value>(payload)?);
+            events.push(parse_stream_event_json(payload)?);
         }
         buffer.clear();
         Ok(())
@@ -6494,29 +6542,27 @@ impl AxAgent {
     ) -> AxResult<Value> {
         let input = task.get("input").cloned().unwrap_or_else(|| task.clone());
         let forward_options = options.get("forward_options").cloned().unwrap_or_else(|| json!({}));
-        match self.forward_with_options(client, input, forward_options) {
-            Ok(output) => {
-                let trace = self.export_trace()?;
-                Ok(core_value_to_json(&_build_agent_eval_prediction(&[
-                    core_value_from_json(&output),
-                    core_value_from_json(&Value::Array(self.get_action_log())),
-                    core_value_from_json(&self.get_usage()),
-                    core_value_from_json(&trace),
-                ])?))
-            }
+        // As TS evaluates each task from a fresh state, the prediction carries
+        // only this run's share of the agent's logs.
+        let marks = _agent_eval_marks(&[self.state.clone()])?;
+        let completion = match self.forward_with_options(client, input, forward_options) {
+            Ok(output) => json!({"type": "final", "output": output}),
             Err(error) => match core_agent_clarification_detail(&error) {
-                Some(detail) => Ok(json!({
-                    "completionType": "askClarification",
+                Some(detail) => json!({
+                    "type": "askClarification",
                     "clarification": detail.get("clarification").cloned().unwrap_or(Value::Null),
-                    "actionLog": Value::Array(self.get_action_log()),
-                    "functionCalls": self.state_json("function_call_traces"),
-                    "toolErrors": [],
-                    "turnCount": 0,
-                    "usage": self.get_usage(),
-                })),
-                None => Err(error),
+                }),
+                None => return Err(error),
             },
-        }
+        };
+        let trace = self.export_trace()?;
+        Ok(core_value_to_json(&_build_agent_run_prediction(&[
+            self.state.clone(),
+            marks,
+            core_value_from_json(&completion),
+            core_value_from_json(&self.get_usage()),
+            core_value_from_json(&trace),
+        ])?))
     }
 
     pub fn execute_actor_step(
@@ -10732,6 +10778,26 @@ fn parse_rfc3339_millis(text: &str) -> Option<u64> {
 fn cache_expiry_millis(value: &Value) -> Option<u64> {
     let raw = value.get("expireTime").or_else(|| value.get("expire_time"))?;
     raw.as_u64().or_else(|| raw.as_f64().map(|value| value as u64)).or_else(|| raw.as_str().and_then(parse_rfc3339_millis))
+}
+
+// Rust strings are UTF-8, which can't hold a lone surrogate (half of a
+// surrogate pair a provider split across stream events; a provider stream
+// reads each half as U+FFFD), so this runner skips the fixtures that require
+// one.
+const SUPPORTS_LONE_SURROGATES: bool = false;
+
+/// The conformance runner's skip for a fixture's JSON text: its name and the
+/// reason, when this runner skips it. serde_json refuses a lone surrogate
+/// escape, so a fixture that has one is read with U+FFFD in its place to
+/// find its `requires_lone_surrogates` flag.
+#[doc(hidden)]
+pub fn conformance_fixture_skip(text: &str) -> Option<(String, &'static str)> {
+    let fixture = parse_json(text).or_else(|_| parse_json(&replace_lone_surrogate_escapes(text))).ok()?;
+    if SUPPORTS_LONE_SURROGATES || fixture.get("requires_lone_surrogates").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let name = fixture.get("name").and_then(Value::as_str).unwrap_or("fixture").to_string();
+    Some((name, "requires lone surrogates (utf-8 runner)"))
 }
 
 pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
@@ -15523,9 +15589,15 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
             }
         }
         "eval" => {
-            let prediction = conformance_optimization_prediction(fixture);
+            let prediction = conformance_agent_eval_prediction(fixture)?;
             if let Some(expected) = fixture.get("expected_prediction_subset") {
                 expect_json_subset("eval prediction", &prediction, expected)?;
+            }
+            // Fields that must match exactly: a list compares in full.
+            if let Some(fields) = fixture.get("expected_prediction_fields").and_then(Value::as_object) {
+                for (key, value) in fields {
+                    expect_json_equal(&format!("eval prediction {key}"), prediction.get(key).unwrap_or(&Value::Null), value)?;
+                }
             }
         }
         _ => return Err(AxError::new("fixture", format!("unsupported Rust optimize operation {operation}"))),
@@ -16160,12 +16232,37 @@ fn conformance_evaluation_result(fixture: &Value) -> Value {
     result
 }
 
-fn conformance_optimization_prediction(fixture: &Value) -> Value {
+// The optimize eval operation runs the agent's evaluate_optimization_task on
+// the fixture's scripted client, with its runtime_script as the agent's
+// runtime when given, as the other runners do.
+fn conformance_agent_eval_prediction(fixture: &Value) -> AxResult<Value> {
+    let signature = fixture
+        .get("signature")
+        .and_then(Value::as_str)
+        .unwrap_or("question:string -> answer:string");
+    let mut program = agent_with_options(signature, fixture.get("options").cloned().unwrap_or_else(|| json!({})))?;
+    if let Some(script) = fixture.get("runtime_script").and_then(Value::as_array) {
+        let language = fixture
+            .get("runtime_language")
+            .and_then(Value::as_str)
+            .unwrap_or("JavaScript")
+            .to_string();
+        program = program.with_runtime(Box::new(ScriptedCodeRuntime::new(script.clone(), language, String::new())))?;
+    }
+    let responses = fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut client = FixtureClient::scripted(
+        responses,
+        fixture.get("features").cloned().unwrap_or_else(router_default_features),
+    );
     let task = fixture
         .get("task")
         .cloned()
         .unwrap_or_else(|| json!({"input": fixture.get("input").cloned().unwrap_or_else(|| json!({}))}));
-    conformance_optimization_prediction_for_task(fixture, &task)
+    program.evaluate_optimization_task(
+        &mut client,
+        task,
+        fixture.get("eval_options").cloned().unwrap_or_else(|| json!({})),
+    )
 }
 
 fn conformance_optimization_prediction_for_task(fixture: &Value, task: &Value) -> Value {
@@ -17110,6 +17207,38 @@ fn expect_fixture_request_roles(fixture: &Value, client: &FixtureClient) -> AxRe
     expect_json_equal("request roles", &Value::Array(roles), expected)
 }
 
+// python: _assert_last_request_tail. expected_last_request_tail lists the
+// last messages of the last request's chat prompt, compared by role and
+// content (a string, or a list of parts).
+fn expect_fixture_last_request_tail(fixture: &Value, client: &FixtureClient) -> AxResult<()> {
+    let Some(expected) = fixture.get("expected_last_request_tail") else {
+        return Ok(());
+    };
+    let prompt = client
+        .requests
+        .last()
+        .and_then(|request| request.get("chat_prompt"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    // Python's prompt[-len(expected):], which is the whole prompt for none.
+    let count = expected.as_array().map_or(0, Vec::len);
+    let start = if count == 0 { 0 } else { prompt.len().saturating_sub(count) };
+    let tail = prompt[start..]
+        .iter()
+        .map(|message| {
+            let mut kept = serde_json::Map::new();
+            for key in ["role", "content"] {
+                if let Some(value) = message.get(key) {
+                    kept.insert(key.to_string(), value.clone());
+                }
+            }
+            Value::Object(kept)
+        })
+        .collect();
+    expect_json_equal("last request tail", &Value::Array(tail), expected)
+}
+
 // python: expected_chat_prompt. The first request's whole chat prompt.
 fn expect_fixture_chat_prompt(fixture: &Value, client: &FixtureClient) -> AxResult<()> {
     let Some(expected) = fixture.get("expected_chat_prompt") else {
@@ -17219,6 +17348,7 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
         expect_json_equal("run control events", &actual, expected)?;
     }
     expect_fixture_request_roles(fixture, &client)?;
+    expect_fixture_last_request_tail(fixture, &client)?;
     expect_fixture_chat_prompt(fixture, &client)?;
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() != expected as usize {
@@ -17603,6 +17733,7 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         expect_json_equal("run control events", &actual, expected)?;
     }
     expect_fixture_request_roles(fixture, &client)?;
+    expect_fixture_last_request_tail(fixture, &client)?;
     expect_fixture_chat_prompt(fixture, &client)?;
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() != expected as usize {
@@ -19098,6 +19229,22 @@ fn core_string_utf16_units(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 
 fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     Ok(CoreValue::Num(core_arg(args, 0).text().chars().count() as f64))
+}
+
+// Appends streamed text. A Rust string is UTF-8 and holds whole characters,
+// so no chunk ends in half of a surrogate pair, and plain concatenation keeps
+// every character whole (Python joins a pair split across two chunks).
+fn core_string_concat_stream_text(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::from_string(format!("{}{}", core_arg(args, 0).text(), core_arg(args, 1).text())))
+}
+
+// The value without a trailing high surrogate (U+D800 to U+DBFF), which TS
+// holds back until its low half streams in. A UTF-8 Rust string can't end in
+// one, since a lone surrogate isn't a char (a stream event's lone surrogate
+// escape reads as U+FFFD, see parse_stream_event_json), so the value comes
+// back unchanged.
+fn core_string_drop_trailing_high_surrogate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(core_arg(args, 0))
 }
 
 // ----- intrinsic.date.zone_offset: the platform tz database -----
@@ -27200,6 +27347,102 @@ mod axgen_program_control_tests {
         program.streaming_forward(&mut client, json!({"question": "Say hi"}), options, |_| Ok(()))?;
         assert_eq!((reads.load(Ordering::SeqCst), writes.load(Ordering::SeqCst), client.chats), (0, 0, 2));
         assert_eq!(client.spoken, [json!("Hello there")]);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod axgen_feedback_wire_tests {
+    use super::*;
+
+    // Answers "Answer: first", then "Answer: second", in the provider's
+    // response shape, keeping each request body.
+    struct Answers {
+        provider: &'static str,
+        bodies: Arc<Mutex<Vec<Value>>>,
+    }
+
+    impl AxTransport for Answers {
+        fn send(&mut self, request: Value) -> AxResult<Value> {
+            let mut bodies = self.bodies.lock().unwrap();
+            bodies.push(request["json"].clone());
+            let text = if bodies.len() == 1 { "Answer: first" } else { "Answer: second" };
+            let json = match self.provider {
+                "anthropic" => json!({"id": "msg", "type": "message", "role": "assistant", "content": [{"type": "text", "text": text}], "stop_reason": "end_turn", "usage": {"input_tokens": 1, "output_tokens": 1}}),
+                "google-gemini" => json!({"candidates": [{"content": {"role": "model", "parts": [{"text": text}]}, "finishReason": "STOP"}]}),
+                _ => json!({"id": "reply", "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}]}),
+            };
+            Ok(json!({"status": 200, "json": json}))
+        }
+    }
+
+    #[test]
+    fn processor_feedback_goes_out_as_a_text_part() -> AxResult<()> {
+        // A field processor's feedback is a user message whose content is
+        // [{type: "text", text}], which each provider sends as TS does.
+        for (provider, model, messages, feedback) in [
+            ("openai", "gpt-5.4-mini", "messages", json!({"role": "user", "content": [{"type": "text", "text": "Check it."}]})),
+            ("anthropic", "claude-sonnet-5", "messages", json!({"role": "user", "content": [{"type": "text", "text": "Check it."}]})),
+            ("google-gemini", "gemini-3.5-flash", "contents", json!({"role": "user", "parts": [{"text": "Check it."}]})),
+        ] {
+            let bodies = Arc::new(Mutex::new(Vec::new()));
+            let mut client = ai(provider, json!({"api_key": "test", "model": model}))?.with_transport(Answers { provider, bodies: bodies.clone() });
+            let mut program = ax("question:string -> answer:string")?;
+            let given = Arc::new(AtomicU64::new(0));
+            program.add_field_processor("answer", move |_, _| Ok((given.fetch_add(1, Ordering::SeqCst) == 0).then(|| json!("Check it."))))?;
+            assert_eq!(program.forward(&mut client, json!({"question": "Status?"}))?, json!({"answer": "second"}), "{provider}");
+            let bodies = bodies.lock().unwrap();
+            assert_eq!(bodies.len(), 2, "{provider}");
+            assert_eq!(bodies[1][messages].as_array().and_then(|list| list.last()), Some(&feedback), "{provider}");
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod stream_split_surrogate_tests {
+    use super::*;
+
+    // A chat completion streaming "Answer: hi \ud83d" and then "\ude00 there":
+    // one surrogate pair split between two events as JSON escapes.
+    const SPLIT_PAIR: &str = concat!(
+        "data: {\"id\":\"c\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Answer: hi \\ud83d\"}}]}\n\n",
+        "data: {\"id\":\"c\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\ude00 there\"},\"finish_reason\":\"stop\"}]}\n\n",
+        "data: [DONE]\n\n",
+    );
+
+    struct SplitPair {
+        buffered: bool,
+    }
+
+    impl AxTransport for SplitPair {
+        fn send(&mut self, _: Value) -> AxResult<Value> {
+            Err(AxError::runtime("expected streaming"))
+        }
+
+        fn stream(&mut self, _request: Value) -> AxResult<AxTransportStream> {
+            Ok(if self.buffered {
+                AxTransportStream::Buffered(json!({"status": 200, "body": SPLIT_PAIR}))
+            } else {
+                AxTransportStream::Reader { status: 200, body: Box::new(std::io::Cursor::new(SPLIT_PAIR.as_bytes().to_vec())) }
+            })
+        }
+    }
+
+    #[test]
+    fn a_split_surrogate_pair_reads_as_replacement_characters() -> AxResult<()> {
+        // TS keeps each half and joins them into the emoji. serde_json
+        // refuses a lone surrogate escape, which a Rust string can't hold, so
+        // each half reads as U+FFFD, and the stream goes on.
+        for buffered in [false, true] {
+            let mut client = ai("openai", json!({"api_key": "test", "model": "gpt-5.4-mini"}))?.with_transport(SplitPair { buffered });
+            let mut program = ax("question:string -> answer:string")?;
+            let output = program.streaming_forward(&mut client, json!({"question": "Status?"}), json!({}), |_| Ok(()))?;
+            assert_eq!(output, json!({"answer": "hi \u{fffd}\u{fffd} there"}), "buffered {buffered}");
+        }
+        // Any other bad escape still fails the event's parse.
+        assert!(parse_stream_event_json("{\"content\":\"\\u12\"}").is_err());
+        assert_eq!(parse_stream_event_json("{\"content\":\"\\ud83d\\ude00\"}")?, json!({"content": "\u{1f600}"}));
         Ok(())
     }
 }

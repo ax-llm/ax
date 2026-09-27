@@ -200,6 +200,35 @@ void native_steering(){
   Value logs=program.get_chat_log();if(stringify(Core::get(Core::get(logs,0),"remote_id"))!="\"parent\"" || stringify(Core::get(Core::get(logs,1),"remote_id"))!="\"successor\"")throw std::runtime_error("Lost response accounting");
   std::cout<<"cpp native steering, successor accounting, and closure passed\n";
 }
+// Answers each response.create with a completed response: the first answer
+// gets a field processor's feedback, which continues the open session.
+class FeedbackSessionSocket final:public RealtimeTransport {
+ public:
+  std::mutex mutex;std::condition_variable ready;std::deque<Value> incoming;std::vector<Value> sent;bool closed=false;
+  void send(const Value& event)override{
+    std::lock_guard<std::mutex> lock(mutex);sent.push_back(event);
+    std::string id=sent.size()==1?"first":"second";
+    incoming.push_back(object({{"type","response.created"},{"response",object({{"id",id}})}}));
+    incoming.push_back(completed(id,"Answer: "+id));
+    ready.notify_all();
+  }
+  bool recv(Value& out)override{std::unique_lock<std::mutex> lock(mutex);if(!ready.wait_for(lock,std::chrono::seconds(5),[&]{return closed||!incoming.empty();})||closed)return false;out=incoming.front();incoming.pop_front();return true;}
+  void close()override{std::lock_guard<std::mutex> lock(mutex);closed=true;ready.notify_all();}
+};
+// A processor's feedback is a user message with [{type: text, text}] content;
+// an open native session gets its text as the next response's input_text.
+void native_session_feedback_text(){
+  auto socket=std::make_shared<FeedbackSessionSocket>();auto control=run_control();
+  auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));
+  dynamic_cast<OpenAICompatibleClient&>(*client).session_web_socket_factory([socket](const std::string&,Value){return socket;});
+  auto program=ax("question -> answer");int calls=0;
+  program.add_field_processor("answer",[&calls](const Value&,const AxFieldProcessorContext&)->Value{return ++calls==1?Value("Check it."):Value();},AxFieldProcessorMode::Feedback);
+  Value result=program.forward(*client,object({{"question","Status?"}}),object({{"control",control.value()}}));
+  Value second;{std::lock_guard<std::mutex> lock(socket->mutex);if(socket->sent.size()!=2)throw std::runtime_error("Feedback did not continue the native session");second=socket->sent[1];}
+  Value text=Core::get(Core::get(Core::get(Core::get(Core::get(second,"input"),0),"content"),0),"text");
+  if(!text.is_string()||display(text)!="Check it."||display(Core::get(result,"answer"))!="second")throw std::runtime_error("Native session feedback was not sent as text: "+stringify(second));
+  std::cout<<"cpp native session feedback continues as input text\n";
+}
 void flow_isolation(){
   auto transport=std::make_shared<FlowTransport>();auto calls=std::make_shared<std::atomic<int>>(0);
   auto client=ai("openai",object({{"api_key","test"},{"model","gpt-6-astra"}}));dynamic_cast<OpenAICompatibleClient&>(*client).shared_transport(transport);
@@ -793,5 +822,5 @@ int main(int argc,char** argv){
   Value result=program.forward(routed,object({{"question","Find reference"}}));
   if(stringify(Core::get(result,"answer"))!="\"REF-42\""||gate->calls.load()!=1)throw std::runtime_error("Provisional output escaped");
   std::cout<<"cpp high-level async overlap and final incorporation passed\n";
-  invalid_arguments_and_exhaustion();flow_isolation();native_steering();buffered_steering_boundary();cancellation();disconnect_pending();noncooperative_cancellation();native_agent();agent_stream_under_control();concurrent_native_mcp();mixed_balancer();
+  invalid_arguments_and_exhaustion();flow_isolation();native_steering();native_session_feedback_text();buffered_steering_boundary();cancellation();disconnect_pending();noncooperative_cancellation();native_agent();agent_stream_under_control();concurrent_native_mcp();mixed_balancer();
 }

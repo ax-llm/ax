@@ -46,6 +46,9 @@ export type InternalAxGenState = {
   functionCalls: NonNullable<AxChatResponseResult['functionCalls']>;
   xstate: extractionState;
   structuredAccumulator?: StructuredStreamAccumulator;
+  // Feedback streaming field processors returned mid-stream; it is added to
+  // memory when the step ends.
+  pendingFeedback?: unknown[];
 };
 
 export type ProcessResponseBaseArgs = Readonly<
