@@ -373,6 +373,8 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicProgramComponents:         "Core::program_components",
 	IntrinsicProgramApplyComponents:    "Core::program_apply_components",
 	IntrinsicAICompleteOnce:            "Core::ai_complete_once",
+	IntrinsicAIControlTakePending:      "Core::ai_control_take_pending",
+	IntrinsicAIControlPendingCount:     "Core::ai_control_pending_count",
 	IntrinsicAIClientFeatures:          "Core::ai_client_features",
 	IntrinsicRetrySleep:                "Core::retry_sleep",
 	IntrinsicExceptionMessage:          "Core::exception_message",

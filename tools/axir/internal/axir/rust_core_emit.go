@@ -150,6 +150,8 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.object.call_method":                    "core_object_call_method",
 	"intrinsic.tool.invoke":                           "core_tool_invoke",
 	"intrinsic.ai.complete_once":                      "core_ai_complete_once",
+	"intrinsic.ai.control_take_pending":               "core_ai_control_take_pending",
+	"intrinsic.ai.control_pending_count":              "core_ai_control_pending_count",
 	"intrinsic.ai.client_features":                    "core_ai_client_features",
 	"intrinsic.axgen.apply_context_cache":             "core_axgen_apply_context_cache",
 	"intrinsic.axgen.apply_field_processors":          "core_axgen_apply_field_processors",

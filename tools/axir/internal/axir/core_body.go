@@ -80,6 +80,8 @@ const (
 	IntrinsicProgramComponents         CoreIntrinsic = "intrinsic.program.components"
 	IntrinsicProgramApplyComponents    CoreIntrinsic = "intrinsic.program.apply_components"
 	IntrinsicAICompleteOnce            CoreIntrinsic = "intrinsic.ai.complete_once"
+	IntrinsicAIControlTakePending      CoreIntrinsic = "intrinsic.ai.control_take_pending"
+	IntrinsicAIControlPendingCount     CoreIntrinsic = "intrinsic.ai.control_pending_count"
 	IntrinsicAIClientFeatures          CoreIntrinsic = "intrinsic.ai.client_features"
 	IntrinsicRetrySleep                CoreIntrinsic = "intrinsic.retry.sleep"
 	IntrinsicExceptionMessage          CoreIntrinsic = "intrinsic.exception.message"
@@ -235,6 +237,8 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicProgramComponents:         "_core_program_components",
 	IntrinsicProgramApplyComponents:    "_core_program_apply_components",
 	IntrinsicAICompleteOnce:            "_core_ai_complete_once",
+	IntrinsicAIControlTakePending:      "_core_ai_control_take_pending",
+	IntrinsicAIControlPendingCount:     "_core_ai_control_pending_count",
 	IntrinsicAIClientFeatures:          "_core_ai_client_features",
 	IntrinsicRetrySleep:                "_core_retry_sleep",
 	IntrinsicExceptionMessage:          "_core_exception_message",
@@ -389,6 +393,8 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.program.components":                    true,
 	"intrinsic.program.apply_components":              true,
 	"intrinsic.ai.complete_once":                      true,
+	"intrinsic.ai.control_take_pending":               true,
+	"intrinsic.ai.control_pending_count":              true,
 	"intrinsic.ai.client_features":                    true,
 	"intrinsic.retry.sleep":                           true,
 	"intrinsic.exception.message":                     true,
@@ -798,6 +804,8 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.program.components":              intrinsicInfo("intrinsic.program.components", 1, 1, true, "list<json>"),
 	"intrinsic.program.apply_components":        intrinsicInfo("intrinsic.program.apply_components", 2, 2, true, "json"),
 	"intrinsic.ai.complete_once":                intrinsicInfo("intrinsic.ai.complete_once", 3, 3, true, "json"),
+	"intrinsic.ai.control_take_pending":         intrinsicInfo("intrinsic.ai.control_take_pending", 1, 1, true, "json"),
+	"intrinsic.ai.control_pending_count":        intrinsicInfo("intrinsic.ai.control_pending_count", 1, 1, true, "i64"),
 	"intrinsic.ai.client_features":              intrinsicInfo("intrinsic.ai.client_features", 2, 2, false, "json"),
 	"intrinsic.json.parse_strict":               intrinsicInfo("intrinsic.json.parse_strict", 1, 1, true, "json"),
 	"intrinsic.retry.sleep":                     intrinsicInfo("intrinsic.retry.sleep", 3, 3, true, "void"),

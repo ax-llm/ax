@@ -78,6 +78,24 @@ final class SessionRun implements AiClient,AutoCloseable {
     for(Object id:Core.asList(applied.get("applied")))emit("applied",Map.of("update_id",id,"timing","next-response"));
     return Core.asMap(applied.get("request"));
   }
+  // As in TypeScript, the forward applies the updates pending for this run
+  // when a step starts (intrinsic.ai.control_take_pending): each is applied
+  // now, so the next request boundary skips it, and the run reports started
+  // before the first one. A native chat session applies its controls itself,
+  // so it hands over none.
+  List<Map<String,Object>> takeControlUpdates() {
+    if(control==null||provider!=null) return new ArrayList<>();
+    var updates=control.pending(path,seen);
+    if(updates.isEmpty()) return new ArrayList<>();
+    if(!fallbackStarted){emit("started",Map.of());fallbackStarted=true;}
+    for(var update:updates){seen.add(String.valueOf(update.get("id")));emit("applied",Map.of("update_id",update.get("id"),"timing","next-response"));}
+    return new ArrayList<>(updates);
+  }
+  // The updates still pending for this run (intrinsic.ai.control_pending_count);
+  // a step that ends with some takes another step.
+  int pendingControlCount() {
+    return control==null||provider!=null?0:control.pending(path,seen).size();
+  }
   // A streamed forward pulls the client's chunks through the same boundary, as
   // they arrive and with the call's options and cancellation. An async chat
   // session answers with its final completion as one chunk.

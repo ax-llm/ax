@@ -577,7 +577,12 @@ func (p *genSessionClient) Chat(ctx context.Context, request, options map[string
 			}
 			p.session = session
 			p.state = mustCore(chat_session_create_state(coreGet(request, "model", ""), p.path, coreGet(p.options, "maxSteps", coreGet(p.options, "max_steps", 10))))
-			p.emit("started")
+			// A routed run pins its session on the first request, after the
+			// first step may have taken updates and started the run.
+			if !p.fallbackStarted {
+				p.emit("started")
+				p.fallbackStarted = true
+			}
 			go func() {
 				for {
 					event, err := session.Next(p.ctx)
@@ -735,6 +740,66 @@ func (p *genSessionClient) finish(err error, consumerStopped bool) {
 	default:
 		p.emit("completed")
 	}
+}
+
+// controlBoundary returns the run control's request boundary behind client:
+// the run client that applies a control's pending updates at each request.
+// It is nil without a control, and for a native chat session, which applies
+// its controls itself.
+func controlBoundary(client Value) *genSessionClient {
+	for {
+		bound, ok := client.(contextBoundAIClient)
+		if !ok {
+			break
+		}
+		client = bound.inner
+	}
+	p, ok := client.(*genSessionClient)
+	if !ok || p == nil || p.control == nil || p.opener != nil {
+		return nil
+	}
+	return p
+}
+
+// takeControlUpdates hands the updates queued for the run's path to the
+// forward, which applies them when a step starts, as TypeScript does: they
+// count as applied now, and the next request boundary skips them.
+func (p *genSessionClient) takeControlUpdates() []map[string]Value {
+	updates, after := p.control.pending(p.path, p.after)
+	p.after = after
+	if len(updates) > 0 && !p.fallbackStarted {
+		p.emit("started")
+		p.fallbackStarted = true
+	}
+	for _, update := range updates {
+		p.emit("applied", "update_id", coreGet(update, "id", nil), "timing", "next-response")
+	}
+	return updates
+}
+
+// _core_ai_control_take_pending returns the run control updates queued for
+// the run and not yet applied, which the forward applies when a step starts,
+// as TypeScript does. It is empty unless client is a run control's request
+// boundary (see controlBoundary).
+func _core_ai_control_take_pending(client Value) Value {
+	out := Array()
+	if p := controlBoundary(client); p != nil {
+		for _, update := range p.takeControlUpdates() {
+			out = append(out, update)
+		}
+	}
+	return out
+}
+
+// _core_ai_control_pending_count is the number of updates queued for the
+// run's path that nothing has applied yet, without taking them; 0 unless
+// client is a run control's request boundary.
+func _core_ai_control_pending_count(client Value) Value {
+	if p := controlBoundary(client); p != nil {
+		updates, _ := p.control.pending(p.path, p.after)
+		return float64(len(updates))
+	}
+	return float64(0)
 }
 
 func _core_run_control_aborted(control Value) Value {
