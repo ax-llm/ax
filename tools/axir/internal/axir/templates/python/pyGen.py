@@ -1057,6 +1057,19 @@ def _core_accepts_options(method):
         return False
 
 
+def _core_ai_control_take_pending(client):
+    # The run control updates queued for this run, which the forward applies
+    # when a step starts, as TS does. Only a request boundary tracks them; a
+    # chat session applies its controls itself.
+    take = getattr(client, "_take_control_updates", None)
+    return take() if callable(take) else []
+
+
+def _core_ai_control_pending_count(client):
+    count = getattr(client, "_pending_control_count", None)
+    return int(count()) if callable(count) else 0
+
+
 def _core_ai_complete_once(client, request, options):
     # As in TS, a streamed forward folds the stream's chunks into one response.
     streaming = bool(((request or {}).get("model_config") or {}).get("stream"))

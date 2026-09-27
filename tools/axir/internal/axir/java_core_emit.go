@@ -334,6 +334,8 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicProgramComponents:         "Core.programComponents",
 	IntrinsicProgramApplyComponents:    "Core.programApplyComponents",
 	IntrinsicAICompleteOnce:            "Core.aiCompleteOnce",
+	IntrinsicAIControlTakePending:      "Core.aiControlTakePending",
+	IntrinsicAIControlPendingCount:     "Core.aiControlPendingCount",
 	IntrinsicAIClientFeatures:          "Core.aiClientFeatures",
 	IntrinsicRetrySleep:                "Core.retrySleep",
 	IntrinsicExceptionMessage:          "Core.exceptionMessage",
