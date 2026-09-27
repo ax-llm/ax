@@ -17,11 +17,15 @@ from .ai import (
     _merge_runtime_hooks,
     _runtime_hook_scope,
     _runtime_hooks_from_options,
+    _snapshot_global_caching_function,
     _strip_runtime_hooks,
 )
 from .gen import (
     AxGen,
     ax,
+    _core_axgen_cache_read,
+    _core_axgen_cache_write,
+    _core_crypto_sha256_hex,
     _core_exception_message,
     _core_eq,
     _core_gte,
@@ -400,6 +404,12 @@ class AxFlow(AxProgram):
         options: dict[str, Any] | None = None,
         hooks: AxRuntimeHooks | None = None,
     ):
+        # As in TS, the flow reads its cache before its span and metrics, so a
+        # stored output records neither.
+        run_options = _strip_runtime_hooks(options) or {}
+        lookup = _flow_cache_lookup_impl(self.state, values or {}, run_options)
+        if lookup.get("hit"):
+            return lookup.get("value")
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -408,7 +418,7 @@ class AxFlow(AxProgram):
             attributes={"ax.program.id": self.state.get("program_id", "root.flow"), "ax.program.type": "AxFlow"},
             metric_prefix="ax_gen_flow",
         ):
-            return self._forward_unscoped(client, values, _strip_runtime_hooks(options))
+            return self._forward_unscoped(client, values, {**run_options, "_ax_flow_cache_lookup": lookup})
 
     def _forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_options = dict(options or {})
@@ -567,6 +577,17 @@ def _core_string_str(value):
 
 def _core_string_starts_with(value, prefix):
     return str(value).startswith(str(prefix))
+
+
+def _core_flow_caching_function(options):
+    # TS AxFlow's cachingFunction: the call's, else the process-wide one; the
+    # flow's constructor takes none.
+    options = options or {}
+    for key in ("cachingFunction", "caching_function"):
+        fn = options.get(key)
+        if fn is not None:
+            return fn
+    return _snapshot_global_caching_function()
 
 
 def _core_json_stable_stringify(value):
@@ -937,14 +958,22 @@ def _flow_plan(flow: Any) -> Any:
     return plan
 
 
-def _flow_cache_key(values: Any) -> str:
+def _flow_cache_key(flow: Any, values: Any) -> str:
     _core_coverage_mark("_flow_cache_key")
-    key = _core_json_stable_stringify(values)
+    plan = _flow_plan(flow)
+    plan_text = _core_json_stable_stringify(plan)
+    values_text = _core_json_stable_stringify(values)
+    parts = []
+    parts.append("axflow")
+    parts.append(plan_text)
+    parts.append(values_text)
+    text = _core_string_join("\n", parts)
+    key = _core_crypto_sha256_hex(text)
     return key
 
 
-def _flow_cache_read_write(flow: Any, values: Any, options: Any, mode: str, cached_value: Any) -> Any:
-    _core_coverage_mark("_flow_cache_read_write")
+def _flow_cache_lookup_impl(flow: Any, values: Any, options: Any) -> Any:
+    _core_coverage_mark("_flow_cache_lookup_impl")
     empty_map = {}
     opts_missing = _core_is_none(options)
     opts = options
@@ -952,59 +981,52 @@ def _flow_cache_read_write(flow: Any, values: Any, options: Any, mode: str, cach
         opts = empty_map
     else:
         pass
-    key = _flow_cache_key(values)
-    store_snake = _core_get(opts, "cache_store", None)
-    store = _core_get(opts, "cacheStore", store_snake)
-    has_store = _core_is_not_none(store)
-    read_error_snake = _core_get(opts, "cache_read_error", False)
-    read_error = _core_get(opts, "cacheReadError", read_error_snake)
-    write_error_snake = _core_get(opts, "cache_write_error", False)
-    write_error = _core_get(opts, "cacheWriteError", write_error_snake)
-    is_read = _core_eq(mode, "read")
-    is_write = _core_eq(mode, "write")
     none = _core_none()
-    result = {}
-    result["key"] = key
-    result["hit"] = False
-    result["value"] = none
+    lookup = {}
+    lookup["fn"] = none
+    lookup["key"] = ""
+    lookup["hit"] = False
     controller = _core_get(opts, "control", None)
     controlled = _core_is_not_none(controller)
     if controlled:
-        return result
+        return lookup
     else:
         pass
-    if is_read:
-        can_read_store = _core_and(has_store, read_error)
-        skip_read = _core_truthy(can_read_store)
-        if skip_read:
-            pass
-        else:
-            if has_store:
-                cached = _core_get(store, key, None)
-                hit = _core_is_not_none(cached)
-                if hit:
-                    result["hit"] = True
-                    result["value"] = cached
-                else:
-                    pass
-            else:
-                pass
+    cache_fn = _core_flow_caching_function(opts)
+    no_cache = _core_is_none(cache_fn)
+    if no_cache:
+        return lookup
     else:
         pass
-    if is_write:
-        can_write_store = _core_and(has_store, write_error)
-        skip_write = _core_truthy(can_write_store)
-        if skip_write:
-            pass
-        else:
-            if has_store:
-                store[key] = cached_value
-                result["value"] = cached_value
-            else:
-                pass
+    key = _flow_cache_key(flow, values)
+    lookup["fn"] = cache_fn
+    lookup["key"] = key
+    cached = _core_none()
+    try:
+        cached = _core_axgen_cache_read(cache_fn, key)
+    except Exception as read_error:
+        pass
+    hit = _core_is_not_none(cached)
+    if hit:
+        lookup["hit"] = True
+        lookup["value"] = cached
     else:
         pass
-    return result
+    return lookup
+
+
+def _flow_cache_store_impl(cache_fn: Any, key: str, output: Any) -> None:
+    _core_coverage_mark("_flow_cache_store_impl")
+    no_cache = _core_is_none(cache_fn)
+    if no_cache:
+        return None
+    else:
+        pass
+    try:
+        _core_axgen_cache_write(cache_fn, key, output)
+    except Exception as write_error:
+        pass
+    return None
 
 
 def _flow_check_abort(options: Any, location: str) -> None:
@@ -1587,13 +1609,25 @@ def _flow_forward(flow: Any, client: Any, values: Any, options: Any) -> Any:
         opts = empty_map
     else:
         pass
-    cache_read = _flow_cache_read_write(flow, values, opts, "read", None)
-    cache_hit = _core_get(cache_read, "hit", False)
-    if cache_hit:
-        cached_value = _core_get(cache_read, "value", None)
-        return cached_value
+    opts = _core_map_merge(empty_map, opts)
+    cache_fn = _core_none()
+    flow_cache_key = ""
+    host_lookup = _core_get(opts, "_ax_flow_cache_lookup", None)
+    looked_up = _core_is_not_none(host_lookup)
+    if looked_up:
+        cache_fn = _core_get(host_lookup, "fn", None)
+        flow_cache_key = _core_get(host_lookup, "key", "")
     else:
-        pass
+        cache_read = _flow_cache_lookup_impl(flow, values, opts)
+        cache_hit = _core_get(cache_read, "hit", False)
+        if cache_hit:
+            cached_value = _core_get(cache_read, "value", None)
+            return cached_value
+        else:
+            pass
+        cache_fn = _core_get(cache_read, "fn", None)
+        flow_cache_key = _core_get(cache_read, "key", "")
+    _core_map_delete(opts, "_ax_flow_cache_lookup")
     fresh_traces = []
     fresh_chat_log = []
     fresh_usage = {}
@@ -1603,13 +1637,13 @@ def _flow_forward(flow: Any, client: Any, values: Any, options: Any) -> Any:
     state = _core_map_merge(empty_map, values)
     traces = _core_get(flow, "traces", None)
     program_id = _core_get(flow, "program_id", "root.flow")
-    cache_key = _flow_cache_key(values)
+    cache_key = _flow_cache_key(flow, values)
     begin = _program_trace_event(program_id, "flow_start", state)
     traces.append(begin)
     state = _flow_execute_steps(flow, client, state, opts)
     returns = _core_get(flow, "returns", empty_map)
     output = _flow_project_returns(state, returns)
-    _flow_cache_read_write(flow, values, opts, "write", output)
+    _flow_cache_store_impl(cache_fn, flow_cache_key, output)
     done_payload = {}
     done_payload["cache_key"] = cache_key
     done_payload["output"] = output

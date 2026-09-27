@@ -1,0 +1,51 @@
+{
+  "calls": [
+    {
+      "input": {
+        "firstName": "Ada",
+        "lastName": "Lovelace"
+      },
+      "kind": "forward"
+    },
+    {
+      "input": {
+        "firstName": "Ada",
+        "lastName": "Lovelace"
+      },
+      "kind": "forward",
+      "reverse_input_keys": true
+    }
+  ],
+  "expected_cache_gets": 2,
+  "expected_cache_sets": [
+    {
+      "fullName": "Ada Lovelace"
+    }
+  ],
+  "expected_deltas": [null, null],
+  "expected_outputs": [
+    {
+      "fullName": "Ada Lovelace"
+    },
+    {
+      "fullName": "Ada Lovelace"
+    }
+  ],
+  "expected_request_count": 0,
+  "expected_requests": [0, 0],
+  "kind": "flow_cache_sequence",
+  "name": "flow-cache-key-stable-input-order",
+  "responses": [],
+  "returns": {
+    "fullName": "fullName"
+  },
+  "steps": [
+    {
+      "kind": "map",
+      "name": "fullName",
+      "output": {
+        "fullName": "Ada Lovelace"
+      }
+    }
+  ]
+}

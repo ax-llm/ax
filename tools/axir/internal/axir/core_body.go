@@ -147,6 +147,7 @@ const (
 	IntrinsicAxGenRecordFunction       CoreIntrinsic = "intrinsic.axgen.record_function_call"
 	IntrinsicRunControlAborted         CoreIntrinsic = "intrinsic.run_control.aborted"
 	IntrinsicFlowDispatchGroup         CoreIntrinsic = "intrinsic.flow.dispatch_group"
+	IntrinsicFlowCachingFunction       CoreIntrinsic = "intrinsic.flow.caching_function"
 	IntrinsicAgentStageForward         CoreIntrinsic = "intrinsic.agent.stage_forward"
 	IntrinsicAgentNativeStageForward   CoreIntrinsic = "intrinsic.agent.native_stage_forward"
 	IntrinsicAgentStageStreamForward   CoreIntrinsic = "intrinsic.agent.stage_streaming_forward"
@@ -304,6 +305,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAxGenRecordFunction:       "_core_axgen_record_function_call",
 	IntrinsicRunControlAborted:         "_core_run_control_aborted",
 	IntrinsicFlowDispatchGroup:         "_core_flow_dispatch_group",
+	IntrinsicFlowCachingFunction:       "_core_flow_caching_function",
 	IntrinsicAgentStageForward:         "_core_agent_stage_forward",
 	IntrinsicAgentNativeStageForward:   "_core_agent_native_stage_forward",
 	IntrinsicAgentStageStreamForward:   "_core_agent_stage_streaming_forward",
@@ -485,6 +487,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.axgen.record_function_call":            true,
 	"intrinsic.run_control.aborted":                   true,
 	"intrinsic.flow.dispatch_group":                   true,
+	"intrinsic.flow.caching_function":                 true,
 	"intrinsic.agent.stage_forward":                   true,
 	"intrinsic.agent.native_stage_forward":            true,
 	"intrinsic.agent.stage_streaming_forward":         true,
@@ -782,6 +785,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.tool.invoke":                     intrinsicInfo("intrinsic.tool.invoke", 2, 2, true, "json"),
 	"intrinsic.run_control.aborted":             intrinsicInfo("intrinsic.run_control.aborted", 1, 1, false, "bool"),
 	"intrinsic.flow.dispatch_group":             intrinsicInfo("intrinsic.flow.dispatch_group", 5, 5, true, "json"),
+	"intrinsic.flow.caching_function":           intrinsicInfo("intrinsic.flow.caching_function", 1, 1, true, "json"),
 	"intrinsic.agent.stage_forward":             intrinsicInfo("intrinsic.agent.stage_forward", 4, 4, true, "json"),
 	"intrinsic.agent.native_stage_forward":      intrinsicInfo("intrinsic.agent.native_stage_forward", 6, 6, true, "json"),
 	"intrinsic.agent.stage_streaming_forward":   intrinsicInfo("intrinsic.agent.stage_streaming_forward", 6, 6, true, "json"),

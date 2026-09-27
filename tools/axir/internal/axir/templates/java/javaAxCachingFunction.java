@@ -18,8 +18,16 @@ import java.util.Map;
  * ax_gen_forward} span and no {@code ax_gen_generation} metrics. A call with a run {@code control}
  * skips the cache.
  *
- * <p>Keys are SHA-256 hex digests of the signature and the input values, media data included; they
- * are not shared with other languages. Stores get a copy of the output and reads return a copy of
+ * <p>An {@link AxFlow} caches its returned output the same way, through the {@code
+ * cachingFunction} of its forward call, else the process-wide one (its constructor takes none): a
+ * hit runs no node and records no {@code ax_gen_flow_forward} span and no {@code ax_gen_flow}
+ * metrics, and the flow ignores exceptions from its own reads and stores. The call's
+ * options reach the flow's AxGen nodes, so they cache their outputs too, and a node's read
+ * exception fails the flow as it fails that node's forward. {@link AxFlow#streamingForward} yields
+ * the output, stored or not, as one delta ({@code version} 1, {@code index} 0).
+ *
+ * <p>Keys are SHA-256 hex digests of the program (an AxGen's signature, an AxFlow's step plan) and
+ * the input values, media data included; they are not shared with other languages. Stores get a copy of the output and reads return a copy of
  * the stored value. The function can be called from several threads at once ({@code
  * streamingForward} runs on a worker thread, and flows can run programs in parallel), so keep it
  * thread-safe.

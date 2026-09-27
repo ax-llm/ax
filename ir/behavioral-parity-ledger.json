@@ -341,17 +341,27 @@
     },
     {
       "capability": "flow.caching",
-      "summary": "AxFlow forward consults an optional cacheStore: on a key hit it returns the cached output and skips execution; on a miss it runs and writes the output (errors swallowed). Key is built from the input (@flow_cache_key). NOTE: the key uses json.stable_stringify, NOT the TS SHA256 \u2014 keys diverge between the TS build and generated packages, so a cache must not be shared across them (documented simplification).",
-      "ir_ops": ["@flow_cache_read_write", "@flow_cache_key", "@flow_forward"],
+      "summary": "AxFlow forward reads TS's cachingFunction (the call's, else the process-wide one; the flow constructor takes none) before it runs and before hosts open the flow's span and metrics: a hit returns the stored output and runs no node, a read error is ignored, and a run control skips it. After the run it stores the returned output, ignoring a write error. The call's function also reaches the flow's AxGen nodes. Keys are native SHA-256 digests of the flow plan and the sorted input values (@flow_cache_key); they differ from TS's keys, so a cache must not be shared across languages.",
+      "ir_ops": [
+        "@flow_cache_lookup_impl",
+        "@flow_cache_store_impl",
+        "@flow_cache_key",
+        "@flow_forward"
+      ],
       "fixtures": [
-        "axflow/cache-hit-skips-execution.json",
-        "axflow/cache-miss-writes-output.json",
-        "axflow/cache-errors-are-swallowed.json"
+        "axflow/flow-cache-forward-miss-then-hit.json",
+        "axflow/flow-cache-global-fallback.json",
+        "axflow/flow-cache-different-inputs.json",
+        "axflow/flow-cache-key-stable-input-order.json",
+        "axflow/flow-cache-errors-ignored.json",
+        "axflow/flow-cache-node-read-error-propagates.json",
+        "axflow/flow-cache-control-skips-cache.json",
+        "axflow/flow-cache-streaming-miss-then-hit.json"
       ],
       "gate": "G6 perturbation + cross-target coverage",
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
-      "state": "VERIFIED IN ALL FIVE LANGUAGES. cache-hit asserts execution is skipped (request count 0) and the cached output returned; cache-miss asserts the output is written. KNOWN MINOR GAPS (not ported, documented here): TS SHA256 cache-key (IR uses json.stable_stringify); streamingForward (TS yields one accumulated result); nodeExtended; multi-source abort-signal merge; finer step-level execution logging."
+      "state": "VERIFIED IN ALL FIVE LANGUAGES against TS goldens (flow-cache-goldens.ts): the flow's and the AxGen nodes' cache reads and writes, the global fallback, key stability across input key order (reverse_input_keys), errors ignored, a node's read error failing the run, control skipping the cache, and a streamed hit. Each host reads the cache before the flow span, pinned by a host-side telemetry test per port. KNOWN MINOR GAPS (not ported, documented here): nodeExtended; multi-source abort-signal merge; finer step-level execution logging."
     },
     {
       "capability": "ai.stream.incremental_provider_delivery",

@@ -476,6 +476,9 @@ struct Core {
   static Value openai_normalize_stream_delta(Value raw, Value state);
   static Value openai_normalize_embed_response(Value raw);
   static Value flow_dispatch_group(Value flow, Value client, Value plans, Value state, Value options);
+  // An AxFlow's caching function: the call's "caching_function" (a
+  // caching_function() handle value), else the process-wide one, else null.
+  static Value flow_caching_function(Value options);
   // JS indexOf over bytes (the units of len and string_slice): the index of
   // needle at or after start (a negative start is 0), else -1.
   static Value string_index_of(Value text, Value needle, Value start);
@@ -1300,8 +1303,9 @@ struct Core {
   static Value _flow_plan_entry(Value step, Value step_index);
   static Value _flow_plan_can_share_group(Value group, Value candidate);
   static Value _flow_plan(Value flow);
-  static Value _flow_cache_key(Value values);
-  static Value _flow_cache_read_write(Value flow, Value values, Value options, Value mode, Value cached_value);
+  static Value _flow_cache_key(Value flow, Value values);
+  static Value _flow_cache_lookup_impl(Value flow, Value values, Value options);
+  static Value _flow_cache_store_impl(Value cache_fn, Value key, Value output);
   static Value _flow_check_abort(Value options, Value location);
   static Value _flow_project_returns(Value state, Value returns);
   static Value _flow_get_path(Value state, Value path);

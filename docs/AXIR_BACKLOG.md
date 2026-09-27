@@ -897,6 +897,15 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `55f195ce5`
   - Verification: `Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes.`
+- `axir-2026-09-27-axflow-reads-and-stores-its-own-cachingfunction-entry-in-the-por` [axflow] AxFlow reads and stores its own cachingFunction entry in the ports
+  - Status: done
+  - Source commit: `ec229a1fe66ae91383e7befff2205894e123abac`
+  - TS paths: `src/ax/flow/flow.ts`
+  - Impact: TypeScript AxFlow.forward reads a per-call or process-wide cachingFunction before running (a hit runs no node, read errors are ignored, a run control skips it) and stores its returned output afterwards; its options also reach the AxGen nodes. The ports had only a cache_store test seam at the flow level, so a flow cached nothing of its own. TypeScript also keyed a flow without nodes differently on its first call, so its first entry was never read.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `ae09148e2a4b5dd10d32725492b84a3fe0264068`
+  - Verification: `node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with 8 axflow flow-cache-* goldens and axgen/cache-forward-key-stable-input-order; per-port flow telemetry tests; npm run test --workspace=@ax-llm/ax`
 - `axir-2026-09-27-continue-the-axgen-step-loop-while-a-run-control-update-is-pendi` [axgen] Continue the AxGen step loop while a run control update is pending in the ports
   - Status: done
   - Source commit: `54f626c2a0bff242fea15d356b7f9b325d6befae`

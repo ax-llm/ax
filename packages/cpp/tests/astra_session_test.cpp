@@ -740,12 +740,43 @@ static void cache_hit_telemetry(){
   std::cout<<"cpp cache hits record no ax_gen_forward span or ax_gen_generation metrics\n";
 }
 
+// As TypeScript reads a flow's cachingFunction before any telemetry, a flow
+// cache hit (forward or streaming_forward) records no ax_gen_flow_forward span
+// and no ax_gen_flow_* metric, while a miss records both.
+static void flow_cache_hit_telemetry(){
+  auto log=std::make_shared<TelemetryLog>();
+  ParisModel model;
+  std::map<std::string,Value> store;
+  auto cache=caching_function([&store](const std::string& key,const Value* value)->std::optional<Value>{
+    if(value!=nullptr){store[key]=*value;return std::nullopt;}
+    auto hit=store.find(key);
+    if(hit==store.end())return std::nullopt;
+    return hit->second;
+  });
+  auto qa=ax("question:string -> answer:string");
+  auto workflow=flow().execute("qa",qa).returns(object({{"answer","answer"}}));
+  workflow.set_tracer(std::make_shared<LoggingTracer>(log)).set_meter(std::make_shared<LoggingMeter>(log));
+  Value options=object({{"caching_function",cache.value()}});
+  Value france=object({{"question","Capital of France?"}});
+  workflow.forward(model,france,options);
+  int spans=log->count("span:ax_gen_flow_forward"),metrics=log->count("metric:ax_gen_flow_");
+  if(model.calls!=1||spans!=1||metrics<2)throw std::runtime_error("A flow cache miss did not record its ax_gen_flow_forward span and ax_gen_flow metrics");
+  Value hit=workflow.forward(model,france,options);
+  Array deltas=Core::iter(workflow.streaming_forward(model,france,options));
+  if(model.calls!=1||display(Core::get(hit,"answer"))!="Paris"||deltas.size()!=1||Core::number(Core::get(deltas[0],"version"))!=1||Core::number(Core::get(deltas[0],"index"))!=0||!equal(Core::get(deltas[0],"delta"),hit))throw std::runtime_error("A flow cache hit was not answered from the cache");
+  if(log->count("span:ax_gen_flow_forward")!=spans||log->count("metric:ax_gen_flow_")!=metrics)throw std::runtime_error("A flow cache hit recorded an ax_gen_flow_forward span or an ax_gen_flow metric");
+  workflow.streaming_forward(model,object({{"question","Capital of Italy?"}}),options);
+  if(model.calls!=2||log->count("span:ax_gen_flow_forward")!=2*spans||log->count("metric:ax_gen_flow_")!=2*metrics)throw std::runtime_error("A streamed flow cache miss did not record its ax_gen_flow_forward span and ax_gen_flow metrics");
+  std::cout<<"cpp flow cache hits record no ax_gen_flow_forward span or ax_gen_flow metrics\n";
+}
+
 int main(int argc,char** argv){
   Value original=object({{"a",1}});Value copied=Core::map_merge(original,Value::object());
   Core::set(copied,"z",2);Core::set(original,"b",3);Core::set(original,"z",4);
   if(stringify(Value(Core::iter(original)))!="[\"a\",\"b\",\"z\"]"||stringify(Value(Core::iter(copied)))!="[\"a\",\"z\"]")throw std::runtime_error("Copied map insertion order leaked");
   rewrapped_error_cause();
   cache_hit_telemetry();
+  flow_cache_hit_telemetry();
   mcp_http_context_cancellation();
   owned_child_controls();
   owned_flow_failure();

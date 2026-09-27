@@ -17,11 +17,15 @@ from .ai import (
     _merge_runtime_hooks,
     _runtime_hook_scope,
     _runtime_hooks_from_options,
+    _snapshot_global_caching_function,
     _strip_runtime_hooks,
 )
 from .gen import (
     AxGen,
     ax,
+    _core_axgen_cache_read,
+    _core_axgen_cache_write,
+    _core_crypto_sha256_hex,
     _core_exception_message,
     _core_eq,
     _core_gte,
@@ -395,6 +399,12 @@ class AxFlow(AxProgram):
         options: dict[str, Any] | None = None,
         hooks: AxRuntimeHooks | None = None,
     ):
+        # As in TS, the flow reads its cache before its span and metrics, so a
+        # stored output records neither.
+        run_options = _strip_runtime_hooks(options) or {}
+        lookup = _flow_cache_lookup_impl(self.state, values or {}, run_options)
+        if lookup.get("hit"):
+            return lookup.get("value")
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -403,7 +413,7 @@ class AxFlow(AxProgram):
             attributes={"ax.program.id": self.state.get("program_id", "root.flow"), "ax.program.type": "AxFlow"},
             metric_prefix="ax_gen_flow",
         ):
-            return self._forward_unscoped(client, values, _strip_runtime_hooks(options))
+            return self._forward_unscoped(client, values, {**run_options, "_ax_flow_cache_lookup": lookup})
 
     def _forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_options = dict(options or {})
@@ -562,6 +572,17 @@ def _core_string_str(value):
 
 def _core_string_starts_with(value, prefix):
     return str(value).startswith(str(prefix))
+
+
+def _core_flow_caching_function(options):
+    # TS AxFlow's cachingFunction: the call's, else the process-wide one; the
+    # flow's constructor takes none.
+    options = options or {}
+    for key in ("cachingFunction", "caching_function"):
+        fn = options.get(key)
+        if fn is not None:
+            return fn
+    return _snapshot_global_caching_function()
 
 
 def _core_json_stable_stringify(value):

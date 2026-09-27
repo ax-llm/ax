@@ -668,6 +668,10 @@ export class AxFlow<
   ): Promise<OUT> {
     const cachingFunction =
       (options as any)?.cachingFunction ?? axGlobals.cachingFunction;
+    // The key hashes the flow's signature. A flow without nodes creates its
+    // program on its first run, so build it first: otherwise the first
+    // call's key differs from every later call's and its entry is never read.
+    if (cachingFunction && !options?.control) this.ensureProgram();
     const cacheKey = options?.control
       ? undefined
       : this.getCacheKey(values, cachingFunction as any);
