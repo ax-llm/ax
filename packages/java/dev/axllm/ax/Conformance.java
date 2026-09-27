@@ -650,7 +650,7 @@ public final class Conformance {
       case "ai_speak" -> runAISpeak(fixture);
       case "ai_realtime" -> runAIRealtime(fixture);
       case "ai_context_cache" -> runAIContextCache(fixture);
-      case "agent_forward" -> runAgentForward(fixture);
+      case "agent_forward", "agent_streaming_forward" -> runAgentForward(fixture);
       case "agent_playbook_coverage" -> runAgentPlaybookCoverage(fixture);
       case "agent_playbook_evolve" -> runAgentPlaybookEvolve(fixture);
       case "agent_prompt" -> runAgentPrompt(fixture);
@@ -2075,6 +2075,51 @@ public final class Conformance {
     return heading + "\n\n" + String.join("\n", entries);
   }
 
+  // Which part of an agent run sent a model request, by its system prompt.
+  static String agentRequestStage(Map<String, Object> request) {
+    String system = "";
+    List<Object> prompt = Core.asList(request.getOrDefault("chat_prompt", request.getOrDefault("chatPrompt", List.of())));
+    if (!prompt.isEmpty()) {
+      Map<String, Object> first = Core.asMap(prompt.get(0));
+      if ("system".equals(first.get("role")) && first.get("content") instanceof String content) system = content;
+    }
+    if (system.contains("You (`distiller`)")) return "distiller";
+    if (system.contains("You (`executor`)")) return "executor";
+    if (system.contains("context-map Distiller") || system.contains("context-map Cartographer")) return "context_map";
+    return "responder";
+  }
+
+  static void assertAgentRunProjections(Map<String, Object> fixture, AxAgent agent, ConformanceScriptedAI client, List<Object> deltas, List<Object> controlEvents, List<Object> observerCalls, List<Object[]> observerMarks) {
+    if ("agent_streaming_forward".equals(fixture.get("kind")) || fixture.containsKey("expected_deltas")) {
+      assertEqual(deltas, fixture.getOrDefault("expected_deltas", List.of()), "agent streaming deltas");
+    }
+    if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "agent run control events");
+    if (fixture.containsKey("expected_observer_calls")) assertEqual(new ArrayList<>(observerCalls), fixture.get("expected_observer_calls"), "agent observer calls");
+    if (fixture.containsKey("expected_transcript")) {
+      List<Object> transcript = new ArrayList<>();
+      List<Object[]> marks = new ArrayList<>(observerMarks);
+      int index = 0;
+      for (Map<String, Object> request : client.requests) {
+        while (!marks.isEmpty() && (Integer) marks.get(0)[0] <= index) transcript.add(marks.remove(0)[1]);
+        transcript.add("request:" + agentRequestStage(request));
+        index++;
+      }
+      for (Object[] mark : marks) transcript.add(mark[1]);
+      assertEqual(transcript, fixture.get("expected_transcript"), "agent run transcript");
+    }
+    if (fixture.containsKey("expected_chat_log_shape") && agent != null) {
+      List<Object> shape = new ArrayList<>();
+      for (Object rawEntry : agent.getChatLog()) {
+        Map<String, Object> entry = Core.asMap(rawEntry);
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("name", entry.get("name"));
+        item.put("stage", entry.get("stage"));
+        shape.add(item);
+      }
+      assertEqual(shape, fixture.get("expected_chat_log_shape"), "agent chat log shape");
+    }
+  }
+
   static void runAgentForward(Map<String, Object> fixture) {
     ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())));
     client.transcribeResponses.addAll(Core.asList(fixture.getOrDefault("transcribe_responses", List.of())));
@@ -2092,6 +2137,31 @@ public final class Conformance {
       if (agentOptions.containsKey("onUsedSkills")) agentOptions.put("onUsedSkills", semanticObserver.apply("constructor.used_skills", false));
       if (agentOptions.containsKey("onUsedMemories")) agentOptions.put("onUsedMemories", semanticObserver.apply("constructor.used_memories", false));
     }
+    // Observer calls, each marked with the number of model requests before it,
+    // so the transcript can interleave them with the requests.
+    List<Object> observerCalls = java.util.Collections.synchronizedList(new ArrayList<>());
+    List<Object[]> observerMarks = java.util.Collections.synchronizedList(new ArrayList<>());
+    for (Object rawLabel : Core.asList(fixture.getOrDefault("observers", List.of()))) {
+      String label = String.valueOf(rawLabel);
+      java.util.function.Consumer<Object> recorder = payload -> {
+        observerMarks.add(new Object[] {client.requests.size(), label});
+        observerCalls.add(Map.of("callback", label, "payload", payload == null ? List.of() : Core.ownedCopy(payload)));
+      };
+      switch (label) {
+        case "used_memories" -> agentOptions.put("onUsedMemories", recorder);
+        case "used_skills" -> agentOptions.put("onUsedSkills", recorder);
+        case "citations" -> {
+          Map<String, Object> citations = new LinkedHashMap<>(Core.asMap(agentOptions.getOrDefault("citations", Map.of())));
+          citations.put("onCitations", (java.util.function.Consumer<List<Object>>) payload -> recorder.accept(payload));
+          agentOptions.put("citations", citations);
+        }
+        default -> throw new FixtureError("unknown agent observer " + label);
+      }
+    }
+    boolean streaming = "agent_streaming_forward".equals(fixture.get("kind"));
+    List<Object> streamDeltas = new ArrayList<>();
+    Map<String, Object> controlOptions = new LinkedHashMap<>();
+    List<Object> controlEvents = attachFixtureControl(fixture, controlOptions);
     java.util.concurrent.atomic.AtomicBoolean observerCalled = new java.util.concurrent.atomic.AtomicBoolean(false);
     if (Boolean.TRUE.equals(fixture.get("observer_throws"))) {
       Map<String, Object> citations = new LinkedHashMap<>(Core.asMap(agentOptions.getOrDefault("citations", Map.of())));
@@ -2193,7 +2263,19 @@ public final class Conformance {
           if (forwardOptions.containsKey("onUsedSkills")) forwardOptions.put("onUsedSkills", semanticObserver.apply("forward.used_skills", false));
           if (forwardOptions.containsKey("onUsedMemories")) forwardOptions.put("onUsedMemories", semanticObserver.apply("forward.used_memories", false));
         }
-        output = agent.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
+        forwardOptions.putAll(controlOptions);
+        if (streaming) {
+          Object stopAfter = fixture.get("stop_after_deltas");
+          try (AxGenDeltaStream stream = agent.streamingForward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions)) {
+            for (AxGenDelta delta : stream) {
+              streamDeltas.add(deltaEnvelope(delta));
+              if (stopAfter != null && streamDeltas.size() == Core.asInt(stopAfter)) break;
+            }
+          }
+          output = stopAfter == null ? agent.state.get("last_output") : null;
+        } else {
+          output = agent.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
+        }
       }
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected agent forward to fail");
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "agent output");
@@ -2206,15 +2288,18 @@ public final class Conformance {
       if (expected == null || !String.valueOf(e.getMessage()).contains(expected)) throw e;
       if (fixture.containsKey("expected_clarification")) assertSubset(e.clarification(), fixture.get("expected_clarification"), "clarification");
       if (agent != null) assertAgentTrace(agent, fixture);
+      assertAgentRunProjections(fixture, agent, client, streamDeltas, controlEvents, observerCalls, observerMarks);
       return;
     } catch (RuntimeException e) {
       String expected = (String) fixture.get("expected_error_contains");
       if (expected != null && String.valueOf(e.getMessage()).contains(expected)) {
         if (agent != null) assertAgentTrace(agent, fixture);
+        assertAgentRunProjections(fixture, agent, client, streamDeltas, controlEvents, observerCalls, observerMarks);
         return;
       }
       throw e;
     }
+    assertAgentRunProjections(fixture, agent, client, streamDeltas, controlEvents, observerCalls, observerMarks);
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected agent request count mismatch");
     Map<String, Object> exactProjection = Core.asMap(fixture.getOrDefault("exact_observable_projection", Map.of()));
     if (exactProjection.containsKey("stateRoundtrip")) assertEqual(stateRoundtripProjection, exactProjection.get("stateRoundtrip"), "exact agent state roundtrip projection");

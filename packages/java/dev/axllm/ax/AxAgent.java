@@ -55,8 +55,24 @@ public final class AxAgent implements AxProgram {
     Object actorValidationRetries = this.options.getOrDefault("validation_retries", this.options.getOrDefault("validationRetries", 1));
     this.distiller = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "distiller_signature", "input:json -> completion:json"))), childOptions(actorValidationRetries, "ctx.root.actor", Core.get(state, "distiller_description", "")));
     this.executor = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "executor_signature", "input:json -> completion:json"))), childOptions(actorValidationRetries, "task.root.actor", Core.get(state, "executor_description", "")));
-    this.responder = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "responder_signature", "input:json -> completion:json"))), childOptions(this.options.getOrDefault("validation_retries", 2), "task.root.responder", Core.get(state, "responder_description", "")));
+    this.responder = newResponder();
     this.llmQuery = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "llm_query_signature", "task:string, context:json -> answer:string"))), childOptions(1, "rlm.llmquery", Core.get(state, "llm_query_description", "")));
+  }
+
+  // As in TypeScript, the responder's validation budget is maxRetries unless
+  // validation_retries is set, and with citations on it asserts that the
+  // cited ids exist in the run's evidence.
+  private AxGen newResponder() {
+    Map<String, Object> responderOptions = new LinkedHashMap<>();
+    if (this.options.containsKey("validation_retries")) responderOptions.put("validation_retries", this.options.get("validation_retries"));
+    responderOptions.put("id", "task.root.responder");
+    responderOptions.put("instruction", Core.get(state, "responder_description", ""));
+    AxGen built = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "responder_signature", "input:json -> completion:json"))), responderOptions);
+    if (Core.truthy(Core.get(Core.get(state, "citations", Map.of()), "enabled", false))) {
+      Map<String, Object> runState = this.state;
+      built.addAssert((AxGen.AssertionCallback) output -> Core._agent_citation_assert(runState, output));
+    }
+    return built;
   }
 
   private Map<String, Object> childOptions(Object retries, String id, Object instruction) {
@@ -114,14 +130,53 @@ public final class AxAgent implements AxProgram {
   public Map<String,Object> forwardWithCancellation(AiClient client,Map<String,Object> values,Map<String,Object> options,AxCancellationToken cancellation){Map<String,Object> resolved=new LinkedHashMap<>(options==null?Map.of():options);resolved.put("cancellation",cancellation);return forward(client,values,resolved);}
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions, AxRuntimeHooks hooks) {
-    AxGlobals.Scope scope = AxGlobals.openScope(
-        hooks,
-        runtimeHooks,
-        "ax_gen_agent_forward",
-        "ax_gen_agent",
-        Map.of("ax.program.id", "root.agent", "ax.program.type", "AxAgent"));
+    return run(client, values, forwardOptions, hooks, null);
+  }
+
+  /** Streams a run with no options; see {@link #streamingForward(AiClient, Map, Map, AxCancellationToken)}. */
+  public AxGenDeltaStream streamingForward(AiClient client, Map<String, Object> values) {
+    return streamingForward(client, values, Map.of(), null);
+  }
+
+  /** Streams a run; see {@link #streamingForward(AiClient, Map, Map, AxCancellationToken)}. */
+  public AxGenDeltaStream streamingForward(AiClient client, Map<String, Object> values, Map<String, Object> options) {
+    return streamingForward(client, values, options, null);
+  }
+
+  /**
+   * Runs the agent and returns the responder's output as it streams, as TypeScript's
+   * streamingForward does. The distiller and the executor (or the direct-respond skip) run first
+   * without streaming; then the stream yields the responder's {@link AxGenDelta} updates (see
+   * {@link AxGen#streamingForward}). With citations {@code surface: "hidden"} the updates leave
+   * out the citation field, and {@code onCitations} gets the streamed citations after the stream.
+   * The run works on a worker thread that starts when iteration starts and waits while the caller
+   * handles each update; closing the stream stops the run, and with a run {@code control} the run
+   * then ends with an aborted event. A run control on a client that opens async model sessions is
+   * not covered yet and throws {@link UnsupportedOperationException} before any stage runs, as
+   * AxGen deltas do.
+   */
+  public AxGenDeltaStream streamingForward(AiClient client, Map<String, Object> values, Map<String, Object> options, AxCancellationToken cancellation) {
+    Map<String, Object> runOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
+    AxCancellationToken parent = cancellation;
+    for (String key : List.of("cancellation", "cancellationToken", "cancellation_token")) {
+      Object token = runOptions.remove(key);
+      if (parent == null && token instanceof AxCancellationToken given) parent = given;
+    }
+    AxGenDeltaStream.StopToken stop = new AxGenDeltaStream.StopToken();
+    runOptions.put("cancellation", stop);
+    Map<String, Object> input = values == null ? new LinkedHashMap<>() : new LinkedHashMap<>(values);
+    return new AxGenDeltaStream(sink -> run(client, input, runOptions, AxRuntimeHooks.fromOptions(runOptions), sink), stop, parent);
+  }
+
+  // forward, and with a sink the streaming forward.
+  private Map<String, Object> run(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions, AxRuntimeHooks hooks, java.util.function.Consumer<Map<String, Object>> sink) {
+    Map<String, Object> attributes = new LinkedHashMap<>();
+    attributes.put("ax.program.id", "root.agent");
+    attributes.put("ax.program.type", "AxAgent");
+    if (sink != null) attributes.put("ax.streaming", true);
+    AxGlobals.Scope scope = AxGlobals.openScope(hooks, runtimeHooks, "ax_gen_agent_forward", "ax_gen_agent", attributes);
     try {
-      return forwardUnscoped(client, values, AxRuntimeHooks.strip(forwardOptions));
+      return forwardUnscoped(client, values, AxRuntimeHooks.strip(forwardOptions), sink);
     } catch (RuntimeException | Error error) {
       scope.fail(error);
       throw error;
@@ -130,8 +185,23 @@ public final class AxAgent implements AxProgram {
     }
   }
 
-  private Map<String, Object> forwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions) {
+  // Until AxGen deltas cover async run sessions, an agent stream that would
+  // stream its responder through one fails before any stage runs, with the
+  // error AxGen deltas raise.
+  private void checkStreamRunSession(AiClient client, Map<String, Object> callOptions) {
+    Map<String, Object> runOptions = new LinkedHashMap<>(responder.options);
+    runOptions.putAll(Core.asMap(Core._agent_stage_options(state, "responder", callOptions)));
+    boolean controlled = runOptions.get("control") instanceof AxRunControl;
+    boolean sessionCapable = Core.truthy(Core.chat_session_mode_enabled(runOptions))
+        && (client instanceof ChatRunSelector || (client instanceof AxChatSession.Provider && Core.truthy(Core.get(Core.aiClientFeatures(client, runOptions.get("model")), "asyncTools", false))));
+    if (sessionCapable && (controlled || responder.functions.stream().anyMatch(tool -> "background".equals(tool.execution)))) {
+      throw new UnsupportedOperationException("streaming_forward deltas do not cover async run sessions (control or background tools on a session-capable client) yet; use forward()");
+    }
+  }
+
+  private Map<String, Object> forwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions, java.util.function.Consumer<Map<String, Object>> sink) {
     Map<String, Object> callOptions = new LinkedHashMap<>(forwardOptions == null ? Map.of() : forwardOptions);
+    if (sink != null) checkStreamRunSession(client, callOptions);
     if (callOptions.get("cancellation") instanceof AxCancellationToken cancellation) cancellation.throwIfCancelled();
     AxExecutionContext callContext = AxExecutionContext.resolve(callOptions, executionContext);
     if (callContext != null || Core.truthy(state.get("mcp_run_context_active"))) {
@@ -171,17 +241,47 @@ public final class AxAgent implements AxProgram {
         return Core._agent_run_llm_query(llmQuery, client, params, callOptions);
       });
     }
+    // As TypeScript's forward and streamingForward do, a run control hears
+    // the run's own lifecycle at its path; each stage reports at
+    // <path>/<stage>.
+    AxRunControl control = callOptions.get("control") instanceof AxRunControl given ? given : null;
+    String runPath = String.valueOf(callOptions.getOrDefault("execution_path", callOptions.getOrDefault("executionPath", "root")));
+    if (control != null) control.emit(Map.of("type", "started", "path", runPath));
     Map<String, Object> output;
     try {
-      output = Core.asMap(Core._agent_forward(
-      state,
-      distiller,
-      executor,
-      responder,
-      client,
-      values == null ? Map.of() : values,
-      callOptions
-    ));
+      if (sink == null) {
+        output = Core.asMap(Core._agent_forward(
+          state,
+          distiller,
+          executor,
+          responder,
+          client,
+          values == null ? Map.of() : values,
+          callOptions
+        ));
+      } else {
+        output = Core.asMap(Core._agent_streaming_forward(
+          state,
+          distiller,
+          executor,
+          responder,
+          client,
+          values == null ? Map.of() : values,
+          callOptions,
+          sink
+        ));
+      }
+    } catch (RuntimeException | Error error) {
+      if (control != null) {
+        if (sink != null && callOptions.get("cancellation") instanceof AxGenDeltaStream.StopToken stop && stop.consumerStopped()) {
+          // The consumer stopped the stream early: the run ended on purpose,
+          // as with control.abort().
+          control.emit(Map.of("type", "aborted", "path", runPath));
+        } else {
+          control.emit(Map.of("type", "failed", "path", runPath, "error", String.valueOf(error)));
+        }
+      }
+      throw error;
     } finally { bindingActive.set(false); }
     Object citationConfig = this.options.get("citations");
     if (citationConfig instanceof Map<?, ?> rawCitationConfig) {
@@ -197,7 +297,10 @@ public final class AxAgent implements AxProgram {
         }
       }
     }
-    learnPlaybookFailures(output);
+    // TS learns from the responder's answer after forward; a stream has no
+    // single answer to hand the playbook.
+    learnPlaybookFailures(sink == null ? output : new LinkedHashMap<>());
+    if (control != null) control.emit(Map.of("type", "completed", "path", runPath));
     return output;
   }
 
