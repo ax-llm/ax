@@ -32691,91 +32691,7 @@ final class Core {
       Object entry_count = Core.len(entries);
       Object has_entries = Core.gt(entry_count, 0);
       if (Core.truthy(has_entries)) {
-        Object provenance = Core.get(state, "provenance", empty_map);
-        Object lines_structured = new java.util.ArrayList<Object>();
-        Object structured_count = 0;
-        Object injected_globals = Core.get(state, "runtime_globals", empty_map);
-        Object reserved_names = Core._agent_runtime_reserved_names_for_state(state);
-        for (Object entry : Core.iter(entries)) {
-          Object entry_name = Core.get(entry, "name", "");
-          Object is_injected = Core.mapContains(injected_globals, entry_name);
-          Object is_reserved_name = Core.contains(reserved_names, entry_name);
-          Object not_user_variable = Core.or(is_injected, is_reserved_name);
-          Object under_structured_limit = Core.lt(structured_count, max_entries);
-          Object is_user_variable = Core.not(not_user_variable);
-          Object render_entry = Core.and(under_structured_limit, is_user_variable);
-          if (Core.truthy(render_entry)) {
-            Object name = Core.get(entry, "name", "");
-            Object type = Core.get(entry, "type", "unknown");
-            Object size = Core.get(entry, "size", "");
-            Object preview = Core.get(entry, "preview", "");
-            Object ctor = Core.get(entry, "ctor", "");
-            Object is_promoted_name = Core.contains(auto_promoted_fields, name);
-            Object is_context_name = Core.eq(name, "context");
-            Object is_distilled_name = Core.eq(name, "distilledContext");
-            Object type_label = type;
-            Object object_type = Core.eq(type, "object");
-            Object has_ctor = Core.ne(ctor, "");
-            Object object_with_ctor = Core.and(object_type, has_ctor);
-            if (Core.truthy(object_with_ctor)) {
-              type_label = Core.stringFormat("object<{}>", ctor);
-            }
-            Object has_size = Core.ne(size, "");
-            if (Core.truthy(has_size)) {
-              type_label = Core.stringFormat("{} ({})", type_label, size);
-            }
-            Object preview_text = "";
-            Object has_preview = Core.ne(preview, "");
-            if (Core.truthy(has_preview)) {
-              preview_text = Core.stringFormat(" = {}", preview);
-            }
-            if (Core.truthy(is_promoted_name)) {
-              preview_text = Core.stringFormat(" = [runtime-only context available as inputs.{}]", name);
-            }
-            if (Core.truthy(is_context_name)) {
-              preview_text = " = [runtime context map; values omitted from prompt]";
-            }
-            if (Core.truthy(is_distilled_name)) {
-              preview_text = " = [distilled evidence object; values omitted from prompt]";
-            }
-            Object prov = Core.get(provenance, name, null);
-            Object prov_text = "";
-            Object has_prov = Core.typeIs(prov, "object");
-            if (Core.truthy(has_prov)) {
-              Object created_turn = Core.get(prov, "createdTurn", 0);
-              Object source = Core.get(prov, "source", "");
-              Object last_read = Core.get(prov, "lastReadTurn", 0);
-              Object has_source = Core.ne(source, "");
-              if (Core.truthy(has_source)) {
-                prov_text = Core.stringFormat(" [from t{} via {}", created_turn, source);
-              }
-              if (!Core.truthy(has_source)) {
-                prov_text = Core.stringFormat(" [from t{}", created_turn);
-              }
-              Object read_after = Core.gt(last_read, created_turn);
-              if (Core.truthy(read_after)) {
-                prov_text = Core.stringFormat("{}; read t{}", prov_text, last_read);
-              }
-              prov_text = Core.add(prov_text, "]");
-            }
-            Object restorable = Core.get(entry, "restorable", Boolean.TRUE);
-            Object snapshot_only = Core.eq(restorable, Boolean.FALSE);
-            Object restore_text = "";
-            if (Core.truthy(snapshot_only)) {
-              restore_text = " [snapshot only]";
-            }
-            Object line_base = Core.stringFormat("{}: {}{}", name, type_label, preview_text);
-            Object line_with_prov = Core.add(line_base, prov_text);
-            Object line = Core.add(line_with_prov, restore_text);
-            Core.append(lines_structured, line);
-            structured_count = Core.add(structured_count, 1);
-          }
-        }
-        Object body_structured = Core.stringJoin("\n", lines_structured);
-        Object empty_structured = Core.eq(body_structured, "");
-        if (Core.truthy(empty_structured)) {
-          body_structured = "(no user variables)";
-        }
+        Object body_structured = Core._agent_render_structured_runtime_state(state, state_summary, entries);
         Core.set(state, "runtime_state_summary", body_structured);
         return body_structured;
       }
@@ -35172,7 +35088,14 @@ final class Core {
       bindings = raw_bindings;
     }
     Object reserved = Core._agent_runtime_reserved_names_for_state(state);
-    Object clean_bindings = Core._agent_runtime_sanitize_bindings(state, bindings);
+    Object merge = Core.get(snapshot, "merge", Boolean.FALSE);
+    Object clean_bindings = bindings;
+    if (Core.truthy(merge)) {
+      // empty
+    }
+    if (!Core.truthy(merge)) {
+      clean_bindings = Core._agent_runtime_sanitize_bindings(state, bindings);
+    }
     Object entries = Core.get(snapshot, "entries", empty_list);
     Object entries_is_list = Core.typeIs(entries, "list");
     if (Core.truthy(entries_is_list)) {
@@ -35185,10 +35108,13 @@ final class Core {
     for (Object entry : Core.iter(entries)) {
       Object entry_name = Core.get(entry, "name", "");
       Object entry_reserved = Core.contains(reserved, entry_name);
-      if (Core.truthy(entry_reserved)) {
+      Object entry_evidence = Core.eq(entry_name, "distilledContext");
+      Object entry_not_evidence = Core.not(entry_evidence);
+      Object entry_hidden = Core.and(entry_reserved, entry_not_evidence);
+      if (Core.truthy(entry_hidden)) {
         // empty
       }
-      if (!Core.truthy(entry_reserved)) {
+      if (!Core.truthy(entry_hidden)) {
         Core.append(clean_entries, entry);
       }
     }
@@ -35200,6 +35126,9 @@ final class Core {
     Core.set(out, "bindings", clean_bindings);
     Core.set(out, "globals", clean_bindings);
     Core.set(out, "closed", closed);
+    if (Core.truthy(merge)) {
+      Core.set(out, "merge", Boolean.TRUE);
+    }
     return out;
   }
 
@@ -35448,6 +35377,7 @@ final class Core {
     }
     Object raw = Core.agentRuntimeExecute(session, code, runtime_options);
     Object normalized = Core._normalize_agent_runtime_step_result(raw, code);
+    Core._agent_attach_code_analysis(normalized, raw);
     Object closed = Core.get(normalized, "error_category", "");
     Object is_closed = Core.eq(closed, "session_closed");
     if (Core.truthy(is_closed)) {
@@ -35457,6 +35387,7 @@ final class Core {
       session = Core._agent_runtime_create_session(state, runtime, globals, runtime_options);
       raw = Core.agentRuntimeExecute(session, code, runtime_options);
       normalized = Core._normalize_agent_runtime_step_result(raw, code);
+      Core._agent_attach_code_analysis(normalized, raw);
     }
     Core._agent_runtime_append_action_log(state, normalized);
     Core._agent_record_trace_event(state, "runtime_execute", normalized);
@@ -35683,8 +35614,9 @@ final class Core {
   static Object _agent_evidence_entry_descriptor(Object key, Object value) {
     axirCoverageMark("_agent_evidence_entry_descriptor");
     Object text = Core.jsonStringify(value);
-    Object size = Core.len(text);
-    Object kind = Core._agent_value_kind(value);
+    Object text_units = Core.stringUTF16Units(text);
+    Object size = Core.len(text_units);
+    Object kind = Core._agent_evidence_value_type(value);
     Object entry = new java.util.LinkedHashMap<String, Object>();
     Core.set(entry, "key", key);
     Core.set(entry, "type", kind);
@@ -35724,14 +35656,18 @@ final class Core {
     if (!Core.truthy(is_object)) {
       payload = empty_map;
     }
-    Object text = Core.jsonStringify(payload);
-    Object total = Core.len(text);
+    Object total = 0;
     Object entries = new java.util.ArrayList<Object>();
     Object keys = Core.mapKeys(payload);
     for (Object key : Core.iter(keys)) {
       Object value = Core.get(payload, key, null);
       Object entry = Core._agent_evidence_entry_descriptor(key, value);
       Core.append(entries, entry);
+      Object entry_size = Core.get(entry, "size", 0);
+      Object positive = Core.gt(entry_size, 0);
+      if (Core.truthy(positive)) {
+        total = Core.add(total, entry_size);
+      }
     }
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "kind", "axEvidenceDescriptor");
@@ -35763,28 +35699,32 @@ final class Core {
     Core.append(lines, header);
     for (Object entry : Core.iter(entries)) {
       Object key = Core.get(entry, "key", "");
-      Object type = Core.get(entry, "type", "value");
+      Object type = Core.get(entry, "type", "object");
       Object size = Core.get(entry, "size", 0);
-      Object line = Core.stringFormat("- `{}`: {} ({} chars)", key, type, size);
+      Object length_text = "";
       Object length = Core.get(entry, "length", null);
       Object has_length = Core.isNotNone(length);
       if (Core.truthy(has_length)) {
-        line = Core.stringFormat("{}; length {}", line, length);
+        length_text = Core.stringFormat(", {} items", length);
       }
-      Object keys = Core.get(entry, "keys", empty_list);
-      Object keys_count = Core.len(keys);
-      Object has_keys = Core.gt(keys_count, 0);
-      if (Core.truthy(has_keys)) {
-        Object keys_text = Core.stringJoin(", ", keys);
-        line = Core.stringFormat("{}; keys: {}", line, keys_text);
-      }
+      Object shape_text = "";
       Object item_keys = Core.get(entry, "itemKeys", empty_list);
       Object item_keys_count = Core.len(item_keys);
       Object has_item_keys = Core.gt(item_keys_count, 0);
+      Object keys = Core.get(entry, "keys", empty_list);
+      Object keys_count = Core.len(keys);
+      Object has_keys = Core.gt(keys_count, 0);
       if (Core.truthy(has_item_keys)) {
         Object item_keys_text = Core.stringJoin(", ", item_keys);
-        line = Core.stringFormat("{}; item keys: {}", line, item_keys_text);
+        shape_text = Core.stringFormat("; item keys: {}", item_keys_text);
       }
+      if (!Core.truthy(has_item_keys)) {
+        if (Core.truthy(has_keys)) {
+          Object keys_text = Core.stringJoin(", ", keys);
+          shape_text = Core.stringFormat("; keys: {}", keys_text);
+        }
+      }
+      Object line = Core.stringFormat("- `{}` ({}{}, ~{} chars{})", key, type, length_text, size, shape_text);
       Core.append(lines, line);
     }
     Object out = Core.stringJoin("\n", lines);
@@ -39084,10 +39024,14 @@ final class Core {
       Object globals = Core._agent_runtime_build_globals(state, exec_runtime_values);
       Object session = Core.get(state, "runtime_session", null);
       Object has_shared_session = Core.isNotNone(session);
+      Object empty_map_for_patch = new java.util.LinkedHashMap<String, Object>();
       Object shared_notice_set = Boolean.FALSE;
       if (Core.truthy(has_shared_session)) {
+        Object patch_globals = Core.mapMerge(empty_map_for_patch, globals);
+        Core.mapDelete(patch_globals, "distilledContext");
         Object patch_snapshot = new java.util.LinkedHashMap<String, Object>();
-        Core.set(patch_snapshot, "globals", globals);
+        Core.set(patch_snapshot, "globals", patch_globals);
+        Core.set(patch_snapshot, "merge", Boolean.TRUE);
         Core._agent_runtime_restore_session_state(state, session, patch_snapshot, options);
         Object pending_notice = Core.get(state, "restore_notice", "");
         Object no_pending_notice = Core.eq(pending_notice, "");
@@ -41063,6 +41007,326 @@ final class Core {
         Core.set(out, key, value);
       }
     }
+    return out;
+  }
+
+  static Object _agent_evidence_value_type(Object value) {
+    axirCoverageMark("_agent_evidence_value_type");
+    Object missing = Core.isNone(value);
+    if (Core.truthy(missing)) {
+      return "null";
+    }
+    Object is_list = Core.typeIs(value, "list");
+    if (Core.truthy(is_list)) {
+      return "array";
+    }
+    Object js_type = Core._agent_js_value_type(value);
+    return js_type;
+  }
+
+  static Object _agent_attach_code_analysis(Object entry, Object raw) {
+    axirCoverageMark("_agent_attach_code_analysis");
+    Object is_object = Core.typeIs(raw, "object");
+    if (Core.truthy(is_object)) {
+      // empty
+    }
+    if (!Core.truthy(is_object)) {
+      return null;
+    }
+    Object analysis = Core.get(raw, "analysis", null);
+    Object has_analysis = Core.typeIs(analysis, "object");
+    if (Core.truthy(has_analysis)) {
+      // empty
+    }
+    if (!Core.truthy(has_analysis)) {
+      return null;
+    }
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object produced = Core.get(analysis, "producedVars", empty_list);
+    Object reads = Core.get(analysis, "readVars", empty_list);
+    Object callables = Core.get(analysis, "callables", empty_list);
+    Core.set(entry, "producedVars", produced);
+    Core.set(entry, "readVars", reads);
+    Core.set(entry, "callables", callables);
+    return null;
+  }
+
+  static Object _agent_stage_action_entries(Object state) {
+    axirCoverageMark("_agent_stage_action_entries");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object all_entries = Core.get(state, "action_log", empty_list);
+    Object stage_start = Core.get(state, "stage_action_log_start", 0);
+    Object entries = new java.util.ArrayList<Object>();
+    Object position = 0;
+    for (Object entry : Core.iter(all_entries)) {
+      Object entry_type = Core.get(entry, "type", "");
+      Object is_session_record = Core.eq(entry_type, "runtime_session");
+      Object before_stage = Core.lt(position, stage_start);
+      Object hidden = Core.or(is_session_record, before_stage);
+      if (Core.truthy(hidden)) {
+        // empty
+      }
+      if (!Core.truthy(hidden)) {
+        Core.append(entries, entry);
+      }
+      position = Core.add(position, 1);
+    }
+    return entries;
+  }
+
+  static Object _agent_runtime_state_provenance(Object state) {
+    axirCoverageMark("_agent_runtime_state_provenance");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object provenance = new java.util.LinkedHashMap<String, Object>();
+    Object entries = Core._agent_stage_action_entries(state);
+    Object turn = 0;
+    for (Object entry : Core.iter(entries)) {
+      turn = Core.add(turn, 1);
+      Object produced = Core.get(entry, "producedVars", empty_list);
+      Object callables = Core.get(entry, "callables", empty_list);
+      Object source = Core.listGet(callables, 0, "");
+      for (Object name : Core.iter(produced)) {
+        Object record = new java.util.LinkedHashMap<String, Object>();
+        Core.set(record, "createdTurn", turn);
+        Object has_source = Core.ne(source, "");
+        if (Core.truthy(has_source)) {
+          Core.set(record, "source", source);
+        }
+        Core.set(provenance, name, record);
+      }
+      Object reads = Core.get(entry, "readVars", empty_list);
+      for (Object read : Core.iter(reads)) {
+        Object known = Core.mapContains(provenance, read);
+        if (Core.truthy(known)) {
+          Object current = Core.get(provenance, read, null);
+          Object created = Core.get(current, "createdTurn", 0);
+          Object last_read = Core.get(current, "lastReadTurn", created);
+          Object later = Core.gt(turn, last_read);
+          if (Core.truthy(later)) {
+            last_read = turn;
+          }
+          Core.set(current, "lastReadTurn", last_read);
+          Core.set(provenance, read, current);
+        }
+      }
+    }
+    return provenance;
+  }
+
+  static Object _agent_render_structured_runtime_state(Object state, Object state_summary, Object entries) {
+    axirCoverageMark("_agent_render_structured_runtime_state");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object injected_globals = Core.get(state, "runtime_globals", empty_map);
+    Object reserved_names = Core._agent_runtime_reserved_names_for_state(state);
+    Object computed = Core._agent_runtime_state_provenance(state);
+    Object stored = Core.get(state, "provenance", empty_map);
+    Object rows = new java.util.ArrayList<Object>();
+    for (Object entry : Core.iter(entries)) {
+      Object name = Core.get(entry, "name", "");
+      Object is_injected = Core.mapContains(injected_globals, name);
+      Object is_evidence = Core.eq(name, "distilledContext");
+      Object not_evidence = Core.not(is_evidence);
+      Object hidden_injected = Core.and(is_injected, not_evidence);
+      Object is_reserved = Core.contains(reserved_names, name);
+      Object hidden_reserved = Core.and(is_reserved, not_evidence);
+      Object hidden = Core.or(hidden_injected, hidden_reserved);
+      if (Core.truthy(hidden)) {
+        // empty
+      }
+      if (!Core.truthy(hidden)) {
+        Object prov = Core.get(stored, name, null);
+        Object has_stored = Core.typeIs(prov, "object");
+        if (Core.truthy(has_stored)) {
+          // empty
+        }
+        if (!Core.truthy(has_stored)) {
+          prov = Core.get(computed, name, null);
+        }
+        Object score = 0;
+        Object prov_text = "";
+        Object has_prov = Core.typeIs(prov, "object");
+        if (Core.truthy(has_prov)) {
+          Object created = Core.get(prov, "createdTurn", 0);
+          Object last_read = Core.get(prov, "lastReadTurn", created);
+          Object source = Core.get(prov, "source", "");
+          Object created_score = Core.mul(created, 100);
+          Object read_score = Core.mul(last_read, 10000);
+          score = Core.add(1000000, created_score);
+          score = Core.add(score, read_score);
+          Object has_source = Core.ne(source, "");
+          if (Core.truthy(has_source)) {
+            score = Core.add(score, 25);
+            prov_text = Core.stringFormat(" [from t{} via {}", created, source);
+          }
+          if (!Core.truthy(has_source)) {
+            prov_text = Core.stringFormat(" [from t{}", created);
+          }
+          Object read_after = Core.gt(last_read, created);
+          if (Core.truthy(read_after)) {
+            prov_text = Core.stringFormat("{}; read t{}", prov_text, last_read);
+          }
+          prov_text = Core.stringFormat("{}]", prov_text);
+        }
+        Object type = Core.get(entry, "type", "unknown");
+        Object is_accessor = Core.eq(type, "accessor");
+        Object is_function = Core.eq(type, "function");
+        if (Core.truthy(is_accessor)) {
+          score = Core.add(score, -100);
+        }
+        if (Core.truthy(is_function)) {
+          score = Core.add(score, -10);
+        }
+        Object ctor = Core.get(entry, "ctor", "");
+        Object type_label = type;
+        Object is_object = Core.eq(type, "object");
+        Object is_error = Core.eq(type, "error");
+        Object has_ctor = Core.ne(ctor, "");
+        Object object_ctor = Core.ne(ctor, "Object");
+        Object error_ctor = Core.ne(ctor, "Error");
+        Object labeled_object = Core.and(is_object, has_ctor);
+        labeled_object = Core.and(labeled_object, object_ctor);
+        Object labeled_error = Core.and(is_error, has_ctor);
+        labeled_error = Core.and(labeled_error, error_ctor);
+        if (Core.truthy(labeled_object)) {
+          type_label = Core.stringFormat("object<{}>", ctor);
+        }
+        if (Core.truthy(labeled_error)) {
+          type_label = Core.stringFormat("error<{}>", ctor);
+        }
+        Object size = Core.get(entry, "size", "");
+        Object has_size = Core.ne(size, "");
+        if (Core.truthy(has_size)) {
+          type_label = Core.stringFormat("{} ({})", type_label, size);
+        }
+        Object preview = Core.get(entry, "preview", "");
+        Object preview_text = "";
+        Object has_preview = Core.ne(preview, "");
+        if (Core.truthy(has_preview)) {
+          preview_text = Core.stringFormat(" = {}", preview);
+        }
+        Object line = Core.stringFormat("{}: {}{}{}", name, type_label, preview_text, prov_text);
+        Object row = new java.util.LinkedHashMap<String, Object>();
+        Core.set(row, "name", name);
+        Core.set(row, "score", score);
+        Core.set(row, "line", line);
+        Object placed = new java.util.ArrayList<Object>();
+        Object inserted = Boolean.FALSE;
+        for (Object other : Core.iter(rows)) {
+          Object other_score = Core.get(other, "score", 0);
+          Object other_name = Core.get(other, "name", "");
+          Object higher = Core.gt(score, other_score);
+          Object same = Core.eq(score, other_score);
+          Object names = new java.util.ArrayList<Object>();
+          Core.append(names, name);
+          Core.append(names, other_name);
+          Object sorted_names = Core.sortedStrings(names);
+          Object first_name = Core.listGet(sorted_names, 0, "");
+          Object name_first = Core.eq(first_name, name);
+          Object name_differs = Core.ne(name, other_name);
+          Object name_before = Core.and(name_first, name_differs);
+          Object tie_before = Core.and(same, name_before);
+          Object goes_before = Core.or(higher, tie_before);
+          Object not_inserted = Core.not(inserted);
+          Object insert_here = Core.and(goes_before, not_inserted);
+          if (Core.truthy(insert_here)) {
+            Core.append(placed, row);
+            inserted = Boolean.TRUE;
+          }
+          Core.append(placed, other);
+        }
+        Object still_out = Core.not(inserted);
+        if (Core.truthy(still_out)) {
+          Core.append(placed, row);
+        }
+        rows = placed;
+      }
+    }
+    Object count = Core.len(rows);
+    Object no_rows = Core.eq(count, 0);
+    if (Core.truthy(no_rows)) {
+      return "(no user variables)";
+    }
+    Object max_entries = Core.get(state_summary, "maxEntries", 8);
+    Object max_entries_set = Core.gt(max_entries, 0);
+    if (Core.truthy(max_entries_set)) {
+      // empty
+    }
+    if (!Core.truthy(max_entries_set)) {
+      max_entries = 8;
+    }
+    Object max_chars = Core.get(state_summary, "maxChars", 0);
+    Object char_budget = Core.gt(max_chars, 0);
+    Object lines = new java.util.ArrayList<Object>();
+    Object used = 0;
+    Object index = 0;
+    Object stop = Boolean.FALSE;
+    for (Object row : Core.iter(rows)) {
+      Object within = Core.lt(index, max_entries);
+      Object go_on = Core.not(stop);
+      Object take = Core.and(within, go_on);
+      if (Core.truthy(take)) {
+        Object line = Core.get(row, "line", null);
+        if (Core.truthy(char_budget)) {
+          Object line_count = Core.len(lines);
+          Object separator = 0;
+          Object has_lines = Core.gt(line_count, 0);
+          if (Core.truthy(has_lines)) {
+            separator = 1;
+          }
+          Object spent = Core.add(used, separator);
+          Object negative_spent = Core.mul(spent, -1);
+          Object remaining = Core.add(max_chars, negative_spent);
+          Object exhausted = Core.lte(remaining, 0);
+          if (Core.truthy(exhausted)) {
+            stop = Boolean.TRUE;
+          }
+          if (!Core.truthy(exhausted)) {
+            Object line_units = Core.stringUTF16Units(line);
+            Object line_length = Core.len(line_units);
+            Object fits = Core.lte(line_length, remaining);
+            if (Core.truthy(fits)) {
+              Core.append(lines, line);
+              used = Core.add(spent, line_length);
+            }
+            if (!Core.truthy(fits)) {
+              Object cut = Core._agent_truncate_to_char_budget(line, remaining);
+              Core.append(lines, cut);
+              used = max_chars;
+              stop = Boolean.TRUE;
+            }
+          }
+        }
+        if (!Core.truthy(char_budget)) {
+          Core.append(lines, line);
+        }
+      }
+      index = Core.add(index, 1);
+    }
+    Object out = Core.stringJoin("\n", lines);
+    return out;
+  }
+
+  static Object _agent_truncate_to_char_budget(Object text, Object max_chars) {
+    axirCoverageMark("_agent_truncate_to_char_budget");
+    Object none_left = Core.lte(max_chars, 0);
+    if (Core.truthy(none_left)) {
+      return "";
+    }
+    Object units = Core.stringUTF16Units(text);
+    Object length = Core.len(units);
+    Object fits = Core.lte(length, max_chars);
+    if (Core.truthy(fits)) {
+      return text;
+    }
+    Object tiny = Core.lte(max_chars, 3);
+    if (Core.truthy(tiny)) {
+      Object head = Core._agent_utf16_prefix(text, max_chars);
+      return head;
+    }
+    Object keep = Core.add(max_chars, -3);
+    Object prefix = Core._agent_utf16_prefix(text, keep);
+    Object out = Core.stringFormat("{}...", prefix);
     return out;
   }
 

@@ -29,7 +29,12 @@ class QuickJsCodeSession : public AxCodeSession {
   Value reserved_;
   Value runtime_policy_;
   std::map<std::string, HostCallable> host_callables_;
+  // The globals present before the agent's code ran; the snapshot entries
+  // leave them out, as TS's AxJSRuntime does.
+  Value baseline_;
 
+  Value execute_turn(const std::string& source, Value options);
+  Value inspect_entries();
   Value eval_json(const std::string& source);
   void set_global(const std::string& name, const Value& value);
 };

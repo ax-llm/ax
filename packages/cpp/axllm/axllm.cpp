@@ -34321,91 +34321,7 @@ Value Core::_agent_render_runtime_state_summary(Value state, Value policy) {
     Value entry_count = Core::len(entries);
     Value has_entries = Core::gt(entry_count, Value(0));
     if (Core::truthy(has_entries)) {
-      Value provenance = Core::get(state, Value("provenance"), empty_map);
-      Value lines_structured = Value::array();
-      Value structured_count = Value(0);
-      Value injected_globals = Core::get(state, Value("runtime_globals"), empty_map);
-      Value reserved_names = Core::_agent_runtime_reserved_names_for_state(state);
-      for (auto entry : Core::iter(entries)) {
-        Value entry_name = Core::get(entry, Value("name"), Value(""));
-        Value is_injected = Core::map_contains(injected_globals, entry_name);
-        Value is_reserved_name = Core::contains(reserved_names, entry_name);
-        Value not_user_variable = Core::or_(is_injected, is_reserved_name);
-        Value under_structured_limit = Core::lt(structured_count, max_entries);
-        Value is_user_variable = Core::not_(not_user_variable);
-        Value render_entry = Core::and_(under_structured_limit, is_user_variable);
-        if (Core::truthy(render_entry)) {
-          Value name = Core::get(entry, Value("name"), Value(""));
-          Value type = Core::get(entry, Value("type"), Value("unknown"));
-          Value size = Core::get(entry, Value("size"), Value(""));
-          Value preview = Core::get(entry, Value("preview"), Value(""));
-          Value ctor = Core::get(entry, Value("ctor"), Value(""));
-          Value is_promoted_name = Core::contains(auto_promoted_fields, name);
-          Value is_context_name = Core::eq(name, Value("context"));
-          Value is_distilled_name = Core::eq(name, Value("distilledContext"));
-          Value type_label = type;
-          Value object_type = Core::eq(type, Value("object"));
-          Value has_ctor = Core::ne(ctor, Value(""));
-          Value object_with_ctor = Core::and_(object_type, has_ctor);
-          if (Core::truthy(object_with_ctor)) {
-            type_label = Core::string_format(Value("object<{}>"), ctor);
-          }
-          Value has_size = Core::ne(size, Value(""));
-          if (Core::truthy(has_size)) {
-            type_label = Core::string_format(Value("{} ({})"), type_label, size);
-          }
-          Value preview_text = Value("");
-          Value has_preview = Core::ne(preview, Value(""));
-          if (Core::truthy(has_preview)) {
-            preview_text = Core::string_format(Value(" = {}"), preview);
-          }
-          if (Core::truthy(is_promoted_name)) {
-            preview_text = Core::string_format(Value(" = [runtime-only context available as inputs.{}]"), name);
-          }
-          if (Core::truthy(is_context_name)) {
-            preview_text = Value(" = [runtime context map; values omitted from prompt]");
-          }
-          if (Core::truthy(is_distilled_name)) {
-            preview_text = Value(" = [distilled evidence object; values omitted from prompt]");
-          }
-          Value prov = Core::get(provenance, name, Value());
-          Value prov_text = Value("");
-          Value has_prov = Core::type_is(prov, Value("object"));
-          if (Core::truthy(has_prov)) {
-            Value created_turn = Core::get(prov, Value("createdTurn"), Value(0));
-            Value source = Core::get(prov, Value("source"), Value(""));
-            Value last_read = Core::get(prov, Value("lastReadTurn"), Value(0));
-            Value has_source = Core::ne(source, Value(""));
-            if (Core::truthy(has_source)) {
-              prov_text = Core::string_format(Value(" [from t{} via {}"), created_turn, source);
-            }
-            if (!Core::truthy(has_source)) {
-              prov_text = Core::string_format(Value(" [from t{}"), created_turn);
-            }
-            Value read_after = Core::gt(last_read, created_turn);
-            if (Core::truthy(read_after)) {
-              prov_text = Core::string_format(Value("{}; read t{}"), prov_text, last_read);
-            }
-            prov_text = Core::add(prov_text, Value("]"));
-          }
-          Value restorable = Core::get(entry, Value("restorable"), Value(true));
-          Value snapshot_only = Core::eq(restorable, Value(false));
-          Value restore_text = Value("");
-          if (Core::truthy(snapshot_only)) {
-            restore_text = Value(" [snapshot only]");
-          }
-          Value line_base = Core::string_format(Value("{}: {}{}"), name, type_label, preview_text);
-          Value line_with_prov = Core::add(line_base, prov_text);
-          Value line = Core::add(line_with_prov, restore_text);
-          Core::append(lines_structured, line);
-          structured_count = Core::add(structured_count, Value(1));
-        }
-      }
-      Value body_structured = Core::string_join(Value("\n"), lines_structured);
-      Value empty_structured = Core::eq(body_structured, Value(""));
-      if (Core::truthy(empty_structured)) {
-        body_structured = Value("(no user variables)");
-      }
+      Value body_structured = Core::_agent_render_structured_runtime_state(state, state_summary, entries);
       Core::set(state, Value("runtime_state_summary"), body_structured);
       return body_structured;
     }
@@ -36803,7 +36719,14 @@ Value Core::_normalize_agent_runtime_snapshot(Value state, Value snapshot) {
     bindings = raw_bindings;
   }
   Value reserved = Core::_agent_runtime_reserved_names_for_state(state);
-  Value clean_bindings = Core::_agent_runtime_sanitize_bindings(state, bindings);
+  Value merge = Core::get(snapshot, Value("merge"), Value(false));
+  Value clean_bindings = bindings;
+  if (Core::truthy(merge)) {
+    // empty
+  }
+  if (!Core::truthy(merge)) {
+    clean_bindings = Core::_agent_runtime_sanitize_bindings(state, bindings);
+  }
   Value entries = Core::get(snapshot, Value("entries"), empty_list);
   Value entries_is_list = Core::type_is(entries, Value("list"));
   if (Core::truthy(entries_is_list)) {
@@ -36816,10 +36739,13 @@ Value Core::_normalize_agent_runtime_snapshot(Value state, Value snapshot) {
   for (auto entry : Core::iter(entries)) {
     Value entry_name = Core::get(entry, Value("name"), Value(""));
     Value entry_reserved = Core::contains(reserved, entry_name);
-    if (Core::truthy(entry_reserved)) {
+    Value entry_evidence = Core::eq(entry_name, Value("distilledContext"));
+    Value entry_not_evidence = Core::not_(entry_evidence);
+    Value entry_hidden = Core::and_(entry_reserved, entry_not_evidence);
+    if (Core::truthy(entry_hidden)) {
       // empty
     }
-    if (!Core::truthy(entry_reserved)) {
+    if (!Core::truthy(entry_hidden)) {
       Core::append(clean_entries, entry);
     }
   }
@@ -36831,6 +36757,9 @@ Value Core::_normalize_agent_runtime_snapshot(Value state, Value snapshot) {
   Core::set(out, Value("bindings"), clean_bindings);
   Core::set(out, Value("globals"), clean_bindings);
   Core::set(out, Value("closed"), closed);
+  if (Core::truthy(merge)) {
+    Core::set(out, Value("merge"), Value(true));
+  }
   return out;
 }
 
@@ -37079,6 +37008,7 @@ Value Core::_agent_runtime_execute_step(Value state, Value runtime, Value sessio
   }
   Value raw = Core::agent_runtime_execute(session, code, runtime_options);
   Value normalized = Core::_normalize_agent_runtime_step_result(raw, code);
+  Core::_agent_attach_code_analysis(normalized, raw);
   Value closed = Core::get(normalized, Value("error_category"), Value(""));
   Value is_closed = Core::eq(closed, Value("session_closed"));
   if (Core::truthy(is_closed)) {
@@ -37088,6 +37018,7 @@ Value Core::_agent_runtime_execute_step(Value state, Value runtime, Value sessio
     session = Core::_agent_runtime_create_session(state, runtime, globals, runtime_options);
     raw = Core::agent_runtime_execute(session, code, runtime_options);
     normalized = Core::_normalize_agent_runtime_step_result(raw, code);
+    Core::_agent_attach_code_analysis(normalized, raw);
   }
   Core::_agent_runtime_append_action_log(state, normalized);
   Core::_agent_record_trace_event(state, Value("runtime_execute"), normalized);
@@ -37314,8 +37245,9 @@ Value Core::_agent_object_keys_sample(Value value, Value limit) {
 Value Core::_agent_evidence_entry_descriptor(Value key, Value value) {
   axir_coverage_mark("_agent_evidence_entry_descriptor");
   Value text = Core::json_stringify(value);
-  Value size = Core::len(text);
-  Value kind = Core::_agent_value_kind(value);
+  Value text_units = Core::string_utf16_units(text);
+  Value size = Core::len(text_units);
+  Value kind = Core::_agent_evidence_value_type(value);
   Value entry = Value::object();
   Core::set(entry, Value("key"), key);
   Core::set(entry, Value("type"), kind);
@@ -37355,14 +37287,18 @@ Value Core::_agent_build_evidence_descriptor(Value evidence) {
   if (!Core::truthy(is_object)) {
     payload = empty_map;
   }
-  Value text = Core::json_stringify(payload);
-  Value total = Core::len(text);
+  Value total = Value(0);
   Value entries = Value::array();
   Value keys = Core::map_keys(payload);
   for (auto key : Core::iter(keys)) {
     Value value = Core::get(payload, key, Value());
     Value entry = Core::_agent_evidence_entry_descriptor(key, value);
     Core::append(entries, entry);
+    Value entry_size = Core::get(entry, Value("size"), Value(0));
+    Value positive = Core::gt(entry_size, Value(0));
+    if (Core::truthy(positive)) {
+      total = Core::add(total, entry_size);
+    }
   }
   Value out = Value::object();
   Core::set(out, Value("kind"), Value("axEvidenceDescriptor"));
@@ -37394,28 +37330,32 @@ Value Core::_agent_render_evidence_descriptor(Value descriptor) {
   Core::append(lines, header);
   for (auto entry : Core::iter(entries)) {
     Value key = Core::get(entry, Value("key"), Value(""));
-    Value type = Core::get(entry, Value("type"), Value("value"));
+    Value type = Core::get(entry, Value("type"), Value("object"));
     Value size = Core::get(entry, Value("size"), Value(0));
-    Value line = Core::string_format(Value("- `{}`: {} ({} chars)"), key, type, size);
+    Value length_text = Value("");
     Value length = Core::get(entry, Value("length"), Value());
     Value has_length = Core::is_not_none(length);
     if (Core::truthy(has_length)) {
-      line = Core::string_format(Value("{}; length {}"), line, length);
+      length_text = Core::string_format(Value(", {} items"), length);
     }
-    Value keys = Core::get(entry, Value("keys"), empty_list);
-    Value keys_count = Core::len(keys);
-    Value has_keys = Core::gt(keys_count, Value(0));
-    if (Core::truthy(has_keys)) {
-      Value keys_text = Core::string_join(Value(", "), keys);
-      line = Core::string_format(Value("{}; keys: {}"), line, keys_text);
-    }
+    Value shape_text = Value("");
     Value item_keys = Core::get(entry, Value("itemKeys"), empty_list);
     Value item_keys_count = Core::len(item_keys);
     Value has_item_keys = Core::gt(item_keys_count, Value(0));
+    Value keys = Core::get(entry, Value("keys"), empty_list);
+    Value keys_count = Core::len(keys);
+    Value has_keys = Core::gt(keys_count, Value(0));
     if (Core::truthy(has_item_keys)) {
       Value item_keys_text = Core::string_join(Value(", "), item_keys);
-      line = Core::string_format(Value("{}; item keys: {}"), line, item_keys_text);
+      shape_text = Core::string_format(Value("; item keys: {}"), item_keys_text);
     }
+    if (!Core::truthy(has_item_keys)) {
+      if (Core::truthy(has_keys)) {
+        Value keys_text = Core::string_join(Value(", "), keys);
+        shape_text = Core::string_format(Value("; keys: {}"), keys_text);
+      }
+    }
+    Value line = Core::string_format(Value("- `{}` ({}{}, ~{} chars{})"), key, type, length_text, size, shape_text);
     Core::append(lines, line);
   }
   Value out = Core::string_join(Value("\n"), lines);
@@ -40719,10 +40659,14 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
     Value globals = Core::_agent_runtime_build_globals(state, exec_runtime_values);
     Value session = Core::get(state, Value("runtime_session"), Value());
     Value has_shared_session = Core::is_not_none(session);
+    Value empty_map_for_patch = Value::object();
     Value shared_notice_set = Value(false);
     if (Core::truthy(has_shared_session)) {
+      Value patch_globals = Core::map_merge(empty_map_for_patch, globals);
+      Core::map_delete(patch_globals, Value("distilledContext"));
       Value patch_snapshot = Value::object();
-      Core::set(patch_snapshot, Value("globals"), globals);
+      Core::set(patch_snapshot, Value("globals"), patch_globals);
+      Core::set(patch_snapshot, Value("merge"), Value(true));
       Core::_agent_runtime_restore_session_state(state, session, patch_snapshot, options);
       Value pending_notice = Core::get(state, Value("restore_notice"), Value(""));
       Value no_pending_notice = Core::eq(pending_notice, Value(""));
@@ -42702,6 +42646,326 @@ Value Core::_agent_ordered_completion_payload(Value payload) {
       Core::set(out, key, value);
     }
   }
+  return out;
+}
+
+Value Core::_agent_evidence_value_type(Value value) {
+  axir_coverage_mark("_agent_evidence_value_type");
+  Value missing = Core::is_none(value);
+  if (Core::truthy(missing)) {
+    return Value("null");
+  }
+  Value is_list = Core::type_is(value, Value("list"));
+  if (Core::truthy(is_list)) {
+    return Value("array");
+  }
+  Value js_type = Core::_agent_js_value_type(value);
+  return js_type;
+}
+
+Value Core::_agent_attach_code_analysis(Value entry, Value raw) {
+  axir_coverage_mark("_agent_attach_code_analysis");
+  Value is_object = Core::type_is(raw, Value("object"));
+  if (Core::truthy(is_object)) {
+    // empty
+  }
+  if (!Core::truthy(is_object)) {
+    return Value();
+  }
+  Value analysis = Core::get(raw, Value("analysis"), Value());
+  Value has_analysis = Core::type_is(analysis, Value("object"));
+  if (Core::truthy(has_analysis)) {
+    // empty
+  }
+  if (!Core::truthy(has_analysis)) {
+    return Value();
+  }
+  Value empty_list = Value::array();
+  Value produced = Core::get(analysis, Value("producedVars"), empty_list);
+  Value reads = Core::get(analysis, Value("readVars"), empty_list);
+  Value callables = Core::get(analysis, Value("callables"), empty_list);
+  Core::set(entry, Value("producedVars"), produced);
+  Core::set(entry, Value("readVars"), reads);
+  Core::set(entry, Value("callables"), callables);
+  return Value();
+}
+
+Value Core::_agent_stage_action_entries(Value state) {
+  axir_coverage_mark("_agent_stage_action_entries");
+  Value empty_list = Value::array();
+  Value all_entries = Core::get(state, Value("action_log"), empty_list);
+  Value stage_start = Core::get(state, Value("stage_action_log_start"), Value(0));
+  Value entries = Value::array();
+  Value position = Value(0);
+  for (auto entry : Core::iter(all_entries)) {
+    Value entry_type = Core::get(entry, Value("type"), Value(""));
+    Value is_session_record = Core::eq(entry_type, Value("runtime_session"));
+    Value before_stage = Core::lt(position, stage_start);
+    Value hidden = Core::or_(is_session_record, before_stage);
+    if (Core::truthy(hidden)) {
+      // empty
+    }
+    if (!Core::truthy(hidden)) {
+      Core::append(entries, entry);
+    }
+    position = Core::add(position, Value(1));
+  }
+  return entries;
+}
+
+Value Core::_agent_runtime_state_provenance(Value state) {
+  axir_coverage_mark("_agent_runtime_state_provenance");
+  Value empty_list = Value::array();
+  Value provenance = Value::object();
+  Value entries = Core::_agent_stage_action_entries(state);
+  Value turn = Value(0);
+  for (auto entry : Core::iter(entries)) {
+    turn = Core::add(turn, Value(1));
+    Value produced = Core::get(entry, Value("producedVars"), empty_list);
+    Value callables = Core::get(entry, Value("callables"), empty_list);
+    Value source = Core::list_get(callables, Value(0), Value(""));
+    for (auto name : Core::iter(produced)) {
+      Value record = Value::object();
+      Core::set(record, Value("createdTurn"), turn);
+      Value has_source = Core::ne(source, Value(""));
+      if (Core::truthy(has_source)) {
+        Core::set(record, Value("source"), source);
+      }
+      Core::set(provenance, name, record);
+    }
+    Value reads = Core::get(entry, Value("readVars"), empty_list);
+    for (auto read : Core::iter(reads)) {
+      Value known = Core::map_contains(provenance, read);
+      if (Core::truthy(known)) {
+        Value current = Core::get(provenance, read, Value());
+        Value created = Core::get(current, Value("createdTurn"), Value(0));
+        Value last_read = Core::get(current, Value("lastReadTurn"), created);
+        Value later = Core::gt(turn, last_read);
+        if (Core::truthy(later)) {
+          last_read = turn;
+        }
+        Core::set(current, Value("lastReadTurn"), last_read);
+        Core::set(provenance, read, current);
+      }
+    }
+  }
+  return provenance;
+}
+
+Value Core::_agent_render_structured_runtime_state(Value state, Value state_summary, Value entries) {
+  axir_coverage_mark("_agent_render_structured_runtime_state");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value injected_globals = Core::get(state, Value("runtime_globals"), empty_map);
+  Value reserved_names = Core::_agent_runtime_reserved_names_for_state(state);
+  Value computed = Core::_agent_runtime_state_provenance(state);
+  Value stored = Core::get(state, Value("provenance"), empty_map);
+  Value rows = Value::array();
+  for (auto entry : Core::iter(entries)) {
+    Value name = Core::get(entry, Value("name"), Value(""));
+    Value is_injected = Core::map_contains(injected_globals, name);
+    Value is_evidence = Core::eq(name, Value("distilledContext"));
+    Value not_evidence = Core::not_(is_evidence);
+    Value hidden_injected = Core::and_(is_injected, not_evidence);
+    Value is_reserved = Core::contains(reserved_names, name);
+    Value hidden_reserved = Core::and_(is_reserved, not_evidence);
+    Value hidden = Core::or_(hidden_injected, hidden_reserved);
+    if (Core::truthy(hidden)) {
+      // empty
+    }
+    if (!Core::truthy(hidden)) {
+      Value prov = Core::get(stored, name, Value());
+      Value has_stored = Core::type_is(prov, Value("object"));
+      if (Core::truthy(has_stored)) {
+        // empty
+      }
+      if (!Core::truthy(has_stored)) {
+        prov = Core::get(computed, name, Value());
+      }
+      Value score = Value(0);
+      Value prov_text = Value("");
+      Value has_prov = Core::type_is(prov, Value("object"));
+      if (Core::truthy(has_prov)) {
+        Value created = Core::get(prov, Value("createdTurn"), Value(0));
+        Value last_read = Core::get(prov, Value("lastReadTurn"), created);
+        Value source = Core::get(prov, Value("source"), Value(""));
+        Value created_score = Core::mul(created, Value(100));
+        Value read_score = Core::mul(last_read, Value(10000));
+        score = Core::add(Value(1000000), created_score);
+        score = Core::add(score, read_score);
+        Value has_source = Core::ne(source, Value(""));
+        if (Core::truthy(has_source)) {
+          score = Core::add(score, Value(25));
+          prov_text = Core::string_format(Value(" [from t{} via {}"), created, source);
+        }
+        if (!Core::truthy(has_source)) {
+          prov_text = Core::string_format(Value(" [from t{}"), created);
+        }
+        Value read_after = Core::gt(last_read, created);
+        if (Core::truthy(read_after)) {
+          prov_text = Core::string_format(Value("{}; read t{}"), prov_text, last_read);
+        }
+        prov_text = Core::string_format(Value("{}]"), prov_text);
+      }
+      Value type = Core::get(entry, Value("type"), Value("unknown"));
+      Value is_accessor = Core::eq(type, Value("accessor"));
+      Value is_function = Core::eq(type, Value("function"));
+      if (Core::truthy(is_accessor)) {
+        score = Core::add(score, Value(-100));
+      }
+      if (Core::truthy(is_function)) {
+        score = Core::add(score, Value(-10));
+      }
+      Value ctor = Core::get(entry, Value("ctor"), Value(""));
+      Value type_label = type;
+      Value is_object = Core::eq(type, Value("object"));
+      Value is_error = Core::eq(type, Value("error"));
+      Value has_ctor = Core::ne(ctor, Value(""));
+      Value object_ctor = Core::ne(ctor, Value("Object"));
+      Value error_ctor = Core::ne(ctor, Value("Error"));
+      Value labeled_object = Core::and_(is_object, has_ctor);
+      labeled_object = Core::and_(labeled_object, object_ctor);
+      Value labeled_error = Core::and_(is_error, has_ctor);
+      labeled_error = Core::and_(labeled_error, error_ctor);
+      if (Core::truthy(labeled_object)) {
+        type_label = Core::string_format(Value("object<{}>"), ctor);
+      }
+      if (Core::truthy(labeled_error)) {
+        type_label = Core::string_format(Value("error<{}>"), ctor);
+      }
+      Value size = Core::get(entry, Value("size"), Value(""));
+      Value has_size = Core::ne(size, Value(""));
+      if (Core::truthy(has_size)) {
+        type_label = Core::string_format(Value("{} ({})"), type_label, size);
+      }
+      Value preview = Core::get(entry, Value("preview"), Value(""));
+      Value preview_text = Value("");
+      Value has_preview = Core::ne(preview, Value(""));
+      if (Core::truthy(has_preview)) {
+        preview_text = Core::string_format(Value(" = {}"), preview);
+      }
+      Value line = Core::string_format(Value("{}: {}{}{}"), name, type_label, preview_text, prov_text);
+      Value row = Value::object();
+      Core::set(row, Value("name"), name);
+      Core::set(row, Value("score"), score);
+      Core::set(row, Value("line"), line);
+      Value placed = Value::array();
+      Value inserted = Value(false);
+      for (auto other : Core::iter(rows)) {
+        Value other_score = Core::get(other, Value("score"), Value(0));
+        Value other_name = Core::get(other, Value("name"), Value(""));
+        Value higher = Core::gt(score, other_score);
+        Value same = Core::eq(score, other_score);
+        Value names = Value::array();
+        Core::append(names, name);
+        Core::append(names, other_name);
+        Value sorted_names = Core::sorted_strings(names);
+        Value first_name = Core::list_get(sorted_names, Value(0), Value(""));
+        Value name_first = Core::eq(first_name, name);
+        Value name_differs = Core::ne(name, other_name);
+        Value name_before = Core::and_(name_first, name_differs);
+        Value tie_before = Core::and_(same, name_before);
+        Value goes_before = Core::or_(higher, tie_before);
+        Value not_inserted = Core::not_(inserted);
+        Value insert_here = Core::and_(goes_before, not_inserted);
+        if (Core::truthy(insert_here)) {
+          Core::append(placed, row);
+          inserted = Value(true);
+        }
+        Core::append(placed, other);
+      }
+      Value still_out = Core::not_(inserted);
+      if (Core::truthy(still_out)) {
+        Core::append(placed, row);
+      }
+      rows = placed;
+    }
+  }
+  Value count = Core::len(rows);
+  Value no_rows = Core::eq(count, Value(0));
+  if (Core::truthy(no_rows)) {
+    return Value("(no user variables)");
+  }
+  Value max_entries = Core::get(state_summary, Value("maxEntries"), Value(8));
+  Value max_entries_set = Core::gt(max_entries, Value(0));
+  if (Core::truthy(max_entries_set)) {
+    // empty
+  }
+  if (!Core::truthy(max_entries_set)) {
+    max_entries = Value(8);
+  }
+  Value max_chars = Core::get(state_summary, Value("maxChars"), Value(0));
+  Value char_budget = Core::gt(max_chars, Value(0));
+  Value lines = Value::array();
+  Value used = Value(0);
+  Value index = Value(0);
+  Value stop = Value(false);
+  for (auto row : Core::iter(rows)) {
+    Value within = Core::lt(index, max_entries);
+    Value go_on = Core::not_(stop);
+    Value take = Core::and_(within, go_on);
+    if (Core::truthy(take)) {
+      Value line = Core::get(row, Value("line"), Value());
+      if (Core::truthy(char_budget)) {
+        Value line_count = Core::len(lines);
+        Value separator = Value(0);
+        Value has_lines = Core::gt(line_count, Value(0));
+        if (Core::truthy(has_lines)) {
+          separator = Value(1);
+        }
+        Value spent = Core::add(used, separator);
+        Value negative_spent = Core::mul(spent, Value(-1));
+        Value remaining = Core::add(max_chars, negative_spent);
+        Value exhausted = Core::lte(remaining, Value(0));
+        if (Core::truthy(exhausted)) {
+          stop = Value(true);
+        }
+        if (!Core::truthy(exhausted)) {
+          Value line_units = Core::string_utf16_units(line);
+          Value line_length = Core::len(line_units);
+          Value fits = Core::lte(line_length, remaining);
+          if (Core::truthy(fits)) {
+            Core::append(lines, line);
+            used = Core::add(spent, line_length);
+          }
+          if (!Core::truthy(fits)) {
+            Value cut = Core::_agent_truncate_to_char_budget(line, remaining);
+            Core::append(lines, cut);
+            used = max_chars;
+            stop = Value(true);
+          }
+        }
+      }
+      if (!Core::truthy(char_budget)) {
+        Core::append(lines, line);
+      }
+    }
+    index = Core::add(index, Value(1));
+  }
+  Value out = Core::string_join(Value("\n"), lines);
+  return out;
+}
+
+Value Core::_agent_truncate_to_char_budget(Value text, Value max_chars) {
+  axir_coverage_mark("_agent_truncate_to_char_budget");
+  Value none_left = Core::lte(max_chars, Value(0));
+  if (Core::truthy(none_left)) {
+    return Value("");
+  }
+  Value units = Core::string_utf16_units(text);
+  Value length = Core::len(units);
+  Value fits = Core::lte(length, max_chars);
+  if (Core::truthy(fits)) {
+    return text;
+  }
+  Value tiny = Core::lte(max_chars, Value(3));
+  if (Core::truthy(tiny)) {
+    Value head = Core::_agent_utf16_prefix(text, max_chars);
+    return head;
+  }
+  Value keep = Core::add(max_chars, Value(-3));
+  Value prefix = Core::_agent_utf16_prefix(text, keep);
+  Value out = Core::string_format(Value("{}..."), prefix);
   return out;
 }
 

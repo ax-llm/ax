@@ -2801,5 +2801,9 @@ func readmeLines(lines ...string) string {
 
 func renderRuntimeHostNamespaces(template string) string {
 	template = strings.ReplaceAll(template, "{{AX_HOST_NAMESPACES_RAW}}", runtimeHostNamespaces)
-	return strings.ReplaceAll(template, "{{AX_HOST_NAMESPACES_QUOTED}}", strconv.Quote(runtimeHostNamespaces))
+	template = strings.ReplaceAll(template, "{{AX_HOST_NAMESPACES_QUOTED}}", strconv.Quote(runtimeHostNamespaces))
+	// The JS runtimes' shared support (scripts/axir-runtime-support.mjs):
+	// TypeScript's action-log code analysis and snapshot entries.
+	template = strings.ReplaceAll(template, "{{AX_RUNTIME_SUPPORT_RAW}}", runtimeSupport)
+	return strings.ReplaceAll(template, "{{AX_RUNTIME_SUPPORT_QUOTED}}", strconv.Quote(runtimeSupport))
 }

@@ -746,6 +746,9 @@ var pySessionNoKeyExample string
 //go:embed templates/runtime/hostNamespaces.js
 var runtimeHostNamespaces string
 
+//go:embed templates/runtime/runtimeSupport.js
+var runtimeSupport string
+
 //go:embed templates/java/javaTypesafe.java
 var javaTypesafe string
 

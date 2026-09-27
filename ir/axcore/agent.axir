@@ -3195,92 +3195,7 @@ module @ax.agent version "0.1" {
         %entry_count = core.call intrinsic.len(%entries)
         %has_entries = core.call intrinsic.gt(%entry_count, 0)
         core.if %has_entries {
-          %provenance = core.get %state["provenance"] default %empty_map
-          %lines_structured = core.list
-          %structured_count = core.let 0
-          // The globals the agent put in the session (inputs, the input fields,
-          // the runtime descriptors) are not user variables.
-          %injected_globals = core.get %state["runtime_globals"] default %empty_map
-          %reserved_names = core.call @agent_runtime_reserved_names_for_state(%state)
-          core.for %entry in %entries {
-            %entry_name = core.get %entry["name"] default ""
-            %is_injected = core.call intrinsic.map.contains(%injected_globals, %entry_name)
-            %is_reserved_name = core.call intrinsic.contains(%reserved_names, %entry_name)
-            %not_user_variable = core.call intrinsic.or(%is_injected, %is_reserved_name)
-            %under_structured_limit = core.call intrinsic.lt(%structured_count, %max_entries)
-            %is_user_variable = core.call intrinsic.not(%not_user_variable)
-            %render_entry = core.call intrinsic.and(%under_structured_limit, %is_user_variable)
-            core.if %render_entry {
-              %name = core.get %entry["name"] default ""
-              %type = core.get %entry["type"] default "unknown"
-              %size = core.get %entry["size"] default ""
-              %preview = core.get %entry["preview"] default ""
-              %ctor = core.get %entry["ctor"] default ""
-              %is_promoted_name = core.call intrinsic.contains(%auto_promoted_fields, %name)
-              %is_context_name = core.call intrinsic.eq(%name, "context")
-              %is_distilled_name = core.call intrinsic.eq(%name, "distilledContext")
-              %type_label = core.let %type
-              %object_type = core.call intrinsic.eq(%type, "object")
-              %has_ctor = core.call intrinsic.ne(%ctor, "")
-              %object_with_ctor = core.call intrinsic.and(%object_type, %has_ctor)
-              core.if %object_with_ctor {
-                %type_label = core.call intrinsic.string.format("object<{}>", %ctor)
-              }
-              %has_size = core.call intrinsic.ne(%size, "")
-              core.if %has_size {
-                %type_label = core.call intrinsic.string.format("{} ({})", %type_label, %size)
-              }
-              %preview_text = core.let ""
-              %has_preview = core.call intrinsic.ne(%preview, "")
-              core.if %has_preview {
-                %preview_text = core.call intrinsic.string.format(" = {}", %preview)
-              }
-              core.if %is_promoted_name {
-                %preview_text = core.call intrinsic.string.format(" = [runtime-only context available as inputs.{}]", %name)
-              }
-              core.if %is_context_name {
-                %preview_text = core.let " = [runtime context map; values omitted from prompt]"
-              }
-              core.if %is_distilled_name {
-                %preview_text = core.let " = [distilled evidence object; values omitted from prompt]"
-              }
-              %prov = core.get %provenance[%name] default null
-              %prov_text = core.let ""
-              %has_prov = core.type_is %prov type "object"
-              core.if %has_prov {
-                %created_turn = core.get %prov["createdTurn"] default 0
-                %source = core.get %prov["source"] default ""
-                %last_read = core.get %prov["lastReadTurn"] default 0
-                %has_source = core.call intrinsic.ne(%source, "")
-                core.if %has_source {
-                  %prov_text = core.call intrinsic.string.format(" [from t{} via {}", %created_turn, %source)
-                } else {
-                  %prov_text = core.call intrinsic.string.format(" [from t{}", %created_turn)
-                }
-                %read_after = core.call intrinsic.gt(%last_read, %created_turn)
-                core.if %read_after {
-                  %prov_text = core.call intrinsic.string.format("{}; read t{}", %prov_text, %last_read)
-                }
-                %prov_text = core.call intrinsic.add(%prov_text, "]")
-              }
-              %restorable = core.get %entry["restorable"] default true
-              %snapshot_only = core.call intrinsic.eq(%restorable, false)
-              %restore_text = core.let ""
-              core.if %snapshot_only {
-                %restore_text = core.let " [snapshot only]"
-              }
-              %line_base = core.call intrinsic.string.format("{}: {}{}", %name, %type_label, %preview_text)
-              %line_with_prov = core.call intrinsic.add(%line_base, %prov_text)
-              %line = core.call intrinsic.add(%line_with_prov, %restore_text)
-              core.append %lines_structured, %line
-              %structured_count = core.call intrinsic.add(%structured_count, 1)
-            }
-          }
-          %body_structured = core.call intrinsic.string.join("\n", %lines_structured)
-          %empty_structured = core.call intrinsic.eq(%body_structured, "")
-          core.if %empty_structured {
-            %body_structured = core.let "(no user variables)"
-          }
+          %body_structured = core.call @agent_render_structured_runtime_state(%state, %state_summary, %entries)
           core.set %state["runtime_state_summary"] = %body_structured
           core.return %body_structured
         }
@@ -5900,7 +5815,14 @@ module @ax.agent version "0.1" {
         %bindings = core.let %raw_bindings
       }
       %reserved = core.call @agent_runtime_reserved_names_for_state(%state)
-      %clean_bindings = core.call @agent_runtime_sanitize_bindings(%state, %bindings)
+      // A merge patch carries the agent's own globals (the executor's inputs
+      // and aliases): they are not user bindings to sanitize.
+      %merge = core.get %snapshot["merge"] default false
+      %clean_bindings = core.let %bindings
+      core.if %merge {
+      } else {
+        %clean_bindings = core.call @agent_runtime_sanitize_bindings(%state, %bindings)
+      }
       %entries = core.get %snapshot["entries"] default %empty_list
       %entries_is_list = core.type_is %entries type "list"
       core.if %entries_is_list {
@@ -5911,7 +5833,12 @@ module @ax.agent version "0.1" {
       core.for %entry in %entries {
         %entry_name = core.get %entry["name"] default ""
         %entry_reserved = core.call intrinsic.contains(%reserved, %entry_name)
-        core.if %entry_reserved {
+        // The shared evidence global is a user variable of the executor's
+        // session, as in TS.
+        %entry_evidence = core.call intrinsic.eq(%entry_name, "distilledContext")
+        %entry_not_evidence = core.call intrinsic.not(%entry_evidence)
+        %entry_hidden = core.call intrinsic.and(%entry_reserved, %entry_not_evidence)
+        core.if %entry_hidden {
         } else {
           core.append %clean_entries, %entry
         }
@@ -5924,6 +5851,9 @@ module @ax.agent version "0.1" {
       core.set %out["bindings"] = %clean_bindings
       core.set %out["globals"] = %clean_bindings
       core.set %out["closed"] = %closed
+      core.if %merge {
+        core.set %out["merge"] = true
+      }
       core.return %out
     }
   }
@@ -6194,6 +6124,7 @@ module @ax.agent version "0.1" {
       }
       %raw = core.call intrinsic.agent.runtime.execute(%session, %code, %runtime_options)
       %normalized = core.call @normalize_agent_runtime_step_result(%raw, %code)
+      core.call @agent_attach_code_analysis(%normalized, %raw)
       %closed = core.get %normalized["error_category"] default ""
       %is_closed = core.call intrinsic.eq(%closed, "session_closed")
       core.if %is_closed {
@@ -6203,6 +6134,7 @@ module @ax.agent version "0.1" {
         %session = core.call @agent_runtime_create_session(%state, %runtime, %globals, %runtime_options)
         %raw = core.call intrinsic.agent.runtime.execute(%session, %code, %runtime_options)
         %normalized = core.call @normalize_agent_runtime_step_result(%raw, %code)
+        core.call @agent_attach_code_analysis(%normalized, %raw)
       }
       core.call @agent_runtime_append_action_log(%state, %normalized)
       core.call @agent_record_trace_event(%state, "runtime_execute", %normalized)
@@ -6477,9 +6409,12 @@ module @ax.agent version "0.1" {
     attr private = true
     type signature = "(string, json) -> json"
     body @entry(%key: string, %value: json) {
+      // TS: the value's JSON length in UTF-16 units, and its type (null,
+      // array, or typeof).
       %text = core.call intrinsic.json.stringify(%value)
-      %size = core.call intrinsic.len(%text)
-      %kind = core.call @agent_value_kind(%value)
+      %text_units = core.call intrinsic.string.utf16_units(%text)
+      %size = core.call intrinsic.len(%text_units)
+      %kind = core.call @agent_evidence_value_type(%value)
       %entry = core.map
       core.set %entry["key"] = %key
       core.set %entry["type"] = %kind
@@ -6522,14 +6457,19 @@ module @ax.agent version "0.1" {
       } else {
         %payload = core.let %empty_map
       }
-      %text = core.call intrinsic.json.stringify(%payload)
-      %total = core.call intrinsic.len(%text)
+      // TS: the total is the sum of the entries' sizes.
+      %total = core.let 0
       %entries = core.list
       %keys = core.call intrinsic.map.keys(%payload)
       core.for %key in %keys {
         %value = core.get %payload[%key]
         %entry = core.call @agent_evidence_entry_descriptor(%key, %value)
         core.append %entries, %entry
+        %entry_size = core.get %entry["size"] default 0
+        %positive = core.call intrinsic.gt(%entry_size, 0)
+        core.if %positive {
+          %total = core.call intrinsic.add(%total, %entry_size)
+        }
       }
       %out = core.map
       core.set %out["kind"] = "axEvidenceDescriptor"
@@ -6562,30 +6502,35 @@ module @ax.agent version "0.1" {
       %lines = core.list
       %header = core.call intrinsic.string.format("Evidence keys available in the runtime as `inputs.distilledContext` (~{} chars total):", %total)
       core.append %lines, %header
+      // TS renderEvidenceDescriptor: "- `key` (type[, N items], ~size
+      // chars[; item keys: ...| ; keys: ...])".
       core.for %entry in %entries {
         %key = core.get %entry["key"] default ""
-        %type = core.get %entry["type"] default "value"
+        %type = core.get %entry["type"] default "object"
         %size = core.get %entry["size"] default 0
-        %line = core.call intrinsic.string.format("- `{}`: {} ({} chars)", %key, %type, %size)
+        %length_text = core.let ""
         %length = core.get %entry["length"] default null
         %has_length = core.call intrinsic.is_not_none(%length)
         core.if %has_length {
-          %line = core.call intrinsic.string.format("{}; length {}", %line, %length)
+          %length_text = core.call intrinsic.string.format(", {} items", %length)
         }
-        %keys = core.get %entry["keys"] default %empty_list
-        %keys_count = core.call intrinsic.len(%keys)
-        %has_keys = core.call intrinsic.gt(%keys_count, 0)
-        core.if %has_keys {
-          %keys_text = core.call intrinsic.string.join(", ", %keys)
-          %line = core.call intrinsic.string.format("{}; keys: {}", %line, %keys_text)
-        }
+        %shape_text = core.let ""
         %item_keys = core.get %entry["itemKeys"] default %empty_list
         %item_keys_count = core.call intrinsic.len(%item_keys)
         %has_item_keys = core.call intrinsic.gt(%item_keys_count, 0)
+        %keys = core.get %entry["keys"] default %empty_list
+        %keys_count = core.call intrinsic.len(%keys)
+        %has_keys = core.call intrinsic.gt(%keys_count, 0)
         core.if %has_item_keys {
           %item_keys_text = core.call intrinsic.string.join(", ", %item_keys)
-          %line = core.call intrinsic.string.format("{}; item keys: {}", %line, %item_keys_text)
+          %shape_text = core.call intrinsic.string.format("; item keys: {}", %item_keys_text)
+        } else {
+          core.if %has_keys {
+            %keys_text = core.call intrinsic.string.join(", ", %keys)
+            %shape_text = core.call intrinsic.string.format("; keys: {}", %keys_text)
+          }
         }
+        %line = core.call intrinsic.string.format("- `{}` ({}{}, ~{} chars{})", %key, %type, %length_text, %size, %shape_text)
         core.append %lines, %line
       }
       %out = core.call intrinsic.string.join("\n", %lines)
@@ -10217,10 +10162,18 @@ module @ax.agent version "0.1" {
         %globals = core.call @agent_runtime_build_globals(%state, %exec_runtime_values)
         %session = core.get %state["runtime_session"] default null
         %has_shared_session = core.call intrinsic.is_not_none(%session)
+        %empty_map_for_patch = core.map
         %shared_notice_set = core.let false
         core.if %has_shared_session {
+          // TS patchGlobals: the executor's inputs and aliases are merged into
+          // the distiller's session, whose variables stay live. The evidence
+          // is inputs.distilledContext; the distilledContext global is the one
+          // the distiller's final(task, evidence) kept in the session, as TS's.
+          %patch_globals = core.call intrinsic.map.merge(%empty_map_for_patch, %globals)
+          core.call intrinsic.map.delete(%patch_globals, "distilledContext")
           %patch_snapshot = core.map
-          core.set %patch_snapshot["globals"] = %globals
+          core.set %patch_snapshot["globals"] = %patch_globals
+          core.set %patch_snapshot["merge"] = true
           core.call @agent_runtime_restore_session_state(%state, %session, %patch_snapshot, %options)
           // As TS: the executor inherits the distiller's session, and its first
           // turn says so unless a restore notice of its own is pending.
@@ -12572,6 +12525,362 @@ module @ax.agent version "0.1" {
           core.set %out[%key] = %value
         }
       }
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_evidence_value_type {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> string"
+    body @entry(%value: json) {
+      // TS describeEvidenceValueType: null, array, or the value's typeof.
+      %missing = core.call intrinsic.is_none(%value)
+      core.if %missing {
+        core.return "null"
+      }
+      %is_list = core.type_is %value type "list"
+      core.if %is_list {
+        core.return "array"
+      }
+      %js_type = core.call @agent_js_value_type(%value)
+      core.return %js_type
+    }
+  }
+
+  op ax.agent.semantic @agent_attach_code_analysis {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> void"
+    body @entry(%entry: json, %raw: json) {
+      // A JavaScript runtime's analysis of the turn's code (TS
+      // ensureEntryMetadata: the top-level variables it writes, the ones it
+      // reads, and its qualified calls), kept on the action log entry.
+      %is_object = core.type_is %raw type "object"
+      core.if %is_object {
+      } else {
+        core.return
+      }
+      %analysis = core.get %raw["analysis"] default null
+      %has_analysis = core.type_is %analysis type "object"
+      core.if %has_analysis {
+      } else {
+        core.return
+      }
+      %empty_list = core.list
+      %produced = core.get %analysis["producedVars"] default %empty_list
+      %reads = core.get %analysis["readVars"] default %empty_list
+      %callables = core.get %analysis["callables"] default %empty_list
+      core.set %entry["producedVars"] = %produced
+      core.set %entry["readVars"] = %reads
+      core.set %entry["callables"] = %callables
+      core.return
+    }
+  }
+
+  op ax.agent.semantic @agent_stage_action_entries {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> json"
+    body @entry(%state: json) {
+      // The active stage's action log entries (its restored ones included),
+      // without the runtime session records, in order.
+      %empty_list = core.list
+      %all_entries = core.get %state["action_log"] default %empty_list
+      %stage_start = core.get %state["stage_action_log_start"] default 0
+      %entries = core.list
+      %position = core.let 0
+      core.for %entry in %all_entries {
+        %entry_type = core.get %entry["type"] default ""
+        %is_session_record = core.call intrinsic.eq(%entry_type, "runtime_session")
+        %before_stage = core.call intrinsic.lt(%position, %stage_start)
+        %hidden = core.call intrinsic.or(%is_session_record, %before_stage)
+        core.if %hidden {
+        } else {
+          core.append %entries, %entry
+        }
+        %position = core.call intrinsic.add(%position, 1)
+      }
+      core.return %entries
+    }
+  }
+
+  op ax.agent.semantic @agent_runtime_state_provenance {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> json"
+    body @entry(%state: json) {
+      // TS buildRuntimeStateProvenance over the stage's action log: each
+      // variable a turn writes was created at that turn (its first qualified
+      // call the source), and a later turn that reads it moves lastReadTurn.
+      // A turn's number is its position in the stage's log, as TS's.
+      %empty_list = core.list
+      %provenance = core.map
+      %entries = core.call @agent_stage_action_entries(%state)
+      %turn = core.let 0
+      core.for %entry in %entries {
+        %turn = core.call intrinsic.add(%turn, 1)
+        %produced = core.get %entry["producedVars"] default %empty_list
+        %callables = core.get %entry["callables"] default %empty_list
+        %source = core.call intrinsic.list.get(%callables, 0, "")
+        core.for %name in %produced {
+          %record = core.map
+          core.set %record["createdTurn"] = %turn
+          %has_source = core.call intrinsic.ne(%source, "")
+          core.if %has_source {
+            core.set %record["source"] = %source
+          }
+          core.set %provenance[%name] = %record
+        }
+        %reads = core.get %entry["readVars"] default %empty_list
+        core.for %read in %reads {
+          %known = core.call intrinsic.map.contains(%provenance, %read)
+          core.if %known {
+            %current = core.get %provenance[%read]
+            %created = core.get %current["createdTurn"] default 0
+            %last_read = core.get %current["lastReadTurn"] default %created
+            %later = core.call intrinsic.gt(%turn, %last_read)
+            core.if %later {
+              %last_read = core.let %turn
+            }
+            core.set %current["lastReadTurn"] = %last_read
+            core.set %provenance[%read] = %current
+          }
+        }
+      }
+      core.return %provenance
+    }
+  }
+
+  op ax.agent.semantic @agent_render_structured_runtime_state {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json) -> string"
+    body @entry(%state: json, %state_summary: json, %entries: json) {
+      // TS formatStructuredRuntimeState: the user variables by salience
+      // (variables with provenance first, the latest read and created ones
+      // ahead), then name; "name: type (size) = preview [from tN via
+      // source; read tM]"; at most maxEntries lines within maxChars. The
+      // globals the agent put in the session and the runtime's reserved names
+      // are not user variables; the shared evidence global (distilledContext)
+      // is, as in TS's executor.
+      %empty_map = core.map
+      %empty_list = core.list
+      %injected_globals = core.get %state["runtime_globals"] default %empty_map
+      %reserved_names = core.call @agent_runtime_reserved_names_for_state(%state)
+      %computed = core.call @agent_runtime_state_provenance(%state)
+      %stored = core.get %state["provenance"] default %empty_map
+      %rows = core.list
+      core.for %entry in %entries {
+        %name = core.get %entry["name"] default ""
+        %is_injected = core.call intrinsic.map.contains(%injected_globals, %name)
+        %is_evidence = core.call intrinsic.eq(%name, "distilledContext")
+        %not_evidence = core.call intrinsic.not(%is_evidence)
+        %hidden_injected = core.call intrinsic.and(%is_injected, %not_evidence)
+        %is_reserved = core.call intrinsic.contains(%reserved_names, %name)
+        %hidden_reserved = core.call intrinsic.and(%is_reserved, %not_evidence)
+        %hidden = core.call intrinsic.or(%hidden_injected, %hidden_reserved)
+        core.if %hidden {
+        } else {
+          // A stored (restored) record wins over the one computed from the
+          // stage's actions, as TS's mergeRuntimeStateProvenance.
+          %prov = core.get %stored[%name] default null
+          %has_stored = core.type_is %prov type "object"
+          core.if %has_stored {
+          } else {
+            %prov = core.get %computed[%name] default null
+          }
+          %score = core.let 0
+          %prov_text = core.let ""
+          %has_prov = core.type_is %prov type "object"
+          core.if %has_prov {
+            %created = core.get %prov["createdTurn"] default 0
+            %last_read = core.get %prov["lastReadTurn"] default %created
+            %source = core.get %prov["source"] default ""
+            %created_score = core.call intrinsic.mul(%created, 100)
+            %read_score = core.call intrinsic.mul(%last_read, 10000)
+            %score = core.call intrinsic.add(1000000, %created_score)
+            %score = core.call intrinsic.add(%score, %read_score)
+            %has_source = core.call intrinsic.ne(%source, "")
+            core.if %has_source {
+              %score = core.call intrinsic.add(%score, 25)
+              %prov_text = core.call intrinsic.string.format(" [from t{} via {}", %created, %source)
+            } else {
+              %prov_text = core.call intrinsic.string.format(" [from t{}", %created)
+            }
+            %read_after = core.call intrinsic.gt(%last_read, %created)
+            core.if %read_after {
+              %prov_text = core.call intrinsic.string.format("{}; read t{}", %prov_text, %last_read)
+            }
+            %prov_text = core.call intrinsic.string.format("{}]", %prov_text)
+          }
+          %type = core.get %entry["type"] default "unknown"
+          %is_accessor = core.call intrinsic.eq(%type, "accessor")
+          %is_function = core.call intrinsic.eq(%type, "function")
+          core.if %is_accessor {
+            %score = core.call intrinsic.add(%score, -100)
+          }
+          core.if %is_function {
+            %score = core.call intrinsic.add(%score, -10)
+          }
+          %ctor = core.get %entry["ctor"] default ""
+          %type_label = core.let %type
+          %is_object = core.call intrinsic.eq(%type, "object")
+          %is_error = core.call intrinsic.eq(%type, "error")
+          %has_ctor = core.call intrinsic.ne(%ctor, "")
+          %object_ctor = core.call intrinsic.ne(%ctor, "Object")
+          %error_ctor = core.call intrinsic.ne(%ctor, "Error")
+          %labeled_object = core.call intrinsic.and(%is_object, %has_ctor)
+          %labeled_object = core.call intrinsic.and(%labeled_object, %object_ctor)
+          %labeled_error = core.call intrinsic.and(%is_error, %has_ctor)
+          %labeled_error = core.call intrinsic.and(%labeled_error, %error_ctor)
+          core.if %labeled_object {
+            %type_label = core.call intrinsic.string.format("object<{}>", %ctor)
+          }
+          core.if %labeled_error {
+            %type_label = core.call intrinsic.string.format("error<{}>", %ctor)
+          }
+          %size = core.get %entry["size"] default ""
+          %has_size = core.call intrinsic.ne(%size, "")
+          core.if %has_size {
+            %type_label = core.call intrinsic.string.format("{} ({})", %type_label, %size)
+          }
+          %preview = core.get %entry["preview"] default ""
+          %preview_text = core.let ""
+          %has_preview = core.call intrinsic.ne(%preview, "")
+          core.if %has_preview {
+            %preview_text = core.call intrinsic.string.format(" = {}", %preview)
+          }
+          %line = core.call intrinsic.string.format("{}: {}{}{}", %name, %type_label, %preview_text, %prov_text)
+          %row = core.map
+          core.set %row["name"] = %name
+          core.set %row["score"] = %score
+          core.set %row["line"] = %line
+          // A stable insertion by (score desc, name asc).
+          %placed = core.list
+          %inserted = core.let false
+          core.for %other in %rows {
+            %other_score = core.get %other["score"] default 0
+            %other_name = core.get %other["name"] default ""
+            %higher = core.call intrinsic.gt(%score, %other_score)
+            %same = core.call intrinsic.eq(%score, %other_score)
+            %names = core.list
+            core.append %names, %name
+            core.append %names, %other_name
+            %sorted_names = core.call intrinsic.list.sorted_strings(%names)
+            %first_name = core.call intrinsic.list.get(%sorted_names, 0, "")
+            %name_first = core.call intrinsic.eq(%first_name, %name)
+            %name_differs = core.call intrinsic.ne(%name, %other_name)
+            %name_before = core.call intrinsic.and(%name_first, %name_differs)
+            %tie_before = core.call intrinsic.and(%same, %name_before)
+            %goes_before = core.call intrinsic.or(%higher, %tie_before)
+            %not_inserted = core.call intrinsic.not(%inserted)
+            %insert_here = core.call intrinsic.and(%goes_before, %not_inserted)
+            core.if %insert_here {
+              core.append %placed, %row
+              %inserted = core.let true
+            }
+            core.append %placed, %other
+          }
+          %still_out = core.call intrinsic.not(%inserted)
+          core.if %still_out {
+            core.append %placed, %row
+          }
+          %rows = core.let %placed
+        }
+      }
+      %count = core.call intrinsic.len(%rows)
+      %no_rows = core.call intrinsic.eq(%count, 0)
+      core.if %no_rows {
+        core.return "(no user variables)"
+      }
+      // TS formatRuntimeStateLines.
+      %max_entries = core.get %state_summary["maxEntries"] default 8
+      %max_entries_set = core.call intrinsic.gt(%max_entries, 0)
+      core.if %max_entries_set {
+      } else {
+        %max_entries = core.let 8
+      }
+      %max_chars = core.get %state_summary["maxChars"] default 0
+      %char_budget = core.call intrinsic.gt(%max_chars, 0)
+      %lines = core.list
+      %used = core.let 0
+      %index = core.let 0
+      %stop = core.let false
+      core.for %row in %rows {
+        %within = core.call intrinsic.lt(%index, %max_entries)
+        %go_on = core.call intrinsic.not(%stop)
+        %take = core.call intrinsic.and(%within, %go_on)
+        core.if %take {
+          %line = core.get %row["line"]
+          core.if %char_budget {
+            %line_count = core.call intrinsic.len(%lines)
+            %separator = core.let 0
+            %has_lines = core.call intrinsic.gt(%line_count, 0)
+            core.if %has_lines {
+              %separator = core.let 1
+            }
+            %spent = core.call intrinsic.add(%used, %separator)
+            %negative_spent = core.call intrinsic.mul(%spent, -1)
+            %remaining = core.call intrinsic.add(%max_chars, %negative_spent)
+            %exhausted = core.call intrinsic.lte(%remaining, 0)
+            core.if %exhausted {
+              %stop = core.let true
+            } else {
+              %line_units = core.call intrinsic.string.utf16_units(%line)
+              %line_length = core.call intrinsic.len(%line_units)
+              %fits = core.call intrinsic.lte(%line_length, %remaining)
+              core.if %fits {
+                core.append %lines, %line
+                %used = core.call intrinsic.add(%spent, %line_length)
+              } else {
+                %cut = core.call @agent_truncate_to_char_budget(%line, %remaining)
+                core.append %lines, %cut
+                %used = core.let %max_chars
+                %stop = core.let true
+              }
+            }
+          } else {
+            core.append %lines, %line
+          }
+        }
+        %index = core.call intrinsic.add(%index, 1)
+      }
+      %out = core.call intrinsic.string.join("\n", %lines)
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_truncate_to_char_budget {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string, json) -> string"
+    body @entry(%text: string, %max_chars: json) {
+      // TS truncateToCharBudget (UTF-16 units).
+      %none_left = core.call intrinsic.lte(%max_chars, 0)
+      core.if %none_left {
+        core.return ""
+      }
+      %units = core.call intrinsic.string.utf16_units(%text)
+      %length = core.call intrinsic.len(%units)
+      %fits = core.call intrinsic.lte(%length, %max_chars)
+      core.if %fits {
+        core.return %text
+      }
+      %tiny = core.call intrinsic.lte(%max_chars, 3)
+      core.if %tiny {
+        %head = core.call @agent_utf16_prefix(%text, %max_chars)
+        core.return %head
+      }
+      %keep = core.call intrinsic.add(%max_chars, -3)
+      %prefix = core.call @agent_utf16_prefix(%text, %keep)
+      %out = core.call intrinsic.string.format("{}...", %prefix)
       core.return %out
     }
   }

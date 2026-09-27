@@ -68814,74 +68814,32 @@ func _agent_render_runtime_state_summary(args ...Value) (Value, error) {
 	var v_body Value
 	var v_body_structured Value
 	var v_count Value
-	var v_created_turn Value
-	var v_ctor Value
 	var v_empty Value
 	var v_empty_list Value
 	var v_empty_map Value
-	var v_empty_structured Value
 	var v_enabled Value
 	var v_entries Value
 	var v_entries_is_list Value
-	var v_entry Value
 	var v_entry_count Value
-	var v_entry_name Value
 	var v_globals Value
-	var v_has_ctor Value
 	var v_has_entries Value
-	var v_has_preview Value
-	var v_has_prov Value
-	var v_has_size Value
-	var v_has_source Value
 	var v_include_key Value
 	var v_injected Value
-	var v_injected_globals Value
 	var v_injected_key Value
 	var v_is_context_binding Value
-	var v_is_context_name Value
 	var v_is_distilled_binding Value
-	var v_is_distilled_name Value
-	var v_is_injected Value
 	var v_is_promoted_binding Value
-	var v_is_promoted_name Value
-	var v_is_reserved_name Value
-	var v_is_user_variable Value
 	var v_key Value
-	var v_last_read Value
 	var v_line Value
-	var v_line_base Value
-	var v_line_with_prov Value
-	var v_lines_structured Value
 	var v_max_entries Value
-	var v_name Value
-	var v_not_user_variable Value
-	var v_object_type Value
-	var v_object_with_ctor Value
 	var v_parts Value
-	var v_preview Value
-	var v_preview_text Value
-	var v_prov Value
-	var v_prov_text Value
-	var v_provenance Value
-	var v_read_after Value
-	var v_render_entry Value
 	var v_reserved Value
 	var v_reserved_key Value
-	var v_reserved_names Value
-	var v_restorable Value
-	var v_restore_text Value
 	var v_session_state Value
-	var v_size Value
 	var v_skipped_key Value
-	var v_snapshot_only Value
-	var v_source Value
 	var v_state_summary Value
-	var v_structured_count Value
 	var v_text Value
-	var v_type Value
-	var v_type_label Value
 	var v_under_limit Value
-	var v_under_structured_limit Value
 	var v_value Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
@@ -68894,74 +68852,32 @@ func _agent_render_runtime_state_summary(args ...Value) (Value, error) {
 	_ = v_body
 	_ = v_body_structured
 	_ = v_count
-	_ = v_created_turn
-	_ = v_ctor
 	_ = v_empty
 	_ = v_empty_list
 	_ = v_empty_map
-	_ = v_empty_structured
 	_ = v_enabled
 	_ = v_entries
 	_ = v_entries_is_list
-	_ = v_entry
 	_ = v_entry_count
-	_ = v_entry_name
 	_ = v_globals
-	_ = v_has_ctor
 	_ = v_has_entries
-	_ = v_has_preview
-	_ = v_has_prov
-	_ = v_has_size
-	_ = v_has_source
 	_ = v_include_key
 	_ = v_injected
-	_ = v_injected_globals
 	_ = v_injected_key
 	_ = v_is_context_binding
-	_ = v_is_context_name
 	_ = v_is_distilled_binding
-	_ = v_is_distilled_name
-	_ = v_is_injected
 	_ = v_is_promoted_binding
-	_ = v_is_promoted_name
-	_ = v_is_reserved_name
-	_ = v_is_user_variable
 	_ = v_key
-	_ = v_last_read
 	_ = v_line
-	_ = v_line_base
-	_ = v_line_with_prov
-	_ = v_lines_structured
 	_ = v_max_entries
-	_ = v_name
-	_ = v_not_user_variable
-	_ = v_object_type
-	_ = v_object_with_ctor
 	_ = v_parts
-	_ = v_preview
-	_ = v_preview_text
-	_ = v_prov
-	_ = v_prov_text
-	_ = v_provenance
-	_ = v_read_after
-	_ = v_render_entry
 	_ = v_reserved
 	_ = v_reserved_key
-	_ = v_reserved_names
-	_ = v_restorable
-	_ = v_restore_text
 	_ = v_session_state
-	_ = v_size
 	_ = v_skipped_key
-	_ = v_snapshot_only
-	_ = v_source
 	_ = v_state_summary
-	_ = v_structured_count
 	_ = v_text
-	_ = v_type
-	_ = v_type_label
 	_ = v_under_limit
-	_ = v_under_structured_limit
 	_ = v_value
 	v_empty_map = Object()
 	v_empty_list = MutableArray()
@@ -68981,112 +68897,7 @@ func _agent_render_runtime_state_summary(args ...Value) (Value, error) {
 		v_entry_count = _core_len(v_entries)
 		v_has_entries = _core_gt(v_entry_count, 0)
 		if coreTruthy(v_has_entries) {
-			v_provenance = coreGet(v_state, "provenance", v_empty_map)
-			v_lines_structured = MutableArray()
-			v_structured_count = 0
-			v_injected_globals = coreGet(v_state, "runtime_globals", v_empty_map)
-			{ v, err := _agent_runtime_reserved_names_for_state(v_state); if err != nil { return nil, err }; v_reserved_names = v }
-			for _, v_entry = range coreIter(v_entries) {
-				v_entry_name = coreGet(v_entry, "name", "")
-				v_is_injected = _core_map_contains(v_injected_globals, v_entry_name)
-				v_is_reserved_name = _core_contains(v_reserved_names, v_entry_name)
-				v_not_user_variable = _core_or(v_is_injected, v_is_reserved_name)
-				v_under_structured_limit = _core_lt(v_structured_count, v_max_entries)
-				v_is_user_variable = _core_not(v_not_user_variable)
-				v_render_entry = _core_and(v_under_structured_limit, v_is_user_variable)
-				if coreTruthy(v_render_entry) {
-					v_name = coreGet(v_entry, "name", "")
-					v_type = coreGet(v_entry, "type", "unknown")
-					v_size = coreGet(v_entry, "size", "")
-					v_preview = coreGet(v_entry, "preview", "")
-					v_ctor = coreGet(v_entry, "ctor", "")
-					v_is_promoted_name = _core_contains(v_auto_promoted_fields, v_name)
-					v_is_context_name = _core_eq(v_name, "context")
-					v_is_distilled_name = _core_eq(v_name, "distilledContext")
-					v_type_label = v_type
-					v_object_type = _core_eq(v_type, "object")
-					v_has_ctor = _core_ne(v_ctor, "")
-					v_object_with_ctor = _core_and(v_object_type, v_has_ctor)
-					if coreTruthy(v_object_with_ctor) {
-						v_type_label = _core_string_format("object<{}>", v_ctor)
-					} else {
-					// empty
-					}
-					v_has_size = _core_ne(v_size, "")
-					if coreTruthy(v_has_size) {
-						v_type_label = _core_string_format("{} ({})", v_type_label, v_size)
-					} else {
-					// empty
-					}
-					v_preview_text = ""
-					v_has_preview = _core_ne(v_preview, "")
-					if coreTruthy(v_has_preview) {
-						v_preview_text = _core_string_format(" = {}", v_preview)
-					} else {
-					// empty
-					}
-					if coreTruthy(v_is_promoted_name) {
-						v_preview_text = _core_string_format(" = [runtime-only context available as inputs.{}]", v_name)
-					} else {
-					// empty
-					}
-					if coreTruthy(v_is_context_name) {
-						v_preview_text = " = [runtime context map; values omitted from prompt]"
-					} else {
-					// empty
-					}
-					if coreTruthy(v_is_distilled_name) {
-						v_preview_text = " = [distilled evidence object; values omitted from prompt]"
-					} else {
-					// empty
-					}
-					v_prov = coreGet(v_provenance, v_name, nil)
-					v_prov_text = ""
-					v_has_prov = coreTypeIs(v_prov, "object")
-					if coreTruthy(v_has_prov) {
-						v_created_turn = coreGet(v_prov, "createdTurn", 0)
-						v_source = coreGet(v_prov, "source", "")
-						v_last_read = coreGet(v_prov, "lastReadTurn", 0)
-						v_has_source = _core_ne(v_source, "")
-						if coreTruthy(v_has_source) {
-							v_prov_text = _core_string_format(" [from t{} via {}", v_created_turn, v_source)
-						} else {
-							v_prov_text = _core_string_format(" [from t{}", v_created_turn)
-						}
-						v_read_after = _core_gt(v_last_read, v_created_turn)
-						if coreTruthy(v_read_after) {
-							v_prov_text = _core_string_format("{}; read t{}", v_prov_text, v_last_read)
-						} else {
-						// empty
-						}
-						v_prov_text = _core_add(v_prov_text, "]")
-					} else {
-					// empty
-					}
-					v_restorable = coreGet(v_entry, "restorable", true)
-					v_snapshot_only = _core_eq(v_restorable, false)
-					v_restore_text = ""
-					if coreTruthy(v_snapshot_only) {
-						v_restore_text = " [snapshot only]"
-					} else {
-					// empty
-					}
-					v_line_base = _core_string_format("{}: {}{}", v_name, v_type_label, v_preview_text)
-					v_line_with_prov = _core_add(v_line_base, v_prov_text)
-					v_line = _core_add(v_line_with_prov, v_restore_text)
-					v_lines_structured = coreAppend(v_lines_structured, v_line)
-					v_structured_count = _core_add(v_structured_count, 1)
-				} else {
-				// empty
-				}
-			}
-			v_body_structured = _core_string_join("\n", v_lines_structured)
-			v_empty_structured = _core_eq(v_body_structured, "")
-			if coreTruthy(v_empty_structured) {
-				v_body_structured = "(no user variables)"
-			} else {
-			// empty
-			}
+			{ v, err := _agent_render_structured_runtime_state(v_state, v_state_summary, v_entries); if err != nil { return nil, err }; v_body_structured = v }
 			if err := coreSet(v_state, "runtime_state_summary", v_body_structured); err != nil { return nil, err }
 			return v_body_structured, nil
 		} else {
@@ -73904,13 +73715,17 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	var v_entries Value
 	var v_entries_is_list Value
 	var v_entry Value
+	var v_entry_evidence Value
+	var v_entry_hidden Value
 	var v_entry_name Value
+	var v_entry_not_evidence Value
 	var v_entry_reserved Value
 	var v_error Value
 	var v_error2 Value
 	var v_has_any Value
 	var v_has_bindings Value
 	var v_has_globals Value
+	var v_merge Value
 	var v_out Value
 	var v_raw_bindings Value
 	var v_raw_globals Value
@@ -73929,13 +73744,17 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	_ = v_entries
 	_ = v_entries_is_list
 	_ = v_entry
+	_ = v_entry_evidence
+	_ = v_entry_hidden
 	_ = v_entry_name
+	_ = v_entry_not_evidence
 	_ = v_entry_reserved
 	_ = v_error
 	_ = v_error2
 	_ = v_has_any
 	_ = v_has_bindings
 	_ = v_has_globals
+	_ = v_merge
 	_ = v_out
 	_ = v_raw_bindings
 	_ = v_raw_globals
@@ -73968,7 +73787,13 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	// empty
 	}
 	{ v, err := _agent_runtime_reserved_names_for_state(v_state); if err != nil { return nil, err }; v_reserved = v }
-	{ v, err := _agent_runtime_sanitize_bindings(v_state, v_bindings); if err != nil { return nil, err }; v_clean_bindings = v }
+	v_merge = coreGet(v_snapshot, "merge", false)
+	v_clean_bindings = v_bindings
+	if coreTruthy(v_merge) {
+	// empty
+	} else {
+		{ v, err := _agent_runtime_sanitize_bindings(v_state, v_bindings); if err != nil { return nil, err }; v_clean_bindings = v }
+	}
 	v_entries = coreGet(v_snapshot, "entries", v_empty_list)
 	v_entries_is_list = coreTypeIs(v_entries, "list")
 	if coreTruthy(v_entries_is_list) {
@@ -73980,7 +73805,10 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	for _, v_entry = range coreIter(v_entries) {
 		v_entry_name = coreGet(v_entry, "name", "")
 		v_entry_reserved = _core_contains(v_reserved, v_entry_name)
-		if coreTruthy(v_entry_reserved) {
+		v_entry_evidence = _core_eq(v_entry_name, "distilledContext")
+		v_entry_not_evidence = _core_not(v_entry_evidence)
+		v_entry_hidden = _core_and(v_entry_reserved, v_entry_not_evidence)
+		if coreTruthy(v_entry_hidden) {
 		// empty
 		} else {
 			v_clean_entries = coreAppend(v_clean_entries, v_entry)
@@ -73994,6 +73822,11 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "bindings", v_clean_bindings); err != nil { return nil, err }
 	if err := coreSet(v_out, "globals", v_clean_bindings); err != nil { return nil, err }
 	if err := coreSet(v_out, "closed", v_closed); err != nil { return nil, err }
+	if coreTruthy(v_merge) {
+		if err := coreSet(v_out, "merge", true); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	return v_out, nil
 }
 
@@ -74556,6 +74389,7 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	}
 	{ v, err := _core_agent_runtime_execute(v_session, v_code, v_runtime_options); if err != nil { return nil, err }; v_raw = v }
 	{ v, err := _normalize_agent_runtime_step_result(v_raw, v_code); if err != nil { return nil, err }; v_normalized = v }
+	if _, err := _agent_attach_code_analysis(v_normalized, v_raw); err != nil { return nil, err }
 	v_closed = coreGet(v_normalized, "error_category", "")
 	v_is_closed = _core_eq(v_closed, "session_closed")
 	if coreTruthy(v_is_closed) {
@@ -74565,6 +74399,7 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 		{ v, err := _agent_runtime_create_session(v_state, v_runtime, v_globals, v_runtime_options); if err != nil { return nil, err }; v_session = v }
 		{ v, err := _core_agent_runtime_execute(v_session, v_code, v_runtime_options); if err != nil { return nil, err }; v_raw = v }
 		{ v, err := _normalize_agent_runtime_step_result(v_raw, v_code); if err != nil { return nil, err }; v_normalized = v }
+		if _, err := _agent_attach_code_analysis(v_normalized, v_raw); err != nil { return nil, err }
 	} else {
 	// empty
 	}
@@ -74977,6 +74812,7 @@ func _agent_evidence_entry_descriptor(args ...Value) (Value, error) {
 	var v_length Value
 	var v_size Value
 	var v_text Value
+	var v_text_units Value
 	if len(args) > 0 { v_key = args[0] }
 	_ = v_key
 	if len(args) > 1 { v_value = args[1] }
@@ -74995,9 +74831,11 @@ func _agent_evidence_entry_descriptor(args ...Value) (Value, error) {
 	_ = v_length
 	_ = v_size
 	_ = v_text
+	_ = v_text_units
 	v_text = _core_json_stringify(v_value)
-	v_size = _core_len(v_text)
-	{ v, err := _agent_value_kind(v_value); if err != nil { return nil, err }; v_kind = v }
+	v_text_units = _core_string_utf16_units(v_text)
+	v_size = _core_len(v_text_units)
+	{ v, err := _agent_evidence_value_type(v_value); if err != nil { return nil, err }; v_kind = v }
 	v_entry = Object()
 	if err := coreSet(v_entry, "key", v_key); err != nil { return nil, err }
 	if err := coreSet(v_entry, "type", v_kind); err != nil { return nil, err }
@@ -75040,12 +74878,13 @@ func _agent_build_evidence_descriptor(args ...Value) (Value, error) {
 	var v_empty_map Value
 	var v_entries Value
 	var v_entry Value
+	var v_entry_size Value
 	var v_is_object Value
 	var v_key Value
 	var v_keys Value
 	var v_out Value
 	var v_payload Value
-	var v_text Value
+	var v_positive Value
 	var v_total Value
 	var v_value Value
 	if len(args) > 0 { v_evidence = args[0] }
@@ -75053,12 +74892,13 @@ func _agent_build_evidence_descriptor(args ...Value) (Value, error) {
 	_ = v_empty_map
 	_ = v_entries
 	_ = v_entry
+	_ = v_entry_size
 	_ = v_is_object
 	_ = v_key
 	_ = v_keys
 	_ = v_out
 	_ = v_payload
-	_ = v_text
+	_ = v_positive
 	_ = v_total
 	_ = v_value
 	v_empty_map = Object()
@@ -75069,14 +74909,20 @@ func _agent_build_evidence_descriptor(args ...Value) (Value, error) {
 	} else {
 		v_payload = v_empty_map
 	}
-	v_text = _core_json_stringify(v_payload)
-	v_total = _core_len(v_text)
+	v_total = 0
 	v_entries = MutableArray()
 	v_keys = _core_map_keys(v_payload)
 	for _, v_key = range coreIter(v_keys) {
 		v_value = coreGet(v_payload, v_key, nil)
 		{ v, err := _agent_evidence_entry_descriptor(v_key, v_value); if err != nil { return nil, err }; v_entry = v }
 		v_entries = coreAppend(v_entries, v_entry)
+		v_entry_size = coreGet(v_entry, "size", 0)
+		v_positive = _core_gt(v_entry_size, 0)
+		if coreTruthy(v_positive) {
+			v_total = _core_add(v_total, v_entry_size)
+		} else {
+		// empty
+		}
 	}
 	v_out = Object()
 	if err := coreSet(v_out, "kind", "axEvidenceDescriptor"); err != nil { return nil, err }
@@ -75107,9 +74953,11 @@ func _agent_render_evidence_descriptor(args ...Value) (Value, error) {
 	var v_keys_text Value
 	var v_kind Value
 	var v_length Value
+	var v_length_text Value
 	var v_line Value
 	var v_lines Value
 	var v_out Value
+	var v_shape_text Value
 	var v_size Value
 	var v_total Value
 	var v_type Value
@@ -75134,9 +74982,11 @@ func _agent_render_evidence_descriptor(args ...Value) (Value, error) {
 	_ = v_keys_text
 	_ = v_kind
 	_ = v_length
+	_ = v_length_text
 	_ = v_line
 	_ = v_lines
 	_ = v_out
+	_ = v_shape_text
 	_ = v_size
 	_ = v_total
 	_ = v_type
@@ -75162,34 +75012,35 @@ func _agent_render_evidence_descriptor(args ...Value) (Value, error) {
 	v_lines = coreAppend(v_lines, v_header)
 	for _, v_entry = range coreIter(v_entries) {
 		v_key = coreGet(v_entry, "key", "")
-		v_type = coreGet(v_entry, "type", "value")
+		v_type = coreGet(v_entry, "type", "object")
 		v_size = coreGet(v_entry, "size", 0)
-		v_line = _core_string_format("- `{}`: {} ({} chars)", v_key, v_type, v_size)
+		v_length_text = ""
 		v_length = coreGet(v_entry, "length", nil)
 		v_has_length = _core_is_not_none(v_length)
 		if coreTruthy(v_has_length) {
-			v_line = _core_string_format("{}; length {}", v_line, v_length)
+			v_length_text = _core_string_format(", {} items", v_length)
 		} else {
 		// empty
 		}
-		v_keys = coreGet(v_entry, "keys", v_empty_list)
-		v_keys_count = _core_len(v_keys)
-		v_has_keys = _core_gt(v_keys_count, 0)
-		if coreTruthy(v_has_keys) {
-			v_keys_text = _core_string_join(", ", v_keys)
-			v_line = _core_string_format("{}; keys: {}", v_line, v_keys_text)
-		} else {
-		// empty
-		}
+		v_shape_text = ""
 		v_item_keys = coreGet(v_entry, "itemKeys", v_empty_list)
 		v_item_keys_count = _core_len(v_item_keys)
 		v_has_item_keys = _core_gt(v_item_keys_count, 0)
+		v_keys = coreGet(v_entry, "keys", v_empty_list)
+		v_keys_count = _core_len(v_keys)
+		v_has_keys = _core_gt(v_keys_count, 0)
 		if coreTruthy(v_has_item_keys) {
 			v_item_keys_text = _core_string_join(", ", v_item_keys)
-			v_line = _core_string_format("{}; item keys: {}", v_line, v_item_keys_text)
+			v_shape_text = _core_string_format("; item keys: {}", v_item_keys_text)
 		} else {
-		// empty
+			if coreTruthy(v_has_keys) {
+				v_keys_text = _core_string_join(", ", v_keys)
+				v_shape_text = _core_string_format("; keys: {}", v_keys_text)
+			} else {
+			// empty
+			}
 		}
+		v_line = _core_string_format("- `{}` ({}{}, ~{} chars{})", v_key, v_type, v_length_text, v_size, v_shape_text)
 		v_lines = coreAppend(v_lines, v_line)
 	}
 	v_out = _core_string_join("\n", v_lines)
@@ -81883,6 +81734,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	var v_distiller_values Value
 	var v_empty_list Value
 	var v_empty_map Value
+	var v_empty_map_for_patch Value
 	var v_error Value
 	var v_error_event Value
 	var v_exec_args Value
@@ -81930,6 +81782,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	var v_no_pending_notice Value
 	var v_no_run_fact Value
 	var v_non_runtime_executor Value
+	var v_patch_globals Value
 	var v_patch_snapshot Value
 	var v_pending_notice Value
 	var v_prepared Value
@@ -82021,6 +81874,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	_ = v_distiller_values
 	_ = v_empty_list
 	_ = v_empty_map
+	_ = v_empty_map_for_patch
 	_ = v_error
 	_ = v_error_event
 	_ = v_exec_args
@@ -82068,6 +81922,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	_ = v_no_pending_notice
 	_ = v_no_run_fact
 	_ = v_non_runtime_executor
+	_ = v_patch_globals
 	_ = v_patch_snapshot
 	_ = v_pending_notice
 	_ = v_prepared
@@ -82345,10 +82200,14 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 		{ v, err := _agent_runtime_build_globals(v_state, v_exec_runtime_values); if err != nil { return nil, err }; v_globals = v }
 		v_session = coreGet(v_state, "runtime_session", nil)
 		v_has_shared_session = _core_is_not_none(v_session)
+		v_empty_map_for_patch = Object()
 		v_shared_notice_set = false
 		if coreTruthy(v_has_shared_session) {
+			v_patch_globals = _core_map_merge(v_empty_map_for_patch, v_globals)
+			_core_map_delete(v_patch_globals, "distilledContext")
 			v_patch_snapshot = Object()
-			if err := coreSet(v_patch_snapshot, "globals", v_globals); err != nil { return nil, err }
+			if err := coreSet(v_patch_snapshot, "globals", v_patch_globals); err != nil { return nil, err }
+			if err := coreSet(v_patch_snapshot, "merge", true); err != nil { return nil, err }
 			if _, err := _agent_runtime_restore_session_state(v_state, v_session, v_patch_snapshot, v_options); err != nil { return nil, err }
 			v_pending_notice = coreGet(v_state, "restore_notice", "")
 			v_no_pending_notice = _core_eq(v_pending_notice, "")
@@ -86449,6 +86308,662 @@ func _agent_ordered_completion_payload(args ...Value) (Value, error) {
 			if err := coreSet(v_out, v_key, v_value); err != nil { return nil, err }
 		}
 	}
+	return v_out, nil
+}
+
+func _agent_evidence_value_type(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_evidence_value_type")
+	var v_value Value
+	var v_is_list Value
+	var v_js_type Value
+	var v_missing Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_is_list
+	_ = v_js_type
+	_ = v_missing
+	v_missing = _core_is_none(v_value)
+	if coreTruthy(v_missing) {
+		return "null", nil
+	} else {
+	// empty
+	}
+	v_is_list = coreTypeIs(v_value, "list")
+	if coreTruthy(v_is_list) {
+		return "array", nil
+	} else {
+	// empty
+	}
+	{ v, err := _agent_js_value_type(v_value); if err != nil { return nil, err }; v_js_type = v }
+	return v_js_type, nil
+}
+
+func _agent_attach_code_analysis(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_attach_code_analysis")
+	var v_entry Value
+	var v_raw Value
+	var v_analysis Value
+	var v_callables Value
+	var v_empty_list Value
+	var v_has_analysis Value
+	var v_is_object Value
+	var v_produced Value
+	var v_reads Value
+	if len(args) > 0 { v_entry = args[0] }
+	_ = v_entry
+	if len(args) > 1 { v_raw = args[1] }
+	_ = v_raw
+	_ = v_analysis
+	_ = v_callables
+	_ = v_empty_list
+	_ = v_has_analysis
+	_ = v_is_object
+	_ = v_produced
+	_ = v_reads
+	v_is_object = coreTypeIs(v_raw, "object")
+	if coreTruthy(v_is_object) {
+	// empty
+	} else {
+		return nil, nil
+	}
+	v_analysis = coreGet(v_raw, "analysis", nil)
+	v_has_analysis = coreTypeIs(v_analysis, "object")
+	if coreTruthy(v_has_analysis) {
+	// empty
+	} else {
+		return nil, nil
+	}
+	v_empty_list = MutableArray()
+	v_produced = coreGet(v_analysis, "producedVars", v_empty_list)
+	v_reads = coreGet(v_analysis, "readVars", v_empty_list)
+	v_callables = coreGet(v_analysis, "callables", v_empty_list)
+	if err := coreSet(v_entry, "producedVars", v_produced); err != nil { return nil, err }
+	if err := coreSet(v_entry, "readVars", v_reads); err != nil { return nil, err }
+	if err := coreSet(v_entry, "callables", v_callables); err != nil { return nil, err }
+	return nil, nil
+}
+
+func _agent_stage_action_entries(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_stage_action_entries")
+	var v_state Value
+	var v_all_entries Value
+	var v_before_stage Value
+	var v_empty_list Value
+	var v_entries Value
+	var v_entry Value
+	var v_entry_type Value
+	var v_hidden Value
+	var v_is_session_record Value
+	var v_position Value
+	var v_stage_start Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_all_entries
+	_ = v_before_stage
+	_ = v_empty_list
+	_ = v_entries
+	_ = v_entry
+	_ = v_entry_type
+	_ = v_hidden
+	_ = v_is_session_record
+	_ = v_position
+	_ = v_stage_start
+	v_empty_list = MutableArray()
+	v_all_entries = coreGet(v_state, "action_log", v_empty_list)
+	v_stage_start = coreGet(v_state, "stage_action_log_start", 0)
+	v_entries = MutableArray()
+	v_position = 0
+	for _, v_entry = range coreIter(v_all_entries) {
+		v_entry_type = coreGet(v_entry, "type", "")
+		v_is_session_record = _core_eq(v_entry_type, "runtime_session")
+		v_before_stage = _core_lt(v_position, v_stage_start)
+		v_hidden = _core_or(v_is_session_record, v_before_stage)
+		if coreTruthy(v_hidden) {
+		// empty
+		} else {
+			v_entries = coreAppend(v_entries, v_entry)
+		}
+		v_position = _core_add(v_position, 1)
+	}
+	return v_entries, nil
+}
+
+func _agent_runtime_state_provenance(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_state_provenance")
+	var v_state Value
+	var v_callables Value
+	var v_created Value
+	var v_current Value
+	var v_empty_list Value
+	var v_entries Value
+	var v_entry Value
+	var v_has_source Value
+	var v_known Value
+	var v_last_read Value
+	var v_later Value
+	var v_name Value
+	var v_produced Value
+	var v_provenance Value
+	var v_read Value
+	var v_reads Value
+	var v_record Value
+	var v_source Value
+	var v_turn Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_callables
+	_ = v_created
+	_ = v_current
+	_ = v_empty_list
+	_ = v_entries
+	_ = v_entry
+	_ = v_has_source
+	_ = v_known
+	_ = v_last_read
+	_ = v_later
+	_ = v_name
+	_ = v_produced
+	_ = v_provenance
+	_ = v_read
+	_ = v_reads
+	_ = v_record
+	_ = v_source
+	_ = v_turn
+	v_empty_list = MutableArray()
+	v_provenance = Object()
+	{ v, err := _agent_stage_action_entries(v_state); if err != nil { return nil, err }; v_entries = v }
+	v_turn = 0
+	for _, v_entry = range coreIter(v_entries) {
+		v_turn = _core_add(v_turn, 1)
+		v_produced = coreGet(v_entry, "producedVars", v_empty_list)
+		v_callables = coreGet(v_entry, "callables", v_empty_list)
+		v_source = _core_list_get(v_callables, 0, "")
+		for _, v_name = range coreIter(v_produced) {
+			v_record = Object()
+			if err := coreSet(v_record, "createdTurn", v_turn); err != nil { return nil, err }
+			v_has_source = _core_ne(v_source, "")
+			if coreTruthy(v_has_source) {
+				if err := coreSet(v_record, "source", v_source); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			if err := coreSet(v_provenance, v_name, v_record); err != nil { return nil, err }
+		}
+		v_reads = coreGet(v_entry, "readVars", v_empty_list)
+		for _, v_read = range coreIter(v_reads) {
+			v_known = _core_map_contains(v_provenance, v_read)
+			if coreTruthy(v_known) {
+				v_current = coreGet(v_provenance, v_read, nil)
+				v_created = coreGet(v_current, "createdTurn", 0)
+				v_last_read = coreGet(v_current, "lastReadTurn", v_created)
+				v_later = _core_gt(v_turn, v_last_read)
+				if coreTruthy(v_later) {
+					v_last_read = v_turn
+				} else {
+				// empty
+				}
+				if err := coreSet(v_current, "lastReadTurn", v_last_read); err != nil { return nil, err }
+				if err := coreSet(v_provenance, v_read, v_current); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+	}
+	return v_provenance, nil
+}
+
+func _agent_render_structured_runtime_state(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_render_structured_runtime_state")
+	var v_state Value
+	var v_state_summary Value
+	var v_entries Value
+	var v_char_budget Value
+	var v_computed Value
+	var v_count Value
+	var v_created Value
+	var v_created_score Value
+	var v_ctor Value
+	var v_cut Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_entry Value
+	var v_error_ctor Value
+	var v_exhausted Value
+	var v_first_name Value
+	var v_fits Value
+	var v_go_on Value
+	var v_goes_before Value
+	var v_has_ctor Value
+	var v_has_lines Value
+	var v_has_preview Value
+	var v_has_prov Value
+	var v_has_size Value
+	var v_has_source Value
+	var v_has_stored Value
+	var v_hidden Value
+	var v_hidden_injected Value
+	var v_hidden_reserved Value
+	var v_higher Value
+	var v_index Value
+	var v_injected_globals Value
+	var v_insert_here Value
+	var v_inserted Value
+	var v_is_accessor Value
+	var v_is_error Value
+	var v_is_evidence Value
+	var v_is_function Value
+	var v_is_injected Value
+	var v_is_object Value
+	var v_is_reserved Value
+	var v_labeled_error Value
+	var v_labeled_object Value
+	var v_last_read Value
+	var v_line Value
+	var v_line_count Value
+	var v_line_length Value
+	var v_line_units Value
+	var v_lines Value
+	var v_max_chars Value
+	var v_max_entries Value
+	var v_max_entries_set Value
+	var v_name Value
+	var v_name_before Value
+	var v_name_differs Value
+	var v_name_first Value
+	var v_names Value
+	var v_negative_spent Value
+	var v_no_rows Value
+	var v_not_evidence Value
+	var v_not_inserted Value
+	var v_object_ctor Value
+	var v_other Value
+	var v_other_name Value
+	var v_other_score Value
+	var v_out Value
+	var v_placed Value
+	var v_preview Value
+	var v_preview_text Value
+	var v_prov Value
+	var v_prov_text Value
+	var v_read_after Value
+	var v_read_score Value
+	var v_remaining Value
+	var v_reserved_names Value
+	var v_row Value
+	var v_rows Value
+	var v_same Value
+	var v_score Value
+	var v_separator Value
+	var v_size Value
+	var v_sorted_names Value
+	var v_source Value
+	var v_spent Value
+	var v_still_out Value
+	var v_stop Value
+	var v_stored Value
+	var v_take Value
+	var v_tie_before Value
+	var v_type Value
+	var v_type_label Value
+	var v_used Value
+	var v_within Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_state_summary = args[1] }
+	_ = v_state_summary
+	if len(args) > 2 { v_entries = args[2] }
+	_ = v_entries
+	_ = v_char_budget
+	_ = v_computed
+	_ = v_count
+	_ = v_created
+	_ = v_created_score
+	_ = v_ctor
+	_ = v_cut
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_entry
+	_ = v_error_ctor
+	_ = v_exhausted
+	_ = v_first_name
+	_ = v_fits
+	_ = v_go_on
+	_ = v_goes_before
+	_ = v_has_ctor
+	_ = v_has_lines
+	_ = v_has_preview
+	_ = v_has_prov
+	_ = v_has_size
+	_ = v_has_source
+	_ = v_has_stored
+	_ = v_hidden
+	_ = v_hidden_injected
+	_ = v_hidden_reserved
+	_ = v_higher
+	_ = v_index
+	_ = v_injected_globals
+	_ = v_insert_here
+	_ = v_inserted
+	_ = v_is_accessor
+	_ = v_is_error
+	_ = v_is_evidence
+	_ = v_is_function
+	_ = v_is_injected
+	_ = v_is_object
+	_ = v_is_reserved
+	_ = v_labeled_error
+	_ = v_labeled_object
+	_ = v_last_read
+	_ = v_line
+	_ = v_line_count
+	_ = v_line_length
+	_ = v_line_units
+	_ = v_lines
+	_ = v_max_chars
+	_ = v_max_entries
+	_ = v_max_entries_set
+	_ = v_name
+	_ = v_name_before
+	_ = v_name_differs
+	_ = v_name_first
+	_ = v_names
+	_ = v_negative_spent
+	_ = v_no_rows
+	_ = v_not_evidence
+	_ = v_not_inserted
+	_ = v_object_ctor
+	_ = v_other
+	_ = v_other_name
+	_ = v_other_score
+	_ = v_out
+	_ = v_placed
+	_ = v_preview
+	_ = v_preview_text
+	_ = v_prov
+	_ = v_prov_text
+	_ = v_read_after
+	_ = v_read_score
+	_ = v_remaining
+	_ = v_reserved_names
+	_ = v_row
+	_ = v_rows
+	_ = v_same
+	_ = v_score
+	_ = v_separator
+	_ = v_size
+	_ = v_sorted_names
+	_ = v_source
+	_ = v_spent
+	_ = v_still_out
+	_ = v_stop
+	_ = v_stored
+	_ = v_take
+	_ = v_tie_before
+	_ = v_type
+	_ = v_type_label
+	_ = v_used
+	_ = v_within
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_injected_globals = coreGet(v_state, "runtime_globals", v_empty_map)
+	{ v, err := _agent_runtime_reserved_names_for_state(v_state); if err != nil { return nil, err }; v_reserved_names = v }
+	{ v, err := _agent_runtime_state_provenance(v_state); if err != nil { return nil, err }; v_computed = v }
+	v_stored = coreGet(v_state, "provenance", v_empty_map)
+	v_rows = MutableArray()
+	for _, v_entry = range coreIter(v_entries) {
+		v_name = coreGet(v_entry, "name", "")
+		v_is_injected = _core_map_contains(v_injected_globals, v_name)
+		v_is_evidence = _core_eq(v_name, "distilledContext")
+		v_not_evidence = _core_not(v_is_evidence)
+		v_hidden_injected = _core_and(v_is_injected, v_not_evidence)
+		v_is_reserved = _core_contains(v_reserved_names, v_name)
+		v_hidden_reserved = _core_and(v_is_reserved, v_not_evidence)
+		v_hidden = _core_or(v_hidden_injected, v_hidden_reserved)
+		if coreTruthy(v_hidden) {
+		// empty
+		} else {
+			v_prov = coreGet(v_stored, v_name, nil)
+			v_has_stored = coreTypeIs(v_prov, "object")
+			if coreTruthy(v_has_stored) {
+			// empty
+			} else {
+				v_prov = coreGet(v_computed, v_name, nil)
+			}
+			v_score = 0
+			v_prov_text = ""
+			v_has_prov = coreTypeIs(v_prov, "object")
+			if coreTruthy(v_has_prov) {
+				v_created = coreGet(v_prov, "createdTurn", 0)
+				v_last_read = coreGet(v_prov, "lastReadTurn", v_created)
+				v_source = coreGet(v_prov, "source", "")
+				v_created_score = _core_mul(v_created, 100)
+				v_read_score = _core_mul(v_last_read, 10000)
+				v_score = _core_add(1000000, v_created_score)
+				v_score = _core_add(v_score, v_read_score)
+				v_has_source = _core_ne(v_source, "")
+				if coreTruthy(v_has_source) {
+					v_score = _core_add(v_score, 25)
+					v_prov_text = _core_string_format(" [from t{} via {}", v_created, v_source)
+				} else {
+					v_prov_text = _core_string_format(" [from t{}", v_created)
+				}
+				v_read_after = _core_gt(v_last_read, v_created)
+				if coreTruthy(v_read_after) {
+					v_prov_text = _core_string_format("{}; read t{}", v_prov_text, v_last_read)
+				} else {
+				// empty
+				}
+				v_prov_text = _core_string_format("{}]", v_prov_text)
+			} else {
+			// empty
+			}
+			v_type = coreGet(v_entry, "type", "unknown")
+			v_is_accessor = _core_eq(v_type, "accessor")
+			v_is_function = _core_eq(v_type, "function")
+			if coreTruthy(v_is_accessor) {
+				v_score = _core_add(v_score, -100)
+			} else {
+			// empty
+			}
+			if coreTruthy(v_is_function) {
+				v_score = _core_add(v_score, -10)
+			} else {
+			// empty
+			}
+			v_ctor = coreGet(v_entry, "ctor", "")
+			v_type_label = v_type
+			v_is_object = _core_eq(v_type, "object")
+			v_is_error = _core_eq(v_type, "error")
+			v_has_ctor = _core_ne(v_ctor, "")
+			v_object_ctor = _core_ne(v_ctor, "Object")
+			v_error_ctor = _core_ne(v_ctor, "Error")
+			v_labeled_object = _core_and(v_is_object, v_has_ctor)
+			v_labeled_object = _core_and(v_labeled_object, v_object_ctor)
+			v_labeled_error = _core_and(v_is_error, v_has_ctor)
+			v_labeled_error = _core_and(v_labeled_error, v_error_ctor)
+			if coreTruthy(v_labeled_object) {
+				v_type_label = _core_string_format("object<{}>", v_ctor)
+			} else {
+			// empty
+			}
+			if coreTruthy(v_labeled_error) {
+				v_type_label = _core_string_format("error<{}>", v_ctor)
+			} else {
+			// empty
+			}
+			v_size = coreGet(v_entry, "size", "")
+			v_has_size = _core_ne(v_size, "")
+			if coreTruthy(v_has_size) {
+				v_type_label = _core_string_format("{} ({})", v_type_label, v_size)
+			} else {
+			// empty
+			}
+			v_preview = coreGet(v_entry, "preview", "")
+			v_preview_text = ""
+			v_has_preview = _core_ne(v_preview, "")
+			if coreTruthy(v_has_preview) {
+				v_preview_text = _core_string_format(" = {}", v_preview)
+			} else {
+			// empty
+			}
+			v_line = _core_string_format("{}: {}{}{}", v_name, v_type_label, v_preview_text, v_prov_text)
+			v_row = Object()
+			if err := coreSet(v_row, "name", v_name); err != nil { return nil, err }
+			if err := coreSet(v_row, "score", v_score); err != nil { return nil, err }
+			if err := coreSet(v_row, "line", v_line); err != nil { return nil, err }
+			v_placed = MutableArray()
+			v_inserted = false
+			for _, v_other = range coreIter(v_rows) {
+				v_other_score = coreGet(v_other, "score", 0)
+				v_other_name = coreGet(v_other, "name", "")
+				v_higher = _core_gt(v_score, v_other_score)
+				v_same = _core_eq(v_score, v_other_score)
+				v_names = MutableArray()
+				v_names = coreAppend(v_names, v_name)
+				v_names = coreAppend(v_names, v_other_name)
+				v_sorted_names = _core_sorted_strings(v_names)
+				v_first_name = _core_list_get(v_sorted_names, 0, "")
+				v_name_first = _core_eq(v_first_name, v_name)
+				v_name_differs = _core_ne(v_name, v_other_name)
+				v_name_before = _core_and(v_name_first, v_name_differs)
+				v_tie_before = _core_and(v_same, v_name_before)
+				v_goes_before = _core_or(v_higher, v_tie_before)
+				v_not_inserted = _core_not(v_inserted)
+				v_insert_here = _core_and(v_goes_before, v_not_inserted)
+				if coreTruthy(v_insert_here) {
+					v_placed = coreAppend(v_placed, v_row)
+					v_inserted = true
+				} else {
+				// empty
+				}
+				v_placed = coreAppend(v_placed, v_other)
+			}
+			v_still_out = _core_not(v_inserted)
+			if coreTruthy(v_still_out) {
+				v_placed = coreAppend(v_placed, v_row)
+			} else {
+			// empty
+			}
+			v_rows = v_placed
+		}
+	}
+	v_count = _core_len(v_rows)
+	v_no_rows = _core_eq(v_count, 0)
+	if coreTruthy(v_no_rows) {
+		return "(no user variables)", nil
+	} else {
+	// empty
+	}
+	v_max_entries = coreGet(v_state_summary, "maxEntries", 8)
+	v_max_entries_set = _core_gt(v_max_entries, 0)
+	if coreTruthy(v_max_entries_set) {
+	// empty
+	} else {
+		v_max_entries = 8
+	}
+	v_max_chars = coreGet(v_state_summary, "maxChars", 0)
+	v_char_budget = _core_gt(v_max_chars, 0)
+	v_lines = MutableArray()
+	v_used = 0
+	v_index = 0
+	v_stop = false
+	for _, v_row = range coreIter(v_rows) {
+		v_within = _core_lt(v_index, v_max_entries)
+		v_go_on = _core_not(v_stop)
+		v_take = _core_and(v_within, v_go_on)
+		if coreTruthy(v_take) {
+			v_line = coreGet(v_row, "line", nil)
+			if coreTruthy(v_char_budget) {
+				v_line_count = _core_len(v_lines)
+				v_separator = 0
+				v_has_lines = _core_gt(v_line_count, 0)
+				if coreTruthy(v_has_lines) {
+					v_separator = 1
+				} else {
+				// empty
+				}
+				v_spent = _core_add(v_used, v_separator)
+				v_negative_spent = _core_mul(v_spent, -1)
+				v_remaining = _core_add(v_max_chars, v_negative_spent)
+				v_exhausted = _core_lte(v_remaining, 0)
+				if coreTruthy(v_exhausted) {
+					v_stop = true
+				} else {
+					v_line_units = _core_string_utf16_units(v_line)
+					v_line_length = _core_len(v_line_units)
+					v_fits = _core_lte(v_line_length, v_remaining)
+					if coreTruthy(v_fits) {
+						v_lines = coreAppend(v_lines, v_line)
+						v_used = _core_add(v_spent, v_line_length)
+					} else {
+						{ v, err := _agent_truncate_to_char_budget(v_line, v_remaining); if err != nil { return nil, err }; v_cut = v }
+						v_lines = coreAppend(v_lines, v_cut)
+						v_used = v_max_chars
+						v_stop = true
+					}
+				}
+			} else {
+				v_lines = coreAppend(v_lines, v_line)
+			}
+		} else {
+		// empty
+		}
+		v_index = _core_add(v_index, 1)
+	}
+	v_out = _core_string_join("\n", v_lines)
+	return v_out, nil
+}
+
+func _agent_truncate_to_char_budget(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_truncate_to_char_budget")
+	var v_text Value
+	var v_max_chars Value
+	var v_fits Value
+	var v_head Value
+	var v_keep Value
+	var v_length Value
+	var v_none_left Value
+	var v_out Value
+	var v_prefix Value
+	var v_tiny Value
+	var v_units Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	if len(args) > 1 { v_max_chars = args[1] }
+	_ = v_max_chars
+	_ = v_fits
+	_ = v_head
+	_ = v_keep
+	_ = v_length
+	_ = v_none_left
+	_ = v_out
+	_ = v_prefix
+	_ = v_tiny
+	_ = v_units
+	v_none_left = _core_lte(v_max_chars, 0)
+	if coreTruthy(v_none_left) {
+		return "", nil
+	} else {
+	// empty
+	}
+	v_units = _core_string_utf16_units(v_text)
+	v_length = _core_len(v_units)
+	v_fits = _core_lte(v_length, v_max_chars)
+	if coreTruthy(v_fits) {
+		return v_text, nil
+	} else {
+	// empty
+	}
+	v_tiny = _core_lte(v_max_chars, 3)
+	if coreTruthy(v_tiny) {
+		{ v, err := _agent_utf16_prefix(v_text, v_max_chars); if err != nil { return nil, err }; v_head = v }
+		return v_head, nil
+	} else {
+	// empty
+	}
+	v_keep = _core_add(v_max_chars, -3)
+	{ v, err := _agent_utf16_prefix(v_text, v_keep); if err != nil { return nil, err }; v_prefix = v }
+	v_out = _core_string_format("{}...", v_prefix)
 	return v_out, nil
 }
 

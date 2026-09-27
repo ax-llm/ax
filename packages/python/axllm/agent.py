@@ -6079,99 +6079,7 @@ def _agent_render_runtime_state_summary(state: Any, policy: Any) -> str:
         entry_count = _core_len(entries)
         has_entries = _core_gt(entry_count, 0)
         if has_entries:
-            provenance = _core_get(state, "provenance", empty_map)
-            lines_structured = []
-            structured_count = 0
-            injected_globals = _core_get(state, "runtime_globals", empty_map)
-            reserved_names = _agent_runtime_reserved_names_for_state(state)
-            for entry in entries:
-                entry_name = _core_get(entry, "name", "")
-                is_injected = _core_map_contains(injected_globals, entry_name)
-                is_reserved_name = _core_contains(reserved_names, entry_name)
-                not_user_variable = _core_or(is_injected, is_reserved_name)
-                under_structured_limit = _core_lt(structured_count, max_entries)
-                is_user_variable = _core_not(not_user_variable)
-                render_entry = _core_and(under_structured_limit, is_user_variable)
-                if render_entry:
-                    name = _core_get(entry, "name", "")
-                    type = _core_get(entry, "type", "unknown")
-                    size = _core_get(entry, "size", "")
-                    preview = _core_get(entry, "preview", "")
-                    ctor = _core_get(entry, "ctor", "")
-                    is_promoted_name = _core_contains(auto_promoted_fields, name)
-                    is_context_name = _core_eq(name, "context")
-                    is_distilled_name = _core_eq(name, "distilledContext")
-                    type_label = type
-                    object_type = _core_eq(type, "object")
-                    has_ctor = _core_ne(ctor, "")
-                    object_with_ctor = _core_and(object_type, has_ctor)
-                    if object_with_ctor:
-                        type_label = _core_string_format("object<{}>", ctor)
-                    else:
-                        pass
-                    has_size = _core_ne(size, "")
-                    if has_size:
-                        type_label = _core_string_format("{} ({})", type_label, size)
-                    else:
-                        pass
-                    preview_text = ""
-                    has_preview = _core_ne(preview, "")
-                    if has_preview:
-                        preview_text = _core_string_format(" = {}", preview)
-                    else:
-                        pass
-                    if is_promoted_name:
-                        preview_text = _core_string_format(" = [runtime-only context available as inputs.{}]", name)
-                    else:
-                        pass
-                    if is_context_name:
-                        preview_text = " = [runtime context map; values omitted from prompt]"
-                    else:
-                        pass
-                    if is_distilled_name:
-                        preview_text = " = [distilled evidence object; values omitted from prompt]"
-                    else:
-                        pass
-                    prov = _core_get(provenance, name, None)
-                    prov_text = ""
-                    has_prov = _core_type_is(prov, "object")
-                    if has_prov:
-                        created_turn = _core_get(prov, "createdTurn", 0)
-                        source = _core_get(prov, "source", "")
-                        last_read = _core_get(prov, "lastReadTurn", 0)
-                        has_source = _core_ne(source, "")
-                        if has_source:
-                            prov_text = _core_string_format(" [from t{} via {}", created_turn, source)
-                        else:
-                            prov_text = _core_string_format(" [from t{}", created_turn)
-                        read_after = _core_gt(last_read, created_turn)
-                        if read_after:
-                            prov_text = _core_string_format("{}; read t{}", prov_text, last_read)
-                        else:
-                            pass
-                        prov_text = _core_add(prov_text, "]")
-                    else:
-                        pass
-                    restorable = _core_get(entry, "restorable", True)
-                    snapshot_only = _core_eq(restorable, False)
-                    restore_text = ""
-                    if snapshot_only:
-                        restore_text = " [snapshot only]"
-                    else:
-                        pass
-                    line_base = _core_string_format("{}: {}{}", name, type_label, preview_text)
-                    line_with_prov = _core_add(line_base, prov_text)
-                    line = _core_add(line_with_prov, restore_text)
-                    lines_structured.append(line)
-                    structured_count = _core_add(structured_count, 1)
-                else:
-                    pass
-            body_structured = _core_string_join("\n", lines_structured)
-            empty_structured = _core_eq(body_structured, "")
-            if empty_structured:
-                body_structured = "(no user variables)"
-            else:
-                pass
+            body_structured = _agent_render_structured_runtime_state(state, state_summary, entries)
             state["runtime_state_summary"] = body_structured
             return body_structured
         else:
@@ -8575,7 +8483,12 @@ def _normalize_agent_runtime_snapshot(state: Any, snapshot: Any) -> Any:
     else:
         pass
     reserved = _agent_runtime_reserved_names_for_state(state)
-    clean_bindings = _agent_runtime_sanitize_bindings(state, bindings)
+    merge = _core_get(snapshot, "merge", False)
+    clean_bindings = bindings
+    if merge:
+        pass
+    else:
+        clean_bindings = _agent_runtime_sanitize_bindings(state, bindings)
     entries = _core_get(snapshot, "entries", empty_list)
     entries_is_list = _core_type_is(entries, "list")
     if entries_is_list:
@@ -8586,7 +8499,10 @@ def _normalize_agent_runtime_snapshot(state: Any, snapshot: Any) -> Any:
     for entry in entries:
         entry_name = _core_get(entry, "name", "")
         entry_reserved = _core_contains(reserved, entry_name)
-        if entry_reserved:
+        entry_evidence = _core_eq(entry_name, "distilledContext")
+        entry_not_evidence = _core_not(entry_evidence)
+        entry_hidden = _core_and(entry_reserved, entry_not_evidence)
+        if entry_hidden:
             pass
         else:
             clean_entries.append(entry)
@@ -8598,6 +8514,10 @@ def _normalize_agent_runtime_snapshot(state: Any, snapshot: Any) -> Any:
     out["bindings"] = clean_bindings
     out["globals"] = clean_bindings
     out["closed"] = closed
+    if merge:
+        out["merge"] = True
+    else:
+        pass
     return out
 
 
@@ -8852,6 +8772,7 @@ def _agent_runtime_execute_step(state: Any, runtime: Any, session: Any, code: st
         pass
     raw = _core_agent_runtime_execute(session, code, runtime_options)
     normalized = _normalize_agent_runtime_step_result(raw, code)
+    _agent_attach_code_analysis(normalized, raw)
     closed = _core_get(normalized, "error_category", "")
     is_closed = _core_eq(closed, "session_closed")
     if is_closed:
@@ -8861,6 +8782,7 @@ def _agent_runtime_execute_step(state: Any, runtime: Any, session: Any, code: st
         session = _agent_runtime_create_session(state, runtime, globals, runtime_options)
         raw = _core_agent_runtime_execute(session, code, runtime_options)
         normalized = _normalize_agent_runtime_step_result(raw, code)
+        _agent_attach_code_analysis(normalized, raw)
     else:
         pass
     _agent_runtime_append_action_log(state, normalized)
@@ -9103,8 +9025,9 @@ def _agent_object_keys_sample(value: Any, limit: number) -> list[Any]:
 def _agent_evidence_entry_descriptor(key: str, value: Any) -> Any:
     _core_coverage_mark("_agent_evidence_entry_descriptor")
     text = _core_json_stringify(value)
-    size = _core_len(text)
-    kind = _agent_value_kind(value)
+    text_units = _core_string_utf16_units(text)
+    size = _core_len(text_units)
+    kind = _agent_evidence_value_type(value)
     entry = {}
     entry["key"] = key
     entry["type"] = kind
@@ -9146,14 +9069,19 @@ def _agent_build_evidence_descriptor(evidence: Any) -> Any:
         pass
     else:
         payload = empty_map
-    text = _core_json_stringify(payload)
-    total = _core_len(text)
+    total = 0
     entries = []
     keys = _core_map_keys(payload)
     for key in keys:
         value = _core_get(payload, key, None)
         entry = _agent_evidence_entry_descriptor(key, value)
         entries.append(entry)
+        entry_size = _core_get(entry, "size", 0)
+        positive = _core_gt(entry_size, 0)
+        if positive:
+            total = _core_add(total, entry_size)
+        else:
+            pass
     out = {}
     out["kind"] = "axEvidenceDescriptor"
     out["totalChars"] = total
@@ -9183,31 +9111,32 @@ def _agent_render_evidence_descriptor(descriptor: Any) -> str:
     lines.append(header)
     for entry in entries:
         key = _core_get(entry, "key", "")
-        type = _core_get(entry, "type", "value")
+        type = _core_get(entry, "type", "object")
         size = _core_get(entry, "size", 0)
-        line = _core_string_format("- `{}`: {} ({} chars)", key, type, size)
+        length_text = ""
         length = _core_get(entry, "length", None)
         has_length = _core_is_not_none(length)
         if has_length:
-            line = _core_string_format("{}; length {}", line, length)
+            length_text = _core_string_format(", {} items", length)
         else:
             pass
-        keys = _core_get(entry, "keys", empty_list)
-        keys_count = _core_len(keys)
-        has_keys = _core_gt(keys_count, 0)
-        if has_keys:
-            keys_text = _core_string_join(", ", keys)
-            line = _core_string_format("{}; keys: {}", line, keys_text)
-        else:
-            pass
+        shape_text = ""
         item_keys = _core_get(entry, "itemKeys", empty_list)
         item_keys_count = _core_len(item_keys)
         has_item_keys = _core_gt(item_keys_count, 0)
+        keys = _core_get(entry, "keys", empty_list)
+        keys_count = _core_len(keys)
+        has_keys = _core_gt(keys_count, 0)
         if has_item_keys:
             item_keys_text = _core_string_join(", ", item_keys)
-            line = _core_string_format("{}; item keys: {}", line, item_keys_text)
+            shape_text = _core_string_format("; item keys: {}", item_keys_text)
         else:
-            pass
+            if has_keys:
+                keys_text = _core_string_join(", ", keys)
+                shape_text = _core_string_format("; keys: {}", keys_text)
+            else:
+                pass
+        line = _core_string_format("- `{}` ({}{}, ~{} chars{})", key, type, length_text, size, shape_text)
         lines.append(line)
     out = _core_string_join("\n", lines)
     return out
@@ -12504,10 +12433,14 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
         globals = _agent_runtime_build_globals(state, exec_runtime_values)
         session = _core_get(state, "runtime_session", None)
         has_shared_session = _core_is_not_none(session)
+        empty_map_for_patch = {}
         shared_notice_set = False
         if has_shared_session:
+            patch_globals = _core_map_merge(empty_map_for_patch, globals)
+            _core_map_delete(patch_globals, "distilledContext")
             patch_snapshot = {}
-            patch_snapshot["globals"] = globals
+            patch_snapshot["globals"] = patch_globals
+            patch_snapshot["merge"] = True
             _agent_runtime_restore_session_state(state, session, patch_snapshot, options)
             pending_notice = _core_get(state, "restore_notice", "")
             no_pending_notice = _core_eq(pending_notice, "")
@@ -14519,6 +14452,320 @@ def _agent_ordered_completion_payload(payload: Any) -> Any:
         else:
             value = _core_get(payload, key, None)
             out[key] = value
+    return out
+
+
+def _agent_evidence_value_type(value: Any) -> str:
+    _core_coverage_mark("_agent_evidence_value_type")
+    missing = _core_is_none(value)
+    if missing:
+        return "null"
+    else:
+        pass
+    is_list = _core_type_is(value, "list")
+    if is_list:
+        return "array"
+    else:
+        pass
+    js_type = _agent_js_value_type(value)
+    return js_type
+
+
+def _agent_attach_code_analysis(entry: Any, raw: Any) -> None:
+    _core_coverage_mark("_agent_attach_code_analysis")
+    is_object = _core_type_is(raw, "object")
+    if is_object:
+        pass
+    else:
+        return None
+    analysis = _core_get(raw, "analysis", None)
+    has_analysis = _core_type_is(analysis, "object")
+    if has_analysis:
+        pass
+    else:
+        return None
+    empty_list = []
+    produced = _core_get(analysis, "producedVars", empty_list)
+    reads = _core_get(analysis, "readVars", empty_list)
+    callables = _core_get(analysis, "callables", empty_list)
+    entry["producedVars"] = produced
+    entry["readVars"] = reads
+    entry["callables"] = callables
+    return None
+
+
+def _agent_stage_action_entries(state: Any) -> Any:
+    _core_coverage_mark("_agent_stage_action_entries")
+    empty_list = []
+    all_entries = _core_get(state, "action_log", empty_list)
+    stage_start = _core_get(state, "stage_action_log_start", 0)
+    entries = []
+    position = 0
+    for entry in all_entries:
+        entry_type = _core_get(entry, "type", "")
+        is_session_record = _core_eq(entry_type, "runtime_session")
+        before_stage = _core_lt(position, stage_start)
+        hidden = _core_or(is_session_record, before_stage)
+        if hidden:
+            pass
+        else:
+            entries.append(entry)
+        position = _core_add(position, 1)
+    return entries
+
+
+def _agent_runtime_state_provenance(state: Any) -> Any:
+    _core_coverage_mark("_agent_runtime_state_provenance")
+    empty_list = []
+    provenance = {}
+    entries = _agent_stage_action_entries(state)
+    turn = 0
+    for entry in entries:
+        turn = _core_add(turn, 1)
+        produced = _core_get(entry, "producedVars", empty_list)
+        callables = _core_get(entry, "callables", empty_list)
+        source = _core_list_get(callables, 0, "")
+        for name in produced:
+            record = {}
+            record["createdTurn"] = turn
+            has_source = _core_ne(source, "")
+            if has_source:
+                record["source"] = source
+            else:
+                pass
+            provenance[name] = record
+        reads = _core_get(entry, "readVars", empty_list)
+        for read in reads:
+            known = _core_map_contains(provenance, read)
+            if known:
+                current = _core_get(provenance, read, None)
+                created = _core_get(current, "createdTurn", 0)
+                last_read = _core_get(current, "lastReadTurn", created)
+                later = _core_gt(turn, last_read)
+                if later:
+                    last_read = turn
+                else:
+                    pass
+                current["lastReadTurn"] = last_read
+                provenance[read] = current
+            else:
+                pass
+    return provenance
+
+
+def _agent_render_structured_runtime_state(state: Any, state_summary: Any, entries: Any) -> str:
+    _core_coverage_mark("_agent_render_structured_runtime_state")
+    empty_map = {}
+    empty_list = []
+    injected_globals = _core_get(state, "runtime_globals", empty_map)
+    reserved_names = _agent_runtime_reserved_names_for_state(state)
+    computed = _agent_runtime_state_provenance(state)
+    stored = _core_get(state, "provenance", empty_map)
+    rows = []
+    for entry in entries:
+        name = _core_get(entry, "name", "")
+        is_injected = _core_map_contains(injected_globals, name)
+        is_evidence = _core_eq(name, "distilledContext")
+        not_evidence = _core_not(is_evidence)
+        hidden_injected = _core_and(is_injected, not_evidence)
+        is_reserved = _core_contains(reserved_names, name)
+        hidden_reserved = _core_and(is_reserved, not_evidence)
+        hidden = _core_or(hidden_injected, hidden_reserved)
+        if hidden:
+            pass
+        else:
+            prov = _core_get(stored, name, None)
+            has_stored = _core_type_is(prov, "object")
+            if has_stored:
+                pass
+            else:
+                prov = _core_get(computed, name, None)
+            score = 0
+            prov_text = ""
+            has_prov = _core_type_is(prov, "object")
+            if has_prov:
+                created = _core_get(prov, "createdTurn", 0)
+                last_read = _core_get(prov, "lastReadTurn", created)
+                source = _core_get(prov, "source", "")
+                created_score = _core_mul(created, 100)
+                read_score = _core_mul(last_read, 10000)
+                score = _core_add(1000000, created_score)
+                score = _core_add(score, read_score)
+                has_source = _core_ne(source, "")
+                if has_source:
+                    score = _core_add(score, 25)
+                    prov_text = _core_string_format(" [from t{} via {}", created, source)
+                else:
+                    prov_text = _core_string_format(" [from t{}", created)
+                read_after = _core_gt(last_read, created)
+                if read_after:
+                    prov_text = _core_string_format("{}; read t{}", prov_text, last_read)
+                else:
+                    pass
+                prov_text = _core_string_format("{}]", prov_text)
+            else:
+                pass
+            type = _core_get(entry, "type", "unknown")
+            is_accessor = _core_eq(type, "accessor")
+            is_function = _core_eq(type, "function")
+            if is_accessor:
+                score = _core_add(score, -100)
+            else:
+                pass
+            if is_function:
+                score = _core_add(score, -10)
+            else:
+                pass
+            ctor = _core_get(entry, "ctor", "")
+            type_label = type
+            is_object = _core_eq(type, "object")
+            is_error = _core_eq(type, "error")
+            has_ctor = _core_ne(ctor, "")
+            object_ctor = _core_ne(ctor, "Object")
+            error_ctor = _core_ne(ctor, "Error")
+            labeled_object = _core_and(is_object, has_ctor)
+            labeled_object = _core_and(labeled_object, object_ctor)
+            labeled_error = _core_and(is_error, has_ctor)
+            labeled_error = _core_and(labeled_error, error_ctor)
+            if labeled_object:
+                type_label = _core_string_format("object<{}>", ctor)
+            else:
+                pass
+            if labeled_error:
+                type_label = _core_string_format("error<{}>", ctor)
+            else:
+                pass
+            size = _core_get(entry, "size", "")
+            has_size = _core_ne(size, "")
+            if has_size:
+                type_label = _core_string_format("{} ({})", type_label, size)
+            else:
+                pass
+            preview = _core_get(entry, "preview", "")
+            preview_text = ""
+            has_preview = _core_ne(preview, "")
+            if has_preview:
+                preview_text = _core_string_format(" = {}", preview)
+            else:
+                pass
+            line = _core_string_format("{}: {}{}{}", name, type_label, preview_text, prov_text)
+            row = {}
+            row["name"] = name
+            row["score"] = score
+            row["line"] = line
+            placed = []
+            inserted = False
+            for other in rows:
+                other_score = _core_get(other, "score", 0)
+                other_name = _core_get(other, "name", "")
+                higher = _core_gt(score, other_score)
+                same = _core_eq(score, other_score)
+                names = []
+                names.append(name)
+                names.append(other_name)
+                sorted_names = _core_sorted_strings(names)
+                first_name = _core_list_get(sorted_names, 0, "")
+                name_first = _core_eq(first_name, name)
+                name_differs = _core_ne(name, other_name)
+                name_before = _core_and(name_first, name_differs)
+                tie_before = _core_and(same, name_before)
+                goes_before = _core_or(higher, tie_before)
+                not_inserted = _core_not(inserted)
+                insert_here = _core_and(goes_before, not_inserted)
+                if insert_here:
+                    placed.append(row)
+                    inserted = True
+                else:
+                    pass
+                placed.append(other)
+            still_out = _core_not(inserted)
+            if still_out:
+                placed.append(row)
+            else:
+                pass
+            rows = placed
+    count = _core_len(rows)
+    no_rows = _core_eq(count, 0)
+    if no_rows:
+        return "(no user variables)"
+    else:
+        pass
+    max_entries = _core_get(state_summary, "maxEntries", 8)
+    max_entries_set = _core_gt(max_entries, 0)
+    if max_entries_set:
+        pass
+    else:
+        max_entries = 8
+    max_chars = _core_get(state_summary, "maxChars", 0)
+    char_budget = _core_gt(max_chars, 0)
+    lines = []
+    used = 0
+    index = 0
+    stop = False
+    for row in rows:
+        within = _core_lt(index, max_entries)
+        go_on = _core_not(stop)
+        take = _core_and(within, go_on)
+        if take:
+            line = _core_get(row, "line", None)
+            if char_budget:
+                line_count = _core_len(lines)
+                separator = 0
+                has_lines = _core_gt(line_count, 0)
+                if has_lines:
+                    separator = 1
+                else:
+                    pass
+                spent = _core_add(used, separator)
+                negative_spent = _core_mul(spent, -1)
+                remaining = _core_add(max_chars, negative_spent)
+                exhausted = _core_lte(remaining, 0)
+                if exhausted:
+                    stop = True
+                else:
+                    line_units = _core_string_utf16_units(line)
+                    line_length = _core_len(line_units)
+                    fits = _core_lte(line_length, remaining)
+                    if fits:
+                        lines.append(line)
+                        used = _core_add(spent, line_length)
+                    else:
+                        cut = _agent_truncate_to_char_budget(line, remaining)
+                        lines.append(cut)
+                        used = max_chars
+                        stop = True
+            else:
+                lines.append(line)
+        else:
+            pass
+        index = _core_add(index, 1)
+    out = _core_string_join("\n", lines)
+    return out
+
+
+def _agent_truncate_to_char_budget(text: str, max_chars: Any) -> str:
+    _core_coverage_mark("_agent_truncate_to_char_budget")
+    none_left = _core_lte(max_chars, 0)
+    if none_left:
+        return ""
+    else:
+        pass
+    units = _core_string_utf16_units(text)
+    length = _core_len(units)
+    fits = _core_lte(length, max_chars)
+    if fits:
+        return text
+    else:
+        pass
+    tiny = _core_lte(max_chars, 3)
+    if tiny:
+        head = _agent_utf16_prefix(text, max_chars)
+        return head
+    else:
+        pass
+    keep = _core_add(max_chars, -3)
+    prefix = _agent_utf16_prefix(text, keep)
+    out = _core_string_format("{}...", prefix)
     return out
 
 # END AXIR CORE EMITTED FUNCTIONS

@@ -1416,6 +1416,12 @@ struct Core {
   static Value _context_map_distiller_program();
   static Value _context_map_cartographer_program();
   static Value _agent_ordered_completion_payload(Value payload);
+  static Value _agent_evidence_value_type(Value value);
+  static Value _agent_attach_code_analysis(Value entry, Value raw);
+  static Value _agent_stage_action_entries(Value state);
+  static Value _agent_runtime_state_provenance(Value state);
+  static Value _agent_render_structured_runtime_state(Value state, Value state_summary, Value entries);
+  static Value _agent_truncate_to_char_budget(Value text, Value max_chars);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);
