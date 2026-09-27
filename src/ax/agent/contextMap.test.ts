@@ -534,3 +534,31 @@ describe('AxAgentContextMap', () => {
     expect(distillerUserPrompts[0]).toContain('Late billing orientation');
   });
 });
+
+describe('AxAgentContextMap update options', () => {
+  it('stops an update on the abortSignal in its options', async () => {
+    const calls: string[] = [];
+    const map = new AxAgentContextMap();
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async () => {
+        calls.push('chat');
+        return {
+          results: [
+            { index: 0, content: 'Diagnosis: ok', finishReason: 'stop' },
+          ],
+        };
+      },
+    });
+    const controller = new AbortController();
+    controller.abort('agent run stopped');
+    await expect(
+      map.update(ai, {
+        task: 'Understand invoices',
+        trajectory: 'The agent found invoice records.',
+        options: { abortSignal: controller.signal },
+      })
+    ).rejects.toThrow('agent run stopped');
+    expect(calls).toEqual([]);
+  });
+});
