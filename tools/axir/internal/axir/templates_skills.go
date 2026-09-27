@@ -353,6 +353,8 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			skillFieldProcessorText(target),
 			"",
+			skillCachingFunctionText(target),
+			"",
 			skillNumberFormatText(target),
 			"",
 			"`maxSteps` / `max_steps` (default 25) caps the tool loop. Each model turn that calls tools is one step, and validation retries stay inside their step. Reaching the cap raises `Generate failed: Max steps reached: N`. A call to a stop function (`stopFunctions` / `stop_functions`) runs the tool and ends the forward, as in TypeScript: the output is empty apart from the earlier steps' thought, and the tool's result is not the output.",
@@ -543,6 +545,24 @@ func skillFieldProcessorText(target string) string {
 		return "`add_field_processor(field, processor, AxFieldProcessorMode::Feedback)` follows TypeScript: the `AxFieldProcessor` (`processor(value, context)`, with the output values so far in `context.values` and `context.done`) runs on the parsed field, and a non-empty result goes back to the model as a user message for another step, whose answer replaces the earlier one. `add_streaming_field_processor(field, processor)` does the same on each streamed chunk of a string or code field, and `add_streaming_assert(field, assertion, message)` checks a string or code field as it streams: `assertion(text, done)` returns null or true to pass, or a message string or false to fail, which retries the attempt with a correction. `add_field_transform(field, op)` is the permanent, port-only home of the rewrite (`uppercase`, `lowercase`, `trim`, `prefix:...`, `suffix:...`, or a callable), and `AxFieldProcessorMode::Transform` rewrites with an `AxFieldProcessor`; in `streaming_forward` a transformed field is held back and sent once, transformed. The two-argument `add_field_processor(field, op)` still rewrites the field value and prints a deprecation warning once: it becomes the feedback behavior in the next major version."
 	default:
 		return "Field processors rewrite the field value, a port extension; TypeScript's feedback processors (a result sent back to the model for another step) are in progress for this language."
+	}
+}
+
+func skillCachingFunctionText(target string) string {
+	shared := " The call's function comes first, then the program's, then the process-wide one, and a run with a `control` skips the cache. As in TypeScript, a forward reads the cache before it opens the run's span or records metrics, so a hit sends no request and records neither; an error from the read propagates. A streaming forward yields a hit as one delta (version 0, index 0) and ignores an error from the read. Both store the finished output (the picked sample's, with a result picker) and ignore an error from the store. Keys are lowercase hex SHA-256 digests of the signature and the input values, media included; they differ from other languages' keys, so don't share one store across languages."
+	switch target {
+	case "python":
+		return "`caching_function` (or `cachingFunction`), a constructor or forward option, caches outputs as TypeScript's `cachingFunction` does: `fn(key)` returns a stored output, or `None` for a miss, and `fn(key, output)` stores one. `set_caching_function(fn)` sets a process-wide function, and `None` clears it." + shared
+	case "go":
+		return "An `AxCachingFunction` (`func(key string, value map[string]Value) (map[string]Value, error)`), passed as the `cachingFunction` (or `caching_function`) option of `NewAx` or of a forward call, caches outputs as TypeScript's `cachingFunction` does: a read passes a nil `value` and gets the stored output back, or a nil map for a miss (an empty map that is not nil is a hit with an empty output), and a store passes the output. `SetCachingFunction(fn)` sets a process-wide function, and `nil` clears it. It may be called from several goroutines at once." + shared
+	case "java":
+		return "An `AxCachingFunction` (`Map<String, Object> apply(String key, Map<String, Object> value) throws Exception`), passed as the `cachingFunction` (or `caching_function`) option of the `AxGen` constructor or of a forward call, caches outputs as TypeScript's `cachingFunction` does: `apply(key, null)` returns a stored output, or `null` for a miss, and `apply(key, output)` stores one. `AxGlobals.setCachingFunction(fn)` sets a process-wide function, and `null` clears it. It may be called from several threads at once, so keep it thread-safe." + shared
+	case "rust":
+		return "An `AxCachingFunction` (`Arc<dyn Fn(&str, Option<&Value>) -> AxResult<Option<Value>> + Send + Sync>`) caches outputs as TypeScript's `cachingFunction` does: `f(key, None)` returns `Ok(Some(output))` for a stored output or `Ok(None)` for a miss, and `f(key, Some(&output))` stores one. Set it on a program with `with_caching_function(f)`, on one call with `AxForwardOptions::from(json!({})).with_caching_function(f)`, or process-wide with `set_caching_function(Some(f))`, where `None` clears it. `owned_worker_factory()` workers keep the program's function." + shared
+	case "cpp":
+		return "An `AxCachingFunction` (`std::function<std::optional<Value>(const std::string& key, const Value* value)>`) caches outputs as TypeScript's `cachingFunction` does: a read passes a null `value` and gets the stored output back, or `std::nullopt` for a miss, and a store passes the output. Set it on a program with `set_caching_function(fn)` or process-wide with `ax::set_caching_function(fn)`, where an empty function clears it." + shared
+	default:
+		return "A caching function (TypeScript's `cachingFunction`) is not available in this language yet."
 	}
 }
 

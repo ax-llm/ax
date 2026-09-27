@@ -1113,6 +1113,8 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("AxGen", "type", "Structured generation program with indexed multi-sampling, winner selection, forward, streaming, optimization, trace, usage, and tool-call behavior.", []string{"signature", "functions", "examples", "demos", "sample count", "result picker", "memory", "prompt template"}, "program object"),
 				sym("run_control", "function", "Create a controller for scoped steering, reasoning updates, cancellation, and queued/applied lifecycle events. Pass it through forward options.", nil, "AxRunControl"),
 				sym("AxRunControl", "type", "Run control shared by active and future descendant programs. Cancellation reports unresolved work and does not undo external effects.", []string{"steer", "thinking token budget", "target path", "abort", "event listener"}, "run controller"),
+				sym("AxCachingFunction", "type", "TypeScript's cachingFunction: read and store finished AxGen outputs by key. The forward call's function comes first, then the program's, then the process-wide one, and a run control skips the cache.", []string{"read", "store", "SHA-256 key", "streamed hit as one delta"}, "stored output or miss"),
+				sym("set_caching_function", "function", "Register, replace, or clear the process-wide AxGen caching function.", []string{"caching function", "clear"}, "void"),
 			},
 		},
 		{
@@ -1277,6 +1279,10 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "AxProgram.owned_worker_factory", "AxProgram.ownedWorkerFactory", "axllm::AxProgram::owned_worker_factory", "AxOwnedProgramFactory.OwnedWorkerFactory", "AxExecutableProgram::owned_worker_factory")
 	case "AxRunControl":
 		return mapTarget(target, "AxRunControl", "AxRunControl", "axllm::AxRunControl", "axllm.AxRunControl", "AxRunControl")
+	case "AxCachingFunction":
+		return mapTarget(target, "Callable[[str, dict | None], dict | None]", "AxCachingFunction", "axllm::AxCachingFunction", "axllm.AxCachingFunction", "AxCachingFunction")
+	case "set_caching_function":
+		return mapTarget(target, "set_caching_function", "AxGlobals.setCachingFunction", "axllm::set_caching_function", "axllm.SetCachingFunction", "set_caching_function")
 	case "ax":
 		return mapTarget(target, "ax", "Ax.ax", "axllm::ax", "axllm.NewAx", "ax")
 	case "typesafe":
@@ -1382,6 +1388,10 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return apiReferencePublicName(target, canonical) + "(namespace, name, child)"
 	case "run_control":
 		return apiReferencePublicName(target, canonical) + "()"
+	case "AxCachingFunction":
+		return mapTarget(target, "caching_function(key, output=None)", "Map<String, Object> apply(String key, Map<String, Object> value)", "std::optional<Value>(const std::string& key, const Value* value)", "func(key string, value map[string]Value) (map[string]Value, error)", "Arc<dyn Fn(&str, Option<&Value>) -> AxResult<Option<Value>> + Send + Sync>")
+	case "set_caching_function":
+		return mapTarget(target, "set_caching_function(fn)", "AxGlobals.setCachingFunction(fn)", "axllm::set_caching_function(fn)", "axllm.SetCachingFunction(fn)", "set_caching_function(Some(fn))")
 	case "ax":
 		return mapTarget(target, "ax(signature, options=None)", "Ax.ax(signature)", "axllm::ax(signature, options)", "axllm.NewAx(signature, options)", "ax(spec: &str)")
 	case "AxGen":
@@ -1540,6 +1550,16 @@ func apiReferenceExample(target, canonical string) string {
 		)
 	case "run_control":
 		return mapTarget(target, "control = run_control()", "var control = Ax.runControl();", "auto control = axllm::run_control();", "control := axllm.RunControl()", "let control = run_control();")
+	case "AxCachingFunction":
+		return mapTarget(target,
+			`qa = ax("question:string -> answer:string", {"caching_function": cache})`,
+			`AxGen qa = new AxGen(Ax.s("question:string -> answer:string"), Map.of("cachingFunction", cache));`,
+			`auto qa = axllm::ax("question:string -> answer:string"); qa.set_caching_function(cache);`,
+			`qa := axllm.NewAx("question:string -> answer:string", map[string]axllm.Value{"cachingFunction": cache})`,
+			`let qa = ax("question:string -> answer:string")?.with_caching_function(cache);`,
+		)
+	case "set_caching_function":
+		return mapTarget(target, `set_caching_function(cache)`, `AxGlobals.setCachingFunction(cache);`, `axllm::set_caching_function(cache);`, `axllm.SetCachingFunction(cache)`, `set_caching_function(Some(cache));`)
 	case "ax":
 		return mapTarget(target,
 			`qa = ax("question:string -> answer:string")`,
@@ -2381,7 +2401,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			NoKeyExamples: readmeLines(
 				"- `python examples/signature_schema.py`: signature parsing and JSON schema generation",
 				"- `python examples/model_catalog.py`: model catalog, named profiles, thinking levels, and service tiers",
-				"- `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client and tool",
+				"- `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client, a tool, and a caching function",
 				"- `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport",
 				"- `python examples/runtime_hooks_no_key.py`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `python examples/adaptive_balancer_no_key.py`: adaptive balancer state, scoring, and stable route keys without a provider key",
