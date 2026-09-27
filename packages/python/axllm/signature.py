@@ -543,9 +543,62 @@ def _core_regex_match(pattern, value):
     return isinstance(value, str) and re.search(pattern, value) is not None
 
 
+def _js_text(value) -> str:
+    """A value's text in string.format and string.str, as every port writes
+    it: a string as is, None as "null", a bool as "true" or "false", a number
+    as JavaScript's String(x) (an int keeps its exact digits), and a list or
+    dict as compact JSON (JSON.stringify(x), keys in insertion order)."""
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return int.__repr__(value)
+    if isinstance(value, float):
+        return _js_number_text(value)
+    if isinstance(value, (list, tuple, dict)):
+        try:
+            return _js_json_dumps(value)
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)
+
+
+def _js_format(template, args) -> str:
+    """string.format as every port runs it: each {} takes the next argument's
+    _js_text, from left to right and inserted as is (never read as a
+    template); {{ and }} write one brace, any other brace is kept, and a {}
+    past the last argument stays {}."""
+    text = str(template)
+    out: list[str] = []
+    index = 0
+    next_arg = 0
+    length = len(text)
+    while index < length:
+        pair = text[index:index + 2]
+        if pair == "{{":
+            out.append("{")
+            index += 2
+        elif pair == "}}":
+            out.append("}")
+            index += 2
+        elif pair == "{}":
+            if next_arg < len(args):
+                out.append(_js_text(args[next_arg]))
+                next_arg += 1
+            else:
+                out.append("{}")
+            index += 2
+        else:
+            out.append(text[index])
+            index += 1
+    return "".join(out)
+
+
 def _core_string_format(template, *args):
-    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
-    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
+    return _js_format(template, args)
 
 
 def _core_string_join(sep, values):

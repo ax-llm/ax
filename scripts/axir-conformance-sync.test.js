@@ -55,6 +55,18 @@ describe('axir-conformance-sync helpers', () => {
     ]);
     expect(normalized.validation_cases[0].valid).toBe(false);
   });
+  it('preserves object order in string-format cases because the expected text follows it', () => {
+    const normalized = normalizeCatalog({
+      format_cases: [{ template: '{}', input: [{ z: 1, a: 2 }] }],
+      str_cases: [{ input: { z: [{ y: 1, b: 2 }], a: 2 } }],
+    });
+    expect(Object.keys(normalized.format_cases[0].input[0])).toEqual([
+      'z',
+      'a',
+    ]);
+    expect(Object.keys(normalized.str_cases[0].input)).toEqual(['z', 'a']);
+    expect(Object.keys(normalized.str_cases[0].input.z[0])).toEqual(['y', 'b']);
+  });
 
   it('detects stale model pricing with a precise diff', () => {
     const expected = normalizeCatalog({
@@ -136,6 +148,7 @@ describe('axir-conformance-sync helpers', () => {
               supported: {
                 structuredOutputs: true,
                 samplingWithoutReasoning: true,
+                temperatureOne: true,
                 reasoningOffByDefault: false,
               },
             },
@@ -157,7 +170,7 @@ describe('axir-conformance-sync helpers', () => {
         {
           name: 'gpt-5.4-mini',
           aliases: ['mini'],
-          supported: { samplingWithoutReasoning: true },
+          supported: { samplingWithoutReasoning: true, temperatureOne: true },
         },
       ],
     });

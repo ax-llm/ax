@@ -1,0 +1,107 @@
+{
+  "expected_output": {
+    "aResult": {
+      "summary": "s2"
+    },
+    "bResult": {
+      "title": "t2"
+    },
+    "round": 2
+  },
+  "expected_request_count": 4,
+  "input": {
+    "round": 0,
+    "topic": "x"
+  },
+  "kind": "flow",
+  "name": "parallel-group-loop-keeps-each-iteration",
+  "responses": [
+    {
+      "content": "{\"summary\":\"s1\"}"
+    },
+    {
+      "content": "{\"title\":\"t1\"}"
+    },
+    {
+      "content": "{\"summary\":\"s2\"}"
+    },
+    {
+      "content": "{\"title\":\"t2\"}"
+    }
+  ],
+  "returns": {
+    "aResult": "aResult",
+    "bResult": "bResult",
+    "round": "round"
+  },
+  "source": {
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "name": "parallel-group-loop-keeps-each-iteration",
+    "observed": {
+      "output": {
+        "aResult": {
+          "summary": "s2"
+        },
+        "bResult": {
+          "title": "t2"
+        },
+        "round": 2
+      },
+      "rule": "Each iteration of a while loop whose body runs a parallel group keeps its updates."
+    },
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "tsDerived": true
+  },
+  "steps": [
+    {
+      "condition": {
+        "field": "round",
+        "op": "lt",
+        "value": 2
+      },
+      "kind": "while",
+      "name": "rounds",
+      "options": {
+        "maxIterations": 5
+      },
+      "steps": [
+        {
+          "kind": "execute",
+          "name": "a",
+          "options": {
+            "isBarrier": false,
+            "reads": ["topic"],
+            "writes": ["aResult"]
+          },
+          "signature": "topic:string -> summary:string"
+        },
+        {
+          "kind": "execute",
+          "name": "b",
+          "options": {
+            "isBarrier": false,
+            "reads": ["topic"],
+            "writes": ["bResult"]
+          },
+          "signature": "topic:string -> title:string"
+        },
+        {
+          "kind": "map",
+          "mapper": {
+            "field": "round",
+            "op": "increment"
+          },
+          "name": "nextRound"
+        }
+      ]
+    }
+  ]
+}

@@ -1267,6 +1267,41 @@ Value Core::string_starts_with(Value value, Value prefix) {
   std::string s = str(value), p = str(prefix);
   return Value(s.rfind(p, 0) == 0);
 }
+// C++ strings are UTF-8, but parse_json keeps a lone surrogate escape (half of
+// a pair a provider split across stream events, such as "\ud83d" and then
+// "\ude00") as its 3-byte WTF-8 form: ED A0-AF xx for a high surrogate and
+// ED B0-BF xx for a low one.
+static bool wtf8_surrogate_at(const std::string& text, std::size_t at, unsigned char low, unsigned char high) {
+  if (at + 3 > text.size()) return false;
+  auto byte = [&](std::size_t offset) { return static_cast<unsigned char>(text[at + offset]); };
+  return byte(0) == 0xED && byte(1) >= low && byte(1) <= high && (byte(2) & 0xC0) == 0x80;
+}
+static unsigned wtf8_surrogate_unit(const std::string& text, std::size_t at) {
+  return 0xD000u | ((static_cast<unsigned char>(text[at + 1]) & 0x3Fu) << 6) | (static_cast<unsigned char>(text[at + 2]) & 0x3Fu);
+}
+// Streamed text appends chunk by chunk. As in a UTF-16 string (TS, Java), a
+// high surrogate ending the text and a low one starting the chunk join into
+// the code point they make, as 4-byte UTF-8.
+Value Core::string_concat_stream_text(Value left, Value right) {
+  std::string text = str(left), chunk = str(right);
+  if (text.size() >= 3 && wtf8_surrogate_at(text, text.size() - 3, 0xA0, 0xAF) && wtf8_surrogate_at(chunk, 0, 0xB0, 0xBF)) {
+    unsigned code_point = 0x10000u + ((wtf8_surrogate_unit(text, text.size() - 3) - 0xD800u) << 10) + (wtf8_surrogate_unit(chunk, 0) - 0xDC00u);
+    text.resize(text.size() - 3);
+    text.push_back(static_cast<char>(0xF0 | (code_point >> 18)));
+    text.push_back(static_cast<char>(0x80 | ((code_point >> 12) & 0x3F)));
+    text.push_back(static_cast<char>(0x80 | ((code_point >> 6) & 0x3F)));
+    text.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+    return Value(text + chunk.substr(3));
+  }
+  return Value(text + chunk);
+}
+// Until a field's text is final, a high surrogate at its end waits for its
+// pair, as TS holds it back, so no delta ends in half a character.
+Value Core::string_drop_trailing_high_surrogate(Value value) {
+  std::string text = str(value);
+  if (text.size() >= 3 && wtf8_surrogate_at(text, text.size() - 3, 0xA0, 0xAF)) return Value(text.substr(0, text.size() - 3));
+  return value;
+}
 Value Core::string_replace(Value value, Value old_value, Value new_value) {
   std::string s = str(value), old = str(old_value), repl = str(new_value);
   size_t pos = 0;
@@ -1306,18 +1341,34 @@ Value Core::string_words(Value value) {
 Value Core::string_default_if_empty(Value value, Value fallback) {
   return truthy(string_trim(value)) ? string_trim(value) : fallback;
 }
+// A value's text in string.format and string.str, as every port writes it: a
+// string as is, null as "null", a boolean as "true" or "false", a number as
+// JavaScript's String(x), and a list or object as compact JSON with its keys
+// in insertion order (JSON.stringify).
+static std::string js_text(const Value& value) {
+  if (value.is_null()) return "null";
+  if (value.is_array() || value.is_object()) return stringify(value);
+  return display(value);
+}
+// Each {} takes the next argument's js_text, from left to right and inserted
+// as is (never read as a template); {{ and }} write one brace, any other brace
+// is kept, and a {} past the last argument stays {}.
 Value Core::string_format_values(Value templ, const std::vector<Value>& args) {
-  // Each value fills the next {} after the previous one, so a value that
-  // itself contains {} is not formatted again. A null value fills its {} as
-  // well (display() writes it as the empty string, as Go's does).
-  std::string out = str(templ);
-  size_t cursor = 0;
-  for (const auto& arg : args) {
-    size_t pos = out.find("{}", cursor);
-    if (pos == std::string::npos) break;
-    std::string text = display(arg);
-    out.replace(pos, 2, text);
-    cursor = pos + text.size();
+  std::string text = str(templ);
+  std::string out;
+  size_t next = 0;
+  for (size_t i = 0; i < text.size();) {
+    if (i + 1 < text.size()) {
+      if (text[i] == '{' && text[i + 1] == '{') { out += '{'; i += 2; continue; }
+      if (text[i] == '}' && text[i + 1] == '}') { out += '}'; i += 2; continue; }
+      if (text[i] == '{' && text[i + 1] == '}') {
+        out += next < args.size() ? js_text(args[next++]) : std::string("{}");
+        i += 2;
+        continue;
+      }
+    }
+    out += text[i];
+    i++;
   }
   return Value(out);
 }
@@ -1488,7 +1539,7 @@ Value Core::string_extract_quoted_suffix(Value text) {
   }
   return Value(Object{{"value", Value()}, {"index", Value()}, {"rest", ""}, {"head", s}, {"found", false}});
 }
-Value Core::string_str(Value value) { return Value(display(value)); }
+Value Core::string_str(Value value) { return Value(js_text(value)); }
 Value Core::regex_replace(Value pattern, Value repl, Value value) {
   return Value(std::regex_replace(str(value), std::regex(str(pattern)), str(repl)));
 }
@@ -1966,6 +2017,14 @@ Value Core::program_apply_components(Value program, Value component_map) {
   auto* stage_ptr = registered_stage(stage_id);
   if (stage_ptr) stage_ptr->apply_optimized_components(std::move(component_map));
   return Value::object();
+}
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+Value Core::program_signature(Value program) {
+  auto* stage_ptr = registered_stage(str(get_key(program, "__agent_stage_id")));
+  if (auto* gen = dynamic_cast<AxGen*>(stage_ptr)) return Core::signature_to_string(Core::get(gen->value(), "signature"));
+  if (auto* agent = dynamic_cast<AxAgent*>(stage_ptr)) return Core::signature_to_string(Core::get(agent->state_, "signature"));
+  return Value();
 }
 Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
@@ -4230,19 +4289,44 @@ void Core::ai_capture_warnings(std::function<void(const std::string&)> sink) {
   ai_warning_sink() = std::move(sink);
 }
 
+static std::mutex& axgen_deprecations_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+static std::set<std::string>& axgen_deprecations_shown() {
+  static std::set<std::string> shown;
+  return shown;
+}
+
+static std::function<void(const std::string&)>& axgen_deprecation_sink() {
+  static std::function<void(const std::string&)> sink;
+  return sink;
+}
+
 // Deprecated port behavior warns once per key per process.
 Value Core::axgen_deprecation(Value key, Value message) {
-  static std::mutex shown_mutex;
-  static std::set<std::string> shown;
   try {
+    std::function<void(const std::string&)> sink;
     {
-      std::lock_guard<std::mutex> lock(shown_mutex);
-      if (!shown.insert(str(key)).second) return Value();
+      std::lock_guard<std::mutex> lock(axgen_deprecations_mutex());
+      if (!axgen_deprecations_shown().insert(str(key)).second) return Value();
+      sink = axgen_deprecation_sink();
+    }
+    if (sink) {
+      sink(str(message));
+      return Value();
     }
     std::cerr << "axllm deprecation: " << str(message) << std::endl;
   } catch (...) {
   }
   return Value();
+}
+
+void Core::axgen_capture_deprecations(std::function<void(const std::string&)> sink) {
+  std::lock_guard<std::mutex> lock(axgen_deprecations_mutex());
+  axgen_deprecations_shown().clear();
+  axgen_deprecation_sink() = std::move(sink);
 }
 
 // Caching functions the AxGen IR reaches through {"__caching_function_id"}
@@ -8540,17 +8624,27 @@ AxAgent& AxAgent::apply_optimization(Value artifact) {
 }
 Value AxAgent::evaluate_optimization_task(AIClient& client, Value task, Value options) {
   Value input = Core::get(task, "input", task);
-  Value forward_options = Core::get(options, "forward_options", Value::object());
+  // A runtime on the evolve or optimize call runs each task, as it runs a
+  // forward call (the agent may hold only a runtime descriptor), unless
+  // forward_options names one. A copy: the caller's options stay as they are.
+  Value forward_options = Core::map_merge(Value::object(), Core::get(options, "forward_options", Value::object()));
+  Value call_runtime = Core::get(options, "runtime");
+  if (!call_runtime.is_null() && Core::get(forward_options, "runtime").is_null()) Core::set(forward_options, "runtime", call_runtime);
+  // As TS evaluates each task from a fresh state, the prediction carries only
+  // this run's share of the agent's logs.
+  Value marks = Core::_agent_eval_marks(state_);
+  Value completion;
   try {
     Value output = forward(client, input, forward_options);
-    return Core::_build_agent_eval_prediction(output, get_action_log(), get_usage(), export_trace());
+    completion = object({{"type", Value("final")}, {"output", output}});
   } catch (const AxError& e) {
     if (e.category == "AxAgentClarificationError") {
-      return object({{"completionType", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}, {"actionLog", get_action_log()}, {"functionCalls", Core::get(state_, "function_call_traces", Value::array())}, {"toolErrors", Value::array()}, {"turnCount", Value(0)}, {"usage", get_usage()}, {"trace", export_trace()}});
+      completion = object({{"type", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}});
+    } else {
+      completion = object({{"type", Value("error")}, {"message", Value(std::string(e.what()))}});
     }
-    Value err = object({{"message", Value(std::string(e.what()))}});
-    return object({{"completionType", Value("error")}, {"error", err}, {"actionLog", get_action_log()}, {"functionCalls", Core::get(state_, "function_call_traces", Value::array())}, {"toolErrors", array({Value(std::string(e.what()))})}, {"turnCount", Value(0)}, {"usage", get_usage()}, {"trace", export_trace()}});
   }
+  return Core::_build_agent_run_prediction(state_, marks, completion, get_usage(), export_trace());
 }
 Value AxAgent::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
   Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);

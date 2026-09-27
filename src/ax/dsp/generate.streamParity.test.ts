@@ -97,6 +97,28 @@ describe('AxGen stream and non-stream parity', () => {
     }
   });
 
+  // A provider can split an escaped surrogate pair across stream events;
+  // each delta used to carry half of the character.
+  it('never yields half of a surrogate pair', async () => {
+    const lone =
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    const gen = ax('question:string -> answer:string');
+    const deltas = await collect(
+      gen.streamingForward(
+        scriptedAI([[content('Answer: hi \uD83D'), content('\uDE00 there')]]),
+        { question: 'q' }
+      )
+    );
+
+    expect(deltas.map((d) => d.delta)).toEqual([
+      { answer: 'hi' },
+      { answer: ' \uD83D\uDE00 there' },
+    ]);
+    for (const { delta } of deltas) {
+      expect(lone.test(delta.answer as string)).toBe(false);
+    }
+  });
+
   it('holds back an opening code fence split across chunks', async () => {
     const split = [content('Answer: ```py'), content('thon\nprint(1)\n```')];
     const whole = [content('Answer: ```python\nprint(1)\n```')];
@@ -178,6 +200,35 @@ describe('AxGen stream and non-stream parity', () => {
       );
 
       expect(out).toEqual({ thought: 'First. Done.' });
+    }
+  });
+
+  it('fails a call without a name the same way streamed or not', async () => {
+    for (const name of [undefined, null, '', '  ']) {
+      const unnamed: Chunk = {
+        index: 0,
+        functionCalls: [
+          {
+            id: 'c1',
+            type: 'function',
+            function: { ...(name === undefined ? {} : { name }), params: '{}' },
+          } as never,
+        ],
+        finishReason: 'function_call',
+      };
+      const received = name === undefined ? 'undefined' : JSON.stringify(name);
+      for (const stream of [false, true]) {
+        const gen = ax('question:string -> answer:string', {
+          functions: [tool('lookup', 'data')],
+        });
+        const ai = scriptedAI([[unnamed], [content('Answer: done')]]);
+
+        await expect(
+          gen.forward(ai, { question: 'q' }, { stream })
+        ).rejects.toThrow(
+          `Function call at index 0 in result 0 must have a non-empty function name, received: ${received}`
+        );
+      }
     }
   });
 

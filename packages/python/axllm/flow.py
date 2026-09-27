@@ -63,6 +63,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .signature import (
+    _js_text,
     _core_string_extract_leading_group,
     _core_string_find_outside_quotes,
     _core_string_split_once,
@@ -71,6 +72,7 @@ from .signature import (
     _js_number_text,
 )
 from .agent import (
+    AxAgent,
     OptimizerEngine,
     OptimizerEvaluator,
     _build_agent_eval_prediction,
@@ -571,8 +573,7 @@ def _core_string_split_trim_nonempty(value, sep):
 
 
 def _core_string_str(value):
-    # String(x): a float two is "2", not "2.0".
-    return _js_number_text(value) if isinstance(value, float) else str(value)
+    return _js_text(value)
 
 
 def _core_string_starts_with(value, prefix):
@@ -604,6 +605,14 @@ def _core_program_apply_components(program, component_map):
     if hasattr(program, "apply_optimized_components"):
         program.apply_optimized_components(component_map or {})
     return {}
+
+
+def _core_program_signature(program):
+    # An AxGen's or AxAgent's signature text. Any other program (a nested
+    # flow, a custom program) has none, and its undeclared step is a barrier.
+    if isinstance(program, (AxGen, AxAgent)):
+        return str(program.signature)
+    return None
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
@@ -721,6 +730,19 @@ def _flow_step(kind: str, name: str, program: Any, options: Any) -> Any:
         default_barrier = False
     else:
         pass
+    io = _flow_step_program_io(kind, trimmed, program, opts)
+    infers_io = _core_get(io, "infer", False)
+    if infers_io:
+        io_has_signature = _core_get(io, "hasSignature", False)
+        if io_has_signature:
+            reads = _core_get(io, "reads", None)
+            writes = _core_get(io, "writes", None)
+            io_outputs = _core_get(io, "outputs", None)
+            step["outputs"] = io_outputs
+        else:
+            default_barrier = True
+    else:
+        pass
     barrier_from_snake = _core_get(opts, "is_barrier", default_barrier)
     barrier_from_camel = _core_get(opts, "isBarrier", barrier_from_snake)
     barrier = _core_get(opts, "barrier", barrier_from_camel)
@@ -810,6 +832,12 @@ def _flow_plan_entry(step: Any, step_index: int) -> Any:
     entry["kind"] = kind
     entry["reads"] = reads
     entry["writes"] = writes
+    has_outputs = _core_map_contains(step, "outputs")
+    if has_outputs:
+        outputs = _core_get(step, "outputs", None)
+        entry["outputs"] = outputs
+    else:
+        pass
     entry["barrier"] = barrier
     entry["stepIndex"] = step_index
     return entry
@@ -821,6 +849,7 @@ def _flow_plan_can_share_group(group: Any, candidate: Any) -> bool:
     candidate_barrier = _core_get(candidate, "barrier", True)
     candidate_writes = _core_get(candidate, "writes", empty_list)
     candidate_reads = _core_get(candidate, "reads", empty_list)
+    candidate_outputs = _core_get(candidate, "outputs", empty_list)
     write_count = _core_len(candidate_writes)
     no_writes = _core_eq(write_count, 0)
     can_share = True
@@ -840,6 +869,7 @@ def _flow_plan_can_share_group(group: Any, candidate: Any) -> bool:
             pass
         existing_writes = _core_get(existing, "writes", empty_list)
         existing_reads = _core_get(existing, "reads", empty_list)
+        existing_outputs = _core_get(existing, "outputs", empty_list)
         for read in candidate_reads:
             read_conflict = _core_contains(existing_writes, read)
             if read_conflict:
@@ -848,13 +878,21 @@ def _flow_plan_can_share_group(group: Any, candidate: Any) -> bool:
                 pass
         for existing_read in existing_reads:
             reverse_read_conflict = _core_contains(candidate_writes, existing_read)
-            if reverse_read_conflict:
+            reverse_read_output = _core_contains(candidate_outputs, existing_read)
+            reverse_read_ordered = _core_not(reverse_read_output)
+            reverse_read_blocks = _core_and(reverse_read_conflict, reverse_read_ordered)
+            if reverse_read_blocks:
                 can_share = False
             else:
                 pass
         for write in candidate_writes:
             write_conflict = _core_contains(existing_writes, write)
-            if write_conflict:
+            candidate_write_output = _core_contains(candidate_outputs, write)
+            existing_write_output = _core_contains(existing_outputs, write)
+            write_output = _core_or(candidate_write_output, existing_write_output)
+            write_ordered = _core_not(write_output)
+            write_blocks = _core_and(write_conflict, write_ordered)
+            if write_blocks:
                 can_share = False
             else:
                 pass
@@ -1553,7 +1591,7 @@ def _flow_execute_steps(flow: Any, client: Any, state: Any, options: Any) -> Any
                     index = _core_get(plan_step, "stepIndex", 0)
                     step = _core_list_get(steps, index, None)
                     result_state = _flow_execute_step(flow, step, plan_step, client, group_start, options)
-                    current = _flow_merge_parallel_results(current, result_state)
+                    current = _flow_merge_group_step(current, step, group_start, result_state)
             else:
                 report_count = _core_len(reports)
                 complete_reports = _core_eq(report_count, group_count)
@@ -1563,6 +1601,7 @@ def _flow_execute_steps(flow: Any, client: Any, state: Any, options: Any) -> Any
                     error = _core_runtime_error("Flow dispatcher omitted node outcomes")
                     raise error
                 failures = []
+                report_position = 0
                 for report in reports:
                     worker_traces = _core_get(report, "traces", empty_list)
                     traces = _core_get(flow, "traces", empty_list)
@@ -1582,7 +1621,11 @@ def _flow_execute_steps(flow: Any, client: Any, state: Any, options: Any) -> Any
                         failures.append(failure)
                     else:
                         result_state = _core_get(report, "state", None)
-                        current = _flow_merge_parallel_results(current, result_state)
+                        report_plan_step = _core_list_get(group_steps, report_position, None)
+                        report_step_index = _core_get(report_plan_step, "stepIndex", 0)
+                        report_step = _core_list_get(steps, report_step_index, None)
+                        current = _flow_merge_group_step(current, report_step, group_start, result_state)
+                    report_position = _core_add(report_position, 1)
                 failure_count = _core_len(failures)
                 failed = _core_gt(failure_count, 0)
                 if failed:
@@ -2986,6 +3029,11 @@ def _flow_mermaid_render_flow(flow: Any, options: Any) -> str:
                 step_options = _core_get(step, "options", empty_map)
                 empty_reads = []
                 step_reads = _core_get(step, "reads", empty_reads)
+                inferred_reads = _core_map_contains(step, "outputs")
+                if inferred_reads:
+                    step_reads = empty_reads
+                else:
+                    pass
                 reads = _core_get(step_options, "reads", step_reads)
                 for read in reads:
                     is_result = _core_string_ends_with(read, "Result")
@@ -3029,6 +3077,158 @@ def _flow_to_mermaid(flow: Any, options: Any) -> str:
         pass
     rendered = _flow_mermaid_render_flow(flow, options)
     return rendered
+
+
+def _flow_group_step_changes(step: Any, group_start: Any, result_state: Any) -> list[Any]:
+    _core_coverage_mark("_flow_group_step_changes")
+    empty_map = {}
+    empty_list = []
+    changes = []
+    missing_step = _core_is_none(step)
+    if missing_step:
+        return changes
+    else:
+        pass
+    kind = _core_get(step, "kind", "execute")
+    name = _core_get(step, "name", "")
+    step_options = _core_get(step, "options", empty_map)
+    guard = _core_get(step_options, "guard", None)
+    has_guard = _core_is_not_none(guard)
+    if has_guard:
+        guard_matches = _flow_evaluate_data_predicate(guard, group_start, False)
+        guard_skipped = _core_not(guard_matches)
+        if guard_skipped:
+            return changes
+        else:
+            pass
+    else:
+        pass
+    result_key = _core_string_format("{}Result", name)
+    is_derive = _core_eq(kind, "derive")
+    if is_derive:
+        writes = _core_get(step, "writes", empty_list)
+        output_field = _core_list_get(writes, 0, name)
+        changes.append(output_field)
+        return changes
+    else:
+        pass
+    is_map = _core_eq(kind, "map")
+    is_branch = _core_eq(kind, "branch")
+    is_while = _core_eq(kind, "while")
+    is_feedback = _core_eq(kind, "feedback")
+    is_parallel = _core_eq(kind, "parallel")
+    is_parallel_merge = _core_eq(kind, "parallelMerge")
+    is_loop = _core_or(is_while, is_feedback)
+    is_control = _core_or(is_branch, is_loop)
+    is_explicit_parallel = _core_or(is_parallel, is_parallel_merge)
+    compares_values = _core_or(is_control, is_explicit_parallel)
+    not_program = _core_or(is_map, compares_values)
+    is_program = _core_not(not_program)
+    if is_program:
+        changes.append(result_key)
+        result = _core_get(result_state, result_key, None)
+        result_is_map = _core_type_is(result, "object")
+        if result_is_map:
+            result_fields = _core_map_keys(result)
+            for result_field in result_fields:
+                field_listed = _core_contains(changes, result_field)
+                if field_listed:
+                    pass
+                else:
+                    changes.append(result_field)
+        else:
+            pass
+        return changes
+    else:
+        pass
+    if is_map:
+        changes.append(result_key)
+    else:
+        pass
+    state_keys = _core_map_keys(result_state)
+    for state_key in state_keys:
+        key_listed = _core_contains(changes, state_key)
+        if key_listed:
+            pass
+        else:
+            in_start = _core_map_contains(group_start, state_key)
+            if in_start:
+                before = _core_get(group_start, state_key, None)
+                after = _core_get(result_state, state_key, None)
+                unchanged = _core_eq(before, after)
+                if unchanged:
+                    pass
+                else:
+                    changes.append(state_key)
+            else:
+                changes.append(state_key)
+    return changes
+
+
+def _flow_merge_group_step(current: Any, step: Any, group_start: Any, result_state: Any) -> Any:
+    _core_coverage_mark("_flow_merge_group_step")
+    empty_map = {}
+    out = _core_map_merge(current, empty_map)
+    changes = _flow_group_step_changes(step, group_start, result_state)
+    for change in changes:
+        present = _core_map_contains(result_state, change)
+        if present:
+            value = _core_get(result_state, change, None)
+            out[change] = value
+        else:
+            pass
+    return out
+
+
+def _flow_step_program_io(kind: str, name: str, program: Any, options: Any) -> Any:
+    _core_coverage_mark("_flow_step_program_io")
+    io = {}
+    io["infer"] = False
+    is_execute = _core_eq(kind, "execute")
+    not_execute = _core_not(is_execute)
+    if not_execute:
+        return io
+    else:
+        pass
+    declares_reads = _core_map_contains(options, "reads")
+    declares_writes = _core_map_contains(options, "writes")
+    declares = _core_or(declares_reads, declares_writes)
+    if declares:
+        return io
+    else:
+        pass
+    io["infer"] = True
+    signature_text = _core_program_signature(program)
+    has_signature = _core_truthy(signature_text)
+    io["hasSignature"] = has_signature
+    no_signature = _core_not(has_signature)
+    if no_signature:
+        return io
+    else:
+        pass
+    signature = parse_signature(signature_text)
+    reads = []
+    input_fields = _core_get(signature, "input_fields", None)
+    for input_field in input_fields:
+        input_name = _core_get(input_field, "name", "")
+        reads.append(input_name)
+    writes = []
+    result_key = _core_string_format("{}Result", name)
+    writes.append(result_key)
+    outputs = []
+    output_fields = _core_get(signature, "output_fields", None)
+    for output_field in output_fields:
+        output_name = _core_get(output_field, "name", "")
+        is_result_key = _core_eq(output_name, result_key)
+        if is_result_key:
+            pass
+        else:
+            outputs.append(output_name)
+            writes.append(output_name)
+    io["reads"] = reads
+    io["writes"] = writes
+    io["outputs"] = outputs
+    return io
 
 # END AXIR CORE EMITTED FUNCTIONS
 

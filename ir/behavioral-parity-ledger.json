@@ -330,6 +330,31 @@
       "state": "VERIFIED IN ALL FIVE LANGUAGES. plan-barriers asserts the computed parallel groups/maxParallelism; the execution fixtures assert both independent results are produced and merged into the final state."
     },
     {
+      "capability": "flow.parallel.undeclared_program_steps",
+      "summary": "Port-only (TS reads dependencies from a step's mapping function; the ports' execute(name, program) has none): a step added with a program and no reads or writes plans from the program's signature (intrinsic.program.signature, AxGen and AxAgent). It reads the input fields and writes {name}Result plus the output fields, listed as outputs. Output fields order later readers only (read-after-write), since a group runs from one snapshot and merges its results in step order; {name}Result keeps TS's full rule. A program without a signature (a nested flow, a custom program) is a barrier, as TS treats an unknown dependency. toString still draws edges from declared reads only.",
+      "ir_ops": [
+        "@flow_step",
+        "@flow_step_program_io",
+        "@flow_plan_entry",
+        "@flow_plan_can_share_group",
+        "@flow_mermaid_render_flow"
+      ],
+      "fixtures": [
+        "axflow/plan-undeclared-steps-read-after-write.json",
+        "axflow/forward-undeclared-steps-in-order.json",
+        "axflow/plan-undeclared-same-program-parallel.json",
+        "axflow/plan-undeclared-spread-output-read-after-write.json",
+        "axflow/plan-undeclared-output-earlier-reader-shares-group.json",
+        "axflow/plan-undeclared-nested-flow-barrier.json",
+        "axflow/plan-undeclared-agent-step.json",
+        "axflow/mermaid-render-undeclared-steps.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. The plan fixtures assert each undeclared step's reads, writes and outputs and the groups they form: the runtime-hooks flow splits outline from polish, the astra_parallel flow keeps one program's two steps in one group, fan-in and a declared reader split on spread outputs, an earlier reader or another writer of a spread output shares the group, a nested flow is a barrier, and an agent plans from its signature. forward-undeclared-steps-in-order runs the runtime-hooks flow and asserts polish's request carries outline's output. mermaid-render-undeclared-steps pins toString's output."
+    },
+    {
       "capability": "flow.derive",
       "summary": "AxFlow derive applies a per-item transform over an array input field (or once over a scalar) and writes the mapped result to the output field \u2014 NOT a single model call over the whole state. @flow_execute_step iterates the input list and calls the transform per item via intrinsic.object.call_method.",
       "ir_ops": ["@flow_execute_step"],
@@ -724,6 +749,27 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES. Scripted package examples prove create-use-rejection-invalidate-one-uncached-retry, PATCH-refresh failure followed by recreate, and refresh-plus-recreate failure followed by uncached fallback. The Python example also exposes the documented non-CI live create/PATCH/expiry exercise."
+    },
+    {
+      "capability": "flow.parallel.merge_step_changes",
+      "summary": "A parallel group merges each step's changes, in step order, into the state so far (TS: the keys whose value is no longer the group's starting one). Every step in a group runs from the group's starting state, so merging whole returned states let a later step undo an earlier one's update. In the ports a program node's changes are {name}Result and every field it spreads (so a later step that writes a field's starting value back still wins), a derive step's its output field, a map step's {name}Result and the keys whose value it changed, any other step's the keys whose value differs from the start, and a step its guard skipped changes nothing. The result ends as running the steps one after another.",
+      "ir_ops": [
+        "@flow_execute_steps",
+        "@flow_merge_group_step",
+        "@flow_group_step_changes"
+      ],
+      "fixtures": [
+        "axflow/parallel-group-keeps-earlier-step-update.json",
+        "axflow/parallel-group-loop-keeps-each-iteration.json",
+        "axflow/parallel-group-loop-keeps-derive-update.json",
+        "axflow/parallel-group-keeps-spread-field-update.json",
+        "axflow/parallel-group-write-write-later-wins.json",
+        "axflow/parallel-group-write-write-later-keeps-start-value.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. TS goldens: an earlier step's update to a key the input already held survives a later step in the group; each iteration of a while loop whose body is a parallel group keeps its updates, for program nodes and a derive step. Port-only fixtures: a spread field update survives, a field two steps spread ends with the later step's value, and it does so even when the later step writes the group's starting value back."
     },
     {
       "capability": "agent.stages.first_request_prompts",

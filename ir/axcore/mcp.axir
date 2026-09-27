@@ -1353,12 +1353,36 @@ module @ax.mcp version "0.1" {
     attr emit_module = "mcp"
     attr public = true
     tag "axmcp-subscriptions-listen"
-    type signature = "(subscribed_uris:list<string>, filters?:json) -> json"
-    body @entry(%subscribed_uris: list<json>, %filters: json) {
+    type signature = "(subscribed_uris:list<string>, filters?:json, task_ids?:list<string>) -> json"
+    body @entry(%subscribed_uris: list<json>, %filters: json, %task_ids: json) {
       %out = core.map
       %filters_object = core.type_is %filters type "object"
       core.if %filters_object {
         %out = core.call intrinsic.map.merge(%out, %filters)
+      }
+      // The tasks this client recorded, as TypeScript's modern listener asks
+      // for them (sorted, once each), so the server delivers their updates.
+      %tasks = core.list
+      %task_ids_list = core.type_is %task_ids type "list"
+      core.if %task_ids_list {
+        core.for %task_id in %task_ids {
+          %task_id_string = core.type_is %task_id type "string"
+          core.if %task_id_string {
+            %task_id_empty = core.call intrinsic.eq(%task_id, "")
+            %task_id_duplicate = core.call intrinsic.contains(%tasks, %task_id)
+            %task_id_skip = core.call intrinsic.or(%task_id_empty, %task_id_duplicate)
+            core.if %task_id_skip {
+            } else {
+              core.append %tasks, %task_id
+            }
+          }
+        }
+      }
+      %task_count = core.call intrinsic.len(%tasks)
+      %has_tasks = core.call intrinsic.gt(%task_count, 0)
+      core.if %has_tasks {
+        %sorted_tasks = core.call intrinsic.list.sorted_strings(%tasks)
+        core.set %out["taskIds"] = %sorted_tasks
       }
       %subscriptions = core.list
       core.for %uri in %subscribed_uris {
@@ -2167,6 +2191,47 @@ module @ax.mcp version "0.1" {
         core.append %ids, %key
       }
       core.return %ids
+    }
+  }
+
+  // What a tools/call result is for the caller, as TypeScript's callToolOutcome
+  // reads it: a task only when resultType is "task" (a legacy task-shaped
+  // result is a plain result), and only a valid task over a negotiated tasks
+  // extension. {kind: "complete", result}, {kind: "task", task}, or
+  // {kind: "violation", message} for the host to raise as its MCP error.
+  op ax.mcp.semantic @mcp_tool_call_outcome {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axmcp-tasks-v2"
+    type signature = "(result:json, tasks_negotiated:bool) -> json"
+    body @entry(%result: json, %tasks_negotiated: bool) {
+      %out = core.map
+      %result_type = core.get %result["resultType"] default null
+      %is_task = core.call intrinsic.eq(%result_type, "task")
+      %not_task = core.call intrinsic.not(%is_task)
+      core.if %not_task {
+        core.set %out["kind"] = "complete"
+        core.set %out["result"] = %result
+        core.return %out
+      }
+      %no_tasks = core.call intrinsic.not(%tasks_negotiated)
+      core.if %no_tasks {
+        core.set %out["kind"] = "violation"
+        core.set %out["message"] = "MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"
+        core.return %out
+      }
+      %valid = core.call @mcp_validate_modern_task(%result)
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        core.set %out["kind"] = "violation"
+        core.set %out["message"] = "MCP protocol violation: invalid CreateTaskResult"
+        core.return %out
+      }
+      core.set %out["kind"] = "task"
+      core.set %out["task"] = %result
+      core.return %out
     }
   }
 }

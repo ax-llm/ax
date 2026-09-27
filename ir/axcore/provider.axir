@@ -4522,11 +4522,11 @@ module @ax.provider version "0.1" {
         } else {
           core.if %is_anthropic {
             %is_meta_messages = core.call intrinsic.eq(%provider_id, "meta-messages")
-            %anthropic_payload = core.call @anthropic_build_chat_request(%sampled_request, %is_meta_messages)
+            %is_vertex = core.get %descriptor["vertex"] default false
+            %anthropic_payload = core.call @anthropic_build_chat_request(%sampled_request, %is_meta_messages, %is_vertex)
             core.if %is_meta_messages {
               %anthropic_payload = core.call @meta_prepare_messages_request(%anthropic_payload, %sampled_request, %options)
             }
-            %is_vertex = core.get %descriptor["vertex"] default false
             core.if %is_vertex {
               core.call intrinsic.map.delete(%anthropic_payload, "model")
               core.set %anthropic_payload["anthropic_version"] = "vertex-2023-10-16"
@@ -8141,14 +8141,13 @@ module @ax.provider version "0.1" {
       %strict_flash_parameters = core.call intrinsic.or(%server_managed_sampling_37, %is_gemini36_flash)
       %server_managed_sampling = core.call intrinsic.or(%strict_flash_parameters, %is_gemini35_flash_lite)
       %generation_config = core.map
-      %legacy_candidate_count = core.call intrinsic.not(%strict_flash_parameters)
-      core.if %legacy_candidate_count {
-        core.set %generation_config["candidateCount"] = 1
-      }
       core.set %generation_config["responseMimeType"] = "text/plain"
       %empty_model_config = core.map
       %model_config = core.get %request["model_config"] default %empty_model_config
-      core.call @gemini_apply_model_config_impl(%generation_config, %model, %model_config, %server_managed_sampling, %strict_flash_parameters)
+      %on_vertex = core.call intrinsic.truthy(%is_vertex)
+      %empty_explicit = core.list
+      %explicit_sampling = core.get %request["sampling_explicit_keys"] default %empty_explicit
+      core.call @gemini_apply_model_config_impl(%generation_config, %model, %model_config, %server_managed_sampling, %strict_flash_parameters, %on_vertex, %explicit_sampling)
       %response_format = core.get %request["response_format"]
       %has_response_format = core.call intrinsic.truthy(%response_format)
       core.if %has_response_format {
@@ -8159,21 +8158,6 @@ module @ax.provider version "0.1" {
           %schema_container = core.get %response_format["schema"]
           %schema = core.get %schema_container["schema"] default %schema_container
           core.set %generation_config["responseJsonSchema"] = %schema
-        }
-      }
-      %is_gemini3 = core.call intrinsic.string.starts_with(%model, "gemini-3")
-      %client_managed_sampling = core.call intrinsic.not(%server_managed_sampling)
-      %clamp_gemini3_temperature = core.call intrinsic.and(%is_gemini3, %client_managed_sampling)
-      core.if %clamp_gemini3_temperature {
-        %temperature = core.get %generation_config["temperature"]
-        %missing_temperature = core.call intrinsic.is_none(%temperature)
-        core.if %missing_temperature {
-          core.set %generation_config["temperature"] = 1
-        } else {
-          %too_low = core.call intrinsic.lt(%temperature, 1)
-          core.if %too_low {
-            core.set %generation_config["temperature"] = 1
-          }
         }
       }
       core.set %payload["generationConfig"] = %generation_config
@@ -8444,8 +8428,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "gemini-model-config-core-helper"
-    type signature = "(json, string, json, bool, bool) -> void throws"
-    body @entry(%payload: json, %model: string, %model_config: json, %server_managed_sampling: bool, %strict_flash_parameters: bool) {
+    type signature = "(json, string, json, bool, bool, bool, json) -> void throws"
+    body @entry(%payload: json, %model: string, %model_config: json, %server_managed_sampling: bool, %strict_flash_parameters: bool, %is_vertex: bool, %explicit_keys: json) {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "maxTokens", "maxOutputTokens")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "maxOutputTokens")
       %client_managed_sampling = core.call intrinsic.not(%server_managed_sampling)
@@ -8456,12 +8440,7 @@ module @ax.provider version "0.1" {
         core.call @openai_copy_config_key_impl(%payload, %model_config, "topK", "topK")
         core.call @openai_copy_config_key_impl(%payload, %model_config, "top_k", "topK")
       }
-      %legacy_parameters = core.call intrinsic.not(%strict_flash_parameters)
-      core.if %legacy_parameters {
-        core.call @openai_copy_config_key_impl(%payload, %model_config, "frequencyPenalty", "frequencyPenalty")
-        core.call @openai_copy_config_key_impl(%payload, %model_config, "frequency_penalty", "frequencyPenalty")
-        core.call @openai_copy_config_key_impl(%payload, %model_config, "n", "candidateCount")
-      }
+      core.call @gemini_apply_sampling_limits_impl(%payload, %model, %model_config, %server_managed_sampling, %strict_flash_parameters, %is_vertex, %explicit_keys)
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stopSequences", "stopSequences")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stop_sequences", "stopSequences")
       core.call @gemini_apply_thinking_config_impl(%payload, %model, %model_config)
@@ -9224,8 +9203,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "src/ax/ai/anthropic/api.ts"
-    type signature = "(AxChatRequest, supports_none?:bool) -> json throws"
-    body @entry(%request: AxChatRequest, %supports_none: bool) {
+    type signature = "(AxChatRequest, supports_none?:bool, is_vertex?:bool) -> json throws"
+    body @entry(%request: AxChatRequest, %supports_none: bool, %is_vertex: bool) {
       %payload = core.map
       %model = core.get %request["model"] default "claude-sonnet-5"
       core.set %payload["model"] = %model
@@ -9271,7 +9250,9 @@ module @ax.provider version "0.1" {
       core.set %payload["messages"] = %messages
       %empty_model_config = core.map
       %model_config = core.get %request["model_config"] default %empty_model_config
-      core.call @anthropic_apply_model_config_impl(%payload, %model_config, %model)
+      %explicit_sampling = core.get %request["sampling_explicit_keys"]
+      %on_vertex = core.call intrinsic.truthy(%is_vertex)
+      core.call @anthropic_apply_model_config_impl(%payload, %model_config, %model, %explicit_sampling, %on_vertex)
       %response_format = core.get %request["response_format"]
       %has_response_format = core.call intrinsic.truthy(%response_format)
       core.if %has_response_format {
@@ -9314,21 +9295,12 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "anthropic-model-config-core-helper"
-    type signature = "(json, json, string) -> void throws"
-    body @entry(%payload: json, %model_config: json, %model: string) {
+    type signature = "(json, json, string, json, bool) -> void throws"
+    body @entry(%payload: json, %model_config: json, %model: string, %explicit_keys: json, %is_vertex: bool) {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "maxTokens", "max_tokens")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "max_tokens")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stopSequences", "stop_sequences")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stop_sequences", "stop_sequences")
-      %adaptive = core.call @anthropic_is_adaptive_model_impl(%model)
-      %supports_sampling = core.call intrinsic.not(%adaptive)
-      core.if %supports_sampling {
-        core.call @openai_copy_config_key_impl(%payload, %model_config, "temperature", "temperature")
-        core.call @openai_copy_config_key_impl(%payload, %model_config, "topP", "top_p")
-        core.call @openai_copy_config_key_impl(%payload, %model_config, "top_p", "top_p")
-        core.call @openai_copy_config_key_impl(%payload, %model_config, "topK", "top_k")
-        core.call @openai_copy_config_key_impl(%payload, %model_config, "top_k", "top_k")
-      }
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stream", "stream")
       %has_max = core.get %payload["max_tokens"]
       %missing_max = core.call intrinsic.is_none(%has_max)
@@ -9387,6 +9359,8 @@ module @ax.provider version "0.1" {
         %effort_error = core.call intrinsic.ai.error.unsupported(%effort_message)
         core.raise %effort_error
       }
+      // Sampling depends on the final thinking wire.
+      core.call @anthropic_sampling_impl(%payload, %model_config, %model, %explicit_keys, %is_vertex)
       core.return
     }
   }
@@ -11219,6 +11193,9 @@ module @ax.provider version "0.1" {
       %without_reasoning_snake = core.get %supported["sampling_without_reasoning"] default false
       %without_reasoning_flag = core.get %supported["samplingWithoutReasoning"] default %without_reasoning_snake
       %without_reasoning = core.call intrinsic.truthy(%without_reasoning_flag)
+      %temperature_one_snake = core.get %supported["temperature_one"] default false
+      %temperature_one_flag = core.get %supported["temperatureOne"] default %temperature_one_snake
+      %temperature_one = core.call intrinsic.truthy(%temperature_one_flag)
       %model_config_camel = core.get %request["modelConfig"] default %empty_map
       %model_config_value = core.get %request["model_config"] default %model_config_camel
       %model_config = core.call intrinsic.coalesce(%model_config_value, %empty_map)
@@ -11227,6 +11204,7 @@ module @ax.provider version "0.1" {
       %keys = core.list
       core.append %keys, "temperature"
       core.append %keys, "topP"
+      core.append %keys, "topK"
       core.append %keys, "presencePenalty"
       core.append %keys, "frequencyPenalty"
       core.for %key in %keys {
@@ -11243,8 +11221,14 @@ module @ax.provider version "0.1" {
           %has_snake = core.call intrinsic.is_not_none(%snake_value)
           %is_explicit = core.call intrinsic.or(%has_camel, %has_snake)
           core.if %is_explicit {
-            %keep = core.let false
-            core.if %without_reasoning {
+            %value = core.get %config[%key] default %snake_value
+            %is_temperature = core.call intrinsic.eq(%key, "temperature")
+            %takes_one = core.call intrinsic.and(%is_temperature, %temperature_one)
+            %is_one = core.call @provider_sampling_is_one_impl(%value)
+            %keep = core.call intrinsic.and(%takes_one, %is_one)
+            %check_reasoning = core.call intrinsic.not(%keep)
+            %check_reasoning = core.call intrinsic.and(%check_reasoning, %without_reasoning)
+            core.if %check_reasoning {
               %reasons = core.call @provider_sampling_request_reasons_impl(%transport, %model, %config, %supported)
               %keep = core.call intrinsic.not(%reasons)
             }
@@ -11252,9 +11236,34 @@ module @ax.provider version "0.1" {
             core.if %drop {
               core.call intrinsic.map.delete(%config, %key)
               core.call intrinsic.map.delete(%config, %snake)
-              core.call @provider_warn_dropped_sampling_impl(%model, %key, %without_reasoning)
+              %reason = core.let "the model does not accept it"
+              core.if %takes_one {
+                %reason = core.let "the model accepts it only as 1"
+                core.if %without_reasoning {
+                  %reason = core.let "the model accepts it only as 1 or with reasoning effort none"
+                }
+              } else {
+                core.if %without_reasoning {
+                  %reason = core.let "the model accepts it only with reasoning effort none"
+                }
+              }
+              core.call @provider_warn_dropped_sampling_impl(%model, %key, %reason)
             }
           }
+        }
+      }
+      // The sampling keys the caller set that remain, before the defaults fill
+      // in, so a provider can tell them from its defaults.
+      %explicit_keys = core.list
+      core.for %explicit_key in %keys {
+        %explicit_snake = core.call @provider_sampling_snake_key_impl(%explicit_key)
+        %explicit_camel_value = core.get %config[%explicit_key]
+        %explicit_snake_value = core.get %config[%explicit_snake]
+        %explicit_camel_present = core.call intrinsic.is_not_none(%explicit_camel_value)
+        %explicit_snake_present = core.call intrinsic.is_not_none(%explicit_snake_value)
+        %explicit_present = core.call intrinsic.or(%explicit_camel_present, %explicit_snake_present)
+        core.if %explicit_present {
+          core.append %explicit_keys, %explicit_key
         }
       }
       %default_keys = core.call intrinsic.map.keys(%defaults)
@@ -11271,6 +11280,7 @@ module @ax.provider version "0.1" {
       }
       %out = core.call intrinsic.map.merge(%request, %empty_map)
       core.set %out["model_config"] = %config
+      core.set %out["sampling_explicit_keys"] = %explicit_keys
       %has_camel_config = core.call intrinsic.map.contains(%request, "modelConfig")
       core.if %has_camel_config {
         core.set %out["modelConfig"] = %config
@@ -11289,6 +11299,10 @@ module @ax.provider version "0.1" {
       %is_top_p = core.call intrinsic.eq(%key, "topP")
       core.if %is_top_p {
         core.return "top_p"
+      }
+      %is_top_k = core.call intrinsic.eq(%key, "topK")
+      core.if %is_top_k {
+        core.return "top_k"
       }
       %is_presence = core.call intrinsic.eq(%key, "presencePenalty")
       core.if %is_presence {
@@ -11360,12 +11374,8 @@ module @ax.provider version "0.1" {
     attr private = true
     tag "src/ax/ai/base.ts"
     tag "axai-sampling-defaults"
-    type signature = "(model:string, key:string, without_reasoning_only:bool) -> void"
-    body @entry(%model: string, %key: string, %without_reasoning_only: bool) {
-      %reason = core.let "the model does not accept it"
-      core.if %without_reasoning_only {
-        %reason = core.let "the model accepts it only with reasoning effort none"
-      }
+    type signature = "(model:string, key:string, reason:string) -> void"
+    body @entry(%model: string, %key: string, %reason: string) {
       %message = core.call intrinsic.string.format("Ax dropped {} for {}: {}.", %key, %model, %reason)
       %warning_key = core.call intrinsic.string.format("sampling:{}:{}", %model, %key)
       core.call intrinsic.ai.warn_once(%warning_key, %message)
@@ -11398,6 +11408,300 @@ module @ax.provider version "0.1" {
         core.set %payload["prompt_cache_retention"] = %retention
       }
       core.return %payload
+    }
+  }
+
+  // An explicit temperature of exactly 1 (a number equal to 1).
+  op ax.provider.semantic @provider_sampling_is_one_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "axai-sampling-defaults"
+    type signature = "(json) -> bool"
+    body @entry(%value: json) {
+      %is_number = core.type_is %value type "number"
+      core.if %is_number {
+        %below = core.call intrinsic.lt(%value, 1)
+        %above = core.call intrinsic.gt(%value, 1)
+        %off = core.call intrinsic.or(%below, %above)
+        %one = core.call intrinsic.not(%off)
+        core.return %one
+      }
+      core.return false
+    }
+  }
+
+  // TS anthropicSampling: the sampling fields to send. A default (the
+  // provider's temperature 0) keeps its historical rule: only without a
+  // thinking wire and never on adaptive-thinking models. An explicit value is
+  // sent when the Messages API accepts it (probed 2026-09-27) and otherwise
+  // dropped with a one-time warning: models that deprecated sampling take only
+  // temperature 1; the others take every value with thinking off, and while
+  // thinking only temperature 1, top_p of 0.95 or above, and no top_k, and
+  // those that reject temperature with top_p get one of them. Vertex was not
+  // probed, so there explicit values keep the historical rule.
+  op ax.provider.semantic @anthropic_sampling_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/anthropic/api.ts"
+    tag "axai-sampling-defaults"
+    type signature = "(json, json, string, json, bool) -> void"
+    body @entry(%payload: json, %model_config: json, %model: string, %explicit_keys: json, %is_vertex: bool) {
+      %empty_list = core.list
+      %explicit = core.call intrinsic.coalesce(%explicit_keys, %empty_list)
+      %probed = core.call intrinsic.not(%is_vertex)
+      %adaptive = core.call @anthropic_is_adaptive_model_impl(%model)
+      %deprecated = core.call @anthropic_deprecates_sampling_impl(%model)
+      %not_deprecated = core.call intrinsic.not(%deprecated)
+      %not_adaptive = core.call intrinsic.not(%adaptive)
+      %empty_map = core.map
+      %wire = core.get %payload["thinking"]
+      %has_wire = core.call intrinsic.is_not_none(%wire)
+      %no_wire = core.call intrinsic.not(%has_wire)
+      %wire_object = core.call intrinsic.coalesce(%wire, %empty_map)
+      %wire_type = core.get %wire_object["type"] default ""
+      %wire_disabled = core.call intrinsic.eq(%wire_type, "disabled")
+      %wire_on = core.call intrinsic.not(%wire_disabled)
+      %thinking = core.call intrinsic.and(%has_wire, %wire_on)
+      %not_thinking = core.call intrinsic.not(%thinking)
+      %historical = core.call intrinsic.and(%no_wire, %not_adaptive)
+      %probed_deprecated = core.call intrinsic.and(%probed, %deprecated)
+      %fallback_reason = core.let "the model does not accept it while thinking"
+      core.if %adaptive {
+        %fallback_reason = core.let "the model does not accept it"
+      }
+
+      %temperature = core.get %model_config["temperature"]
+      %has_temperature = core.call intrinsic.is_not_none(%temperature)
+      core.if %has_temperature {
+        %temperature_explicit = core.call intrinsic.contains(%explicit, "temperature")
+        core.if %temperature_explicit {
+          %accepted = core.let %historical
+          core.if %probed {
+            %is_one = core.call @provider_sampling_is_one_impl(%temperature)
+            %off_and_supported = core.call intrinsic.and(%not_deprecated, %not_thinking)
+            %accepted = core.call intrinsic.or(%is_one, %off_and_supported)
+          }
+          core.if %accepted {
+            core.set %payload["temperature"] = %temperature
+          } else {
+            %reason = core.let %fallback_reason
+            core.if %probed {
+              %reason = core.let "the model accepts it only as 1 while thinking"
+              core.if %deprecated {
+                %reason = core.let "the model accepts it only as 1"
+              }
+            }
+            core.call @provider_warn_dropped_sampling_impl(%model, "temperature", %reason)
+          }
+        } else {
+          core.if %historical {
+            core.set %payload["temperature"] = %temperature
+          }
+        }
+      }
+
+      %top_p_snake = core.get %model_config["top_p"]
+      %top_p = core.get %model_config["topP"] default %top_p_snake
+      %has_top_p = core.call intrinsic.is_not_none(%top_p)
+      core.if %has_top_p {
+        %below_threshold = core.call intrinsic.lt(%top_p, 0.95)
+        %at_threshold = core.call intrinsic.not(%below_threshold)
+        %wire_ok = core.call intrinsic.or(%no_wire, %at_threshold)
+        %accepted_top_p = core.call intrinsic.and(%not_adaptive, %wire_ok)
+        core.if %probed {
+          %thinking_ok = core.call intrinsic.or(%not_thinking, %at_threshold)
+          %accepted_top_p = core.call intrinsic.and(%not_deprecated, %thinking_ok)
+        }
+        core.if %accepted_top_p {
+          core.set %payload["top_p"] = %top_p
+        } else {
+          %top_p_explicit = core.call intrinsic.contains(%explicit, "topP")
+          core.if %top_p_explicit {
+            %top_p_reason = core.let %fallback_reason
+            core.if %probed {
+              %top_p_reason = core.let "the model accepts it only at 0.95 or above while thinking"
+              core.if %deprecated {
+                %top_p_reason = core.let "the model does not accept it"
+              }
+            }
+            core.call @provider_warn_dropped_sampling_impl(%model, "topP", %top_p_reason)
+          }
+        }
+      }
+
+      %top_k_snake = core.get %model_config["top_k"]
+      %top_k = core.get %model_config["topK"] default %top_k_snake
+      %has_top_k = core.call intrinsic.truthy(%top_k)
+      core.if %has_top_k {
+        %accepted_top_k = core.let %historical
+        core.if %probed {
+          %accepted_top_k = core.call intrinsic.and(%not_deprecated, %not_thinking)
+        }
+        core.if %accepted_top_k {
+          core.set %payload["top_k"] = %top_k
+        } else {
+          %top_k_explicit = core.call intrinsic.contains(%explicit, "topK")
+          core.if %top_k_explicit {
+            %top_k_reason = core.let %fallback_reason
+            core.if %probed {
+              %top_k_reason = core.let "the model accepts it only with thinking off"
+              core.if %deprecated {
+                %top_k_reason = core.let "the model does not accept it"
+              }
+            }
+            core.call @provider_warn_dropped_sampling_impl(%model, "topK", %top_k_reason)
+          }
+        }
+      }
+
+      // Models whose info sets notSupported.temperatureWithTopP answer 400 to
+      // temperature and top_p together (probed 2026-09-27). After the limits
+      // above, an explicit top_p goes alone in place of the default
+      // temperature, and loses to an explicit temperature with a warning.
+      core.if %probed {
+        %no_user_info = core.call intrinsic.none()
+        %pair_info = core.call @provider_find_model_info("anthropic", %model, %no_user_info)
+        %has_pair_info = core.call intrinsic.is_not_none(%pair_info)
+        core.if %has_pair_info {
+          %pair_not_supported_snake = core.get %pair_info["not_supported"] default %empty_map
+          %pair_not_supported_value = core.get %pair_info["notSupported"] default %pair_not_supported_snake
+          %pair_not_supported = core.call intrinsic.coalesce(%pair_not_supported_value, %empty_map)
+          %pair_flag_snake = core.get %pair_not_supported["temperature_with_top_p"] default false
+          %pair_flag = core.get %pair_not_supported["temperatureWithTopP"] default %pair_flag_snake
+          %pair_rejected = core.call intrinsic.truthy(%pair_flag)
+          core.if %pair_rejected {
+            %sent_temperature = core.get %payload["temperature"]
+            %sent_top_p = core.get %payload["top_p"]
+            %has_sent_temperature = core.call intrinsic.is_not_none(%sent_temperature)
+            %has_sent_top_p = core.call intrinsic.is_not_none(%sent_top_p)
+            %sends_both = core.call intrinsic.and(%has_sent_temperature, %has_sent_top_p)
+            core.if %sends_both {
+              %temperature_is_explicit = core.call intrinsic.contains(%explicit, "temperature")
+              core.if %temperature_is_explicit {
+                core.call intrinsic.map.delete(%payload, "top_p")
+                core.call @provider_warn_dropped_sampling_impl(%model, "topP", "the model accepts temperature or topP, not both")
+              } else {
+                // The provider's default temperature gives way to the caller's top_p.
+                core.call intrinsic.map.delete(%payload, "temperature")
+              }
+            }
+          }
+        }
+      }
+      core.return
+    }
+  }
+
+  // Models that deprecated sampling: any temperature other than 1, and any
+  // top_p or top_k, is a 400 (probed 2026-09-27): Opus 4.7+, Opus 5, Fable 5,
+  // Sonnet 5.
+  op ax.provider.semantic @anthropic_deprecates_sampling_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/anthropic/api.ts"
+    tag "axai-sampling-defaults"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_48 = core.call intrinsic.contains(%model, "claude-opus-4-8")
+      %is_47 = core.call intrinsic.contains(%model, "claude-opus-4-7")
+      %is_sonnet_5 = core.call intrinsic.contains(%model, "claude-sonnet-5")
+      %is_opus_5 = core.call intrinsic.contains(%model, "claude-opus-5")
+      %is_fable_5 = core.call intrinsic.contains(%model, "claude-fable-5")
+      %deprecated = core.call intrinsic.or(%is_48, %is_47)
+      %deprecated = core.call intrinsic.or(%deprecated, %is_sonnet_5)
+      %deprecated = core.call intrinsic.or(%deprecated, %is_opus_5)
+      %deprecated = core.call intrinsic.or(%deprecated, %is_fable_5)
+      core.return %deprecated
+    }
+  }
+
+  // TS geminiSamplingConfig: the penalties, the candidate count and the Gemini
+  // 3 temperature floor. The Gemini API rejects the penalties on the probed
+  // models and returns one candidate on Gemini 3; Vertex (not probed) keeps
+  // its historical wire. Each dropped or changed explicit value warns once.
+  op ax.provider.semantic @gemini_apply_sampling_limits_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/google-gemini/api.ts"
+    tag "axai-sampling-defaults"
+    type signature = "(json, string, json, bool, bool, bool, json) -> void"
+    body @entry(%payload: json, %model: string, %model_config: json, %server_managed_sampling: bool, %strict_flash_parameters: bool, %is_vertex: bool, %explicit_keys: json) {
+      // Gemini 3+ models take no temperature below 1: Ax raises it, as Google
+      // recommends 1.0, and warns once when the value was the caller's.
+      %is_gemini3_model = core.call intrinsic.string.starts_with(%model, "gemini-3")
+      %client_managed_sampling = core.call intrinsic.not(%server_managed_sampling)
+      %clamp_gemini3_temperature = core.call intrinsic.and(%is_gemini3_model, %client_managed_sampling)
+      core.if %clamp_gemini3_temperature {
+        %temperature = core.get %payload["temperature"]
+        %missing_temperature = core.call intrinsic.is_none(%temperature)
+        core.if %missing_temperature {
+          core.set %payload["temperature"] = 1
+        } else {
+          %too_low = core.call intrinsic.lt(%temperature, 1)
+          core.if %too_low {
+            core.set %payload["temperature"] = 1
+            %empty_explicit = core.list
+            %explicit = core.call intrinsic.coalesce(%explicit_keys, %empty_explicit)
+            %explicit_temperature = core.call intrinsic.contains(%explicit, "temperature")
+            core.if %explicit_temperature {
+              %raised_message = core.call intrinsic.string.format("Ax raised temperature {} to 1 for {}: Google recommends 1.0 for Gemini 3 models.", %temperature, %model)
+              %raised_key = core.call intrinsic.string.format("sampling:{}:temperature-raised", %model)
+              core.call intrinsic.ai.warn_once(%raised_key, %raised_message)
+            }
+          }
+        }
+      }
+      %not_vertex = core.call intrinsic.not(%is_vertex)
+      %probed_model = core.regex_match %model pattern "^(?:gemini-3\\.8-flash|gemini-3\\.7-flash|gemini-3\\.6-flash|gemini-3\\.5-flash|gemini-3\\.5-flash-lite|gemini-3\\.1-pro-preview|gemini-3\\.1-flash-lite|gemini-2\\.5-flash|gemini-2\\.5-pro)$"
+      %rejects_penalties = core.call intrinsic.and(%not_vertex, %probed_model)
+      %presence_snake = core.get %model_config["presence_penalty"]
+      %presence = core.get %model_config["presencePenalty"] default %presence_snake
+      %has_presence = core.call intrinsic.is_not_none(%presence)
+      core.if %has_presence {
+        %presence_reason = core.let "Ax does not send it to Gemini"
+        core.if %rejects_penalties {
+          %presence_reason = core.let "the model does not accept it"
+        }
+        core.call @provider_warn_dropped_sampling_impl(%model, "presencePenalty", %presence_reason)
+      }
+      %frequency_snake = core.get %model_config["frequency_penalty"]
+      %frequency = core.get %model_config["frequencyPenalty"] default %frequency_snake
+      %has_frequency = core.call intrinsic.is_not_none(%frequency)
+      core.if %has_frequency {
+        %drop_frequency = core.call intrinsic.or(%strict_flash_parameters, %rejects_penalties)
+        core.if %drop_frequency {
+          core.call @provider_warn_dropped_sampling_impl(%model, "frequencyPenalty", "the model does not accept it")
+        } else {
+          core.set %payload["frequencyPenalty"] = %frequency
+        }
+      }
+      %is_gemini3 = core.call intrinsic.contains(%model, "gemini-3")
+      %api_gemini3 = core.call intrinsic.and(%not_vertex, %is_gemini3)
+      %one_candidate = core.call intrinsic.or(%strict_flash_parameters, %api_gemini3)
+      %n = core.get %model_config["n"]
+      %has_n = core.call intrinsic.is_not_none(%n)
+      core.if %has_n {
+        %many = core.call intrinsic.gt(%n, 1)
+        %dropped_n = core.call intrinsic.and(%many, %one_candidate)
+        core.if %dropped_n {
+          core.call @provider_warn_dropped_sampling_impl(%model, "n", "the model returns one candidate")
+        }
+      }
+      %legacy_candidate_count = core.call intrinsic.not(%strict_flash_parameters)
+      core.if %legacy_candidate_count {
+        %candidates = core.let 1
+        %use_n = core.call intrinsic.not(%one_candidate)
+        %use_n = core.call intrinsic.and(%use_n, %has_n)
+        core.if %use_n {
+          %candidates = core.let %n
+        }
+        core.set %payload["candidateCount"] = %candidates
+      }
+      core.return
     }
   }
 

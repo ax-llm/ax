@@ -126,7 +126,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       presencePenalty: true,
       frequencyPenalty: true,
     },
-    supported: { structuredOutputs: true },
+    supported: { temperatureOne: true, structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT5Mini,
@@ -139,7 +139,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       presencePenalty: true,
       frequencyPenalty: true,
     },
-    supported: { structuredOutputs: true },
+    supported: { temperatureOne: true, structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT5,
@@ -152,7 +152,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       presencePenalty: true,
       frequencyPenalty: true,
     },
-    supported: { structuredOutputs: true },
+    supported: { temperatureOne: true, structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT5Chat,
@@ -198,6 +198,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       structuredOutputs: true,
       samplingWithoutReasoning: true,
       reasoningOffByDefault: true,
@@ -247,6 +248,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       structuredOutputs: true,
       samplingWithoutReasoning: true,
       reasoningOffByDefault: true,
@@ -289,6 +291,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       structuredOutputs: true,
       samplingWithoutReasoning: true,
       reasoningOffByDefault: true,
@@ -306,6 +309,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       structuredOutputs: true,
       samplingWithoutReasoning: true,
       reasoningOffByDefault: true,
@@ -323,6 +327,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       structuredOutputs: true,
       samplingWithoutReasoning: true,
       reasoningOffByDefault: true,
@@ -347,6 +352,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       structuredOutputs: true,
       thinkingBudget: true,
       samplingWithoutReasoning: true,
@@ -453,6 +459,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       structuredOutputs: true,
       thinkingBudget: true,
       samplingWithoutReasoning: true,
@@ -478,6 +485,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       structuredOutputs: true,
       thinkingBudget: true,
       samplingWithoutReasoning: true,
@@ -503,6 +511,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       structuredOutputs: true,
       thinkingBudget: true,
       samplingWithoutReasoning: true,
@@ -520,7 +529,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       presencePenalty: true,
       frequencyPenalty: true,
     },
-    supported: { structuredOutputs: true },
+    supported: { temperatureOne: true, structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.O1Mini,
@@ -546,7 +555,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       presencePenalty: true,
       frequencyPenalty: true,
     },
-    supported: { structuredOutputs: true },
+    supported: { temperatureOne: true, structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.O3Mini,
@@ -559,7 +568,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       presencePenalty: true,
       frequencyPenalty: true,
     },
-    supported: { structuredOutputs: true },
+    supported: { temperatureOne: true, structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.O4Mini,
@@ -572,7 +581,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
       presencePenalty: true,
       frequencyPenalty: true,
     },
-    supported: { structuredOutputs: true },
+    supported: { temperatureOne: true, structuredOutputs: true },
   },
   // Embedding models
   {
@@ -674,6 +683,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -691,6 +701,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -708,6 +719,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -773,6 +785,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -840,6 +853,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -896,6 +910,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -915,6 +930,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -934,6 +950,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -960,6 +977,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -1071,6 +1089,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -1097,6 +1116,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -1123,6 +1143,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -1160,6 +1181,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -1195,6 +1217,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,
@@ -1229,6 +1252,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       frequencyPenalty: true,
     },
     supported: {
+      temperatureOne: true,
       thinkingBudget: true,
       showThoughts: true,
       structuredOutputs: true,

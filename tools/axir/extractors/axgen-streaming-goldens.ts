@@ -119,7 +119,7 @@ function scriptedAI(
   const queue = clone(responses);
   let calls = 0;
   // The chat prompt of each request, in call order.
-  const prompts: Json[] = [];
+  const prompts: Json[][] = [];
   // The response format type of each request (null without one).
   const formats: (string | null)[] = [];
   const ai = new AxMockAIService({
@@ -135,7 +135,7 @@ function scriptedAI(
     },
     chatResponse: async (req) => {
       calls++;
-      prompts.push(clone(req.chatPrompt) as unknown as Json);
+      prompts.push(clone(req.chatPrompt) as unknown as Json[]);
       formats.push(
         (req.responseFormat as { type?: string } | undefined)?.type ?? null
       );
@@ -299,12 +299,8 @@ function tsProcessor(spec: ProcessorSpec, calls: JsonMap[]) {
     if (spec.throws !== undefined) throw new Error(spec.throws);
     if (spec.when_done && !done) return undefined;
     if (spec.times !== undefined && returned >= spec.times) return undefined;
-    const result = spec.echo
-      ? value
-      : spec.returns === null
-        ? undefined
-        : clone(spec.returns);
-    if (result !== undefined) returned++;
+    const result = spec.echo ? value : clone(spec.returns);
+    if (result !== undefined && result !== null) returned++;
     return result;
   };
 }
@@ -340,12 +336,20 @@ type Case = {
   error_contains?: string;
   // Pin TS's whole error message, not only its first line.
   full_error?: boolean;
+  // Pin this many messages at the end of the last request's prompt.
+  request_tail?: number;
+  // The chunks split a surrogate pair, which only runners whose strings can
+  // hold a lone surrogate (UTF-16 or code points) can represent.
+  requires_lone_surrogates?: boolean;
   // Pin the first request's user message: its content as a JSON string
   // literal, which every runner's JSON text of the chat prompt must contain.
   pin_user_prompt?: boolean;
   // Pin the request layout: the first request's whole chat prompt, and each
   // request's message roles.
   pin_request_layout?: boolean;
+  // Port-only forward options, added to the fixture's forward_options but
+  // not passed to TS: a port's opt-in to what TS always does.
+  port_forward_options?: JsonMap;
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -462,12 +466,19 @@ async function record(name: string, spec: Case): Promise<void> {
     'streaming_processors',
     'result_picker_index',
     'stop_functions',
+    'requires_lone_surrogates',
     'control',
     'constructor_control',
     'control_steer',
     'stop_after_deltas',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
+  }
+  if (spec.port_forward_options) {
+    fixture.forward_options = {
+      ...(spec.forward_options ?? {}),
+      ...spec.port_forward_options,
+    };
   }
   if (control) fixture.expected_control_events = controlEvents;
   if (steer) {
@@ -477,6 +488,11 @@ async function record(name: string, spec: Case): Promise<void> {
     );
   }
   if (spec.tools) fixture.expected_tool_calls = toolCalls;
+  if (spec.request_tail !== undefined) {
+    fixture.expected_last_request_tail = (prompts().at(-1) ?? []).slice(
+      -spec.request_tail
+    );
+  }
   if (spec.feedback_processors || spec.streaming_processors)
     fixture.expected_processor_calls = processorCalls;
   if (kind === 'streaming_forward') {
@@ -1266,6 +1282,61 @@ const cases: Record<string, Case> = {
     ],
   },
 
+  // A provider can split a surrogate pair across stream events: no delta
+  // holds half of the character, and the answer joins it back.
+  'streaming-forward-split-surrogate-pair': {
+    signature: 'question:string -> answer:string',
+    requires_lone_surrogates: true,
+    responses: [streamed(text('Answer: hi \uD83D'), done('\uDE00 there'))],
+  },
+
+  // Feedback a streaming processor returns mid-stream waits for the end of
+  // the step: it follows the full answer and the run takes another step.
+  'streaming-forward-mid-stream-feedback-continues': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [
+      { field: 'answer', returns: 'Please avoid the word draft.', times: 1 },
+    ],
+    request_tail: 2,
+    responses: [
+      streamed(text('Answer: a draft'), done(' then more text')),
+      streamed(text('Answer: a final'), done(' answer')),
+    ],
+  },
+  // Mid-stream feedback comes before the feedback given on the final value.
+  'streaming-forward-mid-stream-and-final-feedback-order': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [
+      { field: 'answer', returns: 'Avoid drafts.', times: 1 },
+    ],
+    feedback_processors: [
+      { field: 'answer', returns: 'Keep it short.', times: 1 },
+    ],
+    request_tail: 3,
+    responses: [
+      streamed(text('Answer: a draft'), done(' then more')),
+      streamed(text('Answer: ok'), done()),
+    ],
+  },
+  // A processor that returns null gives no feedback.
+  'streaming-forward-processor-null-no-feedback': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [{ field: 'answer', returns: null }],
+    feedback_processors: [{ field: 'answer', returns: null }],
+    responses: [streamed(text('Answer: a draft'), done(' then more'))],
+  },
+  // Feedback on a finished answer is a user message with a text part.
+  'forward-feedback-request-shape': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    feedback_processors: [{ field: 'answer', returns: 'Check it.', times: 1 }],
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: first' }] },
+      { results: [{ index: 0, content: 'Answer: second' }] },
+    ],
+  },
+
   'streaming-forward-feedback-carries-thought': {
     signature: 'question:string -> answer:string',
     forward_options: { show_thoughts: true },
@@ -2046,3 +2117,127 @@ const inputCases: Record<string, Case> = {
 for (const [name, spec] of Object.entries(inputCases)) {
   await record(name, spec);
 }
+
+// TS checks a response's function calls before any function runs: a
+// forward's in AxMemory.addResponse, a stream's merged calls once the stream
+// ends. A call whose name is missing, null, empty or blank fails the run at
+// once ("Function call at index 0 in result 0 must have a non-empty function
+// name, received: ..."), with no retry and no second request. The ports do
+// the same with functionCallValidation: 'fail'; their default still corrects
+// the call this release (the port-only fixtures after this loop).
+for (const [label, name] of [
+  ['missing', undefined],
+  ['null', null],
+  ['empty', ''],
+  ['blank', '  '],
+] as const) {
+  const fnPart: JsonMap = { params: '{"key":"a"}' };
+  if (name !== undefined) fnPart.name = name;
+  const unnamed: JsonMap = { id: 'call_1', type: 'function', function: fnPart };
+  await record(`function-call-${label}-name`, {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    port_forward_options: { function_call_validation: 'fail' },
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            content: '',
+            function_calls: [unnamed],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      { results: [{ index: 0, content: 'Answer: done' }] },
+    ],
+  });
+  await record(`streaming-forward-function-call-${label}-name`, {
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    port_forward_options: { function_call_validation: 'fail' },
+    responses: [
+      streamed(
+        chunk({ function_calls: [unnamed], finish_reason: 'function_call' })
+      ),
+      streamed(text('Answer: done'), done()),
+    ],
+  });
+}
+
+// Port-only: without functionCallValidation, the ports keep this release's
+// correction for a call without a name. It runs as an unknown function, so
+// the model gets the "Function not found" correction and another request, and
+// a one-time deprecation warning names the option. An explicit 'correct'
+// keeps the correction without the warning, and any other value fails. TS has
+// no such path: it fails at once, as above.
+const namelessCall: JsonMap = {
+  id: 'call_1',
+  type: 'function',
+  function: { params: '{"key":"a"}' },
+};
+const namelessResponses: ResponseSpec[] = [
+  {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: [namelessCall],
+        finish_reason: 'function_call',
+      },
+    ],
+  },
+  { results: [{ index: 0, content: 'Answer: done' }] },
+];
+const namelessCorrection =
+  'Function not found: null. Available functions: lookup. Call one of these exact function names.';
+const namelessWarning =
+  "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.";
+const correctedFixture = {
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  tools: [lookupTool],
+  expected_output: { answer: 'done' },
+  expected_tool_calls: [],
+  expected_request_count: 2,
+  expected_request_contains: [namelessCorrection],
+};
+writeFixture('function-call-missing-name-corrected', {
+  kind: 'forward',
+  ...correctedFixture,
+  responses: namelessResponses,
+  expected_deprecations: [namelessWarning],
+});
+writeFixture('streaming-forward-function-call-missing-name-corrected', {
+  kind: 'streaming_forward',
+  ...correctedFixture,
+  responses: namelessResponses.map((response) => ({
+    stream: [
+      ...(response as { results: JsonMap[] }).results.map((result) => ({
+        results: [result],
+      })),
+    ],
+  })),
+  expected_deltas: [{ version: 0, index: 0, delta: { answer: 'done' } }],
+  expected_deprecations: [namelessWarning],
+});
+writeFixture('function-call-missing-name-correct-explicit', {
+  kind: 'forward',
+  ...correctedFixture,
+  forward_options: { function_call_validation: 'correct' },
+  responses: namelessResponses,
+  expected_deprecations: [],
+});
+writeFixture('function-call-validation-unknown-value', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  tools: [lookupTool],
+  forward_options: { function_call_validation: 'strict' },
+  responses: namelessResponses,
+  expected_error_contains:
+    "functionCallValidation must be 'correct' or 'fail', received: \"strict\"",
+  expected_tool_calls: [],
+  expected_request_count: 1,
+});

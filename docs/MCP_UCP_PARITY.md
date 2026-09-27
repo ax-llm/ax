@@ -69,7 +69,7 @@ source/test cell:
 | Sampling | Legacy server request and modern MRTR sampling input | Implemented | Shared handler types, response dispatch, and multi-round tests |
 | Elicitation | Legacy server request and modern MRTR form/URL input | Implemented | Shared typed handler and server-request/MRTR tests |
 | Progress | progress notifications | Implemented | callbacks and streaming-safe dispatch |
-| Tasks | Modern Tasks v2 create/get/update/cancel/wait/status | Implemented | Unsolicited task results, default auto-await or explicit expose, embedded result/error, input fulfillment, task-ID listen filters, and terminal-state tests |
+| Tasks | Modern Tasks v2 create/get/update/cancel/wait/status | Implemented | Unsolicited task results, default auto-await or explicit expose, embedded result/error, input fulfillment, task-ID listen filters, and terminal-state tests; generated clients have the outcome call, expose handling, and task-ID listen filters (AxIR `axmcp/tool-task-handling.json`, `axmcp/task-listen-restart.json`) |
 | Tasks | Legacy task create/list/get/result/cancel/wait/status | Implemented | Deprecated era-gated draft APIs remain functional for legacy servers with client task registry tests |
 | Tasks | Persist/rebind remote tasks across serialized runs | Implemented | logical task/subscription state in `AxAgentState`; namespace rebind and remote revalidation test |
 | Ax integration | AxGen and streaming AxGen | Implemented | shared context, native bindings, raw result memory, catalog refresh tests |

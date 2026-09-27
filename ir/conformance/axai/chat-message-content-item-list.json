@@ -1,0 +1,14 @@
+{
+  "expected_error_contains": "User message content item at index 0 must have a type, received: undefined",
+  "expected_error_type": "AxUnsupportedCapabilityError",
+  "kind": "ai_error",
+  "name": "chat-message-content-item-list",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [["hi"]],
+        "role": "user"
+      }
+    ]
+  }
+}
